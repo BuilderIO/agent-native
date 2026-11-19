@@ -39,7 +39,7 @@ export function createSlotsHandler() {
     const orgId = orgCtx.orgId ?? undefined;
 
     return runWithRequestContext({ userEmail, orgId }, () =>
-      dispatch(event, method, parts),
+      dispatch(event, method, parts, userEmail),
     );
   });
 }
@@ -48,6 +48,7 @@ async function dispatch(
   event: H3Event,
   method: string,
   parts: string[],
+  userEmail: string,
 ): Promise<unknown> {
   if (method === "GET" && parts.length === 2 && parts[0] === "extension") {
     return listSlotsForExtension(parts[1]);
@@ -61,13 +62,23 @@ async function dispatch(
       return { error: "slotId is required" };
     }
     const row = await addExtensionSlotTarget(parts[1], slotId, body?.config);
-    recordChange({ source: "action", type: "change" });
+    recordChange({
+      source: "action",
+      type: "change",
+      resourceType: "extension",
+      resourceId: parts[1],
+    });
     return row;
   }
 
   if (method === "DELETE" && parts.length === 3 && parts[0] === "extension") {
     await removeExtensionSlotTarget(parts[1], parts[2]);
-    recordChange({ source: "action", type: "change" });
+    recordChange({
+      source: "action",
+      type: "change",
+      resourceType: "extension",
+      resourceId: parts[1],
+    });
     return { ok: true };
   }
 
@@ -90,13 +101,13 @@ async function dispatch(
       position: body?.position,
       config: body?.config,
     });
-    recordChange({ source: "action", type: "change" });
+    recordChange({ source: "action", type: "change", owner: userEmail });
     return row;
   }
 
   if (method === "DELETE" && parts.length === 3 && parts[1] === "install") {
     await uninstallExtensionSlot(parts[2], parts[0]);
-    recordChange({ source: "action", type: "change" });
+    recordChange({ source: "action", type: "change", owner: userEmail });
     return { ok: true };
   }
 

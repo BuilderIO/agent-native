@@ -89,6 +89,7 @@ import {
 import {
   enforceSignupAdmission,
   isBootstrapAdmin,
+  isDeploymentEmailDomainAllowed,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
 import { normalizeCorsOrigin } from "../shared/cors-origin.js";
@@ -283,7 +284,12 @@ function signupMethodFromRequestUrl(
 }
 
 export async function emitSignupEventForCreatedUser(
-  user: { id?: string; email?: string; name?: string | null },
+  user: {
+    id?: string;
+    email?: string;
+    name?: string | null;
+    emailVerified?: boolean;
+  },
   context?: BetterAuthUserCreateContext | null,
 ): Promise<void> {
   const email = user?.email;
@@ -395,6 +401,7 @@ export async function emitSignupEventForCreatedUser(
     signupMethod: signupMethodFromRequestUrl(context?.request?.url),
     authUserId: user.id,
     email,
+    emailVerified: user.emailVerified,
     name: user.name,
     attribution: eventAttribution,
     anonymousId: eventAnonymousId,
@@ -422,6 +429,7 @@ export async function trackSignupEvent({
   signupMethod,
   authUserId,
   email,
+  emailVerified,
   name,
   attribution,
   anonymousId,
@@ -432,6 +440,7 @@ export async function trackSignupEvent({
   signupMethod?: "google" | "magic_link" | "password";
   authUserId?: string;
   email: string;
+  emailVerified?: boolean;
   name?: string | null;
   /**
    * First-touch referral attribution derived from the visitor's `an_ft`
@@ -459,6 +468,7 @@ export async function trackSignupEvent({
       }
     }
   }
+  delete cleanAttribution.email_verified;
   track(
     "signup",
     {
@@ -468,6 +478,9 @@ export async function trackSignupEvent({
       ...(signupMethod ? { signup_method: signupMethod } : {}),
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
+      ...(typeof emailVerified === "boolean"
+        ? { email_verified: emailVerified }
+        : {}),
     },
     {
       userId: email,
@@ -1901,7 +1914,9 @@ async function syncGoogleProfile(
   const updates: {
     name?: string;
     image?: string;
+    emailVerified?: boolean;
   } = {};
+  if (existing.user.emailVerified !== true) updates.emailVerified = true;
   if (
     name &&
     isEmailDerivedName(existing.user.name, email) &&
@@ -1931,6 +1946,8 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 ): Promise<boolean> {
   const email = identity.email.trim().toLowerCase();
   const accountId = identity.accountId.trim();
+  if (!isDeploymentEmailDomainAllowed(email))
+    throw new Error("Account domain is not allowed for this deployment");
   if (!email || !accountId) {
     throw new Error("Google identity is missing an email or account id");
   }
@@ -2503,13 +2520,20 @@ async function createBetterAuthInstance(
         if (!request) return;
         const token = new URL(request.url).searchParams.get("token");
         if (!token) return;
-        const db = getDbExec();
         const emailChange = await verifiedEmailChangeFromToken(
           token,
           secret,
           user.email,
         );
-        if (!emailChange) return;
+        if (!emailChange) {
+          track(
+            "email_verified",
+            { ...resolveSignupTrackingProperties(), email_verified: true },
+            { userId: user.email, authUserId: user.id },
+          );
+          return;
+        }
+        const db = getDbExec();
         try {
           await executeIdentityRekey(
             identityRekeyDbFromExec(db),
@@ -2575,6 +2599,7 @@ async function createBetterAuthInstance(
               session.userId,
               context?.context.adapter,
             );
+            if (!isDeploymentEmailDomainAllowed(email)) return false;
             const requiredProvider =
               await getRequiredAuthProviderForEmail(email);
             if (!requiredProvider) return;

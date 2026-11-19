@@ -470,6 +470,13 @@ const messages = {
       openStorageSettings: "Open storage settings",
       reconnectBuilderStorage: "Reconnect Builder.io",
       useOwnStorage: "Use your own storage",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io, or ask an owner or admin to set up storage, then try again.",
+      storageRefusedAskAdmin:
+        "Your organization's storage bucket refused this upload, so the file wasn't attached. Ask an owner or admin to check the bucket and its keys.",
+      storageNotConfiguredAskAdmin:
+        "File storage isn't set up, so the file wasn't attached. Connect your own Builder.io account, or ask an owner or admin to set up storage.",
+      connectBuilderStorage: "Connect Builder.io",
       failedToSendEmail: "Failed to send email",
       messageSent: "Message sent.",
       failedToSaveDraft: "Failed to save draft.",
@@ -795,6 +802,10 @@ const messages = {
     contacts: {
       noContactSelected: "No contact selected",
     },
+    readingPane: {
+      empty: "No email selected",
+      resizeList: "Resize email list",
+    },
   },
   agent: {
     emptyState: "Ask me anything about your emails",
@@ -895,6 +906,10 @@ const messages = {
     gmailFilters: "Gmail filters",
     aliases: "Aliases",
     tracking: "Tracking",
+    reading: "Reading",
+    readingPane: "Reading pane",
+    readingPaneSaveFailed: "Could not save the reading pane setting.",
+    readingPaneLoadFailed: "Couldn't load the reading pane setting.",
     deleteAlias: "Delete Alias",
     editAlias: "Edit Alias",
   },

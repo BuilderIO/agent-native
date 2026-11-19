@@ -1,12 +1,19 @@
 import { track } from "@agent-native/core/client/analytics";
 import {
   activateBuilderSignupAssignment,
+  hasPendingBuilderSignupAssignment,
   startBuilderSignupActivation,
 } from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import { Button } from "../../ui/button.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -280,24 +287,40 @@ export function BuilderSignupActivationCover({
   );
 }
 
+const subscribeToNothing = () => () => {};
+
+function useHostEnrolled(hostedHosts: readonly string[] | undefined) {
+  return useSyncExternalStore(
+    subscribeToNothing,
+    () =>
+      hostedHosts === undefined ||
+      hostedHosts.includes(window.location.hostname.toLowerCase()) ||
+      hasPendingBuilderSignupAssignment(),
+    () => hostedHosts === undefined,
+  );
+}
+
 export function BuilderSignupStartupGate({
   experimentId,
+  hostedHosts,
   suppressSurface,
   cover,
+  appSurface,
   children,
 }: {
   experimentId?: string;
+  hostedHosts?: readonly string[];
   suppressSurface: boolean;
   cover?: ReactNode;
+  appSurface?: ReactNode;
   children: ReactNode;
 }) {
   const { session } = useSession();
+  const enrolled = useHostEnrolled(hostedHosts) && Boolean(experimentId);
   const { activating, resolving, statusError, retryStatus } =
     useBuilderSignupActivation(
-      experimentId && session?.emailVerified === true
-        ? session.userId
-        : undefined,
-      experimentId ?? "disabled",
+      enrolled && session?.emailVerified === true ? session.userId : undefined,
+      (enrolled && experimentId) || "disabled",
     );
   return (
     <BuilderSignupActivationCover
@@ -309,6 +332,7 @@ export function BuilderSignupStartupGate({
         suppressSurface={suppressSurface}
         deferSurface={resolving || activating}
         cover={cover}
+        appSurface={appSurface}
       >
         {children}
       </FirstRunOnboardingStartupGate>

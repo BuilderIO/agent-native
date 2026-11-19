@@ -32,10 +32,6 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: () => {},
 }));
-vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextComposerChip: () => null,
-  useCreativeContextLab: () => false,
-}));
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   AgentSidebar: ({ children }: { children?: React.ReactNode }) => (

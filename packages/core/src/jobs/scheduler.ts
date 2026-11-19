@@ -1,5 +1,6 @@
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { getCurrentTurnEventsForThread } from "../agent/run-store.js";
+import { automationRunScopeContext } from "../automations/service.js";
 import { withDbExec, type DbExec } from "../db/client.js";
 import {
   ensureTable as ensureResourcesTable,
@@ -449,6 +450,19 @@ async function processRecurringJobsWithLease(
       }
 
       if (!meta.enabled || !meta.schedule || !isValidCron(meta.schedule)) {
+        continue;
+      }
+
+      // An end date is a promise: once it passes the automation stops, and it
+      // stops on its own so the owner does not have to come back and pause it.
+      const expiration = meta.expiresAt ? Date.parse(meta.expiresAt) : NaN;
+      if (Number.isFinite(expiration) && expiration <= now.getTime()) {
+        meta.enabled = false;
+        delete meta.nextRun;
+        await updateResource(resource, meta, body, {
+          enabled: false,
+          nextRun: undefined,
+        });
         continue;
       }
 
@@ -982,16 +996,7 @@ async function resumeRecoveredPauses(
         identity.ok &&
         (
           await checkBackgroundAutomationCredentials(
-            {
-              ownerEmail: identity.identity.userEmail,
-              orgId: identity.identity.orgId,
-              ...(identity.identity.orgScope === "personal"
-                ? { orgScope: "personal" as const }
-                : {}),
-              ...(identity.identity.defaultAgentEngineScope === "deployment"
-                ? { defaultAgentEngineScope: "deployment" as const }
-                : {}),
-            },
+            identity.identity,
             deps,
             meta.model,
           )
@@ -1363,12 +1368,7 @@ async function executeJob(
   }
 
   const requestContext = {
-    ...(identity.identity.orgScope === "personal"
-      ? { orgScope: "personal" as const }
-      : {}),
-    ...(identity.identity.defaultAgentEngineScope === "deployment"
-      ? { defaultAgentEngineScope: "deployment" as const }
-      : {}),
+    ...automationRunScopeContext(identity.identity),
     ...(meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
       ? {
           isIntegrationCaller: true as const,

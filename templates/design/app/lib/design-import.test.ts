@@ -16,6 +16,31 @@ import {
   serializeDesignClipboardPayload,
 } from "./design-import";
 
+describe("hasFigmaClipboardPayload on a large page", () => {
+  it("rejects a page that mentions (figma) without a closing marker", () => {
+    const page = "<p>see (figma) docs (figma)</p>".repeat(150_000);
+    expect(hasFigmaClipboardPayload(page)).toBe(false);
+  });
+
+  it("finds a marker pair after a lot of unrelated markup", () => {
+    const page = `${"<p>(figma)</p>".repeat(150_000)}<!--(figma)AAAA(/figma)-->`;
+    expect(hasFigmaClipboardPayload(page)).toBe(true);
+  });
+
+  it("accepts a mixed figmeta/figma pair", () => {
+    expect(hasFigmaClipboardPayload("(figmeta)x(/figma)")).toBe(true);
+  });
+
+  it("reads an opening marker inside a data attribute", () => {
+    expect(
+      hasFigmaClipboardPayload("<span data-buffer='<!--(figma)AAAA'></span>"),
+    ).toBe(true);
+    expect(hasFigmaClipboardPayload('<span data-buffer="plain"></span>')).toBe(
+      false,
+    );
+  });
+});
+
 describe("import result notifications", () => {
   it("keeps a clean .fig import to one success notification", () => {
     expect(

@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "केवल व्यवस्थापक ही दूसरों को आमंत्रित कर सकते हैं। दूसरों को आमंत्रित करने में अपने व्यवस्थापक से मदद माँगें या उनसे आपको भी व्यवस्थापक बनाने के लिए कहें।",
   "settingsApiKeys.approvedOrigins": "स्वीकृत मूल",
   "settingsApiKeys.originsHint":
     "प्रति पंक्ति एक सटीक HTTPS मूल। खाली रहने पर भेजना रुकता है। स्थानीय HTTP की अनुमति है।",
@@ -720,7 +722,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "मॉडल प्रदाता ने इस अटैचमेंट के फ़ॉर्मैट या आकार के कारण इसे अस्वीकार कर दिया। छवियों के लिए छोटी PNG, JPEG, GIF या WebP फ़ाइल निर्यात करें; दस्तावेज़ों के लिए समर्थित फ़ाइल फ़ॉर्मैट इस्तेमाल करें या संबंधित टेक्स्ट चिपकाएँ, फिर उसे दोबारा अटैच करें।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -761,6 +763,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "history.today": "आज",
+  "commandMenu.systemGroup": "एप्लिकेशन",
+  "share.alreadyInvited": "पहले से आमंत्रित",
+  "share.notInvitedToPage": "पेज पर आमंत्रित नहीं",
   "history.mine": "मेरी चैट",
   "history.sharedWithYou": "आपके साथ साझा",
   "history.showAll": "सभी दिखाएं",
@@ -1319,6 +1325,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "आवश्यक",
   "secrets.searchKeys": "कुंजियां खोजें...",
   "secrets.usePersonalKey": "इसके बजाय पर्सनल कुंजी का उपयोग करें",
+  "secrets.testing": "परीक्षण हो रहा है…",
+  "secrets.cannotCheckAlone": "इस कुंजी की अकेले जाँच नहीं की जा सकती",
   "selection.attached": "चयन के {{formattedCount}} अक्षर अटैच हैं",
   "selection.attached_one": "चयन का {{formattedCount}} अक्षर अटैच है",
   "selection.attached_other": "चयन के {{formattedCount}} अक्षर अटैच हैं",
@@ -1473,6 +1481,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "सार्वजनिक",
   "share.publicDescription": "लिंक वाला कोई भी व्यक्ति देख सकता है",
   "share.remove": "हटाएँ",
+  "share.removeInvitee": "{{email}} हटाएँ",
   "share.role": "भूमिका",
   "share.searching": "खोजा जा रहा है...",
   "share.share": "शेयर करें",
@@ -1496,6 +1505,10 @@ const messages: ToolkitAgentChatTranslation = {
     "{{organization}} के सभी लोग, नए सदस्यों सहित, इसे खोल सकेंगे और इसमें मौजूद सब कुछ देख सकेंगे, जिसमें संदेश, फ़ाइलें और अन्य सामग्री शामिल हैं। आप इसे बाद में बदल सकते हैं।",
   "share.confirmOrganizationAction": "संगठन के साथ साझा करें",
   "share.confirmOrganizationSharing": "साझा किया जा रहा है...",
+  "share.confirmPublicTitle": "लिंक वाले किसी भी व्यक्ति के साथ साझा करें?",
+  "share.confirmPublicDescription":
+    "लिंक वाला कोई भी व्यक्ति, आपके संगठन से बाहर के लोग भी, इसे खोल सकेगा और इसमें सब कुछ देख सकेगा। आप इसे बाद में बदल सकते हैं।",
+  "share.confirmPublicAction": "सार्वजनिक रूप से साझा करें",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",
@@ -1519,6 +1532,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.agentApprovalTitle": "{{agent}} को आपकी अनुमति चाहिए",
+  "tool.agentApprovalReview": "{{agent}} में समीक्षा करें",
+  "tool.agentApprovalReturn": "{{agent}} में स्वीकृति दें, फिर यहाँ जारी रखें।",
+  "tool.agentApprovalContinueMessage":
+    "मैंने {{agent}} में स्वीकृति दे दी है। कृपया जारी रखें।",
   "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
@@ -2181,6 +2199,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "पासवर्ड अपडेट किया गया",
   "settingsShell.account.photoError": "फ़ोटो अपडेट नहीं की जा सकी।",
   "settingsShell.account.photoUpdated": "फ़ोटो अपडेट की गई",
+  "settingsShell.account.photoRemoved": "फ़ोटो हटा दी गई",
+  "settingsShell.account.removePhoto": "फ़ोटो हटाएँ",
+  "settingsShell.account.emailDeliveryUnavailable": "यहाँ ईमेल भेजना सेट अप नहीं है",
   "settingsShell.account.profilePhoto": "प्रोफ़ाइल फ़ोटो",
   "settingsShell.account.requestCopyDescription":
     "कोई व्यवस्थापक आपकी पहचान सत्यापित करके आगे की कार्रवाई करता है।",
@@ -2246,11 +2267,15 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
+  "settingsShell.appGroup.labsHostDecided":
+    "यह आपके लिए तय किया गया है, इसलिए इसे यहाँ नहीं बदला जा सकता।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
   "settingsShell.appGroup.labsReadError":
     "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.labsShowAll": "सभी Labs सुविधाएँ दिखाएँ",
+  "settingsShell.appGroup.labsUseDefault": "डिफ़ॉल्ट इस्तेमाल करें",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
   "settingsShell.appGroup.mcpAppCards": "चैट ऐप्स में ऐप कार्ड",
@@ -2984,6 +3009,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "स्लाइड और डिज़ाइन के लिए इमेज बनाता है।",
   "settingsInfra.whyEmbeddings":
     "सिमेंटिक खोज को बेहतर बनाता है। कीवर्ड खोज इसके बिना भी काम करती है।",
+  "settingsInfra.semanticSearch": "सिमेंटिक खोज",
+  "settingsInfra.semanticSearchOn":
+    "शब्दों के साथ-साथ अर्थ से भी पेज ढूँढता है। पेज का टेक्स्ट और खोजें एम्बेडिंग प्रदाता को भेजी जाती हैं।",
+  "settingsInfra.semanticSearchOff":
+    "बंद। खोज केवल शब्दों से मेल खाती है, और कोई पेज टेक्स्ट एम्बेडिंग प्रदाता को नहीं भेजा जाता।",
+  "settingsInfra.semanticSearchUnknown":
+    "यह पढ़ा नहीं जा सका कि सिमेंटिक खोज चालू है या नहीं।",
+  "settingsInfra.semanticSearchTurnedOn":
+    "सिमेंटिक खोज चालू है। मौजूदा पेज बैकग्राउंड में इंडेक्स किए जाते हैं।",
+  "settingsInfra.semanticSearchTurnedOff":
+    "सिमेंटिक खोज बंद है। सहेजे गए पेज वेक्टर हटा दिए गए।",
+  "settingsInfra.semanticSearchSaveFailed": "सिमेंटिक खोज नहीं बदली जा सकी।",
   "settingsInfra.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
   "settingsInfra.whyDesignSystem":
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",
@@ -3357,7 +3394,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "जवाब विफल रहा",
   "message.waitingForApproval": "मंज़ूरी का इंतज़ार",
   "message.waitingForInput": "इनपुट का इंतज़ार",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} विफल",
+  "message.workSummaryFailedCount": "{{summary}}, विफल प्रयास: {{count}}",
   "message.taskStatusPending": "बाकी",
   "message.taskStatusRunning": "चल रहा है",
   "message.taskStatusCompleted": "हो गया",
@@ -3699,6 +3736,66 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "आपकी वॉइस चैट सेटिंग सेव नहीं हो सकीं।",
   "voice.dictation.cancelTranscription": "ट्रांसक्रिप्शन रद्द करें",
+  "common.noData": "कोई डेटा नहीं",
+  "common.rowsPerPage": "प्रति पेज पंक्तियां:",
+  "dashboardMode.columnResizePersonal":
+    "सिर्फ़ अपने लिए आकार बदलने को खींचें। रीसेट करने के लिए डबल-क्लिक करें।",
+  "dashboardMode.columnResizeShared": "सभी के लिए आकार बदलने को खींचें",
+  "sessions.watchReplay": "रीप्ले देखें",
+  "sqlDashboard.calloutSeverityCritical": "गंभीर",
+  "sqlDashboard.calloutSeverityInfo": "जानकारी",
+  "sqlDashboard.calloutSeverityWarning": "चेतावनी",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} में से पहले {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} में से अंतिम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} में से नवीनतम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.collapseDescription": "विवरण संक्षिप्त करें",
+  "sqlDashboard.columnFormat": "प्रारूप",
+  "sqlDashboard.columnFormatCurrency": "मुद्रा",
+  "sqlDashboard.columnFormatDate": "तारीख",
+  "sqlDashboard.columnFormatDuration": "अवधि (सेकंड)",
+  "sqlDashboard.columnFormatNumber": "संख्या",
+  "sqlDashboard.columnFormatPercent": "प्रतिशत",
+  "sqlDashboard.columnFormatText": "सादा पाठ",
+  "sqlDashboard.columnHide": "कॉलम छिपाएँ",
+  "sqlDashboard.columnName": "कॉलम का नाम",
+  "sqlDashboard.columnRename": "कॉलम का नाम बदलें",
+  "sqlDashboard.columnResize": "कॉलम का आकार बदलें",
+  "sqlDashboard.columnShow": '"{{name}}" दिखाएँ',
+  "sqlDashboard.columnShowHidden": "छिपे हुए कॉलम दिखाएँ",
+  "sqlDashboard.drilldownChartPoints": "चार्ट के बिंदु",
+  "sqlDashboard.drilldownNextPage": "चार्ट बिंदुओं का अगला पृष्ठ",
+  "sqlDashboard.drilldownPageRange":
+    "कुल {{total}} में से {{start}}–{{end}} दिखाए जा रहे हैं",
+  "sqlDashboard.drilldownPreviousPage": "चार्ट बिंदुओं का पिछला पृष्ठ",
+  "sqlDashboard.expandDescription": "विवरण का विस्तार करें",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "पूरा किया",
+  "sqlDashboard.funnelLeft": "ऐप छोड़ दिया",
+  "sqlDashboard.funnelLeftHere": "यहाँ ऐप छोड़ दिया",
+  "sqlDashboard.funnelMovedOn": "दोनों के बिना आगे बढ़े",
+  "sqlDashboard.funnelOptional": "वैकल्पिक",
+  "sqlDashboard.funnelShown": "{{count}} को दिखाया गया",
+  "sqlDashboard.funnelShownLabel": "दिखाया गया",
+  "sqlDashboard.funnelSkipped": "छोड़ा",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (बेहतर)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} के {{previous}} से {{change}} नीचे",
+  "sqlDashboard.metricComparisonFlat":
+    "{{period}} के {{previous}} से कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonNoChange": "कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonPoints": "{{value}} अंक",
+  "sqlDashboard.metricComparisonPreviousPeriod": "पिछली अवधि",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} के {{previous}} से {{change}} ऊपर",
+  "sqlDashboard.metricComparisonVs": "{{period}} की तुलना में",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (खराब)",
+  "sqlDashboard.multiColumnSortHelp":
+    "क्रमित करने के लिए क्लिक करें। एक और क्रम जोड़ने के लिए Shift-क्लिक करें।",
+  "sqlDashboard.noXValue": "कोई मान नहीं",
 };
 
 export default messages;

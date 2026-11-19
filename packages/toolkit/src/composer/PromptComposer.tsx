@@ -76,6 +76,7 @@ import {
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
+  type ComposerEnterSubmitMode,
   type ComposerDraftSnapshot,
   type TiptapComposerHandle,
   type TiptapComposerProps,
@@ -162,6 +163,10 @@ export interface PromptComposerProps {
   conversationStarted?: boolean;
   /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
+  /** Enable inline rich-text marks and links. Defaults to false. */
+  richTextEnabled?: boolean;
+  /** Text inserted between blocks and hard breaks when submitting. Defaults to a newline. */
+  textBlockSeparator?: string;
   disabled?: boolean;
   isReferenceTarget?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
@@ -210,12 +215,21 @@ export interface PromptComposerProps {
   clearOnSubmitImmediately?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
+  /** How Enter submits; `plain` ignores modified Enter while preserving the default for other hosts. */
+  enterSubmitMode?: ComposerEnterSubmitMode;
   /** Controlled open state for hosts that resize around the model picker. */
   modelSelectorOpen?: boolean;
+  /**
+   * Name the selection in the model trigger even while its provider is unset (default false).
+   * See TiptapComposer's modelTriggerNamesSelectionOnly: the picker keeps the connect rows.
+   */
+  modelTriggerNamesSelectionOnly?: boolean;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /** Bind dictation to the global mod+d accelerator (default false; see TiptapComposer). */
+  dictationShortcut?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
   /** Starts voice chat from the empty Send slot in place of the provider's default start. */
@@ -234,7 +248,7 @@ export interface PromptComposerProps {
    * Controls the shared "+" affordance. Defaults to upload-only for standalone
    * prompt forms; chat surfaces can opt into the full sidebar menu.
    */
-  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "attach-only" | "terminal" | "hidden";
   /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
   /**
@@ -294,7 +308,15 @@ export interface PromptComposerProps {
   availableModels?: EngineModelGroup[];
   /** Whether the external model list is still being resolved. */
   modelListLoading?: boolean;
+  /** Show the chevron after the model name (default true; see TiptapComposer). */
+  modelSelectorChevron?: boolean;
   selectedModel?: string;
+  /**
+   * The model the composer shows before the host controls a selection, for
+   * example "auto". Concrete models stay selectable and a user pick still wins.
+   * Omit it to keep the adapter's server-side default.
+   */
+  defaultModel?: string;
   selectedEngine?: string;
   selectedEffort?: ReasoningEffort;
   onModelChange?: (model: string, engine: string) => void;
@@ -805,6 +827,8 @@ function PromptComposerInner({
   replyPlaceholder,
   conversationStarted,
   ariaLabel,
+  richTextEnabled,
+  textBlockSeparator,
   disabled,
   isReferenceTarget,
   submissionDisabled,
@@ -828,9 +852,12 @@ function PromptComposerInner({
   preserveDraftOnSubmit = false,
   clearOnSubmitImmediately,
   showModelSelector = true,
+  enterSubmitMode = "default",
   modelSelectorOpen,
+  modelTriggerNamesSelectionOnly = false,
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  dictationShortcut = false,
   voiceChatEnabled = true,
   onVoiceChatStart,
   attachmentsEnabled = true,
@@ -864,7 +891,9 @@ function PromptComposerInner({
   onSlashCommand,
   availableModels,
   modelListLoading,
+  modelSelectorChevron = true,
   selectedModel,
+  defaultModel,
   selectedEngine,
   selectedEffort,
   onModelChange,
@@ -950,7 +979,7 @@ function PromptComposerInner({
     enabled: showModelSelector && requestedModelStatusChecksEnabled,
   });
   const composerModel = showModelSelector
-    ? (selectedModel ?? models.selectedModel)
+    ? (selectedModel ?? defaultModel ?? models.selectedModel)
     : undefined;
   const composerEngine = showModelSelector
     ? (selectedEngine ?? models.selectedEngine)
@@ -1062,16 +1091,17 @@ function PromptComposerInner({
       setProviderCheckPending(true);
       try {
         const state = await validateEngineBeforeSubmit();
-        if (state !== "configured") {
-          if (state === "missing") {
-            if (draft) {
-              heldProviderDraftRef.current = draft;
-              setHeldProviderDraftRevision((revision) => revision + 1);
-            }
-            setSetupBouncePulse((pulse) => pulse + 1);
-            onDisabledClick?.();
+        if (state === "missing") {
+          if (draft) {
+            heldProviderDraftRef.current = draft;
+            setHeldProviderDraftRevision((revision) => revision + 1);
           }
+          setSetupBouncePulse((pulse) => pulse + 1);
+          onDisabledClick?.();
           return false;
+        }
+        if (state !== "configured") {
+          throw new Error(t("agentChat.setup.providerStatusUnavailable"));
         }
         heldProviderDraftRef.current = null;
         return onBeforeSubmit ? await onBeforeSubmit(draft) : true;
@@ -1079,7 +1109,7 @@ function PromptComposerInner({
         setProviderCheckPending(false);
       }
     },
-    [onBeforeSubmit, onDisabledClick, validateEngineBeforeSubmit],
+    [onBeforeSubmit, onDisabledClick, t, validateEngineBeforeSubmit],
   );
   useEffect(() => {
     const held = heldProviderDraftRef.current;
@@ -1220,6 +1250,8 @@ function PromptComposerInner({
           onRemoved={focusComposer}
         />
         <TiptapComposer
+          richTextEnabled={richTextEnabled}
+          textBlockSeparator={textBlockSeparator}
           contextItems={contextItems}
           contextMenuItems={contextMenuItems}
           onRemoveContextItem={onRemoveContextItem}
@@ -1235,6 +1267,7 @@ function PromptComposerInner({
           isReferenceTarget={isReferenceTarget}
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled}
+          enterSubmitMode={enterSubmitMode}
           sendButtonDisabled={sendButtonDisabled || providerCheckPending}
           sendButtonBusy={submitting || providerCheckPending}
           submitting={submitting}
@@ -1285,6 +1318,7 @@ function PromptComposerInner({
           includeDefaultSlashSkills={includeDefaultSlashSkills}
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
+          dictationShortcut={dictationShortcut}
           voiceChatEnabled={voiceChatEnabled}
           onVoiceChatStart={onVoiceChatStart}
           onTextChange={onTextChange}
@@ -1310,11 +1344,13 @@ function PromptComposerInner({
           agentOnly={agentOnly}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
+          modelSelectorChevron={modelSelectorChevron}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           onAgentChange={onAgentChange}
           onModelSelectorOpenChange={onModelSelectorOpenChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
+          modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}
           imageModelMenu={imageModelMenu}

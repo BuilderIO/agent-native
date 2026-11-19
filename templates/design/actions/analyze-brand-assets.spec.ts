@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/brand-kit", async () => {
   return actual;
 });
 
-vi.mock("@agent-native/creative-context/server", () => ({
+vi.mock("@agent-native/creative-context/connectors", () => ({
   extractRenderedDesignSystemFromUrl: mocks.extractRenderedDesignSystemFromUrl,
 }));
 

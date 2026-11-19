@@ -483,6 +483,13 @@ const messages = {
       openStorageSettings: "Abrir configurações de armazenamento",
       reconnectBuilderStorage: "Reconectar o Builder.io",
       useOwnStorage: "Usar seu próprio armazenamento",
+      storageBuilderRefusedAskAdmin:
+        "O Builder.io recusou a conexão de armazenamento de arquivos do Mail, então o arquivo não foi anexado. Reconecte o Builder.io ou peça a um proprietário ou administrador para configurar o armazenamento e tente novamente.",
+      storageRefusedAskAdmin:
+        "O bucket de armazenamento da sua organização recusou este envio, então o arquivo não foi anexado. Peça a um proprietário ou administrador para verificar o bucket e as chaves dele.",
+      storageNotConfiguredAskAdmin:
+        "O armazenamento de arquivos não está configurado, então o arquivo não foi anexado. Conecte sua própria conta do Builder.io ou peça a um proprietário ou administrador para configurar o armazenamento.",
+      connectBuilderStorage: "Conectar o Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensagem enviada.",
       failedToSaveDraft: "Não foi possível salvar o rascunho.",
@@ -822,6 +829,10 @@ const messages = {
     contacts: {
       noContactSelected: "Nenhum contato selecionado",
     },
+    readingPane: {
+      empty: "Nenhum e-mail selecionado",
+      resizeList: "Redimensionar lista de e-mails",
+    },
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre seus emails",
@@ -928,6 +939,12 @@ const messages = {
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",
+    reading: "Leitura",
+    readingPane: "Painel de leitura",
+    readingPaneSaveFailed:
+      "Não foi possível salvar a configuração do painel de leitura.",
+    readingPaneLoadFailed:
+      "Não foi possível carregar a configuração do painel de leitura.",
     deleteAlias: "Excluir alias",
     editAlias: "Editar alias",
   },

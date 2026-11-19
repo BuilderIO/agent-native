@@ -8,11 +8,13 @@ export function resolveEditorChrome({
   embedded,
   embedChromeRequested,
   widgetEmbed,
+  minimalUiRequested,
 }: {
   shellMode: boolean;
   embedded: boolean;
   embedChromeRequested: boolean;
   widgetEmbed: boolean;
+  minimalUiRequested?: boolean;
 }): {
   hostOwnsChrome: boolean;
   minimalUiByDefault: boolean;
@@ -23,7 +25,9 @@ export function resolveEditorChrome({
   return {
     hostOwnsChrome,
     minimalUiByDefault:
-      widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested),
+      minimalUiRequested ||
+      widgetEmbed ||
+      (embedded && !hostOwnsChrome && !embedChromeRequested),
     // The full layout brings back the app rail and its agent chat, which the
     // host owns.
     minimalUiLocked: widgetEmbed,
