@@ -2653,8 +2653,7 @@ export function embedApp(
         try {
           bridge = frame === window ? window.openai : frame.openai;
         } catch (err) {
-          if (err && err.name === "SecurityError") return null;
-          throw err;
+          if (!err || err.name !== "SecurityError") throw err;
         }
         if (bridge && typeof bridge === "object") {
           if (frame !== openAiBridgeWindow) {
@@ -3156,6 +3155,7 @@ export function embedApp(
             return hostContext;
           })().catch((err) => {
             connectPromise = null;
+            window.removeEventListener("message", onMessage);
             throw err;
           });
           return await connectPromise;
