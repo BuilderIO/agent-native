@@ -854,6 +854,52 @@ describe("agentWorkSources", () => {
       },
     ]);
   });
+
+  it("names reads that arrive as activities without a tool call", () => {
+    const activity = (
+      id: string,
+      overrides: Partial<AgentActivity>,
+    ): AgentWorkCall => ({
+      id,
+      activity: {
+        id,
+        kind: "read",
+        label: `Read ${id}`,
+        status: "completed",
+        ...overrides,
+      } as AgentActivity,
+    });
+    const { sources, failures } = agentWorkSources([
+      activity("a", {
+        object: {
+          id: "a",
+          kind: "url",
+          label: "Doc",
+          uri: "https://a.dev/doc",
+        },
+      }),
+      activity("b", {
+        object: { id: "b", kind: "file", label: "/repo/plan.md" },
+      }),
+      activity("c", { kind: "search", label: "Docs search" }),
+      activity("d", {
+        status: "failed",
+        object: { id: "d", kind: "file", label: "/repo/gone.md" },
+        detail: "Not found",
+      }),
+      activity("e", {
+        kind: "edit",
+        object: { id: "e", kind: "file", label: "/x.md" },
+      }),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["web", "a.dev"],
+      ["file", "plan.md"],
+    ]);
+    expect(
+      failures.map(({ kind, text, reason }) => [kind, text, reason]),
+    ).toEqual([["file", "gone.md", "Not found"]]);
+  });
 });
 
 describe("agentWorkFailureReason", () => {

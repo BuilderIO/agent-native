@@ -724,6 +724,23 @@ const SOURCE_KINDS: Partial<Record<AgentWorkVerb, AgentWorkSourceKind>> = {
   searched: "search",
 };
 
+const OBJECT_SOURCE_KINDS: Partial<
+  Record<AgentWorkObject["kind"], AgentWorkSourceKind>
+> = {
+  document: "document",
+  url: "web",
+  file: "file",
+  query: "search",
+};
+
+function sourceKind(
+  call: AgentWorkCall,
+  object: AgentWorkObject | undefined,
+): AgentWorkSourceKind | undefined {
+  if (call.tool) return SOURCE_KINDS[agentWorkCallVerb(call)];
+  return object ? OBJECT_SOURCE_KINDS[object.kind] : undefined;
+}
+
 const SOURCE_ACTIVITY_KINDS = new Set<string>(["read", "search"]);
 const WEB_READ_TOOLS = new Set(["web-request"]);
 
@@ -779,11 +796,10 @@ export function agentWorkSources(
     const status = call.activity.status;
     if (status === "running" || status === "cancelled") continue;
     if (!readsSources(call)) continue;
-    const verb = agentWorkCallVerb(call);
     const object = agentWorkCallObject(call);
     if (status === "failed") {
       const kind =
-        SOURCE_KINDS[verb] ??
+        sourceKind(call, object) ??
         (call.activity.kind === "search"
           ? "search"
           : call.activity.kind === "read"
@@ -817,7 +833,7 @@ export function agentWorkSources(
       continue;
     }
     for (const target of attemptTargets(call, object)) read.add(target);
-    const kind = SOURCE_KINDS[verb];
+    const kind = sourceKind(call, object);
     if (!kind || !object) continue;
     const key = sourceKey(call, kind, object.id ?? object.uri ?? object.text);
     const existing = sources.get(key);
