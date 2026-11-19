@@ -373,17 +373,27 @@ function inputRecord(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
-function firstString(
+function firstTrimmed(
   input: Record<string, unknown> | undefined,
   keys: readonly string[],
 ): string | undefined {
   for (const key of keys) {
     const value = input?.[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim().replace(/\s+/g, " ");
-    }
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+function firstString(
+  input: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | undefined {
+  return firstTrimmed(input, keys)?.replace(/\s+/g, " ");
+}
+
+function searchObject(terms: string): AgentWorkObject {
+  const text = terms.replace(/\s+/g, " ");
+  return { kind: "query", text, ...(text === terms ? {} : { id: terms }) };
 }
 
 const QUERY_KEYS = ["query", "q", "search", "searchQuery", "pattern"] as const;
@@ -469,8 +479,8 @@ export function agentWorkCallObject(
   call: AgentWorkCall,
 ): AgentWorkObject | undefined {
   const input = inputRecord(call.tool?.input);
-  const query = firstString(input, QUERY_KEYS);
-  if (query) return { kind: "query", text: query };
+  const query = firstTrimmed(input, QUERY_KEYS);
+  if (query) return searchObject(query);
   const document = documentObject(call);
   if (document) return document;
   const url = firstString(input, URL_KEYS) ?? call.activity.object?.uri;
@@ -485,8 +495,8 @@ export function agentWorkCallObject(
   const command = firstString(input, COMMAND_KEYS);
   if (command) return { kind: "command", text: command };
   if (readKind(call) !== "search") return undefined;
-  const terms = firstString(input, SEARCH_TERM_KEYS);
-  return terms ? { kind: "query", text: terms } : undefined;
+  const terms = firstTrimmed(input, SEARCH_TERM_KEYS);
+  return terms ? searchObject(terms) : undefined;
 }
 
 /**
@@ -765,6 +775,7 @@ function sourceKind(
 
 const SOURCE_ACTIVITY_KINDS = new Set<string>(["read", "search"]);
 const WEB_READ_TOOLS = new Set(["web-request"]);
+const DISCOVERY_TOOLS = new Set(["tool-search"]);
 const WRITE_VERBS = new Set([
   "add",
   "apply",
@@ -856,7 +867,8 @@ function readKind(call: AgentWorkCall): string {
 
 function readsSources(call: AgentWorkCall): boolean {
   if (sendsWriteMethod(inputRecord(call.tool?.input))) return false;
-  if (writesBy(toolWords(call))) return false;
+  const words = toolWords(call);
+  if (writesBy(words) || DISCOVERY_TOOLS.has(words.join("-"))) return false;
   return (
     SOURCE_ACTIVITY_KINDS.has(readKind(call)) ||
     WEB_READ_TOOLS.has(call.tool?.name ?? "")
@@ -905,12 +917,13 @@ function attemptTargets(
     ["page", objectNoun(call), page],
     object?.kind === "file"
       ? ["path", "", object.id]
-      : ["id", tool, object?.id],
+      : object?.kind === "query"
+        ? ["query", tool, object.id ?? object.text]
+        : ["id", tool, object?.id],
     ["uri", "", object?.uri],
     ["uri", "", firstString(input, URL_KEYS)],
     ["id", tool, firstString(input, ["id", "documentId"])],
     ["path", "", firstString(input, FILE_KEYS)],
-    ["query", tool, object?.kind === "query" ? object.text : undefined],
     ["input", tool, call.tool ? stableJson(input ?? {}) : undefined],
   ];
   return targets.flatMap(([type, scope, target]) =>

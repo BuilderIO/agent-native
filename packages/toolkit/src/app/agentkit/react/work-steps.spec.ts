@@ -521,7 +521,7 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
   it("reads queries, page domains, file names and commands from tool input", () => {
     expect(
       agentWorkCallObject(call("c", "web-search", { query: " a  b " })),
-    ).toEqual({ kind: "query", text: "a b" });
+    ).toEqual({ kind: "query", text: "a b", id: "a  b" });
     expect(
       agentWorkCallObject(
         call("c", "web-request", { url: "https://www.iep.utm.edu/x" }),
@@ -1035,6 +1035,28 @@ describe("agentWorkSources", () => {
       ["search", undefined],
       ["search", "p = WEB"],
     ]);
+  });
+
+  it("leaves out tool discovery searches", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "tool-search", { query: "calendar" }),
+      call("b", "mcp__content__tool-search", { query: "pages" }, failed),
+      call("c", "search-documents", { query: "pricing" }),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["pricing"]);
+    expect(failures).toEqual([]);
+  });
+
+  it("matches searches by their exact terms, showing them on one line", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "search-records", { query: "name = 'A  B'" }, failed),
+      call("b", "search-records", { query: "name = 'A B'" }),
+      call("c", "search-records", { query: " name = 'A B' " }),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["name = 'A B'"]);
+    expect(failures.map(({ text }) => text)).toEqual(["name = 'A B'"]);
   });
 
   it("clears a failed page read when another tool reads that page", () => {
