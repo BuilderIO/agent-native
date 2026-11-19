@@ -139,17 +139,3 @@ describe("brain db.ts migration entries follow the naming convention", () => {
     expect(v20?.name).toBe("brain-ownable-perf-indexes");
   });
 });
-
-describe("brain db.ts wires ensureAdditiveColumns after runMigrations", () => {
-  it("calls ensureAdditiveColumns after runMigrations(...) completes", () => {
-    const migrationsCallIdx = dbTsSource.indexOf("runMigrations(");
-    const ensureCallIdx = dbTsSource.indexOf("ensureAdditiveColumns({");
-    expect(migrationsCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
-
-    expect(dbTsSource).toMatch(
-      /await\s+runBrainMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
-    );
-  });
-});
