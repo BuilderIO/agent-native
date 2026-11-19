@@ -535,8 +535,14 @@ export const CommentComposer = forwardRef<
   const aiRecipientKey = aiDraft
     ? commentAiSelectionKey(aiDraft.selection)
     : null;
-  const aiRecipientConnected = connectedModels.some(
-    (selection) => commentAiSelectionKey(selection) === aiRecipientKey,
+  const aiRecipientConnected = Boolean(
+    aiDraft &&
+    models.configuredModels.some(
+      (group) =>
+        group.engine === aiDraft.selection.engine &&
+        (group.models.includes(aiDraft.selection.model) ||
+          group.preserveCustomModels),
+    ),
   );
   const modelSwitchable =
     aiRecipientKey !== null &&
@@ -544,10 +550,14 @@ export const CommentComposer = forwardRef<
       (selection) => commentAiSelectionKey(selection) !== aiRecipientKey,
     );
   const aiRecipientMissing =
-    Boolean(aiDraft && models.unavailableSelection) && !aiRecipientConnected;
+    Boolean(aiDraft) &&
+    !aiRecipientConnected &&
+    (Boolean(models.unavailableSelection) ||
+      (models.selectionReady && models.configuredModels.length > 0));
   const aiRecipientReady =
-    models.selectionReady ||
-    (Boolean(models.unavailableSelection) && aiRecipientConnected);
+    !aiRecipientMissing &&
+    (models.selectionReady ||
+      (Boolean(models.unavailableSelection) && aiRecipientConnected));
 
   const mentionItems = useMemo<MentionItem[]>(() => {
     const memberItems = members.map((member) => {
@@ -744,7 +754,7 @@ export const CommentComposer = forwardRef<
     if (!aiDraft || !onAiSubmit || !canSend || !aiRecipientReady) return;
     const { model, engine } = aiDraft.selection;
     let effort = models.selectedEffort;
-    if (!models.selectionReady) {
+    if (model !== models.selectedModel || engine !== models.selectedEngine) {
       if (!getReasoningEffortOptionsForModel(model).includes(effort))
         effort = DEFAULT_REASONING_EFFORT;
       models.onModelChange(model, engine);

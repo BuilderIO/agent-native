@@ -86,6 +86,19 @@ function staleSavedPick(
   };
 }
 
+function savedPickReady(
+  configuredModels: (typeof builderGroup)[] = [builderGroup],
+) {
+  staleSavedPick(configuredModels);
+  models.current = {
+    ...models.current,
+    selectedModel: "claude-sonnet-5",
+    selectedEngine: "builder",
+    selectionReady: true,
+    unavailableSelection: null,
+  };
+}
+
 const opusDraft: CommentAiDraft = {
   selection: {
     model: "claude-opus-5",
@@ -226,7 +239,7 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     expect(notice()?.textContent).toBe(
       "Claude Opus 5 isn’t connected. Click its name to choose another model.",
     );
-    expect(aiSend()?.disabled).toBe(true);
+    expect(aiSend().disabled).toBe(true);
     await clickAiPill();
     expect(modelOptions()).toEqual([
       expect.stringContaining("Claude Sonnet 5"),
@@ -261,9 +274,9 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
 
     expect(notice()).toBeNull();
     expect(onModelChange).not.toHaveBeenCalled();
-    expect(aiSend()?.disabled).toBe(false);
+    expect(aiSend().disabled).toBe(false);
 
-    await act(async () => aiSend()?.click());
+    await act(async () => aiSend().click());
 
     expect(onModelChange).toHaveBeenCalledTimes(1);
     expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
@@ -316,7 +329,66 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     );
 
     expect(notice()).toBeNull();
-    expect(aiSend()?.disabled).toBe(false);
+    expect(aiSend().disabled).toBe(false);
+  });
+
+  it("names a draft's model that isn't connected while the saved pick is", async () => {
+    savedPickReady();
+    await render(
+      <Owner initialValue="Ask @Claude Opus 5" initialAi={opusDraft} />,
+    );
+
+    expect(notice()?.textContent).toBe(
+      "Claude Opus 5 isn’t connected. Click its name to choose another model.",
+    );
+    expect(aiSend().disabled).toBe(true);
+  });
+
+  it("saves a sent draft's model when the saved pick is another", async () => {
+    savedPickReady();
+    await render(
+      <Owner initialValue="Ask @GPT-5.6 Luna" initialAi={lunaDraft} />,
+    );
+
+    expect(notice()).toBeNull();
+    await act(async () => aiSend().click());
+
+    expect(onModelChange).toHaveBeenCalledTimes(1);
+    expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
+  });
+
+  it("sends to the saved pick without saving it again", async () => {
+    savedPickReady();
+    await render(
+      <Owner
+        initialValue="Ask @Claude Sonnet 5"
+        initialAi={{
+          selection: {
+            model: "claude-sonnet-5",
+            engine: "builder",
+            provider: "Builder",
+          },
+          mode: "auto",
+        }}
+      />,
+    );
+
+    await act(async () => aiSend().click());
+
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(onAiSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "claude-sonnet-5", effort: "high" }),
+    );
+  });
+
+  it("says nothing and can send when the model list didn't load", async () => {
+    savedPickReady([]);
+    await render(
+      <Owner initialValue="Ask @Claude Opus 5" initialAi={opusDraft} />,
+    );
+
+    expect(notice()).toBeNull();
+    expect(aiSend().disabled).toBe(false);
   });
 
   it("lets @AI find the default model", async () => {
