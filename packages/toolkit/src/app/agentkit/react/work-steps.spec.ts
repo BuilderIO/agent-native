@@ -1003,9 +1003,13 @@ describe("agentWorkSources", () => {
     ]);
   });
 
-  it("names a search by its own input when it has no usual query key", () => {
+  it("names a search by its own search-term key, never by a filter", () => {
     const failed = { status: "failed" as const, output: "Timed out" };
+    const slack = "mcp__slack__search_messages";
     const { sources, failures } = agentWorkSources([
+      call("e", slack, { channel: "general", text: "deploy" }),
+      call("f", slack, { channel: "general" }, failed),
+      call("g", slack, { channel: "general", text: "ship" }),
       call("a", "mcp__jira__search_issues", { cloudId: "c1", jql: "p = OPS" }),
       call(
         "b",
@@ -1022,10 +1026,13 @@ describe("agentWorkSources", () => {
       call("d", "mcp__jira__search_issues", { jql: "p = API", limit: 5 }),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", "deploy"],
+      ["search", "ship"],
       ["search", "p = OPS"],
       ["search", "p = API"],
     ]);
     expect(failures.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", undefined],
       ["search", "p = WEB"],
     ]);
   });

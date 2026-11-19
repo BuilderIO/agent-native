@@ -396,7 +396,19 @@ const FILE_KEYS = [
   "file",
 ] as const;
 const COMMAND_KEYS = ["command", "cmd", "script"] as const;
-const ID_KEY = /(?:^id|Id|ID|[_-]id)$/;
+const SEARCH_TERM_KEYS = [
+  "jql",
+  "cql",
+  "sql",
+  "searchTerm",
+  "search_term",
+  "search_query",
+  "keywords",
+  "keyword",
+  "terms",
+  "term",
+  "text",
+] as const;
 
 function urlDomain(value: string): string | undefined {
   try {
@@ -473,10 +485,7 @@ export function agentWorkCallObject(
   const command = firstString(input, COMMAND_KEYS);
   if (command) return { kind: "command", text: command };
   if (readKind(call) !== "search") return undefined;
-  const terms = firstString(
-    input,
-    Object.keys(input ?? {}).filter((key) => !ID_KEY.test(key)),
-  );
+  const terms = firstString(input, SEARCH_TERM_KEYS);
   return terms ? { kind: "query", text: terms } : undefined;
 }
 
