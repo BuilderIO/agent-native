@@ -844,3 +844,76 @@ export function resetToDefaults(): AppConfig[] {
   });
   return apps;
 }
+
+const LOCAL_APP_AUTO_NAMES_FILE = "local-app-auto-names.json";
+
+function getLocalAppAutoNamesPath(): string {
+  return path.join(app.getPath("userData"), LOCAL_APP_AUTO_NAMES_FILE);
+}
+
+function loadLocalAppAutoNames(): Record<string, string> {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(getLocalAppAutoNamesPath(), "utf-8"),
+    ) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return Object.fromEntries(
+      Object.entries(raw).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Remember the placeholder name Desktop gave an app it is building, so the
+ * name the coding agent later writes to package.json can replace it. A name
+ * the person typed themselves is never replaced.
+ */
+export function rememberLocalAppAutoName(appId: string, name: string): void {
+  writeJsonFileAtomic(getLocalAppAutoNamesPath(), {
+    ...loadLocalAppAutoNames(),
+    [appId]: name,
+  });
+}
+
+/**
+ * Adopt each Desktop-built app's package.json display name while its sidebar
+ * name is still the placeholder. Returns true when any name changed.
+ */
+export function syncLocalAppNamesFromPackages(
+  readDisplayName: (localPath: string) => string | null,
+): boolean {
+  const autoNames = loadLocalAppAutoNames();
+  const ids = Object.keys(autoNames);
+  if (ids.length === 0) return false;
+  const apps = loadApps();
+  let changed = false;
+  const nextAutoNames = { ...autoNames };
+  for (const appConfig of apps) {
+    const placeholder = autoNames[appConfig.id];
+    if (placeholder === undefined || !appConfig.localPath) continue;
+    if (appConfig.name !== placeholder) {
+      // Renamed by the person: stop tracking it.
+      delete nextAutoNames[appConfig.id];
+      continue;
+    }
+    const displayName = readDisplayName(appConfig.localPath)?.trim();
+    if (!displayName || displayName === appConfig.name) continue;
+    appConfig.name = displayName.slice(0, 48);
+    nextAutoNames[appConfig.id] = appConfig.name;
+    changed = true;
+  }
+  for (const id of ids) {
+    if (!apps.some((candidate) => candidate.id === id)) {
+      delete nextAutoNames[id];
+    }
+  }
+  if (changed) saveApps(apps);
+  if (JSON.stringify(nextAutoNames) !== JSON.stringify(autoNames)) {
+    writeJsonFileAtomic(getLocalAppAutoNamesPath(), nextAutoNames);
+  }
+  return changed;
+}

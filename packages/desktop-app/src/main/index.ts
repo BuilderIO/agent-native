@@ -206,6 +206,14 @@ import {
   resolveCodeAgentRunnerInvocation,
   withResolvedExecutablePaths,
 } from "./code-agent-runner.js";
+import {
+  findFreeLocalAppPort,
+  isLocalAppServerReadyStatus,
+  LocalAppServerManager,
+  type LocalAppServerDemandSource,
+} from "./local-app-servers.js";
+import { buildDesktopLocalAppPrompt } from "./local-app-prompt.js";
+import { setupLocalAppFolder } from "./local-app-setup.js";
 import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -1976,7 +1984,7 @@ function createWindow(): BrowserWindow {
     },
   );
   win.webContents.on("did-finish-load", () => {
-    lastDesktopAppRuntimeStatus.clear();
+    localAppServers.resetStatusCache();
     flushPendingOpenRequests(win);
     flushPendingDesktopShortcutActivations(win);
   });
@@ -4739,6 +4747,8 @@ function reconcileInterruptedCodeAgentRun(
   )
     return;
   if (isPortalCodeAgentRunRecord(currentRecord)) return;
+  // Held on purpose while Desktop scaffolds a new local app.
+  if (reason !== "shutdown" && localAppSetupRunIds.has(runId)) return;
   if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
   if (reason !== "shutdown" && hasLivePersistedCodeAgentRunner(currentRecord))
     return;
@@ -7103,6 +7113,10 @@ async function createCodeAgentRun(
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
   const now = new Date().toISOString();
   const runId = `${goal.id}-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`;
+  // A Desktop-built app holds its run until the app folder is set up; keep
+  // the interrupted-run sweep away from it from the moment it exists.
+  const deferStart = payload.deferStart === true;
+  if (deferStart) localAppSetupRunIds.add(runId);
   const sourceCwd = resolveCodeAgentsTerminalCwd({ cwd: payload.cwd });
   const permissionMode =
     getCodeAgentPermissionMode(firstStringValue(payload.permissionMode)) ??
@@ -7181,7 +7195,10 @@ async function createCodeAgentRun(
     effort,
     attachments,
   });
-  const title = titleFromPrompt(prompt);
+  // A Desktop-built request can carry long instructions; title the chat
+  // from what the person typed.
+  const titlePrompt = firstStringValue(payload.displayPrompt) ?? prompt;
+  const title = titleFromPrompt(titlePrompt);
   const run: CodeAgentRun = {
     id: runId,
     goalId: goal.id,
@@ -7308,12 +7325,12 @@ async function createCodeAgentRun(
       rerunOf,
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
-    if (goal.surfaceKind === "native" && !worktreeRunQueued) {
+    if (goal.surfaceKind === "native" && !worktreeRunQueued && !deferStart) {
       void spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(
       runId,
-      prompt,
+      titlePrompt,
       engine,
     );
     return {
@@ -8492,64 +8509,56 @@ async function chooseLocalAppFolder(): Promise<LocalAppFolderSelectResult> {
   };
 }
 
-const managedDesktopAppProcesses = new Map<string, ChildProcess>();
-const managedDesktopAppRetryTimers = new Map<
-  string,
-  ReturnType<typeof setTimeout>
->();
-const managedDesktopAppStarts = new Set<string>();
-const managedDesktopAppStartAttempts = new Map<string, number>();
-type ManagedDesktopAppDemandSource = "active-app" | "chat-first-preview";
-const managedDesktopAppDemand = new Map<
-  string,
-  Set<ManagedDesktopAppDemandSource>
->();
-
-function hasManagedDesktopAppDemand(appId: string): boolean {
-  return (managedDesktopAppDemand.get(appId)?.size ?? 0) > 0;
-}
-
-function stopManagedDesktopAppProcess(appId: string): void {
-  const child = managedDesktopAppProcesses.get(appId);
-  if (!child) return;
-  if (process.platform !== "win32" && child.pid) {
-    try {
-      process.kill(-child.pid, "SIGTERM");
-    } catch {
-      child.kill("SIGTERM");
+const localAppServers = new LocalAppServerManager({
+  getApp(appId) {
+    const appConfig = AppStore.loadApps().find(
+      (candidate) =>
+        candidate.id === appId &&
+        candidate.enabled !== false &&
+        candidate.mode === "dev",
+    );
+    if (!appConfig?.localPath || !appConfig.devUrl || !appConfig.devCommand) {
+      return null;
     }
-  } else {
-    child.kill("SIGTERM");
-  }
-  managedDesktopAppProcesses.delete(appId);
-}
+    return {
+      id: appConfig.id,
+      name: appConfig.name,
+      localPath: appConfig.localPath,
+      devUrl: appConfig.devUrl,
+      devCommand: appConfig.devCommand,
+    };
+  },
+  isManaged: (appId) => AppStore.isDesktopManagedApp(appId),
+  spawn: (command, options) =>
+    spawn(command, {
+      cwd: options.cwd,
+      env: options.env,
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    }),
+  isReachable: desktopAppUrlIsReachable,
+  emitStatus: (status) => {
+    syncLocalAppNames();
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(IPC.APP_STATUS, status);
+  },
+  baseEnv: () =>
+    withResolvedExecutablePaths({ ...process.env }, LOCAL_APP_EXECUTABLES),
+  isQuitting: () => appIsQuitting,
+  logDir: () => path.join(app.getPath("userData"), "local-app-logs"),
+});
+
+const LOCAL_APP_EXECUTABLES = ["pnpm", "npx", "node"] as const;
+
+type ManagedDesktopAppDemandSource = LocalAppServerDemandSource;
 
 function setManagedDesktopAppDemand(
   appId: string,
   source: ManagedDesktopAppDemandSource,
   demanded: boolean,
 ): void {
-  if (!appId) return;
-  const sources = managedDesktopAppDemand.get(appId) ?? new Set();
-  if (demanded) {
-    if (!AppStore.isDesktopManagedApp(appId)) return;
-    sources.add(source);
-    managedDesktopAppDemand.set(appId, sources);
-    if (!managedDesktopAppProcesses.get(appId)?.pid) {
-      scheduleManagedDesktopAppStart(appId);
-    }
-    return;
-  }
-
-  sources.delete(source);
-  if (sources.size > 0) {
-    managedDesktopAppDemand.set(appId, sources);
-    return;
-  }
-  managedDesktopAppDemand.delete(appId);
-  clearManagedDesktopAppRetry(appId);
-  managedDesktopAppStartAttempts.delete(appId);
-  stopManagedDesktopAppProcess(appId);
+  localAppServers.setDemand(appId, source, demanded);
 }
 
 function setDesktopActiveAppId(appId: string): void {
@@ -8559,24 +8568,14 @@ function setDesktopActiveAppId(appId: string): void {
   const previousAppId = activeAppId;
   if (previousAppId) {
     setManagedDesktopAppDemand(previousAppId, "active-app", false);
-    if (previousAppId === CODE_AGENTS_SURFACE_ID && chatFirstPreviewAppId) {
-      setManagedDesktopAppDemand(
-        chatFirstPreviewAppId,
-        "chat-first-preview",
-        false,
-      );
-    }
   }
 
+  // The chat-first preview keeps its own demand while focus moves around:
+  // the preview pane's webview reports itself as the active app, and the
+  // app being built must keep running next to its chat. It ends when another
+  // app becomes the preview, the app is removed, or Desktop quits.
   activeAppId = nextAppId;
   if (nextAppId) setManagedDesktopAppDemand(nextAppId, "active-app", true);
-  if (nextAppId === CODE_AGENTS_SURFACE_ID && chatFirstPreviewAppId) {
-    setManagedDesktopAppDemand(
-      chatFirstPreviewAppId,
-      "chat-first-preview",
-      true,
-    );
-  }
 }
 
 function desktopAppCreationSettings(): DesktopAppCreationSettings {
@@ -8594,17 +8593,49 @@ function normalizeDesktopAppsRoot(value: unknown): string | null {
 }
 
 function appFolderSlug(prompt: string): string {
-  const normalized = prompt
+  const words = prompt
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .split("-")
-    .filter(Boolean)
-    .slice(0, 5)
+    .filter(Boolean);
+  const meaningful = [
+    ...new Set(words.filter((word) => !APP_FOLDER_SLUG_STOP_WORDS.has(word))),
+  ].slice(0, 3);
+  const normalized = (meaningful.length > 0 ? meaningful : words.slice(0, 5))
     .join("-");
   return normalized || "new-app";
+}
+
+const APP_FOLDER_SLUG_STOP_WORDS = new Set(
+  (
+    "a an and app application are as at be build can could create design do " +
+    "for from generate give help i in is it its let lets like look looks make " +
+    "me my new of on or please quick shows simple small so tells that the " +
+    "this to up us want web which will with would you"
+  ).split(" "),
+);
+
+function readLocalAppDisplayName(localPath: string): string | null {
+  const pkg = readJsonObjectFile(path.join(localPath, "package.json"));
+  const displayName = firstStringValue(pkg?.displayName, pkg?.productName);
+  if (!displayName) return null;
+  // The scaffold names the app after its folder; wait for the real name.
+  if (displayName === titleizePackageName(path.basename(localPath))) {
+    return null;
+  }
+  return displayName;
+}
+
+function syncLocalAppNames(): boolean {
+  try {
+    return AppStore.syncLocalAppNamesFromPackages(readLocalAppDisplayName);
+  } catch (error) {
+    console.warn("[desktop-apps] could not sync local app names", error);
+    return false;
+  }
 }
 
 function uniqueDesktopAppFolder(
@@ -8672,28 +8703,6 @@ function preferredDesktopManagedAppPort(
     !used.has(preferredPort)
     ? preferredPort
     : nextDesktopManagedAppPort(apps);
-}
-
-function buildDesktopCreateAppAgentPrompt(input: {
-  userPrompt: string;
-  folderName: string;
-  targetPath: string;
-  port: number;
-}): string {
-  return buildChatFirstAppCreationPrompt({
-    appId: input.folderName,
-    prompt: input.userPrompt,
-    selectedKeys: [],
-    selectedResources: [],
-    vaultAccessMode: "all-apps",
-    appRoot: input.targetPath,
-    mountPath: "/",
-    scaffoldCommand: `Run this non-interactive scaffold command from the current directory, then work only inside ${input.targetPath}:\nnpx --yes @agent-native/core@latest create ${input.folderName} --template chat`,
-    additionalInstructions: [
-      `The Desktop shell will run the app on port ${input.port}; do not leave a long-running dev server running yourself.`,
-      "Use production-quality behavior by default. Keep local development conveniences out of the shipped app unless the user is actively editing it.",
-    ],
-  });
 }
 
 function buildDesktopLocalCodeChangeAgentPrompt(input: {
@@ -8777,21 +8786,58 @@ async function createDesktopAppFromPrompt(
     };
   }
 
-  const folder = uniqueDesktopAppFolder(appsRoot, appFolderSlug(prompt));
-  const port = nextDesktopManagedAppPort(currentApps);
+  const slug = appFolderSlug(prompt);
+  // The scaffold requires a name that starts with a letter.
+  const folder = uniqueDesktopAppFolder(
+    appsRoot,
+    /^[a-z]/.test(slug) ? slug : `app-${slug}`,
+  );
+  let port: number;
+  try {
+    port = await findFreeLocalAppPort(
+      currentApps
+        .map((candidate) => candidate.devPort)
+        .filter((value): value is number => Number.isInteger(value)),
+    );
+  } catch (err) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Desktop could not find a free local port for the new app.",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
   const appId = `local-${folder.name}-${randomUUID().slice(0, 8)}`;
-  const agentPrompt = buildDesktopCreateAppAgentPrompt({
+  const agentPrompt = buildDesktopLocalAppPrompt({
     userPrompt: prompt,
-    folderName: folder.name,
     targetPath: folder.path,
     port,
   });
-  const appCreationCwd = resolveRepositoryRoot(appsRoot);
+  try {
+    fs.mkdirSync(folder.path, { recursive: true });
+  } catch (err) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Desktop could not create the new app folder.",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  // The run works in the new app folder, never in a repository root. It
+  // waits there until Desktop has scaffolded and installed the app.
   const runResult = await createCodeAgentRun({
     goalId: "task",
     prompt: agentPrompt,
-    cwd: appCreationCwd,
+    displayPrompt: prompt,
+    cwd: folder.path,
+    deferStart: true,
     permissionMode: "full-auto",
+    ...(input.engine ? { engine: input.engine } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.effort ? { effort: input.effort } : {}),
+    ...(Array.isArray(input.attachments) && input.attachments.length > 0
+      ? { attachments: input.attachments }
+      : {}),
     metadata: {
       kind: "desktop-create-app",
       appId,
@@ -8800,6 +8846,11 @@ async function createDesktopAppFromPrompt(
     },
   });
   if (!runResult.ok || !runResult.run) {
+    try {
+      fs.rmdirSync(folder.path);
+    } catch {
+      // coercion-ok: leave a non-empty folder alone.
+    }
     return {
       ok: false,
       apps: currentApps,
@@ -8822,6 +8873,8 @@ async function createDesktopAppFromPrompt(
         : titleizeAppFolder(folder.name)),
     icon: "Code",
     description: prompt.replace(/\s+/g, " ").slice(0, 180),
+    // Point the open-app resolver at the local server rather than an empty
+    // production URL.
     url: "",
     devPort: port,
     devUrl: `http://localhost:${port}`,
@@ -8833,6 +8886,7 @@ async function createDesktopAppFromPrompt(
   };
   const apps = AppStore.addApp(appConfig);
   AppStore.markDesktopManagedApp(appId, appsRoot);
+  AppStore.rememberLocalAppAutoName(appId, appConfig.name);
   if (chatFirstPreviewAppId && chatFirstPreviewAppId !== appId) {
     setManagedDesktopAppDemand(
       chatFirstPreviewAppId,
@@ -8843,6 +8897,11 @@ async function createDesktopAppFromPrompt(
   chatFirstPreviewAppId = appId;
   setManagedDesktopAppDemand(appId, "chat-first-preview", true);
   refreshDesktopShortcutBindings();
+  void prepareLocalAppAndStartAgent({
+    appId,
+    runId: runResult.run.id,
+    targetPath: folder.path,
+  });
   return {
     ok: true,
     apps,
@@ -8850,6 +8909,67 @@ async function createDesktopAppFromPrompt(
     run: runResult.run,
     message: `Building ${appConfig.name}.`,
   };
+}
+
+/** Runs held until Desktop finishes setting up their new app folder. */
+const localAppSetupRunIds = new Set<string>();
+
+async function prepareLocalAppAndStartAgent(input: {
+  appId: string;
+  runId: string;
+  targetPath: string;
+}): Promise<void> {
+  const logPath = localAppServers.logPath(input.appId);
+  const appendLog = (text: string) => {
+    if (!logPath) return;
+    try {
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      fs.appendFileSync(logPath, text);
+    } catch {
+      // coercion-ok: logging must never stop setup.
+    }
+  };
+  const status = (message: string) => {
+    try {
+      appendCodeAgentStatusEvent(input.runId, message, {
+        source: "desktop-local-app-setup",
+      });
+    } catch (error) {
+      console.warn("[desktop-apps] could not record setup status", error);
+    }
+  };
+  localAppSetupRunIds.add(input.runId);
+  const result = await setupLocalAppFolder({
+    targetPath: input.targetPath,
+    env: withResolvedExecutablePaths({ ...process.env }, LOCAL_APP_EXECUTABLES),
+    isCancelled: () =>
+      appIsQuitting || !AppStore.isDesktopManagedApp(input.appId),
+    onStep: (step) => {
+      status(`${step.label}…`);
+      appendLog(`\n[desktop] ${new Date().toISOString()} ${step.label}\n`);
+    },
+    onOutput: appendLog,
+  }).finally(() => {
+    localAppSetupRunIds.delete(input.runId);
+  });
+  if (!result.ok) {
+    status(
+      `${result.step} failed: ${result.error} The full output is in the app's dev server log.`,
+    );
+    touchCodeAgentRunRecord(input.runId, {
+      status: "failed",
+      phase: "failed",
+      updatedAt: new Date().toISOString(),
+    });
+    localAppServers.reportStatus({
+      appId: input.appId,
+      state: "error",
+      message: `${result.step} failed.`,
+    });
+    return;
+  }
+  status("The app is set up. Starting the coding agent.");
+  void spawnCodeAgentRunner(input.runId, input.targetPath, "full-auto");
 }
 
 async function prepareDesktopAppForLocalCodeChange(
@@ -8999,16 +9119,6 @@ async function prepareDesktopAppForLocalCodeChange(
   };
 }
 
-const lastDesktopAppRuntimeStatus = new Map<string, string>();
-
-function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const signature = `${status.state}\0${status.message ?? ""}`;
-  if (lastDesktopAppRuntimeStatus.get(status.appId) === signature) return;
-  lastDesktopAppRuntimeStatus.set(status.appId, signature);
-  mainWindow.webContents.send(IPC.APP_STATUS, status);
-}
-
 async function desktopAppUrlIsReachable(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, {
@@ -9016,183 +9126,19 @@ async function desktopAppUrlIsReachable(url: string): Promise<boolean> {
       redirect: "manual",
       signal: AbortSignal.timeout(1_500),
     });
-    return response.status > 0;
+    return isLocalAppServerReadyStatus(response.status);
   } catch {
     return false;
   }
 }
 
-function clearManagedDesktopAppRetry(appId: string): void {
-  const timer = managedDesktopAppRetryTimers.get(appId);
-  if (timer) clearTimeout(timer);
-  managedDesktopAppRetryTimers.delete(appId);
-}
-
-function scheduleManagedDesktopAppStart(appId: string, delay = 2_000): void {
-  if (appIsQuitting || !hasManagedDesktopAppDemand(appId)) return;
-  clearManagedDesktopAppRetry(appId);
-  managedDesktopAppRetryTimers.set(
-    appId,
-    setTimeout(() => {
-      managedDesktopAppRetryTimers.delete(appId);
-      void ensureManagedDesktopAppRunning(appId);
-    }, delay),
-  );
-}
-
-async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
-  if (
-    appIsQuitting ||
-    !hasManagedDesktopAppDemand(appId) ||
-    !AppStore.isDesktopManagedApp(appId) ||
-    managedDesktopAppStarts.has(appId)
-  ) {
-    return;
-  }
-  const appConfig = AppStore.loadApps().find(
-    (candidate) =>
-      candidate.id === appId &&
-      candidate.enabled !== false &&
-      candidate.mode === "dev",
-  );
-  if (!appConfig?.localPath || !appConfig.devUrl || !appConfig.devCommand) {
-    return;
-  }
-  if (managedDesktopAppProcesses.get(appId)?.pid) return;
-
-  managedDesktopAppStarts.add(appId);
-  try {
-    if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
-      emitDesktopAppRuntimeStatus({
-        appId,
-        state: "running",
-        message: "Preview ready.",
-      });
-      return;
-    }
-    if (
-      !fs.existsSync(appConfig.localPath) ||
-      !fs.existsSync(path.join(appConfig.localPath, "package.json"))
-    ) {
-      emitDesktopAppRuntimeStatus({
-        appId,
-        state: "waiting",
-        message: "The coding agent is creating this app.",
-      });
-      scheduleManagedDesktopAppStart(appId);
-      return;
-    }
-
-    if (!hasManagedDesktopAppDemand(appId)) return;
-    emitDesktopAppRuntimeStatus({
-      appId,
-      state: "starting",
-      message: `Starting ${appConfig.name}.`,
-    });
-    managedDesktopAppStartAttempts.set(
-      appId,
-      (managedDesktopAppStartAttempts.get(appId) ?? 0) + 1,
-    );
-    const child = spawn(appConfig.devCommand, {
-      cwd: appConfig.localPath,
-      env: {
-        ...process.env,
-        BROWSER: "none",
-      },
-      shell: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
-    managedDesktopAppProcesses.set(appId, child);
-    child.stdout?.on("data", (chunk) => {
-      const text = chunk.toString().trim();
-      if (!text) return;
-      console.log(`[desktop-app:${appId}] ${text}`);
-      emitDesktopAppRuntimeStatus({
-        appId,
-        state: "starting",
-        message: "Building the local preview.",
-      });
-    });
-    child.stderr?.on("data", (chunk) => {
-      const text = chunk.toString().trim();
-      if (!text) return;
-      console.error(`[desktop-app:${appId}] ${text}`);
-      if (/\b(error|failed|fatal|compile|syntaxerror)\b/i.test(text)) {
-        emitDesktopAppRuntimeStatus({
-          appId,
-          state: "error",
-          message: "The local preview reported a build error.",
-        });
-      }
-    });
-    child.once("error", () => {
-      if (managedDesktopAppProcesses.get(appId) === child) {
-        managedDesktopAppProcesses.delete(appId);
-      }
-      emitDesktopAppRuntimeStatus({
-        appId,
-        state: "error",
-        message: "The local preview could not start.",
-      });
-    });
-    child.once("exit", (code) => {
-      if (managedDesktopAppProcesses.get(appId) === child) {
-        managedDesktopAppProcesses.delete(appId);
-      }
-      if (appIsQuitting) return;
-      emitDesktopAppRuntimeStatus({
-        appId,
-        state: code === 0 ? "stopped" : "error",
-        message:
-          code === 0
-            ? `${appConfig.name} stopped.`
-            : "The local preview process exited unexpectedly.",
-      });
-      if ((managedDesktopAppStartAttempts.get(appId) ?? 0) < 20) {
-        scheduleManagedDesktopAppStart(appId, 3_000);
-      }
-    });
-
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      if (!hasManagedDesktopAppDemand(appId)) {
-        stopManagedDesktopAppProcess(appId);
-        return;
-      }
-      if (await desktopAppUrlIsReachable(appConfig.devUrl)) {
-        managedDesktopAppStartAttempts.delete(appId);
-        emitDesktopAppRuntimeStatus({
-          appId,
-          state: "running",
-          message: "Preview ready.",
-        });
-        return;
-      }
-      if (child.exitCode !== null || child.killed) return;
-      await new Promise((resolve) => setTimeout(resolve, 750));
-    }
-    emitDesktopAppRuntimeStatus({
-      appId,
-      state: "error",
-      message: "The local preview did not become ready.",
-    });
-  } catch {
-    emitDesktopAppRuntimeStatus({
-      appId,
-      state: "error",
-      message: "The local preview could not start.",
-    });
-  } finally {
-    managedDesktopAppStarts.delete(appId);
-  }
+function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
+  return localAppServers.ensureRunning(appId);
 }
 
 function stopManagedDesktopApp(appId: string): void {
-  managedDesktopAppDemand.delete(appId);
   if (chatFirstPreviewAppId === appId) chatFirstPreviewAppId = null;
-  clearManagedDesktopAppRetry(appId);
-  managedDesktopAppStartAttempts.delete(appId);
-  stopManagedDesktopAppProcess(appId);
+  localAppServers.stop(appId);
 }
 
 function showDesktopAppContextMenu(
@@ -9208,8 +9154,22 @@ function showDesktopAppContextMenu(
     const choose = (action: DesktopAppContextAction) => {
       selected = action;
     };
+    const logPath = AppStore.isDesktopManagedApp(appId)
+      ? localAppServers.logPath(appId)
+      : null;
     const menu = Menu.buildFromTemplate([
       { label: "Edit App…", click: () => choose("edit") },
+      ...(logPath
+        ? [
+            {
+              label: "Show Dev Server Log",
+              enabled: fs.existsSync(logPath),
+              click: () => {
+                shell.showItemInFolder(logPath);
+              },
+            },
+          ]
+        : []),
       { type: "separator" },
       {
         label: "Move Up",
@@ -13010,7 +12970,8 @@ function installContextMenu(contents: Electron.WebContents) {
 registerWindowIpc();
 
 registerAppsIpc({
-  getManagedDesktopAppIds: () => Array.from(managedDesktopAppProcesses.keys()),
+  getManagedDesktopAppIds: () => localAppServers.runningAppIds(),
+  syncLocalAppNames,
   stopManagedDesktopApp,
   refreshDesktopShortcutBindings,
   chooseLocalAppFolder,
@@ -14609,9 +14570,7 @@ app.on("before-quit", (event) => {
   desktopCodeAgentScheduler.stop();
   if (!appIsQuitting) {
     appIsQuitting = true;
-    for (const appId of managedDesktopAppProcesses.keys()) {
-      stopManagedDesktopApp(appId);
-    }
+    localAppServers.stopAll();
     pauseActiveCodeAgentProcessesForShutdown();
     if (remoteConnectorRestartTimer) {
       clearTimeout(remoteConnectorRestartTimer);

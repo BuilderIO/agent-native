@@ -464,6 +464,34 @@ export default function App({
     });
   }, [activeChatFirstAppId, chatFirstPreviewRequest?.appId]);
 
+  // While a local app is being built, pick up the name the coding agent
+  // gives it (Desktop adopts it from the app's package.json).
+  const buildingAppId = chatFirstPreviewRequest?.appId;
+  useEffect(() => {
+    const load = window.electronAPI?.appConfig?.load;
+    if (!buildingAppId || !load) return;
+    let cancelled = false;
+    let ticks = 0;
+    const refresh = async () => {
+      ticks += 1;
+      try {
+        const next = await load();
+        if (cancelled) return;
+        setApps((current) =>
+          JSON.stringify(current) === JSON.stringify(next) ? current : next,
+        );
+      } catch {
+        // coercion-ok: the next tick retries; the list keeps its last value.
+      }
+      if (ticks >= 180) window.clearInterval(timer);
+    };
+    const timer = window.setInterval(() => void refresh(), 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [buildingAppId]);
+
   if (loading) {
     return (
       <div
