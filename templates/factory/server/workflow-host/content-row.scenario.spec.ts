@@ -134,6 +134,7 @@ const collection = (rows: unknown[] = []) =>
       ],
     },
     items: rows,
+    pagination: { hasMore: false },
   });
 const receipt = (outcome: string) =>
   answer({
