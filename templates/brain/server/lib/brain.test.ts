@@ -6742,6 +6742,9 @@ describe("writeBrainSettings", () => {
     await expect(readBrainSettings("org-2")).resolves.toMatchObject({
       autoRedactEmails: true,
     });
+    await expect(readBrainSettings(null)).resolves.toMatchObject({
+      autoRedactEmails: true,
+    });
     await writeBrainSettings("org-2", { requireCitations: false });
     expect(mocks.orgSettings.get("org-2")).toMatchObject({
       autoRedactEmails: true,

@@ -273,10 +273,9 @@ function isMissingOrganizationsTable(error: unknown): boolean {
 export async function readBrainSettings(
   orgId: string | null | undefined = getRequestOrgId(),
 ): Promise<BrainSettings> {
-  const stored = orgId
-    ? ((await getOrgSetting(orgId, BRAIN_SETTINGS_KEY)) ??
-      (await readLegacyBrainSettings()))
-    : await getSetting(BRAIN_SETTINGS_KEY);
+  const stored =
+    (orgId ? await getOrgSetting(orgId, BRAIN_SETTINGS_KEY) : null) ??
+    (await readLegacyBrainSettings());
   return {
     ...DEFAULT_BRAIN_SETTINGS,
     ...(stored ?? {}),
