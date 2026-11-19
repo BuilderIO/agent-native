@@ -2114,12 +2114,6 @@ describe("DatabaseView UI regressions", () => {
       await mousePointerDown(trigger);
       if (operation === "duplicate") {
         await selectMenuItem("Duplicate row");
-        expect(toastErrorMock).toHaveBeenCalledWith("Failed to duplicate row", {
-          description,
-        });
-        expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
-          itemId: item.id,
-        });
       } else {
         await selectMenuItem("Remove from collection");
         const dialog = document.querySelector<HTMLElement>(
@@ -2131,17 +2125,24 @@ describe("DatabaseView UI regressions", () => {
           confirm.click();
           await Promise.resolve();
         });
-        expect(toastErrorMock).toHaveBeenCalledWith(
-          "Failed to remove row from collection",
-          { description },
-        );
-        expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
-          documentId: "document-1",
-          documentIds: [item.document.id],
-        });
-        expect(onDeletedPreviewItem).toHaveBeenCalledWith(item);
-        expect(onPreviewItem).toHaveBeenCalledWith(item);
       }
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        operation === "duplicate"
+          ? "Failed to duplicate row"
+          : "Failed to remove row from collection",
+        { description },
+      );
+      expect(benignMutation.mutateAsync).toHaveBeenCalledWith(
+        operation === "duplicate"
+          ? { itemId: item.id }
+          : { documentId: "document-1", documentIds: [item.document.id] },
+      );
+      expect(onDeletedPreviewItem.mock.calls).toEqual(
+        operation === "remove" ? [[item]] : [],
+      );
+      expect(onPreviewItem.mock.calls).toEqual(
+        operation === "remove" ? [[item]] : [],
+      );
     },
   );
 

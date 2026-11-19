@@ -21,12 +21,16 @@ describe("protected workspace reference errors", () => {
     const english =
       messagesByLocale["en-US"].sidebar.workspaceReferenceProtected;
     expect(Object.keys(messagesByLocale)).toHaveLength(11);
-    for (const [locale, messages] of Object.entries(messagesByLocale)) {
+    for (const messages of Object.values(messagesByLocale)) {
       const translated = messages.sidebar.workspaceReferenceProtected;
       expect(workspaceReferenceErrorMessage(error, translated)).toBe(
         translated,
       );
-      if (locale !== "en-US") expect(translated).not.toBe(english);
+    }
+    for (const [, messages] of Object.entries(messagesByLocale).filter(
+      ([locale]) => locale !== "en-US",
+    )) {
+      expect(messages.sidebar.workspaceReferenceProtected).not.toBe(english);
     }
     expect(messagesByLocale["fr-FR"]?.sidebar.workspaceReferenceProtected).toBe(
       "Les références aux espaces de travail sont protégées et ne peuvent pas être modifiées comme des pages.",
