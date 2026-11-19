@@ -536,6 +536,16 @@ export function agentWorkCallVerb(call: AgentWorkCall): AgentWorkVerb {
 const FAILURE_REASON_LIMIT = 160;
 
 /** A failed call's reason on one line: its HTTP status, or its first sentence. */
+function outputReason(output: unknown): string | undefined {
+  if (typeof output !== "string" || !output.trim()) return undefined;
+  if (!/^\s*[[{]/.test(output)) return output.trim();
+  const record = inputRecord(output);
+  return (
+    firstString(record, ["error", "message"]) ??
+    firstString(inputRecord(record?.error), ["message"])
+  );
+}
+
 export function agentWorkFailureReason(
   call: AgentWorkCall,
 ): string | undefined {
@@ -546,7 +556,7 @@ export function agentWorkFailureReason(
   )?.text;
   const source =
     tool?.error?.message.trim() ||
-    (typeof tool?.output === "string" ? tool.output.trim() : undefined) ||
+    outputReason(tool?.output) ||
     (summary && !/^\s*[[{]/.test(summary) ? summary.trim() : undefined) ||
     call.activity.detail?.trim();
   if (!source) return undefined;

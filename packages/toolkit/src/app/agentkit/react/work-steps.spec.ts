@@ -1423,6 +1423,18 @@ describe("agentWorkSources", () => {
 });
 
 describe("agentWorkFailureReason", () => {
+  it("reads a JSON output's error or message, and never shows raw JSON", () => {
+    const reason = (output: string) =>
+      agentWorkFailureReason(call("c", "x", {}, { status: "failed", output }));
+    expect(reason('{"error":"Rate limited.","code":429}')).toBe("Rate limited");
+    expect(reason('{"error":{"message":"Page not found."}}')).toBe(
+      "Page not found",
+    );
+    expect(reason('{"message":"Denied"}')).toBe("Denied");
+    expect(reason('{"ok":false,"code":"x"}')).toBe(undefined);
+    expect(reason("[1, 2]")).toBe(undefined);
+  });
+
   it("prefers the HTTP status, then the first sentence of the first line", () => {
     expect(
       agentWorkFailureReason(
