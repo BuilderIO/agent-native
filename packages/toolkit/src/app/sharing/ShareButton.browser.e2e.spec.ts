@@ -24,7 +24,7 @@ beforeAll(async () => {
           s.middlewares.use("/share-test", (_req, res) => {
             res.setHeader("content-type", "text/html");
             res.end(
-              '<div id="root"></div><script type="module" src="/src/app/sharing/ShareButton.browser.e2e-host.tsx"></script>',
+              '<div id="root"></div><script type="module" src="/test/fixtures/ShareButton.browser.e2e-host.tsx"></script>',
             );
           });
         },
@@ -39,8 +39,8 @@ beforeAll(async () => {
     : await chromium.launch({ channel: "chrome", headless: true });
 });
 afterAll(async () => {
-  await browser?.close();
-  await server?.close();
+  await browser.close();
+  await server.close();
 });
 describe("share invite suggestions", () => {
   it.each([
