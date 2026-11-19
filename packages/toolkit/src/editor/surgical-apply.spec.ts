@@ -1027,7 +1027,31 @@ describe("reconcileDocAgainstBase beside the editor's filler line", () => {
     },
   );
 
-  it("still sets aside a server change to a closing block the tab edited", () => {
+  it("takes in an item added beside the one the tab edited in a closing list", () => {
+    const base = "Intro.\n\n- One\n- Two";
+    const editor = openPage(base);
+    try {
+      editor.commands.insertContentAt(
+        editor.state.doc.child(0).nodeSize +
+          editor.state.doc.child(1).nodeSize -
+          3,
+        " local",
+      );
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, base),
+        parse(editor, "Intro.\n\n- One\n- Two\n- Three"),
+        { overlapPolicy: "prefer-live" },
+      );
+
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(md(editor)).toBe("Intro.\n\n- One\n- Two local\n- Three");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("still sets aside a server change to the item of a closing list the tab edited", () => {
     const base = "Intro.\n\n- One\n- Two";
     const editor = openPage(base);
     try {
@@ -1041,7 +1065,7 @@ describe("reconcileDocAgainstBase beside the editor's filler line", () => {
       const result = reconcileDocAgainstBase(
         editor,
         parse(editor, base),
-        parse(editor, "Intro.\n\n- One\n- Two\n- Three"),
+        parse(editor, "Intro.\n\n- One\n- Two agent"),
         { overlapPolicy: "prefer-live" },
       );
 
@@ -1086,6 +1110,135 @@ describe("reconcileDocAgainstBase beside the editor's filler line", () => {
       }
     },
   );
+});
+
+describe("reconcileDocAgainstBase inside blocks that hold blocks", () => {
+  it.each([
+    {
+      shape: "list",
+      base: "- Alpha\n- Bravo\n\nAfter",
+      live: "- Alpha typed\n- Bravo\n\nAfter",
+      server: "- Alpha\n- Bravo agent\n\nAfter",
+    },
+    {
+      shape: "quote",
+      base: "> Alpha\n>\n> Bravo\n\nAfter",
+      live: "> Alpha typed\n>\n> Bravo\n\nAfter",
+      server: "> Alpha\n>\n> Bravo agent\n\nAfter",
+    },
+  ])(
+    "merges changes to different blocks inside one $shape",
+    ({ base, live, server }) => {
+      for (const overlapPolicy of ["conflict", "prefer-live"] as const) {
+        const editor = makeEditor(live);
+        try {
+          const result = reconcileDocAgainstBase(
+            editor,
+            parse(editor, base),
+            parse(editor, server),
+            { overlapPolicy },
+          );
+          expect(result).toMatchObject({ status: "applied", setAside: 0 });
+          const container = editor.state.doc.child(0);
+          expect(container.childCount).toBe(2);
+          expect(container.child(0).textContent).toBe("Alpha typed");
+          expect(container.child(1).textContent).toBe("Bravo agent");
+          expect(editor.state.doc.child(1).textContent).toBe("After");
+        } finally {
+          editor.destroy();
+        }
+      }
+    },
+  );
+
+  it("applies a change beside the container along with one inside it", () => {
+    const editor = makeEditor("- Alpha typed\n- Bravo\n\nMiddle\n\nAfter");
+    try {
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "- Alpha\n- Bravo\n\nMiddle\n\nAfter"),
+        parse(editor, "- Alpha\n- Bravo agent\n\nMiddle\n\nAfter agent"),
+        { overlapPolicy: "prefer-live" },
+      );
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      const doc = editor.state.doc;
+      expect(doc.childCount).toBe(3);
+      expect(doc.child(0).child(0).textContent).toBe("Alpha typed");
+      expect(doc.child(0).child(1).textContent).toBe("Bravo agent");
+      expect(doc.child(1).textContent).toBe("Middle");
+      expect(doc.child(2).textContent).toBe("After agent");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("sets aside only the change to the block both sides edited", () => {
+    const editor = makeEditor("- Alpha typed\n- Bravo\n- Charlie");
+    try {
+      const before = editor.state.doc;
+      const conflict = planDocReconcile(
+        before,
+        parse(editor, "- Alpha\n- Bravo\n- Charlie"),
+        parse(editor, "- Alpha agent\n- Bravo\n- Charlie agent"),
+      );
+      expect(conflict.status).toBe("conflict");
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "- Alpha\n- Bravo\n- Charlie"),
+        parse(editor, "- Alpha agent\n- Bravo\n- Charlie agent"),
+        { overlapPolicy: "prefer-live" },
+      );
+      expect(result).toMatchObject({ status: "applied", setAside: 1 });
+      const list = editor.state.doc.child(0);
+      expect(list.child(0).textContent).toBe("Alpha typed");
+      expect(list.child(1).textContent).toBe("Bravo");
+      expect(list.child(2).textContent).toBe("Charlie agent");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps a container whose kind changed on one side as one change", () => {
+    const editor = makeEditor("- Alpha typed\n- Bravo");
+    try {
+      const before = editor.state.doc;
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "- Alpha\n- Bravo"),
+        parse(editor, "1. Alpha\n2. Bravo agent"),
+        { overlapPolicy: "prefer-live" },
+      );
+      expect(result).toEqual({ status: "noop", setAside: 1 });
+      expect(editor.state.doc).toBe(before);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps the cursor in the paragraph being typed in", () => {
+    const editor = makeEditor("- Alpha typed\n- Bravo");
+    try {
+      const typedEnd = 1 + 1 + 1 + "Alpha typed".length;
+      editor.commands.setTextSelection(typedEnd);
+      expect(editor.state.doc.textBetween(typedEnd - 5, typedEnd)).toBe(
+        "typed",
+      );
+      const result = reconcileDocAgainstBase(
+        editor,
+        parse(editor, "- Alpha\n- Bravo"),
+        parse(editor, "- Alpha\n- Bravo agent"),
+        { overlapPolicy: "prefer-live" },
+      );
+      expect(result).toMatchObject({ status: "applied", setAside: 0 });
+      expect(editor.state.selection.from).toBe(typedEnd);
+      editor.commands.insertContent("!");
+      expect(editor.state.doc.child(0).child(0).textContent).toBe(
+        "Alpha typed!",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
 });
 
 describe("defaultParseValue", () => {

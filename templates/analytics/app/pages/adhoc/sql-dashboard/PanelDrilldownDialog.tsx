@@ -1,15 +1,17 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { csvCell } from "@agent-native/toolkit/dashboard/csv";
 import {
   BREAKDOWN_OVER_BYTE_CAP_ERROR,
   ROW_BREAKDOWN_MAX_BYTES_BILLED,
-} from "@shared/row-breakdown";
+} from "@agent-native/toolkit/dashboard/row-breakdown";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { SqlQueryRefusalError } from "@shared/sql-query-contract";
 import { IconDownload } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-import type { ChartDatum } from "@/components/dashboard/SqlChart";
+import type { ChartDatum } from "@/components/dashboard/SqlChartQuery";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,13 +29,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { csvCell } from "@/lib/csv";
 import { useSqlQuery } from "@/lib/sql-query";
 import { cn } from "@/lib/utils";
 
 import { interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
-import type { SqlPanel } from "./types";
 
 const HIDDEN_COLUMNS = new Set(["total_matching"]);
 
@@ -127,9 +127,17 @@ export function PanelDrilldownDialog({
     drilldownQuery.isSuccess &&
     (drilldownData?.drilldown === null ||
       (typeof drilldownSql === "string" && drilldownSql.length > 0));
-  const hasRecordQuery = hasDrilldownResult && drilldownSql !== null;
+  // A null x reaches a template as '', which matches no records. Only a
+  // template that reads drillXIsNull can open them; others show the chart's rows.
+  const nullXUnsupported =
+    datum?.xIsNull === true &&
+    typeof drilldownSql === "string" &&
+    !drilldownSql.includes("{{drillXIsNull}}");
+  const hasRecordQuery =
+    hasDrilldownResult && drilldownSql !== null && !nullXUnsupported;
   const hasAggregateQuery =
-    hasDrilldownResult && drilldownData?.drilldown === null;
+    hasDrilldownResult &&
+    (drilldownData?.drilldown === null || nullXUnsupported);
 
   const recordSql = useMemo(
     () =>
@@ -139,6 +147,7 @@ export function PanelDrilldownDialog({
             {
               ...filters,
               drillX: datum.x,
+              drillXIsNull: datum.xIsNull ? "true" : "false",
               drillSeries: datum.series ?? "",
             },
             panel,
@@ -337,7 +346,9 @@ export function PanelDrilldownDialog({
         ) : null}
         {!hasRecordQuery && !loading && !error ? (
           <p className="shrink-0 text-xs text-muted-foreground">
-            {t("sqlDashboard.drilldownAggregateOnly")}
+            {nullXUnsupported
+              ? t("sqlDashboard.drilldownNoXValueAggregateOnly")
+              : t("sqlDashboard.drilldownAggregateOnly")}
           </p>
         ) : null}
         {showSql ? (

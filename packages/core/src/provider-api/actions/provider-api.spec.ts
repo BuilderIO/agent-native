@@ -17,6 +17,28 @@ import {
 } from "./provider-api.js";
 
 describe("provider API action factories", () => {
+  it.each(["PROPFIND", "REPORT"])(
+    "accepts %s at the action boundary while retaining conservative classification",
+    (method) => {
+      const request = { provider: "dav-test", method, path: "/" };
+      expect(createProviderApiRequestSchema().safeParse(request).success).toBe(
+        true,
+      );
+      const action = createProviderApiRequestAction({
+        executeRequest: vi.fn(),
+      });
+      const effect = action.planMode?.effect;
+      if (typeof effect !== "function") throw new Error("Missing classifier");
+      expect(effect(request)).toBe("write");
+      expect(actionCallIsRetrySafe(action, request)).toBe(false);
+      expect(
+        createProviderApiRequestSchema().safeParse({
+          ...request,
+          method: "CONNECT",
+        }).success,
+      ).toBe(false);
+    },
+  );
   it.each([
     { method: "PATCH", path: "/crm/v3/objects/deals/1" },
     { method: "POST", path: "/crm/v3/objects/contacts" },

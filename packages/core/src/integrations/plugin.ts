@@ -216,6 +216,16 @@ import {
   slackOAuthResponseToInstallation,
   testSlackAuth,
 } from "./slack-oauth.js";
+import {
+  SLACK_USER_INSTALL_APP,
+  installSlackUserGrant,
+  resolveSlackUserInstallGate,
+  slackUserInstallOperationId,
+} from "./slack-user-install.js";
+import {
+  SLACK_USER_READ_SCOPES,
+  buildSlackUserAuthorizeUrl,
+} from "./slack-user-oauth.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import type {
   PlatformAdapter,
@@ -3104,12 +3114,17 @@ export function createIntegrationsPlugin(
           return { error: "Sign in before connecting Slack." };
         }
         const org = await getIntegrationOrgContext(event);
+        const userOnlyRequest = getQuery(event).mode === "user";
         try {
-          assertSlackInstallAccess({
-            email: session.email,
-            orgId: org.orgId ?? null,
-            orgRole: org?.role ?? null,
-          });
+          // A personal grant belongs to the signed-in member, so only bot
+          // installs need an org owner or admin.
+          if (!userOnlyRequest) {
+            assertSlackInstallAccess({
+              email: session.email,
+              orgId: org.orgId ?? null,
+              orgRole: org.role ?? null,
+            });
+          }
         } catch (err) {
           setResponseStatus(event, 403);
           return {
@@ -3125,12 +3140,17 @@ export function createIntegrationsPlugin(
           async () => {
             const clientId = await resolveSecret("SLACK_CLIENT_ID");
             const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
-            const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
+            // Only a bot install registers event and interactivity webhooks,
+            // which is what the signing secret verifies.
+            const signingSecret = userOnlyRequest
+              ? true
+              : await resolveSecret("SLACK_SIGNING_SECRET");
             if (!clientId || !clientSecret || !signingSecret) {
               setResponseStatus(event, 503);
               return {
-                error:
-                  "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
+                error: userOnlyRequest
+                  ? "Slack OAuth is not configured. Add the Slack client id and client secret first."
+                  : "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
               };
             }
             const redirectUri = resolveOAuthRedirectUri(
@@ -3142,15 +3162,55 @@ export function createIntegrationsPlugin(
               return { error: "Slack OAuth redirect URL is not allowed." };
             }
             const query = getQuery(event);
+            const userOnly = userOnlyRequest;
+            // Fail closed: user-only installs exist only for workspaces the
+            // deployment explicitly allows.
+            const gate = userOnly ? resolveSlackUserInstallGate() : null;
+            if (gate && gate.allowlist.length === 0 && !gate.bootstrap) {
+              setResponseStatus(event, 403);
+              return {
+                error:
+                  "Slack user authorization is not enabled for this deployment.",
+              };
+            }
+            if (userOnly && session.authUserId === undefined) {
+              setResponseStatus(event, 403);
+              return {
+                error:
+                  "Slack user authorization needs a signed-in account identity.",
+              };
+            }
             const state = encodeOAuthState({
               redirectUri,
               owner: session.email,
               orgId: org.orgId ?? undefined,
-              app: "agent-native:slack",
+              app: userOnly ? SLACK_USER_INSTALL_APP : "agent-native:slack",
               addAccount: true,
+              // Bind a personal grant to the initiating auth principal, not
+              // only its email, which another principal could later reuse.
+              ...(userOnly
+                ? { flowId: `principal:${session.authUserId}` }
+                : {}),
               returnUrl:
                 typeof query.return === "string" ? query.return : "/messaging",
             });
+            if (gate) {
+              return sendRedirect(
+                event,
+                buildSlackUserAuthorizeUrl({
+                  clientId,
+                  redirectUri,
+                  state,
+                  userScopes: SLACK_USER_READ_SCOPES,
+                  // A single pinned workspace skips the workspace picker; with
+                  // several (or none yet) the provider decides.
+                  ...(gate.allowlist.length === 1
+                    ? { teamId: gate.allowlist[0] }
+                    : {}),
+                }),
+                302,
+              );
+            }
             return sendRedirect(
               event,
               buildSlackAuthorizeUrl({ clientId, redirectUri, state }),
@@ -3192,8 +3252,9 @@ export function createIntegrationsPlugin(
         }
         const session = await getSession(event);
         const org = await getIntegrationOrgContext(event);
+        const userOnlyInstall = state.app === SLACK_USER_INSTALL_APP;
         if (
-          state.app !== "agent-native:slack" ||
+          (state.app !== "agent-native:slack" && !userOnlyInstall) ||
           !session?.email ||
           !state.owner ||
           session.email.toLowerCase() !== state.owner.toLowerCase() ||
@@ -3205,16 +3266,30 @@ export function createIntegrationsPlugin(
         }
         const code = typeof query.code === "string" ? query.code : null;
         if (!code) return oauthErrorPage("Slack did not return an OAuth code.");
+        if (
+          userOnlyInstall &&
+          (session.authUserId === undefined ||
+            state.flowId !== `principal:${session.authUserId}`)
+        ) {
+          return oauthErrorPage(
+            "Your Slack install session expired or changed. Sign in and start again.",
+          );
+        }
         try {
-          const access = assertSlackInstallAccess({
-            email: session.email,
-            orgId: org.orgId ?? null,
-            orgRole: org?.role ?? null,
-          });
+          const access = userOnlyInstall
+            ? userOnlyAccess(session.email, org.orgId)
+            : assertSlackInstallAccess({
+                email: session.email,
+                orgId: org.orgId ?? null,
+                orgRole: org.role ?? null,
+              });
           const requestScope = verifiedRequestScope(access.orgId);
           return await runWithRequestContext(
             {
               userEmail: access.ownerEmail,
+              ...(userOnlyInstall && session.authUserId
+                ? { authUserId: session.authUserId }
+                : {}),
               ...integrationRequestContext(requestScope),
             },
             async () => {
@@ -3229,6 +3304,51 @@ export function createIntegrationsPlugin(
                 clientSecret,
                 redirectUri: state.redirectUri,
               });
+              if (userOnlyInstall) {
+                // User-only installs store a personal grant and never a bot
+                // installation. The gate is re-checked here because the team
+                // id is only known after the exchange.
+                const gate = resolveSlackUserInstallGate();
+                if (gate.allowlist.length === 0 && !gate.bootstrap) {
+                  return oauthErrorPage(
+                    "Slack user authorization is not enabled for this deployment.",
+                  );
+                }
+                const userToken = oauth.authed_user?.access_token;
+                if (!userToken) {
+                  return oauthErrorPage(
+                    "Slack returned no user authorization. Please retry.",
+                  );
+                }
+                const userHealth = await testSlackAuth(userToken);
+                if (!userHealth.ok) {
+                  return oauthErrorPage(
+                    "Slack connected, but the user token could not be verified. Please retry.",
+                  );
+                }
+                if (
+                  oauth.team?.id &&
+                  userHealth.teamId &&
+                  oauth.team.id !== userHealth.teamId
+                ) {
+                  return oauthErrorPage(
+                    "Slack returned inconsistent workspace details. Please retry.",
+                  );
+                }
+                await installSlackUserGrant({
+                  response: oauth,
+                  allowlist: gate.allowlist,
+                  bootstrap: gate.bootstrap,
+                  operationId: slackUserInstallOperationId(
+                    `${oauth.team?.id ?? ""}:${oauth.authed_user?.id ?? ""}:${code}`,
+                  ),
+                });
+                return oauthCallbackResponse(event, "Slack", {
+                  addAccount: true,
+                  appName: "Agent-Native",
+                  returnUrl: state.returnUrl || "/messaging",
+                });
+              }
               const health = await testSlackAuth(oauth.access_token || "");
               if (!health.ok) {
                 return oauthErrorPage(
@@ -3861,4 +3981,23 @@ function stringifyValue(value: unknown): string {
   )
     return String(value);
   return value == null ? "" : (JSON.stringify(value) ?? "");
+}
+
+/** A personal grant needs the signed-in member, not an org owner or admin. */
+function userOnlyAccess(email: string, orgId: string | null | undefined) {
+  const ownerEmail = email.trim().toLowerCase();
+  const org = orgId?.trim() || null;
+  return org
+    ? {
+        ownerEmail,
+        orgId: org,
+        secretScope: "org" as const,
+        secretScopeId: org,
+      }
+    : {
+        ownerEmail,
+        orgId: null,
+        secretScope: "user" as const,
+        secretScopeId: ownerEmail,
+      };
 }

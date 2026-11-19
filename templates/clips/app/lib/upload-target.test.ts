@@ -547,7 +547,7 @@ describe("openUploadTarget", () => {
 });
 
 describe("abandonUploadTarget", () => {
-  it("trashes the row of a recorder that could not start", async () => {
+  it("aborts and trashes the row of a take that never recorded", async () => {
     const abandon = vi.fn(async () => ({}));
     const abort = vi.fn(async () => ({}));
 
@@ -556,11 +556,38 @@ describe("abandonUploadTarget", () => {
       { intake: false, abandon, abort },
     );
 
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(abort).toHaveBeenCalledWith("/api/uploads/srv-1/abort");
+    expect(abandon).toHaveBeenCalledTimes(1);
     expect(abandon).toHaveBeenCalledWith("srv-1");
-    expect(abort).not.toHaveBeenCalled();
   });
 
-  it("aborts an intake row, and leaves a local-only take alone", async () => {
+  it("still aborts when the trash fails, and still trashes when the abort fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const failingAbandon = vi.fn(async () => {
+      throw new Error("trash refused");
+    });
+    const abort = vi.fn(async () => ({}));
+    await abandonUploadTarget(
+      { id: "srv-1", abortUrl: "/abort" },
+      { intake: false, abandon: failingAbandon, abort },
+    );
+    expect(abort).toHaveBeenCalledTimes(1);
+
+    const abandon = vi.fn(async () => ({}));
+    const failingAbort = vi.fn(async () => {
+      throw new Error("abort refused");
+    });
+    await abandonUploadTarget(
+      { id: "srv-2", abortUrl: "/abort" },
+      { intake: false, abandon, abort: failingAbort },
+    );
+    expect(abandon).toHaveBeenCalledWith("srv-2");
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it("only aborts an intake row, and leaves a local-only take alone", async () => {
     const abandon = vi.fn(async () => ({}));
     const abort = vi.fn(async () => ({}));
 

@@ -225,6 +225,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-labs": "labs",
   "get-lab-states": "labs",
   "set-lab": "labs",
+  "get-labs-show-all": "labs",
+  "set-labs-show-all": "labs",
   "get-chatgpt-subscription-status": "chat",
   "disconnect-chatgpt-subscription": "chat",
   "list-chatgpt-subscription-accounts": "chat",

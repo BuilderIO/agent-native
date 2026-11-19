@@ -39,7 +39,14 @@ export interface SlackOAuthAccessResponse {
   bot_user_id?: string;
   app_id?: string;
   is_enterprise_install?: boolean;
-  authed_user?: { id?: string };
+  authed_user?: {
+    id?: string;
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+    scope?: string;
+  };
   team?: { id?: string; name?: string } | null;
   enterprise?: { id?: string; name?: string } | null;
 }

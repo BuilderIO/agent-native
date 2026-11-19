@@ -3,6 +3,10 @@ import {
   type ErrorNoiseReason,
 } from "../shared/error-noise.js";
 import {
+  isSecretName,
+  redactSecretsInText,
+} from "../shared/secret-redaction.js";
+import {
   readStaleChunkRecoveryExhausted,
   STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
   type StaleChunkRecoveryExhausted,
@@ -137,21 +141,12 @@ const BUDGET_EXCEEDED_EVENT_TYPE = "ErrorBudgetExceeded";
 
 const ERROR_CAPTURE_STATE_KEY = Symbol.for("agent-native.client.errorCapture");
 
-// Reuse the same credential-looking redaction the replay capture uses so a
-// stack/message that echoes a token never leaves the browser in the clear.
-const SECRET_KEY_FRAGMENT =
-  "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
-const BEARER_RE = /\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi;
-const UNQUOTED_SECRET_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
-  "gi",
-);
-const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
+export function redactSecrets(value: string): string {
+  return redactSecretsInText(value, { placeholder: "<redacted>" });
+}
 
-function redactSecrets(value: string): string {
-  return value
-    .replace(BEARER_RE, "$1 <redacted>")
-    .replace(UNQUOTED_SECRET_RE, "$1$2$1$3<redacted>");
+function isSecretKey(key: string): boolean {
+  return isSecretName(key, { session: true });
 }
 
 function getRuntime(): ErrorCaptureRuntime {
@@ -190,7 +185,7 @@ function truncate(value: string, max: number): string {
 
 function currentUrl(): string | undefined {
   try {
-    return scrubUrl(window.location.href);
+    return scrubUrl(window.location.href, { routePath: true });
   } catch {
     return undefined;
   }
@@ -261,7 +256,7 @@ function coerceExtra(
   for (const [key, value] of Object.entries(extra)) {
     if (count >= MAX_EXTRA_KEYS) break;
     const safeKey = truncate(redactSecrets(key), 100);
-    out[safeKey] = SECRET_KEY_RE.test(safeKey)
+    out[safeKey] = isSecretKey(safeKey)
       ? "<redacted>"
       : coerceExtraValue(value, MAX_EXTRA_DEPTH);
     count += 1;
@@ -300,7 +295,7 @@ function coerceExtraValue(value: unknown, depth: number): unknown {
     for (const [rawKey, child] of Object.entries(value)) {
       if (count >= MAX_EXTRA_OBJECT_KEYS) break;
       const key = truncate(redactSecrets(rawKey), 100);
-      out[key] = SECRET_KEY_RE.test(key)
+      out[key] = isSecretKey(key)
         ? "<redacted>"
         : coerceExtraValue(child, depth - 1);
       count += 1;
@@ -547,7 +542,7 @@ function installNavigationBreadcrumbs(runtime: ErrorCaptureRuntime): void {
     try {
       addErrorBreadcrumb({
         category: "navigation",
-        message: `${navType} ${scrubUrl(window.location.href) ?? window.location.pathname}`,
+        message: `${navType} ${scrubUrl(window.location.href, { routePath: true }) ?? window.location.pathname}`,
       });
     } catch {
       // ignore

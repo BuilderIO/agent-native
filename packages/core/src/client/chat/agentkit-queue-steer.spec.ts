@@ -943,4 +943,202 @@ describe("AgentKit queued steering", () => {
       await transport.dispose();
     }
   });
+
+  it("promotes a claimed row when the claim answer lists the queue only", async () => {
+    // The tasks-app server answers a claim with the queue it still holds and no dedicated claimedMessage.
+    // Reading the row out of that queue is what keeps the promotion alive; before this the client threw
+    // "Agent chat queue claim response is invalid" and the queued message never became a turn
+    //.
+    const threadId = "thread-claim-without-row";
+    const apiUrl = "/_agent-native/agent-chat";
+    const queued = {
+      id: "queued-claim-without-row",
+      threadId,
+      text: "Run this next",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    let queue = [queued];
+    const startedTexts: string[] = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (url.startsWith(`${apiUrl}/runs/active?`)) {
+          return json({ active: false });
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
+          const { mutation } = JSON.parse(String(init?.body));
+          if (mutation.type === "claim") {
+            return json({ queuedMessages: queue });
+          }
+          if (mutation.type === "remove") {
+            queue = queue.filter((item) => item.id !== mutation.messageId);
+            return json({ queuedMessages: queue });
+          }
+          return json({ queuedMessages: queue });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            createdAt: queued.createdAt,
+            updatedAt: queued.createdAt,
+            threadData: JSON.stringify({ messages: [], queuedMessages: queue }),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          return json({ ok: true });
+        }
+        return json({ error: `Unexpected request: ${method} ${url}` }, 404);
+      },
+    );
+    const runtime: AgentChatRuntime = {
+      id: "test:claim-without-row",
+      kind: "external-agent",
+      label: "Claim without row test runtime",
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true },
+        sessions: { create: true },
+      },
+      async createSession(input) {
+        return {
+          id: input?.id ?? threadId,
+          runtimeId: "test:claim-without-row",
+          async startTurn(turn) {
+            startedTexts.push(
+              JSON.stringify(turn).includes("Run this next")
+                ? "Run this next"
+                : "",
+            );
+            return { runId: "run-1" };
+          },
+          async *subscribe() {
+            yield { type: "run.started", runId: "run-1" };
+            yield { type: "run.completed", runId: "run-1" };
+          },
+        };
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime,
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await client.loadThread(threadId);
+      await client.steerQueuedMessage(threadId, queued.id);
+      expect(startedTexts).toEqual(["Run this next"]);
+    } finally {
+      await client.shutdown();
+      await transport.dispose();
+    }
+  });
+
+  it("sends a receipt-managed row the inbox has left queued and idle", async () => {
+    // The server's inbox answered the claim as receipt-managed and left the receipt at "queued" with no run
+    // active. Waiting on that inbox kept the row on "Send now" forever, so the client
+    // takes the row over: it leaves the queue and becomes the thread's next turn.
+    const threadId = "thread-receipt-idle";
+    const apiUrl = "/_agent-native/agent-chat";
+    const queued = {
+      id: "queued-receipt-idle",
+      threadId,
+      text: "Send me next",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    let queue = [queued];
+    const startedTexts: string[] = [];
+    const mutations: string[] = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (url.startsWith(`${apiUrl}/runs/active?`)) {
+          return json({ active: false });
+        }
+        if (url.includes(`/queue/${queued.id}/receipt`)) {
+          return json({ state: "queued" });
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`) && method === "POST") {
+          const { mutation } = JSON.parse(String(init?.body));
+          mutations.push(mutation.type);
+          if (mutation.type === "claim") {
+            return json({ queuedMessages: queue, receiptManaged: true });
+          }
+          if (mutation.type === "remove") {
+            queue = queue.filter((item) => item.id !== mutation.messageId);
+            return json({ queuedMessages: queue });
+          }
+          return json({ queuedMessages: queue });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          return json({
+            id: threadId,
+            createdAt: queued.createdAt,
+            updatedAt: queued.createdAt,
+            threadData: JSON.stringify({ messages: [], queuedMessages: queue }),
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          return json({ ok: true });
+        }
+        return json({ error: `Unexpected request: ${method} ${url}` }, 404);
+      },
+    );
+    const runtime: AgentChatRuntime = {
+      id: "test:receipt-idle",
+      kind: "external-agent",
+      label: "Receipt idle test runtime",
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true },
+        sessions: { create: true },
+      },
+      async createSession(input) {
+        return {
+          id: input?.id ?? threadId,
+          runtimeId: "test:receipt-idle",
+          async startTurn(turn) {
+            startedTexts.push(
+              JSON.stringify(turn).includes("Send me next")
+                ? "Send me next"
+                : "",
+            );
+            return { runId: "run-1" };
+          },
+          async *subscribe() {
+            yield { type: "run.started", runId: "run-1" };
+            yield { type: "run.completed", runId: "run-1" };
+          },
+        };
+      },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl,
+      fetch: fetcher as typeof fetch,
+      runtime,
+    });
+    const client = new AgentKitClient({ transport });
+
+    try {
+      await client.loadThread(threadId);
+      // The inbox gets a few attempts first; the client takes the row over once it keeps reporting it queued.
+      for (const attempt of [1, 2, 3]) {
+        try {
+          await client.steerQueuedMessage(threadId, queued.id);
+          break;
+        } catch (error) {
+          expect(attempt).toBeLessThan(3);
+          expect(error).toMatchObject({ code: "queue_item_busy" });
+        }
+      }
+      expect(startedTexts).toEqual(["Send me next"]);
+      expect(mutations).toContain("remove");
+    } finally {
+      await client.shutdown();
+      await transport.dispose();
+    }
+  });
 });

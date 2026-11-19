@@ -53,6 +53,8 @@ vi.mock("@agent-native/core/client/org", () => ({
   useCreateOrg: () => mocks.createOrg,
   useJoinByDomain: () => mocks.joinByDomain,
   useOrg: mocks.useOrg,
+  // The workspace menu header reads the member count through this hook.
+  useOrgMembers: () => ({ data: { totalCount: 3 }, isLoading: false }),
   useSwitchOrg: (options?: {
     onPersisted?: (orgId: string | null) => void;
   }) => {
@@ -445,6 +447,30 @@ describe("OrgSwitcher (account menu)", () => {
     },
   );
 
+  it("renders an app-owned menu header above the organizations without adding a menu item", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+
+    render(<OrgSwitcher menuHeader={<span>Acme · 12 members</span>} />);
+    const menu = openMenu();
+    const header = menu.querySelector("[data-org-switcher-menu-header]");
+
+    expect(header?.textContent).toBe("Acme · 12 members");
+    expect(header?.closest('[role="menuitem"]')).toBeNull();
+    const position = header?.compareDocumentPosition(findItem("Acme")) ?? 0;
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(menuItemLabels()[0]).toBe("Acme");
+  });
+
+  it("renders no header wrapper when no menu header is passed", () => {
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+
+    render(<OrgSwitcher />);
+
+    expect(
+      openMenu().querySelector("[data-org-switcher-menu-header]"),
+    ).toBeNull();
+  });
+
   it("keeps the workspace URL as a direct link in the account menu", () => {
     const workspaceUrl = "https://agent-workspace.builder.io";
     mocks.useOrg.mockReturnValue({
@@ -587,6 +613,35 @@ describe("OrgSwitcher (account menu)", () => {
         'button[aria-label*="Your Builder credits are used up"]',
       ),
     ).not.toBeNull();
+  });
+
+  it("reads no credit balance and shows no meter where commercial surfaces are hidden", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+    mocks.useActionQuery.mockReturnValue({
+      data: {
+        state: { kind: "exhausted" },
+        period: "monthly",
+        balance: 0,
+        quota: { period: "monthly", limit: 500, used: 500, remaining: 0 },
+      },
+      isError: false,
+    });
+
+    try {
+      render(<BuilderCreditNotice compact showAtLimitOnly />);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(container.querySelector("button")).toBeNull();
+    expect(mocks.useActionQuery).not.toHaveBeenCalledWith(
+      "get-builder-credit-status",
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("preserves supported fractional Builder credits", () => {

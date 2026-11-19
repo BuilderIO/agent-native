@@ -830,7 +830,6 @@ describe("screen deletion history identity", () => {
         handleDuplicateScreen: duplicateScreen,
         lastDuplicateTransformRef: ref(null),
         overviewSelectedScreenIds: [restoredScreenId],
-        remapMotionTracksForClone: noop,
         selectedCanvasSelector: "",
         selectedElement: currentSelectedElement,
         selectedLayerIdsState: selectedLayerIdsRef.current,

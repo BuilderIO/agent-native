@@ -15,9 +15,12 @@ export class SavedDraftOwnershipError extends Error {
 export async function resolveExistingSavedDraftOwnership(args: {
   ownerEmail: string;
   savedDraftId: string;
-  savedDraftBackend?: SavedDraftBackend;
-  accountEmail?: string;
-}): Promise<{ backend: SavedDraftBackend; accountEmail?: string }> {
+  savedDraftBackend?: SavedDraftBackend | undefined;
+  accountEmail?: string | undefined;
+}): Promise<
+  | { backend: "local"; accountEmail?: undefined }
+  | { backend: "gmail"; accountEmail: string }
+> {
   if (args.savedDraftBackend === "local") return { backend: "local" };
   if (args.savedDraftBackend === "gmail" && args.accountEmail) {
     return { backend: "gmail", accountEmail: args.accountEmail };

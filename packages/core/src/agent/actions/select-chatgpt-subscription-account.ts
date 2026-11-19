@@ -4,6 +4,7 @@ import { defineAction, fail } from "../../action.js";
 import { selectChatGPTSubscriptionAccount } from "../../server/chatgpt-subscription-oauth.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Set one of the current user's saved ChatGPT registrations as active.",
   schema: z.object({

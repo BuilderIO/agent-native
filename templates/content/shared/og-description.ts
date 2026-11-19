@@ -1,6 +1,18 @@
-const DEFAULT_DESCRIPTION =
-  "Read this public document in Agent-Native Content.";
+/** The name link previews show for the site a shared page lives on. */
+export const CONTENT_SITE_NAME = "Agent-Native Content";
+
+/**
+ * What a preview says when the page or database has nothing else to say. It
+ * names what the link opens and never calls it public: an agent's access
+ * link reaches private pages here too.
+ */
+const FALLBACK_DESCRIPTIONS = {
+  page: `A page in ${CONTENT_SITE_NAME}.`,
+  database: `A database in ${CONTENT_SITE_NAME}.`,
+} as const;
 const DEFAULT_MAX_LENGTH = 160;
+
+export type PublicDocumentKind = keyof typeof FALLBACK_DESCRIPTIONS;
 
 function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "");
@@ -157,15 +169,28 @@ function truncateDescription(text: string, maxLength: number): string {
   return text.length <= maxLength ? text : withEllipsis(text, maxLength);
 }
 
+/**
+ * A link preview's line for a page or database: its own description when it
+ * has one, then the first paragraph of its body, then what kind of item it is.
+ */
 export function buildPublicDocumentDescription({
+  description,
   content,
   title,
+  kind = "page",
   maxLength = DEFAULT_MAX_LENGTH,
 }: {
+  description?: string | null;
   content?: string | null;
   title?: string | null;
+  kind?: PublicDocumentKind;
   maxLength?: number;
 }): string {
+  const ownDescription = description?.replace(/\s+/g, " ").trim();
+  if (ownDescription && !isTitleRepeat(ownDescription, title ?? "")) {
+    return truncateDescription(ownDescription, maxLength);
+  }
+
   // Comments go before the page splits into blocks, since one can span several.
   const normalizedContent = stripFencedCode(
     stripHtmlComments(stripFrontmatter(content?.replace(/\r\n?/g, "\n") ?? "")),
@@ -193,7 +218,7 @@ export function buildPublicDocumentDescription({
 
   return fallback
     ? truncateDescription(fallback, maxLength)
-    : DEFAULT_DESCRIPTION;
+    : FALLBACK_DESCRIPTIONS[kind];
 }
 
 /** A line frontmatter holds: a key, list item, indented value, comment or blank. */

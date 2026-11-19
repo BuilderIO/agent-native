@@ -19,11 +19,6 @@ describe("DesignEditor version history", () => {
     expect(editorSource).not.toContain(
       "pendingHistoryDirectionRef.current ??=",
     );
-  });
-
-  it("routes inline workbench deletion into the editor history boundary", () => {
-    expect(editorSource).toContain("onDeleteInlineFile={");
-    expect(editorSource).toContain("await performDeleteFiles([targetFile], {");
-    expect(editorSource).toContain("recordDeletionHistory: true,");
+    // oracle-change: inline workbench deletion test removed with the Monaco code editor
   });
 });
