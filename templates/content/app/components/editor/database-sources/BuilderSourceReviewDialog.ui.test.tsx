@@ -827,6 +827,25 @@ describe("BuilderSourceReviewDialog batched loading", () => {
     expect(checked()).toEqual(["unchecked", "unchecked"]);
   });
 
+  it("selects nothing new when every row the reviewer kept drops out", () => {
+    const checked = () =>
+      rowBoxes().map((box) => box.getAttribute("data-state"));
+    renderDialog({ review: rowsOf(3), autoSelectReviewRows: true });
+    act(() => rowBoxes()[0]?.click());
+    act(() => rowBoxes()[2]?.click());
+    expect(checked()).toEqual(["unchecked", "checked", "unchecked"]);
+
+    renderDialog({
+      review: {
+        ...review,
+        rows: [reviewRow(0), reviewRow(2)],
+        totalRowCount: 2,
+      },
+      autoSelectReviewRows: true,
+    });
+    expect(checked()).toEqual(["unchecked", "unchecked"]);
+  });
+
   it("shows a body's changed lines with the changed words marked", () => {
     const bodyRow = {
       ...reviewRow(0),

@@ -559,9 +559,7 @@ export function BuilderSourceReviewDialog({
         )
         .filter((changeSetId) => reviewRowIdSet.has(changeSetId));
       const target =
-        autoSelectReviewRows &&
-        (!selectionChangedRef.current ||
-          (next.length === 0 && current.length > 0))
+        autoSelectReviewRows && !selectionChangedRef.current
           ? [...reviewRowIdSet]
           : next;
       return target.length === current.length &&
