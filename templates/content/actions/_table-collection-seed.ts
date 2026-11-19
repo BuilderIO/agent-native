@@ -1,0 +1,174 @@
+import { eq, sql } from "drizzle-orm";
+
+import { getDb, schema } from "../server/db/index.js";
+import {
+  documentCreationAttribution,
+  requireDocumentRequestActor,
+} from "../server/lib/document-attribution.js";
+import { serializePropertyValue } from "../shared/properties.js";
+import {
+  type TableCollectionSeed,
+  tableCollectionSeedSchema,
+} from "../shared/table-collection-seed.js";
+import { ensureDocumentsFilesMembership } from "./_content-files.js";
+import { nextAppendPosition } from "./_position-utils.js";
+import { nanoid } from "./_property-utils.js";
+
+type Db = ReturnType<typeof getDb>;
+
+// Keeps each insert well under Postgres's 65,535 bound parameters.
+const INSERT_CHUNK = 500;
+
+async function insertInChunks<T>(
+  rows: T[],
+  insert: (chunk: T[]) => Promise<unknown>,
+) {
+  for (let start = 0; start < rows.length; start += INSERT_CHUNK) {
+    await insert(rows.slice(start, start + INSERT_CHUNK));
+  }
+}
+
+/**
+ * Fills a collection made in the same transaction with a page table's text:
+ * one text property per column after the first, and one row per table row,
+ * titled by its first cell. Nothing else can see the collection until the
+ * transaction commits, so its rows and properties take positions from 0.
+ */
+export async function seedCollectionFromTable(
+  db: Db,
+  databaseId: string,
+  table: TableCollectionSeed,
+) {
+  // Callers inside the server skip the action's own check.
+  const seed = tableCollectionSeedSchema.parse(table);
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  if (!database) throw new Error(`Database "${databaseId}" not found`);
+  const [collectionPage] = await db
+    .select({
+      visibility: schema.documents.visibility,
+      hideFromSearch: schema.documents.hideFromSearch,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, database.documentId));
+  if (!collectionPage) {
+    throw new Error(`Database "${databaseId}" has no page`);
+  }
+
+  const now = new Date().toISOString();
+  const actor = requireDocumentRequestActor();
+  const owner = { ownerEmail: database.ownerEmail, orgId: database.orgId };
+
+  const [maxPosition] = await db
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+  const firstPosition = nextAppendPosition(maxPosition?.max);
+  const propertyIds = seed.properties.map(() => nanoid());
+  if (propertyIds.length > 0) {
+    await db.insert(schema.documentPropertyDefinitions).values(
+      seed.properties.map((name, index) => ({
+        id: propertyIds[index],
+        ...owner,
+        databaseId,
+        name,
+        type: "text",
+        visibility: "always_show",
+        position: firstPosition + index,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+
+  const rows = seed.rows.map((cells, position) => ({
+    documentId: nanoid(),
+    itemId: nanoid(),
+    position,
+    cells,
+  }));
+  await insertInChunks(rows, (chunk) =>
+    db.insert(schema.documents).values(
+      chunk.map((row) => ({
+        id: row.documentId,
+        spaceId: database.spaceId,
+        ...owner,
+        parentId: database.documentId,
+        title: row.cells[0].replace(/\s+/g, " ").trim(),
+        content: "",
+        icon: null,
+        position: row.position,
+        isFavorite: 0,
+        hideFromSearch: collectionPage.hideFromSearch ?? 0,
+        visibility: collectionPage.visibility ?? "private",
+        ...documentCreationAttribution(actor),
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ),
+  );
+  await insertInChunks(rows, (chunk) =>
+    db.insert(schema.contentDatabaseItems).values(
+      chunk.map((row) => ({
+        id: row.itemId,
+        ...owner,
+        databaseId,
+        documentId: row.documentId,
+        position: row.position,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    ),
+  );
+
+  const values = rows.flatMap((row) =>
+    row.cells.slice(1).flatMap((text, index) =>
+      text.trim()
+        ? [
+            {
+              id: nanoid(),
+              ownerEmail: database.ownerEmail,
+              documentId: row.documentId,
+              propertyId: propertyIds[index],
+              valueJson: serializePropertyValue(text),
+              createdAt: now,
+              updatedAt: now,
+            },
+          ]
+        : [],
+    ),
+  );
+  await insertInChunks(values, (chunk) =>
+    db.insert(schema.documentPropertyValues).values(chunk),
+  );
+
+  // Row pages are shared as their collection is, as a new row's page is.
+  const shares = await db
+    .select({
+      principalType: schema.documentShares.principalType,
+      principalId: schema.documentShares.principalId,
+      role: schema.documentShares.role,
+    })
+    .from(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, database.documentId));
+  const rowShares = rows.flatMap((row) =>
+    shares.map((share) => ({
+      id: nanoid(),
+      resourceId: row.documentId,
+      ...share,
+      createdBy: actor,
+      createdAt: now,
+    })),
+  );
+  await insertInChunks(rowShares, (chunk) =>
+    db.insert(schema.documentShares).values(chunk),
+  );
+
+  await ensureDocumentsFilesMembership(
+    db,
+    rows.map((row) => row.documentId),
+    now,
+  );
+}

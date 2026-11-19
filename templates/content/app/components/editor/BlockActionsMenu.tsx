@@ -165,7 +165,10 @@ type BlockMenuSection =
   | { key: "found-turn-into"; targets: readonly TurnIntoTarget[] }
   | { key: "found-color" }
   | { key: "style"; turnInto: boolean; color: boolean }
-  | { key: "insert" | "block" | "assist"; actions: BlockMenuAction[] };
+  | {
+      key: "convert" | "insert" | "block" | "assist";
+      actions: BlockMenuAction[];
+    };
 
 type SheetView = "menu" | "turn-into" | "color";
 
@@ -173,12 +176,15 @@ export function BlockActionsMenu({
   editor,
   suggesting,
   onComment,
+  onTurnTableIntoCollection,
   documentId,
 }: {
   editor: Editor;
   /** Suggested edits can't change a block's kind, colour, or settings. */
   suggesting: boolean;
   onComment?: BubbleToolbarProps["onComment"];
+  /** Offers a table's "Turn into collection", which this does. */
+  onTurnTableIntoCollection?: (table: BlockAt) => void;
   /** The page, named to the agent a block is attached to. */
   documentId?: string | null;
 }) {
@@ -381,6 +387,13 @@ export function BlockActionsMenu({
       return true;
     });
 
+  const turnIntoCollection = () => {
+    const latest = request.getBlock();
+    if (latest?.node.type.name === "table") {
+      onTurnTableIntoCollection?.(latest);
+    }
+  };
+
   const comment = () => {
     const latest = request.getBlock();
     const range = latest && blockCommentRange(latest.node, latest.pos);
@@ -558,6 +571,16 @@ export function BlockActionsMenu({
             !!action && matches(action.label),
         )
       : [];
+  const convertActions = shownActions([
+    !suggesting &&
+      !!onTurnTableIntoCollection &&
+      node?.type.name === "table" && {
+        id: "turn-into-collection",
+        label: t("editor.blockMenu.turnIntoCollection"),
+        onSelect: turnIntoCollection,
+        lock: locks.remove,
+      },
+  ]);
   const insertActions = shownActions([
     {
       id: "insert-above",
@@ -611,6 +634,7 @@ export function BlockActionsMenu({
     sections.push({ key: "style", turnInto: showTurnInto, color: showColor });
   }
   for (const [key, actions] of [
+    ["convert", convertActions],
     ["insert", insertActions],
     ["block", blockActions],
     ["assist", assistActions],
@@ -819,6 +843,7 @@ export function BlockActionsMenu({
               {section.color ? opensView(colorLabel, "color") : null}
             </>
           );
+        case "convert":
         case "insert":
         case "block":
         case "assist":
@@ -1006,6 +1031,7 @@ export function BlockActionsMenu({
             ) : null}
           </>
         );
+      case "convert":
       case "insert":
       case "block":
       case "assist":

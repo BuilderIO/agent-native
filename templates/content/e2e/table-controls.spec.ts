@@ -1,6 +1,12 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { createPage, EDITOR, getDocument, gotoEditor } from "./helpers";
+import {
+  createPage,
+  EDITOR,
+  getDocument,
+  gotoEditor,
+  postAction,
+} from "./helpers";
 
 const TABLE = [
   "Before the table.",
@@ -263,6 +269,73 @@ test.describe("inline table controls", () => {
     await expect
       .poll(() => cellTexts(page, ".content-table-header-cell"))
       .toEqual(["Item", "Alpha", "Beta"]);
+  });
+
+  test("the table's block menu turns it into a collection of its rows, and one undo turns it back", async ({
+    page,
+  }) => {
+    const id = await openTablePage(page, "Table to collection");
+    const savedContent = async () => (await getDocument(page, id)).content;
+
+    await cell(page, "Alpha").hover();
+    await page.locator(GRIP).click();
+    await page
+      .getByRole("menu", { name: "Block actions" })
+      .getByRole("menuitem", { name: "Turn into collection" })
+      .click();
+    await expect(
+      page.getByText("Table turned into a collection"),
+    ).toBeVisible();
+    await expect(page.locator(`${EDITOR} .tableWrapper`)).toHaveCount(0);
+
+    // The page saves the collection in the table's place.
+    await expect.poll(savedContent).toContain("<InlineDatabase");
+    const content = await savedContent();
+    expect(content).not.toContain("Alpha");
+    expect(content.indexOf("Before the table.")).toBeLessThan(
+      content.indexOf("<InlineDatabase"),
+    );
+    expect(content.indexOf("<InlineDatabase")).toBeLessThan(
+      content.indexOf("After the table."),
+    );
+    const databaseId = /databaseId="([^"]+)"/.exec(content)?.[1];
+    expect(databaseId).toBeTruthy();
+
+    // The header row named its properties, and each row became a page
+    // titled by its first cell.
+    const collection = await postAction<{
+      properties: { definition: { id: string; name: string; type: string } }[];
+      items: {
+        document: { title: string };
+        properties: { definition: { name: string }; value: unknown }[];
+      }[];
+    }>(page, "get-content-database", { databaseId });
+    expect(
+      collection.properties
+        .filter(({ definition }) => definition.type === "text")
+        .map(({ definition }) => definition.name),
+    ).toEqual(["State", "Notes"]);
+    expect(
+      collection.items.map((item) => [
+        item.document.title,
+        ...["State", "Notes"].map(
+          (name) =>
+            item.properties.find(({ definition }) => definition.name === name)
+              ?.value,
+        ),
+      ]),
+    ).toEqual([
+      ["Alpha", "Draft", "First"],
+      ["Beta", "Ready", "Second"],
+    ]);
+    await expect(page.getByText("Draft", { exact: true })).toBeVisible();
+
+    // One undo puts the table back, and the page saves it again.
+    await page.getByText("Before the table.").click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(cell(page, "Alpha")).toBeVisible();
+    await expect.poll(() => savedTableRows(page, id)).toBe(3);
+    await expect.poll(savedContent).not.toContain("<InlineDatabase");
   });
 
   test("the table's block menu sets its headers and width, and they are saved", async ({

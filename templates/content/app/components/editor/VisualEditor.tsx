@@ -266,6 +266,7 @@ import {
 } from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { useTurnTableIntoCollection } from "./use-turn-table-into-collection";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
@@ -4829,6 +4830,21 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  const turnTableIntoCollection = useTurnTableIntoCollection({
+    editor,
+    documentId,
+    bodyIsLiveCopy,
+    persist: (markdown) =>
+      editor
+        ? Promise.resolve(
+            persistEditorContent(editor, {
+              markdown,
+              immediate: true,
+              userInitiated: true,
+            }),
+          ).then(isEditorDraftSaveAccepted)
+        : Promise.resolve(false),
+  });
   const appliedContentResetKeyRef = useRef(contentResetKey);
   useLayoutEffect(() => {
     if (!editor || appliedContentResetKeyRef.current === contentResetKey)
@@ -6134,6 +6150,9 @@ export function VisualEditor({
           documentId={documentId}
           editor={editor}
           onComment={onComment}
+          onTurnTableIntoCollection={
+            documentId ? turnTableIntoCollection : undefined
+          }
           suggesting={suggesting}
         />
       ) : null}

@@ -14,6 +14,7 @@ import type {
   DocumentPropertyValue,
   DocumentPropertyVisibility,
 } from "./properties";
+import type { TableCollectionSeed } from "./table-collection-seed";
 
 export type DocumentAccessRole =
   | "owner"
@@ -1448,6 +1449,8 @@ export interface CreateInlineDatabaseRequest {
   description?: string;
   newDocumentId?: string;
   ownerBlockId?: string;
+  /** A page table the new collection takes its rows and properties from. */
+  table?: TableCollectionSeed;
 }
 
 export interface CreateInlineDatabaseResponse {
