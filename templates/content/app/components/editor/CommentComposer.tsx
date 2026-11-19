@@ -523,6 +523,29 @@ export const CommentComposer = forwardRef<
       }),
     [models.configuredModels, models.selectedEngine, models.selectedModel],
   );
+  const aiRecipientKey = aiDraft
+    ? commentAiSelectionKey(aiDraft.selection)
+    : null;
+  const aiRecipientConnected = connectedModels.some(
+    (selection) => commentAiSelectionKey(selection) === aiRecipientKey,
+  );
+  const modelSwitchable =
+    aiRecipientKey !== null &&
+    connectedModels.some(
+      (selection) => commentAiSelectionKey(selection) !== aiRecipientKey,
+    );
+  // A saved model that is no longer connected matters only to a draft that
+  // addresses AI; any other composer has nothing to say about it.
+  const aiRecipientMissing =
+    Boolean(aiDraft && models.unavailableSelection) && !aiRecipientConnected;
+
+  // A restored draft can name a connected model while the saved pick is gone;
+  // the draft's model is the pick then, so sending isn't held for the old one.
+  useEffect(() => {
+    if (!aiDraft || !models.unavailableSelection || !aiRecipientConnected)
+      return;
+    onModelChangeRef.current(aiDraft.selection.model, aiDraft.selection.engine);
+  }, [aiDraft, aiRecipientConnected, models.unavailableSelection]);
 
   const mentionItems = useMemo<MentionItem[]>(() => {
     const memberItems = members.map((member) => {
@@ -558,13 +581,18 @@ export const CommentComposer = forwardRef<
       media: providerMedia(selection),
       metadata: { selection },
     }));
+    // A saved pick that is no longer connected leaves "@ai" to the default.
     const selected = models.selectionReady
       ? connectedModels.find(
           (candidate) =>
             candidate.model === models.selectedModel &&
             candidate.engine === models.selectedEngine,
         )
-      : undefined;
+      : models.unavailableSelection
+        ? (connectedModels.find(
+            (candidate) => candidate.model === models.defaultModel,
+          ) ?? connectedModels[0])
+        : undefined;
     const selectedKey = selected ? commentAiSelectionKey(selected) : null;
     // "@ai" finds the selected model under its own name, so it is listed once.
     return [
@@ -579,9 +607,11 @@ export const CommentComposer = forwardRef<
     avatarUrls,
     connectedModels,
     members,
+    models.defaultModel,
     models.selectedEngine,
     models.selectedModel,
     models.selectionReady,
+    models.unavailableSelection,
     t,
   ]);
 
@@ -870,9 +900,7 @@ export const CommentComposer = forwardRef<
       ref={wrapperRef}
       data-comment-composer
       data-state={expanded ? "expanded" : "resting"}
-      data-model-switchable={
-        aiDraft && connectedModels.length > 1 ? "" : undefined
-      }
+      data-model-switchable={modelSwitchable ? "" : undefined}
       className={cn("relative min-w-0", className)}
       {...focusWithinProps}
       onDragOverCapture={(event) => {
@@ -887,7 +915,7 @@ export const CommentComposer = forwardRef<
         takeImageFiles(Array.from(event.dataTransfer.files));
       }}
       onClickCapture={(event) => {
-        if (!aiDraft || connectedModels.length < 2) return;
+        if (!modelSwitchable) return;
         const pill = (event.target as HTMLElement).closest<HTMLElement>(
           `[data-mention-ref-type="${AI_REFERENCE_TYPE}"]`,
         );
@@ -974,12 +1002,19 @@ export const CommentComposer = forwardRef<
         className="comment-composer-area"
         rootClassName="comment-composer-root min-w-0"
       />
-      {aiEnabled && models.unavailableSelection ? (
+      {aiEnabled && aiDraft && aiRecipientMissing ? (
         <span
           role="status"
+          data-comment-ai-model-missing
           className="mt-1 block text-xs text-muted-foreground"
         >
-          {t("comments.aiUnavailable")}
+          {modelSwitchable
+            ? t("comments.aiModelNotConnected", {
+                model: modelDisplayName(aiDraft.selection.model),
+              })
+            : t("comments.aiModelNotConnectedAlone", {
+                model: modelDisplayName(aiDraft.selection.model),
+              })}
         </span>
       ) : null}
       {imageNotice ? (

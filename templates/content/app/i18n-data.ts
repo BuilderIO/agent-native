@@ -1981,7 +1981,9 @@ const enUS = {
     aiResponseMode: "Response",
     aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
-    aiUnavailable: "Unavailable",
+    aiModelNotConnected:
+      "{{model}} isn’t connected. Click its name to choose another model.",
+    aiModelNotConnectedAlone: "{{model}} isn’t connected.",
     aiReplyInThread: "Reply in thread",
     aiApplyAndResolve: "Apply changes and resolve",
     aiPromptSuggest: "Suggest changes for this comment.",

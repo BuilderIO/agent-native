@@ -1983,7 +1983,9 @@ const overrides = {
     aiResponseMode: "応答",
     aiChooseSendMode: "AI 送信モードを選択",
     aiSuggestChanges: "変更を提案",
-    aiUnavailable: "利用不可",
+    aiModelNotConnected:
+      "{{model}} は接続されていません。名前をクリックして別のモデルを選んでください。",
+    aiModelNotConnectedAlone: "{{model}} は接続されていません。",
     aiReplyInThread: "スレッドで返信",
     aiApplyAndResolve: "変更を適用して解決",
     aiPromptSuggest: "このコメントへの変更を提案してください。",

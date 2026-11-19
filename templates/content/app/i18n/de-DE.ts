@@ -2025,7 +2025,9 @@ const overrides = {
     aiResponseMode: "Antwort",
     aiChooseSendMode: "KI-Sendemodus auswählen",
     aiSuggestChanges: "Änderungen vorschlagen",
-    aiUnavailable: "Nicht verfügbar",
+    aiModelNotConnected:
+      "{{model}} ist nicht verbunden. Klicken Sie auf den Namen, um ein anderes Modell zu wählen.",
+    aiModelNotConnectedAlone: "{{model}} ist nicht verbunden.",
     aiReplyInThread: "Im Thread antworten",
     aiApplyAndResolve: "Änderungen anwenden und erledigen",
     aiPromptSuggest: "Schlage Änderungen für diesen Kommentar vor.",

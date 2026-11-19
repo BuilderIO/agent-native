@@ -1960,7 +1960,9 @@ const overrides = {
     aiResponseMode: "응답",
     aiChooseSendMode: "AI 전송 모드 선택",
     aiSuggestChanges: "변경 제안",
-    aiUnavailable: "사용할 수 없음",
+    aiModelNotConnected:
+      "{{model}}이(가) 연결되어 있지 않습니다. 이름을 클릭해 다른 모델을 선택하세요.",
+    aiModelNotConnectedAlone: "{{model}}이(가) 연결되어 있지 않습니다.",
     aiReplyInThread: "스레드에 답글",
     aiApplyAndResolve: "변경 적용 및 해결",
     aiPromptSuggest: "이 댓글에 대한 변경 사항을 제안해 주세요.",
