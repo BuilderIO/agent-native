@@ -1183,6 +1183,26 @@ describe("agentWorkSources", () => {
     expect(sources.map(({ text }) => text)).toEqual(["Ann", "Apollo"]);
   });
 
+  it("clears a failed page read only with a read of the same kind of page", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const record = (id: number, title: string) => ({ output: { id, title } });
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-note", { id: 1 }, failed),
+      call("b", "get-doc", { id: 1 }, record(1, "Apollo")),
+      call("c", "get-note", { id: 2 }, failed),
+      call("d", "read-notes", { noteId: 2 }, record(2, "Ann")),
+      call("e", "get-document", { id: 3 }, failed),
+      call(
+        "f",
+        "view-screen",
+        {},
+        { output: { document: { id: 3, title: "Spec" } } },
+      ),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Apollo", "Ann", "Spec"]);
+    expect(failures.map(({ label }) => label)).toEqual(["get-note"]);
+  });
+
   it("clears a failed page read with any read of that page from the same source", () => {
     const failed = { status: "failed" as const, output: "Timed out" };
     const { sources, failures } = agentWorkSources([

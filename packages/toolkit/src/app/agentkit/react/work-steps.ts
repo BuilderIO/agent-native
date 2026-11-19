@@ -959,18 +959,25 @@ function toolWords(call: AgentWorkCall): string[] {
   return skip === -1 ? named.slice(-1) : named.slice(skip);
 }
 
-const PAGE_WORDS = new Set([
-  "article",
-  "articles",
-  "doc",
-  "docs",
-  "document",
-  "documents",
-  "note",
-  "notes",
-  "page",
-  "pages",
+const PAGE_WORDS = new Map([
+  ["article", "article"],
+  ["articles", "article"],
+  ["doc", "page"],
+  ["docs", "page"],
+  ["document", "page"],
+  ["documents", "page"],
+  ["note", "note"],
+  ["notes", "note"],
+  ["page", "page"],
+  ["pages", "page"],
 ]);
+
+function pageNoun(call: AgentWorkCall): string | undefined {
+  const words = toolWords(call);
+  const word = words.slice(1).find((candidate) => PAGE_WORDS.has(candidate));
+  if (word) return PAGE_WORDS.get(word);
+  return SCREEN_TOOLS.has(words.join("-")) ? "page" : undefined;
+}
 
 function namesPages(call: AgentWorkCall): boolean {
   return toolWords(call)
@@ -1052,7 +1059,7 @@ function attemptTargets(
   const targets: [string, string, string | undefined][] = searched
     ? [["input", tool, whole]]
     : [
-        ["page", "", page],
+        ["page", pageNoun(call) ?? "", page],
         object?.kind === "file"
           ? ["path", "", object.id]
           : ["id", tool, object?.id],
