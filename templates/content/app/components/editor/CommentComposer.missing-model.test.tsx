@@ -123,7 +123,9 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
 
     expect(handle).not.toBeNull();
     expect(notice()).toBeNull();
-    expect(container.textContent).not.toContain("Unavailable");
+    expect(
+      container.querySelector('[data-comment-composer] [role="status"]'),
+    ).toBeNull();
     const send = container.querySelector<HTMLButtonElement>(
       "[data-comment-send]",
     );
