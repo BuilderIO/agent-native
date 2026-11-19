@@ -53,7 +53,6 @@ interface Harness {
     child: FakeChild;
   }>;
   reachable: Set<string>;
-  /** The fake server answers once this many processes have been spawned. */
   answersAfterSpawns: { value: number };
   files: Set<string>;
   timers: Array<{ callback: () => void; ms: number; cleared: boolean }>;
@@ -136,6 +135,12 @@ function createHarness(logDir: string): Harness {
   };
 }
 
+function firstChild(harness: Harness): FakeChild {
+  const first = harness.spawned.at(0);
+  if (!first) throw new Error("No dev server was started.");
+  return first.child;
+}
+
 async function runPendingTimers(harness: Harness): Promise<void> {
   const pending = harness.timers.filter((timer) => !timer.cleared);
   harness.timers.length = 0;
@@ -143,7 +148,6 @@ async function runPendingTimers(harness: Harness): Promise<void> {
     timer.cleared = true;
     timer.callback();
   }
-  // Let the async ensureRunning calls settle.
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
   await new Promise((resolve) => setImmediate(resolve));
 }
@@ -154,7 +158,9 @@ describe("LocalAppServerManager", () => {
   let app: LocalAppServerConfig;
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-local-servers-"));
+    root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-native-local-servers-"),
+    );
     harness = createHarness(path.join(root, "logs"));
     app = weatherApp(root);
     harness.apps.set(app.id, app);
@@ -181,7 +187,7 @@ describe("LocalAppServerManager", () => {
       }),
     );
 
-    const [started] = harness.spawned;
+    const started = harness.spawned.at(0);
     expect(started?.command).toBe(app.devCommand);
     expect(started?.cwd).toBe(app.localPath);
     expect(started?.env).toMatchObject({
@@ -234,7 +240,7 @@ describe("LocalAppServerManager", () => {
     harness.manager.setDemand(app.id, "chat-first-preview", true);
     harness.answersAfterSpawns.value = 1;
     await runPendingTimers(harness);
-    const pid = harness.spawned[0]!.child.pid;
+    const pid = firstChild(harness).pid;
 
     harness.manager.setDemand(app.id, "active-app", false);
     expect(harness.killedGroups).toEqual([]);
@@ -248,7 +254,7 @@ describe("LocalAppServerManager", () => {
     harness.manager.setDemand(app.id, "active-app", true);
     harness.answersAfterSpawns.value = 1;
     await runPendingTimers(harness);
-    const child = harness.spawned[0]!.child;
+    const child = firstChild(harness);
 
     harness.quitting.value = true;
     harness.manager.stopAll();
@@ -263,7 +269,7 @@ describe("LocalAppServerManager", () => {
     harness.manager.setDemand(app.id, "active-app", true);
     const ready = runPendingTimers(harness);
     await vi.waitFor(() => expect(harness.spawned).toHaveLength(1));
-    const child = harness.spawned[0]!.child;
+    const child = firstChild(harness);
     child.stderr.emit(
       "data",
       Buffer.from("SyntaxError: Unexpected token in app/routes/_index.tsx"),
@@ -283,7 +289,7 @@ describe("LocalAppServerManager", () => {
     });
     expect(harness.timers.at(-1)?.ms).toBe(3_000);
 
-    const log = fs.readFileSync(harness.manager.logPath(app.id)!, "utf8");
+    const log = fs.readFileSync(harness.manager.logPath(app.id) ?? "", "utf8");
     expect(log).toContain("SyntaxError: Unexpected token");
     expect(log).toContain("dev server exited (1)");
 

@@ -711,10 +711,6 @@ interface CodeAgentsHostWithTranscriptSubscription extends CodeAgentsHost {
   ): () => void;
 }
 
-/**
- * Browser tabs store the parsed URL ("http://localhost:5180/") while an app
- * stores what was typed ("http://localhost:5180"); compare them parsed.
- */
 export function normalizeChatFirstPreviewUrl(
   value: string | undefined,
 ): string | undefined {
@@ -727,11 +723,6 @@ export function normalizeChatFirstPreviewUrl(
   }
 }
 
-/**
- * Only a plain new chat on this computer becomes a local app build; a chat
- * pointed at a worktree, a remote target, or another goal stays a coding
- * task.
- */
 export function shouldBuildLocalAppFromChat(request: {
   goalId?: string;
   executionTarget?: string;
@@ -1087,8 +1078,6 @@ export default function CodeAgentsHub({
       return next;
     });
   }, []);
-  // A new local app is pinned so it stays in the sidebar after the build
-  // and after a restart, not only under All apps.
   const handleChatFirstLocalAppCreated = useMemo(
     () =>
       onChatFirstAppCreated
@@ -1480,8 +1469,6 @@ export default function CodeAgentsHub({
       url: app.devUrl,
       title: `${app.name} preview`,
     });
-    // Show the app being built next to its chat, even when the side panel
-    // was collapsed.
     setChatFirstSurfacePanelOpen(true);
   }, [
     apps,
@@ -2316,7 +2303,9 @@ export default function CodeAgentsHub({
             error: "Desktop bridge is not available.",
           };
         }
-        const createApp = window.electronAPI?.appConfig?.createFromPrompt;
+        const createApp = (
+          window as { electronAPI?: Partial<Window["electronAPI"]> }
+        ).electronAPI?.appConfig?.createFromPrompt;
         const onAppCreated = onChatFirstAppCreatedRef.current;
         if (
           createApp &&
@@ -2324,9 +2313,6 @@ export default function CodeAgentsHub({
           shouldBuildLocalAppFromChat(request) &&
           isCreateLocalAppPrompt(request.prompt)
         ) {
-          // "Make me an app that..." from a new chat builds a real local
-          // app: Desktop picks its folder and port, adds it to the sidebar
-          // and previews it on the right while the agent writes it.
           const result = await createApp({
             prompt: request.prompt,
             ...(request.engine ? { engine: request.engine } : {}),

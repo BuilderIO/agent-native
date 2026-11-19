@@ -1,11 +1,3 @@
-/**
- * Recognizes a chat prompt that asks Desktop to make a brand-new app, such as
- * "make me a new app that tells me the weather". Those prompts start a local
- * app build instead of a plain coding task. The match is deliberately narrow:
- * it needs a create verb followed closely by "app", and it ignores prompts
- * about changing, fixing or explaining an existing app.
- */
-
 const CREATE_VERB =
   "(?:make|build|create|generate|scaffold|spin\\s+up|start|prototype|write|code|design)";
 const FILLER =

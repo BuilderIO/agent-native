@@ -17,7 +17,6 @@ import * as AppStore from "../app-store";
 
 export interface AppsIpcDeps {
   getManagedDesktopAppIds: () => string[];
-  /** Adopt names Desktop-built apps gave themselves; true when any changed. */
   syncLocalAppNames?: () => boolean;
   stopManagedDesktopApp: (appId: string) => void;
   refreshDesktopShortcutBindings: () => void;

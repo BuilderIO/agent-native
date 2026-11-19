@@ -1,11 +1,5 @@
 import { spawn } from "node:child_process";
 
-/**
- * Desktop prepares a new local app's folder itself before the coding agent
- * starts: the scaffold and the install need a shell and the network, which a
- * file-editing agent may not have.
- */
-
 export interface LocalAppSetupStep {
   label: string;
   command: string;
@@ -76,9 +70,11 @@ export const spawnLocalAppSetupStep: LocalAppSetupRunner = (
       child.kill("SIGTERM");
       finish({ code: null, error: `${step.label} timed out.` });
     }, step.timeoutMs);
-    child.stdout?.on("data", (chunk: Buffer) => onOutput(chunk.toString()));
-    child.stderr?.on("data", (chunk: Buffer) => onOutput(chunk.toString()));
-    child.once("error", (error) => finish({ code: null, error: error.message }));
+    child.stdout.on("data", (chunk: Buffer) => onOutput(chunk.toString()));
+    child.stderr.on("data", (chunk: Buffer) => onOutput(chunk.toString()));
+    child.once("error", (error) =>
+      finish({ code: null, error: error.message }),
+    );
     child.once("exit", (code) => finish({ code }));
   });
 
@@ -86,7 +82,6 @@ export type LocalAppSetupResult =
   | { ok: true }
   | { ok: false; step: string; error: string };
 
-/** Run every setup step in order; stop at the first failure. */
 export async function setupLocalAppFolder(input: {
   targetPath: string;
   env: NodeJS.ProcessEnv;

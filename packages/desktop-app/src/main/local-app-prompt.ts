@@ -1,9 +1,3 @@
-/**
- * The instructions a local coding agent gets when Desktop asks it to build a
- * brand-new app on this machine. Desktop owns the folder, the install, the
- * port and the dev server; the agent owns the code.
- */
-
 export function buildDesktopLocalAppPrompt(input: {
   userPrompt: string;
   targetPath: string;

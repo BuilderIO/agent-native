@@ -59,7 +59,6 @@ describe("Desktop-built local apps in the sidebar", () => {
     addApp(localApp());
     markDesktopManagedApp("local-weather-ab12cd34", "/tmp/apps");
 
-    // A restart re-reads everything from disk.
     vi.resetModules();
     const reloaded = loadApps().find(
       (candidate) => candidate.id === "local-weather-ab12cd34",
@@ -97,7 +96,6 @@ describe("Desktop-built local apps in the sidebar", () => {
         ?.name,
     ).toBe("Skies");
 
-    // Later renames by the agent still flow through.
     expect(syncLocalAppNamesFromPackages(() => "Skies Weather")).toBe(true);
     expect(
       loadApps().find((candidate) => candidate.id === "local-weather-ab12cd34")

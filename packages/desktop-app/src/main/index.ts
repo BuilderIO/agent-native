@@ -92,7 +92,6 @@ import {
   type DesktopOpenRequest,
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
-  type DesktopAppRuntimeStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopPrepareLocalCodeChangeRequest,
@@ -206,14 +205,6 @@ import {
   resolveCodeAgentRunnerInvocation,
   withResolvedExecutablePaths,
 } from "./code-agent-runner.js";
-import {
-  findFreeLocalAppPort,
-  isLocalAppServerReadyStatus,
-  LocalAppServerManager,
-  type LocalAppServerDemandSource,
-} from "./local-app-servers.js";
-import { buildDesktopLocalAppPrompt } from "./local-app-prompt.js";
-import { setupLocalAppFolder } from "./local-app-setup.js";
 import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -326,6 +317,14 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import { buildDesktopLocalAppPrompt } from "./local-app-prompt.js";
+import {
+  findFreeLocalAppPort,
+  isLocalAppServerReadyStatus,
+  LocalAppServerManager,
+  type LocalAppServerDemandSource,
+} from "./local-app-servers.js";
+import { setupLocalAppFolder } from "./local-app-setup.js";
 import { createMainShellHandoff } from "./main-shell-handoff";
 import {
   classifyMcpOAuthNavigation,
@@ -4747,7 +4746,6 @@ function reconcileInterruptedCodeAgentRun(
   )
     return;
   if (isPortalCodeAgentRunRecord(currentRecord)) return;
-  // Held on purpose while Desktop scaffolds a new local app.
   if (reason !== "shutdown" && localAppSetupRunIds.has(runId)) return;
   if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
   if (reason !== "shutdown" && hasLivePersistedCodeAgentRunner(currentRecord))
@@ -7113,8 +7111,6 @@ async function createCodeAgentRun(
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
   const now = new Date().toISOString();
   const runId = `${goal.id}-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`;
-  // A Desktop-built app holds its run until the app folder is set up; keep
-  // the interrupted-run sweep away from it from the moment it exists.
   const deferStart = payload.deferStart === true;
   if (deferStart) localAppSetupRunIds.add(runId);
   const sourceCwd = resolveCodeAgentsTerminalCwd({ cwd: payload.cwd });
@@ -7195,8 +7191,6 @@ async function createCodeAgentRun(
     effort,
     attachments,
   });
-  // A Desktop-built request can carry long instructions; title the chat
-  // from what the person typed.
   const titlePrompt = firstStringValue(payload.displayPrompt) ?? prompt;
   const title = titleFromPrompt(titlePrompt);
   const run: CodeAgentRun = {
@@ -8570,10 +8564,6 @@ function setDesktopActiveAppId(appId: string): void {
     setManagedDesktopAppDemand(previousAppId, "active-app", false);
   }
 
-  // The chat-first preview keeps its own demand while focus moves around:
-  // the preview pane's webview reports itself as the active app, and the
-  // app being built must keep running next to its chat. It ends when another
-  // app becomes the preview, the app is removed, or Desktop quits.
   activeAppId = nextAppId;
   if (nextAppId) setManagedDesktopAppDemand(nextAppId, "active-app", true);
 }
@@ -8604,8 +8594,9 @@ function appFolderSlug(prompt: string): string {
   const meaningful = [
     ...new Set(words.filter((word) => !APP_FOLDER_SLUG_STOP_WORDS.has(word))),
   ].slice(0, 3);
-  const normalized = (meaningful.length > 0 ? meaningful : words.slice(0, 5))
-    .join("-");
+  const normalized = (
+    meaningful.length > 0 ? meaningful : words.slice(0, 5)
+  ).join("-");
   return normalized || "new-app";
 }
 
@@ -8622,7 +8613,6 @@ function readLocalAppDisplayName(localPath: string): string | null {
   const pkg = readJsonObjectFile(path.join(localPath, "package.json"));
   const displayName = firstStringValue(pkg?.displayName, pkg?.productName);
   if (!displayName) return null;
-  // The scaffold names the app after its folder; wait for the real name.
   if (displayName === titleizePackageName(path.basename(localPath))) {
     return null;
   }
@@ -8787,7 +8777,6 @@ async function createDesktopAppFromPrompt(
   }
 
   const slug = appFolderSlug(prompt);
-  // The scaffold requires a name that starts with a letter.
   const folder = uniqueDesktopAppFolder(
     appsRoot,
     /^[a-z]/.test(slug) ? slug : `app-${slug}`,
@@ -8823,8 +8812,6 @@ async function createDesktopAppFromPrompt(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-  // The run works in the new app folder, never in a repository root. It
-  // waits there until Desktop has scaffolded and installed the app.
   const runResult = await createCodeAgentRun({
     goalId: "task",
     prompt: agentPrompt,
@@ -8873,8 +8860,6 @@ async function createDesktopAppFromPrompt(
         : titleizeAppFolder(folder.name)),
     icon: "Code",
     description: prompt.replace(/\s+/g, " ").slice(0, 180),
-    // Point the open-app resolver at the local server rather than an empty
-    // production URL.
     url: "",
     devPort: port,
     devUrl: `http://localhost:${port}`,
@@ -8911,7 +8896,6 @@ async function createDesktopAppFromPrompt(
   };
 }
 
-/** Runs held until Desktop finishes setting up their new app folder. */
 const localAppSetupRunIds = new Set<string>();
 
 async function prepareLocalAppAndStartAgent(input: {

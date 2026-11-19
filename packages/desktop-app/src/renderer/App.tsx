@@ -46,6 +46,13 @@ function safeDesktopOpenPath(path: string | undefined): string | undefined {
 
 const NO_ONBOARDING_HOSTS: readonly DesktopOnboardingHost[] = [];
 
+function optionalDesktopAppConfig():
+  | Partial<Window["electronAPI"]["appConfig"]>
+  | undefined {
+  return (window as { electronAPI?: Partial<Window["electronAPI"]> })
+    .electronAPI?.appConfig;
+}
+
 export default function App({
   onboardingHosts = NO_ONBOARDING_HOSTS,
 }: {
@@ -464,11 +471,9 @@ export default function App({
     });
   }, [activeChatFirstAppId, chatFirstPreviewRequest?.appId]);
 
-  // While a local app is being built, pick up the name the coding agent
-  // gives it (Desktop adopts it from the app's package.json).
   const buildingAppId = chatFirstPreviewRequest?.appId;
   useEffect(() => {
-    const load = window.electronAPI?.appConfig?.load;
+    const load = optionalDesktopAppConfig()?.load;
     if (!buildingAppId || !load) return;
     let cancelled = false;
     let ticks = 0;

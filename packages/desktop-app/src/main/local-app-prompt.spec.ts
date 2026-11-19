@@ -48,9 +48,7 @@ describe("Desktop local app setup", () => {
       run: async (step, options) => {
         calls.push(`${options.cwd}: ${step.command}`);
         options.onOutput("progress\n");
-        return step.command === "pnpm"
-          ? { code: 1 }
-          : { code: 0 };
+        return step.command === "pnpm" ? { code: 1 } : { code: 0 };
       },
     });
     expect(calls).toEqual(["/apps/weather: npx", "/apps/weather: pnpm"]);

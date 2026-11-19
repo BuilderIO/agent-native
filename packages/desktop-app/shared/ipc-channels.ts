@@ -280,11 +280,9 @@ export interface DesktopAppCreationSettingsUpdateResult {
 export interface DesktopCreateAppRequest {
   prompt: string;
   appsRoot?: string;
-  /** Coding agent, model and effort chosen in the chat composer. */
   engine?: string;
   model?: string;
   effort?: string;
-  /** Images or files attached to the chat prompt, passed to the agent. */
   attachments?: unknown[];
 }
 

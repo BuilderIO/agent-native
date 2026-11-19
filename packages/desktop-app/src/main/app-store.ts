@@ -867,11 +867,6 @@ function loadLocalAppAutoNames(): Record<string, string> {
   }
 }
 
-/**
- * Remember the placeholder name Desktop gave an app it is building, so the
- * name the coding agent later writes to package.json can replace it. A name
- * the person typed themselves is never replaced.
- */
 export function rememberLocalAppAutoName(appId: string, name: string): void {
   writeJsonFileAtomic(getLocalAppAutoNamesPath(), {
     ...loadLocalAppAutoNames(),
@@ -879,10 +874,6 @@ export function rememberLocalAppAutoName(appId: string, name: string): void {
   });
 }
 
-/**
- * Adopt each Desktop-built app's package.json display name while its sidebar
- * name is still the placeholder. Returns true when any name changed.
- */
 export function syncLocalAppNamesFromPackages(
   readDisplayName: (localPath: string) => string | null,
 ): boolean {
@@ -893,10 +884,11 @@ export function syncLocalAppNamesFromPackages(
   let changed = false;
   const nextAutoNames = { ...autoNames };
   for (const appConfig of apps) {
+    if (!Object.hasOwn(autoNames, appConfig.id) || !appConfig.localPath) {
+      continue;
+    }
     const placeholder = autoNames[appConfig.id];
-    if (placeholder === undefined || !appConfig.localPath) continue;
     if (appConfig.name !== placeholder) {
-      // Renamed by the person: stop tracking it.
       delete nextAutoNames[appConfig.id];
       continue;
     }

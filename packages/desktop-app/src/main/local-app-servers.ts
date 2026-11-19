@@ -4,16 +4,6 @@ import path from "node:path";
 
 import type { DesktopAppRuntimeStatus } from "@shared/ipc-channels";
 
-/**
- * Owns the dev servers of apps the Desktop app created or cloned locally.
- *
- * A server starts when something demands it (the app is open in the main
- * pane, or it is the chat-first preview of a build in progress), is reused
- * while it answers, and stops when the last demand goes away or Desktop
- * quits. Output goes to one log file per app so a failed build can be read
- * after the fact.
- */
-
 export type LocalAppServerDemandSource = "active-app" | "chat-first-preview";
 
 export interface LocalAppServerConfig {
@@ -36,7 +26,6 @@ export interface LocalAppServerChild {
 }
 
 export interface LocalAppServerDeps {
-  /** The runnable config of a managed, enabled, dev-mode app, else null. */
   getApp(appId: string): LocalAppServerConfig | null;
   isManaged(appId: string): boolean;
   spawn(
@@ -45,10 +34,8 @@ export interface LocalAppServerDeps {
   ): LocalAppServerChild;
   isReachable(url: string): Promise<boolean>;
   emitStatus(status: DesktopAppRuntimeStatus): void;
-  /** Environment for the dev server, before the Desktop-owned overrides. */
   baseEnv(): NodeJS.ProcessEnv;
   isQuitting(): boolean;
-  /** Directory for per-app logs; null disables log files. */
   logDir(): string | null;
   killProcessGroup?(pid: number, signal: NodeJS.Signals): void;
   fileExists?(filePath: string): boolean;
@@ -58,7 +45,6 @@ export interface LocalAppServerDeps {
   console?: Pick<Console, "log" | "error">;
 }
 
-/** Exits in a row before Desktop stops restarting a crashed server. */
 export const LOCAL_APP_MAX_START_ATTEMPTS = 20;
 const READY_POLL_ATTEMPTS = 120;
 const READY_POLL_MS = 750;
@@ -66,12 +52,6 @@ const WAIT_RETRY_MS = 2_000;
 const CRASH_RETRY_MS = 3_000;
 const LOG_MAX_BYTES = 2 * 1024 * 1024;
 
-/**
- * Environment every Desktop-run local app gets. The server binds to the
- * loopback interface only, so the single-user auth bypass never reaches the
- * network; it is set here rather than in the app's `.env` so the app's own
- * source stays production-safe.
- */
 export function localAppServerEnv(
   baseEnv: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
@@ -83,15 +63,10 @@ export function localAppServerEnv(
   };
 }
 
-/**
- * Whether a response means the app itself answered. The dev gateway answers
- * 502/503/504 while its bundler is still starting; that is not ready yet.
- */
 export function isLocalAppServerReadyStatus(status: number): boolean {
   return status > 0 && status !== 502 && status !== 503 && status !== 504;
 }
 
-/** Why a scaffolded folder cannot run yet, or null when it can. */
 export function localAppNotReadyReason(
   localPath: string,
   fileExists: (filePath: string) => boolean = fs.existsSync,
@@ -109,7 +84,6 @@ export function localAppNotReadyReason(
   return null;
 }
 
-/** Lines on stderr that mean the build broke, not routine warnings. */
 export function isLocalAppBuildErrorOutput(text: string): boolean {
   if (/failed to resolve dependency/i.test(text)) return false;
   return /(\bSyntaxError\b|\bTypeError\b|\bReferenceError\b|\bERR_[A-Z_]+|\[vite\].*\berror\b|Internal server error|Pre-transform error|Transform failed|Build failed|Cannot find (module|package)|EADDRINUSE)/i.test(
@@ -121,7 +95,6 @@ export function localAppLogFileName(appId: string): string {
   return `${appId.replace(/[^A-Za-z0-9._-]+/g, "_") || "app"}.log`;
 }
 
-/** True when nothing on this machine is listening on the port. */
 export function isPortFree(port: number, host = "127.0.0.1"): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -133,10 +106,6 @@ export function isPortFree(port: number, host = "127.0.0.1"): Promise<boolean> {
   });
 }
 
-/**
- * The first port from `start` that no configured app claims and no process
- * on this machine is listening on.
- */
 export async function findFreeLocalAppPort(
   claimed: Iterable<number>,
   options: {
@@ -179,7 +148,6 @@ export class LocalAppServerManager {
       : new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  /** Report a status from outside the server lifecycle (setup errors). */
   reportStatus(status: DesktopAppRuntimeStatus): void {
     this.emit(status);
   }
@@ -191,7 +159,6 @@ export class LocalAppServerManager {
     this.deps.emitStatus(status);
   }
 
-  /** Forget sent statuses so a reloaded renderer hears the current ones. */
   resetStatusCache(): void {
     this.lastStatus.clear();
   }
@@ -239,7 +206,6 @@ export class LocalAppServerManager {
     this.stopProcess(appId);
   }
 
-  /** Drop every demand and stop the server (app removed, or Desktop quit). */
   stop(appId: string): void {
     this.demand.delete(appId);
     this.clearRetry(appId);
@@ -337,7 +303,6 @@ export class LocalAppServerManager {
         this.fileExists,
       );
       if (notReady) {
-        // Waiting on the coding agent does not count as a failed start.
         this.emit({ appId, state: "waiting", message: notReady });
         this.scheduleStart(appId);
         return;
