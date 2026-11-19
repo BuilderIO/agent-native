@@ -25,7 +25,9 @@ export default defineAction({
     rowDocumentId: z
       .string()
       .optional()
-      .describe("One row page, instead of the whole collection"),
+      .describe(
+        "One row page, instead of the whole collection; with databaseId, that collection's row",
+      ),
   }),
   outputSchema: z.object({
     databaseId: z.string().nullable(),
@@ -34,7 +36,7 @@ export default defineAction({
   }),
   run: async (args): Promise<ListBuilderArticleAutosavesResponse> => {
     const database = args.rowDocumentId
-      ? await resolveArticleDatabase(args.rowDocumentId)
+      ? await resolveArticleDatabase(args.rowDocumentId, args.databaseId)
       : args.databaseId || args.documentId
         ? await resolveDatabaseForSourceMutation({
             ...(args.databaseId ? { databaseId: args.databaseId } : {}),

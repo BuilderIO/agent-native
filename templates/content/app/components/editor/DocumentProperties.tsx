@@ -1450,6 +1450,7 @@ function PropertyRow({
     property.definition.systemRole === "builder_status" ? (
       <BuilderArticleAutosavePanel
         documentId={documentId}
+        databaseId={property.definition.databaseId}
         canEdit={canEditValues}
       />
     ) : null;

@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { BuilderArticleRowStatus } from "../shared/api.js";
 import { builderArticleAutosaveAllowsPublication } from "./_builder-article-autosave-rules.js";
 import {
+  assertBuilderArticleSource,
   builderArticleRowStatus,
   builderArticleRowStatusSchema,
   readBuilderArticleRow,
@@ -22,16 +23,28 @@ export default defineAction({
   schema: z.object({
     rowDocumentId: z.string().min(1).describe("The article's row page"),
     enabled: z.boolean().describe("true saves edits to Builder on their own"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe("The Builder collection the row status came from"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("The Builder source the row status came from"),
   }),
   outputSchema: builderArticleRowStatusSchema,
   run: async (args): Promise<BuilderArticleRowStatus> => {
-    const database = await resolveArticleDatabase(args.rowDocumentId);
+    const database = await resolveArticleDatabase(
+      args.rowDocumentId,
+      args.databaseId,
+    );
     if (!database) {
       fail("This page isn't a row in a collection.", {
         errorCode: "not_a_collection_row",
         statusCode: 404,
       });
     }
+    await assertAccess("document", database.documentId, "editor");
     await assertAccess("document", args.rowDocumentId, "editor");
     const row = await readBuilderArticleRow({
       database,
@@ -46,6 +59,7 @@ export default defineAction({
         },
       );
     }
+    assertBuilderArticleSource(row, args.sourceId);
     if (
       args.enabled &&
       row.entryId &&

@@ -29,9 +29,27 @@ export function builderArticleAutosaveAllowsPublication(
 }
 
 export interface BuilderArticleAutosaveStop {
-  errorCode: "builder_autosave_published" | "builder_autosave_editor_changes";
+  errorCode:
+    | "builder_autosave_published"
+    | "builder_autosave_editor_changes"
+    | "builder_autosave_unconfirmed";
   reason: BuilderArticleAutosaveReason;
   message: string;
+}
+
+export const BUILDER_ARTICLE_AUTOSAVE_UNSETTLED_EXECUTION_STATES: readonly string[] =
+  ["running", "reconciliation_required", "response_received"];
+
+export const BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP: BuilderArticleAutosaveStop =
+  {
+    errorCode: "builder_autosave_unconfirmed",
+    reason: "unconfirmed_save",
+    message:
+      "Content can't confirm the last save reached Builder, so it won't send it again. Settle it with Review Builder update.",
+  };
+
+export function builderArticleAutosaveExecutionUnsettled(state: string) {
+  return BUILDER_ARTICLE_AUTOSAVE_UNSETTLED_EXECUTION_STATES.includes(state);
 }
 
 export function builderArticleAutosaveLiveStop(args: {
@@ -59,7 +77,7 @@ export function builderArticleAutosaveLiveStop(args: {
       errorCode: "builder_autosave_editor_changes",
       reason: "builder_editor_changes",
       message:
-        "This article has unpublished changes saved in Builder's editor. Publish or discard them in Builder to carry on saving.",
+        "Builder's editor is saving changes to this draft. Content tries again shortly.",
     };
   }
   return null;

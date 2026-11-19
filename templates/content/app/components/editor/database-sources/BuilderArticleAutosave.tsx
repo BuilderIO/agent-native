@@ -26,6 +26,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  builderArticleRowIdentity,
+  builderArticleRowTarget,
   useBuilderArticleAutosaveRunner,
   useBuilderArticleAutosaves,
   useBuilderAutosaveRunning,
@@ -45,6 +47,7 @@ const REASON_KEYS: Record<BuilderArticleAutosaveReason, string> = {
   edit_conflict: "builderAutosave.reasonEditConflict",
   builder_changed: "builderAutosave.reasonBuilderChanged",
   save_failed: "builderAutosave.reasonSaveFailed",
+  unconfirmed_save: "builderAutosave.reasonUnconfirmedSave",
 };
 
 export interface BuilderAutosaveView {
@@ -178,14 +181,14 @@ function OpenInBuilderLink({
   );
 }
 
-function useRetry(documentId: string) {
+function useRetry(row: BuilderArticleRowStatus) {
   const t = useT();
   const run = useRunBuilderArticleAutosave();
   return {
     pending: run.isPending,
     retry: () =>
       run.mutate(
-        { rowDocumentId: documentId, retry: true },
+        { ...builderArticleRowIdentity(row), retry: true },
         {
           onError: (error) =>
             toast.error(
@@ -232,7 +235,7 @@ export function BuilderArticleCellStatusView({
 }) {
   const t = useT();
   const running = useBuilderAutosaveRunning(row.documentId);
-  const { retry, pending } = useRetry(row.documentId);
+  const { retry, pending } = useRetry(row);
   const view = row.autosave
     ? builderAutosaveView(row.autosave, running || pending, t)
     : null;
@@ -289,12 +292,16 @@ export function BuilderArticleCellStatusView({
 
 export function BuilderArticleAutosavePanel({
   documentId,
+  databaseId,
   canEdit,
 }: {
   documentId: string;
+  databaseId?: string | null;
   canEdit: boolean;
 }) {
-  const query = useBuilderArticleAutosaves({ rowDocumentId: documentId });
+  const query = useBuilderArticleAutosaves(
+    builderArticleRowTarget(documentId, databaseId),
+  );
   const row = query.data?.rows.find(
     (candidate) => candidate.documentId === documentId,
   );
@@ -304,12 +311,16 @@ export function BuilderArticleAutosavePanel({
 
 export function BuilderArticleRowAutosaveRunner({
   documentId,
+  databaseId,
   canEdit,
 }: {
   documentId: string;
+  databaseId?: string | null;
   canEdit: boolean;
 }) {
-  const query = useBuilderArticleAutosaves({ rowDocumentId: documentId });
+  const query = useBuilderArticleAutosaves(
+    builderArticleRowTarget(documentId, databaseId),
+  );
   const row = query.data?.rows.find(
     (candidate) => candidate.documentId === documentId,
   );
@@ -330,7 +341,7 @@ export function BuilderArticleAutosavePanelView({
 }) {
   const t = useT();
   const running = useBuilderAutosaveRunning(row.documentId);
-  const { retry, pending } = useRetry(row.documentId);
+  const { retry, pending } = useRetry(row);
   const setAutosave = useSetBuilderArticleAutosave();
   const status = row.autosave;
   const view = status
@@ -388,7 +399,7 @@ export function BuilderArticleAutosavePanelView({
             className="-ml-3 w-auto self-start"
             onCheckedChange={(enabled) =>
               setAutosave.mutate(
-                { rowDocumentId: row.documentId, enabled },
+                { ...builderArticleRowIdentity(row), enabled },
                 {
                   onError: (error) =>
                     toast.error(

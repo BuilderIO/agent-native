@@ -55,6 +55,14 @@ export default defineAction({
       .boolean()
       .optional()
       .describe("Try again after a failed save, reading Builder's copy first"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe("The Builder collection the row status came from"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("The Builder source the row status came from"),
   }),
   outputSchema: builderArticleRowStatusSchema,
   run: async (args): Promise<BuilderArticleRowStatus> =>
@@ -62,6 +70,8 @@ export default defineAction({
       {
         documentId: args.rowDocumentId,
         ...(args.retry ? { retry: true } : {}),
+        ...(args.databaseId ? { databaseId: args.databaseId } : {}),
+        ...(args.sourceId ? { sourceId: args.sourceId } : {}),
       },
       realBuilderArticleAutosaveDeps(),
     ),

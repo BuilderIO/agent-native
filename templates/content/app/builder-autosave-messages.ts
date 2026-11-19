@@ -15,9 +15,11 @@ const en = {
   retry: "Retry",
   openInBuilder: "Open in Builder",
   reasonBuilderEditorChanges:
-    "Builder's editor has unpublished changes Content didn't make. Publish or discard them in Builder to carry on.",
+    "Builder's editor is saving changes to this draft. Content tries again shortly.",
   reasonCheckingLastSave:
-    "Content couldn't tell whether the last save reached Builder. It checks Builder's copy before saving again.",
+    "Content couldn't tell whether the last save reached Builder. It checks again shortly and won't send the save twice.",
+  reasonUnconfirmedSave:
+    "Content can't confirm the last save reached Builder, so it won't send it again. Settle it with Review Builder update.",
   reasonAnotherSaveRunning:
     "Another save to this article is running. This one goes next.",
   reasonPublished:
@@ -54,9 +56,11 @@ const translations: Record<
     retry: "Reintentar",
     openInBuilder: "Abrir en Builder",
     reasonBuilderEditorChanges:
-      "El editor de Builder tiene cambios sin publicar que Content no hizo. Publícalos o descártalos en Builder para continuar.",
+      "El editor de Builder está guardando cambios en este borrador. Content lo volverá a intentar en breve.",
     reasonCheckingLastSave:
-      "Content no pudo saber si el último guardado llegó a Builder. Revisa la copia de Builder antes de volver a guardar.",
+      "Content no pudo saber si el último guardado llegó a Builder. Lo comprobará de nuevo en breve y no enviará el guardado dos veces.",
+    reasonUnconfirmedSave:
+      "Content no puede confirmar que el último guardado llegara a Builder, así que no lo volverá a enviar. Resuélvelo con Revisar actualización de Builder.",
     reasonAnotherSaveRunning:
       "Hay otro guardado de este artículo en curso. Este va después.",
     reasonPublished:
@@ -86,9 +90,11 @@ const translations: Record<
     retry: "Réessayer",
     openInBuilder: "Ouvrir dans Builder",
     reasonBuilderEditorChanges:
-      "L'éditeur de Builder contient des modifications non publiées que Content n'a pas faites. Publiez-les ou supprimez-les dans Builder pour continuer.",
+      "L'éditeur de Builder enregistre des modifications de ce brouillon. Content réessaiera sous peu.",
     reasonCheckingLastSave:
-      "Content ne sait pas si le dernier enregistrement a atteint Builder. Il vérifie la copie de Builder avant d'enregistrer à nouveau.",
+      "Content ne sait pas si le dernier enregistrement a atteint Builder. Il vérifie à nouveau sous peu et n'enverra pas l'enregistrement deux fois.",
+    reasonUnconfirmedSave:
+      "Content ne peut pas confirmer que le dernier enregistrement a atteint Builder, il ne le renverra donc pas. Réglez-le avec Vérifier la mise à jour Builder.",
     reasonAnotherSaveRunning:
       "Un autre enregistrement de cet article est en cours. Celui-ci passe ensuite.",
     reasonPublished:
@@ -118,9 +124,11 @@ const translations: Record<
     retry: "Erneut versuchen",
     openInBuilder: "In Builder öffnen",
     reasonBuilderEditorChanges:
-      "Der Builder-Editor hat unveröffentlichte Änderungen, die nicht von Content stammen. Veröffentliche oder verwirf sie in Builder, um fortzufahren.",
+      "Der Builder-Editor speichert gerade Änderungen an diesem Entwurf. Content versucht es gleich noch einmal.",
     reasonCheckingLastSave:
-      "Content konnte nicht feststellen, ob das letzte Speichern Builder erreicht hat. Es prüft die Kopie in Builder, bevor es erneut speichert.",
+      "Content konnte nicht feststellen, ob das letzte Speichern Builder erreicht hat. Es prüft gleich noch einmal und sendet das Speichern nicht doppelt.",
+    reasonUnconfirmedSave:
+      "Content kann nicht bestätigen, dass das letzte Speichern Builder erreicht hat, und sendet es deshalb nicht erneut. Kläre es mit Builder-Update prüfen.",
     reasonAnotherSaveRunning:
       "Für diesen Artikel läuft bereits ein anderes Speichern. Dieses folgt danach.",
     reasonPublished:
@@ -150,9 +158,11 @@ const translations: Record<
     retry: "Tentar de novo",
     openInBuilder: "Abrir no Builder",
     reasonBuilderEditorChanges:
-      "O editor do Builder tem alterações não publicadas que o Content não fez. Publique ou descarte-as no Builder para continuar.",
+      "O editor do Builder está salvando alterações neste rascunho. O Content tentará de novo em instantes.",
     reasonCheckingLastSave:
-      "O Content não conseguiu saber se o último salvamento chegou ao Builder. Ele confere a cópia do Builder antes de salvar de novo.",
+      "O Content não conseguiu saber se o último salvamento chegou ao Builder. Ele confere de novo em instantes e não envia o salvamento duas vezes.",
+    reasonUnconfirmedSave:
+      "O Content não consegue confirmar que o último salvamento chegou ao Builder, então não vai enviá-lo de novo. Resolva com Revisar atualização do Builder.",
     reasonAnotherSaveRunning:
       "Outro salvamento deste artigo está em andamento. Este vem em seguida.",
     reasonPublished:
@@ -181,9 +191,11 @@ const translations: Record<
     retry: "重试",
     openInBuilder: "在 Builder 中打开",
     reasonBuilderEditorChanges:
-      "Builder 编辑器中有不是 Content 做的未发布更改。请在 Builder 中发布或丢弃它们后继续。",
+      "Builder 编辑器正在保存此草稿的更改。Content 稍后会重试。",
     reasonCheckingLastSave:
-      "Content 无法确定上次保存是否已到达 Builder。再次保存前，它会先检查 Builder 中的副本。",
+      "Content 无法确定上次保存是否已到达 Builder。它稍后会再次检查，不会重复发送这次保存。",
+    reasonUnconfirmedSave:
+      "Content 无法确认上次保存已到达 Builder，因此不会再次发送。请用“审查 Builder 更新”处理。",
     reasonAnotherSaveRunning:
       "这篇文章的另一次保存正在进行，这次保存随后进行。",
     reasonPublished:
@@ -212,9 +224,11 @@ const translations: Record<
     retry: "重試",
     openInBuilder: "在 Builder 中開啟",
     reasonBuilderEditorChanges:
-      "Builder 編輯器中有不是 Content 做的未發布變更。請在 Builder 中發布或捨棄它們後繼續。",
+      "Builder 編輯器正在儲存此草稿的變更。Content 稍後會重試。",
     reasonCheckingLastSave:
-      "Content 無法確定上次儲存是否已到達 Builder。再次儲存前，它會先檢查 Builder 中的副本。",
+      "Content 無法確定上次儲存是否已到達 Builder。它稍後會再次檢查，不會重複送出這次儲存。",
+    reasonUnconfirmedSave:
+      "Content 無法確認上次儲存已到達 Builder，因此不會再次送出。請用「審查 Builder 更新」處理。",
     reasonAnotherSaveRunning:
       "這篇文章的另一次儲存正在進行，這次儲存隨後進行。",
     reasonPublished:
@@ -243,9 +257,11 @@ const translations: Record<
     retry: "再試行",
     openInBuilder: "Builder で開く",
     reasonBuilderEditorChanges:
-      "Builder のエディターに、Content 以外が行った未公開の変更があります。続けるには Builder で公開するか破棄してください。",
+      "Builder のエディターがこの下書きの変更を保存しています。Content はまもなく再試行します。",
     reasonCheckingLastSave:
-      "前回の保存が Builder に届いたか Content には分かりませんでした。もう一度保存する前に Builder のコピーを確認します。",
+      "前回の保存が Builder に届いたか Content には分かりませんでした。まもなくもう一度確認し、同じ保存を二重に送ることはありません。",
+    reasonUnconfirmedSave:
+      "前回の保存が Builder に届いたことを Content が確認できないため、もう一度は送りません。「Builder の更新を確認」で解決してください。",
     reasonAnotherSaveRunning:
       "この記事の別の保存が進行中です。この保存はその後に行われます。",
     reasonPublished:
@@ -274,9 +290,11 @@ const translations: Record<
     retry: "다시 시도",
     openInBuilder: "Builder에서 열기",
     reasonBuilderEditorChanges:
-      "Builder 편집기에 Content가 만들지 않은 게시되지 않은 변경 사항이 있습니다. 계속하려면 Builder에서 게시하거나 삭제하세요.",
+      "Builder 편집기가 이 초안의 변경 사항을 저장하고 있습니다. Content가 곧 다시 시도합니다.",
     reasonCheckingLastSave:
-      "Content가 마지막 저장이 Builder에 도달했는지 알 수 없었습니다. 다시 저장하기 전에 Builder의 사본을 확인합니다.",
+      "Content가 마지막 저장이 Builder에 도달했는지 알 수 없었습니다. 곧 다시 확인하며, 같은 저장을 두 번 보내지 않습니다.",
+    reasonUnconfirmedSave:
+      "Content가 마지막 저장이 Builder에 도달했는지 확인할 수 없어 다시 보내지 않습니다. Builder 업데이트 검토로 해결하세요.",
     reasonAnotherSaveRunning:
       "이 글의 다른 저장이 진행 중입니다. 이 저장은 그다음에 진행됩니다.",
     reasonPublished:
@@ -305,9 +323,11 @@ const translations: Record<
     retry: "फिर कोशिश करें",
     openInBuilder: "Builder में खोलें",
     reasonBuilderEditorChanges:
-      "Builder के एडिटर में ऐसे अप्रकाशित बदलाव हैं जो Content ने नहीं किए। जारी रखने के लिए उन्हें Builder में प्रकाशित करें या हटा दें।",
+      "Builder का एडिटर इस ड्राफ़्ट के बदलाव सहेज रहा है। Content थोड़ी देर में फिर कोशिश करेगा।",
     reasonCheckingLastSave:
-      "Content यह नहीं जान सका कि पिछला सहेजना Builder तक पहुँचा या नहीं। फिर से सहेजने से पहले यह Builder की कॉपी जाँचता है।",
+      "Content यह नहीं जान सका कि पिछला सहेजना Builder तक पहुँचा या नहीं। यह थोड़ी देर में फिर जाँचेगा और सहेजना दोबारा नहीं भेजेगा।",
+    reasonUnconfirmedSave:
+      "Content पुष्टि नहीं कर सकता कि पिछला सहेजना Builder तक पहुँचा, इसलिए वह उसे दोबारा नहीं भेजेगा। इसे Builder अपडेट की समीक्षा करें से सुलझाएँ।",
     reasonAnotherSaveRunning: "इस लेख का एक और सहेजना चल रहा है। यह उसके बाद होगा।",
     reasonPublished:
       "यह लेख प्रकाशित है, इसलिए अपने-आप सहेजना रुक गया। इसके बदलाव Builder अपडेट की समीक्षा करें से सहेजें।",
@@ -335,9 +355,11 @@ const translations: Record<
     retry: "إعادة المحاولة",
     openInBuilder: "فتح في Builder",
     reasonBuilderEditorChanges:
-      "يحتوي محرر Builder على تغييرات غير منشورة لم يجرها Content. انشرها أو تجاهلها في Builder للمتابعة.",
+      "يحفظ محرر Builder تغييرات على هذه المسودة. سيحاول Content مرة أخرى بعد قليل.",
     reasonCheckingLastSave:
-      "لم يتمكن Content من معرفة ما إذا كان آخر حفظ قد وصل إلى Builder. سيتحقق من نسخة Builder قبل الحفظ مرة أخرى.",
+      "لم يتمكن Content من معرفة ما إذا كان آخر حفظ قد وصل إلى Builder. سيتحقق مرة أخرى بعد قليل ولن يرسل الحفظ مرتين.",
+    reasonUnconfirmedSave:
+      "لا يستطيع Content التأكد من وصول آخر حفظ إلى Builder، لذا لن يرسله مرة أخرى. احسم ذلك باستخدام مراجعة تحديث Builder.",
     reasonAnotherSaveRunning:
       "هناك عملية حفظ أخرى لهذه المقالة قيد التنفيذ. هذه العملية تأتي بعدها.",
     reasonPublished:

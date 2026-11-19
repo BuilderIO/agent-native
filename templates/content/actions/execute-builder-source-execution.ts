@@ -32,7 +32,9 @@ import {
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
+  BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP,
   builderArticleAutosaveAllowsEffect,
+  builderArticleAutosaveExecutionUnsettled,
   builderArticleAutosaveLiveStop,
 } from "./_builder-article-autosave-rules.js";
 import {
@@ -2009,6 +2011,14 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (changeSet.state !== "approved") {
       throw new Error("Approve the Builder change set before executing it.");
     }
+    const automaticRecovery =
+      options.automatic === true &&
+      builderArticleAutosaveExecutionUnsettled(execution.state);
+    const stopAutomaticRecovery = (): never =>
+      fail(BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP.message, {
+        errorCode: BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP.errorCode,
+        statusCode: 409,
+      });
 
     const plan = buildBuilderCmsExecutionPlan({
       source,
@@ -2054,6 +2064,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         dryRun?.status === "stale" && dryRun.mismatches.length > 0
           ? dryRun.mismatches.join(" ")
           : (plan.lastError ?? "Builder execution is blocked.");
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2071,6 +2082,7 @@ export async function executeBuilderSourceExecutionWithDeps(
     }
     if (plan.state !== "ready") {
       const message = plan.lastError ?? "Builder execution is not ready.";
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2089,6 +2101,7 @@ export async function executeBuilderSourceExecutionWithDeps(
 
     if (source.capabilities.liveWritesEnabled !== true) {
       const message = "Live Builder writes are disabled for this source.";
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2154,6 +2167,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         storedWriteResult = recoveredWriteResult(lookup.matches[0]!);
       }
     }
+    if (automaticRecovery && !storedWriteResult) stopAutomaticRecovery();
     if (storedWriteResult) {
       timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
       timing.ensure("write_dispatch");

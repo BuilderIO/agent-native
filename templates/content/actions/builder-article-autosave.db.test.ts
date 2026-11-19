@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -13,12 +14,14 @@ import {
 import type { BuilderCmsEntryLiveState } from "./_builder-cms-read-client";
 import type { BuilderCmsWriteResult } from "./_builder-cms-write-client";
 import { registerMemoryPrivateBlobProvider } from "./_builder-private-blob.test-fixture";
+import type { ExecuteBuilderSourceExecutionDeps } from "./execute-builder-source-execution";
 
 const TEST_DB_PATH = join(
   tmpdir(),
   `builder-article-autosave-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "owner@example.com";
+const WRITER = "writer@example.com";
 const SEEDED_AT = "2026-06-29T15:00:00.000Z";
 const LAST_UPDATED_MS = 1782328870774;
 const privateBlobs = registerMemoryPrivateBlobProvider();
@@ -218,6 +221,7 @@ function harness(args: {
   live?: BuilderCmsEntryLiveState;
   write?: BuilderCmsWriteResult;
   entryId: string;
+  executionDeps?: Partial<ExecuteBuilderSourceExecutionDeps>;
 }) {
   const executeWrite = vi.fn(
     async (): Promise<BuilderCmsWriteResult> =>
@@ -250,6 +254,7 @@ function harness(args: {
           executeWrite,
           readLiveEntry,
           lookupSafeModelIntent,
+          ...args.executionDeps,
         },
         { automatic: true },
       ),
@@ -266,6 +271,65 @@ async function record(sourceId: string, documentId: string) {
   const row = rows.find((candidate) => candidate.documentId === documentId);
   if (!row) throw new Error("The article has no automatic save record.");
   return row;
+}
+
+async function executionStates(sourceId: string) {
+  const executions = await getDb()
+    .select({ state: schema.contentDatabaseSourceExecutions.state })
+    .from(schema.contentDatabaseSourceExecutions)
+    .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
+  return executions.map((execution) => execution.state);
+}
+
+async function age(sourceId: string) {
+  await getDb()
+    .update(schema.contentDatabaseSourceExecutions)
+    .set({ updatedAt: SEEDED_AT })
+    .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
+  await getDb()
+    .update(schema.contentDatabaseBuilderAutosaves)
+    .set({ updatedAt: SEEDED_AT })
+    .where(eq(schema.contentDatabaseBuilderAutosaves.sourceId, sourceId));
+}
+
+async function addMembership(
+  ids: Awaited<ReturnType<typeof seedArticle>>,
+  name: string,
+) {
+  const db = getDb();
+  const databaseId = `${name}_${ids.databaseId}`;
+  await db.insert(schema.documents).values({
+    id: `doc_${databaseId}`,
+    ownerEmail: OWNER,
+    title: name,
+    createdAt: SEEDED_AT,
+    updatedAt: SEEDED_AT,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: `doc_${databaseId}`,
+    title: name,
+    createdAt: SEEDED_AT,
+    updatedAt: SEEDED_AT,
+  });
+  const removed = await db
+    .delete(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.id, ids.itemId))
+    .returning();
+  const builderItem = removed.find((item) => item.id === ids.itemId);
+  await db.insert(schema.contentDatabaseItems).values({
+    id: `item_${databaseId}`,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: ids.rowDocumentId,
+    position: 0,
+    createdAt: SEEDED_AT,
+    updatedAt: SEEDED_AT,
+  });
+  if (!builderItem) throw new Error("The article has no Builder row.");
+  await db.insert(schema.contentDatabaseItems).values(builderItem);
+  return databaseId;
 }
 
 async function listRows(rowDocumentId: string, now: string) {
@@ -516,6 +580,212 @@ describe("Builder article autosave", () => {
       reason: "checking_last_save",
     });
     expect(ambiguous.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("never sends a save with a lost response again; it stops for Review Builder update", async () => {
+    const ids = await seedArticle();
+    const lost = harness({
+      entryId: ids.entryId,
+      write: {
+        ok: false,
+        status: 0,
+        responseBody: null,
+        ambiguity: "transport",
+        error:
+          "Builder write transport failed after dispatch; remote outcome is unknown.",
+      },
+    });
+    const run = () =>
+      asOwner(() =>
+        autosave.runBuilderArticleAutosaveWithDeps(
+          { documentId: ids.rowDocumentId },
+          lost.deps,
+        ),
+      );
+
+    expect((await run()).autosave).toMatchObject({
+      state: "waiting",
+      reason: "checking_last_save",
+    });
+    await age(ids.sourceId);
+    const stopped = await run();
+    await age(ids.sourceId);
+    const still = await run();
+
+    expect(stopped.autosave).toMatchObject({
+      enabled: true,
+      state: "review",
+      reason: "unconfirmed_save",
+    });
+    expect(still.autosave).toMatchObject({
+      state: "review",
+      reason: "unconfirmed_save",
+    });
+    expect(lost.executeWrite).toHaveBeenCalledTimes(1);
+    expect(lost.readLiveEntry).toHaveBeenCalledTimes(1);
+    expect(await executionStates(ids.sourceId)).toEqual([
+      "reconciliation_required",
+    ]);
+
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "succeeded" })
+      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, ids.sourceId));
+    await age(ids.sourceId);
+    const settled = await run();
+    expect(settled.autosave?.reason).not.toBe("unconfirmed_save");
+    expect(lost.executeWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles a response Builder sent before the server stopped, and keeps a newer edit unsaved", async () => {
+    const ids = await seedArticle();
+    const stopped = harness({
+      entryId: ids.entryId,
+      executionDeps: {
+        reconcileWrite: async () => {
+          throw new Error("The server stopped.");
+        },
+      },
+    });
+    await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        stopped.deps,
+      ),
+    );
+    await getDb()
+      .update(schema.contentDatabaseSourceExecutions)
+      .set({ state: "response_received", updatedAt: SEEDED_AT })
+      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, ids.sourceId));
+    await getDb()
+      .update(schema.contentDatabaseBuilderAutosaves)
+      .set({ state: "saving", attemptId: "stopped", updatedAt: SEEDED_AT })
+      .where(eq(schema.contentDatabaseBuilderAutosaves.sourceId, ids.sourceId));
+    await getDb()
+      .update(schema.documents)
+      .set({ updatedAt: "2026-06-29T15:30:00.000Z" })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+
+    const resumed = harness({ entryId: ids.entryId });
+    const status = await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        { documentId: ids.rowDocumentId },
+        resumed.deps,
+      ),
+    );
+
+    expect(stopped.executeWrite).toHaveBeenCalledTimes(1);
+    expect(resumed.executeWrite).not.toHaveBeenCalled();
+    expect(resumed.readLiveEntry).not.toHaveBeenCalled();
+    expect(status.autosave).toMatchObject({ state: "saved" });
+    expect(await executionStates(ids.sourceId)).toEqual(["succeeded"]);
+    const saved = await record(ids.sourceId, ids.rowDocumentId);
+    expect(saved.savedEditAt).toBe("2026-06-29T14:00:00.000Z");
+    expect(saved.lastSavedAt).not.toBe("2026-06-29T14:00:00.000Z");
+    const later = new Date(Date.now() + 60_000).toISOString();
+    const listed = await asOwner(() => listRows(ids.rowDocumentId, later));
+    expect(listed.rows[0]?.autosave?.due).toBe(true);
+  });
+
+  it("uses the article's Builder collection when the article is also in another collection", async () => {
+    const ids = await seedArticle();
+    const files = await addMembership(ids, "files");
+
+    const listed = await asOwner(() =>
+      listRows(ids.rowDocumentId, "2026-06-29T15:00:10.000Z"),
+    );
+    expect(listed.rows).toEqual([
+      expect.objectContaining({
+        documentId: ids.rowDocumentId,
+        databaseId: ids.databaseId,
+        sourceId: ids.sourceId,
+      }),
+    ]);
+    const { deps, executeWrite } = harness({ entryId: ids.entryId });
+    const saved = await asOwner(() =>
+      autosave.runBuilderArticleAutosaveWithDeps(
+        {
+          documentId: ids.rowDocumentId,
+          databaseId: ids.databaseId,
+          sourceId: ids.sourceId,
+        },
+        deps,
+      ),
+    );
+    expect(saved.autosave).toMatchObject({ state: "saved" });
+    expect(executeWrite).toHaveBeenCalledTimes(1);
+
+    const flip = (args: { databaseId?: string; sourceId?: string }) =>
+      asOwner(() =>
+        setAutosave.run(
+          { rowDocumentId: ids.rowDocumentId, enabled: false, ...args },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    await expect(flip({ databaseId: files })).rejects.toThrow(
+      /only for articles created/,
+    );
+    await expect(flip({ sourceId: "src_elsewhere" })).rejects.toThrow(
+      /source changed/,
+    );
+
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values({
+        id: `src_${files}`,
+        ownerEmail: OWNER,
+        databaseId: files,
+        sourceType: "builder-cms",
+        sourceName: "Builder CMS",
+        sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+        capabilitiesJson: capabilities,
+        metadataJson: JSON.stringify({ primaryKey: "id" }),
+        createdAt: SEEDED_AT,
+        updatedAt: SEEDED_AT,
+      });
+    await expect(
+      autosave.resolveArticleDatabase(ids.rowDocumentId),
+    ).rejects.toThrow(/more than one Builder collection/);
+    expect(
+      (await autosave.resolveArticleDatabase(ids.rowDocumentId, ids.databaseId))
+        ?.id,
+    ).toBe(ids.databaseId);
+    expect((await record(ids.sourceId, ids.rowDocumentId)).enabled).toBe(1);
+  });
+
+  it("refuses someone who can edit the article but not its collection", async () => {
+    const ids = await seedArticle();
+    await getDb()
+      .update(schema.documents)
+      .set({ ownerEmail: WRITER })
+      .where(eq(schema.documents.id, ids.rowDocumentId));
+    const asWriter = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: WRITER }, fn);
+    await asWriter(() => assertAccess("document", ids.rowDocumentId, "editor"));
+    const { deps, executeWrite } = harness({ entryId: ids.entryId });
+
+    await expect(
+      asWriter(() =>
+        setAutosave.run(
+          { rowDocumentId: ids.rowDocumentId, enabled: false },
+          { caller: "frontend", userEmail: WRITER },
+        ),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asWriter(() =>
+        autosave.runBuilderArticleAutosaveWithDeps(
+          { documentId: ids.rowDocumentId },
+          deps,
+        ),
+      ),
+    ).rejects.toThrow();
+
+    expect(executeWrite).not.toHaveBeenCalled();
+    expect(await record(ids.sourceId, ids.rowDocumentId)).toMatchObject({
+      enabled: 1,
+      state: "saved",
+    });
   });
 
   it("leaves an article that was already in Builder to the review", async () => {

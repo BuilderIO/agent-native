@@ -9183,7 +9183,7 @@ function PageEditorSessionBody({
     ? pagePropertiesQuery.data
     : undefined;
   const pageProperties = pagePropertiesInScope?.properties;
-  const builderArticleRow = !!pageProperties?.some(
+  const builderArticleRow = pageProperties?.find(
     (property) => property.definition.systemRole === "builder_status",
   );
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
@@ -11980,6 +11980,7 @@ function PageEditorSessionBody({
                 {builderArticleRow ? (
                   <BuilderArticleRowAutosaveRunner
                     documentId={documentId}
+                    databaseId={builderArticleRow.definition.databaseId}
                     canEdit={editorCanEdit}
                   />
                 ) : null}

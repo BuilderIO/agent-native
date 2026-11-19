@@ -33,8 +33,35 @@ export function builderAutosavePollMs(
     : BUILDER_AUTOSAVE_IDLE_POLL_MS;
 }
 
+export type BuilderArticleAutosaveTarget =
+  | { documentId: string }
+  | { rowDocumentId: string; databaseId?: string };
+
+export function builderArticleRowTarget(
+  rowDocumentId: string,
+  databaseId: string | null | undefined,
+): BuilderArticleAutosaveTarget {
+  return databaseId ? { rowDocumentId, databaseId } : { rowDocumentId };
+}
+
+export interface BuilderArticleRowIdentity {
+  rowDocumentId: string;
+  databaseId?: string;
+  sourceId?: string;
+}
+
+export function builderArticleRowIdentity(
+  row: BuilderArticleRowStatus,
+): BuilderArticleRowIdentity {
+  return {
+    rowDocumentId: row.documentId,
+    databaseId: row.databaseId,
+    sourceId: row.sourceId,
+  };
+}
+
 export function useBuilderArticleAutosaves(
-  target: { documentId: string } | { rowDocumentId: string } | null,
+  target: BuilderArticleAutosaveTarget | null,
 ) {
   return useActionQuery<ListBuilderArticleAutosavesResponse>(
     LIST_ACTION,
@@ -81,7 +108,7 @@ function rowTargets(documentId: string): ContentQueryTarget[] {
 export function useRunBuilderArticleAutosave() {
   return useContentActionMutation<
     BuilderArticleRowStatus,
-    { rowDocumentId: string; retry?: boolean }
+    BuilderArticleRowIdentity & { retry?: boolean }
   >("run-builder-article-autosave", {
     invalidates: (_data, variables) => rowTargets(variables.rowDocumentId),
   });
@@ -90,7 +117,7 @@ export function useRunBuilderArticleAutosave() {
 export function useSetBuilderArticleAutosave() {
   return useContentActionMutation<
     BuilderArticleRowStatus,
-    { rowDocumentId: string; enabled: boolean }
+    BuilderArticleRowIdentity & { enabled: boolean }
   >("set-builder-article-autosave", {
     invalidates: [["action", LIST_ACTION]],
   });
@@ -109,7 +136,7 @@ export function useBuilderArticleAutosaveRunner(
     busy = true;
     running.add(next.documentId);
     notify();
-    void mutateAsync({ rowDocumentId: next.documentId })
+    void mutateAsync(builderArticleRowIdentity(next))
       .catch(() => {})
       .finally(() => {
         busy = false;

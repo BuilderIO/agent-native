@@ -8,15 +8,18 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { runMutate, setMutate, running, runner, listed } = vi.hoisted(() => ({
-  runMutate: vi.fn(),
-  setMutate: vi.fn(),
-  running: { ids: new Set<string>() },
-  runner: vi.fn<(rows: BuilderArticleRowStatus[] | undefined) => void>(),
-  listed: {
-    data: undefined as { rows: BuilderArticleRowStatus[] } | undefined,
-  },
-}));
+const { runMutate, setMutate, running, runner, listed, targets } = vi.hoisted(
+  () => ({
+    runMutate: vi.fn(),
+    setMutate: vi.fn(),
+    running: { ids: new Set<string>() },
+    runner: vi.fn<(rows: BuilderArticleRowStatus[] | undefined) => void>(),
+    listed: {
+      data: undefined as { rows: BuilderArticleRowStatus[] } | undefined,
+    },
+    targets: vi.fn<(target: unknown) => void>(),
+  }),
+);
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
@@ -31,7 +34,19 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 vi.mock("@/hooks/use-builder-article-autosave", () => ({
-  useBuilderArticleAutosaves: () => ({ data: listed.data }),
+  builderArticleRowIdentity: (row: BuilderArticleRowStatus) => ({
+    rowDocumentId: row.documentId,
+    databaseId: row.databaseId,
+    sourceId: row.sourceId,
+  }),
+  builderArticleRowTarget: (
+    rowDocumentId: string,
+    databaseId: string | null | undefined,
+  ) => (databaseId ? { rowDocumentId, databaseId } : { rowDocumentId }),
+  useBuilderArticleAutosaves: (target: unknown) => {
+    targets(target);
+    return { data: listed.data };
+  },
   useBuilderArticleAutosaveRunner: runner,
   useBuilderAutosaveRunning: (documentId: string) =>
     running.ids.has(documentId),
@@ -70,6 +85,8 @@ function row(
 ): BuilderArticleRowStatus {
   return {
     documentId: "doc-row",
+    databaseId: "db-builder",
+    sourceId: "src-builder",
     databaseItemId: "item-1",
     entryId: "entry-1",
     builderUrl: "https://builder.io/content/entry-1",
@@ -91,6 +108,7 @@ describe("Builder article autosave", () => {
     runMutate.mockReset();
     setMutate.mockReset();
     runner.mockReset();
+    targets.mockReset();
     listed.data = undefined;
     running.ids = new Set();
   });
@@ -125,6 +143,29 @@ describe("Builder article autosave", () => {
       <BuilderArticleRowAutosaveRunner documentId="doc-row" canEdit={false} />,
     );
     expect(runner).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("asks for the row in the Builder collection the page shows", () => {
+    render(
+      <BuilderArticleRowAutosaveRunner
+        documentId="doc-row"
+        databaseId="db-builder"
+        canEdit
+      />,
+    );
+    expect(targets).toHaveBeenLastCalledWith({
+      rowDocumentId: "doc-row",
+      databaseId: "db-builder",
+    });
+
+    render(
+      <BuilderArticleRowAutosaveRunner
+        documentId="doc-row"
+        databaseId={null}
+        canEdit
+      />,
+    );
+    expect(targets).toHaveBeenLastCalledWith({ rowDocumentId: "doc-row" });
   });
 
   it("renders the shared switch as a focusable switch that flips its value", () => {
@@ -162,7 +203,12 @@ describe("Builder article autosave", () => {
 
     act(() => switchButton()?.click());
     expect(setMutate).toHaveBeenCalledWith(
-      { rowDocumentId: "doc-row", enabled: false },
+      {
+        rowDocumentId: "doc-row",
+        databaseId: "db-builder",
+        sourceId: "src-builder",
+        enabled: false,
+      },
       expect.anything(),
     );
   });
@@ -191,7 +237,12 @@ describe("Builder article autosave", () => {
     expect(retry).toBeDefined();
     act(() => retry?.click());
     expect(runMutate).toHaveBeenCalledWith(
-      { rowDocumentId: "doc-row", retry: true },
+      {
+        rowDocumentId: "doc-row",
+        databaseId: "db-builder",
+        sourceId: "src-builder",
+        retry: true,
+      },
       expect.anything(),
     );
   });
@@ -271,7 +322,12 @@ describe("Builder article autosave", () => {
     expect(retry).not.toBeNull();
     act(() => retry?.click());
     expect(runMutate).toHaveBeenCalledWith(
-      { rowDocumentId: "doc-row", retry: true },
+      {
+        rowDocumentId: "doc-row",
+        databaseId: "db-builder",
+        sourceId: "src-builder",
+        retry: true,
+      },
       expect.anything(),
     );
     expect(onRowClick).not.toHaveBeenCalled();
@@ -314,6 +370,18 @@ describe("builderAutosaveView", () => {
       tone: "error",
       detail: "builderAutosave.reasonBuilderChanged",
       canRetry: true,
+    });
+    expect(
+      builderAutosaveView(
+        status({ state: "review", reason: "unconfirmed_save" }),
+        true,
+        t,
+      ),
+    ).toMatchObject({
+      tone: "muted",
+      label: "builderAutosave.stateReview",
+      detail: "builderAutosave.reasonUnconfirmedSave",
+      canRetry: false,
     });
     expect(
       builderAutosaveView(status({ enabled: false, state: "idle" }), false, t),

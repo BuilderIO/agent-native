@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -23,6 +23,8 @@ import {
   BUILDER_ARTICLE_AUTOSAVE_NEW_ROW_WINDOW_MS,
   BUILDER_ARTICLE_AUTOSAVE_QUIET_MS,
   BUILDER_ARTICLE_AUTOSAVE_RECHECK_MS,
+  BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP,
+  BUILDER_ARTICLE_AUTOSAVE_UNSETTLED_EXECUTION_STATES,
   builderArticleAutosaveAllowsEffect,
   builderArticleAutosaveAllowsPublication,
 } from "./_builder-article-autosave-rules.js";
@@ -52,6 +54,7 @@ interface BuilderSourceRecord {
 
 interface ArticleRow {
   documentId: string;
+  databaseId: string;
   databaseItemId: string;
   sourceId: string;
   entryId: string | null;
@@ -77,12 +80,15 @@ const REASON_VALUES = [
   "edit_conflict",
   "builder_changed",
   "save_failed",
+  "unconfirmed_save",
 ] as const satisfies readonly BuilderArticleAutosaveReason[];
 const STATES = new Set<string>(STATE_VALUES);
 const REASONS = new Set<string>(REASON_VALUES);
 
 export const builderArticleRowStatusSchema = z.object({
   documentId: z.string(),
+  databaseId: z.string(),
+  sourceId: z.string(),
   databaseItemId: z.string(),
   entryId: z.string().nullable(),
   builderUrl: z.string().nullable(),
@@ -294,6 +300,7 @@ async function readArticleRows(args: {
     const usableRecord = record?.sourceId === source.id ? record : null;
     rows.push({
       documentId: item.documentId,
+      databaseId: args.database.id,
       databaseItemId: item.id,
       sourceId: source.id,
       entryId: builderRow?.sourceRowId ?? null,
@@ -360,7 +367,10 @@ function autosaveStatus(args: {
   if (enabled) {
     if (state === "saving") {
       due = nowMs - updatedMs >= BUILDER_EXECUTION_CLAIM_TIMEOUT_MS;
-    } else if (state === "waiting") {
+    } else if (
+      state === "waiting" ||
+      (state === "review" && reason === "unconfirmed_save")
+    ) {
       due = nowMs - updatedMs >= BUILDER_ARTICLE_AUTOSAVE_RECHECK_MS;
     } else if (state !== "failed" && state !== "review") {
       due = dirty && quiet;
@@ -383,6 +393,8 @@ function rowStatus(
 ): BuilderArticleRowStatus {
   return {
     documentId: row.documentId,
+    databaseId: row.databaseId,
+    sourceId: row.sourceId,
     databaseItemId: row.databaseItemId,
     entryId: row.entryId,
     builderUrl: row.entryId ? builderEntryEditorUrl(row.entryId) : null,
@@ -412,15 +424,84 @@ export async function listBuilderArticleRows(args: {
   };
 }
 
-export async function resolveArticleDatabase(documentId: string) {
-  const items = await getDb()
+export async function resolveArticleDatabase(
+  documentId: string,
+  databaseId?: string,
+) {
+  const db = getDb();
+  const items = await db
     .select({ databaseId: schema.contentDatabaseItems.databaseId })
     .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.documentId, documentId))
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        databaseId
+          ? eq(schema.contentDatabaseItems.databaseId, databaseId)
+          : undefined,
+      ),
+    );
+  const databaseIds = [...new Set(items.map((item) => item.databaseId))];
+  if (databaseIds.length === 0) return null;
+  let candidates = databaseIds;
+  if (!databaseId) {
+    const sources = await db
+      .select({ databaseId: schema.contentDatabaseSources.databaseId })
+      .from(schema.contentDatabaseSources)
+      .where(
+        and(
+          inArray(schema.contentDatabaseSources.databaseId, databaseIds),
+          eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+        ),
+      );
+    candidates = [...new Set(sources.map((source) => source.databaseId))];
+  }
+  if (candidates.length > 1) {
+    fail(
+      "This article is in more than one Builder collection. Open it from the collection you want to save it from.",
+      { errorCode: "builder_autosave_ambiguous_collection", statusCode: 409 },
+    );
+  }
+  const candidate = firstOf(candidates);
+  if (!candidate) return null;
+  return resolveDatabaseForSourceMutation({ databaseId: candidate });
+}
+
+async function unsettledSaveId(row: ArticleRow) {
+  const executions = await getDb()
+    .select({ id: schema.contentDatabaseSourceExecutions.id })
+    .from(schema.contentDatabaseSourceExecutions)
+    .innerJoin(
+      schema.contentDatabaseSourceChangeSets,
+      eq(
+        schema.contentDatabaseSourceChangeSets.id,
+        schema.contentDatabaseSourceExecutions.changeSetId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceChangeSets.sourceId, row.sourceId),
+        eq(schema.contentDatabaseSourceChangeSets.documentId, row.documentId),
+        eq(schema.contentDatabaseSourceChangeSets.direction, "outbound"),
+        inArray(schema.contentDatabaseSourceExecutions.state, [
+          ...BUILDER_ARTICLE_AUTOSAVE_UNSETTLED_EXECUTION_STATES,
+        ]),
+      ),
+    )
+    .orderBy(asc(schema.contentDatabaseSourceExecutions.createdAt))
     .limit(1);
-  const item = firstOf(items);
-  if (!item) return null;
-  return resolveDatabaseForSourceMutation({ databaseId: item.databaseId });
+  return firstOf(executions)?.id;
+}
+
+async function touchRecord(id: string, now: string) {
+  await getDb()
+    .update(schema.contentDatabaseBuilderAutosaves)
+    .set({ updatedAt: now })
+    .where(
+      and(
+        eq(schema.contentDatabaseBuilderAutosaves.id, id),
+        isNull(schema.contentDatabaseBuilderAutosaves.attemptId),
+      ),
+    );
 }
 
 async function ensureRecord(row: ArticleRow, now: string) {
@@ -496,6 +577,18 @@ async function finishRecord(args: {
     );
 }
 
+export function assertBuilderArticleSource(
+  row: ArticleRow,
+  sourceId: string | undefined,
+) {
+  if (sourceId && sourceId !== row.sourceId) {
+    fail(
+      "This article's Builder source changed. Reload the page and try again.",
+      { errorCode: "builder_autosave_source_changed", statusCode: 409 },
+    );
+  }
+}
+
 export async function setBuilderArticleAutosaveEnabled(args: {
   row: ArticleRow;
   enabled: boolean;
@@ -543,7 +636,10 @@ interface SaveOutcome {
 
 export interface BuilderArticleAutosaveDeps {
   now: () => string;
-  resolveDatabase: (documentId: string) => Promise<DatabaseRecord | null>;
+  resolveDatabase: (
+    documentId: string,
+    databaseId?: string,
+  ) => Promise<DatabaseRecord | null>;
   assertCollectionEditor: (database: DatabaseRecord) => Promise<void>;
   assertPageEditor: (documentId: string) => Promise<void>;
   getSourceSnapshot: (args: {
@@ -600,6 +696,10 @@ const OUTCOMES_BY_CODE = new Map<string, (message: string) => SaveOutcome>([
   [
     "builder_entry_write_in_progress",
     () => ({ state: "waiting", reason: "another_save_running" }),
+  ],
+  [
+    BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP.errorCode,
+    () => ({ state: "review", reason: "unconfirmed_save" }),
   ],
 ]);
 
@@ -660,25 +760,33 @@ async function saveArticle(args: {
       changeSet.documentId === row.documentId,
   );
 
+  const unsettledId = await unsettledSaveId(row);
   const unsettled = firstOf(
     changeSets.flatMap((changeSet) =>
       changeSet.executions
-        .filter(
-          (execution) =>
-            execution.state === "reconciliation_required" ||
-            execution.state === "running",
-        )
+        .filter((execution) => execution.id === unsettledId)
         .map((execution) => ({ changeSet, execution })),
     ),
   );
   if (unsettled) {
-    await deps.execute({
-      databaseId: database.id,
-      sourceId,
-      changeSetId: unsettled.changeSet.id,
-      idempotencyKey: unsettled.execution.idempotencyKey,
-      ...pushModeConfirmation(unsettled.execution.pushMode),
-    });
+    try {
+      await deps.execute({
+        databaseId: database.id,
+        sourceId,
+        changeSetId: unsettled.changeSet.id,
+        idempotencyKey: unsettled.execution.idempotencyKey,
+        ...pushModeConfirmation(unsettled.execution.pushMode),
+      });
+    } catch (error) {
+      const outcome = builderArticleAutosaveOutcomeForError(error);
+      return outcome.state === "failed"
+        ? {
+            state: "review",
+            reason: "unconfirmed_save",
+            error: outcome.error ?? null,
+          }
+        : outcome;
+    }
     return { state: "saved", saved: true, settledEarlier: true };
   }
 
@@ -751,10 +859,15 @@ async function saveArticle(args: {
 }
 
 export async function runBuilderArticleAutosaveWithDeps(
-  args: { documentId: string; retry?: boolean },
+  args: {
+    documentId: string;
+    retry?: boolean;
+    databaseId?: string;
+    sourceId?: string;
+  },
   deps: BuilderArticleAutosaveDeps,
 ): Promise<BuilderArticleRowStatus> {
-  const database = await deps.resolveDatabase(args.documentId);
+  const database = await deps.resolveDatabase(args.documentId, args.databaseId);
   if (!database) {
     fail("This page isn't a row in a collection.", {
       errorCode: "not_a_collection_row",
@@ -782,6 +895,7 @@ export async function runBuilderArticleAutosaveWithDeps(
       statusCode: 409,
     });
   }
+  assertBuilderArticleSource(row, args.sourceId);
   const status = async () => {
     const result = await builderArticleRowStatus({
       database,
@@ -811,6 +925,15 @@ export async function runBuilderArticleAutosaveWithDeps(
   }
   if (!current.enabled) return status();
   if (!args.retry && !current.due) return status();
+  if (
+    current.state === "review" &&
+    current.reason === "unconfirmed_save" &&
+    row.record &&
+    (await unsettledSaveId(row)) !== undefined
+  ) {
+    await touchRecord(row.record.id, now);
+    return status();
+  }
 
   const claim = await claimRecord(row, now);
   if (!claim) return status();

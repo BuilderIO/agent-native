@@ -3385,6 +3385,78 @@ describe("automatic Builder article saves", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
+  it("never sends a draft save with an unknown outcome again", async () => {
+    const approved = changeSet({ pushMode: "autosave" });
+    const builderSource = source({
+      rows: [draftRow()],
+      changeSets: [approved],
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({
+        source: builderSource,
+        changeSet: approved,
+        state: "reconciliation_required",
+        updatedAt: "2026-06-15T11:00:00.000Z",
+      }),
+      readLiveEntry: liveDraft,
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approved.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+        { automatic: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "builder_autosave_unconfirmed" });
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.readLiveEntry).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.updateExecutionState).not.toHaveBeenCalled();
+  });
+
+  it("settles a lost draft create only from Builder's read-only lookup", async () => {
+    const draftCreate = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [],
+      changeSets: [draftCreate],
+      metadata: {
+        pushMode: "draft",
+        allowDraftWrites: true,
+        allowedWriteModes: ["draft", "autosave"],
+      },
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({
+        source: builderSource,
+        changeSet: draftCreate,
+        state: "reconciliation_required",
+        updatedAt: "2026-06-15T11:00:00.000Z",
+      }),
+      lookupMatches: [],
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: draftCreate.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+        { automatic: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "builder_autosave_unconfirmed" });
+    expect(deps.lookupSafeModelIntent).toHaveBeenCalledTimes(1);
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
   it("leaves a reviewed save to a published entry alone", async () => {
     const approved = changeSet();
     const builderSource = source({

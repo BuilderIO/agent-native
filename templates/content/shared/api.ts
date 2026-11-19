@@ -1960,7 +1960,8 @@ export type BuilderArticleAutosaveReason =
   | "needs_review"
   | "edit_conflict"
   | "builder_changed"
-  | "save_failed";
+  | "save_failed"
+  | "unconfirmed_save";
 
 export interface BuilderArticleAutosaveStatus {
   enabled: boolean;
@@ -1973,6 +1974,8 @@ export interface BuilderArticleAutosaveStatus {
 
 export interface BuilderArticleRowStatus {
   documentId: string;
+  databaseId: string;
+  sourceId: string;
   databaseItemId: string;
   entryId: string | null;
   builderUrl: string | null;
