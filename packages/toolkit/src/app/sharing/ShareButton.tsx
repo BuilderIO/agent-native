@@ -677,7 +677,7 @@ export function ShareButton(props: ShareButtonProps) {
         {...(props.popoverProps ?? {})}
         data-agent-native-share-overlay=""
         className={cn(
-          "z-[2000] max-h-[calc(100dvh-1rem)] w-[384px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg p-4 shadow-lg",
+          "z-[2000] max-h-[var(--radix-popover-content-available-height)] w-[384px] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg p-4 shadow-lg",
           SHARE_POPOVER_SURFACE,
           props.popoverClassName,
         )}

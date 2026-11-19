@@ -1,4 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 
 import { chromium, type Browser } from "playwright";
@@ -13,8 +15,14 @@ const { default: tailwindcss } = await import(
 
 let server: ViteDevServer;
 let browser: Browser;
+let cacheDir: string;
 beforeAll(async () => {
+  cacheDir = await mkdtemp(path.join(os.tmpdir(), "share-browser-vite-"));
   server = await createServer({
+    cacheDir,
+    optimizeDeps: {
+      entries: ["src/app/__fixtures__/ShareButton.browser.e2e-host.tsx"],
+    },
     configFile: "./vitest.config.ts",
     plugins: [
       tailwindcss(),
@@ -49,6 +57,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser.close();
   await server.close();
+  await rm(cacheDir, { recursive: true, force: true });
 });
 async function setupPage(page: import("playwright").Page) {
   await page.route(
@@ -95,8 +104,9 @@ describe("share invite suggestions", () => {
   it.each([
     { width: 1440, height: 900 },
     { width: 360, height: 720 },
+    { width: 360, height: 400 },
   ])(
-    "keeps General access clickable at $width px while a long suggestion list is open",
+    "keeps General access clickable at $width × $height while a long suggestion list is open",
     async (viewport) => {
       const page = await browser.newPage({ viewport });
       try {
@@ -140,6 +150,8 @@ describe("share invite suggestions", () => {
         if (!bounds) throw new Error("Missing panel bounds");
         expect(bounds.x).toBeGreaterThanOrEqual(0);
         expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
+        expect(bounds.y).toBeGreaterThanOrEqual(0);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
         await input.press("End");
         await input.press("ArrowUp");
         expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
@@ -183,6 +195,12 @@ describe("share invite suggestions", () => {
       await input.press("Escape");
       expect(await list.count()).toBe(0);
       expect(await input.getAttribute("aria-activedescendant")).toBeNull();
+      expect(await input.isVisible()).toBe(true);
+      expect(
+        await page
+          .getByRole("combobox", { name: "General access" })
+          .isVisible(),
+      ).toBe(true);
       expect(errors).toEqual([]);
     } finally {
       await page.close();
