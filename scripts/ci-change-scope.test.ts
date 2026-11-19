@@ -2102,6 +2102,7 @@ test("Design core and broad selectors stay independently scoped", () => {
     );
   }
 
+  // oracle-change: #9349 deleted the Home Design spec, so its CI step and the assertions on that step go with it
   const landingPageSelection = classifyChangedPaths([
     "templates/design/e2e/interaction-landing-page-build.spec.ts",
   ]);
@@ -3485,6 +3486,7 @@ test(
       ".github/workflows/ci.yml",
       "scripts/ci-change-scope.ts",
     ]) {
+      // source-read-ok: the spec paths CI and the classifier name are the subject, checked against the tree
       const text = readFileSync(source, "utf8");
       for (const [spec] of text.matchAll(
         /(?:templates|packages)\/[\w-]+\/e2e\/[\w.-]+\.spec\.ts/g,
