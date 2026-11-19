@@ -601,8 +601,10 @@ describe("settings change feed scope", () => {
       "alice@example.test",
       undefined,
     );
-    expect(result).toMatchObject({ unreadableScopeUnknown: true, events: [] });
-    expect(result.unreadable).toBeUndefined();
+    expect(result).toMatchObject({
+      unreadable: [{ type: "unknown-scope" }],
+      events: [],
+    });
   });
 
   it("distinguishes an access denial from a failed access resolver", async () => {

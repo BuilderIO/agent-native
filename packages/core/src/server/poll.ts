@@ -570,14 +570,24 @@ export type ChangeReadResult = {
   cursorLimited?: boolean;
   /** Set when the read stopped at an event whose access check is unresolved. */
   accessPending?: boolean;
-  unreadable?: Array<{ version: number; cursorId: string }>;
-  unreadableScopeUnknown?: boolean;
+  unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
 };
+
+type UnreadableAt = {
+  cursor: SyncCursor;
+  type: "access-unavailable" | "unknown-scope";
+};
+function unreadableSignals(
+  entries: UnreadableAt[],
+): Pick<ChangeReadResult, "unreadable"> {
+  const types = [...new Set(entries.map((entry) => entry.type))];
+  return types.length ? { unreadable: types.map((type) => ({ type })) } : {};
+}
 
 type AccessRead = {
   checking: Set<string>;
   blockedOn: Set<Promise<void>>;
-  unknownCursors: SyncCursor[];
+  unreadableCursors: UnreadableAt[];
 };
 
 export type AccessResolver = (
@@ -1829,7 +1839,7 @@ export class AppSyncState {
       };
     }
     const events: ChangeEvent[] = [];
-    const unreadable: NonNullable<ChangeReadResult["unreadable"]> = [];
+    const unreadable: UnreadableAt[] = [];
     let version = this.version;
     let lastCursor = readCursor;
     const unread = this.buffer.filter((event) =>
@@ -1843,10 +1853,12 @@ export class AppSyncState {
         orgId,
       );
       if (visibility === "unreadable") {
-        unreadable.push({
-          version: event.version,
-          cursorId: event.cursorId ?? "",
-        });
+        const entry: UnreadableAt = {
+          cursor: cursorForEvent(event),
+          type: "access-unavailable",
+        };
+        unreadable.push(entry);
+        accessRead?.unreadableCursors.push(entry);
         lastCursor = cursorForEvent(event);
         continue;
       }
@@ -1862,7 +1874,7 @@ export class AppSyncState {
         return {
           version,
           events,
-          ...(unreadable.length ? { unreadable } : {}),
+          ...unreadableSignals(unreadable),
           cursorLimited: true,
           accessPending: true,
           ...(cursor && lastCursor !== readCursor
@@ -1875,7 +1887,7 @@ export class AppSyncState {
     return {
       version,
       events,
-      ...(unreadable.length ? { unreadable } : {}),
+      ...unreadableSignals(unreadable),
       ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
         ? { cursor: encodeSyncCursor(lastCursor) }
         : {}),
@@ -1945,8 +1957,7 @@ export class AppSyncState {
         });
       }
       const events: ChangeEvent[] = [];
-      const unreadable: NonNullable<ChangeReadResult["unreadable"]> = [];
-      let unreadableScopeUnknown = false;
+      const unreadable: UnreadableAt[] = [];
       let version = Math.max(this.version, since);
       let lastDurableVersion = since;
       let lastCursor = readCursor;
@@ -1973,10 +1984,12 @@ export class AppSyncState {
         if (!event) {
           const row = rows[index];
           logUnreadable(row?.resource_type, row?.resource_id, "missing-event");
-          unreadableScopeUnknown = true;
-          accessRead?.unknownCursors.push(
-            rowCursor ?? { version: rawVersion, id: "" },
-          );
+          const entry: UnreadableAt = {
+            cursor: rowCursor ?? { version: rawVersion, id: "" },
+            type: "unknown-scope",
+          };
+          unreadable.push(entry);
+          accessRead?.unreadableCursors.push(entry);
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
@@ -2005,7 +2018,12 @@ export class AppSyncState {
           orgId,
         );
         if (visibility === "unreadable") {
-          unreadable.push({ version: rawVersion, cursorId: rowId });
+          const entry: UnreadableAt = {
+            cursor: rowCursor ?? { version: rawVersion, id: "" },
+            type: "access-unavailable",
+          };
+          unreadable.push(entry);
+          accessRead?.unreadableCursors.push(entry);
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
@@ -2020,8 +2038,7 @@ export class AppSyncState {
           return {
             version: Math.max(since, event.version - 1),
             events,
-            ...(unreadable.length ? { unreadable } : {}),
-            ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
+            ...unreadableSignals(unreadable),
             cursorLimited: true,
             accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
@@ -2037,8 +2054,7 @@ export class AppSyncState {
           return {
             version: Math.max(since, lastDurableVersion),
             events,
-            ...(unreadable.length ? { unreadable } : {}),
-            ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
+            ...unreadableSignals(unreadable),
             cursor: encodeSyncCursor(lastCursor),
             cursorLimited: result.rows.length > DURABLE_READ_LIMIT,
           };
@@ -2048,22 +2064,18 @@ export class AppSyncState {
           return {
             version: Math.max(since, boundaryVersion - 1),
             events: events.filter((event) => event.version < boundaryVersion),
-            ...(unreadable.some((entry) => entry.version < boundaryVersion)
-              ? {
-                  unreadable: unreadable.filter(
-                    (entry) => entry.version < boundaryVersion,
-                  ),
-                }
-              : {}),
-            ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
+            ...unreadableSignals(
+              unreadable.filter(
+                (entry) => entry.cursor.version < boundaryVersion,
+              ),
+            ),
             cursorLimited: true,
           };
         }
         return {
           version: Math.max(since, lastDurableVersion),
           events,
-          ...(unreadable.length ? { unreadable } : {}),
-          ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
+          ...unreadableSignals(unreadable),
           cursorLimited: true,
         };
       }
@@ -2071,8 +2083,7 @@ export class AppSyncState {
       return {
         version,
         events,
-        ...(unreadable.length ? { unreadable } : {}),
-        ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
+        ...unreadableSignals(unreadable),
         ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
           ? { cursor: encodeSyncCursor(lastCursor) }
           : {}),
@@ -2098,7 +2109,7 @@ export class AppSyncState {
     const accessRead: AccessRead = {
       checking: new Set(),
       blockedOn: new Set(),
-      unknownCursors: [],
+      unreadableCursors: [],
     };
     const first = await this.readCombinedChangesSinceForUser(
       since,
@@ -2146,12 +2157,12 @@ export class AppSyncState {
     const memoryRead: AccessRead = {
       checking: accessRead.checking,
       blockedOn: new Set(),
-      unknownCursors: [],
+      unreadableCursors: [],
     };
     const durableRead: AccessRead = {
       checking: accessRead.checking,
       blockedOn: new Set(),
-      unknownCursors: [],
+      unreadableCursors: [],
     };
     const blockOn = (read: AccessRead) => {
       for (const check of read.blockedOn) accessRead.blockedOn.add(check);
@@ -2175,19 +2186,10 @@ export class AppSyncState {
       cursor,
       durableRead,
     );
-    const unreadableScopeUnknown =
-      memory.unreadableScopeUnknown || durable.unreadableScopeUnknown;
     const unreadable = [
-      ...(memory.unreadable ?? []),
-      ...(durable.unreadable ?? []),
-    ].filter(
-      (entry, i, all) =>
-        all.findIndex(
-          (other) =>
-            other.version === entry.version &&
-            other.cursorId === entry.cursorId,
-        ) === i,
-    );
+      ...memoryRead.unreadableCursors,
+      ...durableRead.unreadableCursors,
+    ];
     const sources = [
       { result: memory, read: memoryRead },
       { result: durable, read: durableRead },
@@ -2235,22 +2237,11 @@ export class AppSyncState {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
-          ...(durableRead.unknownCursors.some(
-            (item) => compareSyncCursors(item, boundary) <= 0,
-          )
-            ? { unreadableScopeUnknown: true }
-            : {}),
-          ...(unreadable.length
-            ? {
-                unreadable: unreadable.filter(
-                  (entry) =>
-                    compareSyncCursors(
-                      { version: entry.version, id: entry.cursorId },
-                      boundary,
-                    ) <= 0,
-                ),
-              }
-            : {}),
+          ...unreadableSignals(
+            unreadable.filter(
+              (entry) => compareSyncCursors(entry.cursor, boundary) <= 0,
+            ),
+          ),
           ...(pending.length > 0 ? { accessPending: true } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
@@ -2272,8 +2263,7 @@ export class AppSyncState {
       return {
         version: Math.max(memory.version, durable.version, since),
         events,
-        ...(unreadableScopeUnknown ? { unreadableScopeUnknown } : {}),
-        ...(unreadable.length ? { unreadable } : {}),
+        ...unreadableSignals(unreadable),
         ...(compareSyncCursors(responseCursor, cursor) > 0
           ? { cursor: encodeSyncCursor(responseCursor) }
           : {}),
@@ -2298,22 +2288,13 @@ export class AppSyncState {
               (event) => event.version <= Math.min(...limitedVersions),
             )
           : events,
-      ...(unreadable.length
-        ? {
-            unreadable: unreadable.filter(
-              (entry) =>
-                !limitedVersions.length ||
-                entry.version <= Math.min(...limitedVersions),
-            ),
-          }
-        : {}),
-      ...(durableRead.unknownCursors.some(
-        (item) =>
-          !limitedVersions.length ||
-          item.version <= Math.min(...limitedVersions),
-      )
-        ? { unreadableScopeUnknown: true }
-        : {}),
+      ...unreadableSignals(
+        unreadable.filter(
+          (entry) =>
+            !limitedVersions.length ||
+            entry.cursor.version <= Math.min(...limitedVersions),
+        ),
+      ),
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
       ...(pending.length > 0 ? { accessPending: true } : {}),
     };

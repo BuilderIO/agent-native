@@ -160,7 +160,7 @@ describe("useDbSync durable read unavailable", () => {
               key: "create",
             },
           ],
-          unreadable: [{ version: 6, cursorId: "row-a" }],
+          unreadable: [{ type: "access-unavailable" }],
         }),
     ];
     await mount();
@@ -179,7 +179,7 @@ describe("useDbSync durable read unavailable", () => {
           version: 6,
           cursor: "6.row-a",
           events: [],
-          unreadableScopeUnknown: true,
+          unreadable: [{ type: "unknown-scope" }],
         }),
     ];
     await mount();

@@ -421,7 +421,7 @@ describe("AppSyncState read through other people's resources", () => {
       "shared",
       "mine",
     ]);
-    expect(result.unreadable).toEqual([{ version: 7, cursorId: "row-0001" }]);
+    expect(result.unreadable).toEqual([{ type: "access-unavailable" }]);
     expect(log).toHaveBeenCalledWith(
       "[agent-native] sync event unreadable",
       expect.objectContaining({
@@ -1384,7 +1384,7 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
     expect(result.cursorLimited).toBe(true);
-    expect(result.unreadableScopeUnknown).toBeUndefined();
+    expect(result.unreadable).toBeUndefined();
   });
 
   it("stops at an unchecked change before an unreadable row after it", async () => {
@@ -1433,7 +1433,7 @@ describe("AppSyncState read through other people's resources", () => {
         id: "",
       }),
     ).resolves.toMatchObject({
-      unreadableScopeUnknown: true,
+      unreadable: [{ type: "unknown-scope" }],
     });
   });
 
