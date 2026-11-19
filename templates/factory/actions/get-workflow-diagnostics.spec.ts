@@ -423,7 +423,7 @@ describe("get-workflow-diagnostics", () => {
     expect(holder.connectionOwners).toEqual([undefined]);
   });
 
-  it("says whose Content status it is: the asking person's factory-wide, a teammate owner's for their workflow, and keeps the setup steps whole", async () => {
+  it("says whose Content status it is: the asking person's factory-wide, a teammate owner's for their workflow, and keeps Content's setup steps whole while other providers' details stay short", async () => {
     const workflow = await seedWorkflow();
     const mine = await addWorkflow(world, { ownerEmail: kit.USER_EMAIL });
     holder.alsoReported = ["content"];
@@ -448,6 +448,10 @@ describe("get-workflow-diagnostics", () => {
       `Checked for the workflow's owner, a teammate; get-factory-workflow names them. ${steps}`,
     );
     expect(content(own)?.detail).toBe(steps);
+    const slack = factoryWide.connections.find(
+      (entry: { provider: string }) => entry.provider === "slack",
+    );
+    expect(slack?.detail).toBe(`${steps.slice(0, 159)}…`);
   });
 
   it("calls a waiting item overdue by its own workflow's `wait_overdue` threshold, not a flat ten minutes", async () => {

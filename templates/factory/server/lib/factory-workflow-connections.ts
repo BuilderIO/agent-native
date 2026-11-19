@@ -276,10 +276,16 @@ async function contentConnection(identity: {
   );
   if (!servers.ok) return unknown("content", "settings", servers.message);
   const { saved, reachable } = servers.value;
-  if (saved.length === 1 && reachable.length === 0) {
-    return unknown("content", "settings", CONTENT_UNREACHABLE);
-  }
   const someoneElse = owner !== identity.userEmail;
+  if (saved.length === 1 && reachable.length === 0) {
+    return unknown(
+      "content",
+      "settings",
+      someoneElse
+        ? `This workflow writes to Content as its owner, ${owner}, whose saved connection Factory could not reach or lacks the tools this step needs. Only they can fix it: in their own account, Settings, Integrations, sign in to Content again if it asks.`
+        : CONTENT_UNREACHABLE,
+    );
+  }
   return known(
     "content",
     "settings",
@@ -288,7 +294,9 @@ async function contentConnection(identity: {
       ? someoneElse
         ? `This workflow writes to Content as its owner, ${owner}, who has not connected it. They connect it for themselves: ${CONTENT_CONNECT_STEPS}.`
         : `Connect it for yourself: ${CONTENT_CONNECT_STEPS}.`
-      : `Content is connected ${saved.length} times${someoneElse ? ` for this workflow's owner, ${owner}` : ""}, so which to use is unclear. Keep one connection and remove the others.`,
+      : someoneElse
+        ? `Content is connected ${saved.length} times for this workflow's owner, ${owner}, so which to use is unclear. Only they can fix it: in their own account, keep one connection and remove the others.`
+        : `Content is connected ${saved.length} times, so which to use is unclear. Keep one connection and remove the others.`,
   );
 }
 

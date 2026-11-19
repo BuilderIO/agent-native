@@ -526,6 +526,7 @@ export async function upsertContentRow(
   const keyColumn = properties.find(
     (property) => property.id === keyPropertyId,
   );
+  if (!keyColumn) unreadableColumns();
   const entries = propertyEntries(
     properties,
     keyPropertyId,
@@ -536,7 +537,7 @@ export async function upsertContentRow(
     deps,
     serverId,
     documentId,
-    { id: keyPropertyId, name: keyColumn?.name ?? "Key" },
+    { id: keyPropertyId, name: keyColumn.name },
     input.key,
   );
   const expectedRowRevision = existing?.rowRevision ?? null;

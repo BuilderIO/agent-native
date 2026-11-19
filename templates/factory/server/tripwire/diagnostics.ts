@@ -57,7 +57,7 @@ const FAILED_STEP_ROWS = 100;
 const FAILED_STEPS_PER_RUN = 3;
 const FOCUS_TRIPWIRES = 20;
 const MESSAGE_CHARS = 160;
-const CONNECTION_DETAIL_CHARS = 400;
+const CONTENT_DETAIL_CHARS = 400;
 const CONTENT_FOR_CALLER =
   "Checked for the person asking. Each workflow's Content steps use its owner's connection; name a workflowId for that owner's.";
 const CONTENT_FOR_TEAMMATE =
@@ -641,7 +641,14 @@ export async function buildWorkflowDiagnostics(
           (entry.status === "not connected" ? "none" : "unobserved"),
         ...(detail === undefined
           ? {}
-          : { detail: scrub(detail, CONNECTION_DETAIL_CHARS) }),
+          : {
+              detail: scrub(
+                detail,
+                entry.provider === "content"
+                  ? CONTENT_DETAIL_CHARS
+                  : MESSAGE_CHARS,
+              ),
+            }),
       };
     });
   });

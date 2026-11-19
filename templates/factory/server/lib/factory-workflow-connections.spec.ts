@@ -487,6 +487,40 @@ describe("content", () => {
       (await readProviderConnections(["content"], owned))[0],
     ).toMatchObject({ status: "connected" });
   });
+
+  it("tells a teammate that only the owner can repair the owner's unreachable or doubled connection", async () => {
+    const owned = { ...identity, ownerEmail: "owner@example.test" };
+    const onlyOwner =
+      /owner@example\.test.*Only they can fix it: in their own account,/;
+
+    contentServersMock.mockResolvedValue({ saved: [server], reachable: [] });
+    expect(await statusOf("content")).toMatchObject({
+      status: "unknown",
+      detail: "Content is unreachable.",
+    });
+    expect(
+      (await readProviderConnections(["content"], owned))[0],
+    ).toMatchObject({
+      status: "unknown",
+      detail: expect.stringMatching(onlyOwner),
+    });
+
+    contentServersMock.mockResolvedValue({
+      saved: [server, { ...server, id: "content-2" }],
+      reachable: [server],
+    });
+    expect(await statusOf("content")).toMatchObject({
+      status: "not connected",
+      detail:
+        "Content is connected 2 times, so which to use is unclear. Keep one connection and remove the others.",
+    });
+    expect(
+      (await readProviderConnections(["content"], owned))[0],
+    ).toMatchObject({
+      status: "not connected",
+      detail: expect.stringMatching(onlyOwner),
+    });
+  });
 });
 
 describe("the vault key table", () => {

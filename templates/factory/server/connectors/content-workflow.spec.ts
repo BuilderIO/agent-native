@@ -317,7 +317,7 @@ describe("upsertContentRow", () => {
     }
   });
 
-  it("stops before writing when the collection's columns come back without an id, a name, a type or whether they can be written", async () => {
+  it("stops before writing when the collection's columns come back without an id, a name, a type or whether they can be written, or without its key column", async () => {
     const extra = (column: Record<string, unknown>) => [
       ...contract.properties,
       column,
@@ -329,6 +329,7 @@ describe("upsertContentRow", () => {
       extra({ id: "prop-notes", name: "Notes", type: "text" }),
       extra({ id: "", name: "Notes", type: "text", writable: true }),
       extra({ id: "prop-notes", name: "Notes", writable: true }),
+      contract.properties.filter((column) => column.id !== KEY),
     ]) {
       const { deps, writes } = content({ columns });
       expect(
