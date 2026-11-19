@@ -30,6 +30,7 @@ import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboardi
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
+  ErrorBoundary as SharedErrorBoundary,
   type AppShellFirstPaintHome,
 } from "@agent-native/toolkit/app/shared";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
@@ -630,4 +631,6 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/toolkit/app/shared";
+export function ErrorBoundary() {
+  return <SharedErrorBoundary genericErrors />;
+}
