@@ -1,5 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+// oracle-change: framework prompt now says memory is saved with save-memory and carried across chats
 exports[`assembled prompt snapshots > compact prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
@@ -49,6 +50,7 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 "
 `;
 
+// oracle-change: framework prompt now says memory is saved with save-memory and carried across chats
 exports[`assembled prompt snapshots > full prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work

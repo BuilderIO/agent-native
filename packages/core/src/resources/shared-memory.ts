@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { getAppConfig } from "../app-config/index.js";
+
 const MEMORY_PREFIX = "memory/";
 const SAFE_MEMORY_FILE_PATTERN = /^[a-zA-Z0-9._-]+\.md$/;
 
@@ -10,8 +12,13 @@ const SAFE_MEMORY_FILE_PATTERN = /^[a-zA-Z0-9._-]+\.md$/;
  * other app agent's new chats.
  */
 export function getSharedMemoryDir(): string | null {
-  const dir = process.env.AGENT_NATIVE_MEMORY_DIR?.trim();
+  const dir = getAppConfig().agent.sharedMemoryDir;
   return dir ? path.resolve(dir) : null;
+}
+
+function isMissingPathError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
 }
 
 export function isPersonalMemoryResourcePath(
@@ -72,8 +79,9 @@ export async function readSharedPersonalMemory(
       mtimeMs: stat.mtimeMs,
       size: Buffer.byteLength(content, "utf8"),
     };
-  } catch {
-    return null;
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
   }
 }
 
@@ -101,9 +109,7 @@ export async function deleteSharedPersonalMemory(
   try {
     await fs.promises.unlink(filePath);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      throw error;
-    }
+    if (!isMissingPathError(error)) throw error;
   }
 }
 
@@ -133,7 +139,8 @@ export async function listSharedPersonalMemories(
       });
     }
     return results;
-  } catch {
-    return [];
+  } catch (error) {
+    if (isMissingPathError(error)) return [];
+    throw error;
   }
 }

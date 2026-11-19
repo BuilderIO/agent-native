@@ -2268,11 +2268,15 @@ export async function loadResourcesForPrompt(
           maxChars: compact
             ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
             : SHARED_PROMPT_RESOURCE_MAX_CHARS,
-          readHint: resourceReadHint,
+          ...(resourceReadHint === undefined
+            ? {}
+            : { readHint: resourceReadHint }),
         });
         addSection(block, "user");
       }
-    } catch {}
+    } catch (error) {
+      console.warn("[agent-chat] Could not load personal memory index:", error);
+    }
   }
 
   if (runtimeToolHints) {

@@ -375,7 +375,8 @@ export default function (pi) {
         sections.push('<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n' + content + "\n</resource>");
       }
       return sections.length > 0 ? "\n\n" + sections.join("\n\n") : "";
-    } catch {
+    } catch (error) {
+      console.error("[desktop-chat] Could not read shared memory:", error);
       return "";
     }
   }

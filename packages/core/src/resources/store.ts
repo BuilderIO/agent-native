@@ -2059,7 +2059,7 @@ export async function resourceGetByPath(
     if (!workspace && isPersonalMemoryResourcePath(owner, path)) {
       const shared = await readSharedPersonalMemory(owner, path);
       if (shared) {
-        const dbResource = resources[0];
+        const dbResource: Resource | undefined = resources[0];
         const dbIsEmptyIndex =
           path === "memory/MEMORY.md" &&
           dbResource?.content.trim() === "# Memory Index" &&
