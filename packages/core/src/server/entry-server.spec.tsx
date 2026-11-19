@@ -1,7 +1,10 @@
+import { createContext, runInContext } from "node:vm";
+
 import type { ReactElement } from "react";
 import type { EntryContext, RouterContextProvider } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
 import { createDocumentRequestHandler } from "./entry-server.js";
 
 const mocks = vi.hoisted(() => {
@@ -150,6 +153,57 @@ describe("createDocumentRequestHandler", () => {
     );
   });
 
+  it("installs a standards-compatible Object.hasOwn before browser modules", async () => {
+    mocks.renderToReadableStream.mockImplementationOnce(async () =>
+      streamOf(...DOCUMENT_CHUNKS),
+    );
+    const html = await renderDocument();
+    const bootstrap = [
+      ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi),
+    ].find((match) => match[1].includes("data-agent-native-has-own-bootstrap"));
+    expect(bootstrap).toBeDefined();
+    if (!bootstrap) throw new Error("Missing Object.hasOwn bootstrap");
+    expect(bootstrap.index).toBeLessThan(html.indexOf('rel="modulepreload"'));
+    expect(bootstrap.index).toBeLessThan(html.indexOf('type="module"'));
+    const bootstrapCode = bootstrap[2];
+    const browser = createContext({});
+    runInContext("delete Object.hasOwn", browser);
+    runInContext(bootstrapCode, browser);
+
+    expect(
+      runInContext(
+        `(() => {
+      const symbol = Symbol("key");
+      const object = Object.create({ inherited: true });
+      object[symbol] = 1;
+      object.hasOwnProperty = null;
+      const descriptor = Object.getOwnPropertyDescriptor(Object, "hasOwn");
+      let nullThrows = false;
+      let undefinedThrows = false;
+      let constructorThrows = false;
+      let keyCoerced = false;
+      try { Object.hasOwn(null, { toString() { keyCoerced = true; return "x"; } }); } catch (error) { nullThrows = error instanceof TypeError; }
+      try { Object.hasOwn(undefined, "x"); } catch (error) { undefinedThrows = error instanceof TypeError; }
+      try { new Object.hasOwn({}, "x"); } catch (error) { constructorThrows = error instanceof TypeError; }
+      return nullThrows && undefinedThrows && constructorThrows && !keyCoerced &&
+        Object.hasOwn(object, symbol) && !Object.hasOwn(object, "inherited") &&
+        Object.hasOwn(object, "hasOwnProperty") && Object.hasOwn("abc", 1) &&
+        !Object.hasOwn(123, "x") && Object.hasOwn({ x: 1 }, { toString() { return "x"; } }) &&
+        descriptor.writable && descriptor.configurable && !descriptor.enumerable &&
+        Object.hasOwn.name === "hasOwn" && Object.hasOwn.length === 2;
+    })()`,
+        browser,
+      ),
+    ).toBe(true);
+
+    const nativeBrowser = createContext({});
+    runInContext("globalThis.originalHasOwn = Object.hasOwn", nativeBrowser);
+    runInContext(bootstrapCode, nativeBrowser);
+    expect(
+      runInContext("Object.hasOwn === originalHasOwn", nativeBrowser),
+    ).toBe(true);
+  });
+
   it("starts the session read its render records from the top of <head>", async () => {
     mocks.renderToReadableStream.mockImplementationOnce(async () => {
       renderedElement()?.props.value?.("/_agent-native/auth/session");
@@ -168,6 +222,72 @@ describe("createDocumentRequestHandler", () => {
     expect(sessionIndex).toBeLessThan(head.indexOf('rel="modulepreload"'));
     expect(sessionIndex).toBeLessThan(head.indexOf('rel="stylesheet"'));
     expect(head).toContain('fetch("/_agent-native/auth/session"');
+  });
+
+  describe("document build identity", () => {
+    beforeEach(() => {
+      vi.stubEnv("AGENT_NATIVE_BUILD_ID", "");
+      vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "");
+      resetAppConfigForTests();
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    });
+
+    async function renderWithBuild(env: { id?: string; sha?: string }) {
+      if (env.id !== undefined) vi.stubEnv("AGENT_NATIVE_BUILD_ID", env.id);
+      if (env.sha !== undefined) vi.stubEnv("AGENT_NATIVE_BUILD_SHA", env.sha);
+      resetAppConfigForTests();
+      mocks.renderToReadableStream.mockImplementationOnce(async () =>
+        streamOf(...DOCUMENT_CHUNKS),
+      );
+      return renderDocument();
+    }
+
+    it("stamps the release into the document's own meta, before the app's head content", async () => {
+      const id = "a".repeat(40);
+      const html = await renderWithBuild({ id });
+      const metaIndex = html.indexOf(
+        `<meta name="agent-native-build-sha" content="${id}"/>`,
+      );
+
+      expect(metaIndex).toBeGreaterThan(-1);
+      expect(metaIndex).toBeLessThan(html.indexOf('rel="modulepreload"'));
+      expect(metaIndex).toBeLessThan(html.indexOf('rel="stylesheet"'));
+      expect(html).toContain("data-agent-native-build-id");
+    });
+
+    it("writes no build marker when the release is unknown", async () => {
+      const html = await renderWithBuild({});
+      const head = html.slice(0, html.indexOf("</head>"));
+
+      expect(head).not.toContain("agent-native-build-sha");
+      expect(head).not.toContain("data-agent-native-build-id");
+      expect(head).not.toContain("undefined");
+    });
+
+    it("names the workspace commit in the meta while the inline stamp keeps the content build id", async () => {
+      const release = "d".repeat(40);
+      const artifact = "content-fedcba9876543210fedcba9876543210";
+      const html = await renderWithBuild({ id: artifact, sha: release });
+
+      expect(html).toContain(
+        `<meta name="agent-native-build-sha" content="${release}"/>`,
+      );
+      expect(html).toContain(
+        `globalThis.__AGENT_NATIVE_BUILD_ID__=${JSON.stringify(artifact)}`,
+      );
+    });
+
+    it("cannot break out of the meta attribute", async () => {
+      const html = await renderWithBuild({ id: 'a"b<c&d' });
+
+      expect(html).toContain(
+        '<meta name="agent-native-build-sha" content="a&quot;b&lt;c&amp;d"/>',
+      );
+    });
   });
 
   it("starts no session read for a render that records none", async () => {

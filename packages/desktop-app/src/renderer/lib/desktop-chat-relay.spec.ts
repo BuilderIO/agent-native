@@ -60,7 +60,7 @@ describe("desktop chat relay URL", () => {
     ]);
   });
 
-  it("keeps throwing when mounted shells do not name one active owner", () => {
+  it("rejects when mounted shells do not name one active owner", async () => {
     setDesktopChatRelayBase(
       "mail",
       "http://127.0.0.1:43101/desktop-chat/mail-secret/mail/_agent-native/agent-chat",
@@ -70,7 +70,7 @@ describe("desktop chat relay URL", () => {
       "http://127.0.0.1:43102/desktop-chat/calendar-secret/calendar/_agent-native/agent-chat",
     );
 
-    expect(() => window.fetch("/_agent-native/poll")).toThrow(
+    await expect(window.fetch("/_agent-native/poll")).rejects.toThrow(
       /Unattributed .*mail, calendar/,
     );
   });

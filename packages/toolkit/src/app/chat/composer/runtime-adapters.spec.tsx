@@ -109,4 +109,16 @@ describe("CoreComposerRuntimeProvider", () => {
       DeferredBuilderConnectPopover,
     );
   });
+
+  it("offers composer credits only where commercial surfaces are shown", () => {
+    expect(coreComposerAdapters.builder?.creditsOffered?.()).toBe(true);
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      expect(coreComposerAdapters.builder?.creditsOffered?.()).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

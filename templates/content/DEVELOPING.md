@@ -91,25 +91,30 @@ pnpm action <name> [--args]  # Run an action
 
 ## Builder CMS credentials (local dev)
 
-Builder CMS source reads/writes need credentials. There are two ways to provide them:
+Builder Sources read and write only through a signed-in user's Builder.io
+connection. Connect Builder.io in Settings; it stores user-scoped OAuth
+credentials in the `app_secrets` store, and Builder's sign-in registers any
+install, including self-hosted and `localhost` ones. Deploy keys never reach a
+Source: without a connection, a Source read reports Builder.io as not connected
+and a write is refused.
 
-1. **Connect per user (the real path):** a signed-in user connects their Builder
-   account, which stores user-scoped credentials in the `app_secrets` store. The
-   credential gate honors these for any runtime. This is what production uses.
-2. **Local dogfooding escape hatch:** to run the app locally without connecting
-   first, set the keys plus an explicit opt-in flag:
-   ```bash
-   # templates/content/.env or .env.local
-   # The action CLI and Vite load the template cwd env files; workspace-root
-   # env files can also be loaded by the surrounding dev/runtime commands.
-   BUILDER_PRIVATE_KEY=...
-   BUILDER_PUBLIC_KEY=...
-   AGENT_NATIVE_LOCAL_BUILDER_ENV=1   # opt in to env-key fallback for a signed-in user
-   ```
-   Without `AGENT_NATIVE_LOCAL_BUILDER_ENV`, env-level Builder keys are
-   intentionally **not** used for a signed-in user under the workspace runtime
-   (so a deploy key can't impersonate a user across tenants). The flag is a
-   non-production-only escape hatch; it has no effect when `NODE_ENV=production`.
+Only the separate Builder docs sync (`list-builder-docs`, `pull-builder-doc`,
+`push-builder-doc`, `check-builder-doc`) still uses deploy keys. To run it
+locally without connecting first, set the keys plus an explicit opt-in flag:
+
+```bash
+# templates/content/.env or .env.local
+# The action CLI and Vite load the template cwd env files; workspace-root
+# env files can also be loaded by the surrounding dev/runtime commands.
+BUILDER_PRIVATE_KEY=...
+BUILDER_PUBLIC_KEY=...
+AGENT_NATIVE_LOCAL_BUILDER_ENV=1   # opt in to env-key fallback for a signed-in user
+```
+
+Without `AGENT_NATIVE_LOCAL_BUILDER_ENV`, env-level Builder keys are
+intentionally **not** used for a signed-in user under the workspace runtime (so
+a deploy key can't impersonate a user across tenants). The flag is a
+non-production-only escape hatch; it has no effect when `NODE_ENV=production`.
 
 ## TypeScript Everywhere
 

@@ -19,6 +19,7 @@ export { workspaceAppRoute } from "../shared/workspace-app-route";
 
 export interface WorkspaceAppSummary {
   id: string;
+  icon?: string;
   name: string;
   description?: string;
   whenToUse?: string[];
@@ -311,6 +312,19 @@ export function workspaceAppInitialPathFromSplat(
   if (!parsed) return undefined;
   const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
   return path === "/" ? undefined : path;
+}
+
+/**
+ * The deep path an `/apps/<id>/<rest>` route carries, for hosts that render the
+ * pane from a layout rather than from the route component itself.
+ */
+export function workspaceAppInitialPathFromPathname(
+  pathname: string,
+  search = "",
+  hash = "",
+): string | undefined {
+  const match = pathname.match(/^\/apps\/[^/]+\/(.+)$/);
+  return workspaceAppInitialPathFromSplat(match?.[1], search, hash);
 }
 
 export function workspaceAppIdFromRoute(pathname: string): string | null {

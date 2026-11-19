@@ -211,7 +211,11 @@ export async function grantResourceAccess(
   // registration cannot be bypassed by a second entry point.
   await reg.assertSharingChange?.({
     resource: access.resource,
-    change: { kind: "grant" },
+    change: {
+      kind: "grant",
+      principalType: input.principalType,
+      principalId,
+    },
   });
   const extensionTargetsBefore = await getExtensionShareChangeTargets(
     input.resourceType,
@@ -331,7 +335,11 @@ export async function grantResourceAccess(
     try {
       await reg.assertSharingChange?.({
         resource: access.resource,
-        change: { kind: "grant" },
+        change: {
+          kind: "grant",
+          principalType: input.principalType,
+          principalId,
+        },
       });
     } catch (error) {
       if (write.kind === "created") {

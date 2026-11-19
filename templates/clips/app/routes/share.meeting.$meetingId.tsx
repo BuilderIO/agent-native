@@ -57,6 +57,7 @@ import { privateShareLoaderData } from "../../shared/share-loader-response";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../../shared/transcript-segments";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status";
 
@@ -161,12 +162,16 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     : null;
   const transcript = linked?.transcript ?? null;
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
-  const transcriptSegments = transcript
-    ? normalizeTranscriptSegments({
-        segments: parseTranscriptSegments(transcript.segmentsJson),
-        fullText: transcript.fullText,
-      })
-    : [];
+  // Lines built from the full text would read as the transcript with its
+  // speakers gone; the page shows that text as saved instead.
+  const segmentsUnreadable = storedSegmentsUnreadable(transcript?.segmentsJson);
+  const transcriptSegments =
+    transcript && !segmentsUnreadable
+      ? normalizeTranscriptSegments({
+          segments: parseTranscriptSegments(transcript.segmentsJson),
+          fullText: transcript.fullText,
+        })
+      : [];
 
   let bullets: PublicMeeting["bullets"] = [];
   try {
@@ -207,6 +212,9 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
               language: transcript.language,
               fullText: transcript.fullText,
               segments: transcriptSegments,
+              ...(segmentsUnreadable
+                ? { segmentsUnreadable: true as const }
+                : {}),
             }
           : null,
       },
@@ -609,7 +617,11 @@ export default function ShareMeetingRoute() {
               </div>
             ) : (
               <div className="flex min-h-40 flex-col overflow-hidden rounded-lg border border-border">
-                <TranscriptBubbles segments={[]} isLive={false} />
+                <TranscriptBubbles
+                  segments={[]}
+                  isLive={false}
+                  unreadable={transcript.segmentsUnreadable === true}
+                />
               </div>
             )}
           </section>

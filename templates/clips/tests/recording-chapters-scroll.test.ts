@@ -1,23 +1,35 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { chromium } from "@playwright/test";
-import { describe, expect, it } from "vitest";
+import { chromium, type Browser } from "@playwright/test";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const css = readFileSync(resolve(__dirname, "../app/global.css"), "utf8");
 
 describe("recording chapter scrolling", () => {
+  let browser: Browser | undefined;
+
+  // One Chrome for every case. A cold launch on a loaded CI runner can take
+  // most of a test's 30 s budget by itself, and a hook only gets 10 s.
+  beforeAll(async () => {
+    browser = await chromium.launch({
+      headless: true,
+      ...(process.env.CI ? { channel: "chrome" } : {}),
+    });
+  }, 120_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  }, 60_000);
+
   it.each([680, 900])(
     "reaches the last chapter at %spx height",
     async (height) => {
-      const browser = await chromium.launch({
-        headless: true,
-        ...(process.env.CI ? { channel: "chrome" } : {}),
+      if (!browser) throw new Error("beforeAll did not launch Chrome");
+      const page = await browser.newPage({
+        viewport: { width: 1440, height },
       });
       try {
-        const page = await browser.newPage({
-          viewport: { width: 1440, height },
-        });
         await page.setContent(`
         <style>
           * { box-sizing: border-box; }
@@ -44,25 +56,34 @@ describe("recording chapter scrolling", () => {
       `);
         await page.mouse.move(300, 500);
         await page.mouse.wheel(0, 2000);
+        // The wheel scroll can still be animating when it first moves, so wait
+        // for the end state. The timeout only bounds a broken page.
         await expect
-          .poll(async () =>
-            page
-              .locator(".clips-recording-player-column")
-              .evaluate((el) => el.scrollTop),
+          .poll(
+            () =>
+              page
+                .getByRole("button", { name: "Last chapter" })
+                .evaluate((button) => {
+                  const chapter = button.getBoundingClientRect();
+                  const column = button.closest(
+                    ".clips-recording-player-column",
+                  );
+                  if (!column) return false;
+                  const bounds = column.getBoundingClientRect();
+                  return (
+                    chapter.top >= bounds.top && chapter.bottom <= bounds.bottom
+                  );
+                }),
+            { timeout: 10_000 },
           )
-          .toBeGreaterThan(0);
-        const lastVisible = await page
-          .getByRole("button", { name: "Last chapter" })
-          .evaluate((button) => {
-            const chapter = button.getBoundingClientRect();
-            const column = button.closest(".clips-recording-player-column");
-            if (!column) return false;
-            const bounds = column.getBoundingClientRect();
-            return chapter.top >= bounds.top && chapter.bottom <= bounds.bottom;
-          });
-        expect(lastVisible).toBe(true);
+          .toBe(true);
+        expect(
+          await page
+            .locator(".clips-recording-player-column")
+            .evaluate((el) => el.scrollTop),
+        ).toBeGreaterThan(0);
       } finally {
-        await browser.close();
+        await page.close();
       }
     },
   );

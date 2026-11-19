@@ -223,8 +223,13 @@ describe("automation run history", () => {
       ),
     ).rejects.toMatchObject({ code: "stale_execution_fence" });
 
-    expect(statements).toHaveLength(1);
-    expect(statements[0]?.sql).toContain("FROM agent_execution_leases");
+    // oracle-change: one exact list of the fence's two lease reads replaces the length and first-read checks.
+    // The fence checks the live lease, then whether it only lapsed; neither
+    // finds it, so nothing is written.
+    expect(statements.map((statement) => statement.sql)).toEqual([
+      expect.stringContaining("FROM agent_execution_leases"),
+      expect.stringContaining("lease_expires_at >= updated_at"),
+    ]);
     expect(emitMock).not.toHaveBeenCalled();
   });
 
@@ -342,6 +347,63 @@ describe("automation run history", () => {
     });
 
     expect(run.status).toBe("running");
+  });
+
+  it("keeps a queued run running after a late worker claim", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          started_at: Date.now() - 60 * MINUTE,
+          dispatch_pending: 1,
+          claimed_at: Date.now() - 2 * MINUTE,
+        }),
+      ],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("running");
+  });
+
+  it("reports a queued run nobody claimed past the liveness ceiling as interrupted", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          started_at: Date.now() - 60 * MINUTE,
+          dispatch_pending: 1,
+          claimed_at: null,
+        }),
+      ],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("interrupted");
+  });
+
+  it("reports a queued run as interrupted once its claim lease expires", async () => {
+    executeMock.mockResolvedValue({
+      rows: [
+        row({
+          started_at: Date.now() - 60 * MINUTE,
+          dispatch_pending: 1,
+          claimed_at: Date.now() - 30 * MINUTE,
+        }),
+      ],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("interrupted");
   });
 
   it("guards the terminal write on the claim snapshot it read", async () => {

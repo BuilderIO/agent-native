@@ -60,6 +60,17 @@ export interface ShareVisibilityTransitionOptions {
   current: ShareVisibility;
   /** The organization the resource belongs to, from the share listing. */
   orgId: string | null;
+  /**
+   * The resource type asks before going from private to organization
+   * (`policy.confirmOrgVisibility`); otherwise every change saves at once.
+   */
+  confirmOrgVisibility?: boolean;
+  /**
+   * Also asks before this change, whatever the policy says, when it returns
+   * true. For a resource whose contents decide who should see it, such as a
+   * page holding copies from narrower sources. Read when the change is asked.
+   */
+  confirmVisibility?: (from: ShareVisibility, to: ShareVisibility) => boolean;
   canManage: boolean;
   /** False while the share surface is closed; a pending request is dropped. */
   active: boolean;
@@ -101,6 +112,14 @@ export interface ShareVisibilityTransition {
    * refused with reason `ignored` until the write settles.
    */
   request: (next: ShareVisibility) => Promise<void>;
+  /**
+   * Runs another general-access write, such as its role, under the same
+   * per-resource lock as visibility saves. It sends the visibility it was
+   * started at, so if it overlapped a visibility change, whichever landed
+   * last would win and could undo the other. Refused with reason `ignored`
+   * while any save on the resource runs.
+   */
+  runExclusive: (save: () => Promise<void>) => Promise<void>;
   confirm: () => Promise<void>;
   cancel: () => void;
 }
@@ -212,7 +231,11 @@ export function useShareVisibilityTransition(
       if (!latest.canManage || !latest.active) {
         return notSaved("ignored");
       }
-      if (!visibilityNeedsConfirmation(latest.current, next)) {
+      const needsConfirmation =
+        (latest.confirmOrgVisibility === true &&
+          visibilityNeedsConfirmation(latest.current, next)) ||
+        latest.confirmVisibility?.(latest.current, next) === true;
+      if (!needsConfirmation) {
         reset();
         const generation = generationRef.current;
         const saved = latest.apply(next);
@@ -297,6 +320,19 @@ export function useShareVisibilityTransition(
     }
   }, [reset, track]);
 
+  const runExclusive = useCallback(
+    (save: () => Promise<void>): Promise<void> => {
+      const latest = latestRef.current;
+      if (inflightSaves.has(latest.resourceKey) || pendingRef.current) {
+        return notSaved("ignored");
+      }
+      const saved = save();
+      track(latest.resourceKey, latest.current, saved);
+      return saved;
+    },
+    [track],
+  );
+
   const cancel = useCallback(() => {
     const state = pendingRef.current;
     if (state && confirmingRef.current.has(state.resourceKey)) return;
@@ -309,6 +345,7 @@ export function useShareVisibilityTransition(
     submitting,
     error,
     request,
+    runExclusive,
     confirm,
     cancel,
   };

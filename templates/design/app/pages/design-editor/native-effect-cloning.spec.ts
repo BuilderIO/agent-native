@@ -344,7 +344,6 @@ describe("native effects at authored duplication boundaries", () => {
       );
       const node = selectedNodes[0]!;
       const sourceDoc = new DOMParser().parseFromString(before, "text/html");
-      const clonedNodeIdMap = new Map<string, string>();
       const doc = new Y.Doc();
       const content = doc.getText("content");
       content.insert(0, before);
@@ -399,8 +398,6 @@ describe("native effects at authored duplication boundaries", () => {
         handleDuplicateScreen: vi.fn(),
         lastDuplicateTransformRef: { current: null },
         overviewSelectedScreenIds: [],
-        remapMotionTracksForClone: (map) =>
-          map.forEach((value, key) => clonedNodeIdMap.set(key, value)),
         selectedCanvasSelector: node.selector,
         selectedElement: null,
         selectedLayerIdsState: selectedNodes.map(
@@ -415,6 +412,31 @@ describe("native effects at authored duplication boundaries", () => {
       });
       const duplicated = persisted;
       expect(effects(duplicated).instances).toHaveLength(instanceCount);
+      const nodeIdsInOrder = (html: string, roots?: string[]) => {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const all = [...doc.querySelectorAll("[data-agent-native-node-id]")];
+        const inScope = roots
+          ? all.filter((el) =>
+              roots.some((root) => {
+                const rootEl = doc.querySelector(
+                  `[data-agent-native-node-id="${root}"]`,
+                );
+                return rootEl === el || !!rootEl?.contains(el);
+              }),
+            )
+          : all;
+        return inScope.map(
+          (el) => el.getAttribute("data-agent-native-node-id")!,
+        );
+      };
+      const sourceIds = nodeIdsInOrder(before, nodeIds);
+      const beforeIds = new Set(nodeIdsInOrder(before));
+      const clonedIds = nodeIdsInOrder(duplicated).filter(
+        (id) => id.startsWith("copy-") && !beforeIds.has(id),
+      );
+      const clonedNodeIdMap = new Map(
+        sourceIds.map((id, index) => [id, clonedIds[index]!] as const),
+      );
       expectClonedStack(before, duplicated, clonedNodeIdMap);
       expect(undoManager.undoStack).toHaveLength(1);
       undoManager.undo();

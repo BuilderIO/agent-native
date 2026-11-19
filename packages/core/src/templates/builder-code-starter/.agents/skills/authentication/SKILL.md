@@ -64,7 +64,7 @@ page (not the custom `loginHtml` you write) already does this chaining
 internally, which is why this bug only shows up once an app supplies its own
 `loginHtml`. Every sign-up handler must call login immediately after a
 successful register, with the same email/password, and only redirect once
-*that* call also returns `{ ok: true }`:
+_that_ call also returns `{ ok: true }`:
 
 ```js
 function submitSignup(email, password) {
@@ -90,7 +90,9 @@ re-shows the login form forever instead of returning the visitor to
 framework's own helper instead of hand-rolling redirect logic:
 
 ```html
-<script>${signInJourneyInlineScript()}</script>
+<script>
+  ${signInJourneyInlineScript()}
+</script>
 <!-- import { signInJourneyInlineScript } from "@agent-native/core/shared" -->
 <script>
   // Second arg is the app home path — use the app's configured `app.homePath`
@@ -187,7 +189,7 @@ with specific pages, e.g. an admin screen, that must still require a session).
 
 **This only configures the server.** There is a SEPARATE client-side gate in
 `app/root.tsx`: `<AppProviders queryClient={...}>` defaults its `isPublicPath`
-prop to `false`, which wraps the *entire* app in `<ClientOnly>` +
+prop to `false`, which wraps the _entire_ app in `<ClientOnly>` +
 `<RequireSession>` — every route, including ones already listed in
 `workspaceAppPublicPaths`. Setting `workspaceAppPublicPaths` alone does
 **not** make a page public; the two must be kept in sync by hand:

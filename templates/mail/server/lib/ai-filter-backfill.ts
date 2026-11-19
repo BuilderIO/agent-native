@@ -1068,12 +1068,24 @@ async function captureGmailCandidates(
         "metadata",
         METADATA_HEADERS,
         "backfill",
-      );
+      ).catch((error: unknown) => {
+        if (
+          error instanceof Error &&
+          typeof (error as Error & { status?: unknown }).status === "number" &&
+          (error as Error & { status: number }).status >= 500
+        ) {
+          Object.assign(error, { retryable: true });
+        }
+        throw error;
+      });
       for (const result of batch) {
         if (result.error || !result.data) {
-          throw new Error(
+          const failure = new Error(
             result.error || "Gmail did not return thread metadata.",
           );
+          if (result.status !== undefined && result.status >= 500)
+            Object.assign(failure, { retryable: true });
+          throw failure;
         }
         const messages = Array.isArray(result.data.messages)
           ? result.data.messages

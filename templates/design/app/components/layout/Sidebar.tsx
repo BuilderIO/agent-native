@@ -10,7 +10,7 @@ import {
   AppSidebarFooter,
   type AppSidebarItemDefinition,
 } from "@agent-native/toolkit/app/shared";
-import { IconComponents, IconHome, IconTemplate } from "@tabler/icons-react";
+import { IconHome, IconTemplate } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 
@@ -54,12 +54,6 @@ export function Sidebar() {
       label: t("navigation.templates"),
       icon: IconTemplate,
       active: location.pathname.startsWith("/templates"),
-    },
-    {
-      to: "/design-systems",
-      label: t("navigation.designSystems"),
-      icon: IconComponents,
-      active: location.pathname.startsWith("/design-systems"),
     },
   ];
 

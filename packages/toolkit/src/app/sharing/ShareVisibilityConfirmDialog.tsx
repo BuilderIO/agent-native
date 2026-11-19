@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type { ShareVisibility } from "@agent-native/core/client/sharing/useShareDialogController";
 import type { ShareVisibilityTransition } from "@agent-native/core/client/sharing/useShareVisibilityTransition";
 import {
   AlertDialog,
@@ -23,16 +24,19 @@ export interface ShareVisibilityConfirmDialogProps {
    * What is specific to this resource, already translated by the caller, such
    * as "Everyone will also see the conversation history." Shown under the
    * generic text, which already covers messages, files and other content.
+   * A function gets the visibility the change would save.
    */
-  detail?: ReactNode;
+  detail?: ReactNode | ((to: ShareVisibility) => ReactNode);
   /** Gets focus back when the confirmation closes (the visibility control). */
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 /**
- * Asks before a resource becomes visible to the whole organization. Pair it
- * with the `transition` of a share controller; it renders nothing until a
- * broadening change is waiting, and the change is saved only by Confirm.
+ * Asks before a resource becomes visible to the whole organization, or to
+ * anyone with the link when the resource asks for that too
+ * (`confirmVisibility`). Pair it with the `transition` of a share
+ * controller; it renders nothing until a broadening change is waiting, and
+ * the change is saved only by Confirm.
  */
 export function ShareVisibilityConfirmDialog({
   transition,
@@ -41,35 +45,55 @@ export function ShareVisibilityConfirmDialog({
 }: ShareVisibilityConfirmDialogProps) {
   const t = useT();
   const { pending, organizationName, submitting, error } = transition;
+  const shownDetail =
+    typeof detail === "function"
+      ? pending
+        ? detail(pending.to)
+        : null
+      : detail;
   const named = organizationName !== null;
   const values = { organization: organizationName ?? "" };
-  const title = named
-    ? t("agentChat.share.confirmOrganizationTitleNamed", {
-        ...values,
-        defaultValue: "Share with {{organization}}?",
+  const toPublic = pending?.to === "public";
+  const title = toPublic
+    ? t("agentChat.share.confirmPublicTitle", {
+        defaultValue: "Share with anyone who has the link?",
       })
-    : t("agentChat.share.confirmOrganizationTitle", {
-        defaultValue: "Share with your organization?",
-      });
-  const description = named
-    ? t("agentChat.share.confirmOrganizationDescriptionNamed", {
-        ...values,
+    : named
+      ? t("agentChat.share.confirmOrganizationTitleNamed", {
+          ...values,
+          defaultValue: "Share with {{organization}}?",
+        })
+      : t("agentChat.share.confirmOrganizationTitle", {
+          defaultValue: "Share with your organization?",
+        });
+  const description = toPublic
+    ? t("agentChat.share.confirmPublicDescription", {
         defaultValue:
-          "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+          "Anyone with the link, including people outside your organization, will be able to open this and see everything in it. You can change this later.",
       })
-    : t("agentChat.share.confirmOrganizationDescription", {
-        defaultValue:
-          "Everyone in your organization, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
-      });
+    : named
+      ? t("agentChat.share.confirmOrganizationDescriptionNamed", {
+          ...values,
+          defaultValue:
+            "Everyone in {{organization}}, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+        })
+      : t("agentChat.share.confirmOrganizationDescription", {
+          defaultValue:
+            "Everyone in your organization, including new members, will be able to open this and see everything in it, including any messages, files, and other content. You can change this later.",
+        });
   const actionLabel = submitting
     ? t("agentChat.share.confirmOrganizationSharing", {
         defaultValue: "Sharing...",
       })
     : error
       ? t("agentChat.common.retry", { defaultValue: "Retry" })
-      : t("agentChat.share.confirmOrganizationAction", {
-          defaultValue: "Share with organization",
-        });
+      : toPublic
+        ? t("agentChat.share.confirmPublicAction", {
+            defaultValue: "Share publicly",
+          })
+        : t("agentChat.share.confirmOrganizationAction", {
+            defaultValue: "Share with organization",
+          });
 
   return (
     <AlertDialog
@@ -92,8 +116,8 @@ export function ShareVisibilityConfirmDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
-          {detail ? (
-            <div className="text-sm text-muted-foreground">{detail}</div>
+          {shownDetail ? (
+            <div className="text-sm text-muted-foreground">{shownDetail}</div>
           ) : null}
           {error ? (
             <div

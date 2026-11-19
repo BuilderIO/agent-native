@@ -1,5 +1,3 @@
-import { appStateGet } from "@agent-native/core/application-state";
-
 const HUBSPOT_BASE_URL = "https://api.hubapi.com";
 
 const CONTACT_PROPERTIES = [
@@ -84,14 +82,6 @@ export class HubSpotLookupError extends Error {
     super(message);
     this.name = "HubSpotLookupError";
   }
-}
-
-export async function getHubSpotApiKey(
-  sessionId: string,
-): Promise<string | undefined> {
-  const data = await appStateGet(sessionId, "hubspot");
-  const apiKey = (data as { apiKey?: unknown } | undefined)?.apiKey;
-  return typeof apiKey === "string" && apiKey.length > 0 ? apiKey : undefined;
 }
 
 function hubSpotHeaders(apiKey: string): Record<string, string> {

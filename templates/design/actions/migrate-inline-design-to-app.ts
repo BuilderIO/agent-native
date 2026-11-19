@@ -16,7 +16,7 @@
  *
  * ## Write gating (per DESIGN-STUDIO-PLAN.md §3 & §5)
  *
- * - `writeFile` / `writeTokens` / `writeMotion` on the inline source stay
+ * - `writeFile` / `writeTokens` on the inline source stay
  *   **planned** until bridge hardening.  This action does NOT write to the
  *   inline design's source files.
  * - `branch` / `deploy` capabilities are **available** once Builder is
@@ -73,10 +73,6 @@ function buildConnectUrl(origin: string): string {
   return `${base}/_agent-native/builder/connect`;
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Persist a `design_versions` snapshot row before the migration so the user
  * has a named restore point.  Additive only — never modifies existing rows.
@@ -103,7 +99,7 @@ export default defineAction({
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
     "Returns { branchName, url, status, versionId } on success. " +
-    "Real-app source writes (writeFile/writeTokens/writeMotion to the inline " +
+    "Real-app source writes (writeFile/writeTokens to the inline " +
     "design) remain planned until bridge hardening; this action only creates a " +
     "Builder-hosted branch — it does NOT modify the inline design's files.",
   schema: z.object({
@@ -112,7 +108,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional human-readable summary of the linked design system tokens " +
+        "Optional human-readable summary of the design tokens " +
           "(e.g. from index-design-tokens) to include in the migration seed. " +
           "Improves token fidelity in the generated React app.",
       ),

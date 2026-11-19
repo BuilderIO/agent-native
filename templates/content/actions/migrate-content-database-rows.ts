@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { isLocalDatabase } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -7,7 +8,12 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { chunks } from "./_batch-utils.js";
+import {
+  assertNoColumnRuleOn,
+  toColumnRuleDefinition,
+} from "./_column-rules.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -25,6 +31,7 @@ import {
   validatePlan,
 } from "./_content-database-row-migration.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 const validateSchema = z.object({
@@ -154,7 +161,10 @@ async function flushMigrationDocuments(rows: Array<{ documentId: string }>) {
   }
 }
 
-export async function runMigration(args: MigrationInput) {
+export async function runMigration(
+  args: MigrationInput,
+  ctx?: ActionRunContext,
+) {
   const db = getDb();
   const databaseId =
     args.phase === "apply" || args.phase === "validate"
@@ -450,6 +460,7 @@ export async function runMigration(args: MigrationInput) {
           snapshot,
           receiptId,
           now,
+          ctx,
         );
         const current = await snapshotMigration(tx, args.plan.databaseId);
         const postDigest = snapshotDigest(current);
@@ -727,6 +738,12 @@ export async function runMigration(args: MigrationInput) {
             ),
           },
         );
+        // Under the row locks, which a person's switch has to wait for.
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          priors.map((prior) => prior.documentId),
+          ctx,
+        );
         for (const prior of priors) {
           const version = versions.get(prior.versionId)!;
           const restoredRows = await tx
@@ -829,6 +846,10 @@ export async function runMigration(args: MigrationInput) {
         )
       )
         throw new Error("Legacy property is missing or unsafe to finalize.");
+      // A rule set since the plan was checked still holds its columns.
+      const ruleDefinitions = current.definitions.map(toColumnRuleDefinition);
+      for (const propertyId of legacyIds)
+        assertNoColumnRuleOn(ruleDefinitions, propertyId, "delete");
       if (legacyIds.length) {
         await tx
           .delete(schema.documentPropertyValues)
@@ -925,5 +946,10 @@ export default defineAction({
   mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
-  run: (args) => runMigration(args as MigrationInput),
+  // Only apply writes rows; validate and verify read them.
+  changeResource: (input) =>
+    input.phase === "apply"
+      ? documentChangeResource(input.plan.databaseDocumentId)
+      : null,
+  run: (args, ctx) => runMigration(args as MigrationInput, ctx),
 });

@@ -18,7 +18,6 @@ export function MenuSwitchItem({
   return (
     <DropdownMenuItem
       aria-checked={checked}
-      className="gap-2"
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();

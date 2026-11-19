@@ -3,12 +3,10 @@ import { IconClipboard } from "@tabler/icons-react";
 import { memo, type ReactElement } from "react";
 import { Link } from "react-router";
 
-import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
 import {
   AssetLibraryPanel,
   DesignExtensionsPanel,
 } from "@/components/design/DesignExtensionsPanel";
-import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import {
   DesignWorkspaceRail,
   INITIAL_GENERATION_DISABLED_LEFT_PANELS,
@@ -28,7 +26,6 @@ import type { EditorCanvasAndScreens } from "../domains/use-editor-canvas-and-sc
 import type { EditorClipboard } from "../domains/use-editor-clipboard";
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
-import type { EditorEditCommands } from "../domains/use-editor-edit-commands";
 import type { EditorExportAndHandoff } from "../domains/use-editor-export-and-handoff";
 import type { EditorFilesAndSaving } from "../domains/use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "../domains/use-editor-generation-and-access";
@@ -40,10 +37,7 @@ import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
-import {
-  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
-  SHOW_DESIGN_CODE_LEFT_PANEL,
-} from "../types";
+import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
 
 // The editor re-renders on every selection while the chat stays mounted, so
 // its props must stay referentially stable for this memo to hold.
@@ -60,7 +54,6 @@ export function renderLeftSidebar({
   editorToolsAndVectors,
   editorSelectionAndStyles,
   editorClipboard,
-  editorEditCommands,
   editorModes,
   editorExportAndHandoff,
   editorLayerModels,
@@ -84,7 +77,6 @@ export function renderLeftSidebar({
   editorToolsAndVectors: EditorToolsAndVectors;
   editorSelectionAndStyles: EditorSelectionAndStyles;
   editorClipboard: EditorClipboard;
-  editorEditCommands: EditorEditCommands;
   editorModes: EditorModes;
   editorExportAndHandoff: EditorExportAndHandoff;
   editorLayerModels: EditorLayerModels;
@@ -99,8 +91,6 @@ export function renderLeftSidebar({
   leftSidebarVisible: boolean;
 }) {
   const {
-    searchParams,
-    hostOwnsChrome,
     hostEmbeddedEditor,
     activeFileId,
     viewMode,
@@ -121,25 +111,23 @@ export function renderLeftSidebar({
     leftSidebarContentRef,
     layerPanelExpandedIds,
     setExpandedLayerIds,
-    codeWorkbenchOpenedRef,
     startSidebarResize,
-    motionDockOpen,
-    setMotionDockOpenAnimated,
   } = editorHistory;
-  const { canEditDesign, browserTabId, pinMode } = editorGenerationAndAccess;
+  const {
+    canEditDesign,
+    browserTabId,
+    pinMode,
+    design,
+    designDataReady,
+    sourceMetadata,
+  } = editorGenerationAndAccess;
   const { handleTokensApplied } = editorFilesAndSaving;
   const { handleLayerLeave } = editorCanvasAndScreens;
-  const {
-    initialGenerationChromeLimited,
-    resolveAssetScreenPoint,
-    selectedElementLayerId,
-    selectedCanvasSelector,
-  } = editorLiveEditsAndPresence;
+  const { initialGenerationChromeLimited, resolveAssetScreenPoint } =
+    editorLiveEditsAndPresence;
   const { hoveredCodeLayerNode } = editorContentAndComponents;
-  const { setActiveCodeFile, reviewCommentsPanelProps } = editorToolsAndVectors;
+  const { reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
-  const { showPastedImagesNotice } = editorClipboard;
-  const { handleDeleteInlineFile } = editorEditCommands;
   const {
     handleSidebarScreenSelect,
     handleSidebarScreenOverview,
@@ -162,21 +150,9 @@ export function renderLeftSidebar({
     setChatMessageCount,
   } = editorLayerModels;
   const { handleAddScreenAffordance, layerPanelCallbacks } = editorLayerActions;
-  const {
-    firstRunTemplates,
-    firstRunTemplatesQuery,
-    applyingTemplateId,
-    handleFirstRunTemplate,
-    workbenchLocalhostConnections,
-    handleWorkbenchLocalWriteConsent,
-    importPanelRef,
-  } = editorSourceAndSync;
+  const { applyingTemplateId, handleFirstRunTemplate } = editorSourceAndSync;
 
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
-  const routeCodeFileId =
-    activeLeftPanel === "code" ? searchParams.get("fileId") : null;
-  const routeCodeFilename =
-    activeLeftPanel === "code" ? searchParams.get("filename") : null;
 
   return (
     <>
@@ -188,15 +164,6 @@ export function renderLeftSidebar({
           <DesignWorkspaceRail
             showAccountMenu={!hostEmbeddedEditor && isSignedIn}
             activePanel={activeLeftPanel}
-            motionOpen={motionDockOpen}
-            onMotionToggle={
-              !hostOwnsChrome &&
-              SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
-              !initialGenerationChromeLimited &&
-              activeFileId
-                ? () => setMotionDockOpenAnimated(!motionDockOpen)
-                : undefined
-            }
             disabledPanels={
               initialGenerationChromeLimited
                 ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
@@ -307,8 +274,14 @@ export function renderLeftSidebar({
                   emptyStateFooter={
                     showFirstRunStart ? (
                       <FirstRunStart
-                        templates={firstRunTemplates}
-                        templatesLoading={firstRunTemplatesQuery.isLoading}
+                        knownFiles={
+                          designDataReady && design
+                            ? shellMode
+                              ? design.files
+                              : sourceMetadata
+                            : undefined
+                        }
+                        canEditDesign={canEditDesign}
                         applyingTemplateId={applyingTemplateId}
                         onPickTemplate={(templateId) => {
                           void handleFirstRunTemplate(templateId);
@@ -412,35 +385,6 @@ export function renderLeftSidebar({
                 />
               ) : null}
             </div>
-            <div
-              className={cn(
-                "min-h-0 flex-1 flex-col overflow-hidden",
-                activeLeftPanel === "import" ? "flex" : "hidden",
-              )}
-            >
-              {canEditDesign ? (
-                <DesignImportPanel
-                  ref={importPanelRef}
-                  context={designExtensionContext}
-                  onImport={(result) => {
-                    const count = result.unresolvedImageRefCount ?? 0;
-                    if (count > 0 && result.files?.length) {
-                      showPastedImagesNotice({
-                        count,
-                        fileIds: result.files.map((f) => f.id),
-                      });
-                    }
-                  }}
-                />
-              ) : (
-                <ReadOnlyEditorPanel
-                  title={"Import requires editor access" /* i18n-ignore */}
-                  description={
-                    "Ask an owner for edit access before importing files into this design." /* i18n-ignore */
-                  }
-                />
-              )}
-            </div>
             {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
               <>
                 <div
@@ -452,9 +396,6 @@ export function renderLeftSidebar({
                   {canEditDesign && !shellMode ? (
                     <DesignExtensionsPanel
                       context={designExtensionContext}
-                      motionLabEnabled={
-                        editorLiveEditsAndPresence.motionLabEnabled
-                      }
                       hideAssetLibrary
                       title={t("designEditor.leftRail.tools")}
                     />
@@ -467,34 +408,6 @@ export function renderLeftSidebar({
                     />
                   )}
                 </div>
-                {SHOW_DESIGN_CODE_LEFT_PANEL ? (
-                  <div
-                    className={cn(
-                      "min-h-0 flex-1 flex-col overflow-hidden",
-                      activeLeftPanel === "code" ? "flex" : "hidden",
-                    )}
-                  >
-                    {id && !shellMode && codeWorkbenchOpenedRef.current ? (
-                      <CodeWorkbenchLoader
-                        designId={id}
-                        active={activeLeftPanel === "code"}
-                        activeFileId={routeCodeFileId}
-                        activeFilename={routeCodeFilename}
-                        selectedNodeId={selectedElementLayerId}
-                        selectedSelector={selectedCanvasSelector}
-                        canEdit={canEditDesign}
-                        onDeleteInlineFile={
-                          canEditDesign ? handleDeleteInlineFile : undefined
-                        }
-                        onActiveFileChange={setActiveCodeFile}
-                        localhostConnections={workbenchLocalhostConnections}
-                        onRequestLocalWriteConsent={
-                          handleWorkbenchLocalWriteConsent
-                        }
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
               </>
             ) : null}
           </div>
