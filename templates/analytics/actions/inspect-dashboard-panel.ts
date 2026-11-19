@@ -120,6 +120,9 @@ export default defineAction({
       ...inspected,
       config: panel.config ?? null,
       summary: `Panel "${inspected.title}" (${inspected.panelId}) ${describePanelOutcome(inspected)}.`,
+      ...(verification.bigQueryBudget
+        ? { bigQueryBudget: verification.bigQueryBudget }
+        : {}),
     };
   },
 });
