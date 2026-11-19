@@ -268,7 +268,10 @@ export function useDistillationBridge(): void {
                 capture.id,
                 queueId,
                 claimToken,
-                "delivery-unknown",
+                delivery.reason === "no-window" ||
+                  delivery.reason === "unsupported-target"
+                  ? "cancelled"
+                  : "delivery-unknown",
               );
               throw new Error(
                 `Distillation delivery was not confirmed: ${delivery.reason ?? "unknown"}.`,
