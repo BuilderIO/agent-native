@@ -43,6 +43,23 @@ import DesktopIdentityGate from "./DesktopIdentityGate.js";
 import { shouldReloadActiveWebview } from "./webview-refresh.js";
 
 const IS_DEV = window.location.protocol !== "file:";
+const LOCAL_SERVER_LOAD_RETRIES = 60;
+const LOCAL_SERVER_LOAD_RETRY_MS = 1_500;
+const LOCAL_SERVER_STARTING_LOAD_ERRORS = new Set([-100, -101, -102, -324]);
+
+export function isLocalServerStartingLoadError(
+  errorCode: number | undefined,
+): boolean {
+  return (
+    errorCode !== undefined && LOCAL_SERVER_STARTING_LOAD_ERRORS.has(errorCode)
+  );
+}
+
+export function isDesktopLocalDevApp(
+  appConfig: Pick<AppConfig, "mode" | "localPath"> | undefined,
+): boolean {
+  return appConfig?.mode === "dev" && Boolean(appConfig.localPath?.trim());
+}
 const DEV_APP_LOAD_TIMEOUT_MS = 60_000;
 const APP_LOAD_TIMEOUT_MS = 15_000;
 const APP_WEBVIEW_BASE_PREFERENCES =
@@ -810,6 +827,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       status: desktopIdentityStatus,
     });
     const optimizeDepRecoveryRef = useRef(false);
+    const localServerRetriesRef = useRef(0);
+    const isLocalDevAppRef = useRef(false);
+    isLocalDevAppRef.current = isDesktopLocalDevApp(appConfig);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
     const prevDesktopWebviewDeferredRef = useRef(deferDesktopWebviewLoad);
@@ -1364,6 +1384,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setError(false);
         setIsLoading(false);
         setSlowLoad(false);
+        localServerRetriesRef.current = 0;
         hasLoadedGuestPageRef.current = true;
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
@@ -1400,6 +1421,25 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         const description = String(details.errorDescription || "");
         if (errorCode === -3) return;
         if (details.isMainFrame === false) return;
+        if (
+          isLocalDevAppRef.current &&
+          isLocalServerStartingLoadError(errorCode) &&
+          localServerRetriesRef.current < LOCAL_SERVER_LOAD_RETRIES
+        ) {
+          localServerRetriesRef.current += 1;
+          loadFailureRef.current = false;
+          setError(false);
+          setIsLoading(true);
+          setTimeout(() => {
+            if (disposed) return;
+            try {
+              wv.reloadIgnoringCache();
+            } catch {
+              wv.reload();
+            }
+          }, LOCAL_SERVER_LOAD_RETRY_MS);
+          return;
+        }
         if (
           IS_DEV &&
           (errorCode === 504 || description.includes("Outdated Optimize Dep"))
