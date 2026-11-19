@@ -302,6 +302,7 @@ test.describe("inline table controls", () => {
 
     const response = await getActionResponse(page, "get-content-database", {
       databaseId,
+      compactRows: "false",
     });
     expect(response.ok()).toBe(true);
     const collection = (await response.json()) as {
