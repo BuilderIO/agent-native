@@ -549,7 +549,6 @@ export function TimelineTrack({
             }}
           />
           <div
-            aria-hidden="true"
             className="pointer-events-none absolute top-1 z-10"
             style={{ left: scrollLeft, width: viewportWidth }}
           >

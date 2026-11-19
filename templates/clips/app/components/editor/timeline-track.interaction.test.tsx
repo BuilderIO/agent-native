@@ -172,8 +172,11 @@ describe("TimelineTrack pointer gestures", () => {
     const summaries = () =>
       Array.from(container.querySelectorAll("span"))
         .filter((span) => !span.closest('[role="button"]'))
-        .map((span) => span.textContent)
-        .filter((text) => /^\d{2}:\d{2}(?:\.\d{3})?/.test(text));
+        .filter((span) => /^\d{2}:\d{2}(?:\.\d{3})?/.test(span.textContent))
+        .map((span) => {
+          expect(span.closest('[aria-hidden="true"]')).toBeNull();
+          return span.textContent;
+        });
 
     function ControlledTrack() {
       const [selection, setSelection] = React.useState<TrackSelection | null>(
