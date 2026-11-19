@@ -47,6 +47,9 @@ const {
 } = await import("../store.js");
 const { __resetStoreLedgerSnapshotForTests } =
   await import("../../db/store-registry.js");
+const { actionCallIntent, runPreparedActionCall } =
+  await import("../../action.js");
+const { vouchedOutcome } = await import("../../action-frame.js");
 
 const OWNER = "owner@example.com";
 const EDITOR = "editor@example.com";
@@ -263,6 +266,81 @@ describe("delete-review-comment", () => {
       statusCode: 404,
       errorCode: "not_found",
     });
+  });
+});
+
+describe("delete-review-comment from an outside agent, in an app that never asked for delete approval", () => {
+  const bobsReply = async () => {
+    await thread([BOB, EDITOR]);
+    const replies = await queryReviewComments({
+      ...RESOURCE,
+      scope: { userEmail: OWNER },
+    });
+    return {
+      bob: replies.find((comment) => comment.body === "Reply 1")!,
+      editor: replies.find((comment) => comment.body === "Reply 2")!,
+    };
+  };
+  const needsApproval = deleteReviewCommentAction.needsApproval as (
+    args: unknown,
+    ctx?: unknown,
+  ) => Promise<boolean>;
+
+  it("asks before an editor's outside agent deletes someone else's reply, and not for their own", async () => {
+    const { bob, editor } = await bobsReply();
+    const args = (commentId: string) => ({ ...RESOURCE, commentId });
+
+    expect(
+      await needsApproval(args(bob.id), { userEmail: EDITOR, caller: "mcp" }),
+    ).toBe(true);
+    expect(
+      await needsApproval(args(editor.id), {
+        userEmail: EDITOR,
+        caller: "mcp",
+      }),
+    ).toBe(false);
+    expect(
+      await needsApproval(args(bob.id), { userEmail: EDITOR, caller: "tool" }),
+    ).toBe(false);
+  });
+
+  it("refuses the unapproved outside delete and leaves the reply", async () => {
+    const { bob } = await bobsReply();
+
+    await expect(
+      deleteReviewCommentAction.run(
+        { ...RESOURCE, commentId: bob.id },
+        { userEmail: EDITOR, caller: "mcp" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "approval_required" });
+    expect(await remainingBodies()).toEqual(["Root", "Reply 1", "Reply 2"]);
+  });
+
+  it("deletes it once the person approved that call", async () => {
+    const { bob } = await bobsReply();
+    const prepared = await actionCallIntent(deleteReviewCommentAction, {
+      ...RESOURCE,
+      commentId: bob.id,
+    });
+    if (!prepared.valid) throw prepared.error;
+
+    await runPreparedActionCall(
+      deleteReviewCommentAction,
+      prepared,
+      { userEmail: EDITOR, caller: "mcp" },
+      vouchedOutcome({ refused: false }, { mcpClientAccepted: true }),
+    );
+    expect(await remainingBodies()).toEqual(["Root", "Reply 2"]);
+  });
+
+  it("lets the app's own agent delete it, as before", async () => {
+    const { bob } = await bobsReply();
+
+    await deleteReviewCommentAction.run(
+      { ...RESOURCE, commentId: bob.id },
+      { userEmail: EDITOR, caller: "tool" },
+    );
+    expect(await remainingBodies()).toEqual(["Root", "Reply 2"]);
   });
 });
 

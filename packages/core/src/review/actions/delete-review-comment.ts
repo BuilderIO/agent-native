@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-import { defineAction, fail, type ActionRunContext } from "../../action.js";
+import { currentInvocationEvidence } from "../../action-frame.js";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+  type ActionRunContext,
+} from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import {
@@ -36,10 +42,20 @@ function agentNeedsDeleteApproval(
   ctx: ReviewResourceContext | undefined,
 ): boolean {
   const caller = ctx?.caller;
+  if (!caller || PERSON_CALLERS.has(caller)) return false;
   return (
-    reviewCommentPolicy(resourceType).agentDeleteApproval &&
-    Boolean(caller) &&
-    !PERSON_CALLERS.has(caller as string)
+    reviewCommentPolicy(resourceType).agentDeleteApproval ||
+    isOutsideAgentCall(ctx as ActionRunContext | undefined)
+  );
+}
+
+function deleteWasApproved(ctx: ActionRunContext | undefined): boolean {
+  const evidence = currentInvocationEvidence();
+  return Boolean(
+    ctx?.approvedToolCallKey ||
+    evidence?.approvedToolCallKey ||
+    evidence?.mcpClientAccepted ||
+    evidence?.auditOverride?.approval,
   );
 }
 
@@ -91,7 +107,7 @@ export default defineAction({
     const onlyOwnComments =
       Boolean(args.onlyOwnComments) ||
       (agentNeedsDeleteApproval(args.resourceType, actionCtx) &&
-        !(ctx as ActionRunContext | undefined)?.approvedToolCallKey);
+        !deleteWasApproved(ctx as ActionRunContext | undefined));
     const scope = {
       userEmail: actionCtx?.userEmail ?? null,
       orgId: actionCtx?.orgId ?? null,
