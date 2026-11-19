@@ -143,6 +143,11 @@ export interface CreateAgentKitProtocolAdapterOptions {
 }
 
 export interface AgentKitProtocolAdapter extends AgentTransport {
+  replayTerminalRun(input: {
+    threadId: string;
+    runId: string;
+    signal?: AbortSignal;
+  }): Promise<AgentEvent[]>;
   dispose(): Promise<void>;
 }
 
@@ -4139,6 +4144,42 @@ export function createAgentKitProtocolAdapter(
         if (pendingQueuePromotionRuns.get(queuePromotionKey) === pendingRun) {
           pendingQueuePromotionRuns.delete(queuePromotionKey);
         }
+      }
+    },
+    async replayTerminalRun(input) {
+      const signal = input.signal;
+      signal?.throwIfAborted();
+      const collect = async () => {
+        const events: AgentEvent[] = [];
+        for await (const event of transport.subscribeToRun({
+          ...input,
+          afterSequence: 0,
+        })) {
+          events.push(event);
+        }
+        const run = findRun(input.threadId, input.runId);
+        if (
+          signal?.aborted ||
+          !run ||
+          !isRunTerminal(run) ||
+          run.terminalSource
+        ) {
+          throw new Error(
+            `Could not replay durable events for run ${input.runId}.`,
+          );
+        }
+        return events;
+      };
+      if (!signal) return collect();
+      let onAbort: (() => void) | undefined;
+      const aborted = new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+      try {
+        return await Promise.race([collect(), aborted]);
+      } finally {
+        if (onAbort) signal.removeEventListener("abort", onAbort);
       }
     },
     async *subscribeToRun(input) {

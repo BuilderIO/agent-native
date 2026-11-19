@@ -1,5 +1,9 @@
 import type { AgentKitUploadDriver } from "@agent-native/agentkit";
-import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
+import {
+  AgentKitRunSlotBusyError,
+  createAgentThreadState,
+  reduceAgentEvent,
+} from "@agent-native/agentkit/client";
 import type {
   AgentTransport,
   AgentAnnotation,
@@ -3783,15 +3787,68 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const authoritativeRuns =
-      projectRunLifecycles(runs, stored.runLifecycles) ?? runs;
+    const authoritativeRuns = (
+      projectRunLifecycles(runs, stored.runLifecycles) ?? runs
+    ).map((run) => {
+      if (
+        run.id !== discoveredRun?.id ||
+        !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+      )
+        return run;
+      const { error: _error, ...rest } = run;
+      return {
+        ...rest,
+        status: discoveredRun.status,
+        ...(discoveredRun.error ? { error: discoveredRun.error } : {}),
+      };
+    });
+    let replayEvents: AgentEvent[] = [];
+    let replayMessages: AgentMessage[] = [];
+    if (
+      discoveredRun &&
+      ["completed", "failed", "cancelled"].includes(discoveredRun.status) &&
+      durableMessages.some(
+        (message) =>
+          message.role === "user" &&
+          asRecord(asRecord(message.metadata)?.custom)?.submittedRunId ===
+            discoveredRun.id,
+      ) &&
+      !durableMessages.some(
+        (message) =>
+          message.role === "assistant" &&
+          durableRunIds(message).includes(discoveredRun.id),
+      ) &&
+      (!discoveredRun.activeMessageId ||
+        !assistantMessageIds.has(discoveredRun.activeMessageId))
+    ) {
+      replayEvents = await protocolTransport.replayTerminalRun({
+        threadId,
+        runId: discoveredRun.id,
+        signal: AbortSignal.timeout(10_000),
+      });
+      const replay = replayEvents.reduce(
+        reduceAgentEvent,
+        createAgentThreadState(threadId),
+      );
+      if (replay.runs[discoveredRun.id]?.status !== discoveredRun.status) {
+        throw new Error(
+          `Could not replay the terminal run ${discoveredRun.id}: ${replay.runs[discoveredRun.id]?.status} vs ${discoveredRun.status}.`,
+        );
+      }
+      replayMessages = replay.messages;
+    }
     const failedRunIds = failedRunIdsWithError(authoritativeRuns);
     const messages = reconcileDurableMessages(
-      thread.messages,
+      [...thread.messages, ...replayMessages],
       durableMessages.filter(
         (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
       ),
-      thread.events,
+      [
+        ...(thread.events ?? []).filter(
+          (event) => !replayEvents.length || event.runId !== discoveredRun?.id,
+        ),
+        ...replayEvents,
+      ],
       authoritativeRuns,
       thread.toolCalls,
     );
@@ -3827,6 +3884,16 @@ export function createAgentNativeAgentKitTransport(
       // Replay starts at sequence zero, so rebuild an active assistant instead
       // of appending the same prefix to its persisted partial projection.
       messages: messagesForReplay,
+      ...(replayEvents.length
+        ? {
+            events: [
+              ...(thread.events ?? []).filter(
+                (event) => event.runId !== discoveredRun?.id,
+              ),
+              ...replayEvents,
+            ],
+          }
+        : {}),
       runs: authoritativeRuns,
       activeRunIds,
     };
