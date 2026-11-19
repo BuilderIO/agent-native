@@ -93,7 +93,8 @@ import {
   BUILDER_SIGNUP_POLICY,
   bindBuilderSignupAttempt,
   confirmMagicLinkLandingBuilderSignup,
-  consumeDeferredGoogleSignupReceipt,
+  deleteDeferredGoogleSignupReceipt,
+  readDeferredGoogleSignupReceipt,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
   createBuilderSignupExperiment,
@@ -2514,7 +2515,7 @@ describe("pre-signup Builder experiment", () => {
   describe("deferred Google signup receipt (mobile / desktop exchange)", () => {
     const sessionToken = "google-oauth-issued-session-token";
 
-    it("records a single-use receipt and consumes it only with the originating client cookie", async () => {
+    it("hands a receipt only to the client cookie holding the same Google attempt, until binding deletes it", async () => {
       mocks.settings.clear();
       const clientCookie = encodeBuilderSignupAssignment(accepted());
       const app = createApp();
@@ -2533,7 +2534,7 @@ describe("pre-signup Builder experiment", () => {
       app.use(
         "/consume",
         defineEventHandler(async (event) => ({
-          attemptId: await consumeDeferredGoogleSignupReceipt(
+          attemptId: await readDeferredGoogleSignupReceipt(
             event,
             sessionToken,
             "new@example.com",
@@ -2565,7 +2566,7 @@ describe("pre-signup Builder experiment", () => {
       );
       expect(await consumed.json()).toEqual({ attemptId: ATTEMPT });
 
-      const replay = await app.fetch(
+      const retry = await app.fetch(
         new Request("https://design.example.com/consume", {
           headers: {
             host: "design.example.com",
@@ -2573,7 +2574,34 @@ describe("pre-signup Builder experiment", () => {
           },
         }),
       );
-      expect(await replay.json()).toEqual({ attemptId: null });
+      expect(await retry.json()).toEqual({ attemptId: ATTEMPT });
+
+      for (const unrelated of [
+        { ...accepted(), attemptId: "unrelated-attempt-123456" },
+        { ...accepted(), method: "password" as const },
+        { ...accepted(), acceptedAt: undefined },
+      ]) {
+        const res = await app.fetch(
+          new Request("https://design.example.com/consume", {
+            headers: {
+              host: "design.example.com",
+              cookie: `${builderSignupAssignmentCookieName()}=${encodeBuilderSignupAssignment(unrelated)}`,
+            },
+          }),
+        );
+        expect(await res.json()).toEqual({ attemptId: null });
+      }
+
+      await deleteDeferredGoogleSignupReceipt(sessionToken);
+      const afterBinding = await app.fetch(
+        new Request("https://design.example.com/consume", {
+          headers: {
+            host: "design.example.com",
+            cookie: `${builderSignupAssignmentCookieName()}=${clientCookie}`,
+          },
+        }),
+      );
+      expect(await afterBinding.json()).toEqual({ attemptId: null });
     });
     const records = () =>
       [...mocks.settings.entries()].filter(([key]) =>
@@ -2600,7 +2628,7 @@ describe("pre-signup Builder experiment", () => {
         defineEventHandler(async (event) => {
           const url = new URL(event.req.url);
           return {
-            attemptId: await consumeDeferredGoogleSignupReceipt(
+            attemptId: await readDeferredGoogleSignupReceipt(
               event,
               url.searchParams.get("token") ?? sessionToken,
               url.searchParams.get("email") ?? "new@example.com",
@@ -2627,9 +2655,13 @@ describe("pre-signup Builder experiment", () => {
         query?: Record<string, string>;
         headers?: Record<string, string>;
         cookie?: boolean;
+        cookieAttempt?: string;
       } = {},
     ) => {
-      const clientCookie = encodeBuilderSignupAssignment(accepted());
+      const clientCookie = encodeBuilderSignupAssignment({
+        ...accepted(),
+        attemptId: options.cookieAttempt ?? ATTEMPT,
+      });
       const res = await app.fetch(
         new Request(
           `https://design.example.com/consume?${new URLSearchParams(options.query ?? {})}`,
@@ -2754,7 +2786,7 @@ describe("pre-signup Builder experiment", () => {
           headers: { "x-forwarded-host": "design.example.com:443" },
         }),
       ).toBe(ATTEMPT);
-      expect(records()).toHaveLength(0);
+      expect(records()).toHaveLength(1);
     });
 
     const receiptPatches: Array<
@@ -2786,7 +2818,7 @@ describe("pre-signup Builder experiment", () => {
     it("hands over a receipt at the exact expiry instant", async () => {
       vi.useFakeTimers({ toFake: ["Date"] });
       try {
-        vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+        vi.setSystemTime(new Date(testTime));
         mocks.settings.clear();
         const app = deferredApp();
         await recordVia(app);
@@ -2812,8 +2844,14 @@ describe("pre-signup Builder experiment", () => {
         token: "session-two",
         attempt: "second-attempt-example-12",
       });
+      expect(
+        await consumeVia(app, {
+          query: { token: "session-two" },
+          cookieAttempt: "second-attempt-example-12",
+        }),
+      ).toBe("second-attempt-example-12");
       expect(await consumeVia(app, { query: { token: "session-two" } })).toBe(
-        "second-attempt-example-12",
+        null,
       );
       expect(await consumeVia(app, { query: { token: "session-one" } })).toBe(
         ATTEMPT,

@@ -745,42 +745,41 @@ export async function recordDeferredGoogleSignupReceipt(
   });
 }
 
-export async function consumeDeferredGoogleSignupReceipt(
+export async function readDeferredGoogleSignupReceipt(
   event: H3Event,
   sessionToken: string,
   email: string,
 ): Promise<string | null> {
   if (!isBuilderSignupExperimentEnabled(event) || !sessionToken) return null;
-  if (!getCookie(event, builderSignupAssignmentCookieName())) return null;
-  const currentHosts = canonicalRequestHosts(event);
-  const currentExperimentId = experimentId();
-  const normalizedEmail = email.trim().toLowerCase();
-  const key = deferredGoogleReceiptKey(sessionToken);
-  const existing = await getSetting(key);
-  if (!existing) return null;
-  const consumed: { attemptId: string | null } = { attemptId: null };
-  await mutateSetting(key, (current) => {
-    consumed.attemptId = null;
-    const parsed = deferredGoogleReceiptSchema.safeParse(current);
-    const now = Date.now();
-    if (
-      !parsed.success ||
-      parsed.data.consumedAt !== null ||
-      now > parsed.data.expiresAt ||
-      parsed.data.experimentId !== currentExperimentId ||
-      !hostsMatch(parsed.data.hosts, currentHosts) ||
-      parsed.data.email !== normalizedEmail
-    ) {
-      return current ?? { invalid: true };
-    }
-    consumed.attemptId = parsed.data.attemptId;
-    return {
-      ...parsed.data,
-      consumedAt: now,
-    };
-  });
-  if (consumed.attemptId) await deleteSetting(key);
-  return consumed.attemptId;
+  const assignment = decodeBuilderSignupAssignment(
+    getCookie(event, builderSignupAssignmentCookieName()),
+  );
+  if (
+    assignment?.variant !== "automatic" ||
+    !assignment.acceptedAt ||
+    assignment.method !== "google"
+  )
+    return null;
+  const parsed = deferredGoogleReceiptSchema.safeParse(
+    await getSetting(deferredGoogleReceiptKey(sessionToken)),
+  );
+  if (
+    !parsed.success ||
+    parsed.data.consumedAt !== null ||
+    Date.now() > parsed.data.expiresAt ||
+    parsed.data.experimentId !== experimentId() ||
+    !hostsMatch(parsed.data.hosts, canonicalRequestHosts(event)) ||
+    parsed.data.email !== email.trim().toLowerCase() ||
+    parsed.data.attemptId !== assignment.attemptId
+  )
+    return null;
+  return parsed.data.attemptId;
+}
+
+export async function deleteDeferredGoogleSignupReceipt(
+  sessionToken: string,
+): Promise<void> {
+  await deleteSetting(deferredGoogleReceiptKey(sessionToken));
 }
 
 async function finishSignupActivation(

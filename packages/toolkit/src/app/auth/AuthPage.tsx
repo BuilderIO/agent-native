@@ -2507,7 +2507,11 @@ export function AuthPage(props: AuthPageProps) {
     builderSignup?.status === "assigned" &&
     builderSignup.variant === "automatic" ? (
       <span>
-        {t("builderSignupDisclosure")}{" "}
+        {t(
+          view === "login"
+            ? "builderSignupNewAccountDisclosure"
+            : "builderSignupDisclosure",
+        )}{" "}
         <a
           href="https://www.builder.io/legal/terms"
           target="_blank"

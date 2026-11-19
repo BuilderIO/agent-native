@@ -7134,6 +7134,7 @@ export function PlanLoadError({
         if (!disposed) setBuilderSignup(assignment);
       },
       () => {
+        builderSignupRequestRef.current = null;
         if (disposed) return;
         setBuilderSignup({ status: "unavailable" });
         trackAnonymousEvent("builder_signup_experiment_unavailable", {
@@ -7618,7 +7619,7 @@ export function PlanLoadError({
                 </Collapsible>
                 {showBuilderDisclosure ? (
                   <p className="text-xs leading-5 text-muted-foreground">
-                    {authCopy.builderSignupDisclosure}{" "}
+                    {authCopy.builderSignupNewAccountDisclosure}{" "}
                     <a
                       href="https://www.builder.io/legal/terms"
                       target="_blank"

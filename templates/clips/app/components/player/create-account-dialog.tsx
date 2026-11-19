@@ -220,6 +220,7 @@ export function AccountGateDialog({
         if (!disposed) setBuilderSignup(assignment);
       },
       () => {
+        builderSignupRequestRef.current = null;
         if (disposed) return;
         setBuilderSignup({ status: "unavailable" });
         trackEvent("builder_signup_experiment_unavailable", {
@@ -844,7 +845,7 @@ export function AccountGateDialog({
                   <>
                     {" "}
                     <span>
-                      {copy.builderSignupDisclosure}{" "}
+                      {copy.builderSignupNewAccountDisclosure}{" "}
                       <a
                         href="https://www.builder.io/legal/terms"
                         target="_blank"

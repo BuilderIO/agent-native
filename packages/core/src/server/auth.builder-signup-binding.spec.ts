@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   ),
   start: vi.fn(async (_event: H3Event, _session: AuthSession) => {}),
   recordDeferredGoogle: vi.fn(async () => false),
-  consumeDeferredGoogle: vi.fn(async () => null),
+  readDeferredGoogle: vi.fn(async () => null),
+  deleteDeferredGoogle: vi.fn(async () => {}),
   prepareMagicLinkLanding: vi.fn(async () => false),
   confirmMagicLinkLanding: vi.fn(async () => false),
   withMagicLinkRecorder: vi.fn(
@@ -26,7 +27,8 @@ vi.mock("./builder-signup-experiment.js", () => ({
   bindBuilderSignupAttempt: mocks.bind,
   startBuilderSignupForVerifiedSession: mocks.start,
   recordDeferredGoogleSignupReceipt: mocks.recordDeferredGoogle,
-  consumeDeferredGoogleSignupReceipt: mocks.consumeDeferredGoogle,
+  readDeferredGoogleSignupReceipt: mocks.readDeferredGoogle,
+  deleteDeferredGoogleSignupReceipt: mocks.deleteDeferredGoogle,
   prepareMagicLinkLandingBuilderSignup: mocks.prepareMagicLinkLanding,
   confirmMagicLinkLandingBuilderSignup: mocks.confirmMagicLinkLanding,
   withMagicLinkBuilderSignupRecorder: mocks.withMagicLinkRecorder,
@@ -36,7 +38,8 @@ beforeEach(() => {
   mocks.bind.mockReset().mockResolvedValue({ userId: "qa-user" });
   mocks.start.mockReset().mockResolvedValue(undefined);
   mocks.recordDeferredGoogle.mockReset().mockResolvedValue(false);
-  mocks.consumeDeferredGoogle.mockReset().mockResolvedValue(null);
+  mocks.readDeferredGoogle.mockReset().mockResolvedValue(null);
+  mocks.deleteDeferredGoogle.mockReset();
 });
 describe("signup callback experiment binding", () => {
   it.each([
@@ -61,21 +64,21 @@ describe("signup callback experiment binding", () => {
       const server = createApp();
       server.use(
         "/callback",
-        defineEventHandler(async (event) => {
-          await recordBuilderSignupBinding(
+        defineEventHandler(async (event) => ({
+          started: await recordBuilderSignupBinding(
             event,
             "test-only-signup-attempt",
             "google",
             signed.email,
             signed,
-          );
-          return { signedIn: true };
-        }),
+          ),
+        })),
       );
-      expect(
-        (await server.fetch(new Request("https://apps.example.com/callback")))
-          .status,
-      ).toBe(200);
+      const response = await server.fetch(
+        new Request("https://apps.example.com/callback"),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ started: bound });
       expect(observedSessions).toEqual(
         bound ? [{ ...signed, userId: "qa-user" }] : [],
       );
@@ -120,6 +123,33 @@ describe("signup callback experiment binding", () => {
       );
     },
   );
+
+  it("reports a bound signup whose start fails as not started, so its receipt is kept for retry", async () => {
+    mocks.cookie = "an_builder_signup";
+    mocks.bind.mockResolvedValue({ userId: "qa-user" });
+    mocks.start.mockRejectedValue(new Error("provider unavailable"));
+    const server = createApp();
+    server.use(
+      "/callback",
+      defineEventHandler(async (event) => ({
+        started: await recordBuilderSignupBinding(
+          event,
+          "test-only-signup-attempt",
+          "google",
+          "qa@example.invalid",
+          {
+            email: "qa@example.invalid",
+            token: "test-only-issued-session",
+            emailVerified: true,
+          },
+        ),
+      })),
+    );
+    const response = await server.fetch(
+      new Request("https://apps.example.com/callback"),
+    );
+    expect(await response.json()).toEqual({ started: false });
+  });
 
   describe("deferred Google receipt and start eligibility", () => {
     const ATTEMPT = "test-only-signup-attempt";

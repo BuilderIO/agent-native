@@ -55,9 +55,10 @@ import { isWorkspaceAppChatScope } from "../shared/workspace-app-chat-capability
 import {
   bindBuilderSignupAttempt,
   confirmMagicLinkLandingBuilderSignup,
-  consumeDeferredGoogleSignupReceipt,
+  deleteDeferredGoogleSignupReceipt,
   isBuilderSignupExperimentEnabled,
   prepareMagicLinkLandingBuilderSignup,
+  readDeferredGoogleSignupReceipt,
   recordDeferredGoogleSignupReceipt,
   startBuilderSignupForVerifiedSession,
   withMagicLinkBuilderSignupRecorder,
@@ -427,12 +428,12 @@ export async function recordBuilderSignupBinding(
   method: "password" | "magic-link" | "google",
   email: string,
   verifiedSession?: AuthSession,
-): Promise<void> {
+): Promise<boolean> {
   if (
     typeof attemptId !== "string" &&
     !getCookie(event, builderSignupAssignmentCookieName())
   )
-    return;
+    return false;
   try {
     const bound = await bindBuilderSignupAttempt(
       event,
@@ -458,6 +459,7 @@ export async function recordBuilderSignupBinding(
         verifiedSession.token,
       );
       await startBuilderSignupForVerifiedSession(event, signupSession);
+      return true;
     } else if (
       !bound &&
       method === "google" &&
@@ -477,6 +479,7 @@ export async function recordBuilderSignupBinding(
   } catch (error) {
     captureAuthError(error, { route: "signup", email });
   }
+  return false;
 }
 
 export interface AuthSession {
@@ -5734,19 +5737,22 @@ export const mobileSessionHandler = defineEventHandler(
       }
       setFrameworkSessionCookie(event, token);
       try {
-        const deferredAttemptId = await consumeDeferredGoogleSignupReceipt(
+        const deferredAttemptId = await readDeferredGoogleSignupReceipt(
           event,
           token,
           email,
         );
-        if (deferredAttemptId) {
-          await recordBuilderSignupBinding(
+        if (
+          deferredAttemptId &&
+          (await recordBuilderSignupBinding(
             event,
             deferredAttemptId,
             "google",
             email,
             { email, token, emailVerified: true },
-          );
+          ))
+        ) {
+          await deleteDeferredGoogleSignupReceipt(token);
         }
       } catch (error) {
         captureAuthError(error, { route: "signup", email });
@@ -6566,19 +6572,22 @@ async function mountBetterAuthRoutes(
       }
       setFrameworkSessionCookie(event, entry.token);
       try {
-        const deferredAttemptId = await consumeDeferredGoogleSignupReceipt(
+        const deferredAttemptId = await readDeferredGoogleSignupReceipt(
           event,
           entry.token,
           entry.email,
         );
-        if (deferredAttemptId) {
-          await recordBuilderSignupBinding(
+        if (
+          deferredAttemptId &&
+          (await recordBuilderSignupBinding(
             event,
             deferredAttemptId,
             "google",
             entry.email,
             { email: entry.email, token: entry.token, emailVerified: true },
-          );
+          ))
+        ) {
+          await deleteDeferredGoogleSignupReceipt(entry.token);
         }
       } catch (error) {
         captureAuthError(error, {
