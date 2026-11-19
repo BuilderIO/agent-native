@@ -36,6 +36,7 @@ import {
   isNull,
   like,
   lte,
+  ne,
   notExists,
   or,
   sql,
@@ -1165,10 +1166,13 @@ export async function commitPreparedCaptureWithWarnings(
     failedInvalidations += flushed.failedInvalidations;
     failedNotifications += flushed.failedNotifications;
   }
-  const warnings = postCommitWarnings({
-    failedNotifications,
-    failedInvalidations,
-  });
+  let failedIndexing = 0;
+  const warningsNow = () =>
+    postCommitWarnings({
+      failedNotifications,
+      failedInvalidations,
+      failedIndexing,
+    });
   if (finalized.rowsAffected === 0 && values.externalId) {
     await db
       .delete(schema.brainCaptureAudiences)
@@ -1197,7 +1201,7 @@ export async function commitPreparedCaptureWithWarnings(
       : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
         ? "sensitivity-changed"
         : null;
-  if (!invalidationReason) return { capture, ...warnings };
+  if (!invalidationReason) return { capture, ...warningsNow() };
   try {
     await enqueueCaptureInvalidation({
       captureId,
@@ -1218,11 +1222,22 @@ export async function commitPreparedCaptureWithWarnings(
       },
     });
   } catch (error) {
-    const { unindexBrainCapture } = await import("./search-index.js");
-    await unindexBrainCapture(captureId);
-    throw error;
+    failedIndexing += 1;
+    console.warn(
+      "[brain] Queueing the search index refresh failed after the capture committed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    try {
+      const { unindexBrainCapture } = await import("./search-index.js");
+      await unindexBrainCapture(captureId);
+    } catch (unindexError) {
+      console.warn(
+        "[brain] Removing the stale search entry failed after the capture committed:",
+        unindexError instanceof Error ? unindexError.message : "unknown error",
+      );
+    }
   }
-  return { capture, ...warnings };
+  return { capture, ...warningsNow() };
 }
 
 export interface BrainSensitivityReceipt {
@@ -1466,6 +1481,7 @@ export async function runAfterCommitEffects(
 export function postCommitWarnings(result: {
   failedNotifications: number;
   failedInvalidations?: number;
+  failedIndexing?: number;
 }) {
   const warnings: string[] = [];
   if (result.failedNotifications)
@@ -1475,6 +1491,10 @@ export function postCommitWarnings(result: {
   if (result.failedInvalidations)
     warnings.push(
       "The capture and its audience were saved, but refreshing knowledge derived from other captures that share the changed audience did not finish. Access is already enforced from the saved audience; that derived knowledge may refresh later.",
+    );
+  if (result.failedIndexing)
+    warnings.push(
+      "The capture was saved, but queueing its search index refresh failed, so search may show stale or no text for it until it is reindexed. Do not repeat the write.",
     );
   return warnings.length ? { postCommitWarnings: warnings } : {};
 }
@@ -1863,6 +1883,18 @@ export function visibilityForTier(
 ): "private" | "org" | "public" {
   if (tier === "private") return "private";
   return "org";
+}
+
+export function publishedKnowledgeStatusClause() {
+  const published = or(
+    eq(schema.brainKnowledge.status, "published"),
+    and(
+      eq(schema.brainKnowledge.status, "redacted"),
+      ne(schema.brainKnowledge.visibility, "private"),
+    ),
+  );
+  if (!published) throw new Error("The published status clause is empty.");
+  return published;
 }
 
 export function statusForTier(tier: BrainPublishTier): BrainKnowledgeStatus {
@@ -2829,12 +2861,7 @@ export async function searchKnowledgePage(args: {
   if (args.status && args.status !== "all") {
     clauses.push(eq(schema.brainKnowledge.status, args.status));
   } else if (!args.includeDrafts) {
-    clauses.push(
-      or(
-        eq(schema.brainKnowledge.status, "published"),
-        eq(schema.brainKnowledge.status, "redacted"),
-      )!,
-    );
+    clauses.push(publishedKnowledgeStatusClause());
   }
   const limit = Math.min(Math.max(args.limit ?? 25, 1), 1000);
   const scanLimit = 1000;

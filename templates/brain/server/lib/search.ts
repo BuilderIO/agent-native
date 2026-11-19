@@ -12,7 +12,11 @@ import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { BrainEvidence } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { listAccessibleAudienceIds } from "./audiences.js";
-import { parseJson, safeCitationUrl } from "./brain.js";
+import {
+  parseJson,
+  publishedKnowledgeStatusClause,
+  safeCitationUrl,
+} from "./brain.js";
 import {
   hybridSearchArtifacts,
   type SearchLaneStatuses,
@@ -484,7 +488,7 @@ async function searchKnowledgeResults(
                 )
               : undefined,
           ),
-          inArray(schema.brainKnowledge.status, ["published", "redacted"]),
+          publishedKnowledgeStatusClause(),
           sourceIds
             ? inArray(schema.brainKnowledge.sourceId, sourceIds)
             : undefined,

@@ -620,6 +620,29 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
+    it("a failed index queue insert for the capture itself is a post-commit warning, not a failed write", async () => {
+      await query(`CREATE OR REPLACE FUNCTION fail_access_invalidation() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'forced failure while queueing the capture refresh'; END $$ LANGUAGE plpgsql`);
+      await query(
+        `CREATE TRIGGER fail_access_invalidation BEFORE INSERT ON brain_ingest_queue FOR EACH ROW WHEN (NEW.capture_id = 'capture-a') EXECUTE FUNCTION fail_access_invalidation()`,
+      );
+      const written = await asQa(() =>
+        brain.createCaptureWithWarnings(
+          capture({ content: `${CONTENT_A} Revised.` }),
+        ),
+      );
+      expect(written.postCommitWarnings).toHaveLength(1);
+      expect(written).toMatchObject({
+        capture: { content: `${CONTENT_A} Revised.` },
+      });
+      const stored = await query(
+        "SELECT content FROM brain_raw_captures WHERE id = 'capture-a'",
+      );
+      expect(stored.map((row) => row.content)).toEqual([
+        `${CONTENT_A} Revised.`,
+      ]);
+    });
+
     it("one failed audience invalidation does not skip the remaining captures", async () => {
       await linkBothCapturesToOneAudience();
       await query(`CREATE OR REPLACE FUNCTION fail_access_invalidation() RETURNS trigger AS $$

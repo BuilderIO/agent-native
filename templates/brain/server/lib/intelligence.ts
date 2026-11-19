@@ -785,7 +785,7 @@ export async function getEntityGraph(
   const { rows, scanLimited } = await searchKnowledgePage({
     query: input.query,
     includeDrafts: true,
-    statuses: ["draft", "published"],
+    statuses: ["draft", "published", "redacted"],
     limit: 101,
   });
   const entities = new Map<
@@ -831,7 +831,12 @@ export async function getEntityGraph(
     rows.flatMap((row) => serializeKnowledge(row).evidence),
   );
   for (const row of rows) {
-    if (row.status !== "published" && row.status !== "draft") continue;
+    if (
+      row.status !== "published" &&
+      row.status !== "draft" &&
+      row.status !== "redacted"
+    )
+      continue;
     const knowledge = serializeKnowledge(row);
     const detail = details.get(row.id);
     if (
