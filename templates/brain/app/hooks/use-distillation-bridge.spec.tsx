@@ -202,6 +202,33 @@ describe("distillation handoff", () => {
     expect(mocks.confirm).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
+  it("backs off before claiming an unreadable capture again", async () => {
+    vi.useFakeTimers();
+    mocks.list.mockRejectedValue(new Error("read unavailable"));
+    const claims = () =>
+      mocks.action.mock.calls.filter(([name]) => name === "claim-distillation")
+        .length;
+    const poll = async (ms: number) => {
+      mocks.updatedAt += 1;
+      await act(async () => {
+        root.render(<Bridge />);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    };
+    await render();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(claims()).toBe(1);
+    await poll(1000);
+    expect(claims()).toBe(1);
+    await poll(15_000);
+    await poll(10_000);
+    expect(claims()).toBe(2);
+    vi.useRealTimers();
+  });
   it("retains a request and records a fenced failure when delivery is unconfirmed", async () => {
     mocks.confirm.mockResolvedValue({
       tabId: "tab",
