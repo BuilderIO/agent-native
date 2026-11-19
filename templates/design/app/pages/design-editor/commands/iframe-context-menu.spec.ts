@@ -247,7 +247,9 @@ describe("runIframeContextMenu cross-origin preview", () => {
         },
       }),
     });
-    args.canvasContainerRef.current!.appendChild(iframe);
+    const container = args.canvasContainerRef.current;
+    if (!container) throw new Error("missing canvas container");
+    container.appendChild(iframe);
 
     expect(() =>
       runIframeContextMenu(args, {
@@ -257,7 +259,7 @@ describe("runIframeContextMenu cross-origin preview", () => {
       }),
     ).not.toThrow();
     expect(openAt).toHaveBeenCalledTimes(1);
-    expect(openAt.mock.calls[0]![0]).not.toHaveProperty("canvasX");
-    expect(openAt.mock.calls[0]![0]).toMatchObject({ screenId: "screen-1" });
+    expect(openAt.mock.calls[0]?.[0]).not.toHaveProperty("canvasX");
+    expect(openAt.mock.calls[0]?.[0]).toMatchObject({ screenId: "screen-1" });
   });
 });

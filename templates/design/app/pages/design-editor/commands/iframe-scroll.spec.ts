@@ -48,6 +48,6 @@ describe("cross-origin preview iframe scroll", () => {
       runIframeContextMenu(args, { clientX: 20, clientY: 30 }),
     ).not.toThrow();
     expect(openAt).toHaveBeenCalledTimes(1);
-    expect(openAt.mock.calls[0]![0]).not.toHaveProperty("canvasX");
+    expect(openAt.mock.calls[0]?.[0]).not.toHaveProperty("canvasX");
   });
 });
