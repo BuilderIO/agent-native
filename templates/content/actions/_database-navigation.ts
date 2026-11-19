@@ -1433,7 +1433,7 @@ export async function getContentDatabaseNavigationPage(args: {
       items,
       properties,
       { search: "", filters: [], sorts: rankSorts, filterMode: "and" },
-      { timeZone },
+      timeZone ? { timeZone } : {},
     );
     return new Map(sorted.map((item, index) => [item.id, index + 1]));
   };
