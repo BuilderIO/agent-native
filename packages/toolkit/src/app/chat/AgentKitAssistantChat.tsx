@@ -64,6 +64,11 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { dispatchAgentChatRunning } from "@agent-native/core/client/agent-chat";
 import {
+  agentChatPreviousTurnText,
+  reportAgentChatComposerSubmit,
+  withdrawAgentChatComposerSubmit,
+} from "@agent-native/core/client/agent-chat";
+import {
   agentEngineStatusUrlForChatApi,
   isLocalRuntimeEngine,
   useAgentEngineConfigured,
@@ -4003,6 +4008,23 @@ const AgentKitAssistantChatBody = forwardRef<
     ],
   );
 
+  const announceComposerSubmit = useCallback(
+    (text: string, queued: boolean) =>
+      reportAgentChatComposerSubmit({
+        text,
+        tabId: props.tabId,
+        threadId,
+        queued,
+        previousTurn: agentChatPreviousTurnText(
+          controller.getThread(threadId).messages.map((message) => ({
+            role: message.role,
+            text: agentMessageText(message),
+          })),
+        ),
+      }),
+    [controller, props.tabId, threadId],
+  );
+
   const submitPrepared = useCallback(
     async (
       text: string,
@@ -4013,10 +4035,13 @@ const AgentKitAssistantChatBody = forwardRef<
     ) => {
       const noticeAttempt = beginNoticeAttempt();
       const runWasActiveAtSubmit = isThreadRunning();
+      const announced = announceComposerSubmit(text, runWasActiveAtSubmit);
       setContinueSubmissionFailed(false);
       const release = await acquireSubmission();
-      if (!release)
+      if (!release) {
+        withdrawAgentChatComposerSubmit(announced);
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+      }
       noticeAttempt.promote();
       const pending =
         !runWasActiveAtSubmit && !composerOptions.submissionId
@@ -4039,6 +4064,7 @@ const AgentKitAssistantChatBody = forwardRef<
           ),
         );
       } catch (error) {
+        withdrawAgentChatComposerSubmit(announced);
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
@@ -4049,6 +4075,7 @@ const AgentKitAssistantChatBody = forwardRef<
     [
       acquireSubmission,
       beginNoticeAttempt,
+      announceComposerSubmit,
       beginSubmittedMessage,
       dispatch,
       isThreadRunning,
@@ -4636,8 +4663,11 @@ const AgentKitAssistantChatBody = forwardRef<
       const promoteNotice = noticeTracked
         ? undefined
         : beginNoticeAttempt().promote;
+      const announced = options?.hideUserMessage
+        ? null
+        : announceComposerSubmit(text, isThreadRunning());
       try {
-        return await submit(
+        const result = await submit(
           text,
           [],
           [],
@@ -4655,7 +4685,12 @@ const AgentKitAssistantChatBody = forwardRef<
           },
           promoteNotice,
         );
+        if (result.status === "rejected") {
+          withdrawAgentChatComposerSubmit(announced);
+        }
+        return result;
       } catch (error) {
+        withdrawAgentChatComposerSubmit(announced);
         const rejected = setupSubmissionResult(error);
         if (rejected) {
           onSetupRejection?.(error);
@@ -4664,7 +4699,7 @@ const AgentKitAssistantChatBody = forwardRef<
         throw error;
       }
     },
-    [beginNoticeAttempt, isThreadRunning, submit],
+    [announceComposerSubmit, beginNoticeAttempt, isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
     async (

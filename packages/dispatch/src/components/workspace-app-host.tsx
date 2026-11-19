@@ -81,6 +81,80 @@ export function buildChatFirstEmbedSessionInput(
   return { app: appId, path, chrome: "minimal" };
 }
 
+const CHAT_FIRST_EMBED_PREFETCH_TTL_MS = 30_000;
+const prefetchedChatFirstEmbedSessions = new Map<
+  string,
+  { promise: Promise<EmbedSessionResult>; createdAt: number }
+>();
+
+function embedSessionInputKey(input: EmbedSessionInput): string {
+  return JSON.stringify([
+    input.app ?? "",
+    input.path ?? "",
+    input.url ?? "",
+    input.chrome,
+  ]);
+}
+
+function takePrefetchedChatFirstEmbedSession(
+  input: EmbedSessionInput,
+): Promise<EmbedSessionResult> | null {
+  const key = embedSessionInputKey(input);
+  const entry = prefetchedChatFirstEmbedSessions.get(key);
+  if (!entry) return null;
+  prefetchedChatFirstEmbedSessions.delete(key);
+  return Date.now() - entry.createdAt <= CHAT_FIRST_EMBED_PREFETCH_TTL_MS
+    ? entry.promise
+    : null;
+}
+
+/**
+ * Starts the embed session for an app pane that is about to open, so the frame
+ * does not wait for its own mint. Skips every case where the frame would not
+ * mint an ordinary embed session.
+ */
+export function usePrefetchChatFirstEmbedSession(): (
+  app: WorkspaceAppFrameApp,
+  embedPath: string,
+) => void {
+  const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
+  const { mutateAsync: mintEmbedSession } = useActionMutation<
+    EmbedSessionResult,
+    EmbedSessionInput
+  >("create_embed_session", {
+    skipActionQueryInvalidation: true,
+    timeoutMs: EMBED_SESSION_TIMEOUT_MS,
+  });
+  return useCallback(
+    (app, embedPath) => {
+      if (typeof window === "undefined" || !embedPath.startsWith("/")) return;
+      if (isWorkspaceAppHostPageUrl(app, window.location.origin)) return;
+      if (shouldOpenWorkspaceAppInTopWindow()) return;
+      if (workspaceSsoEnabled && isWorkspaceSsoApp(app)) return;
+      const input = buildChatFirstEmbedSessionInput(app.id, embedPath);
+      const key = embedSessionInputKey(input);
+      const existing = prefetchedChatFirstEmbedSessions.get(key);
+      if (
+        existing &&
+        Date.now() - existing.createdAt <= CHAT_FIRST_EMBED_PREFETCH_TTL_MS
+      ) {
+        return;
+      }
+      const promise = mintEmbedSession(input);
+      prefetchedChatFirstEmbedSessions.set(key, {
+        promise,
+        createdAt: Date.now(),
+      });
+      promise.catch(() => {
+        if (prefetchedChatFirstEmbedSessions.get(key)?.promise === promise) {
+          prefetchedChatFirstEmbedSessions.delete(key);
+        }
+      });
+    },
+    [mintEmbedSession, workspaceSsoEnabled],
+  );
+}
+
 async function readWorkspaceAppChatProxyError(
   response: Response,
 ): Promise<string> {
@@ -450,8 +524,10 @@ export function WorkspaceAppFrame({
     const createSession = useWorkspaceSso
       ? createWorkspaceSsoEmbedSession
       : createEmbedSession;
-    void createSession
-      .mutateAsync(embedInput)
+    const prefetched = useWorkspaceSso
+      ? null
+      : takePrefetchedChatFirstEmbedSession(embedInput);
+    void (prefetched ?? createSession.mutateAsync(embedInput))
       .then((result) => {
         if (cancelled) return;
         if (useTopWindowSso) {
