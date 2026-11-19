@@ -14,10 +14,6 @@ export type TabActivation = {
   windowId?: number;
 };
 
-// The recording's own tab first, then tabs in the same window active within
-// the recent window, most recent first, capped at MAX_DEBUGGED_TABS. Chrome
-// shows its "started debugging this browser" bar in every window with an
-// attached tab, so tabs in other windows are never attached.
 export function pickDebugTabIds(input: {
   targetTabId: number;
   targetWindowId: number | undefined;
