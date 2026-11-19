@@ -13,6 +13,7 @@ import {
   verdictFields,
   verifyPanelWrite,
   type PanelWriteVerdict,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
@@ -33,6 +34,10 @@ function resolveScope() {
   return { orgId, email };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget(
+  "restore-dashboard-revision",
+);
+
 export default defineAction({
   description:
     "Restore a dashboard to a saved history revision from list-dashboard-revisions, snapshotting the current dashboard first so the restore can itself be undone.",
@@ -44,7 +49,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   mcpTool: true,
-  run: async (args, actionContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const ctx = resolveScope();
     const guard = guardWrite({
       action: "restore-dashboard-revision",
@@ -115,6 +120,7 @@ export default defineAction({
           signal: actionContext?.signal,
           mode: "report",
           dashboardId: args.dashboardId,
+          budget: verificationBudget,
         });
       } catch (error) {
         verdict = {
@@ -123,6 +129,9 @@ export default defineAction({
           proof: [],
           unverified: [],
           nextStep: `REQUIRED: the restore was saved but panel verification failed (${error instanceof Error ? error.message : String(error)}). Call inspect-dashboard-panel on the panels the user cares about before telling them the dashboard renders.`,
+          ...(verificationBudget
+            ? { bigQueryBudget: await verificationBudget.report() }
+            : {}),
         };
       }
     }
@@ -148,5 +157,5 @@ export default defineAction({
         verdict,
       ),
     };
-  },
+  }),
 });

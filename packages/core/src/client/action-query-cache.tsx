@@ -417,18 +417,56 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     restoredSources = new Map();
   };
 
+  let scannedStorageLength: number | undefined;
+  const storageLength = () => {
+    try {
+      return window.localStorage.length;
+    } catch {
+      cacheSafetyUnavailable = true;
+      return undefined;
+    }
+  };
+
+  const blockCache = () => {
+    persistBlocked = true;
+    restoreBlocked = true;
+    clearRestoredState();
+    latest = undefined;
+    clearTimeout(timer);
+    timer = undefined;
+  };
+
   const canUseCache = () => {
     const safe = matchesCacheEpoch(cacheEpoch);
-    if (!safe) {
-      persistBlocked = true;
-      restoreBlocked = true;
-      clearRestoredState();
-      latest = undefined;
-      clearTimeout(timer);
-      timer = undefined;
-    }
+    if (safe) scannedStorageLength = storageLength();
+    else blockCache();
     return safe;
   };
+
+  const onStorage = (event: StorageEvent) => {
+    if (!open || persistBlocked) return;
+    try {
+      if (event.storageArea && event.storageArea !== window.localStorage)
+        return;
+    } catch {
+      return;
+    }
+    if (
+      event.key === null ||
+      (event.key === CACHE_EPOCH_KEY && event.newValue !== cacheEpoch) ||
+      (event.key.startsWith(CLEAR_INTENT_PREFIX) && event.newValue !== null)
+    ) {
+      blockCache();
+    }
+  };
+  const storageEvents =
+    typeof window !== "undefined" &&
+    typeof window.addEventListener === "function"
+      ? window
+      : undefined;
+  storageEvents?.addEventListener("storage", onStorage);
+  const stopWatchingStorage = () =>
+    storageEvents?.removeEventListener("storage", onStorage);
 
   const flush = () => {
     timer = undefined;
@@ -450,10 +488,9 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
 
   const persister: ScopedPersister = {
     persistClient(client) {
+      if (!open || persistBlocked || mutationEpoch === undefined) return;
       if (
-        !open ||
-        persistBlocked ||
-        mutationEpoch === undefined ||
+        (timer === undefined || storageLength() !== scannedStorageLength) &&
         !canUseCache()
       )
         return;
@@ -571,6 +608,7 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     },
     close() {
       open = false;
+      stopWatchingStorage();
       restoreBlocked = true;
       restoreRevision += 1;
       clearRestoredState();
