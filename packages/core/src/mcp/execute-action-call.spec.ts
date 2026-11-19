@@ -11,6 +11,10 @@ import {
   preparedCallArguments,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import {
   ServicePrincipalRefusedError,
@@ -29,6 +33,7 @@ import {
   runMcpActionCallUnredacted,
   UnreadableResultError,
 } from "./execute-action-call.js";
+import { runWithMcpTurnGrantScope } from "./turn-grant-scope.js";
 
 const grants = vi.hoisted(() => new Map<string, any>());
 
@@ -436,6 +441,55 @@ describe("executeMcpActionCall", () => {
     expect(ran).toEqual([1000]);
     expect(gate.length).toBeGreaterThan(0);
     expect(gate.every((time) => time === 1000)).toBe(true);
+  });
+
+  it("skips review for direct and approval-only turn-grant calls when no-approvals mode is on, and still reviews when off", async () => {
+    const direct = defineAction({
+      description: "Direct write.",
+      userTurn: "direct",
+      needsApproval: () => true,
+      run: async () => ({ ok: "direct" }),
+    }) as unknown as ActionEntry;
+    const approval = defineAction({
+      description: "Approval write.",
+      userTurn: "approval",
+      needsApproval: () => false,
+      run: async () => ({ ok: "approval" }),
+    }) as unknown as ActionEntry;
+
+    try {
+      defineAppConfig({ agent: { noApprovalsEmails: ["user@example.com"] } });
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          execute({ direct }, "direct"),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () => execute({ approval }, "approval"),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+
+      resetAppConfigForTests();
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          execute({ direct }, "direct"),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () => execute({ approval }, "approval"),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+    } finally {
+      resetAppConfigForTests();
+    }
   });
 
   it("runs a call already prepared as it was prepared, without preparing it again", async () => {
