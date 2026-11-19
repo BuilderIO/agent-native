@@ -396,6 +396,7 @@ const FILE_KEYS = [
   "file",
 ] as const;
 const COMMAND_KEYS = ["command", "cmd", "script"] as const;
+const ID_KEY = /(?:^id|Id|ID|[_-]id)$/;
 
 function urlDomain(value: string): string | undefined {
   try {
@@ -471,7 +472,12 @@ export function agentWorkCallObject(
   if (file) return { kind: "file", text: fileName(file), id: file };
   const command = firstString(input, COMMAND_KEYS);
   if (command) return { kind: "command", text: command };
-  return undefined;
+  if (readKind(call) !== "search") return undefined;
+  const terms = firstString(
+    input,
+    Object.keys(input ?? {}).filter((key) => !ID_KEY.test(key)),
+  );
+  return terms ? { kind: "query", text: terms } : undefined;
 }
 
 /**
@@ -895,7 +901,7 @@ function attemptTargets(
     ["uri", "", firstString(input, URL_KEYS)],
     ["id", tool, firstString(input, ["id", "documentId"])],
     ["path", "", firstString(input, FILE_KEYS)],
-    ["query", tool, firstString(input, QUERY_KEYS)],
+    ["query", tool, object?.kind === "query" ? object.text : undefined],
     ["input", tool, call.tool ? stableJson(input ?? {}) : undefined],
   ];
   return targets.flatMap(([type, scope, target]) =>

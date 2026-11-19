@@ -1003,6 +1003,33 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("names a search by its own input when it has no usual query key", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "mcp__jira__search_issues", { cloudId: "c1", jql: "p = OPS" }),
+      call(
+        "b",
+        "mcp__jira__search_issues",
+        { cloudId: "c1", jql: "p = WEB" },
+        failed,
+      ),
+      call(
+        "c",
+        "mcp__jira__search_issues",
+        { cloudId: "c1", jql: "p = API" },
+        failed,
+      ),
+      call("d", "mcp__jira__search_issues", { jql: "p = API", limit: 5 }),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", "p = OPS"],
+      ["search", "p = API"],
+    ]);
+    expect(failures.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", "p = WEB"],
+    ]);
+  });
+
   it("clears a failed page read when another tool reads that page", () => {
     const failed = { status: "failed" as const, output: "Timed out" };
     const { sources, failures } = agentWorkSources([
