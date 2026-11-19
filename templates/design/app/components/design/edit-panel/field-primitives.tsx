@@ -13,10 +13,7 @@ import { cn } from "@/lib/utils";
 
 import {
   BreakpointOverrideIndicator,
-  MotionKeyframeDiamond,
-  motionPropertyHasKeyframe,
   ScrubInput,
-  type MotionKeyframeCssProperty,
   type ScrubInputChangeMeta,
 } from "../inspector";
 import type { ElementInfo } from "../types";
@@ -31,7 +28,6 @@ import { isMixedValue } from "./selection-helpers";
 import {
   resolveBreakpointOverride,
   type BreakpointOverrideFieldContext,
-  type MotionKeyframeFieldContext,
   type StyleChangeMeta,
   type StyleChangeHandler,
   type StylesChangeHandler,
@@ -176,39 +172,24 @@ export function DesignSpacingControl({
 
 export function FieldTrailer({
   element,
-  motionCssProperty,
   overrideProperty,
-  motionKeyframeContext,
   breakpointOverrideContext,
-  hoverRevealClassName,
   className,
 }: {
   element: ElementInfo;
-  motionCssProperty?: MotionKeyframeCssProperty;
-  overrideProperty?: string;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
-  breakpointOverrideContext?: BreakpointOverrideFieldContext;
-  hoverRevealClassName?: string;
-  className?: string;
+  overrideProperty?: string | undefined;
+  breakpointOverrideContext?: BreakpointOverrideFieldContext | undefined;
+  className?: string | undefined;
 }) {
-  const showDiamond =
-    motionCssProperty != null && motionKeyframeContext?.hasTimeline === true;
-  const hasKeyframe = showDiamond
-    ? motionPropertyHasKeyframe(
-        motionKeyframeContext?.keyframedProperties,
-        motionCssProperty!,
-      )
-    : false;
-  const resolvedOverrideProperty = overrideProperty ?? motionCssProperty;
-  const overrideState = resolvedOverrideProperty
+  const overrideState = overrideProperty
     ? resolveBreakpointOverride(
         breakpointOverrideContext,
         element.classes.join(" "),
-        resolvedOverrideProperty,
+        overrideProperty,
       )
     : undefined;
 
-  if (!showDiamond && !overrideState?.overriddenAtActive) return null;
+  if (!overrideState?.overriddenAtActive) return null;
 
   return (
     <span
@@ -217,15 +198,7 @@ export function FieldTrailer({
         className,
       )}
     >
-      {showDiamond ? (
-        <MotionKeyframeDiamond
-          cssProperty={motionCssProperty!}
-          hasKeyframe={hasKeyframe}
-          onToggle={() => motionKeyframeContext?.onToggle?.(motionCssProperty!)}
-          className={hasKeyframe ? undefined : hoverRevealClassName}
-        />
-      ) : null}
-      {overrideState?.overriddenAtActive && resolvedOverrideProperty ? (
+      {overrideProperty ? (
         <BreakpointOverrideIndicator
           overridden
           maxWidthPx={overrideState.activeUpperBoundPx}
@@ -234,7 +207,7 @@ export function FieldTrailer({
             overrideState.activeUpperBoundPx != null
               ? () =>
                   breakpointOverrideContext.onReset(
-                    resolvedOverrideProperty,
+                    overrideProperty,
                     overrideState.activeUpperBoundPx!,
                   )
               : undefined

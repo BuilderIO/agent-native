@@ -741,6 +741,16 @@ const editor = {
     duplicate: "Duplicar",
     delete: "Eliminar",
     insertBelow: "Insertar bloque debajo",
+    insertAbove: "Insertar bloque encima",
+    askAgent: "Preguntar al agente",
+    columns: "Columnas",
+    syncedBlock: "Bloque sincronizado",
+    component: "Componente",
+    file: "Archivo",
+    pdf: "PDF",
+    bookmark: "Marcador",
+    embed: "Inserción",
+    tableOfContents: "Tabla de contenidos",
     search: "Buscar acciones...",
     noResults: "Sin resultados",
     block: "Bloque",
@@ -1082,6 +1092,10 @@ const editor = {
     fourColumns: "4 columnas",
     codeBlock: "Bloque de código",
     codeBlockDescription: "Fragmento de código",
+    toggleHeading1: "Encabezado desplegable 1",
+    toggleHeading2: "Encabezado desplegable 2",
+    toggleHeading3: "Encabezado desplegable 3",
+    toggleHeadingDescription: "Encabezado que se abre y se cierra",
     collapsibleBlockDescription: "bloque plegable",
     database: "Colección",
     databaseDescription: "Colección integrada en esta página",
@@ -1174,6 +1188,12 @@ const editor = {
     agentLevelNote: "Los agentes pueden comentar",
     agentLevelNoteHint:
       "Los agentes pueden comentar en esta página. Cámbialo en Compartir.",
+    agentLevelViewDescription:
+      "Pueden leer esta página, pero no comentar, sugerir ni editar.",
+    agentLevelViewConfirm: "Ahora los agentes solo pueden leer esta página.",
+    agentLevelViewNote: "Los agentes solo pueden ver",
+    agentLevelViewNoteHint:
+      "Los agentes solo pueden ver esta página. Cámbialo en Compartir.",
     sendPageToAgent: "Enviar esta página a un agente",
     connectAgentOverMcp: "Conectar un agente por MCP",
     importingFromNotion: "Importando desde Notion...",
@@ -1817,6 +1837,9 @@ const exactEnglish = {
       temporaryAgentLink: "Enlace temporal para agentes",
       privateLinkCanView: "Solo las personas con acceso pueden verlo",
       publicLinkCanView: "Cualquiera con el enlace puede verlo",
+      publicSubPagesOne: "Esta página y su subpágina",
+      publicSubPages: "Esta página y sus {{count}} subpáginas",
+      publicSubPagesMore: "Esta página y más de {{count}} subpáginas",
       copiedAgentPrompt: "Instrucciones para el agente copiadas",
       couldNotCopyAgentPrompt:
         "No se pudieron copiar las instrucciones para el agente",
@@ -2122,6 +2145,12 @@ const overrides = {
     apply: "Aplicar",
     plainText: "Texto sin formato",
     searchLanguages: "Buscar lenguajes...",
+    codeLanguageAuto: "Automático",
+    codeLanguage: "Lenguaje del código",
+    noLanguagesFound: "No se encontraron lenguajes",
+    copyCode: "Copiar código",
+    codeCopied: "Copiado",
+    wrapCodeLines: "Ajustar líneas",
     noBlocksFields:
       "No hay campos Blocks. Añade uno desde el menú de propiedades.",
     addBlockField: "Añadir campo",
@@ -2142,6 +2171,18 @@ const overrides = {
       "Se eliminarán «{{name}}» y su texto de todas las filas de esta colección. No se puede deshacer.",
     deleteBlockFieldBodyWarning:
       "«{{name}}» es el cuerpo de la página, así que también se eliminará el texto principal de cada fila.",
+    blockFieldFrozen: "Congelado mientras {{column}} sea {{value}}",
+    blockFieldFrozenDescription:
+      "Una regla de esta colección impide que nadie, persona o agente, cambie esta pestaña. Cambia {{column}} a un valor distinto de {{value}} para editarla.",
+    blockFieldFrozenByManagers:
+      "Congelado mientras {{column}} sea {{value}}. Solo quienes tienen acceso completo a la colección pueden cambiarlo.",
+    blockFieldFrozenSaveRefused:
+      "Esta pestaña está congelada, así que tu cambio no se guardó",
+    freezeBlockField: "Congelar mientras…",
+    freezeBlockFieldWhile: "Mientras {{column}} sea",
+    freezeBlockFieldNoColumns:
+      "Añade una columna de estado o de selección para congelar según ella",
+    unfreezeBlockField: "No congelar",
   },
   comments: {
     add: "Añadir comentario...",

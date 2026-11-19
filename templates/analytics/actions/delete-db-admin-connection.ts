@@ -7,6 +7,7 @@ import {
 } from "../server/lib/db-admin-connections";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Remove a connected agent-native app database from the Analytics DB admin surface and delete its encrypted connection secrets. Requires active organization owner/admin role.",
   schema: z.object({

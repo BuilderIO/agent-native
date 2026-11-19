@@ -1,4 +1,9 @@
-import { execFileSync, execSync, spawnSync } from "child_process";
+import {
+  execFileSync,
+  execSync,
+  spawnSync,
+  type ExecFileSyncOptions,
+} from "child_process";
 import fs from "fs";
 import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -9,12 +14,11 @@ import { fileURLToPath, pathToFileURL } from "url";
 
 import { fetch as fetchWithProxy } from "undici";
 
-import { resolveWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
+import { resolveScaffoldWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
-import { readAgentNativeJsonConfig } from "../vite/agent-native-config-loader.js";
 import {
   noteCreateCancelled,
   noteCreateProject,
@@ -30,6 +34,7 @@ import {
   type GitHttpOptions,
 } from "./git-http.js";
 import { envProxyDispatcher } from "./http-proxy.js";
+import { shimSpawnTarget } from "./process.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -690,7 +695,8 @@ async function createWorkspaceInteractive(
           ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
           : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const { appsDir, includes } = await scaffoldWorkspaceAppPaths(targetDir);
+      const { appsDir, includes } =
+        await resolveScaffoldWorkspaceAppPaths(targetDir);
       if (!includes(appName))
         throw new Error(
           `App name ${appName} does not match workspace appInclude`,
@@ -862,7 +868,7 @@ async function scaffoldWorkspaceRoot(
   rewriteCoreDependencyVersions(corePackageDir);
   setupAgentSymlinks(corePackageDir);
 
-  const { appsDir } = await scaffoldWorkspaceAppPaths(targetDir);
+  const { appsDir } = await resolveScaffoldWorkspaceAppPaths(targetDir);
   fs.mkdirSync(appsDir, { recursive: true });
 
   linkWorkspaceRootSkills(targetDir);
@@ -1028,7 +1034,7 @@ async function scaffoldOneAppIntoWorkspace(
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
-  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(
+  const { appsDir, includes } = await resolveScaffoldWorkspaceAppPaths(
     workspace.workspaceRoot,
   );
   if (!includes(appName))
@@ -1800,6 +1806,11 @@ function findLocalPackage(name: string): string | undefined {
   return undefined;
 }
 
+function runNpm(args: string[], options: ExecFileSyncOptions): void {
+  const [command, commandArgs, shell] = shimSpawnTarget("npm", args);
+  execFileSync(command, commandArgs, { ...options, shell });
+}
+
 function localPackageTarball(packageDir: string): string {
   const cached = localPackageTarballs.get(packageDir);
   if (cached) return cached;
@@ -1810,20 +1821,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
   const npmCacheDir = path.join(packDir, "npm-cache");
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", packDir],
-    {
-      cwd: packageDir,
-      env: {
-        ...process.env,
-        npm_config_cache: npmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", packDir], {
+    cwd: packageDir,
+    env: {
+      ...process.env,
+      npm_config_cache: npmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
 
   const tarballs = fs
     .readdirSync(packDir)
@@ -1849,19 +1855,15 @@ function localPackageTarball(packageDir: string): string {
     path.join(os.tmpdir(), "agent-native-local-package-repack-"),
   );
   const repackNpmCacheDir = path.join(repackDir, "npm-cache");
-  execFileSync(
-    npm,
-    ["pack", "--ignore-scripts", "--pack-destination", repackDir],
-    {
-      cwd: path.join(unpackDir, "package"),
-      env: {
-        ...process.env,
-        npm_config_cache: repackNpmCacheDir,
-        npm_config_ignore_scripts: "true",
-      },
-      stdio: "ignore",
+  runNpm(["pack", "--ignore-scripts", "--pack-destination", repackDir], {
+    cwd: path.join(unpackDir, "package"),
+    env: {
+      ...process.env,
+      npm_config_cache: repackNpmCacheDir,
+      npm_config_ignore_scripts: "true",
     },
-  );
+    stdio: "ignore",
+  });
   const repackedTarballs = fs
     .readdirSync(repackDir)
     .filter((entry) => entry.endsWith(".tgz"));
@@ -1928,12 +1930,11 @@ function ensureLocalPackageBuildOutputs(packageDir: string): void {
     );
   }
 
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const npmCacheDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-build-cache-"),
   );
   try {
-    execFileSync(npm, ["run", "build"], {
+    runNpm(["run", "build"], {
       cwd: packageDir,
       encoding: "utf-8",
       env: { ...process.env, npm_config_cache: npmCacheDir },
@@ -2524,19 +2525,9 @@ function parseTemplateList(input?: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * The CLI runs before a workspace has installed `@agent-native/core`, so it
- * cannot import the TS config; the apps layout is read from agent-native.json.
- */
-function scaffoldWorkspaceAppPaths(workspaceRoot: string) {
-  return resolveWorkspaceAppPaths(
-    workspaceRoot,
-    readAgentNativeJsonConfig(workspaceRoot),
-  );
-}
-
 async function listInstalledApps(workspaceRoot: string): Promise<string[]> {
-  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })
@@ -3294,7 +3285,8 @@ interface DiscoveredCommunityWorkspaceApp extends CommunityWorkspaceAppOption {
 async function discoverCommunityWorkspaceApps(
   workspaceRoot: string,
 ): Promise<DiscoveredCommunityWorkspaceApp[]> {
-  const { appsDir, includes } = await scaffoldWorkspaceAppPaths(workspaceRoot);
+  const { appsDir, includes } =
+    await resolveScaffoldWorkspaceAppPaths(workspaceRoot);
   if (!fs.existsSync(appsDir)) return [];
   return fs
     .readdirSync(appsDir, { withFileTypes: true })

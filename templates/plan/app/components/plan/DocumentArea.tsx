@@ -997,7 +997,7 @@ function ImageBlock({
 }) {
   const t = useT();
   const { canUploadImages, requestUpload, uploadImage, storagePrompt } =
-    usePlanImageUpload();
+    usePlanImageUpload(planId);
   const blockRegistry = useOptionalBlockRegistry();
   const ctx = blockRegistry?.ctx;
   const src = block.data.url ?? imageSrcForAsset(block.data.assetId);

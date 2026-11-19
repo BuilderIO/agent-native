@@ -10,6 +10,9 @@ const resolveA2AOrganizationCredentialsByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByDomainMock = vi.hoisted(() => vi.fn());
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
 const isOrgMemberForA2AMock = vi.hoisted(() => vi.fn());
+const resolveSoleOrgMembershipForEmailMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | undefined> => undefined),
+);
 const setResponseStatusMock = vi.hoisted(() =>
   vi.fn((event: any, code: number) => {
     event._status = code;
@@ -75,6 +78,7 @@ vi.mock("../org/context.js", () => ({
   resolveA2AOrganizationMetadataByDomain:
     resolveA2AOrganizationMetadataByDomainMock,
   resolveA2AOrganizationMetadataById: resolveA2AOrganizationMetadataByIdMock,
+  resolveSoleOrgMembershipForEmail: resolveSoleOrgMembershipForEmailMock,
 }));
 
 vi.mock("../org/membership.js", () => ({
@@ -140,6 +144,8 @@ describe("mountA2A auth", () => {
     resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockReset();
     isOrgMemberForA2AMock.mockResolvedValue(true);
+    resolveSoleOrgMembershipForEmailMock.mockReset();
+    resolveSoleOrgMembershipForEmailMock.mockResolvedValue(undefined);
     setResponseStatusMock.mockClear();
     setResponseHeaderMock.mockClear();
     evaluateServicePrincipalMock.mockReset();
@@ -820,6 +826,10 @@ describe("mountA2A auth", () => {
       "owner@example.com",
       "org-1",
     );
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.any(Function),
+    );
     expect(executeApproval).toHaveBeenCalledWith(
       approval,
       expect.objectContaining({
@@ -848,6 +858,55 @@ describe("mountA2A auth", () => {
       error: expect.stringContaining("cannot be run again"),
     });
     expect(replay).toMatchObject({ _status: 409 });
+    expect(executeApproval).toHaveBeenCalledOnce();
+  });
+
+  it("runs a personal task's approval in personal scope, not the browser's workspace", async () => {
+    const approval = {
+      id: "approval-1",
+      taskId: "task-1",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      tool: "delete-deck",
+      input: { deckId: "deck-1" },
+      approvalKey: "server-private-key",
+      callId: "call-1",
+      status: "processing" as const,
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    };
+    getBrowserCookieSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-team",
+    });
+    getApprovalMock.mockResolvedValue(approval);
+    claimApprovalMock.mockResolvedValueOnce(approval);
+    const executeApproval = vi.fn(async () => ({
+      status: "completed" as const,
+      output: "Deck deleted",
+    }));
+    const handler = await mountedA2AApprovalHandler({
+      ...config,
+      executeApproval,
+    });
+
+    await expect(
+      handler({
+        method: "POST",
+        path: "/approval-1",
+        context: {},
+        headers: {
+          host: "slides.example",
+          origin: "https://slides.example",
+          "sec-fetch-site": "same-origin",
+          cookie: "an_session=test-browser-session",
+        },
+      }),
+    ).resolves.toEqual({ status: "completed", output: "Deck deleted" });
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgScope: "personal" },
+      expect.any(Function),
+    );
     expect(executeApproval).toHaveBeenCalledOnce();
   });
 
@@ -1446,6 +1505,105 @@ describe("mountA2A auth", () => {
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+    expect(resolveSoleOrgMembershipForEmailMock).not.toHaveBeenCalled();
+  });
+
+  describe("a user assertion with no workspace claim", () => {
+    async function claimlessUserEvent() {
+      process.env.A2A_SECRET = "shared-global-secret";
+      process.env.APP_URL = "https://slides.agent-native.test";
+      const token = await new jose.SignJWT({
+        sub: "owner@example.com",
+        aud: "https://slides.agent-native.test",
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer("https://content.agent-native.test")
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      return postEvent({ authorization: `Bearer ${token}` });
+    }
+
+    it("runs in the person's only workspace here", async () => {
+      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      const handler = await mountedA2AHandler(config);
+      const event = await claimlessUserEvent();
+
+      const response = await handler(event);
+
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event.context.__a2aVerifiedEmail).toBe("owner@example.com");
+      expect(event.context.__a2aIdentityAssurance).toBe("user");
+      expect(event.context.__a2aVerifiedOrgId).toBe("org-slides");
+      expect(event.context.__a2aOrgFromSoleMembership).toBe(true);
+      expect(event.context.__a2aOrgDomain).toBeUndefined();
+      expect(resolveSoleOrgMembershipForEmailMock).toHaveBeenCalledWith(
+        "owner@example.com",
+      );
+      expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
+        "org-slides",
+        "owner@example.com",
+        event,
+      );
+    });
+
+    it("stays in personal scope without exactly one workspace", async () => {
+      const handler = await mountedA2AHandler(config);
+      const event = await claimlessUserEvent();
+
+      const response = await handler(event);
+
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+      expect(event.context.__a2aVerifiedEmail).toBe("owner@example.com");
+      expect(event.context.__a2aVerifiedOrgId).toBeUndefined();
+      expect(event.context.__a2aOrgFromSoleMembership).toBeUndefined();
+      expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+    });
+
+    it("stays in personal scope when the live roster no longer lists the person", async () => {
+      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+      const handler = await mountedA2AHandler(config);
+      const event = await claimlessUserEvent();
+
+      await handler(event);
+
+      expect(event.context.__a2aVerifiedEmail).toBe("owner@example.com");
+      expect(event.context.__a2aVerifiedOrgId).toBeUndefined();
+    });
+
+    it("refuses rather than guessing personal scope when the roster can't be read", async () => {
+      resolveSoleOrgMembershipForEmailMock.mockRejectedValueOnce(
+        new Error("connection reset"),
+      );
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const handler = await mountedA2AHandler(config);
+      const event = await claimlessUserEvent();
+
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+      expect(response).toMatchObject({ error: { code: -32003 } });
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it("refuses rather than guessing personal scope when the live roster check fails", async () => {
+      resolveSoleOrgMembershipForEmailMock.mockResolvedValueOnce("org-slides");
+      isOrgMemberForA2AMock.mockRejectedValueOnce(
+        new Error("federation authority unavailable"),
+      );
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const handler = await mountedA2AHandler(config);
+      const event = await claimlessUserEvent();
+
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+      expect(response).toMatchObject({ error: { code: -32003 } });
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
   });
 
   describe("service principal governance", () => {

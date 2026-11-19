@@ -103,6 +103,7 @@ export function createCustomProviderRegistrationAction<
 >(options: CreateCustomProviderRegistrationActionOptions<TSchema> = {}) {
   const schema = options.schema ?? CustomProviderRegistrationSchema;
   return defineAction({
+    requiresSignedInBrowser: true,
     description:
       options.description ??
       "Register, inspect, or delete a custom API provider for provider-api-request. This stores credential key names only, never secret values. Save required credentials through the app's secrets surface before registration.",

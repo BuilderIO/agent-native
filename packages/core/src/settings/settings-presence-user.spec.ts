@@ -14,6 +14,7 @@ vi.mock("./store.js", () => ({
   getSettings: (...args: any[]) => mockGetSettings(...args),
   mutateSetting: (...args: any[]) => mockMutateSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
+  assertScopedSettingsOptions: vi.fn(),
   publishSettingChange: vi.fn(),
   invalidateSettingRequestCache: vi.fn(),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
@@ -141,6 +142,7 @@ describe("settings presence: guarded legacy migration", () => {
     expect(validator).toHaveBeenCalledWith(legacyValue);
     expect(updater).toHaveBeenCalledWith(legacyValue);
     expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(LEGACY, legacyValue, {
+      owner: "alice@test.com",
       validateStoredValue: validator,
     });
   });
@@ -189,6 +191,7 @@ describe("settings presence: guarded legacy migration", () => {
     expect(validator).toHaveBeenCalledWith(captured);
     expect(mockDeleteSettingIfValue).toHaveBeenCalledTimes(1);
     expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(LEGACY, captured, {
+      owner: "alice@test.com",
       validateStoredValue: validator,
     });
     expect(updater).toHaveBeenCalledWith(captured);
@@ -272,6 +275,7 @@ describe("settings presence: guarded legacy migration", () => {
     );
 
     const result = await mutateUserSetting("Alice@Test.com", "pref", updater, {
+      owner: "alice@test.com",
       validateStoredValue: validator,
     });
 

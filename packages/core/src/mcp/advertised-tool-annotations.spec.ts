@@ -13,6 +13,7 @@ import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   LOAD_TIMEOUT_MS,
   SURFACES,
+  baselineSection,
   loadAppCatalogs,
   withCatalogClient,
   type AppCatalog,
@@ -395,15 +396,6 @@ function declaresDestructiveHint(app: AppCatalog, name: string): boolean {
     );
 }
 
-// Legacy entries are keyed by whose action the tool is: the template's own
-// actions and the files its dev server discovers under the app, everything the
-// framework composes under "core".
-function sectionFor(app: AppCatalog, name: string): string {
-  return app.templateActionNames.has(name) || app.devDiscoveredTools.has(name)
-    ? app.appId
-    : "core";
-}
-
 function undeclaredMutatingTools(app: AppCatalog): string[] {
   return mutatingToolNames(app).filter(
     (name) => !declaresDestructiveHint(app, name),
@@ -656,7 +648,9 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
 
     expect(entry.mcpAnnotationDefaults?.destructiveHint).toBe(true);
     expect(undeclaredMutatingTools(app)).toEqual(["discovered-write"]);
-    expect(sectionFor(app, "discovered-write")).toBe("annotation-regression");
+    expect(baselineSection(app, "discovered-write")).toBe(
+      "annotation-regression",
+    );
   });
 
   it("has a legacy section for every app, plus core, and nothing else", () => {
@@ -669,7 +663,8 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     const undeclared = apps.flatMap((app) =>
       undeclaredMutatingTools(app)
         .filter(
-          (name) => !LEGACY_UNREVIEWED[sectionFor(app, name)]?.includes(name),
+          (name) =>
+            !LEGACY_UNREVIEWED[baselineSection(app, name)]?.includes(name),
         )
         .map((name) => `${app.appId}/${name}`),
     );
@@ -687,7 +682,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     const undeclared = new Set<string>();
     for (const app of apps) {
       for (const name of undeclaredMutatingTools(app)) {
-        undeclared.add(`${sectionFor(app, name)}/${name}`);
+        undeclared.add(`${baselineSection(app, name)}/${name}`);
       }
     }
     const stale = Object.entries(LEGACY_UNREVIEWED).flatMap(

@@ -610,6 +610,21 @@ CREATE INDEX IF NOT EXISTS design_motion_bridge_receipt_challenges_chain_idx
     name: "design-file-content-operation-receipts",
     sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revisions TEXT NOT NULL DEFAULT '{}'`,
   },
+  {
+    version: 49,
+    name: "design-visual-edit-pending-author",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS author_email TEXT`,
+  },
+  {
+    version: 50,
+    name: "design-visual-edit-pending-handoff-records",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS handoff_records TEXT NOT NULL DEFAULT '[]'`,
+  },
+  {
+    version: 51,
+    name: "design-visual-edit-pending-publisher-session",
+    sql: `ALTER TABLE design_visual_edit_pending ADD COLUMN IF NOT EXISTS publisher_session_hash TEXT`,
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =

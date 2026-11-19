@@ -303,6 +303,24 @@ describe("UsagePage", () => {
     expect(container.textContent).toContain("50");
   });
 
+  it("shows no workspace credit balance where commercial surfaces are hidden", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    state.metrics = metrics({
+      access: { viewerEmail: "admin@example.com", canViewWorkspace: true },
+    });
+    state.creditUsage = {
+      plan: "paid",
+      balance: 50,
+      quota: { period: "monthly", limit: 100, used: 50, remaining: 50 },
+    };
+    render(admin);
+
+    expect(container.textContent).not.toContain("Workspace balance");
+    expect(container.textContent).not.toMatch(/credits?\b/i);
+  });
+
   it("hides the Builder balance panel when the workspace is not connected", () => {
     state.metrics = metrics({
       access: { viewerEmail: "admin@example.com", canViewWorkspace: true },
