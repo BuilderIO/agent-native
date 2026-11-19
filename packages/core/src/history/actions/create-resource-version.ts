@@ -26,6 +26,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     const access = await assertVersionedResourceAccess(

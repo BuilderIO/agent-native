@@ -3637,12 +3637,14 @@ export async function createMCPServerForRequest(
             }),
           )
         : honorsAskAppOnly(advertisedActionsBeforeConnector);
+  const appListedNames = new Set(config.connectorCatalog ?? []);
   const searchServedActions = flatCatalog
     ? {}
     : Object.fromEntries(
         Object.entries(visibleActions).filter(
-          ([, entry]) =>
+          ([name, entry]) =>
             entry.mcpTool === "search" &&
+            !appListedNames.has(name) &&
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );

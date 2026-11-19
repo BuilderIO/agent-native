@@ -126,6 +126,7 @@ export default defineAction({
   description: "See what the user is currently looking at on screen.",
   schema: z.object({}),
   http: false,
+  mcpTool: "search",
   run: async (_args, ctx) => {
     const navigation = await readAppStateForCurrentTab("navigation", {
       fallbackToGlobal: false,

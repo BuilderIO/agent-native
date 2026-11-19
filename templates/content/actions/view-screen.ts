@@ -868,6 +868,7 @@ export default defineAction({
   deferLoading: false,
   schema: z.object({}),
   http: false,
+  mcpTool: "search",
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
     const suggestionMode = await readAppStateForCurrentTab(

@@ -64,6 +64,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     if (args.sort === "priority") {
       const ownerEmail = getRequestUserEmail();

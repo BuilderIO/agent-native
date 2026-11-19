@@ -56,6 +56,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     await writeAppStateForCurrentTab("navigate", { ...args, ts: Date.now() });
     return { navigate: args };

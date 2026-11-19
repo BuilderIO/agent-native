@@ -91,6 +91,7 @@ export default defineAction({
       message: "A nonempty view or path is required",
     }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const path = args.path?.trim() ? args.path : undefined;
     const nav: Record<string, string | number> = {};

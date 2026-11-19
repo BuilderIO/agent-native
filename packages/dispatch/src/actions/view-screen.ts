@@ -134,6 +134,7 @@ export default defineAction({
     "See what the user is currently looking at in the dispatch UI, including navigation state, any embedded workspace app, and a compact operational summary.",
   schema: z.object({}),
   http: false,
+  mcpTool: "search",
   run: async () => {
     const [navigation, overview, vaultOverview] = await Promise.all([
       readAppState("navigation"),

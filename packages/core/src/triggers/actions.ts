@@ -592,6 +592,7 @@ export function createAutomationToolEntries(
         args.action !== "list" &&
         args.action !== "list-events" &&
         args.action !== "list-hosts",
+      mcpTool: "search",
       chatUI: {
         renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
         when: (args, result) => {

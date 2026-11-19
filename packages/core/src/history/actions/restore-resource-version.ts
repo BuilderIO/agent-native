@@ -36,6 +36,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     const scope = {

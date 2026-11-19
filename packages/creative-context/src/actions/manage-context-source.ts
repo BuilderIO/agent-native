@@ -110,6 +110,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  mcpTool: "search",
   run: async (args) => {
     if (args.operation === "create") {
       const source = await createContextSource(args);

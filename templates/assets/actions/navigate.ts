@@ -42,6 +42,7 @@ export default defineAction({
     path: z.string().optional(),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     if (!args.view && !args.path) {
       throw new Error("view or path is required.");

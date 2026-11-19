@@ -11,6 +11,7 @@ export default defineAction({
     threadId: z.string().optional().describe("Chat thread ID to open"),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     if (!args.view && !args.path) {
       throw new Error("At least --view or --path is required.");

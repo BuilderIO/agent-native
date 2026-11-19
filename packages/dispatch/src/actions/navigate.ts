@@ -19,6 +19,7 @@ export default defineAction({
       .describe("Chat thread ID to open on the chat route"),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const threadId = args.threadId?.trim();
     if (!args.view && !args.path && !threadId) {

@@ -18,6 +18,7 @@ export default defineAction({
   http: false,
   // Setting the current view twice is the same view.
   retrySafe: true,
+  mcpTool: "search",
   run: async (args) => {
     if (!args.view && !args.path) {
       throw new Error("At least --view or --path is required.");

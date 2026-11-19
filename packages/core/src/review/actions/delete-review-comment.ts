@@ -85,6 +85,7 @@ export default defineAction({
     const viewer = normalizeEmail(actionCtx?.userEmail);
     return authors.some((email) => normalizeEmail(email) !== viewer);
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;
     const onlyOwnComments =

@@ -63,6 +63,7 @@ export default defineAction({
   schema,
   agentInputSchema,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args) => {
     if (args.operation === "create") {
       return { pack: await createContextPack(args), deleted: false };

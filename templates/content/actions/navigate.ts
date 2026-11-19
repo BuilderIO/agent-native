@@ -55,6 +55,7 @@ export default defineAction({
       .describe("Content collection ID to open by its backing page"),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const path = await resolveNavigatePath(args);
 

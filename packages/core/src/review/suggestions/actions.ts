@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction, fail } from "../../action.js";
+import { defineAction, fail, isOutsideAgentCall } from "../../action.js";
 import { getDbExec, type DbExec } from "../../db/client.js";
 import { notifyReviewComment } from "../notifications.js";
 import {
@@ -263,6 +263,7 @@ export const createResourceSuggestion = defineAction({
     resourceType,
     resourceId,
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
       args.resourceType,
@@ -431,6 +432,7 @@ export const updateResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const initial = await getSuggestion(args.id);
     if (!initial)
@@ -558,6 +560,7 @@ export const listResourceSuggestions = defineAction({
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -587,6 +590,7 @@ export const getResourceSuggestion = defineAction({
     );
     return url ? { url, label: "Open suggestion" } : null;
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -633,6 +637,8 @@ export const decideResourceSuggestion = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const suggestion = await getSuggestion(args.id);
     if (!suggestion) throw new Error("Suggestion not found");
@@ -834,6 +840,7 @@ export const getResourceSuggestionProposalByCreationKey = defineAction({
     "Find an earlier proposal creation by its idempotency key before recomputing an edit.",
   schema: z.object({ idempotencyKey: z.string().min(1).max(200) }),
   readOnly: true,
+  mcpTool: "search",
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();
@@ -887,6 +894,7 @@ export const createResourceSuggestionProposal = defineAction({
     resourceType,
     resourceId,
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -1161,6 +1169,8 @@ export const decideResourceSuggestionProposal = defineAction({
     openWorldHint: false,
     idempotentHint: true,
   },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args, ctx) => {
     await ensureSuggestionTables();
     const db = getDbExec();

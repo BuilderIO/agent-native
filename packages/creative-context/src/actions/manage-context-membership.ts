@@ -73,6 +73,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  mcpTool: "search",
   run: (args) =>
     args.operation === "submit-latest"
       ? submitLatestContextMembershipUpdate(args)

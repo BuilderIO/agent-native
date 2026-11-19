@@ -2,6 +2,8 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isOutsideAgentCall } from "../action-caller.js";
+import type { ActionRunContext } from "../action.js";
 import {
   createMCPServerForRequest,
   type MCPCallerIdentity,
@@ -329,6 +331,31 @@ describe('tools/list with mcpTool: "search" actions', () => {
     expect(tools.has("call-tool")).toBe(false);
   });
 
+  it("lists a tool the app's connectorCatalog names, and leaves the others unlisted", async () => {
+    const client = await clientFor(
+      config({ connectorCatalog: ["get-plan", "archive-plan"] }),
+    );
+    const tools = await listed(client);
+    expect(tools.has("archive-plan")).toBe(true);
+    expect(tools.has("plan-history")).toBe(false);
+    expect(tools.has("call-tool")).toBe(true);
+
+    const found = await searched(client, ["archive-plan", "plan-history"]);
+    expect(found.get("archive-plan")?.callWith).toBeUndefined();
+    expect(found.get("plan-history")?.callWith).toBe("call-tool");
+
+    const out = await viaCallTool(client, { name: "archive-plan" });
+    expect(out.isError).toBe(true);
+    const direct = asToolResult(
+      await client.callTool({
+        name: "archive-plan",
+        arguments: { id: "plan-9" },
+      }),
+    );
+    expect(direct.isError).toBeFalsy();
+    expect(runs).toEqual([{ name: "archive-plan", args: { id: "plan-9" } }]);
+  });
+
   it("lists the unlisted tools on the full catalog, which has no call-tool", async () => {
     const client = await clientFor(config(), true);
     const tools = await listed(client);
@@ -522,6 +549,24 @@ describe("tools/call through call-tool", () => {
     });
     expect(out.isError).toBeFalsy();
     expect(runs.map((run) => run.name)).toEqual(["plan-history"]);
+  });
+
+  it("holds an unlisted tool that asks outside agents for approval", async () => {
+    const all = {
+      ...actions(),
+      "decide-plan": action("decide-plan", {
+        mcpTool: "search",
+        needsApproval: (_args: unknown, ctx?: ActionRunContext) =>
+          isOutsideAgentCall(ctx),
+      }),
+    };
+    const out = await viaCallTool(
+      await clientFor(config({ actions: all, productionActions: all })),
+      { name: "decide-plan", arguments: { id: "plan-3" } },
+    );
+    expect(out.isError).toBe(true);
+    expect(textOf(out)).toContain("decide-plan requires approval");
+    expect(runs).toEqual([]);
   });
 
   it("also runs an unlisted tool called by name", async () => {

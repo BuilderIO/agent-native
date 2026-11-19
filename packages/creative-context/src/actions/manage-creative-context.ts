@@ -57,6 +57,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  mcpTool: "search",
   run: async (args) => {
     if (args.operation === "create")
       return { context: await createCreativeContext(args) };

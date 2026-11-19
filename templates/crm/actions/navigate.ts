@@ -51,6 +51,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const path = crmNavigationPath(args);
     await writeAppStateForCurrentTab("navigate", { ...args, path });
