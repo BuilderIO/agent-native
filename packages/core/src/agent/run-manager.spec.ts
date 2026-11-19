@@ -19,6 +19,10 @@ import {
   withExecutionFence,
 } from "./execution-fence.js";
 import {
+  currentLeaseRenewalDiagnostics,
+  type LeaseRenewalDiagnostics,
+} from "./lease-renewal-diagnostics.js";
+import {
   AgentRunEventNotPersistedError,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
 } from "./run-store.js";
@@ -674,6 +678,116 @@ describe("run manager soft timeout", () => {
 
     abortRun(run.runId, "user");
     await run.finalized;
+  });
+
+  it("records overdue and settled renewals without holding the heartbeat retry slot", async () => {
+    const renewal = Promise.withResolvers<void>();
+    const bodyDone = Promise.withResolvers<void>();
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockReturnValueOnce(renewal.promise);
+    const run = startRun(
+      "run-lease-diagnostics",
+      "thread-lease-diagnostics",
+      async () => {
+        diagnostics = currentLeaseRenewalDiagnostics("run-lease-diagnostics");
+        await bodyDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(7_500);
+    const pending = diagnostics?.snapshot();
+    expect(pending?.attempts).toHaveLength(2);
+    expect(pending?.attempts[0]).toMatchObject({
+      outcome: "pending",
+      deadlineReachedAtMs: expect.any(Number),
+    });
+    expect(pending?.attempts[1]).toMatchObject({
+      pendingAtStart: 1,
+      outcome: "renewed",
+    });
+    renewal.reject(
+      Object.assign(new Error("Synthetic renewal failure"), { code: "57014" }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(diagnostics?.snapshot().attempts[0]).toMatchObject({
+      outcome: "error",
+      failureCode: "57014",
+      settledAtMs: expect.any(Number),
+    });
+    bodyDone.resolve();
+    await run.finalized;
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it("records a lost fence while preserving the existing abort behavior", async () => {
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
+      new StaleExecutionFenceError({
+        threadId: "thread-lease-diagnostic-loss",
+        turnId: "run-lease-diagnostic-loss",
+        runId: "run-lease-diagnostic-loss",
+        generation: "1",
+      }),
+    );
+    const run = startRun(
+      "run-lease-diagnostic-loss",
+      "thread-lease-diagnostic-loss",
+      async (_send, signal) => {
+        diagnostics = currentLeaseRenewalDiagnostics(
+          "run-lease-diagnostic-loss",
+        );
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await run.finalized;
+    expect(diagnostics?.snapshot().attempts).toEqual([
+      expect.objectContaining({
+        outcome: "fence_lost",
+        settledAtMs: expect.any(Number),
+      }),
+    ]);
+    expect(run.abortReason).toBe("execution_lease_lost");
+  });
+
+  it("does not expose parent renewal diagnostics to an unleased nested run", async () => {
+    let parentDiagnostics: LeaseRenewalDiagnostics | undefined;
+    let childDiagnostics: LeaseRenewalDiagnostics | undefined;
+    const parentDone = Promise.withResolvers<void>();
+    const childDone = Promise.withResolvers<void>();
+    const parent = startRun(
+      "run-lease-parent",
+      "thread-lease-parent",
+      async () => {
+        parentDiagnostics = currentLeaseRenewalDiagnostics("run-lease-parent");
+        const child = startRun(
+          "run-unleased-child",
+          "thread-unleased-child",
+          async () => {
+            childDiagnostics =
+              currentLeaseRenewalDiagnostics("run-unleased-child");
+          },
+          undefined,
+          { softTimeoutMs: 0, noProgressTimeoutMs: 0 },
+        );
+        await child.finalized;
+        childDone.resolve();
+        await parentDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await childDone.promise;
+    expect(childDiagnostics).toBeUndefined();
+    expect(parentDiagnostics?.snapshot().attempts).toHaveLength(1);
+    parentDone.resolve();
+    await parent.finalized;
   });
 
   it("does not start a run when an execution lease returns no fence", async () => {
