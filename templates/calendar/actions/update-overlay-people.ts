@@ -12,6 +12,12 @@ const overlayPersonSchema = z.object({
 });
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description: "Update overlay people for calendar view",
   schema: z.object({
     people: z

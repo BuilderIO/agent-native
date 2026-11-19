@@ -6,6 +6,12 @@ import { z } from "zod";
 import type { ExternalCalendar } from "../shared/api.js";
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description: "Replace the full list of external calendar subscriptions",
   schema: z.object({
     calendars: z
