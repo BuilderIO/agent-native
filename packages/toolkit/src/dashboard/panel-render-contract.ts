@@ -7,7 +7,7 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel.js";
-import { isValidPanelColumns } from "./panel-columns.js";
+import { isValidPanelColumns, readPanelColumns } from "./panel-columns.js";
 import {
   isValidPanelDrilldown,
   panelDrilldownSqlProblem,
@@ -661,7 +661,7 @@ function collectMissingKeys(
     for (const key of keyList(config?.yKeys)) check(key, raw);
     for (const key of keyList(config?.rightYKeys)) check(key, raw);
   }
-  for (const col of Array.isArray(config?.columns) ? config.columns : []) {
+  for (const col of readPanelColumns(config?.columns) ?? []) {
     check(col?.key, bound);
     check(col?.linkKey, bound);
   }

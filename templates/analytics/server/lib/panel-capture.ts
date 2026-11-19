@@ -27,6 +27,7 @@ import {
   axisDirection,
   isDateAxis,
 } from "@agent-native/toolkit/dashboard/chart-axis-labels";
+import { readPanelColumns } from "@agent-native/toolkit/dashboard/panel-columns";
 import { resolvePanelEvents } from "@agent-native/toolkit/dashboard/panel-events";
 import {
   LEGACY_CHART_TYPE_ALIASES,
@@ -563,9 +564,9 @@ function captureSetting(
   if (key === "description" && typeof value === "string") {
     return value.slice(0, CAPTURE_DESCRIPTION_CHARS);
   }
-  if (key === "columns" && Array.isArray(config?.columns)) {
-    return config.columns
-      .filter((column) => !column.hidden)
+  if (key === "columns") {
+    return readPanelColumns(config?.columns)
+      ?.filter((column) => !column.hidden)
       .slice(0, ANALYTICS_CAPTURE_MAX_COLUMNS);
   }
   if (!Array.isArray(value)) return value;

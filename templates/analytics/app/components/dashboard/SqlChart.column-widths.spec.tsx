@@ -233,7 +233,8 @@ describe("SqlChart table column widths", () => {
       );
     });
 
-    const separator = separators()[0];
+    const separator =
+      container.querySelector<HTMLElement>('[role="separator"]');
     if (!separator) throw new Error("Expected a resize handle");
     await drag(separator, 200);
     expect(onSaveColumns).toHaveBeenCalledWith([

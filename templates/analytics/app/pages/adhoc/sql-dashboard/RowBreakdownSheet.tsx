@@ -4,7 +4,6 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { readPanelColumns } from "@shared/panel-columns";
 import {
   BREAKDOWN_OVER_BYTE_CAP_ERROR,
   BREAKDOWN_SMALL_GROUP,
@@ -19,6 +18,7 @@ import type {
   SqlPanel,
   TableColumnConfig,
 } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { readPanelColumns } from "@shared/panel-columns";
 import { SqlQueryRefusalError } from "@shared/sql-query-contract";
 import {
   useEffect,
