@@ -28,6 +28,11 @@ export type ChatFirstOpenAppDetail = {
   path?: string;
   url?: string;
   view?: string;
+  /**
+   * Opened from the user's message before the agent chose an app. The host
+   * reuses or replaces this pane when the agent's own open arrives.
+   */
+  provisional?: boolean;
 };
 
 export type ChatFirstOpenBrowserDetail = {

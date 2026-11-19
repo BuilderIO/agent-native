@@ -190,6 +190,8 @@ const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
 export const AGENT_CHAT_SUBMIT_RESULT_EVENT = "agentNative.chatSubmitResult";
 export const AGENT_CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
+export const AGENT_CHAT_COMPOSER_SUBMIT_EVENT =
+  "agentNative.chatComposerSubmit";
 
 export interface AgentChatSubmitResult {
   submitMessageId: string;
@@ -261,6 +263,74 @@ export function reportAgentChatSubmitResult(
       detail: { submitMessageId, delivered, reason },
     }),
   );
+}
+
+export interface AgentChatComposerSubmit {
+  text: string;
+  tabId?: string | undefined;
+  threadId?: string | null | undefined;
+  /** The last few exchanges before this send, so a host can read follow-ups. */
+  previousTurn?: string | undefined;
+}
+
+/**
+ * Announces a foreground composer send before the agent client accepts it, so
+ * a host can start work that runs alongside the turn.
+ */
+export function reportAgentChatComposerSubmit(
+  detail: AgentChatComposerSubmit,
+): void {
+  if (typeof window === "undefined" || !detail.text.trim()) return;
+  window.dispatchEvent(
+    new CustomEvent<AgentChatComposerSubmit>(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, {
+      detail,
+    }),
+  );
+}
+
+export function subscribeAgentChatComposerSubmit(
+  listener: (detail: AgentChatComposerSubmit) => void,
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const handleEvent = (event: Event) => {
+    const detail = (event as CustomEvent<AgentChatComposerSubmit>).detail;
+    if (detail && typeof detail.text === "string") listener(detail);
+  };
+  window.addEventListener(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, handleEvent);
+  return () =>
+    window.removeEventListener(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, handleEvent);
+}
+
+const PREVIOUS_TURN_EXCHANGES = 3;
+const PREVIOUS_TURN_MESSAGE_CHARS = 230;
+const PREVIOUS_TURN_CHARS = 1500;
+
+/**
+ * The last three exchanges as "User:"/"Assistant:" lines, clipped, or
+ * undefined before the first reply.
+ */
+export function agentChatPreviousTurnText(
+  messages: ReadonlyArray<{ readonly role: string; readonly text: string }>,
+): string | undefined {
+  const lines: string[] = [];
+  let exchanges = 0;
+  let sawReply = false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    const text = message.text.trim();
+    if (!text) continue;
+    if (message.role === "assistant") {
+      if (exchanges >= PREVIOUS_TURN_EXCHANGES) break;
+      sawReply = true;
+      exchanges += 1;
+      lines.unshift(`Assistant: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`);
+    } else if (message.role === "user" && sawReply) {
+      lines.unshift(`User: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`);
+    }
+  }
+  return lines.length
+    ? lines.join("\n").slice(0, PREVIOUS_TURN_CHARS)
+    : undefined;
 }
 
 let agentChatContextState: AgentChatContextState = {

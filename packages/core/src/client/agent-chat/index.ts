@@ -33,6 +33,7 @@ export {
 
 export {
   AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_COMPOSER_SUBMIT_EVENT,
   AGENT_CHAT_CONTEXT_CHANGED_EVENT,
   AGENT_CHAT_INSERT_REFERENCE_EVENT,
   AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
@@ -41,6 +42,7 @@ export {
   AGENT_CHAT_SUBMIT_RESULT_EVENT,
   AGENT_CHAT_SUBMIT_TARGET_EVENT,
   addContextToAgentChat,
+  agentChatPreviousTurnText,
   appendAgentChatContextToMessage,
   cancelAgentChatSubmit,
   claimAgentChatOpenRequest,
@@ -65,6 +67,7 @@ export {
   refreshAgentChatContext,
   removeAgentChatContextItem,
   removeAgentChatContextItemAndPersist,
+  reportAgentChatComposerSubmit,
   reportAgentChatSubmitResult,
   reportAgentChatSubmitTarget,
   requestAgentChatThreadOpen,
@@ -74,7 +77,9 @@ export {
   setAgentChatContextItem,
   setAgentChatContextItemAndPersist,
   setContextToAgentChat,
+  subscribeAgentChatComposerSubmit,
   subscribeAgentChatContext,
+  type AgentChatComposerSubmit,
   type AgentChatContextItem,
   type AgentChatContextMessage,
   type AgentChatContextMutationOptions,

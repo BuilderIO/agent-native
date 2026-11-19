@@ -64,6 +64,10 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { dispatchAgentChatRunning } from "@agent-native/core/client/agent-chat";
 import {
+  agentChatPreviousTurnText,
+  reportAgentChatComposerSubmit,
+} from "@agent-native/core/client/agent-chat";
+import {
   agentEngineStatusUrlForChatApi,
   isLocalRuntimeEngine,
   useAgentEngineConfigured,
@@ -3955,6 +3959,19 @@ const AgentKitAssistantChatBody = forwardRef<
     ) => {
       const noticeAttempt = beginNoticeAttempt();
       const runWasActiveAtSubmit = isThreadRunning();
+      if (!runWasActiveAtSubmit && !composerOptions.submissionId) {
+        reportAgentChatComposerSubmit({
+          text,
+          tabId: props.tabId,
+          threadId,
+          previousTurn: agentChatPreviousTurnText(
+            (controller.getThread(threadId)?.messages ?? []).map((message) => ({
+              role: message.role,
+              text: agentMessageText(message),
+            })),
+          ),
+        });
+      }
       setContinueSubmissionFailed(false);
       const release = await acquireSubmission();
       if (!release)
@@ -3992,6 +4009,7 @@ const AgentKitAssistantChatBody = forwardRef<
       acquireSubmission,
       beginNoticeAttempt,
       beginSubmittedMessage,
+      controller,
       dispatch,
       isThreadRunning,
       props.composerDisabled,
