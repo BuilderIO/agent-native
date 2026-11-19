@@ -980,6 +980,39 @@ describe("Dispatch NavContent", () => {
         1,
       );
     });
+
+    it("does not flash a previous session's saved pane before routing a new chat", async () => {
+      clientState.connectedApps = [
+        {
+          id: "calendar",
+          name: "Calendar",
+          url: "https://calendar.agent-native.com",
+          source: "builtin",
+        },
+      ];
+      clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+        appId: "mail",
+        path: "/inbox",
+      };
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/new-chat-no-flash" />,
+      );
+      const route = routeTo({ status: "ok", app: "calendar" });
+      await send("hows my week look");
+      await route.answer();
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+
+      expect(appTabs("new-chat-no-flash").map((tab) => tab.appId)).toEqual([
+        "calendar",
+      ]);
+    });
   });
 
   it("opens a connected built-in when mounted workspace-app discovery fails", async () => {
