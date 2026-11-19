@@ -3675,11 +3675,13 @@ export async function resourceMoveIfCurrent(
  * row stored for exactly that owner and path, whatever its visibility, since
  * the (path, owner) index covers every row. Unlike `resourceGetByPath`, it
  * leaves out organization rows and grants, which a move never lands on.
+ * With `orgId`, a shared row from before organizations counts only when that
+ * organization can see it, as `resourceGetByPath` reads it.
  */
 export async function resourceStoredPathsTaken(
   owner: string,
   paths: readonly string[],
-  options: { localFiles?: boolean } = {},
+  options: { localFiles?: boolean; orgId?: string | null } = {},
 ): Promise<Set<string>> {
   const candidates = [...new Set(paths)];
   const taken = new Set<string>();
@@ -3694,8 +3696,19 @@ export async function resourceStoredPathsTaken(
   }
   await ensureTable();
   const { rows } = await getDbExec().execute(
-    sql`SELECT path FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(candidates)}`,
+    sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(candidates)}`,
   );
-  for (const row of rows) taken.add(String(row.path));
+  for (const row of rows) {
+    if (
+      options.orgId !== undefined &&
+      !isLegacySharedResourceVisibleToOrganization(
+        { owner: String(row.owner), metadata: nullableString(row.metadata) },
+        options.orgId,
+      )
+    ) {
+      continue;
+    }
+    taken.add(String(row.path));
+  }
   return taken;
 }

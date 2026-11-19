@@ -67,6 +67,34 @@ describe("resourceStoredPathsTaken", () => {
     ).resolves.toEqual(new Set());
   });
 
+  it("counts only the shared files from before organizations that the organization can see", async () => {
+    const { SHARED_OWNER, ensureResourceStoreReady, resourceStoredPathsTaken } =
+      await import("./store.js");
+    await ensureResourceStoreReady();
+    const orgFile = (orgId: string) =>
+      JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: orgId,
+      });
+    await pglite.query(
+      `INSERT INTO resources (id, path, owner, content, created_at, updated_at, metadata)
+       VALUES
+         ('legacy-a', 'plans/q1.md', $1, 'a', 1, 1, $2),
+         ('legacy-b', 'plans/q1-2.md', $1, 'b', 1, 1, $3),
+         ('shared', 'plans/q1-3.md', $1, 'c', 1, 1, NULL)`,
+      [SHARED_OWNER, orgFile("org-a"), orgFile("org-b")],
+    );
+    const paths = ["plans/q1.md", "plans/q1-2.md", "plans/q1-3.md"];
+
+    await expect(
+      resourceStoredPathsTaken(SHARED_OWNER, paths, { orgId: "org-a" }),
+    ).resolves.toEqual(new Set(["plans/q1.md", "plans/q1-3.md"]));
+    await expect(
+      resourceStoredPathsTaken(SHARED_OWNER, paths),
+    ).resolves.toEqual(new Set(paths));
+  });
+
   it("finds local workspace files on disk, not rows", async () => {
     const {
       WORKSPACE_OWNER,

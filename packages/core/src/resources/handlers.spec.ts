@@ -3045,6 +3045,11 @@ Legacy webhook.`,
         owner: "__organization__:org-1",
         path: "/shared-3.md",
       });
+      expect(mockResourceStoredPathsTaken).toHaveBeenCalledWith(
+        "__shared__",
+        expect.any(Array),
+        { orgId: "org-1" },
+      );
     });
 
     it("refuses with a free name when the upload keeps losing its name", async () => {
