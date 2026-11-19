@@ -4249,51 +4249,14 @@ export class AgentKitClient implements AgentKitController {
       await this.requireSubmissionDeadlinesCapability(requestContext);
     }
     const queueMessage = this.transport.queueMessage;
-    const requireReservation = () => {
-      if (!input.queuedMessageReservationId) return undefined;
-      const reservation = this.queuedMessageReservations.get(
-        input.queuedMessageReservationId,
-      );
-      if (reservation?.threadId !== input.threadId) {
-        throw new TypeError(
-          "Queued message reservation is no longer available.",
-        );
-      }
-      return reservation;
-    };
-    const queuedMessageFromInput = (
-      id: string,
-      createdAt: string,
-    ): AgentQueuedMessage => ({
-      id,
-      threadId: input.threadId,
-      text: input.text,
-      createdAt,
-      ...(input.attachments ? { attachments: input.attachments } : {}),
-      ...(input.references ? { references: input.references } : {}),
-      ...(input.metadata ? { metadata: input.metadata } : {}),
-      ...(input.options ? { options: input.options } : {}),
-    });
-    let reservation = requireReservation();
-    if (reservation) {
-      const preparingMessage = queuedMessageFromInput(
-        reservation.id,
-        reservation.createdAt,
-      );
-      const thread = this.getThread(input.threadId);
-      const queuedMessages = thread.queuedMessages.map((message) =>
-        message.id === preparingMessage.id ? preparingMessage : message,
-      );
-      this.setThread(input.threadId, { ...thread, queuedMessages });
-      const override = this.queuedMessageOverrides.get(input.threadId);
-      if (override) {
-        this.queuedMessageOverrides.set(input.threadId, {
-          messages: override.messages.map((message) =>
-            message.id === preparingMessage.id ? preparingMessage : message,
-          ),
-          removedIds: override.removedIds,
-        });
-      }
+    const reservation = input.queuedMessageReservationId
+      ? this.queuedMessageReservations.get(input.queuedMessageReservationId)
+      : undefined;
+    if (
+      input.queuedMessageReservationId &&
+      reservation?.threadId !== input.threadId
+    ) {
+      throw new TypeError("Queued message reservation is no longer available.");
     }
     const preflightToken = input.queueMessagePreflightToken;
     const preflight = preflightToken
@@ -4314,16 +4277,24 @@ export class AgentKitClient implements AgentKitController {
     // Render immediately so readiness checks and uploads do not make the send
     // feel like it was ignored. The payload is replaced with durable references
     // before it crosses the transport boundary.
-    reservation = requireReservation();
-    const optimisticMessage = queuedMessageFromInput(
-      reservation?.id ?? messageIdOverride ?? this.createId("queued-message"),
-      reservation?.createdAt ?? this.now(),
-    );
-    this.pendingQueueMessageIds.add(optimisticMessage.id);
     const localThread = this.getThread(input.threadId);
-    const optimisticQueue = localThread.queuedMessages.some(
-      (message) => message.id === optimisticMessage.id,
-    )
+    const visibleReservation = reservation
+      ? localThread.queuedMessages.find(({ id }) => id === reservation.id)
+      : undefined;
+    const optimisticMessage: AgentQueuedMessage = {
+      ...(visibleReservation ?? reservation),
+      id:
+        reservation?.id ?? messageIdOverride ?? this.createId("queued-message"),
+      threadId: input.threadId,
+      text: input.text,
+      createdAt: reservation?.createdAt ?? this.now(),
+      ...(input.attachments ? { attachments: input.attachments } : {}),
+      ...(input.references ? { references: input.references } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.options ? { options: input.options } : {}),
+    };
+    this.pendingQueueMessageIds.add(optimisticMessage.id);
+    const optimisticQueue = visibleReservation
       ? localThread.queuedMessages.map((message) =>
           message.id === optimisticMessage.id ? optimisticMessage : message,
         )
