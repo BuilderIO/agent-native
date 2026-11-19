@@ -783,9 +783,7 @@ function attemptTargets(
     ["query", tool, firstString(input, QUERY_KEYS)],
   ];
   return targets.flatMap(([type, scope, target]) =>
-    target
-      ? [[call.sourceId ?? "", type, scope, target].join("\u0001")]
-      : [],
+    target ? [[call.sourceId ?? "", type, scope, target].join("\u0001")] : [],
   );
 }
 
