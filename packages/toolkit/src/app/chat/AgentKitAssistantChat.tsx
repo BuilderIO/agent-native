@@ -3965,7 +3965,7 @@ const AgentKitAssistantChatBody = forwardRef<
           tabId: props.tabId,
           threadId,
           previousTurn: agentChatPreviousTurnText(
-            (controller.getThread(threadId)?.messages ?? []).map((message) => ({
+            controller.getThread(threadId).messages.map((message) => ({
               role: message.role,
               text: agentMessageText(message),
             })),

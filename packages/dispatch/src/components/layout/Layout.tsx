@@ -2199,7 +2199,6 @@ function DispatchLayout({
             send !== chatFirstRouteSendRef.current ||
             movedChat ||
             chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== sentPane;
-          let target: DispatchChatFirstPane | null = null;
           const plan = planChatFirstAppRoute({
             answer,
             installedApp: (app) => {
@@ -2208,8 +2207,7 @@ function DispatchLayout({
                 now.registrations,
                 { currentOrigin: window.location.origin },
               );
-              target = resolution.status === "ready" ? resolution.target : null;
-              return target?.appId ?? null;
+              return resolution.status === "ready" ? resolution.target : null;
             },
             isDispatchApp: isDispatchWorkspaceAppId,
             shownAppId: now.shownAppId,
@@ -2227,8 +2225,8 @@ function DispatchLayout({
               ? { hostedLatencyMs: answer.latencyMs }
               : {}),
           } satisfies ChatFirstAppRouteRecord);
-          if (plan.kind !== "open" || !target) return;
-          const pane: DispatchChatFirstPane = target;
+          if (plan.kind !== "open") return;
+          const pane: DispatchChatFirstPane = plan.target;
           const registration = now.registrations.find(
             (candidate) => candidate.id === pane.appId,
           );

@@ -18,8 +18,8 @@ export type ChatFirstAppRouteSkip =
   | "shown"
   | "stale";
 
-export type ChatFirstAppRoutePlan =
-  | { kind: "open"; appId: string }
+export type ChatFirstAppRoutePlan<Target = { appId: string }> =
+  | { kind: "open"; target: Target }
   | { kind: "skip"; reason: ChatFirstAppRouteSkip };
 
 /**
@@ -27,10 +27,9 @@ export type ChatFirstAppRoutePlan =
  * app other than Dispatch and the one already shown, and only while nothing has
  * changed the pane since the send.
  */
-export function planChatFirstAppRoute(input: {
+export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   answer: ChatFirstAppRouteAnswer | "timeout";
-  /** The installed app id the answer names, or null when none matches. */
-  installedApp: (app: string) => string | null;
+  installedApp: (app: string) => Target | null;
   isDispatchApp: (appId: string) => boolean;
   shownAppId: string | null;
   stale: boolean;
@@ -39,18 +38,22 @@ export function planChatFirstAppRoute(input: {
   if (answer === "timeout") return { kind: "skip", reason: "timeout" };
   if (answer.status !== "ok") return { kind: "skip", reason: answer.status };
   if (answer.app === "none") return { kind: "skip", reason: "none" };
-  const appId = input.installedApp(answer.app);
-  if (!appId) return { kind: "skip", reason: "unknown_app" };
-  if (input.isDispatchApp(appId)) return { kind: "skip", reason: "dispatch" };
-  if (appId === input.shownAppId) return { kind: "skip", reason: "shown" };
+  const target = input.installedApp(answer.app);
+  if (!target) return { kind: "skip", reason: "unknown_app" };
+  if (input.isDispatchApp(target.appId)) {
+    return { kind: "skip", reason: "dispatch" };
+  }
+  if (target.appId === input.shownAppId) {
+    return { kind: "skip", reason: "shown" };
+  }
   if (input.stale) return { kind: "skip", reason: "stale" };
-  return { kind: "open", appId };
+  return { kind: "open", target };
 }
 
 export type ChatFirstAppRouteRecord = {
   route: string;
   outcome: ChatFirstAppRouteAnswer["status"] | "timeout";
-  plan: ChatFirstAppRoutePlan;
+  plan: ChatFirstAppRoutePlan<unknown>;
   latencyMs: number;
   hostedLatencyMs?: number;
   cached?: boolean;

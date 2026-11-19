@@ -293,8 +293,14 @@ export function subscribeAgentChatComposerSubmit(
 ): () => void {
   if (typeof window === "undefined") return () => undefined;
   const handleEvent = (event: Event) => {
-    const detail = (event as CustomEvent<AgentChatComposerSubmit>).detail;
-    if (detail && typeof detail.text === "string") listener(detail);
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (
+      typeof detail === "object" &&
+      detail !== null &&
+      typeof (detail as { text?: unknown }).text === "string"
+    ) {
+      listener(detail as AgentChatComposerSubmit);
+    }
   };
   window.addEventListener(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, handleEvent);
   return () =>
@@ -315,8 +321,7 @@ export function agentChatPreviousTurnText(
   const lines: string[] = [];
   let exchanges = 0;
   let sawReply = false;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]!;
+  for (const message of [...messages].reverse()) {
     const text = message.text.trim();
     if (!text) continue;
     if (message.role === "assistant") {
