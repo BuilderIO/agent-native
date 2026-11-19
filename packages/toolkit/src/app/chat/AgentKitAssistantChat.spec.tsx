@@ -47,6 +47,7 @@ import {
   AgentInteractionItem,
 } from "../agentkit/react/components.js";
 import { AgentKitProvider } from "../agentkit/react/context.js";
+import { agentKitPendingSubmissions } from "../agentkit/react/pending-submissions.js";
 import {
   clearToolRenderersForTests,
   registerToolRenderer,
@@ -2960,6 +2961,281 @@ describe("AgentKitAssistantChat host behavior", () => {
         start.resolve({ runId: "run-1" });
         progress.resolve();
         finish.resolve();
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=false for a new chat's first composer send and a later send after the previous run settles", async () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const firstFinished = Promise.withResolvers<void>();
+    const secondFinished = Promise.withResolvers<void>();
+    let runCount = 0;
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      runCount += 1;
+      return { runId: `run-${runCount}` };
+    });
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      async *subscribeToRun({ threadId, runId }) {
+        await (runId === "run-1"
+          ? firstFinished.promise
+          : secondFinished.promise);
+        yield {
+          id: `completed-${runId}`,
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+
+      await act(async () => composer.setText("Show my calendar"));
+      const clickSend = () => {
+        const button = container.querySelector<HTMLButtonElement>(
+          '[data-agent-composer-slot="send-button"]',
+        );
+        expect(button).not.toBeNull();
+        button?.click();
+      };
+      await act(async () => {
+        clickSend();
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
+      });
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Show my calendar",
+          threadId: chatMocks.threadId,
+          queued: false,
+        }),
+      ]);
+
+      await act(async () => {
+        firstFinished.resolve();
+        await vi.waitFor(() =>
+          expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]),
+        );
+      });
+
+      await act(async () => composer.setText("Open my Q4 planning doc"));
+      await act(async () => {
+        clickSend();
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+      });
+      expect(events).toHaveLength(2);
+      expect(events[1]).toMatchObject({
+        text: "Open my Q4 planning doc",
+        threadId: chatMocks.threadId,
+        queued: false,
+      });
+    } finally {
+      firstFinished.resolve();
+      secondFinished.resolve();
+      await act(async () => {
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=true for a composer send made while a run is active", async () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const activeRunFinished = Promise.withResolvers<void>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-active",
+    }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text }) => ({
+        message: {
+          id: id ?? "queued-active",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+      async *subscribeToRun({ threadId, runId }) {
+        await activeRunFinished.promise;
+        yield {
+          id: "completed-active",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    try {
+      await client.sendMessage({
+        threadId: chatMocks.threadId,
+        text: "First turn",
+      });
+      expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+        "run-active",
+      ]);
+
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Also open mail"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      expect(send).not.toBeNull();
+      await act(async () => send?.click());
+
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Also open mail",
+          threadId: chatMocks.threadId,
+          queued: true,
+        }),
+      ]);
+    } finally {
+      activeRunFinished.resolve();
+      await act(async () => {
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=true for a second send made while the first send holds the turn", async () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const start = Promise.withResolvers<{ runId: string }>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(() => start.promise);
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text }) => ({
+        message: {
+          id: id ?? "queued-behind-starting",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+    });
+    const ref = createRef<AssistantChatHandle>();
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    let secondSend: Promise<AssistantChatSubmitResult> | undefined;
+    try {
+      await mount(baseProps({ showModelSelector: false }), ref);
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Show my calendar"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      expect(send).not.toBeNull();
+      await act(async () => {
+        send?.click();
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
+      });
+
+      await act(async () => {
+        secondSend = ref.current?.sendMessage("And open my inbox");
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Show my calendar",
+          queued: false,
+        }),
+        expect.objectContaining({
+          text: "And open my inbox",
+          queued: true,
+        }),
+      ]);
+    } finally {
+      start.resolve({ runId: "run-1" });
+      await act(async () => {
+        await secondSend?.catch(() => undefined);
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=true when an earlier pending submission precedes a send's own submissionId", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(
+      () => new Promise<{ runId: string }>(() => undefined),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun);
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    const store = agentKitPendingSubmissions(client);
+    const earlier = store.begin(chatMocks.threadId, { text: "First turn" });
+    const own = store.begin(chatMocks.threadId, { text: "Second turn" });
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      await act(async () => {
+        void chatMocks.composerProps
+          .onSubmit("Second turn", [], [], {
+            intent: "immediate",
+            submissionId: own.id,
+          })
+          .catch(() => undefined);
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Second turn",
+          threadId: chatMocks.threadId,
+          queued: true,
+        }),
+      ]);
+    } finally {
+      own.end();
+      earlier.end();
+      await act(async () => {
         await client.shutdown();
       });
     }
