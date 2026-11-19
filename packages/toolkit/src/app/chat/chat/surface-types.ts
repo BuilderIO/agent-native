@@ -399,6 +399,8 @@ export interface AssistantChatProps {
   composerDisabled?: boolean;
   /** Block sending while keeping the composer editable. */
   composerSubmissionDisabled?: boolean;
+  /** The model choice is still loading: Enter is held and sent once it resolves. */
+  composerModelSelectionPending?: boolean;
   /** Placeholder to show while the composer is disabled by the host surface. */
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */

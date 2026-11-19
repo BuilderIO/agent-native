@@ -4279,9 +4279,8 @@ export function MultiTabAssistantChat({
                   composerDisabled={
                     props.composerDisabled || Boolean(parentMap[tabId])
                   }
-                  composerSubmissionDisabled={
-                    props.composerSubmissionDisabled || modelSelectionPending
-                  }
+                  composerSubmissionDisabled={props.composerSubmissionDisabled}
+                  composerModelSelectionPending={modelSelectionPending}
                   composerDisabledPlaceholder={
                     props.composerDisabled
                       ? props.composerDisabledPlaceholder
