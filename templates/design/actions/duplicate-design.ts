@@ -90,7 +90,6 @@ export default defineAction({
         title: newTitle,
         description: source.description,
         projectType: source.projectType,
-        designSystemId: source.designSystemId ?? null,
         data: newData,
         ownerEmail,
         orgId,
@@ -119,7 +118,6 @@ export default defineAction({
       {
         creationMethod: "duplicate",
         projectType: source.projectType,
-        designSystemId: source.designSystemId,
         sourceDesignId: id,
       },
       ctx,

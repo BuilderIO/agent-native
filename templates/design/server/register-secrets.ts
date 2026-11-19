@@ -17,7 +17,7 @@ registerRequiredSecret({
   usedFor: [
     {
       appId: "design",
-      feature: "Design system import",
+      feature: "GitHub import",
       effectWhenRemoved: "Private GitHub repositories can't be imported.",
     },
   ],

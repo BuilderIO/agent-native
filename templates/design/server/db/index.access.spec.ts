@@ -19,8 +19,6 @@ vi.mock("./schema.js", () => ({
   designTemplateShares: {
     resourceId: "designTemplateShares.resourceId",
   },
-  designSystems: { id: "designSystems.id" },
-  designSystemShares: { resourceId: "designSystemShares.resourceId" },
 }));
 
 import "./index.js";
