@@ -11352,6 +11352,7 @@ describe("AgentKitClient", () => {
       },
       async cancelRun() {
         stopSent.resolve();
+        // fixed-sleep-ok: the Stop request returns after the run's end has arrived
         await new Promise((resolve) => setTimeout(resolve, 0));
       },
       persistThreadSnapshot,
@@ -11367,6 +11368,7 @@ describe("AgentKitClient", () => {
       resolved = true;
     });
     await vi.waitFor(() => expect(persistThreadSnapshot).toHaveBeenCalled());
+    // fixed-sleep-ok: gives the Stop time to resolve early, before its save does
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(resolved).toBe(false);
 

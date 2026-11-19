@@ -5417,6 +5417,7 @@ describe("createAgentKitProtocolAdapter", () => {
       .then(() => {
         secondReturned = true;
       });
+    // fixed-sleep-ok: gives a second Stop a turn to return early, which it must not
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(secondReturned).toBe(false);
 
@@ -5477,21 +5478,24 @@ describe("createAgentKitProtocolAdapter", () => {
     const iterator = transport
       .subscribeToRun({ threadId: "thread-1", runId })
       [Symbol.asyncIterator]();
-    while (true) {
-      const next = await iterator.next();
-      if (next.value?.type === "message.delta") break;
+    let streamed = await iterator.next();
+    while (streamed.value?.type !== "message.delta") {
+      streamed = await iterator.next();
     }
     const remaining: AgentEvent[] = [];
     const drained = (async () => {
-      while (true) {
-        const next = await iterator.next();
-        if (next.done) return;
+      for (
+        let next = await iterator.next();
+        !next.done;
+        next = await iterator.next()
+      ) {
         remaining.push(next.value);
       }
     })();
 
     const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    // fixed-sleep-ok: lets the Stop request return before the trailing text arrives
     await new Promise((resolve) => setTimeout(resolve, 0));
     trailingArrived.resolve();
     await cancelling;
@@ -5553,24 +5557,25 @@ describe("createAgentKitProtocolAdapter", () => {
     const iterator = transport
       .subscribeToRun({ threadId: "thread-1", runId })
       [Symbol.asyncIterator]();
-    while (true) {
-      const next = await iterator.next();
-      if (next.value?.type === "message.delta") break;
+    let streamed = await iterator.next();
+    while (streamed.value?.type !== "message.delta") {
+      streamed = await iterator.next();
     }
 
-    let settled = false;
+    const stop = { settled: false };
     const cancelling = transport
       .cancelRun({ threadId: "thread-1", runId })
       .then(() => {
-        settled = true;
+        stop.settled = true;
       });
     await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
     trailingArrived.resolve();
+    // fixed-sleep-ok: gives the Stop time to settle early, before the reader takes the trailing text
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(settled).toBe(false);
+    expect(stop.settled).toBe(false);
 
     const taken: AgentEvent[] = [];
-    while (!settled) {
+    while (!stop.settled) {
       const next = await iterator.next();
       if (next.done) break;
       taken.push(next.value);

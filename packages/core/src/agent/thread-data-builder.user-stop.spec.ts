@@ -257,8 +257,8 @@ describe("folding a run stopped at what the user's browser showed", () => {
       { seq: 1, event: { type: "done", reason: "user", shownThroughSeq: -1 } },
     ]);
 
-    expect(storedMessages(folded).map((message: any) => message.role)).toEqual([
-      "user",
-    ]);
+    expect(
+      storedMessages(folded).map((message: { role: string }) => message.role),
+    ).toEqual(["user"]);
   });
 });
