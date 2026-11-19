@@ -273,12 +273,11 @@ describe("automation worker recovery", () => {
         recovery.error?.startsWith("An action may already have applied."),
       ).toBe(true);
       expect(recovery.error).toContain("Delivery outcome is unknown");
-      if (deliveryDestination && !noOp) {
-        expect(recovery.error).toContain("response delivery is unknown");
-        expect(recovery.errorCode).toBe("write_tool_outcome_unknown");
-      } else {
-        expect(recovery.errorCode).toBe("write_tool_outcome_unknown");
-      }
+      for (const note of deliveryDestination && !noOp
+        ? ["response delivery is unknown"]
+        : [])
+        expect(recovery.error).toContain(note);
+      expect(recovery.errorCode).toBe("write_tool_outcome_unknown");
       expect(recovery.error).not.toContain("provider response");
       expect(recovery.error).not.toContain("PRIVATE_CUSTOMER_SENTINEL");
     },

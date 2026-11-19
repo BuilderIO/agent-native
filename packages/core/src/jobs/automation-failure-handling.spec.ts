@@ -635,13 +635,13 @@ describe("scheduled automations that cannot run", () => {
   it("does not probe a pause caused by an unknown write outcome", async () => {
     runAgentLoopMock.mockImplementation(
       async ({ send }: Parameters<typeof successfulAutomationRun>[0]) => {
-        send({
+        await send({
           type: "tool_done",
           tool: "record-report",
           completedSideEffect: true,
           result: "Recorded",
         });
-        send({
+        await send({
           type: "tool_done",
           tool: "send-notification",
           isError: true,

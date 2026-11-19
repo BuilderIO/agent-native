@@ -1606,7 +1606,6 @@ type ExecutionOutcome = Pick<
 interface ExecutionFailure {
   failure: AutomationFailure;
   recordedError?: string;
-  /** Ordinary manual failures do not count toward the pause threshold. */
   countTowardPause: boolean;
   eventId?: string;
   pauseImmediately?: boolean;
@@ -1649,7 +1648,6 @@ async function recordExecutionOutcome(
   let extra: JobFrontmatterPatch = {};
   let resumed = false;
   let pausedAfter: number | undefined;
-  // A later run cannot establish whether an earlier uncertain write landed.
   const safetyPause =
     isPausedByFramework(current.meta) &&
     current.meta.pausedReason === "write_tool_outcome_unknown";

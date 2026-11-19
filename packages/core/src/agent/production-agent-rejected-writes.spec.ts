@@ -183,7 +183,7 @@ describe("web-request write outcomes", () => {
     ]);
 
     const [rejected, sent] = toolDones(events);
-    expect(rejected?.outcomeUnknown).toBeUndefined();
+    expect(rejected.outcomeUnknown).toBeUndefined();
     expect(rejected).toMatchObject({
       isError: true,
       errorCode: "web_request_url_blocked",
@@ -212,7 +212,7 @@ describe("web-request write outcomes", () => {
       errorCode: "web_request_url_blocked",
       outcomeUnknown: true,
     });
-    expect(guarded?.result).toContain(
+    expect(guarded.result).toContain(
       "an earlier web-request call in this turn may have already applied",
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);

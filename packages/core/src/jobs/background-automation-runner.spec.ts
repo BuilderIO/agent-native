@@ -1206,20 +1206,20 @@ describe("runBackgroundAutomation — confirmed work", () => {
         await import("../agent/run-loop-with-resume.js");
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
-          opts.send({
+          await opts.send({
             type: "tool_done",
             tool: "record-report",
             result: "Recorded",
             completedSideEffect: true,
           });
-          opts.send({
+          await opts.send({
             type: "tool_done",
             tool: "send-report",
             ...(isError ? { isError: true as const } : {}),
             outcomeUnknown: true,
             result: "PRIVATE_PROVIDER_RESPONSE",
           });
-          opts.send({ type: "text", text: "Report ready." });
+          await opts.send({ type: "text", text: "Report ready." });
           return usage;
         },
       );
@@ -1228,7 +1228,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
       const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
         formatAgentResponse: (text: string) => ({ text }),
         sendMessageToTarget,
-      } as any);
+      } as never);
       try {
         await expect(
           runBackgroundAutomation(
@@ -1261,7 +1261,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
       "An action may already have applied. Check its current state before retrying.";
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send({
+        await opts.send({
           type: "tool_done",
           tool: "send-report",
           isError: true,
@@ -1269,7 +1269,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
           errorCode: "http_503",
           result: `${privateValue} ${"provider response ".repeat(100)}`,
         });
-        opts.send({
+        await opts.send({
           type: "tool_done",
           tool: "send-report",
           isError: true,
@@ -1393,24 +1393,18 @@ describe("runBackgroundAutomation — confirmed work", () => {
             : "web_request_url_blocked",
           message: expect.stringContaining(dispatched ? warning : diagnostic),
         });
-        if (dispatched) {
-          await expect(run).rejects.not.toThrow(diagnostic);
-        } else {
-          await expect(run).rejects.not.toThrow(warning);
-        }
+        await expect(run).rejects.not.toThrow(
+          dispatched ? diagnostic : warning,
+        );
         const row = (await pglite
           .prepare(
             "SELECT status, error FROM automation_runs WHERE automation = ?",
           )
           .get(name)) as { status: string; error: string };
         expect(row.status).toBe("error");
-        if (dispatched) {
-          expect(row.error.startsWith(warning)).toBe(true);
-          expect(row.error).not.toContain(diagnostic);
-        } else {
-          expect(row.error).toContain(diagnostic);
-          expect(row.error).not.toContain(warning);
-        }
+        expect(row.error.startsWith(warning)).toBe(dispatched);
+        expect(row.error.includes(warning)).toBe(dispatched);
+        expect(row.error.includes(diagnostic)).toBe(!dispatched);
         expect(row.error).not.toContain("fake-secret-value");
         expect(row.error).not.toContain("customer-fixture-value");
         expect(fetchSpy).toHaveBeenCalledTimes(dispatched ? 1 : 0);
@@ -1421,24 +1415,20 @@ describe("runBackgroundAutomation — confirmed work", () => {
         const events = (
           await runStore.getRunEventsSince(liveHistory.run_id, 0)
         ).map(({ eventData }) => JSON.parse(eventData));
-        if (dispatched) {
-          expect(events).toContainEqual(
-            expect.objectContaining({
-              type: "tool_done",
-              errorCode: "web_request_url_blocked",
-              outcomeUnknown: true,
-              result: expect.stringContaining(diagnostic),
-            }),
-          );
-          expect(events).toContainEqual(
-            expect.objectContaining({
-              type: "tool_done",
-              result: expect.stringContaining(
-                "an earlier web-request call in this turn may have already applied",
-              ),
-            }),
-          );
-        }
+        const blockedEvent = expect.objectContaining({
+          type: "tool_done",
+          errorCode: "web_request_url_blocked",
+          outcomeUnknown: true,
+          result: expect.stringContaining(diagnostic),
+        });
+        const guardedEvent = expect.objectContaining({
+          type: "tool_done",
+          result: expect.stringContaining(
+            "an earlier web-request call in this turn may have already applied",
+          ),
+        });
+        for (const expected of dispatched ? [blockedEvent, guardedEvent] : [])
+          expect(events).toContainEqual(expected);
         const history = await import("./run-history.js");
         const { inspectAutomationRecovery } =
           await import("./automation-recovery.js");
@@ -1483,12 +1473,9 @@ describe("runBackgroundAutomation — confirmed work", () => {
         });
         if (recovery?.state !== "settle")
           throw new Error("Expected settlement");
-        if (dispatched) {
-          expect(recovery.error?.startsWith(warning)).toBe(true);
-          expect(recovery.error).not.toContain(diagnostic);
-        } else {
-          expect(recovery.error).not.toContain(warning);
-        }
+        expect(recovery.error?.startsWith(warning)).toBe(dispatched);
+        expect(recovery.error?.includes(warning)).toBe(dispatched);
+        expect(recovery.error?.includes(diagnostic)).toBe(!dispatched);
         expect(recovery.error).not.toContain("fake-secret-value");
         expect(recovery.error).not.toContain("customer-fixture-value");
       } finally {
@@ -2819,9 +2806,9 @@ describe("runBackgroundAutomation — thread transcript", () => {
       });
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
-          await opts.send?.({ type: "text", text: "Still working." });
+          await opts.send({ type: "text", text: "Still working." });
           if (unknownWrite) {
-            await opts.send?.({
+            await opts.send({
               type: "tool_done",
               tool: "send-report",
               isError: true,
@@ -2832,11 +2819,11 @@ describe("runBackgroundAutomation — thread transcript", () => {
           resolveTextPersisted();
           await new Promise<void>((_resolve, reject) => {
             const signal = opts.signal;
-            if (signal?.aborted) {
+            if (signal.aborted) {
               reject(new Error("aborted"));
               return;
             }
-            signal?.addEventListener("abort", () =>
+            signal.addEventListener("abort", () =>
               reject(new Error("aborted")),
             );
           });
@@ -2887,7 +2874,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
               resource: {
                 owner: "alice@agent-native.test",
                 path: "jobs/hard-timeout-digest.md",
-              } as any,
+              } as never,
             },
             ownerEmail: "alice@agent-native.test",
             prompt: "Summarize the inbox.",
@@ -2907,7 +2894,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           expect(pendingHardTimeouts.length).toBe(1);
         });
         await textPersisted;
-        pendingHardTimeouts[0]!();
+        pendingHardTimeouts[0]();
 
         await expect(runPromise).rejects.toMatchObject({
           errorCode: unknownWrite
@@ -2925,7 +2912,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
           )
           .get()) as { id: string } | undefined;
         expect(hardTimedOutRunId?.id).toBeTruthy();
-        await expect(abortReasonOf(hardTimedOutRunId!.id)).resolves.toBe(
+        await expect(abortReasonOf(hardTimedOutRunId?.id ?? "")).resolves.toBe(
           "background_automation_hard_timeout",
         );
         expect(updateThreadDataMock).toHaveBeenCalled();

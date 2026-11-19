@@ -242,7 +242,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
         id: "killed-worker",
         status,
         errorCode: "http_502",
-      } as any);
+      } as never);
       vi.mocked(runStore.getCurrentTurnEventsForThread).mockResolvedValue([
         {
           type: "tool_done",
@@ -1496,7 +1496,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
           { execute: dbExecuteMock },
           "manual-history",
         );
-        options?.afterCommit?.();
+        await options?.afterCommit?.();
         return "manual-history";
       });
     const finish = vi
@@ -1506,7 +1506,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
     try {
       await runJobNow(resource.owner, "manual", recoveryDeps);
       expect(
-        parseJobResource(resourcePutMock.mock.calls.at(-1)![2]).meta,
+        parseJobResource(resourcePutMock.mock.calls.at(-1)?.[2] ?? "").meta,
       ).toMatchObject({
         enabled: false,
         lastStatus: "paused",
