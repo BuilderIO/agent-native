@@ -161,5 +161,4 @@ describe("patchCloudflareModuleServerOutput cache proof", () => {
       await worker.dispose();
     }
   });
-
 });
