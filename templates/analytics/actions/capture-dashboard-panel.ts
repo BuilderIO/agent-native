@@ -8,7 +8,7 @@ import {
   analyticsPanelCaptureRequestSchema,
   analyticsPanelCaptureSchema,
 } from "@agent-native/core/shared";
-import { track } from "@agent-native/core/tracking";
+import { captureException, track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget";
@@ -126,20 +126,30 @@ export default defineAction({
             bigQueryBudget,
           }
         : panelCapture;
-      track(
-        "dashboard_panel_captured",
-        {
-          app_name: "analytics",
-          template_name: "analytics",
-          panel_type: result.panel.type,
-          row_count: result.rows.length,
-          column_count: result.columns.length,
-          event_count: result.chart.events?.length ?? 0,
-          truncated: result.truncated,
-          dashboard_visibility: result.dashboard.visibility,
-        },
-        actionContext,
-      );
+      try {
+        track(
+          "dashboard_panel_captured",
+          {
+            app_name: "analytics",
+            template_name: "analytics",
+            panel_type: result.panel.type,
+            row_count: result.rows.length,
+            column_count: result.columns.length,
+            event_count: result.chart.events?.length ?? 0,
+            truncated: result.truncated,
+            dashboard_visibility: result.dashboard.visibility,
+          },
+          actionContext,
+        );
+      } catch (error) {
+        if (!call) throw error;
+        captureException(error, {
+          route: "capture-dashboard-panel",
+          tags: { stage: "success_tracking" },
+          level: "warning",
+          handled: true,
+        });
+      }
       return result;
     } catch (error) {
       if (error instanceof OutsideAgentBigQueryRefusalError) {
@@ -183,6 +193,11 @@ export default defineAction({
       }
       const bigQueryBudget = outsideAgentCallReportOf(error) ?? completedBudget;
       if (bigQueryBudget) {
+        captureException(error, {
+          route: "capture-dashboard-panel",
+          tags: { stage: "capture_result" },
+          handled: true,
+        });
         fail("This panel could not be captured.", {
           errorCode: "capture_failed",
           statusCode: 500,

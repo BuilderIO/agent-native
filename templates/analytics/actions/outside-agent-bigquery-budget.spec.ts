@@ -41,6 +41,8 @@ const captureState = vi.hoisted(() => ({
   cached: false,
   chartType: "table",
   trackingError: false,
+  keyDatesError: null as Error | null,
+  exceptions: [] as Array<{ error: unknown; context: unknown }>,
   trackEvents: [] as string[],
 }));
 vi.mock("../server/lib/open-dashboard", () => ({
@@ -73,7 +75,10 @@ vi.mock("../server/lib/open-dashboard", () => ({
   openedDashboardVisibility: async () => "org",
 }));
 vi.mock("../server/lib/key-dates-store", () => ({
-  listKeyDateSets: async () => [],
+  listKeyDateSets: async () => {
+    if (captureState.keyDatesError) throw captureState.keyDatesError;
+    return [];
+  },
 }));
 const PRINCIPAL =
   "sa:runner@builder-3b0a2.iam.gserviceaccount.com#0a1b2c3d4e5f6a7b";
@@ -160,6 +165,9 @@ vi.mock("../server/lib/gcloud", async (importOriginal) => ({
   }),
 }));
 vi.mock("@agent-native/core/tracking", () => ({
+  captureException: (error: unknown, context: unknown) => {
+    captureState.exceptions.push({ error, context });
+  },
   track: (event: string) => {
     captureState.trackEvents.push(event);
     if (captureState.trackingError) throw new Error("Tracking unavailable");
@@ -320,6 +328,8 @@ beforeEach(() => {
   captureState.cached = false;
   captureState.chartType = "table";
   captureState.trackingError = false;
+  captureState.keyDatesError = null;
+  captureState.exceptions.length = 0;
   captureState.trackEvents.length = 0;
   submissions.length = 0;
   duplicate.jobId = null;
@@ -1152,8 +1162,9 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     );
   });
 
-  it("keeps a structured spend receipt if post-query capture bookkeeping fails", async () => {
-    captureState.trackingError = true;
+  it("records the original cause and spend receipt if post-query metadata fails", async () => {
+    const cause = new Error("Key dates unavailable");
+    captureState.keyDatesError = cause;
     await expect(
       capturePanel.run(args, { caller: "mcp" }),
     ).rejects.toMatchObject({
@@ -1169,6 +1180,48 @@ describe("saved-panel capture outside-agent budget adapter", () => {
       },
     });
     expect(submissions).toHaveLength(1);
+    expect(captureState.exceptions).toEqual([
+      {
+        error: cause,
+        context: {
+          route: "capture-dashboard-panel",
+          tags: { stage: "capture_result" },
+          handled: true,
+        },
+      },
+    ]);
+  });
+
+  it("returns a billed capture when outside-agent success tracking fails", async () => {
+    captureState.trackingError = true;
+    const result = await capturePanel.run(args, { caller: "mcp" });
+    expect(result.rows).toEqual([[1]]);
+    expect(result.bigQueryBudget).toMatchObject({
+      provisional: false,
+      thisCall: { jobsAdmitted: 1, stillReservedUsd: 0 },
+      jobs: [{ state: "settled", billedUsd: expect.any(Number) }],
+    });
+    expect(submissions).toHaveLength(1);
+    expect(captureState.exceptions).toEqual([
+      {
+        error: expect.objectContaining({ message: "Tracking unavailable" }),
+        context: {
+          route: "capture-dashboard-panel",
+          tags: { stage: "success_tracking" },
+          level: "warning",
+          handled: true,
+        },
+      },
+    ]);
+  });
+
+  it("preserves in-app tracking failure behavior", async () => {
+    captureState.trackingError = true;
+    await expect(
+      capturePanel.run(args, { caller: "frontend" }),
+    ).rejects.toThrow("Tracking unavailable");
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(captureState.exceptions).toEqual([]);
   });
 
   it.each([
