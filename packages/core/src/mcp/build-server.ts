@@ -581,7 +581,10 @@ async function settledBy<T>(
     return await Promise.race([
       work.catch(() => undefined),
       new Promise<undefined>((resolve) => {
-        timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+        timer = setTimeout(
+          () => resolve(undefined),
+          Math.max(0, deadline - Date.now()),
+        );
       }),
     ]);
   } finally {
