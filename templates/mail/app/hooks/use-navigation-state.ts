@@ -23,6 +23,7 @@ export interface NavigationState {
   queueScope?: string;
   settingsSection?: string;
   composeDraftId?: string;
+  readingPane?: boolean;
   _ts?: number;
 }
 
