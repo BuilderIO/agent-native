@@ -981,6 +981,63 @@ describe("Dispatch NavContent", () => {
       );
     });
 
+    it("opens a new chat's pane at route time when the send names its thread, and keeps it when the URL catches up", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-named-thread" />,
+      );
+      const route = routeTo({ status: "ok", app: "mail" });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-named-thread",
+          queued: false,
+        });
+      });
+      await route.answer();
+
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+      const opened = appTabs("route-named-thread");
+      expect(opened.map((tab) => tab.appId)).toEqual(["mail"]);
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+
+      expect(appTabs("route-named-thread")).toEqual(opened);
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+    });
+
+    it("forgets a sent new chat's thread when another new chat starts", async () => {
+      await renderChat("/chat", <ChatRouteSwitcher target="/chat" />);
+      const route = routeTo({ status: "ok", app: "mail" });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-abandoned-thread",
+          queued: false,
+        });
+      });
+      await route.answer();
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+    });
+
     it("does not flash a previous session's saved pane before routing a new chat", async () => {
       clientState.connectedApps = [
         {

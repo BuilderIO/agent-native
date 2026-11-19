@@ -1424,7 +1424,17 @@ function DispatchLayout({
     location.pathname,
     useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
   );
-  const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
+  const [sentNewChat, setSentNewChat] = useState<{
+    locationKey: string;
+    threadId: string;
+  } | null>(null);
+  const pathThreadId = threadIdFromPath(localPathname);
+  const chatFirstSurfaceScope =
+    pathThreadId ??
+    (isChatRoute && sentNewChat?.locationKey === location.key
+      ? sentNewChat.threadId
+      : null) ??
+    "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
   );
@@ -1445,6 +1455,21 @@ function DispatchLayout({
   const chatFirstMode =
     extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const chatFirstHasActiveChat = chatFirstSurfaceScope !== "new";
+  const newChatLocationKey =
+    chatFirstMode && isChatRoute && !pathThreadId ? location.key : null;
+  useEffect(() => {
+    if (newChatLocationKey === null) return;
+    return subscribeAgentChatComposerSubmit((detail) => {
+      const threadId = detail.withdrawn ? null : detail.threadId;
+      if (!threadId) return;
+      setSentNewChat((current) =>
+        current?.locationKey === newChatLocationKey &&
+        current.threadId === threadId
+          ? current
+          : { locationKey: newChatLocationKey, threadId },
+      );
+    });
+  }, [newChatLocationKey]);
   useEffect(() => {
     if (!electronEmbedded || typeof window === "undefined") return;
     const url = new URL(window.location.href);
