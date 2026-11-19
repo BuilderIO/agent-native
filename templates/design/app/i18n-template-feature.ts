@@ -1,7 +1,6 @@
 export const designTemplateFeatureOverrides = {
   "zh-TW": {
     promptDialog: {
-      createDesignSystem: "建立設計系統",
       template: "範本",
       blank: "空白",
       builtIn: "內建",
@@ -11,8 +10,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "你的範本",
       builtInTemplates: "內建範本",
       templatePromptPlaceholder: "描述如何調整「{{title}}」...",
-      reskinTemplatePrompt:
-        "將 {{system}} 設計系統套用至「{{title}}」，並保留其結構與鎖定圖層。",
     },
     designEditor: {
       saveAsTemplate: "儲存為範本…",
@@ -65,7 +62,6 @@ export const designTemplateFeatureOverrides = {
   },
   "zh-CN": {
     promptDialog: {
-      createDesignSystem: "创建设计系统",
       template: "模板",
       blank: "空白",
       builtIn: "内置",
@@ -75,8 +71,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "你的模板",
       builtInTemplates: "内置模板",
       templatePromptPlaceholder: "描述如何调整“{{title}}”...",
-      reskinTemplatePrompt:
-        "将 {{system}} 设计系统应用到“{{title}}”，同时保留其结构和锁定图层。",
     },
     designEditor: {
       saveAsTemplate: "保存为模板…",
@@ -129,7 +123,6 @@ export const designTemplateFeatureOverrides = {
   },
   "es-ES": {
     promptDialog: {
-      createDesignSystem: "Crear sistema de diseño",
       template: "Plantilla",
       blank: "En blanco",
       builtIn: "Integrada",
@@ -139,8 +132,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "Tus plantillas",
       builtInTemplates: "Plantillas integradas",
       templatePromptPlaceholder: "Describe cómo adaptar {{title}}...",
-      reskinTemplatePrompt:
-        "Aplica el sistema de diseño {{system}} a {{title}} conservando su estructura y las capas bloqueadas.",
     },
     designEditor: {
       saveAsTemplate: "Guardar como plantilla…",
@@ -196,7 +187,6 @@ export const designTemplateFeatureOverrides = {
   },
   "fr-FR": {
     promptDialog: {
-      createDesignSystem: "Créer un système de design",
       template: "Modèle",
       blank: "Vierge",
       builtIn: "Intégré",
@@ -206,8 +196,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "Vos modèles",
       builtInTemplates: "Modèles intégrés",
       templatePromptPlaceholder: "Décrivez comment adapter {{title}}...",
-      reskinTemplatePrompt:
-        "Appliquez le système de design {{system}} à {{title}} en préservant sa structure et ses calques verrouillés.",
     },
     designEditor: {
       saveAsTemplate: "Enregistrer comme modèle…",
@@ -264,7 +252,6 @@ export const designTemplateFeatureOverrides = {
   },
   "de-DE": {
     promptDialog: {
-      createDesignSystem: "Designsystem erstellen",
       template: "Vorlage",
       blank: "Leer",
       builtIn: "Integriert",
@@ -275,8 +262,6 @@ export const designTemplateFeatureOverrides = {
       builtInTemplates: "Integrierte Vorlagen",
       templatePromptPlaceholder:
         "Beschreibe, wie {{title}} angepasst werden soll...",
-      reskinTemplatePrompt:
-        "Wende das Designsystem {{system}} auf {{title}} an und erhalte Struktur und gesperrte Ebenen.",
     },
     designEditor: {
       saveAsTemplate: "Als Vorlage speichern…",
@@ -333,7 +318,6 @@ export const designTemplateFeatureOverrides = {
   },
   "ja-JP": {
     promptDialog: {
-      createDesignSystem: "デザインシステムを作成",
       template: "テンプレート",
       blank: "空白",
       builtIn: "組み込み",
@@ -343,8 +327,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "自分のテンプレート",
       builtInTemplates: "組み込みテンプレート",
       templatePromptPlaceholder: "「{{title}}」の調整内容を説明...",
-      reskinTemplatePrompt:
-        "構造とロックされたレイヤーを保ったまま、「{{title}}」に {{system}} デザインシステムを適用します。",
     },
     designEditor: {
       saveAsTemplate: "テンプレートとして保存…",
@@ -400,7 +382,6 @@ export const designTemplateFeatureOverrides = {
   },
   "ko-KR": {
     promptDialog: {
-      createDesignSystem: "디자인 시스템 만들기",
       template: "템플릿",
       blank: "빈 템플릿",
       builtIn: "기본 제공",
@@ -411,8 +392,6 @@ export const designTemplateFeatureOverrides = {
       builtInTemplates: "기본 제공 템플릿",
       templatePromptPlaceholder:
         "{{title}}을(를) 조정하는 방법을 설명하세요...",
-      reskinTemplatePrompt:
-        "구조와 잠긴 레이어를 유지하면서 {{system}} 디자인 시스템을 {{title}}에 적용하세요.",
     },
     designEditor: {
       saveAsTemplate: "템플릿으로 저장…",
@@ -467,7 +446,6 @@ export const designTemplateFeatureOverrides = {
   },
   "pt-BR": {
     promptDialog: {
-      createDesignSystem: "Criar sistema de design",
       template: "Modelo",
       blank: "Em branco",
       builtIn: "Integrado",
@@ -477,8 +455,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "Seus modelos",
       builtInTemplates: "Modelos integrados",
       templatePromptPlaceholder: "Descreva como adaptar {{title}}...",
-      reskinTemplatePrompt:
-        "Aplique o sistema de design {{system}} a {{title}}, preservando a estrutura e as camadas bloqueadas.",
     },
     designEditor: {
       saveAsTemplate: "Salvar como modelo…",
@@ -534,7 +510,6 @@ export const designTemplateFeatureOverrides = {
   },
   "hi-IN": {
     promptDialog: {
-      createDesignSystem: "डिज़ाइन सिस्टम बनाएँ",
       template: "टेम्पलेट",
       blank: "खाली",
       builtIn: "अंतर्निहित",
@@ -544,8 +519,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "आपके टेम्पलेट",
       builtInTemplates: "अंतर्निहित टेम्पलेट",
       templatePromptPlaceholder: "बताएँ कि {{title}} को कैसे बदलना है...",
-      reskinTemplatePrompt:
-        "संरचना और लॉक लेयर सुरक्षित रखते हुए {{system}} डिज़ाइन सिस्टम को {{title}} पर लागू करें।",
     },
     designEditor: {
       saveAsTemplate: "टेम्पलेट के रूप में सहेजें…",
@@ -599,7 +572,6 @@ export const designTemplateFeatureOverrides = {
   },
   "ar-SA": {
     promptDialog: {
-      createDesignSystem: "إنشاء نظام تصميم",
       template: "قالب",
       blank: "فارغ",
       builtIn: "مدمج",
@@ -609,8 +581,6 @@ export const designTemplateFeatureOverrides = {
       yourTemplates: "قوالبك",
       builtInTemplates: "القوالب المدمجة",
       templatePromptPlaceholder: "صف كيفية تعديل {{title}}...",
-      reskinTemplatePrompt:
-        "طبّق نظام التصميم {{system}} على {{title}} مع الحفاظ على بنيته وطبقاته المقفلة.",
     },
     designEditor: {
       saveAsTemplate: "حفظ كقالب…",

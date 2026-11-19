@@ -31,24 +31,16 @@ describe("generate-design action tool schema", () => {
 
   it("shows the model the real shape of every structured field", () => {
     expect(parameters.required).toEqual(["designId", "prompt", "files"]);
-    for (const field of ["files", "tweaks", "canvasFrames", "reuseLabels"]) {
+    for (const field of ["files", "tweaks", "canvasFrames"]) {
       expect(parameters.properties[field]?.type, field).toBe("array");
     }
     expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
       ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
     );
-    // oracle-change: the agent no longer unlinks a design system through generate-design (update-design does), so a padded null is a dropped placeholder, not an unlink.
-    expect(JSON.stringify(parameters.properties.designSystemId)).not.toContain(
-      "null",
-    );
-    expect(parameters.properties.designSystemId?.description).toContain(
-      "cannot unlink",
-    );
+    expect(parameters.properties.designSystemId).toBeUndefined();
     expect(JSON.stringify(parameters.properties.tweaks)).toContain(
       '"minItems":1',
-    );
-    expect(JSON.stringify(parameters.properties.contextModeOverride)).toContain(
-      '"off"',
+      // oracle-change: Creative context removed from Design; its assertions no longer apply
     );
   });
 
@@ -72,8 +64,6 @@ describe("generate-design action tool schema", () => {
           rotation: null,
         },
       ],
-      contextPackId: null,
-      reuseLabels: [],
       primaryViewport: null,
       devices: [],
       fixedCanvas: false,
@@ -93,13 +83,8 @@ describe("generate-design action tool schema", () => {
     expect(received).toMatchObject({
       devices: [],
       fixedCanvas: false,
-      reuseLabels: [],
     });
-    for (const dropped of [
-      "designSystemId",
-      "tweaks",
-      "contextPackId",
-    ] as const) {
+    for (const dropped of ["designSystemId", "tweaks"] as const) {
       expect(received[dropped], dropped).toBeUndefined();
     }
     expect(received.canvasFrames).toEqual([
@@ -171,7 +156,7 @@ describe("generate-design action tool schema", () => {
     });
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data.designSystemId).toBeNull();
+    expect(parsed.data.designSystemId).toBeUndefined();
     expect(parsed.data.files).toEqual(validInput().files);
     expect(parsed.data.tweaks).toHaveLength(1);
   });
@@ -2196,389 +2181,6 @@ describe("generate-design: new-file creation path", () => {
     expect(frame).toMatchObject({ width: 390, height: 844 });
     expect(data.breakpointSet).toBeUndefined();
   });
-
-  it("pins session evidence to the saved frame and preserves exact versions", async () => {
-    const evidence = {
-      itemId: "item-1",
-      itemVersionId: "version-1",
-      kind: "figma-frame",
-      label: "Pricing hero",
-      dataRole: "untrusted-reference" as const,
-    };
-    mocks.readAppState.mockResolvedValue({
-      id: "session-1",
-      designId: "design-1",
-      status: "generating",
-      prompt: "Pricing",
-      contextRefs: [],
-      creativeContext: {
-        contextMode: "pinned",
-        contextPackId: "pack-1",
-        reuseLabels: [evidence],
-      },
-      frames: [
-        {
-          frameId: "frame-1",
-          filename: "index.html",
-          agentId: "agent-1",
-          agentName: "Atlas",
-          agentColor: "red",
-          region: { x: 0, y: 0, width: 1440, height: 1024 },
-          role: "screen",
-          status: "queued",
-        },
-      ],
-      startedAt: "2026-07-16T00:00:00.000Z",
-    });
-
-    await action.run({
-      designId: "design-1",
-      prompt: "Pricing",
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Pricing</body></html>",
-        },
-      ],
-    });
-
-    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
-      contextPackId: "pack-1",
-      contextPackSource: "inherited",
-      reuseLabels: [evidence],
-      reuseLabelsSource: "inherited",
-    });
-    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: "design",
-        artifactType: "design",
-        artifactId: "design-1",
-        contextPackId: "pack-1",
-        elementProvenance: [
-          expect.objectContaining({
-            elementId: "frame-1",
-            influence: "reference-conditioned",
-            itemId: "item-1",
-            itemVersionId: "version-1",
-          }),
-        ],
-      }),
-    );
-  });
-
-  it("makes a one-generation off override structural even with a pinned session", async () => {
-    mocks.readAppState.mockResolvedValue({
-      designId: "design-1",
-      creativeContext: {
-        contextMode: "pinned",
-        contextPackId: "pack-1",
-        reuseLabels: [],
-      },
-      frames: [],
-    });
-
-    await action.run({
-      designId: "design-1",
-      prompt: "Unbranded concept",
-      contextModeOverride: "off",
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Concept</body></html>",
-        },
-      ],
-    });
-
-    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
-    expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
-    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
-      contextPackId: undefined,
-      contextModeOverride: "off",
-      reuseLabels: [],
-    });
-    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        contextMode: "off",
-        contextPackId: null,
-        elementProvenance: [
-          expect.objectContaining({ influence: "generated" }),
-        ],
-      }),
-    );
-  });
-
-  it("saves the design and names the labels it could not record", async () => {
-    const evidence = {
-      itemId: "item-1",
-      itemVersionId: "version-1",
-      kind: "figma-frame",
-      label: "Pricing hero",
-      dataRole: "untrusted-reference" as const,
-    };
-    const generated = {
-      kind: "design-file",
-      label: "Net-new hero",
-      dataRole: "untrusted-reference" as const,
-      influence: "generated" as const,
-    };
-    const attachedPhoto = {
-      kind: "image",
-      label: "User's attached photo",
-      dataRole: "untrusted-reference" as const,
-    };
-    const halfLabel = {
-      itemId: "item-2",
-      kind: "figma-frame",
-      label: "Half a label",
-      dataRole: "untrusted-reference" as const,
-    };
-
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Pricing from the attached photos",
-      reuseLabels: [evidence, generated, attachedPhoto, halfLabel],
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Pricing</body></html>",
-        },
-      ],
-    });
-
-    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
-      expect.objectContaining({ reuseLabels: [evidence, generated] }),
-    );
-    expect(result).toMatchObject({
-      renderable: true,
-      ignoredReuseLabels: [
-        {
-          kind: "image",
-          label: "User's attached photo",
-          reason: "missing-item-ids",
-        },
-        {
-          kind: "figma-frame",
-          label: "Half a label",
-          reason: "partial-item-ids",
-        },
-      ],
-    });
-  });
-
-  it("ignores every non-generated label while the one-generation override is off", async () => {
-    const evidence = {
-      itemId: "item-1",
-      itemVersionId: "version-1",
-      kind: "figma-frame",
-      label: "Pricing hero",
-      dataRole: "untrusted-reference" as const,
-    };
-
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Unbranded concept",
-      contextModeOverride: "off",
-      reuseLabels: [evidence],
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Concept</body></html>",
-        },
-      ],
-    });
-
-    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
-      expect.objectContaining({ contextModeOverride: "off", reuseLabels: [] }),
-    );
-    expect(result).toMatchObject({
-      ignoredReuseLabels: [
-        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
-      ],
-    });
-  });
-
-  it("ignores item-backed labels when Creative Context is off by preference or lab availability", async () => {
-    mocks.isCreativeContextOffForUser.mockResolvedValueOnce(true);
-    const evidence = {
-      itemId: "item-1",
-      itemVersionId: "version-1",
-      kind: "figma-frame",
-      label: "Pricing hero",
-      dataRole: "untrusted-reference" as const,
-    };
-
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Pricing",
-      reuseLabels: [evidence],
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Pricing</body></html>",
-        },
-      ],
-    });
-
-    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
-      expect.objectContaining({ reuseLabels: [] }),
-    );
-    expect(result).toMatchObject({
-      renderable: true,
-      ignoredReuseLabels: [
-        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
-      ],
-    });
-  });
-
-  it("treats a generation session without a pack as Creative Context off for labels", async () => {
-    mocks.readAppState.mockResolvedValue({
-      id: "session-1",
-      designId: "design-1",
-      status: "generating",
-      prompt: "Pricing",
-      contextRefs: [],
-      creativeContext: {
-        contextMode: "auto",
-        contextPackId: null,
-        reuseLabels: [],
-      },
-      frames: [],
-      startedAt: "2026-11-09T00:00:00.000Z",
-    });
-    const evidence = {
-      itemId: "item-1",
-      itemVersionId: "version-1",
-      kind: "figma-frame",
-      label: "Pricing hero",
-      dataRole: "untrusted-reference" as const,
-    };
-
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Pricing",
-      reuseLabels: [evidence],
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Pricing</body></html>",
-        },
-      ],
-    });
-
-    expect(mocks.isCreativeContextOffForUser).not.toHaveBeenCalled();
-    expect(result).toMatchObject({
-      ignoredReuseLabels: [
-        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
-      ],
-    });
-  });
-
-  it("keeps the session's evidence when every label the model sent was ignored", async () => {
-    const evidence = {
-      itemId: "item-1",
-      itemVersionId: "version-1",
-      kind: "figma-frame",
-      label: "Pricing hero",
-      dataRole: "untrusted-reference" as const,
-    };
-    mocks.readAppState.mockResolvedValue({
-      id: "session-1",
-      designId: "design-1",
-      status: "generating",
-      prompt: "Pricing",
-      contextRefs: [],
-      creativeContext: {
-        contextMode: "pinned",
-        contextPackId: "pack-1",
-        reuseLabels: [evidence],
-      },
-      frames: [],
-      startedAt: "2026-11-09T00:00:00.000Z",
-    });
-
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Pricing from the attached photos",
-      reuseLabels: [
-        {
-          kind: "image",
-          label: "User's attached photo",
-          dataRole: "untrusted-reference",
-        },
-      ],
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Pricing</body></html>",
-        },
-      ],
-    });
-
-    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
-      contextPackId: "pack-1",
-      contextPackSource: "inherited",
-      reuseLabels: [evidence],
-      reuseLabelsSource: "inherited",
-    });
-    expect(result).toMatchObject({
-      ignoredReuseLabels: [
-        {
-          kind: "image",
-          label: "User's attached photo",
-          reason: "missing-item-ids",
-        },
-      ],
-    });
-  });
-
-  it("reports no ignored labels when every label is recordable", async () => {
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Plain page",
-      files: [
-        {
-          filename: "index.html",
-          fileType: "html",
-          content: "<html><body>Plain</body></html>",
-        },
-      ],
-    });
-
-    expect(result).not.toHaveProperty("ignoredReuseLabels");
-  });
-
-  it("does not refuse the call at input validation when a reference label has no item ids", async () => {
-    const run = vi.fn(async (input: unknown) => input);
-    const result = await executeAgentToolCall({
-      actions: {
-        "generate-design": { ...action, run } as unknown as ActionEntry,
-      },
-      name: "generate-design",
-      callId: "label-without-ids",
-      input: {
-        designId: "design-1",
-        prompt: "From the attached photos",
-        files: [
-          {
-            filename: "index.html",
-            fileType: "html",
-            content: "<html><body>Photos</body></html>",
-          },
-        ],
-        reuseLabels: [{ kind: "image", label: "User's attached photo" }],
-      },
-    });
-
-    expect(result.status).toBe("completed");
-    expect(run).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("generate-design: new screens never stack on existing frames", () => {
@@ -3221,7 +2823,6 @@ describe("generate-design: generation attempt tracking", () => {
     const result = await action.run({
       designId: "design-1",
       prompt,
-      designSystemId: "ds-1",
       files: [{ filename: "index.html", fileType: "html", content: html }],
     });
 
@@ -3233,7 +2834,6 @@ describe("generate-design: generation attempt tracking", () => {
       generation_path: "generate_design",
       prompt_type: "ui",
       prompt_length_bucket: "1-50",
-      has_reference_design_system: true,
       app_name: "design",
     });
     expect(events("generation_completed")).toEqual([]);
@@ -3284,26 +2884,6 @@ describe("generate-design: generation attempt tracking", () => {
       error_type: "http_503",
       files_saved: 0,
     });
-  });
-
-  it("records a failure when the design-system access check fails after start", async () => {
-    const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
-    mocks.assertAccess
-      .mockImplementationOnce(mocks.designAccess)
-      .mockRejectedValueOnce(denied);
-
-    await expect(
-      action.run({
-        designId: "design-1",
-        prompt: "Landing page",
-        designSystemId: "ds-private",
-        files: [{ filename: "index.html", fileType: "html", content: html }],
-      }),
-    ).rejects.toBe(denied);
-    expect(generationEvents()).toEqual([
-      "generation_started",
-      "generation_failed",
-    ]);
   });
 
   it("attributes a call that fills a pending generate-screens frame to the screens path", async () => {
@@ -3578,7 +3158,6 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
     expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
     expect(mocks.mutateDesignData).toHaveBeenCalledTimes(2);
-    expect(mocks.resolveGenerationCreativeContext).toHaveBeenCalledOnce();
   });
 
   it("lets a corrected call run after an HTML integrity rejection", async () => {
@@ -3639,40 +3218,6 @@ describe("generate-design: rejected input in the agent loop", () => {
 
     expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
-    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
-  });
-
-  it("rejects a mismatched generation-session pack before checkpointing", async () => {
-    mocks.readAppState.mockResolvedValue({
-      id: "session-1",
-      designId: "design-1",
-      status: "done",
-      frames: [],
-      creativeContext: {
-        contextMode: "pinned",
-        contextPackId: "pack-current",
-        reuseLabels: [],
-      },
-    });
-
-    await expect(
-      action.run({
-        designId: "design-1",
-        prompt: "Create a page",
-        contextPackId: "pack-stale",
-        files: [
-          {
-            filename: "index.html",
-            fileType: "html",
-            content: "<main>Hi</main>",
-          },
-        ],
-      }),
-    ).rejects.toMatchObject({ name: "NoWriteError", noWrite: true });
-
-    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
-    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
-    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
   it("lets a corrected call run after an unknown canvas frame is rejected", async () => {
@@ -3820,8 +3365,6 @@ describe("generate-design: a padded call keeps app screens responsive", () => {
     projectType: "prototype",
     tweaks: [],
     canvasFrames: [],
-    contextPackId: null,
-    reuseLabels: [],
     primaryViewport: null,
     devices: [],
     fixedCanvas: false,

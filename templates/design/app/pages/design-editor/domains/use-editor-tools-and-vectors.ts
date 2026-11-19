@@ -1,7 +1,3 @@
-import {
-  setAgentChatContextItem,
-  removeAgentChatContextItem,
-} from "@agent-native/core/client/agent-chat";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
@@ -94,7 +90,6 @@ import {
   summarizeAgentSelectionScreens,
   type ScreenFrameTypeCache,
 } from "../effects/publish-agent-selection-context";
-import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
 import {
   captureContentUndoStackTop,
   captureYjsUndoHistoryUpdate,
@@ -1754,31 +1749,6 @@ export function useEditorToolsAndVectors({
     ],
   );
 
-  useEffect(() => {
-    const key = "design:design-system";
-    if (!isSignedIn) return;
-    const designSystemId = design?.designSystemId;
-    if (!designSystemId) {
-      removeAgentChatContextItem(key);
-      return;
-    }
-
-    let cancelled = false;
-    void loadDesignSystemGenerationContext(designSystemId).then((context) => {
-      if (cancelled || !context.trim()) return;
-      setAgentChatContextItem({
-        key,
-        title: "Selected design system" /* i18n-ignore agent context label */,
-        context,
-        openSidebar: false,
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      removeAgentChatContextItem(key);
-    };
-  }, [design?.designSystemId, isSignedIn]);
   // PF8: rare, discrete interactions (add/activate a breakpoint) — not a
   // per-frame gesture path. addBreakpointMutation/setActiveBreakpointMutation
   // are useActionMutation(...) results (packages/core/src/client/use-action.ts),
