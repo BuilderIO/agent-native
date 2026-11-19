@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   buildOutgoingRawEmail: vi.fn(),
   googleFetch: vi.fn(),
   setResponseStatus: vi.fn(),
+  resolveExistingSavedDraftOwnership: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -116,11 +117,15 @@ vi.mock("../lib/mail-settings.js", () => ({
 vi.mock("../lib/outgoing-email.js", () => ({
   bodyToHtml: vi.fn(),
   buildRawEmail: mocks.buildOutgoingRawEmail,
+  mimeAttachmentFilename: (attachment: {
+    filename: string;
+    originalName?: string;
+  }) => attachment.originalName || attachment.filename,
   resolveComposeAttachments: mocks.resolveComposeAttachments,
   splitReplyQuote: vi.fn(),
 }));
 vi.mock("../lib/saved-draft-ownership.js", () => ({
-  resolveExistingSavedDraftOwnership: vi.fn(),
+  resolveExistingSavedDraftOwnership: mocks.resolveExistingSavedDraftOwnership,
   SavedDraftOwnershipError: class SavedDraftOwnershipError extends Error {},
 }));
 vi.mock("../lib/sender-identity.js", () => ({
@@ -189,6 +194,336 @@ describe("saveDraft with a workspace-managed Gmail account", () => {
       backend: "gmail",
       accountEmail: managedAccountEmail,
       created: true,
+    });
+  });
+
+  it("saves an edit to a draft reopened from Drafts into that same Gmail draft", async () => {
+    mocks.readBody.mockResolvedValue({
+      to: "recipient@example.com",
+      subject: "Edited draft",
+      body: "Edited body",
+      draftId: "message-of-draft",
+      savedDraftBackend: "gmail",
+      accountEmail: managedAccountEmail,
+    });
+    mocks.resolveExistingSavedDraftOwnership.mockResolvedValue({
+      backend: "gmail",
+      accountEmail: managedAccountEmail,
+    });
+    mocks.googleFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/drafts/r-draft-7")) return { id: "r-draft-7" };
+      if (url.includes("/drafts?")) {
+        return {
+          drafts: [{ id: "r-draft-7", message: { id: "message-of-draft" } }],
+        };
+      }
+      throw Object.assign(new Error("Google API error (404): Not Found"), {
+        status: 404,
+      });
+    });
+
+    const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    expect(result).toEqual({
+      draftId: "r-draft-7",
+      backend: "gmail",
+      accountEmail: managedAccountEmail,
+      updated: true,
+    });
+    expect(mocks.googleFetch).toHaveBeenLastCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/drafts/r-draft-7",
+      "test-access-token",
+      expect.objectContaining({ method: "PUT" }),
+    );
+    expect(mocks.googleFetch).not.toHaveBeenCalledWith(
+      "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+      "test-access-token",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  describe("when the reopened draft holds a file of its own", () => {
+    const draftFile = {
+      id: "part-1",
+      filename: "brief.pdf",
+      originalName: "brief.pdf",
+      mimeType: "application/pdf",
+      size: 10,
+      source: "gmail",
+      gmailMessageId: "message-of-draft",
+      gmailAttachmentId: "part-1",
+      accountEmail: managedAccountEmail,
+    };
+
+    beforeEach(() => {
+      mocks.resolveExistingSavedDraftOwnership.mockResolvedValue({
+        backend: "gmail",
+        accountEmail: managedAccountEmail,
+      });
+      let messageId = "message-of-draft";
+      mocks.googleFetch.mockImplementation(
+        async (url: string, _token: string, options?: RequestInit) => {
+          const { pathname, searchParams } = new URL(url);
+          if (pathname.endsWith("/drafts")) {
+            return {
+              drafts: [{ id: "r-draft-7", message: { id: messageId } }],
+            };
+          }
+          if (!pathname.endsWith("/drafts/r-draft-7")) {
+            throw Object.assign(
+              new Error("Google API error (404): Not Found"),
+              {
+                status: 404,
+              },
+            );
+          }
+          if (options?.method === "PUT") {
+            messageId = "message-2";
+            return { id: "r-draft-7", message: { id: messageId } };
+          }
+          if (searchParams.get("format") === "minimal") {
+            return { message: { id: messageId } };
+          }
+          return {
+            message: {
+              id: messageId,
+              payload: {
+                parts: [
+                  { filename: "" },
+                  {
+                    filename: "brief.pdf",
+                    body: { attachmentId: "part-2", size: 10 },
+                  },
+                ],
+              },
+            },
+          };
+        },
+      );
+    });
+
+    it("says where Gmail moved the file", async () => {
+      mocks.readBody.mockResolvedValue({
+        to: "recipient@example.com",
+        subject: "Edited draft",
+        body: "Edited body",
+        draftId: "message-of-draft",
+        savedDraftBackend: "gmail",
+        accountEmail: managedAccountEmail,
+        attachments: [draftFile],
+      });
+      mocks.resolveComposeAttachments.mockResolvedValue([
+        { ...draftFile, data: Buffer.from("draft file") },
+      ]);
+
+      const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+        {},
+      );
+
+      expect(result).toEqual({
+        draftId: "r-draft-7",
+        backend: "gmail",
+        accountEmail: managedAccountEmail,
+        updated: true,
+        movedAttachments: [
+          {
+            from: {
+              gmailMessageId: "message-of-draft",
+              gmailAttachmentId: "part-1",
+            },
+            to: { gmailMessageId: "message-2", gmailAttachmentId: "part-2" },
+          },
+        ],
+      });
+    });
+
+    it("says where the file went in the draft that replaced a deleted one", async () => {
+      mocks.googleFetch.mockImplementation(
+        async (url: string, _token: string, options?: RequestInit) => {
+          const { pathname } = new URL(url);
+          if (pathname.endsWith("/drafts") && options?.method === "POST") {
+            return { id: "r-new-draft", message: { id: "message-9" } };
+          }
+          if (pathname.endsWith("/drafts")) return { drafts: [] };
+          if (!pathname.endsWith("/drafts/r-new-draft")) {
+            throw Object.assign(
+              new Error("Google API error (404): Not Found"),
+              { status: 404 },
+            );
+          }
+          return {
+            message: {
+              id: "message-9",
+              payload: {
+                parts: [
+                  { filename: "" },
+                  {
+                    filename: "brief.pdf",
+                    body: { attachmentId: "part-9", size: 10 },
+                  },
+                ],
+              },
+            },
+          };
+        },
+      );
+      mocks.readBody.mockResolvedValue({
+        to: "recipient@example.com",
+        subject: "Edited draft",
+        body: "Edited body",
+        draftId: "r-draft-7",
+        savedDraftBackend: "gmail",
+        accountEmail: managedAccountEmail,
+        attachments: [draftFile],
+      });
+      mocks.resolveComposeAttachments.mockResolvedValue([
+        { ...draftFile, data: Buffer.from("draft file") },
+      ]);
+
+      const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+        {},
+      );
+
+      expect(result).toEqual({
+        draftId: "r-new-draft",
+        backend: "gmail",
+        accountEmail: managedAccountEmail,
+        created: true,
+        movedAttachments: [
+          {
+            from: {
+              gmailMessageId: "message-of-draft",
+              gmailAttachmentId: "part-1",
+            },
+            to: { gmailMessageId: "message-9", gmailAttachmentId: "part-9" },
+          },
+        ],
+      });
+    });
+
+    it("names the Gmail draft it saved when it can't say where the file moved", async () => {
+      const gmail = mocks.googleFetch.getMockImplementation();
+      mocks.googleFetch.mockImplementation(
+        async (url: string, token: string, options?: RequestInit) => {
+          if (new URL(url).searchParams.get("format") === "full") {
+            throw new Error("Google API error (503): Backend Error");
+          }
+          return gmail?.(url, token, options);
+        },
+      );
+      mocks.readBody.mockResolvedValue({
+        to: "recipient@example.com",
+        subject: "Edited draft",
+        body: "Edited body",
+        draftId: "message-of-draft",
+        savedDraftBackend: "gmail",
+        accountEmail: managedAccountEmail,
+        attachments: [draftFile],
+      });
+      mocks.resolveComposeAttachments.mockResolvedValue([
+        { ...draftFile, data: Buffer.from("draft file") },
+      ]);
+
+      const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+        {},
+      );
+
+      expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, 502);
+      expect(result).toEqual({
+        error: expect.stringContaining(
+          "couldn't confirm where its attachments moved",
+        ),
+        errorCode: "draft_attachments_unconfirmed",
+        draftId: "r-draft-7",
+        backend: "gmail",
+        accountEmail: managedAccountEmail,
+      });
+    });
+
+    it.each([
+      [
+        "Gmail's failure, which a retry can clear",
+        Object.assign(new Error("Google API error (503): Backend Error"), {
+          status: 503,
+        }),
+        503,
+        { error: "Google API error (503): Backend Error" },
+      ],
+      [
+        "a file Mail can't read as a bad request",
+        new Error(
+          `Mail couldn't tell which file in the Gmail draft is "brief.pdf".`,
+        ),
+        400,
+        { error: "One or more attachments could not be read" },
+      ],
+    ])(
+      "reports %s while reading the draft's files",
+      async (_case, error, status, body) => {
+        mocks.readBody.mockResolvedValue({
+          to: "recipient@example.com",
+          subject: "Edited draft",
+          body: "Edited body",
+          draftId: "r-draft-7",
+          savedDraftBackend: "gmail",
+          accountEmail: managedAccountEmail,
+          attachments: [draftFile],
+        });
+        mocks.resolveComposeAttachments.mockRejectedValue(error);
+
+        const result = await (
+          saveDraft as (event: unknown) => Promise<unknown>
+        )({});
+
+        expect(mocks.setResponseStatus).toHaveBeenCalledWith({}, status);
+        expect(result).toEqual(body);
+        expect(mocks.googleFetch).not.toHaveBeenCalled();
+      },
+    );
+
+    it("asks Gmail nothing more when the save carries only uploads", async () => {
+      const upload = {
+        id: "upload.pdf",
+        filename: "upload.pdf",
+        originalName: "upload.pdf",
+        mimeType: "application/pdf",
+        size: 6,
+      };
+      mocks.readBody.mockResolvedValue({
+        to: "recipient@example.com",
+        subject: "Edited draft",
+        body: "Edited body",
+        draftId: "r-draft-7",
+        savedDraftBackend: "gmail",
+        accountEmail: managedAccountEmail,
+        attachments: [upload],
+      });
+      mocks.resolveComposeAttachments.mockResolvedValue([
+        {
+          ...upload,
+          url: "/api/media/upload.pdf",
+          data: Buffer.from("upload"),
+        },
+      ]);
+
+      const result = await (saveDraft as (event: unknown) => Promise<unknown>)(
+        {},
+      );
+
+      expect(result).toEqual({
+        draftId: "r-draft-7",
+        backend: "gmail",
+        accountEmail: managedAccountEmail,
+        updated: true,
+      });
+      expect(mocks.googleFetch).toHaveBeenCalledTimes(1);
+      expect(mocks.googleFetch).toHaveBeenCalledWith(
+        "https://gmail.googleapis.com/gmail/v1/users/me/drafts/r-draft-7",
+        "test-access-token",
+        expect.objectContaining({ method: "PUT" }),
+      );
     });
   });
 

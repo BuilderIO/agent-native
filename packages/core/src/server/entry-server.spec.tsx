@@ -1,3 +1,5 @@
+import { createContext, runInContext } from "node:vm";
+
 import type { ReactElement } from "react";
 import type { EntryContext, RouterContextProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -149,6 +151,57 @@ describe("createDocumentRequestHandler", () => {
     expect(response.headers.get("content-type")).toBe(
       "text/html; charset=utf-8",
     );
+  });
+
+  it("installs a standards-compatible Object.hasOwn before browser modules", async () => {
+    mocks.renderToReadableStream.mockImplementationOnce(async () =>
+      streamOf(...DOCUMENT_CHUNKS),
+    );
+    const html = await renderDocument();
+    const bootstrap = [
+      ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi),
+    ].find((match) => match[1].includes("data-agent-native-has-own-bootstrap"));
+    expect(bootstrap).toBeDefined();
+    if (!bootstrap) throw new Error("Missing Object.hasOwn bootstrap");
+    expect(bootstrap.index).toBeLessThan(html.indexOf('rel="modulepreload"'));
+    expect(bootstrap.index).toBeLessThan(html.indexOf('type="module"'));
+    const bootstrapCode = bootstrap[2];
+    const browser = createContext({});
+    runInContext("delete Object.hasOwn", browser);
+    runInContext(bootstrapCode, browser);
+
+    expect(
+      runInContext(
+        `(() => {
+      const symbol = Symbol("key");
+      const object = Object.create({ inherited: true });
+      object[symbol] = 1;
+      object.hasOwnProperty = null;
+      const descriptor = Object.getOwnPropertyDescriptor(Object, "hasOwn");
+      let nullThrows = false;
+      let undefinedThrows = false;
+      let constructorThrows = false;
+      let keyCoerced = false;
+      try { Object.hasOwn(null, { toString() { keyCoerced = true; return "x"; } }); } catch (error) { nullThrows = error instanceof TypeError; }
+      try { Object.hasOwn(undefined, "x"); } catch (error) { undefinedThrows = error instanceof TypeError; }
+      try { new Object.hasOwn({}, "x"); } catch (error) { constructorThrows = error instanceof TypeError; }
+      return nullThrows && undefinedThrows && constructorThrows && !keyCoerced &&
+        Object.hasOwn(object, symbol) && !Object.hasOwn(object, "inherited") &&
+        Object.hasOwn(object, "hasOwnProperty") && Object.hasOwn("abc", 1) &&
+        !Object.hasOwn(123, "x") && Object.hasOwn({ x: 1 }, { toString() { return "x"; } }) &&
+        descriptor.writable && descriptor.configurable && !descriptor.enumerable &&
+        Object.hasOwn.name === "hasOwn" && Object.hasOwn.length === 2;
+    })()`,
+        browser,
+      ),
+    ).toBe(true);
+
+    const nativeBrowser = createContext({});
+    runInContext("globalThis.originalHasOwn = Object.hasOwn", nativeBrowser);
+    runInContext(bootstrapCode, nativeBrowser);
+    expect(
+      runInContext("Object.hasOwn === originalHasOwn", nativeBrowser),
+    ).toBe(true);
   });
 
   it("starts the session read its render records from the top of <head>", async () => {

@@ -83,6 +83,22 @@ describe("Builder credit limit email notice", () => {
     );
   });
 
+  it("sends no upgrade email where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    try {
+      await sendBuilderCreditLimitNotice({
+        ownerEmail: "person@example.com",
+        orgId: "org-1",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(mocks.settings.size).toBe(0);
+  });
+
   it("allows one new notice after live status clears the exhaustion episode", async () => {
     const input = { ownerEmail: "person@example.com", orgId: "org-1" };
     await sendBuilderCreditLimitNotice(input);

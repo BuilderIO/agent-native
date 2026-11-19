@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   knowledgeRows: [] as Array<Record<string, unknown>>,
+  scanLimits: [] as boolean[],
   captures: [] as Array<Record<string, unknown>>,
   policies: new Map<string, Record<string, unknown>>(),
   lanes: {
@@ -45,7 +46,10 @@ vi.mock("../server/lib/brain.js", () => ({
   })),
   safeCitationUrl: (value: unknown) =>
     typeof value === "string" ? value : null,
-  searchKnowledgeRows: vi.fn(async () => mocks.knowledgeRows),
+  searchKnowledgePage: vi.fn(async () => ({
+    rows: mocks.knowledgeRows,
+    scanLimited: mocks.scanLimits.shift() ?? false,
+  })),
   serializeKnowledge: (row: Record<string, unknown>) => ({
     ...row,
     evidence: row.evidence ?? [],
@@ -167,6 +171,7 @@ function capture(args: {
 describe("ask-brain source answer policy", () => {
   beforeEach(() => {
     mocks.knowledgeRows = [];
+    mocks.scanLimits = [];
     mocks.captures = [];
     mocks.policies = new Map();
     mocks.lanes = {
@@ -490,5 +495,37 @@ describe("ask-brain source answer policy", () => {
       fts: { status: "ok" },
       semantic: { status: "failed", error: "openai-credential-unavailable" },
     });
+  });
+  it("retains a scan-limit signal from an earlier facet even when later facets complete", async () => {
+    mocks.scanLimits = [true, false];
+    const result = await action.run({
+      question: "What is Agent-Native?",
+      mode: "cited",
+    });
+    expect(result.knowledgeScanLimited).toBe(true);
+    expect(result.answer).toContain("results are partial");
+    expect(result.answerSource).toBe("none");
+  });
+
+  it("discloses a partial knowledge scan while retaining policy-eligible cited results", async () => {
+    mocks.scanLimits = [false, true];
+    mocks.knowledgeRows = [
+      knowledge({
+        id: "partial",
+        sourceId: "source-approved",
+        title: "Agent-Native synthesis",
+      }),
+    ];
+    mocks.policies.set("source-approved", policy("source-approved"));
+    const result = await action.run({
+      question: "What is Agent-Native?",
+      mode: "cited",
+    });
+    expect(result.knowledgeScanLimited).toBe(true);
+    expect(result.answer).toContain("results are partial");
+    expect(result.answer).toContain("Agent-Native synthesis");
+    expect(result.citations).toEqual([
+      expect.objectContaining({ knowledgeId: "partial" }),
+    ]);
   });
 });

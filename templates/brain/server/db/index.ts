@@ -11,6 +11,11 @@ export { schema };
 
 registerShareableResource({
   type: "brain-source",
+  assertSharingChange: async (args) => {
+    const { assertSourceSharingChange } =
+      await import("../lib/source-access.js");
+    await assertSourceSharingChange(args);
+  },
   agentRead: { actions: ["get-source"] },
   resourceTable: schema.brainSources,
   sharesTable: schema.brainSourceShares,
@@ -29,6 +34,9 @@ registerShareableResource({
 // restores the source if it is archived or made private. Every other source
 // falls through to the normal sharing rules.
 registerHostAccessResolver("brain-source", async (source, ctx) => {
+  const { resolvePersonalSourceAccess } =
+    await import("../lib/source-access.js");
+  if ((await resolvePersonalSourceAccess(source, ctx)) === null) return null;
   const { companyContextSourceId, isCompanyContextIntakeConfig } =
     await import("../lib/brain.js");
   if (!source?.orgId || source.id !== companyContextSourceId(source.orgId)) {
@@ -52,6 +60,11 @@ registerHostAccessResolver("brain-source", async (source, ctx) => {
 
 registerShareableResource({
   type: "brain-knowledge",
+  assertSharingChange: async (args) => {
+    const { assertKnowledgeSharingChange } =
+      await import("../lib/knowledge-access.js");
+    await assertKnowledgeSharingChange(args);
+  },
   resourceTable: schema.brainKnowledge,
   sharesTable: schema.brainKnowledgeShares,
   displayName: "Brain Knowledge",
@@ -61,6 +74,16 @@ registerShareableResource({
   requireOrgMemberForUserShares: true,
   getDb,
 });
+
+registerHostAccessResolver(
+  "brain-knowledge",
+  async (knowledge, ctx) => {
+    const { resolveKnowledgeEvidenceAccess } =
+      await import("../lib/knowledge-access.js");
+    return resolveKnowledgeEvidenceAccess(knowledge, ctx);
+  },
+  { includeSignedOut: true },
+);
 
 registerShareableResource({
   type: "brain-proposal",

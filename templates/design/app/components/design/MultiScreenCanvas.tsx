@@ -730,7 +730,6 @@ function shallowEqualObjects(a: object | undefined, b: object | undefined) {
   );
 }
 
-// Grouped props compare member by member, exactly as the flat props did.
 function areMultiScreenCanvasPropsEqual(
   prev: MultiScreenCanvasGroupedProps,
   next: MultiScreenCanvasGroupedProps,
@@ -8695,7 +8694,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         hasMoved: false,
       };
       setIsDragging(true);
-      // Object drags keep the default arrow cursor.
 
       // The surface itself never moves mid-gesture, so its bounding rect is
       // invariant for the whole drag. Cache it once instead of letting the
@@ -13345,23 +13343,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
             onStartDrag={beginBoardElementDrag}
-            onDoubleClick={
-              onBoardIframeHotkey
-                ? (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onBoardIframeHotkey({
-                      key: "Enter",
-                      code: "Enter",
-                      metaKey: false,
-                      ctrlKey: false,
-                      shiftKey: false,
-                      altKey: false,
-                      repeat: false,
-                    });
-                  }
-                : undefined
-            }
           />
         ) : null}
 
@@ -13733,7 +13714,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         />
       ) : null}
 
-      {/* Cross-screen element drag: ghost follows the board-space cursor. */}
       {crossScreenGhost ? (
         <span
           data-cross-screen-drag-ghost
@@ -15054,8 +15034,6 @@ const Screen = memo(function Screen({
                 transition: getChromeLabelTransition(chromeSettling),
               }}
             >
-              {/* The screen label has no leading decoration; its text carries the
-              screen name and breakpoint state. */}
               {renamingTitle && onRename ? (
                 <ScreenTitleRenameInput
                   initialName={display}
@@ -15181,7 +15159,6 @@ const Screen = memo(function Screen({
         className={cn(
           "group/artboard relative block overflow-visible bg-background text-left outline-none transition-colors",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          // A device preview, not an artboard: rounded, and lifted off the canvas.
           focusedInteract && interactCornerClass
             ? cn(interactCornerClass, "shadow-md")
             : null,
@@ -16127,7 +16104,6 @@ function BreakpointPreviewRow({
         );
       })}
 
-      {/* + affordance: add the next standard breakpoint */}
       {onAddBreakpoint && nextWidth !== undefined ? (
         <div
           className="pointer-events-auto absolute flex items-center"

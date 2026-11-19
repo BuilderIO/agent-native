@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-16
+
+### Added
+
+- Connected MCP agents can now edit, archive, and restore dashboards and analyses; each write applies only to the version the agent read, a retried request never writes twice, and every edit can be undone: from history, or by unarchiving, unhiding, or moving it back.
+
 ## 2026-11-14
 
 ### Fixed
@@ -41,6 +47,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Feature flag changes can apply to this organization or to every organization, and the panel shows when an organization's own rule overrides the rule for all organizations.
 
 ## 2026-11-07
+
+### Added
+
+- Sessions triage Lab: have the agent write a report on a session, with its key moments, repro steps and commit, to share with your organization or hand to another agent through a link
 
 ### Fixed
 
@@ -1484,24 +1494,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Session recordings now include response bodies for 5xx errors so agents can see the actual server error
-
-## 2026-07-02
-
-### Added
-
-- Alert rules can now be viewed and managed from Settings.
-- Session replays can be copied as temporary private links for agents.
-- Session replays now capture console logs and network requests so agents can debug user-reported issues from a shared link.
-- The session replay viewer has a Dev Tools panel with console and network tabs.
-
-### Improved
-
-- Recent Ask chats show a loading placeholder while your chat history loads.
-- Sharing status labels use neutral icons instead of colored dots.
-
-### Fixed
-
-- Agent chat can keep working through longer data queries instead of stopping mid-action.
-- Session replay playback now preserves the initial page snapshot when an upload needs to retry.
 
 For the full list of updates, see the [changelog folder](./changelog/).

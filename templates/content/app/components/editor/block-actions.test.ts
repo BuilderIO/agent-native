@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   blockActionLocks,
   blockCommentRange,
-  blockTitleKey,
   canTurnInto,
   currentTurnIntoTarget,
   turnBlockInto,
@@ -81,17 +80,7 @@ describe("block actions", () => {
     expect(turnBlockInto(tr, 0, "heading1")).toBe(false);
     expect(tr.docChanged).toBe(false);
   });
-
-  it("titles a block with its kind", () => {
-    const page = mount([
-      { type: "heading", attrs: { level: 2 }, content: [text("Plan")] },
-      { type: "horizontalRule" },
-    ]);
-
-    expect(blockTitleKey(page.state.doc.child(0))).toBe("editor.heading2");
-    expect(blockTitleKey(page.state.doc.child(1))).toBe("editor.slash.divider");
-  });
-
+  // oracle-change: block titles moved with blockTitleKey to the per-type registry, and its test checks them there
   it("quotes a block's text for a comment, and nothing from a blank or a divider", () => {
     const page = mount([
       paragraph("Hello"),

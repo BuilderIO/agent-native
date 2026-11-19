@@ -51,20 +51,20 @@ action <name>`.
 
 ### Designs
 
-| Action                    | Ce qu'elle fait                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| `create-design`           | Créer la coquille de design vide                                                            |
-| `generate-design`         | Écrire le contenu de fichier HTML/JSX généré                                                |
-| `edit-design`             | Effectuer une modification chirurgicale de recherche/remplacement sur un fichier existant   |
-| `update-design`           | Mettre à jour les métadonnées d'un design, comme son titre ou son système de conception lié |
-| `get-design`              | Lire un design par son id                                                                   |
-| `list-designs`            | Lister les designs accessibles                                                              |
-| `duplicate-design`        | Copier un design et ses fichiers                                                            |
-| `delete-design`           | Supprimer un design                                                                         |
-| `apply-tweaks`            | Enregistrer les valeurs actives des contrôles de réglage                                    |
-| `present-design-variants` | Enregistrer quelques directions comme écrans et afficher le sélecteur côte à côte           |
-| `show-design-questions`   | Afficher la superposition de questions de clarification pour une invite vague               |
-| `generate-screens`        | Générer plusieurs écrans en un lot                                                          |
+| Action                    | Ce qu'elle fait                                                                           |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `create-design`           | Créer la coquille de design vide                                                          |
+| `generate-design`         | Écrire le contenu de fichier HTML/JSX généré                                              |
+| `edit-design`             | Effectuer une modification chirurgicale de recherche/remplacement sur un fichier existant |
+| `update-design`           | Mettre à jour les métadonnées d'un design, comme son titre                                |
+| `get-design`              | Lire un design par son id                                                                 |
+| `list-designs`            | Lister les designs accessibles                                                            |
+| `duplicate-design`        | Copier un design et ses fichiers                                                          |
+| `delete-design`           | Supprimer un design                                                                       |
+| `apply-tweaks`            | Enregistrer les valeurs actives des contrôles de réglage                                  |
+| `present-design-variants` | Enregistrer quelques directions comme écrans et afficher le sélecteur côte à côte         |
+| `show-design-questions`   | Afficher la superposition de questions de clarification pour une invite vague             |
+| `generate-screens`        | Générer plusieurs écrans en un lot                                                        |
 
 ### Fichiers
 
@@ -84,22 +84,15 @@ action <name>`.
 | `save-design-as-template`     | Enregistrer le design actuel comme modèle réutilisable                                      |
 | `delete-design-template`      | Supprimer un modèle enregistré                                                              |
 
-### Systèmes de conception et import de marque
+### Import de marque
 
-| Action                             | Ce qu'elle fait                                                                                                                                                            |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create-design-system`             | Créer un système de conception à partir de zéro, ou à partir d'un préréglage public comme Material 3, Carbon, ou Primer                                                    |
-| `update-design-system`             | Mettre à jour les jetons ou paramètres d'un système de conception                                                                                                          |
-| `get-design-system`                | Lire un système de conception par son id                                                                                                                                   |
-| `list-design-systems`              | Lister les systèmes de conception accessibles                                                                                                                              |
-| `delete-design-system`             | Supprimer un système de conception                                                                                                                                         |
-| `set-default-design-system`        | Définir quel système de conception est celui par défaut du compte                                                                                                          |
-| `analyze-brand-assets`             | Extraire les couleurs, la typographie, et les références de logo des assets de marque importés                                                                             |
-| `import-from-url`                  | Récupérer les couleurs calculées, la typographie, et les références de logo d'un site web en direct                                                                        |
-| `index-design-system-with-builder` | Indexer un système de conception à partir de code connecté, d'un dépôt GitHub, ou de fichiers de design, y compris `.fig`, via Builder DSI (nécessite Builder.io connecté) |
-| `import-design-tokens`             | Importer directement des jetons de design                                                                                                                                  |
-| `import-document`                  | Extraire un signal de marque à partir d'un import DOCX, PPTX, ou PDF                                                                                                       |
-| `import-design-project`            | Démarrer un système de conception à partir d'un design ou d'un système de conception existant                                                                              |
+| Action                  | Ce qu'elle fait                                                                                     |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `analyze-brand-assets`  | Extraire les couleurs, la typographie, et les références de logo des assets de marque importés      |
+| `import-from-url`       | Récupérer les couleurs calculées, la typographie, et les références de logo d'un site web en direct |
+| `import-design-tokens`  | Importer directement des jetons de design                                                           |
+| `import-document`       | Extraire un signal de marque à partir d'un import DOCX, PPTX, ou PDF                                |
+| `import-design-project` | Extraire les jetons de conception d'un design existant                                              |
 
 ### Figma
 
@@ -142,15 +135,12 @@ action <name>`.
 | `go-to-main-component`        | Aller à la première instance d'un composant comme point de référence    |
 | `open-component-source`       | Ouvrir l'emplacement source d'un composant                              |
 
-### Mouvement et shaders
+### Shaders
 
-| Action                   | Ce qu'elle fait                                                            |
-| ------------------------ | -------------------------------------------------------------------------- |
-| `get-motion-timeline`    | Lire la chronologie de mouvement d'un élément                              |
-| `apply-motion-edit`      | Ajouter ou modifier une image clé sur une chronologie de mouvement         |
-| `remove-motion-timeline` | Supprimer une chronologie de mouvement                                     |
-| `get-shader`             | Consulter les définitions natives et les manifestes des effets sauvegardés |
-| `edit-native-shader`     | Appliquer, modifier, approuver ou supprimer des effets natifs              |
+| Action               | Ce qu'elle fait                                                            |
+| -------------------- | -------------------------------------------------------------------------- |
+| `get-shader`         | Consulter les définitions natives et les manifestes des effets sauvegardés |
+| `edit-native-shader` | Appliquer, modifier, approuver ou supprimer des effets natifs              |
 
 Les effets natifs WebGPU utilisent WGSL. La création personnalisée utilise `edit-native-shader` avec `define-definition`, puis `get-shader` pour lire le `executionHash` sauvegardé, `approve-definition` avec ce `expectedExecutionHash`, et `apply` avec l’identifiant et la version exacts de la définition. Chaque modification nécessite `designId`, `fileId` et le `expectedVersionHash` actuel. Il faut relire le hachage après chaque écriture. La validation du schéma sur CPU ne compile pas le code GPU, il faut donc vérifier l’aperçu Design. Les effets GLSL déjà sauvegardés restent affichables et supprimables.
 
@@ -158,10 +148,7 @@ Les effets natifs WebGPU utilisent WGSL. La création personnalisée utilise `ed
 
 | Action                   | Ce qu'elle fait                                                                                                 |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `run-design-audit`       | Vérifier un écran pour des problèmes d'accessibilité, de contraste, et de dérive entre écrans                   |
-| `apply-a11y-fix`         | Appliquer une correction automatique pour un constat d'audit                                                    |
 | `take-design-screenshot` | Rendre l'écran dans un véritable navigateur et vérifier les débordements, images cassées, et erreurs de console |
-| `get-design-review`      | Lire les constats en cache d'accessibilité et de diff visuel                                                    |
 
 ### Retours de révision
 
@@ -211,7 +198,6 @@ d'application complète](#full-app-building) ci-dessous.
 | `deploy-builder-app`           | Déployer une branche fusion vers une véritable URL                                                    |
 | `get-builder-deploy-status`    | Vérifier le statut d'un déploiement                                                                   |
 | `create-design-branch`         | Créer une nouvelle branche pour un design adossé à fusion                                             |
-| `get-design-branch-diff`       | Comparer une branche fusion à une version antérieure                                                  |
 | `deploy-design-preview`        | Déployer un aperçu d'un design adossé à fusion                                                        |
 | `migrate-inline-design-to-app` | Convertir un prototype en ligne en application adossée à fusion                                       |
 | `connect-builder-app`          | Démarrer le flux de connexion OAuth Builder.io                                                        |
@@ -253,30 +239,28 @@ sous-jacents ne sont pas des lignes HTML en ligne.
 ## Modèle de données
 
 Toutes les données vivent dans SQL via Drizzle ORM. Schéma :
-`templates/design/server/db/schema.ts`. Les designs et les systèmes de
-conception portent le standard `ownableColumns` et une table de partages de
+`templates/design/server/db/schema.ts`. Les designs portent le standard `ownableColumns` et une table de partages de
 framework correspondante, si bien qu'ils s'intègrent dans le modèle de
 partage par utilisateur / par organisation.
 
 Le tableau ci-dessous couvre les ressources possédables principales :
-designs, fichiers, modèles, versions, et systèmes de conception.
+designs, fichiers, modèles, et versions.
 
-| Table                                    | Ce qu'elle contient                                                                                                                                |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `designs`                                | Un projet de design — `title`, `description`, `project_type` (`prototype` / `other`), le blob JSON `data`, et un lien `design_system_id` optionnel |
-| `design_files`                           | Fichiers individuels appartenant à un design (`filename`, `content`, `file_type` par défaut à `html`)                                              |
-| `design_templates`                       | Métadonnées de modèle réutilisable, dimensions, valeurs par défaut, référence au design source, et nombre de couches verrouillées                  |
-| `design_template_files`                  | Fichiers de modèle instantanés copiés dans un design normal modifiable quand un utilisateur démarre à partir d'un modèle                           |
-| `design_template_shares`                 | Table de partages du framework pour la découverte de modèles privés, d'organisation, explicitement partagés, et publics                            |
-| `design_versions`                        | `snapshot`s ponctuels d'un design avec un `label` optionnel, pour l'historique et la restauration                                                  |
-| `design_systems`                         | Jetons de marque réutilisables — `data` (couleurs/typographie/espacement), `assets`, `custom_instructions`, et un drapeau `is_default`             |
-| `design_shares` / `design_system_shares` | Tables de partages du framework mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur)             |
+| Table                    | Ce qu'elle contient                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `designs`                | Un projet de design — `title`, `description`, `project_type` (`prototype` / `other`) et le blob JSON `data`                           |
+| `design_files`           | Fichiers individuels appartenant à un design (`filename`, `content`, `file_type` par défaut à `html`)                                 |
+| `design_templates`       | Métadonnées de modèle réutilisable, dimensions, valeurs par défaut, référence au design source, et nombre de couches verrouillées     |
+| `design_template_files`  | Fichiers de modèle instantanés copiés dans un design normal modifiable quand un utilisateur démarre à partir d'un modèle              |
+| `design_template_shares` | Table de partages du framework pour la découverte de modèles privés, d'organisation, explicitement partagés, et publics               |
+| `design_versions`        | `snapshot`s ponctuels d'un design avec un `label` optionnel, pour l'historique et la restauration                                     |
+| `design_shares`          | Table de partages du framework mappant les principaux (utilisateurs ou organisations) aux rôles (spectateur, éditeur, administrateur) |
 
 <DataModel
   id="doc-block-design11"
   title="Modèle de données Design"
   summary={
-    "Un design possède ses fichiers et ses instantanés versionnés, et lie éventuellement un système de conception réutilisable. Les designs et les systèmes sont tous deux possédables, chacun avec une table de partages du framework."
+    "Un design possède ses fichiers et ses instantanés versionnés. Il est possédable et dispose d'une table de partages du framework."
   }
   entities={[
     {
@@ -307,12 +291,6 @@ designs, fichiers, modèles, versions, et systèmes de conception.
           name: "data",
           type: "json",
           note: "commence comme {}",
-        },
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
-          nullable: true,
         },
       ],
     },
@@ -363,37 +341,6 @@ designs, fichiers, modèles, versions, et systèmes de conception.
       ],
     },
     {
-      id: "systems",
-      name: "design_systems",
-      note: "Jetons de marque réutilisables (possédable)",
-      fields: [
-        {
-          name: "id",
-          type: "id",
-          pk: true,
-        },
-        {
-          name: "data",
-          type: "json",
-          note: "couleurs / typographie / espacement",
-        },
-        {
-          name: "assets",
-          type: "json",
-          nullable: true,
-        },
-        {
-          name: "custom_instructions",
-          type: "text",
-          nullable: true,
-        },
-        {
-          name: "is_default",
-          type: "boolean",
-        },
-      ],
-    },
-    {
       id: "design_shares",
       name: "design_shares",
       note: "Table de partages du framework",
@@ -402,23 +349,6 @@ designs, fichiers, modèles, versions, et systèmes de conception.
           name: "design_id",
           type: "id",
           fk: "designs.id",
-        },
-        {
-          name: "role",
-          type: "text",
-          note: "viewer / editor / admin",
-        },
-      ],
-    },
-    {
-      id: "system_shares",
-      name: "design_system_shares",
-      note: "Table de partages du framework",
-      fields: [
-        {
-          name: "design_system_id",
-          type: "id",
-          fk: "design_systems.id",
         },
         {
           name: "role",
@@ -440,19 +370,8 @@ designs, fichiers, modèles, versions, et systèmes de conception.
       kind: "1-n",
     },
     {
-      from: "systems",
-      to: "designs",
-      kind: "1-n",
-      label: "appliqué à",
-    },
-    {
       from: "designs",
       to: "design_shares",
-      kind: "1-n",
-    },
-    {
-      from: "systems",
-      to: "system_shares",
       kind: "1-n",
     },
   ]}
@@ -462,24 +381,18 @@ Un projet de design est une coquille jusqu'à ce qu'il ait du contenu :
 `create-design` crée une ligne vide (`data: "{}"`), puis `generate-design`
 écrit les véritables fichiers HTML/JSX autonomes. L'artefact généré, la
 source modifiable, et chaque export proviennent tous du même HTML, il n'y a
-donc pas de format « maquette IA » séparé à traduire. Un système de
-conception lié fournit des jetons et des `custom_instructions` que l'agent
-honore à chaque passage de génération.
+donc pas de format « maquette IA » séparé à traduire.
 
-Sept autres tables prennent en charge des fonctionnalités couvertes ailleurs
+Six autres tables prennent en charge des fonctionnalités couvertes ailleurs
 dans cette page plutôt que le modèle de ressources principal :
 `design_localhost_connections` et `design_localhost_write_grants` prennent
 en charge l'[import d'application locale](/docs/template-design-features#import),
 `component_index` prend en charge la [section Composant de l'onglet
-Design](/docs/template-design-features#design-tab), `motion_timeline` prend
-en charge la chronologie de mouvement modifiable de chaque élément (le
-panneau Motion dans l'éditeur), `design_state` conserve les états
+Design](/docs/template-design-features#design-tab), `design_state` conserve les états
 alternatifs nommés, les fixtures statiques, et les captures d'application en
-direct pour un design, `design_fusion_edits` prend en charge la file
+direct pour un design, et `design_fusion_edits` prend en charge la file
 d'attente de modifications fusion décrite sous [Construction d'application
-complète](#full-app-building) ci-dessus, et `design_review_snapshot` met en
-cache les constats d'accessibilité et le diff visuel derrière
-`get-design-review`, décrit sous [Qualité](#quality) ci-dessus.
+complète](#full-app-building) ci-dessus.
 
 Les commentaires et fils de révision persistés (`get-review-feedback`,
 `resolve-review-thread`, et le reste) ne sont pas du tout une table
@@ -506,7 +419,7 @@ fichiers.
   filename="templates/design/actions/save-design-as-template.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        designSystemId:\n          typeof source.designSystemId === "string"\n            ? source.designSystemId\n            : null,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { buildDeepLink } from "@agent-native/core/server";\nimport {\n  getRequestOrgId,\n  getRequestUserEmail,\n} from "@agent-native/core/server/request-context";\nimport { resolveAccess } from "@agent-native/core/sharing";\nimport { track } from "@agent-native/core/tracking";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { buildDesignSnapshot } from "../server/lib/design-snapshot.js";\nimport {\n  firstTemplateDimensions,\n  redactTemplateDesignData,\n  remapTemplateFileIds,\n} from "../server/lib/design-template-data.js";\nimport { isOverviewScreenFile } from "../shared/design-files.js";\nimport { countLockedLayersAcrossFiles } from "../shared/locked-layers.js";\n\nexport const designTemplateCategorySchema = z.enum([\n  "ad",\n  "one-pager",\n  "landing-page",\n  "social",\n  "presentation",\n  "other",\n]);\n\nexport default defineAction({\n  description:\n    "Save the current live snapshot of a design as a reusable template. " +\n    "Dimensions, files, canvas defaults, and data-agent-native-locked layers are preserved.",\n  schema: z.object({\n    designId: z.string().min(1).describe("Source design ID"),\n    title: z.string().trim().min(1).max(120).optional(),\n    description: z.string().trim().max(500).optional(),\n    category: designTemplateCategorySchema.optional().default("other"),\n  }),\n  run: async ({ designId, title, description, category }, ctx) => {\n    const access = await resolveAccess("design", designId);\n    if (!access || !["owner", "admin", "editor"].includes(access.role)) {\n      throw new Error("Design not found or not editable");\n    }\n\n    const source = access.resource;\n    const rawData = typeof source.data === "string" ? source.data : "{}";\n    const parsedSourceData = (() => {\n      try {\n        return JSON.parse(rawData) as Record<string, unknown>;\n      } catch {\n        return {};\n      }\n    })();\n    if (\n      parsedSourceData.sourceType === "fusion" ||\n      parsedSourceData.sourceType === "localhost"\n    ) {\n      throw new Error(\n        "Templates can currently be saved from inline Design projects only.",\n      );\n    }\n\n    const snapshot = await buildDesignSnapshot(designId, rawData);\n    const screenFiles = snapshot.files.filter(isOverviewScreenFile);\n    if (screenFiles.length === 0) {\n      throw new Error(\n        "Add at least one design screen before saving a template.",\n      );\n    }\n\n    const ownerEmail = getRequestUserEmail();\n    if (!ownerEmail) throw new Error("Not authenticated");\n    const orgId = getRequestOrgId() ?? null;\n    const templateId = nanoid();\n    const now = new Date().toISOString();\n    const fileIdMap = new Map(\n      snapshot.files.map((file) => [file.id, nanoid()]),\n    );\n    const data = remapTemplateFileIds(\n      redactTemplateDesignData(rawData),\n      fileIdMap,\n    );\n    const preferredFile =\n      screenFiles.find((file) => file.filename === "index.html") ??\n      screenFiles[0];\n    const dimensions = firstTemplateDimensions(\n      data,\n      preferredFile ? fileIdMap.get(preferredFile.id) : undefined,\n    );\n    const lockedLayerCount = countLockedLayersAcrossFiles(snapshot.files);\n\n    const db = getDb();\n    await db.transaction(async (tx) => {\n      await tx.insert(schema.designTemplates).values({\n        id: templateId,\n        title: title ?? String(source.title ?? "Untitled template"),\n        description:\n          description ??\n          (typeof source.description === "string" ? source.description : null),\n        category,\n        sourceDesignId: designId,\n        data: JSON.stringify(data),\n        width: dimensions.width,\n        height: dimensions.height,\n        lockedLayerCount,\n        ownerEmail,\n        orgId,\n        visibility: "private",\n        createdAt: now,\n        updatedAt: now,\n      });\n      await tx.insert(schema.designTemplateFiles).values(\n        snapshot.files.map((file) => ({\n          id: fileIdMap.get(file.id)!,\n          templateId,\n          filename: file.filename,\n          content: file.content,\n          fileType: file.fileType,\n          createdAt: now,\n          updatedAt: now,\n        })),\n      );\n    });\n\n    track(\n      "template_saved",\n      {\n        app_name: "design",\n        template_name: "design",\n        output_id: templateId,\n        output_type: "design_template",\n        source_design_id: designId,\n        file_count: snapshot.files.length,\n      },\n      ctx,\n    );\n\n    return {\n      id: templateId,\n      title: title ?? source.title,\n      category,\n      width: dimensions.width,\n      height: dimensions.height,\n      fileCount: snapshot.files.length,\n      lockedLayerCount,\n    };\n  },\n  link: ({ result }) => {\n    if (!result || typeof result !== "object") return null;\n    const id = (result as { id?: string }).id;\n    if (!id) return null;\n    return {\n      url: buildDeepLink({\n        app: "design",\n        view: "templates",\n        params: { templateId: id },\n        to: `/templates?templateId=${encodeURIComponent(id)}`,\n      }),\n      label: "Open template",\n      view: "templates",\n    };\n  },\n});'
   }
   annotations={[
     {
@@ -607,23 +520,19 @@ l'état persistant, et les API du pont.
     },
     { path: "app/routes/templates.tsx", note: "La page Modèles" },
     {
-      path: "app/routes/design-systems.tsx",
-      note: "La liste des Systèmes de conception. design-systems_.setup.tsx en crée un",
-    },
-    {
       path: "app/routes/visual-edit.tsx",
       note: "Route d'entrée pour le pont d'application locale /visual-edit",
     },
     {
       path: "server/db/schema.ts",
-      note: "Schéma Drizzle pour designs, fichiers, versions, systèmes, partages, plus 7 tables de fonctionnalités",
+      note: "Schéma Drizzle pour designs, fichiers, versions, partages, plus 7 tables de fonctionnalités",
     },
     {
       path: ".agents/skills/design-generation/SKILL.md",
       note: "Flux de génération en 5 phases, barre de qualité esthétique",
     },
     {
-      path: ".agents/skills/design-systems/SKILL.md",
+      path: ".agents/skills/design-tokens/SKILL.md",
       note: "Jetons de marque, import/lecture/collage Figma",
     },
     {
@@ -642,7 +551,6 @@ Autres routes sous `templates/design/app/routes/` : `examples.tsx`,
 Design est un modèle complet et clonable. Quelques idées d'extension
 pratiques :
 
-- "Ajoute un système de conception e-commerce réutilisable avec nos jetons et exemples de composants."
 - "Ajoute une étape d'export qui télécharge le ZIP vers notre système de révision interne."
 - "Laisse-moi coller le HTML existant d'une page d'atterrissage et demander à l'agent trois versions plus fortes."
 - "Ajoute une bibliothèque d'invites enregistrées pour les briefs de page produit, de tableau de bord, et d'écran d'intégration."
@@ -661,5 +569,5 @@ d'agent.
 - [**Parler à l'agent**](/docs/template-design-agent) — comment l'agent choisit entre ces actions
 - [**Design dans un espace de travail multi-apps**](/docs/template-design-integrations) — comment ces actions sont exposées à d'autres applications et à des agents externes
 - [**Actions**](/docs/actions-overview) — le système d'actions sur lequel ce modèle est construit
-- [**Partage**](/docs/sharing) — le modèle de subvention de partage utilisé par `design_shares` et `design_system_shares`
+- [**Partage**](/docs/sharing) — le modèle de subvention de partage utilisé par `design_shares`
 - [**Extensions**](/docs/extensions) — le bac à sable et les API du pont derrière l'emplacement d'extension de l'éditeur

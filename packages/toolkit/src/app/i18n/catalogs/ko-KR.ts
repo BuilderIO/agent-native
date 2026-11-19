@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "관리자만 다른 사람을 초대할 수 있습니다. 관리자에게 초대를 도와달라고 요청하거나 나도 관리자로 지정해 달라고 요청하세요.",
   "settingsApiKeys.approvedOrigins": "승인된 출처",
   "settingsApiKeys.originsHint":
     "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",
@@ -1339,6 +1341,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "필수",
   "secrets.searchKeys": "키 검색...",
   "secrets.usePersonalKey": "대신 개인 키 사용",
+  "secrets.testing": "테스트 중…",
+  "secrets.cannotCheckAlone": "이 키는 단독으로 확인할 수 없습니다",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
@@ -1549,6 +1553,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}}에게 요청 중...",
   "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
+  "tool.agentApprovalTitle": "{{agent}}에서 승인이 필요합니다",
+  "tool.agentApprovalReview": "{{agent}}에서 검토",
+  "tool.agentApprovalReturn": "{{agent}}에서 승인한 후 여기에서 계속하세요.",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}}에서 승인했습니다. 계속해 주세요.",
   "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
@@ -2266,6 +2275,7 @@ const messages: ToolkitAgentChatTranslation = {
     "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.labsShowAll": "모든 Labs 기능 표시",
   "settingsShell.appGroup.labsUseDefault": "기본값 사용",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
