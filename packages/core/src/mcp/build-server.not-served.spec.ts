@@ -27,6 +27,11 @@ vi.mock("../org/service-principal-guard.js", async (importOriginal) => ({
   assertServicePrincipalMayRun: vi.fn(async () => ({ allowedActions: grant })),
 }));
 
+vi.mock("./analytics.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./analytics.js")>()),
+  trackMcpToolCall: () => {},
+}));
+
 vi.mock("../agent/production-agent.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../agent/production-agent.js")>()),
   getJevContextCredentials: vi.fn(async () => ({})),

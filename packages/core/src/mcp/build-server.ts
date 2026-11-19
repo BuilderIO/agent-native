@@ -3682,7 +3682,7 @@ export async function createMCPServerForRequest(
   // stay unnamed, and so does anything the caller's OAuth scope or the app's
   // discovery check would leave out of its own tool list.
   const notServedActions = hasVerifiedMcpUserIdentity(effectiveIdentity)
-    ? () =>
+    ? async () =>
         availableForDiscovery(
           Object.fromEntries(
             Object.entries(mergedActions).filter(
