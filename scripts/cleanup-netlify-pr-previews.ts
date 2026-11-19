@@ -97,6 +97,8 @@ export function parseClosedWithinHours(raw: string): number {
   return hours;
 }
 
+// Pages arrive sorted by updated_at descending, and closed_at <= updated_at,
+// so once a page reaches the cutoff no later page can hold a recent close.
 export function selectRecentlyClosedPullRequests(
   pulls: readonly ClosedPullRequestSummary[],
   cutoffMs: number,
@@ -423,6 +425,8 @@ async function listRecentlyClosedPullRequests(
   }
 }
 
+// Sweep mode skips the GitHub deployment and legacy title scans: a sweep visits
+// every recently closed PR, and most never had a preview.
 async function cleanupPullRequest(
   context: CleanupContext,
   prNumber: number,
@@ -470,10 +474,6 @@ async function cleanupPullRequest(
       `(github=${githubTargets.size}, branch=${branchTargets.size}, legacy=${legacyTargets.size}).`,
   );
 
-  const deactivateSiteNames =
-    mode === "targeted"
-      ? context.siteNames
-      : [...new Set(targets.map((target) => target.siteName))];
   const deleteErrors: unknown[] = [];
   try {
     for (const target of targets) {
@@ -495,7 +495,7 @@ async function cleanupPullRequest(
       owner: context.owner,
       prNumber,
       repo: context.repo,
-      siteNames: deactivateSiteNames,
+      siteNames: context.siteNames,
       token: context.githubToken,
     });
   }
