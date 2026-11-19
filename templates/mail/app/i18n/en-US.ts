@@ -802,6 +802,10 @@ const messages = {
     contacts: {
       noContactSelected: "No contact selected",
     },
+    readingPane: {
+      empty: "No email selected",
+      resizeList: "Resize email list",
+    },
   },
   agent: {
     emptyState: "Ask me anything about your emails",
@@ -902,6 +906,10 @@ const messages = {
     gmailFilters: "Gmail filters",
     aliases: "Aliases",
     tracking: "Tracking",
+    reading: "Reading",
+    readingPane: "Reading pane",
+    readingPaneSaveFailed: "Could not save the reading pane setting.",
+    readingPaneLoadFailed: "Couldn't load the reading pane setting.",
     deleteAlias: "Delete Alias",
     editAlias: "Edit Alias",
   },

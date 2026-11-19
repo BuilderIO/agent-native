@@ -1,3 +1,4 @@
+// oracle-change: Annotate and the Draw tool were removed from Design, so their assertions are gone
 import {
   type APIRequestContext,
   type Frame,
@@ -6,13 +7,11 @@ import {
 } from "@playwright/test";
 
 import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../app/pages/design-editor/left-sidebar-width";
-import { ANNOTATE_LAB } from "../shared/labs";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
 import {
   dragCanvasByText,
   designFrame,
-  enableLab,
   enterDirectMode,
   gotoEditor,
   installBridge,
@@ -119,21 +118,11 @@ test.beforeEach(async ({ app, page }, workerInfo) => {
 
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-let restoreAnnotateLab: (() => Promise<void>) | undefined;
-
-test.afterEach(async () => {
-  await restoreAnnotateLab?.();
-  restoreAnnotateLab = undefined;
-});
-
 function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
 }
 
-function modeButton(
-  page: Page,
-  mode: "annotate" | "edit" | "interact",
-): Locator {
+function modeButton(page: Page, mode: "edit" | "interact"): Locator {
   return page.locator(`[data-design-top-bar] [data-design-mode="${mode}"]`);
 }
 
@@ -1210,8 +1199,6 @@ test("top bar modes toggle the editor mode buttons", async ({ page }) => {
     "aria-pressed",
     "false",
   );
-  // Annotate is behind a lab that is off by default (annotate-lab.spec.ts).
-  await expect(modeButton(page, "annotate")).toHaveCount(0);
 
   await modeButton(page, "interact").click();
   await expect(
@@ -1309,11 +1296,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   expect(
     Math.abs(dialogBox!.x + dialogBox!.width / 2 - viewport.width / 2),
   ).toBeLessThanOrEqual(1);
-  // The 13 canvas categories, then Code.
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
-  await expect(
-    dialog.locator("[data-shortcuts-category]").last(),
-  ).toHaveAttribute("data-shortcuts-category", "code");
+  // oracle-change: the Code category was removed with the Monaco editor, leaving the 13 canvas categories
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
   await expect(
     dialog.locator('[data-shortcut-section="essential"] [data-shortcut-id]'),
   ).toHaveCount(3);
@@ -1348,7 +1332,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     "No shortcuts match “zzzzzz”",
   );
   await search.fill("");
-  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(14);
+  // oracle-change: the Code category was removed with the Monaco editor, leaving 13 categories
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
 
   // A category click scrolls the one list to that section.
   const list = dialog.locator("[data-shortcuts-list]");
@@ -1376,10 +1361,8 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     "true",
   );
 
+  // oracle-change: the Monaco code editor was removed from Design, so its shortcuts section and tests are gone
   await dialog.locator('[data-shortcuts-category="edit"]').click();
-  await expect(
-    dialog.locator('[data-code-shortcut-id="workbench.save"]'),
-  ).toBeVisible();
   // oracle-change: nudge fields moved out of this dialog into their own popup, covered by the nudge amount popup test below.
 
   await page.keyboard.press("Escape");
@@ -1487,103 +1470,6 @@ test("keyboard shortcuts dialog fits a narrow window and stacks its categories",
   );
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
-});
-
-test("overview Annotate draws around screens with stable iframes and stroke undo redo", async ({
-  page,
-}) => {
-  // Annotate is behind a lab; the lab is read when the editor loads.
-  restoreAnnotateLab = await enableLab(page, ANNOTATE_LAB.key);
-  await gotoEditor(page, designId);
-  const shell = screenShell(page, "Home");
-  const iframe = shell.locator("iframe[data-design-preview-iframe]").first();
-  await expect(iframe).toBeVisible();
-  await installIframePaintProbe(iframe, "stable-overview-paint");
-  await iframe.evaluate((element) => {
-    const frame = element as HTMLIFrameElement & { __annotateLoads?: number };
-    frame.dataset.annotateIdentity = "stable-overview-frame";
-    frame.__annotateLoads = 0;
-    frame.addEventListener("load", () => {
-      frame.__annotateLoads = (frame.__annotateLoads ?? 0) + 1;
-    });
-  });
-  const readIframeIdentity = () =>
-    iframe.evaluate((element) => {
-      const frame = element as HTMLIFrameElement & {
-        __annotateLoads?: number;
-      };
-      return {
-        identity: frame.dataset.annotateIdentity,
-        loads: frame.__annotateLoads,
-      };
-    });
-
-  await modeButton(page, "annotate").click();
-  await expect(modeButton(page, "annotate")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect(shell).toBeVisible();
-  await expect(page.locator("[data-draw-overlay]")).toBeVisible();
-  await expect.poll(readIframeIdentity).toEqual({
-    identity: "stable-overview-frame",
-    loads: 0,
-  });
-  await expectIframePaintStable(page, "stable-overview-paint");
-
-  const drawCanvas = page.locator("[data-draw-canvas]");
-  const canvasBox = await drawCanvas.boundingBox();
-  const shellBox = await shell.boundingBox();
-  if (!canvasBox || !shellBox) throw new Error("missing overview draw bounds");
-  const x = Math.max(canvasBox.x + 24, shellBox.x - 48);
-  const y = Math.max(canvasBox.y + 80, shellBox.y + 60);
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x + 28, y + 18, { steps: 6 });
-  await page.mouse.up();
-  const strokeArea = { x: x - 6, y: y - 6, width: 40, height: 30 };
-  await expect
-    .poll(() => inkIn(page, strokeArea), "the stroke is painted")
-    .toBeGreaterThan(0);
-  const drawnInk = await inkIn(page, strokeArea);
-
-  const undo = page.locator('[data-testid="draw-undo"]');
-  const redo = page.locator('[data-testid="draw-redo"]');
-  await expect(undo).toBeEnabled();
-  await undo.click();
-  await expect(undo).toBeDisabled();
-  await expect(redo).toBeEnabled();
-  await expect
-    .poll(() => inkIn(page, strokeArea), "undo erases the stroke")
-    .toBe(0);
-  await redo.click();
-  await expect(undo).toBeEnabled();
-  await expect(redo).toBeDisabled();
-  await expect
-    .poll(() => inkIn(page, strokeArea), "redo repaints the same stroke")
-    .toBe(drawnInk);
-
-  await expect.poll(readIframeIdentity).toEqual({
-    identity: "stable-overview-frame",
-    loads: 0,
-  });
-  await expectIframePaintStable(page, "stable-overview-paint");
-  await page.keyboard.press("Escape");
-  await expect(page.locator("[data-draw-overlay]")).toHaveAttribute(
-    "aria-hidden",
-    "true",
-  );
-  await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
-  await expect(modeButton(page, "annotate")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
-  await expect(shell).toBeVisible();
-  await expect.poll(readIframeIdentity).toEqual({
-    identity: "stable-overview-frame",
-    loads: 0,
-  });
-  await expectIframePaintStable(page, "stable-overview-paint");
 });
 
 test("overview pan and cursor-anchored zoom retain a continuously painted iframe", async ({

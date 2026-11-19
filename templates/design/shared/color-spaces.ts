@@ -171,8 +171,6 @@ export function linearToRgbaGamutMapped(lin: Vec3, alpha: number): RgbaColor {
   };
 }
 
-// ── OKLab / OKLCH ──────────────────────────────────────────────────────────
-
 /** Below this chroma a color is gray and its OKLCH hue is noise. */
 export const OKLCH_ACHROMATIC_CHROMA = 2e-4;
 
@@ -291,8 +289,6 @@ function hueOf(
   return normalizeHue(sector * 60);
 }
 
-// ── Gamuts and gamut mapping ───────────────────────────────────────────────
-
 /** Tolerance for "inside the gamut": conversions drift by about this much. */
 export const GAMUT_EPSILON = 1e-4;
 
@@ -370,8 +366,6 @@ export function mapToGamut(lin: Vec3, gamut: Gamut): Vec3 {
   return clipped;
 }
 
-// ── Mode channels ──────────────────────────────────────────────────────────
-
 /**
  * The numbers a mode's value cells show for a color:
  * - hex, rgb: [r, g, b] as 0..255
@@ -435,8 +429,6 @@ function srgbMapped(lin: Vec3): Vec3 {
   const [r, g, b] = linearToSrgbTriple(mapToGamut(lin, "srgb"));
   return [clampUnit(r), clampUnit(g), clampUnit(b)];
 }
-
-// ── CSS: oklch() and color() ───────────────────────────────────────────────
 
 /** A color authored as `oklch()`, `color(display-p3 …)` or `color(srgb …)`. */
 export type WideColor =

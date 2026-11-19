@@ -60,7 +60,6 @@ type CreatedDesignShell = {
   dataOperationRevisions: string;
   liveCollaborationEnabled: boolean;
   projectType: string;
-  designSystemId: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   ownerEmail: string;
@@ -551,7 +550,6 @@ export default defineEventHandler(async (event) => {
             title: manifest.title ?? "Session replay storyboard",
             description: "Private session replay storyboard from Analytics.",
             projectType: "prototype",
-            designSystemId: null,
             creationMethod: "import_analytics",
           },
           {
@@ -581,7 +579,6 @@ export default defineEventHandler(async (event) => {
             dataOperationRevisions: schema.designs.dataOperationRevisions,
             liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
             projectType: schema.designs.projectType,
-            designSystemId: schema.designs.designSystemId,
             createdAt: schema.designs.createdAt,
             updatedAt: schema.designs.updatedAt,
             ownerEmail: schema.designs.ownerEmail,
@@ -608,7 +605,6 @@ export default defineEventHandler(async (event) => {
           createdShell.dataOperationRevisions !== "{}" ||
           createdShell.liveCollaborationEnabled !== false ||
           createdShell.projectType !== "prototype" ||
-          createdShell.designSystemId !== null ||
           !createdShell.createdAt ||
           createdShell.updatedAt !== createdShell.createdAt ||
           createdShell.ownerEmail.trim().toLowerCase() !==

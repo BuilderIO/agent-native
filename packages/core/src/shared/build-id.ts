@@ -43,3 +43,35 @@ export function resolveAgentNativeCommitSha(
   }
   return "";
 }
+
+/** A build identity an app sets for itself instead of reading the build environment. */
+export interface AgentNativeBuildIdentityOverride {
+  buildId?: string | undefined;
+  commitSha?: string | undefined;
+}
+
+/**
+ * The build id and commit an app's bundles carry. Each value the app sets wins
+ * over the build environment; a set value that is blank, or a commit that is
+ * not a full SHA, throws instead of silently falling back to the environment.
+ */
+export function resolveAgentNativeBuildIdentity(
+  env: Record<string, string | undefined>,
+  override: AgentNativeBuildIdentityOverride = {},
+): { buildId: string; commitSha: string } {
+  let buildId = resolveAgentNativeBuildId(env, "development");
+  if (override.buildId !== undefined) {
+    buildId = override.buildId.trim();
+    if (!buildId) throw new Error("The app's buildId override is empty.");
+  }
+  let commitSha = resolveAgentNativeCommitSha(env);
+  if (override.commitSha !== undefined) {
+    commitSha = override.commitSha.trim().toLowerCase();
+    if (!FULL_COMMIT_SHA.test(commitSha)) {
+      throw new Error(
+        `The app's commitSha override "${override.commitSha}" is not a full 40-character commit SHA.`,
+      );
+    }
+  }
+  return { buildId, commitSha };
+}

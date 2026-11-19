@@ -117,8 +117,6 @@ export function injectManagedResponsiveInteractionStateCss(
   );
 }
 
-// ─── CSS body parse / serialize ──────────────────────────────────────────────
-
 /**
  * Matches ONE real pseudo-class state rule for a node id, e.g.
  * `[data-agent-native-node-id="btn_1"]:focus-visible { ... }`. Deliberately

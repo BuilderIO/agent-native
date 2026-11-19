@@ -769,6 +769,10 @@ const messages = {
     contacts: {
       noContactSelected: "未選取聯絡人",
     },
+    readingPane: {
+      empty: "未選取郵件",
+      resizeList: "調整郵件清單大小",
+    },
   },
   agent: {
     emptyState: "可以問我任何關於郵件的問題",
@@ -866,6 +870,10 @@ const messages = {
     gmailFilters: "Gmail 篩選器",
     aliases: "別名",
     tracking: "跟蹤",
+    reading: "閱讀",
+    readingPane: "閱讀窗格",
+    readingPaneSaveFailed: "無法儲存閱讀窗格設定。",
+    readingPaneLoadFailed: "無法載入閱讀窗格設定。",
     deleteAlias: "刪除別名",
     editAlias: "編輯別名",
   },

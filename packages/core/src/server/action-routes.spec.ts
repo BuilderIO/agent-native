@@ -2382,8 +2382,11 @@ describe("mountActionRoutes", () => {
     "binds a public Design read to $requestedId with browser identity $browserUser",
     async ({ requestedId, browserUser }) => {
       const { mountActionRoutes } = await import("./action-routes.js");
-      const { getRequestAuthCapability, getRequestUserEmail } =
-        await import("./request-context.js");
+      const {
+        getRequestAuthCapability,
+        getRequestCapabilitySessionId,
+        getRequestUserEmail,
+      } = await import("./request-context.js");
       const mounted: Array<{ path: string; handler: any }> = [];
       const nitroApp = {
         use: vi.fn((path: string, handler: any) =>
@@ -2395,6 +2398,7 @@ describe("mountActionRoutes", () => {
         token: "signed-capability",
         targetPath: "/visual-edit/design_1",
         scope: "capability:visual-edit:design:design_1",
+        sessionId: "a".repeat(64),
       });
       const unauthenticated = Object.assign(new Error("Unauthenticated"), {
         statusCode: 401,
@@ -2403,6 +2407,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: ctx?.userEmail,
         requestUserEmail: getRequestUserEmail(),
         authCapability: getRequestAuthCapability(),
+        capabilitySessionId: getRequestCapabilitySessionId(),
       }));
 
       mountActionRoutes(
@@ -2439,6 +2444,7 @@ describe("mountActionRoutes", () => {
         ctxUserEmail: browserUser,
         requestUserEmail: browserUser,
         authCapability: "capability:visual-edit:design:design_1",
+        capabilitySessionId: "a".repeat(64),
       });
     },
   );
@@ -8843,6 +8849,84 @@ describe("mountWebMcpActionRoutes", () => {
         ).rejects.toMatchObject({ statusCode: 401 });
     },
   );
+
+  it("registers a signed-out board's write tools for its own design only", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "workspace+abc@local.visual-edit.agent-native.invalid",
+      token: "signed-capability",
+      targetPath: "/visual-edit/design_1",
+      scope: "capability:visual-edit:design:design_1",
+    });
+    const createFile = vi.fn(async () => ({ id: "file_1" }));
+    const shareResource = vi.fn();
+    const unauthenticated = Object.assign(new Error("Unauthorized"), {
+      statusCode: 401,
+    });
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        "create-file": {
+          tool: { description: "Create file", parameters: {} },
+          run: createFile,
+          capabilityScopes: ["visual-edit"],
+        } as any,
+        "share-resource": {
+          tool: { description: "Share", parameters: {} },
+          run: shareResource,
+          capabilityScopes: ["visual-edit"],
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => {
+          throw unauthenticated;
+        },
+      },
+    );
+
+    const manifestRoute = mounted.find(
+      ({ path }) => path === "/_agent-native/webmcp/manifest",
+    );
+    const manifest = await manifestRoute?.handler({
+      _method: "GET",
+      _headers: {},
+    });
+    expect(manifest.map((tool: { name: string }) => tool.name)).toEqual([
+      "create-file",
+    ]);
+
+    const call = (name: string, body: Record<string, unknown>) =>
+      mounted
+        .find(({ path }) => path === `/_agent-native/webmcp/actions/${name}`)
+        ?.handler({
+          _method: "POST",
+          _headers: {},
+          req: { json: async () => body },
+        });
+    // The route refuses either by throwing a 401 or with an error body.
+    const refusal = (outcome: Promise<unknown> | undefined) =>
+      Promise.resolve(outcome).then(
+        (body) => (body as { error?: string } | undefined)?.error,
+        (error: { statusCode?: number }) =>
+          error.statusCode === 401 ? "Unauthorized" : error,
+      );
+    await expect(
+      refusal(
+        call("create-file", { designId: "design_2", filename: "a.html" }),
+      ),
+    ).resolves.toBe("Unauthorized");
+    await expect(
+      refusal(call("share-resource", { designId: "design_1" })),
+    ).resolves.toBe("Unauthorized");
+    expect(createFile).not.toHaveBeenCalled();
+    expect(shareResource).not.toHaveBeenCalled();
+  });
 
   it.each(["read", "write"] as const)(
     "keeps a %s card manifest limited to its explicit read grants",

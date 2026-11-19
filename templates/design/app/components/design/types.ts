@@ -342,14 +342,3 @@ export interface ViewportTab {
 export const ZOOM_PRESETS = [50, 75, 100, 125, 150, 200] as const;
 
 export type ZoomPreset = (typeof ZOOM_PRESETS)[number];
-
-export interface DrawAnnotation {
-  id: string;
-  type: "path" | "text";
-  pathData?: string;
-  text?: string;
-  position: { x: number; y: number };
-  color: string;
-  lineWidth: number;
-  elementContext?: ElementInfo;
-}

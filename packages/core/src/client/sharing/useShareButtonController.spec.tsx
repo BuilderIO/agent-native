@@ -68,6 +68,7 @@ describe("useShareButtonController agents", () => {
   let root: Root;
   let queryClient: QueryClient;
   let controller: ShareButtonController | undefined;
+  let harnessConfirmOrgVisibility: boolean | undefined;
 
   function Harness({
     resourceId,
@@ -80,6 +81,9 @@ describe("useShareButtonController agents", () => {
       resourceType: "deck",
       resourceId,
       linkOnly,
+      ...(harnessConfirmOrgVisibility === undefined
+        ? {}
+        : { confirmOrgVisibility: harnessConfirmOrgVisibility }),
     });
     return null;
   }
@@ -142,11 +146,35 @@ describe("useShareButtonController agents", () => {
     };
     mocks.shareCalls = [];
     mocks.queryOptions = [];
+    harnessConfirmOrgVisibility = undefined;
     queryClient = new QueryClient();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
   });
+
+  it.each([
+    { policy: true, option: undefined, holds: true },
+    { policy: true, option: false, holds: false },
+    { policy: false, option: undefined, holds: false },
+    { policy: false, option: true, holds: false },
+  ])(
+    "holds an organization change for confirmation only when the policy asks and the caller has not opted out ($policy, $option)",
+    async ({ policy, option, holds }) => {
+      mocks.query.data = {
+        ...mocks.query.data!,
+        policy: {
+          allowPublic: true,
+          requireOrgMemberForUserShares: false,
+          confirmOrgVisibility: policy,
+        },
+      };
+      harnessConfirmOrgVisibility = option;
+      await render();
+      act(() => current().handleVisibility("org"));
+      expect(current().visibilityTransition.pending !== null).toBe(holds);
+    },
+  );
 
   it("loads permissions only while a full sharing panel is open", async () => {
     await act(async () => {
