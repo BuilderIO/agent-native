@@ -101,6 +101,10 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { useIsMobile } from "../../hooks/use-mobile";
+import {
+  delegatedAppFromToolStart,
+  visibleChatFirstSurfaceTabId,
+} from "../../lib/chat-first-pane";
 import { getDispatchRunThreadContext } from "../../lib/dispatch-run-thread.js";
 import {
   filterBuiltInApps,
@@ -1635,6 +1639,17 @@ function DispatchLayout({
       ) ?? null,
     [chatFirstSurfaceTabs],
   );
+  const visibleChatFirstSurfaceTabIdValue = visibleChatFirstSurfaceTabId(
+    chatFirstSurfaceTabs.tabs,
+    chatFirstSurfaceTabs.activeTabId,
+  );
+  const visibleChatFirstSurfaceTab = useMemo(
+    () =>
+      chatFirstSurfaceTabs.tabs.find(
+        (tab) => tab.id === visibleChatFirstSurfaceTabIdValue,
+      ) ?? null,
+    [chatFirstSurfaceTabs.tabs, visibleChatFirstSurfaceTabIdValue],
+  );
   const chatFirstAppTakesMain =
     chatFirstMode &&
     isChatRoute &&
@@ -1692,7 +1707,17 @@ function DispatchLayout({
       pane: DispatchChatFirstPane,
       placement: ChatFirstAppSurfacePlacement = "side",
     ) => {
-      if (placement === "side" && !chatFirstHasActiveChat) return;
+      if (placement === "side" && !chatFirstHasActiveChat) {
+        // A new chat gets its id after the first turn starts, and an agent can
+        // open an app before that. Hold the request; the pending-open effect
+        // replays it once the chat has an id.
+        pendingChatFirstOpenAppRef.current = {
+          app: pane.appId,
+          ...(pane.path ? { path: pane.path } : {}),
+          ...(pane.view ? { view: pane.view } : {}),
+        };
+        return;
+      }
       setSidebarCollapsed(true);
       setChatFirstNotice(null);
       closeChatFirstSessionWatch();
@@ -1906,6 +1931,48 @@ function DispatchLayout({
   ]);
 
   useEffect(() => {
+    if (!chatFirstMode || !isChatRoute) return;
+    // Dispatch often answers by delegating to an app's own agent. Open that
+    // app beside the chat as the delegate starts, so the pane the delegate
+    // navigates and edits is already on screen. An app that is already open is
+    // left alone so its navigation updates it in place.
+    const handleToolStart = (event: Event) => {
+      const appId = delegatedAppFromToolStart(
+        (event as CustomEvent<{ tool?: unknown; input?: unknown }>).detail,
+      );
+      if (!appId) return;
+      const alreadyOpen = chatFirstSurfaceTabsStore
+        .getSnapshot()
+        .tabs.some((tab) => tab.kind === "app" && tab.appId === appId);
+      if (alreadyOpen) return;
+      const resolution = resolveChatFirstAppTarget(
+        { app: appId },
+        chatFirstAppRegistrations,
+        {
+          currentOrigin:
+            typeof window === "undefined" ? undefined : window.location.origin,
+        },
+      );
+      if (
+        resolution.status !== "ready" ||
+        isDispatchWorkspaceAppId(resolution.target.appId)
+      ) {
+        return;
+      }
+      openChatFirstPane(resolution.target);
+    };
+    window.addEventListener("agent-native:tool-start", handleToolStart);
+    return () =>
+      window.removeEventListener("agent-native:tool-start", handleToolStart);
+  }, [
+    chatFirstAppRegistrations,
+    chatFirstMode,
+    chatFirstSurfaceTabsStore,
+    isChatRoute,
+    openChatFirstPane,
+  ]);
+
+  useEffect(() => {
     if (!chatFirstMode || !isChatRoute || chatFirstPaneHydratedRef.current) {
       return;
     }
@@ -1983,10 +2050,13 @@ function DispatchLayout({
     if (previousChatFirstSurfaceScopeRef.current === chatFirstSurfaceScope) {
       return;
     }
+    const chatGainedItsId = previousChatFirstSurfaceScopeRef.current === "new";
     previousChatFirstSurfaceScopeRef.current = chatFirstSurfaceScope;
     persistChatFirstPane(null);
     setChatFirstNotice(null);
-    pendingChatFirstOpenAppRef.current = null;
+    // A new chat getting its id is the same chat, not a switch, so an app the
+    // agent asked to open during that first turn stays queued.
+    if (!chatGainedItsId) pendingChatFirstOpenAppRef.current = null;
     setPendingChatFirstPaneRestore(null);
     chatFirstPaneHydratedRef.current = true;
     chatFirstSurfaceTabsStore.closeAll();
@@ -2308,10 +2378,10 @@ function DispatchLayout({
   );
 
   const chatFirstSurfaceTabsBar =
-    activeChatFirstSurfaceTab?.kind === "app" ? null : (
+    visibleChatFirstSurfaceTab?.kind === "app" ? null : (
       <ChatFirstSurfaceTabs
         tabs={chatFirstSurfaceTabs.tabs}
-        activeTabId={chatFirstSurfaceTabs.activeTabId}
+        activeTabId={visibleChatFirstSurfaceTabIdValue}
         onActivate={activateChatFirstSurfaceTab}
         onClose={closeChatFirstSurfaceTab}
         onCloseOthers={(tab) => {
@@ -2347,7 +2417,7 @@ function DispatchLayout({
     chatFirstSurfaceTabs.tabs.length > 0 ? (
       <ChatFirstSurfaceContent
         tabs={chatFirstSurfaceTabs.tabs}
-        activeTabId={chatFirstSurfaceTabs.activeTabId}
+        activeTabId={visibleChatFirstSurfaceTabIdValue}
         renderTab={renderChatFirstSurfaceTab}
       />
     ) : null;

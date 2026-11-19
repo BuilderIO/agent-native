@@ -29,6 +29,29 @@ describe("dispatch Tailwind styles", () => {
     expect(stylesheet).toContain('@source "../routes/**/*.{js,mjs,ts,tsx}"');
   });
 
+  it("scans a chat-first source directory that exists", () => {
+    const stylesheet = fs.readFileSync(
+      path.join(packageRoot, "src/styles/dispatch.css"),
+      "utf-8",
+    );
+    const sources = [...stylesheet.matchAll(/@source "([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    const chatFirst = sources.filter((source) => source.includes("chat-first"));
+
+    // The app pane and its tab strip live here; an unscanned directory ships
+    // a pane with no width (`w-[var(--chat-first-surface-width)]` is never
+    // generated) and an iframe the browser lays out at 0 x 0.
+    expect(chatFirst).toEqual([
+      "../../../toolkit/src/app/chat/chat-first/**/*.{ts,tsx}",
+    ]);
+    const directory = path.resolve(
+      path.dirname(path.join(packageRoot, "src/styles/dispatch.css")),
+      chatFirst[0].replace(/\/\*\*.*$/, ""),
+    );
+    expect(fs.existsSync(path.join(directory, "surface-panel.tsx"))).toBe(true);
+  });
+
   it("imports package source directives from the Dispatch template", () => {
     const globalCss = fs.readFileSync(
       path.join(repoRoot, "templates/dispatch/app/global.css"),
