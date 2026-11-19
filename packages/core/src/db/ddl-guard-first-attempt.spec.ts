@@ -53,20 +53,19 @@ describe("first-attempt DDL races", () => {
         label: "column foo.bar",
         injectedClient: client,
       }).catch((error: unknown) => error);
-      if (result === true) expect(outcome).toBe(true);
-      else if (result === false) expect(outcome).toBe(duplicate);
-      else if (result === "throws") {
-        expect(outcome).toBeInstanceOf(AggregateError);
-        expect((outcome as AggregateError).errors).toEqual([
-          duplicate,
-          probeError,
-        ]);
-      } else {
-        expect(outcome).toMatchObject({
-          message: expect.stringMatching(/could not re-probe/),
-          cause: duplicate,
-        });
-      }
+      expect(outcome === true).toBe(result === true);
+      expect(outcome === duplicate).toBe(result === false);
+      expect(outcome instanceof AggregateError).toBe(result === "throws");
+      expect(
+        outcome instanceof AggregateError ? outcome.errors : undefined,
+      ).toEqual(result === "throws" ? [duplicate, probeError] : undefined);
+      expect(
+        outcome instanceof Error &&
+          outcome.message.includes("could not re-probe"),
+      ).toBe(result === undefined || result === "throws");
+      expect(outcome instanceof Error && outcome.cause === duplicate).toBe(
+        result === undefined,
+      );
       expect(probe).toHaveBeenCalledTimes(2);
       expect(calls.filter((sql) => /ALTER TABLE/.test(sql))).toHaveLength(1);
       expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);

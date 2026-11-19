@@ -1071,18 +1071,18 @@ describe("ddl-guard", () => {
           label: "column foo.bar",
           injectedClient: client,
         }).catch((err: unknown) => err);
-        if (result === false) expect(error).toBe(duplicate);
-        else if (result === "throws") {
-          expect(error).toBeInstanceOf(AggregateError);
-          expect((error as AggregateError).errors).toEqual([
-            duplicate,
-            probeError,
-          ]);
-        } else
-          expect(error).toMatchObject({
-            message: expect.stringMatching(/could not re-probe/),
-            cause: duplicate,
-          });
+        expect(error === duplicate).toBe(result === false);
+        expect(error instanceof AggregateError).toBe(result === "throws");
+        expect(
+          error instanceof AggregateError ? error.errors : undefined,
+        ).toEqual(result === "throws" ? [duplicate, probeError] : undefined);
+        expect(
+          error instanceof Error &&
+            error.message.includes("could not re-probe"),
+        ).toBe(result === undefined || result === "throws");
+        expect(error instanceof Error && error.cause === duplicate).toBe(
+          result === undefined,
+        );
         expect(probe).toHaveBeenCalledTimes(3);
         expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
       },
