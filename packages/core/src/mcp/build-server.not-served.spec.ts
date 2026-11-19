@@ -47,6 +47,7 @@ vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
 const alice: MCPCallerIdentity = {
   userEmail: "alice@example.com",
   identityAssurance: "user",
+  orgId: null,
   orgDomain: undefined,
 };
 
