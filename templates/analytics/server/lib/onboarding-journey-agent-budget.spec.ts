@@ -87,9 +87,9 @@ describe("an outside agent's onboarding journey allowance", () => {
   it("settles reservations of queries that already finished before it counts pages", async () => {
     mocks.read.mockImplementationOnce(
       async (_identity: unknown, options?: { reconcile?: unknown }) =>
-      options?.reconcile === mocks.reconciler
-        ? snapshot()
-        : snapshot({ personRemaining: 75 * GB }),
+        options?.reconcile === mocks.reconciler
+          ? snapshot()
+          : snapshot({ personRemaining: 75 * GB }),
     );
     await expect(
       outsideAgentOnboardingEventBytes(identity, undefined, person),
