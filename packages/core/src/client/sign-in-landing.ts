@@ -59,7 +59,7 @@ export function signInLandingLoader(
           encodeContinuation(appPath(workspaceHome), appBasePath())
         : "";
       const destination = authFirst
-        ? `${appPath(SIGN_IN_ENTRY_PATH)}${
+        ? `${SIGN_IN_ENTRY_PATH}${
             token ? `?${SIGN_IN_CONTINUATION_PARAM}=${token}` : ""
           }`
         : target;
@@ -68,7 +68,7 @@ export function signInLandingLoader(
       });
     }
   }
-  if (!base) return redirectDocument(appPath(SIGN_IN_ENTRY_PATH));
+  if (!base) return redirectDocument(SIGN_IN_ENTRY_PATH);
 
   const uiOrigin =
     (

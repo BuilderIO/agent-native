@@ -197,6 +197,7 @@ vi.mock("../agentkit/react/index.js", async () => {
     useAgentKitControl,
     useAgentKitPendingSubmissions,
     useAgentKitSubmissionHoldsTurn,
+    useAgentKitSubmissionStarting,
     useAgentThread,
     useAgentThreadSelector,
   } = await import("../agentkit/react/context.js");
@@ -343,6 +344,10 @@ vi.mock("../agentkit/react/index.js", async () => {
     },
     useAgentKitSubmissionHoldsTurn: (threadId?: string) =>
       chatMocks.useRealChat ? useAgentKitSubmissionHoldsTurn(threadId) : false,
+    useAgentKitSubmissionStarting: (threadId?: string, requestId?: string) =>
+      chatMocks.useRealChat
+        ? useAgentKitSubmissionStarting(threadId, requestId)
+        : false,
     // Mirrors the hook's contract against the mocked thread and control.
     useAgentKitStopButton: (options: any) => {
       if (chatMocks.useRealChat) return useAgentKitStopButton(options);
@@ -2618,6 +2623,104 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("keeps Thinking visible after the submitted message lands and before its run starts", async () => {
+    const start = Promise.withResolvers<{ runId: string }>();
+    const progress = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(() => start.promise, {
+      async *subscribeToRun({ threadId, runId }) {
+        await progress.promise;
+        yield {
+          id: "activity-started",
+          type: "activity.started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          activity: {
+            id: "checking-changes",
+            kind: "model",
+            label: "Checking changes",
+            status: "running",
+          },
+        };
+        await finish.promise;
+        yield {
+          id: "run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+        };
+      },
+    });
+    const activityLabels = () =>
+      [
+        ...container.querySelectorAll(
+          "[data-agentkit-current-activity] .agent-running-shimmer",
+        ),
+      ].map((element) => element.textContent);
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Show me the latest changes"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      expect(send?.disabled).toBe(false);
+      await act(async () => {
+        send?.click();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).messages.at(-1)?.role,
+          ).toBe("user"),
+        );
+      });
+      expect(container.textContent).toContain("Show me the latest changes");
+      expect(activityLabels()).toEqual(["agentChat.status.thinking"]);
+
+      await act(async () => {
+        start.resolve({ runId: "run-1" });
+        await vi.waitFor(() =>
+          expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+            "run-1",
+          ]),
+        );
+      });
+      expect(activityLabels()).toHaveLength(1);
+
+      await act(async () => {
+        progress.resolve();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).activities,
+          ).toHaveProperty("checking-changes"),
+        );
+      });
+      expect(activityLabels()).toEqual(["Checking changes"]);
+
+      await act(async () => {
+        finish.resolve();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).runs["run-1"]?.status,
+          ).toBe("completed"),
+        );
+      });
+      expect(activityLabels()).toEqual([]);
+    } finally {
+      await act(async () => {
+        start.resolve({ runId: "run-1" });
+        progress.resolve();
+        finish.resolve();
+        await client.shutdown();
+      });
+    }
+  });
+
   it("queues a real composer submission while a run is active", async () => {
     const at = "2026-09-28T00:00:00.000Z";
     const activeRunFinished = Promise.withResolvers<void>();
@@ -2974,10 +3077,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
-  it("queues a draft sent before the first send's run registers", async () => {
+  it.each(["queues", "starts"])("%s a waiting draft", async (outcome) => {
     const at = "2026-10-24T00:00:00.000Z";
     const started = Promise.withResolvers<{ runId: string }>();
-    const startRun = vi.fn<AgentTransport["startRun"]>(() => started.promise);
+    const followup = Promise.withResolvers<{ runId: string }>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(() => followup.promise);
+    startRun.mockImplementationOnce(() => started.promise);
     const activeRunFinished = Promise.withResolvers<void>();
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async ({ id, threadId, text }) => ({
@@ -3025,7 +3130,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     let inFlight = 0;
     chatMocks.history = {
       get isSubmissionInFlight() {
-        return inFlight > 0;
+        return outcome === "queues" && inFlight > 0;
       },
       beginSubmission: vi.fn(async () => {
         inFlight += 1;
@@ -3036,6 +3141,35 @@ describe("AgentKitAssistantChat host behavior", () => {
         };
       }),
     };
+
+    async function verifyImmediateFollowup(reservationId: string) {
+      await act(async () => {
+        started.reject(new Error("First run failed to start"));
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+      });
+      await flush();
+
+      const thread = client.getThread(chatMocks.threadId);
+      expect(thread.activeRunIds).toEqual([]);
+      expect(queuedRows()).toEqual([]);
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(thread.messages.at(-1)).toMatchObject({
+        id: reservationId,
+        parts: [{ type: "text", text: "Also greet Lee." }],
+      });
+      expect(
+        Array.from(
+          container.querySelectorAll(
+            "[data-agentkit-current-activity] .agent-running-shimmer",
+          ),
+          (element) => element.textContent,
+        ),
+      ).toEqual(["agentChat.status.thinking"]);
+      await act(async () => followup.resolve({ runId: "run-follow-up" }));
+      expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+        "run-follow-up",
+      ]);
+    }
 
     try {
       await mount(baseProps({ showModelSelector: false }));
@@ -3058,6 +3192,13 @@ describe("AgentKitAssistantChat host behavior", () => {
       ]);
       expect(startRun).toHaveBeenCalledOnce();
 
+      const reservation = client.getThread(chatMocks.threadId)
+        .queuedMessages[0];
+      if (outcome === "starts") {
+        await verifyImmediateFollowup(reservation.id);
+        return;
+      }
+
       await act(async () => started.resolve({ runId: "run-active" }));
       await flush();
       await flush();
@@ -3073,6 +3214,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(inFlight).toBe(0);
     } finally {
       started.resolve({ runId: "run-active" });
+      followup.resolve({ runId: "run-follow-up" });
       activeRunFinished.resolve();
       await flush();
     }
