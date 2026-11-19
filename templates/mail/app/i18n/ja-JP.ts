@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "自分へのメモ",
     },
     inbox: {
-      atLeastCount: "少なくとも{{count}}",
+      conversationsCount: "会話: {{count}}件",
+      conversationsAtLeastCount: "会話: {{count}}件以上",
+      unreadCount: "未読の会話: {{count}}件",
+      draftsToReviewCount: "確認待ちの下書き: {{count}}件",
       syncing: "受信トレイを同期中…",
     },
     sort: {
@@ -169,7 +172,7 @@ const messages = {
       filtersLimitReached: "保存できるフィルターは最大20件です。",
     },
     tabSettings: {
-      splitInbox: "受信トレイを分割",
+      splitInbox: "受信トレイをタブに分割",
       views: "ビュー",
       categories: "カテゴリ",
       rename: "名前を変更",
@@ -177,7 +180,7 @@ const messages = {
       savedFilters: "保存したフィルター",
       combinedInbox: "統合受信トレイ",
       allTab: "すべてタブ",
-      help: "統合受信トレイでは全アカウントをまとめて表示します。オフにするとタブに分かれます。",
+      help: "選んだビュー、ラベル、保存済みフィルタを受信トレイの個別のタブとして表示します。オフにすると、受信トレイのメールをすべて1つのタブで表示します。",
       aiSetup: "AI タグとルールを設定",
     },
     accounts: {

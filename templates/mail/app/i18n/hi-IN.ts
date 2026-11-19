@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "स्वयं के लिए नोट",
     },
     inbox: {
-      atLeastCount: "कम से कम {{count}}",
+      conversationsCount: "बातचीत: {{count}}",
+      conversationsAtLeastCount: "बातचीत: कम से कम {{count}}",
+      unreadCount: "अपठित बातचीत: {{count}}",
+      draftsToReviewCount: "समीक्षा के लिए ड्राफ़्ट: {{count}}",
       syncing: "इनबॉक्स सिंक हो रहा है…",
     },
     sort: {
@@ -165,7 +168,7 @@ const messages = {
       filtersLimitReached: "आप अधिकतम 20 फ़िल्टर सहेज सकते हैं।",
     },
     tabSettings: {
-      splitInbox: "स्प्लिट इनबॉक्स",
+      splitInbox: "इनबॉक्स को टैब में बाँटें",
       views: "दृश्य",
       categories: "श्रेणियां",
       rename: "नाम बदलें",
@@ -173,7 +176,7 @@ const messages = {
       savedFilters: "सहेजे गए फ़िल्टर",
       combinedInbox: "संयुक्त इनबॉक्स",
       allTab: "सभी टैब",
-      help: "संयुक्त इनबॉक्स सभी खातों को साथ दिखाता है; इसे बंद करने पर मेल टैब में बँट जाता है।",
+      help: "आपके चुने हुए व्यू, लेबल और सहेजे गए फ़िल्टर को इनबॉक्स के अलग-अलग टैब में दिखाता है। सारा इनबॉक्स मेल एक ही टैब में देखने के लिए इसे बंद करें।",
       aiSetup: "AI टैग और नियम सेट करें",
     },
     accounts: {

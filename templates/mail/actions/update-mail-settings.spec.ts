@@ -100,4 +100,32 @@ describe("update-mail-settings action", () => {
     );
     expect(on).toEqual(expect.objectContaining({ readingPane: true }));
   });
+
+  it("combines and splits the inbox tabs without touching drafting settings", async () => {
+    const combined = await action.run({ splitInbox: false });
+
+    expect(mocks.putUserSetting).toHaveBeenLastCalledWith(
+      "owner@example.com",
+      "mail-settings",
+      expect.objectContaining({
+        writingStyle: "Keep it concise.",
+        signature: "Best,",
+        combineInbox: true,
+      }),
+    );
+    expect(combined).toEqual(expect.objectContaining({ splitInbox: false }));
+
+    mocks.getUserSetting.mockResolvedValue({
+      writingStyle: "Keep it concise.",
+      combineInbox: true,
+    });
+    const split = await action.run({ splitInbox: true });
+
+    expect(mocks.putUserSetting).toHaveBeenLastCalledWith(
+      "owner@example.com",
+      "mail-settings",
+      expect.objectContaining({ combineInbox: false }),
+    );
+    expect(split).toEqual(expect.objectContaining({ splitInbox: true }));
+  });
 });

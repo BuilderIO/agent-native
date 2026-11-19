@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Nota para mí",
     },
     inbox: {
-      atLeastCount: "Al menos {{count}}",
+      conversationsCount: "Conversaciones: {{count}}",
+      conversationsAtLeastCount: "Conversaciones: al menos {{count}}",
+      unreadCount: "Conversaciones no leídas: {{count}}",
+      draftsToReviewCount: "Borradores por revisar: {{count}}",
       syncing: "Sincronizando bandeja...",
     },
     sort: {
@@ -177,7 +180,7 @@ const messages = {
       filtersLimitReached: "Puedes guardar hasta 20 filtros.",
     },
     tabSettings: {
-      splitInbox: "Bandeja de entrada dividida",
+      splitInbox: "Dividir la bandeja de entrada en pestañas",
       views: "Vistas",
       categories: "Categorías",
       rename: "Cambiar nombre",
@@ -185,7 +188,7 @@ const messages = {
       savedFilters: "Filtros guardados",
       combinedInbox: "Bandeja de entrada combinada",
       allTab: "Pestaña Todo",
-      help: "La bandeja combinada reúne todas las cuentas; desactívala para separar el correo en pestañas.",
+      help: "Muestra las vistas, etiquetas y filtros guardados que elijas como pestañas separadas de la bandeja de entrada. Desactívalo para ver todo el correo de entrada en una sola pestaña.",
       aiSetup: "Configurar etiquetas y reglas de IA",
     },
     accounts: {

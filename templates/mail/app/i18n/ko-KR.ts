@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "나에게 보내는 메모",
     },
     inbox: {
-      atLeastCount: "최소 {{count}}",
+      conversationsCount: "대화: {{count}}개",
+      conversationsAtLeastCount: "대화: {{count}}개 이상",
+      unreadCount: "읽지 않은 대화: {{count}}개",
+      draftsToReviewCount: "검토할 초안: {{count}}개",
       syncing: "받은편지함 동기화 중…",
     },
     sort: {
@@ -165,7 +168,7 @@ const messages = {
       filtersLimitReached: "필터는 최대 20개까지 저장할 수 있습니다.",
     },
     tabSettings: {
-      splitInbox: "분할 받은편지함",
+      splitInbox: "받은편지함을 탭으로 나누기",
       views: "조회수",
       categories: "카테고리",
       rename: "이름 변경",
@@ -173,7 +176,7 @@ const messages = {
       savedFilters: "저장된 필터",
       combinedInbox: "통합 받은편지함",
       allTab: "전체 탭",
-      help: "통합 받은편지함은 모든 계정을 함께 표시합니다. 끄면 메일이 탭으로 나뉩니다.",
+      help: "선택한 보기, 라벨, 저장된 필터를 받은편지함의 별도 탭으로 표시합니다. 끄면 받은편지함의 모든 메일을 하나의 탭에서 봅니다.",
       aiSetup: "AI 태그 및 규칙 설정",
     },
     accounts: {
