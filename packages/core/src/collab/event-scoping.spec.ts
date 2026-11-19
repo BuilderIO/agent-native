@@ -25,6 +25,9 @@ vi.mock("../sharing/access.js", () => ({
   },
   hasHostAccessResolver: () => false,
 }));
+vi.mock("../sharing/registry.js", () => ({
+  getShareableResource: () => ({}),
+}));
 
 import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";
 import {
