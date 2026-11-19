@@ -51,6 +51,10 @@ import { shouldCapturePlanContent } from "@/lib/plan-tracking";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -252,6 +256,8 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+        builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
         queryClient={queryClient}
         skeletonLayout="list"
         sessionBypass={sessionBypass}

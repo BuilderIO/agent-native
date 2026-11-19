@@ -183,13 +183,13 @@ describe("AppLayout inbox tab bar", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'accountEmail: targetEmail.accountEmail,\n    });\n    toast(t("mail.toasts.reportedSpam"))',
+      'accountEmail: targetEmail.accountEmail,\n      },\n      { onSuccess: () => toast(t("mail.toasts.reportedSpam")) },',
     );
     expect(source).toContain(
-      "senderEmail: targetEmail.from.email,\n      accountEmail: targetEmail.accountEmail,",
+      "senderEmail: targetEmail.from.email,\n        accountEmail: targetEmail.accountEmail,",
     );
     expect(source).toContain(
-      "muteThread.mutate({\n      threadId: tid,\n      accountEmail: targetEmail?.accountEmail,\n    });",
+      "muteThread.mutate(\n      {\n        threadId: tid,\n        accountEmail: targetEmail?.accountEmail,\n      },",
     );
   });
 

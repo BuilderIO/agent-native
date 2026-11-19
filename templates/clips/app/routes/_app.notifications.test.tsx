@@ -1,5 +1,9 @@
 // @vitest-environment happy-dom
 
+import {
+  WRITE_FAILURE_EVENT,
+  type WriteFailureDetail,
+} from "@agent-native/core/client/write-failure";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,6 +127,27 @@ describe("NotificationsRoute reply", () => {
         threadId: "thread-1",
       }),
     );
+  });
+
+  it("announces a failed reply through the shared write-failure toast", async () => {
+    const failure = new Error("Action add-comment failed: boom");
+    mocks.mutateAsync.mockRejectedValueOnce(failure);
+    const reported: WriteFailureDetail[] = [];
+    const listener = (event: Event) => {
+      reported.push((event as CustomEvent<WriteFailureDetail>).detail);
+    };
+    window.addEventListener(WRITE_FAILURE_EVENT, listener);
+
+    try {
+      await openReply("On it");
+      await act(async () => mocks.composer.onSubmit?.());
+    } finally {
+      window.removeEventListener(WRITE_FAILURE_EVENT, listener);
+    }
+
+    expect(reported).toEqual([
+      { error: failure, label: "notificationsRoute.sendFailed" },
+    ]);
   });
 
   it("doesn't send again while the first reply is on its way", async () => {

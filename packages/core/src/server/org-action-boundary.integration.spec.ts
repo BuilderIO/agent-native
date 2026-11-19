@@ -408,28 +408,41 @@ it("does not promote a pending-removal membership on a public read", async () =>
   }
 });
 
-it("reports unavailable when the post-bootstrap membership read fails", async () => {
-  const database = await bootstrapDatabase();
-  try {
-    await database.query(
-      "INSERT INTO organizations (id, name) VALUES ('existing', 'Existing')",
-    );
-    const originalExecute = execute.getMockImplementation()!;
-    let membershipReads = 0;
-    execute.mockImplementation(async (query) => {
-      if (query.sql.includes("FROM org_members m") && ++membershipReads === 2) {
-        throw new Error("membership read failed");
-      }
-      return originalExecute(query);
-    });
-    expect((await readScopeAction(actionApp())).status).toBe(503);
-    expect((await database.query("SELECT * FROM org_members")).rows).toEqual(
-      [],
-    );
-  } finally {
-    await database.close();
-  }
-});
+it.each([
+  [
+    "transient",
+    Object.assign(new Error("connection failure"), { code: "08006" }),
+    503,
+  ],
+  ["permanent", new Error("membership read failed"), 500],
+])(
+  "fails a %s post-bootstrap membership read failure",
+  async (_kind, failure, status) => {
+    const database = await bootstrapDatabase();
+    try {
+      await database.query(
+        "INSERT INTO organizations (id, name) VALUES ('existing', 'Existing')",
+      );
+      const originalExecute = execute.getMockImplementation()!;
+      let membershipReads = 0;
+      execute.mockImplementation(async (query) => {
+        if (
+          query.sql.includes("FROM org_members m") &&
+          ++membershipReads === 2
+        ) {
+          throw failure;
+        }
+        return originalExecute(query);
+      });
+      expect((await readScopeAction(actionApp())).status).toBe(status);
+      expect((await database.query("SELECT * FROM org_members")).rows).toEqual(
+        [],
+      );
+    } finally {
+      await database.close();
+    }
+  },
+);
 
 it("does not bootstrap an anonymous public read", async () => {
   const database = await bootstrapDatabase();

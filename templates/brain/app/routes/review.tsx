@@ -145,7 +145,7 @@ export default function ReviewRoute() {
         body?: string;
       };
     }
-  >("preview-canonical-resource" as any);
+  >("preview-canonical-resource", { errorNotification: "caller" });
   const rejectProposal = useActionMutation<
     unknown,
     { proposalId: string; reviewerNotes?: string }

@@ -12,20 +12,27 @@ import { runFrameworkSchemaEnsures } from "./release-schema.js";
  * still reports success — `Applied migration ...` lines, a zero exit, a
  * published deploy — so this has to fail here or it fails silently forever.
  *
- * Scoped to `CONTEXT=production` on purpose. The beta lane deliberately builds
+ * Explicit production commands always require a PostgreSQL target. Other callers
+ * are scoped to `CONTEXT=production`: the beta lane deliberately builds
  * with `AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1` under a branch-deploy context
  * against masked site secrets, and its database is migrated by the beta
  * publish step — so keying off that flag would fail every beta deploy while
  * never guarding the production one this exists for.
  */
-function assertReleaseMigrationTargetsRemoteDatabase(): void {
-  if (getAppConfig().migration.deployContext !== "production") return;
+function assertReleaseMigrationTargetsRemoteDatabase(
+  requirePostgres: boolean,
+): void {
+  if (
+    !requirePostgres &&
+    getAppConfig().migration.deployContext !== "production"
+  )
+    return;
   const url = getDatabaseUrl();
   // `isLocalDatabase()` alone is not enough. Netlify hands the CLI a MASKED
   // secret ("****************uire") outside its own build infra, and that is
   // neither empty nor a local URL — so it reads as "not local" while being
   // unconnectable. Require a real remote scheme too.
-  if (url.includes("://")) return;
+  if (/^postgres(?:ql)?:\/\//i.test(url)) return;
   throw new Error(
     `Release migrations resolved to an unusable database (${describeReleaseMigrationUrl(url)}). ` +
       "In a production deploy the schema must be applied to the same remote " +
@@ -56,6 +63,7 @@ function shouldLogReleaseTiming(): boolean {
 
 export async function runFrameworkReleaseMigrations(
   _nitroApp?: unknown,
+  options: { requirePostgres?: boolean } = {},
 ): Promise<void> {
   const logTiming = shouldLogReleaseTiming();
   const startedAt = Date.now();
@@ -66,7 +74,9 @@ export async function runFrameworkReleaseMigrations(
   }
   let lockWaitMs: number | undefined;
   try {
-    assertReleaseMigrationTargetsRemoteDatabase();
+    assertReleaseMigrationTargetsRemoteDatabase(
+      options.requirePostgres === true,
+    );
     // One lease for the whole release, so two deploys against one database
     // never interleave.
     await withStoreMigrationLock(async () => {

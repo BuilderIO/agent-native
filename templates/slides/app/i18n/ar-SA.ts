@@ -120,6 +120,9 @@ const messages = {
     noAssetsYet: "لا توجد أصول بعد.",
     assetUploadFailed: "فشل بعض التحميلات",
     assetDeleteFailed: "فشل حذف الأصل",
+    assetLoadFailed: "تعذّر تحميل الأصول",
+    assetSelectNoChange: "تعذّر تطبيق هذه الصورة على هذه الشريحة",
+    retry: "إعادة المحاولة",
     assetDeleteInUse: "هذا الأصل مستخدم في عرض تقديمي. أزله من العرض أولاً",
     assetDeleteStorageRemains:
       "تمت إزالته من المكتبة، لكن تعذر حذف الملف المخزّن",
@@ -423,6 +426,7 @@ const messages = {
     deckTitle: "عنوان العرض",
     presentPresenterViewDescription: "عرض ملاحظات المتحدث أثناء التقديم",
     presenterViewBlocked: "اسمح بالنوافذ المنبثقة لفتح عرض مقدّم العرض.",
+    presenterViewUnsupported: "عرض مقدّم العرض غير مدعوم في هذا المتصفح.",
     export: "تصدير",
     privacyPrivate: "خاص",
     privacyOrg: "مشترك مع المؤسسة",
@@ -473,6 +477,11 @@ const messages = {
   editorExport: {
     pptxFailed: "تعذر إنشاء ملف PPTX.",
     exportFailed: "فشل التصدير",
+    exportFinishedWithWarnings: "تم التصدير مع تحذيرات",
+    imagesDropped:
+      "تعذر تحميل {{count}} صورة وتم استبعادها من ملف PowerPoint (الشرائح {{slides}}).",
+    pdfSidecarSkipped:
+      "تم تصدير هذا الملف بدون مصدره القابل للتحرير. ستُعاد بناء الشرائح من محتوى الصفحات عند إعادة استيراده.",
     exporting: "جارٍ التصدير...",
     exportPptxError: "حدث خطأ أثناء التصدير بصيغة PPTX.",
     googleSlidesDownloaded: "تم التنزيل من أجل Google Slides",
@@ -491,6 +500,9 @@ const messages = {
     exportPdf: "تصدير بصيغة PDF",
     exportPptx: "تصدير بصيغة PPTX",
     connectGoogle: "توصيل Google",
+    disconnectGoogle: "قطع اتصال Google",
+    googleDisconnectFailed: "تعذّر قطع اتصال Google Drive.",
+    googleSlidesStatusUnknown: "تعذّر التحقق من الحالة",
     openInGoogleSlides: "فتح في Google Slides",
     googleSlidesUnavailable: "غير متاح",
     googleSlidesOpenImporter: "فتح استيراد Google Slides",
@@ -516,6 +528,7 @@ const messages = {
   share: {
     createFailed: "تعذر إنشاء رابط المشاركة",
     snapshotLinks: "روابط اللقطات",
+    snapshotLinksLoadFailed: "تعذّر تحميل روابط اللقطات",
     revokeLink: "إلغاء",
     revokeFailed: "تعذّر إلغاء رابط المشاركة",
     title: "مشاركة العرض التقديمي",

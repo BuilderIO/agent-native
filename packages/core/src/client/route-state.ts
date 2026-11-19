@@ -17,6 +17,7 @@ import {
   getBrowserTabId,
   isBrowserTabIdForCurrentDocument,
 } from "./browser-tab-id.js";
+import { useBrowserTabUse } from "./browser-tab-use.js";
 import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
@@ -341,6 +342,16 @@ export function useSemanticNavigationState<
       },
     });
 
+  useEffect(() => {
+    if (!enabled) return;
+    const refreshCommand = () => {
+      void queryClient.invalidateQueries({ queryKey: commandQueryKey });
+    };
+    window.addEventListener("agentNative:refresh-data", refreshCommand);
+    return () =>
+      window.removeEventListener("agentNative:refresh-data", refreshCommand);
+  }, [enabled, queryClient, commandQueryKey]);
+
   const clearCommand = useCallback(async () => {
     await Promise.all(
       commandKeys.map((key) =>
@@ -422,6 +433,11 @@ export function useAgentRouteState<
       `${location.pathname}${location.search}${location.hash}`,
     );
   }, [location.hash, location.pathname, location.search, options.enabled]);
+
+  useBrowserTabUse(
+    `${location.pathname}${location.search}`,
+    options.enabled !== false,
+  );
 
   const navigationKeys = useMemo(() => {
     const scopedKey = appStateKeyForBrowserTab(navigationKey, browserTabId);

@@ -32,6 +32,7 @@ import {
 } from "../lib/booking-link-utils.js";
 import { displayNameFromIdentifier } from "../lib/booking-og-image.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
+import { publicErrorReply } from "../lib/public-error-reply.js";
 import { ensureBookingUsername } from "./booking-usernames.js";
 
 async function requireRequestContext<T>(
@@ -259,9 +260,12 @@ export const getPublicBookingLink = defineEventHandler(
           rows[0].ownerEmail,
         ),
       };
-    } catch (error: any) {
-      setResponseStatus(event, 500);
-      return { error: error.message };
+    } catch (error) {
+      return publicErrorReply(
+        event,
+        error,
+        "GET /api/public/booking-links/:slug",
+      );
     }
   },
 );

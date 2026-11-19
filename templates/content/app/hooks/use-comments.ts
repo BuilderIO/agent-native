@@ -74,6 +74,8 @@ export interface Comment {
   author_model?: string | null;
   /** The thinking effort the writing run resolved, when one was recorded. */
   author_effort?: string | null;
+  /** The MCP host, such as `claude-code`, an outside agent posted it from. */
+  author_client?: string | null;
   mutation?: CommentMutationState;
 }
 

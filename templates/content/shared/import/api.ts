@@ -26,6 +26,8 @@ export interface ImportContentPageResult {
   id: string | null;
   urlPath: string | null;
   sourceName: string;
+  parentSourceName: string | null;
+  alreadyImportedAt: string | null;
   title: string;
   titleSource: ImportedPage["titleSource"];
   status: ImportPageStatus;
@@ -45,7 +47,7 @@ export interface ImportContentResult {
   storageReady: boolean;
   pages: ImportContentPageResult[];
   skipped: ImportSkippedFile[];
-  /** File names, as given, of the images the pages use; the UI uploads these. */
+  databases: ImportContentDatabaseResult[];
   uploads: string[];
   counts: {
     pages: number;
@@ -55,6 +57,13 @@ export interface ImportContentResult {
     skipped: number;
   };
   message: string;
+}
+
+export interface ImportContentDatabaseResult {
+  name: string;
+  sourceName: string;
+  rows: number;
+  csvKept: boolean;
 }
 
 export interface UndoContentImportResult {

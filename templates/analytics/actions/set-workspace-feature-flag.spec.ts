@@ -55,4 +55,14 @@ describe("set-workspace-feature-flag", () => {
     expect(result.success).toBe(false);
     expect(setWorkspaceFeatureFlag).not.toHaveBeenCalled();
   });
+
+  it("keeps the requested scope and rejects any other", () => {
+    expect(action.schema.parse({ ...input, scope: "global" })).toEqual({
+      ...input,
+      scope: "global",
+    });
+    expect(
+      action.schema.safeParse({ ...input, scope: "everyone" }).success,
+    ).toBe(false);
+  });
 });

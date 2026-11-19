@@ -1,5 +1,9 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useOrgRole } from "@agent-native/core/client/org";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { IconExternalLink, IconTrash } from "@tabler/icons-react";
 import { useRef, useState, type FormEvent } from "react";
 
@@ -162,7 +166,11 @@ export function AgentsPanel({
         method: "DELETE",
       },
     );
-    if (res.ok) onRefresh();
+    if (res.ok) {
+      onRefresh();
+    } else {
+      reportWriteFailure(writeFailureFromResponse(res));
+    }
   };
 
   return (

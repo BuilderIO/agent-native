@@ -1,5 +1,6 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
 import { agentTouchDocument } from "@agent-native/core/collab";
+import { countSaveOutcome } from "@agent-native/core/save-conflict/server";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -34,6 +35,7 @@ import {
   exportPlanContentToMdxFolder,
   referencedBlockIdsForPlanComments,
 } from "../server/plan-mdx.js";
+import { planSaveConflict } from "../server/plan-save-conflict.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -539,6 +541,12 @@ const updateVisualPlanSchema = z.object({
     .describe(
       "Required optimistic-concurrency base revision for full content replacement and replace-blocks. Read the latest plan, copy plan.updatedAt exactly, and do not reuse a revision after another write succeeds. Granular patches do not require it.",
     ),
+  expectedRevision: z
+    .string()
+    .optional()
+    .describe(
+      "The same as expectedUpdatedAt, for sending back a save_conflict's details.currentRevision.",
+    ),
   allowDestructive: z
     .boolean()
     .optional()
@@ -741,20 +749,22 @@ export default defineAction({
       );
     }
 
-    if (isDestructiveStructuredWrite) {
-      if (!args.expectedUpdatedAt) {
-        fail(
-          "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
-          { errorCode: "expected_updated_at_required", statusCode: 422 },
-        );
+    const expectedRevision = args.expectedRevision ?? args.expectedUpdatedAt;
+    if (isDestructiveStructuredWrite && !expectedRevision) {
+      fail(
+        "expectedUpdatedAt is required for full content replacement and replace-blocks. Read the latest plan, pass its plan.updatedAt, and retry.",
+        { errorCode: "expected_updated_at_required", statusCode: 422 },
+      );
+    }
+    // A targeted patch needs no revision, but one that was sent is checked.
+    if (
+      expectedRevision &&
+      (isDestructiveStructuredWrite || args.contentPatches.length > 0)
+    ) {
+      if (bundleAtLoad?.plan.updatedAt !== expectedRevision) {
+        throw await planSaveConflict(args.planId);
       }
-      if (bundleAtLoad?.plan.updatedAt !== args.expectedUpdatedAt) {
-        fail(
-          "This destructive update was prepared from an outdated plan revision. Reload the plan and retry with the latest expectedUpdatedAt.",
-          { errorCode: "plan_revision_conflict", statusCode: 409 },
-        );
-      }
-      versionAtLoad = args.expectedUpdatedAt;
+      versionAtLoad = expectedRevision;
     }
 
     if (args.content !== undefined) {
@@ -955,6 +965,48 @@ export default defineAction({
       }
     }
 
+    // plan_comments.section_id references plan_sections, so an unknown id
+    // would fail the comment writes below as a bare 500. Reject it the way new
+    // comments are rejected. Sections this request saves exist by the time
+    // the comments are written.
+    const requestSectionIds = new Set(
+      args.sections.flatMap((section) => (section.id ? [section.id] : [])),
+    );
+    const movedToSectionIds = onlyUpdatesCommentStatuses
+      ? []
+      : [
+          ...new Set(
+            existingCommentUpdates.flatMap((comment) =>
+              comment.sectionId &&
+              comment.sectionId !== comment.existing.sectionId &&
+              !requestSectionIds.has(comment.sectionId)
+                ? [comment.sectionId]
+                : [],
+            ),
+          ),
+        ];
+    if (movedToSectionIds.length > 0) {
+      const foundSections = await db
+        .select({ id: schema.planSections.id })
+        .from(schema.planSections)
+        .where(
+          and(
+            eq(schema.planSections.planId, args.planId),
+            inArray(schema.planSections.id, movedToSectionIds),
+          ),
+        );
+      const foundSectionIds = new Set(foundSections.map((s) => s.id));
+      const missingSectionId = movedToSectionIds.find(
+        (id) => !foundSectionIds.has(id),
+      );
+      if (missingSectionId) {
+        fail(
+          `Section ${missingSectionId} was not found on plan ${args.planId}.`,
+          { errorCode: "plan_section_not_found", statusCode: 422 },
+        );
+      }
+    }
+
     const bundleForCommentInserts =
       pendingCommentInserts.length > 0
         ? await loadPlanBundle(args.planId)
@@ -966,7 +1018,11 @@ export default defineAction({
         (bundleForCommentInserts.sections ?? []).map((s) => s.id),
       );
       for (const comment of pendingCommentInserts) {
-        if (comment.sectionId && !validSectionIds.has(comment.sectionId)) {
+        if (
+          comment.sectionId &&
+          !validSectionIds.has(comment.sectionId) &&
+          !requestSectionIds.has(comment.sectionId)
+        ) {
           fail(
             `Section ${comment.sectionId} was not found on plan ${args.planId}.`,
             { errorCode: "plan_section_not_found", statusCode: 422 },
@@ -1041,7 +1097,8 @@ export default defineAction({
       });
     }
 
-    await db.transaction(async (tx) => {
+    let lostSaveRace = false;
+    const planWrite = db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
       //
@@ -1071,9 +1128,10 @@ export default defineAction({
           .returning({ id: schema.plans.id });
 
         if (updatedRows.length === 0) {
-          fail(
-            "This plan was updated by someone else while your change was being saved. Reload the plan and retry.",
-            { errorCode: "plan_revision_conflict", statusCode: 409 },
+          lostSaveRace = true;
+          // guard:allow-bare-error — invariant: only rolls back the transaction; replaced by the typed conflict once it ends
+          throw new Error(
+            "The plan changed while this save was being written.",
           );
         }
       }
@@ -1081,15 +1139,18 @@ export default defineAction({
       for (const [index, section] of args.sections.entries()) {
         const id = section.id ?? newId("sec");
         if (section.id) {
+          // Section ids are unique across plans, so another plan's id would
+          // fail the INSERT below as a bare 500.
           const [existing] = await tx
-            .select({ id: schema.planSections.id })
+            .select({ planId: schema.planSections.planId })
             .from(schema.planSections)
-            .where(
-              and(
-                eq(schema.planSections.id, section.id),
-                eq(schema.planSections.planId, args.planId),
-              ),
+            .where(eq(schema.planSections.id, section.id));
+          if (existing && existing.planId !== args.planId) {
+            fail(
+              `Section ${section.id} was not found on plan ${args.planId}.`,
+              { errorCode: "plan_section_not_found", statusCode: 422 },
             );
+          }
           if (existing) {
             await tx
               .update(schema.planSections)
@@ -1220,6 +1281,10 @@ export default defineAction({
         });
       }
     });
+    await planWrite.catch(async (error) => {
+      throw lostSaveRace ? await planSaveConflict(args.planId) : error;
+    });
+    if (hasPlanAuthoringChanges) countSaveOutcome("plan_content", "written");
 
     if (isAgentCaller && hasPlanAuthoringChanges) {
       try {

@@ -46,6 +46,10 @@ import {
   type IntegrationDeliverySnapshot,
 } from "../lib/integrations.js";
 import {
+  readLimitedRequestBody,
+  RequestBodyTooLargeError,
+} from "../lib/read-limited-request-body.js";
+import {
   sendNewResponseEmail,
   type NewResponseEmailArgs,
 } from "../lib/response-email.js";
@@ -65,15 +69,6 @@ const APPLICATION_STATE_DESTINATION = "application-state";
 const RESPONSE_EMAIL_DESTINATION = "email";
 const DELIVERY_CLAIM_LEASE_MS = 60_000;
 const DELIVERY_CLAIM_HEARTBEAT_MS = Math.floor(DELIVERY_CLAIM_LEASE_MS / 3);
-
-function requestPayloadExceedsLimit(event: H3Event): boolean {
-  const raw = getRequestHeader(event, "content-length");
-  if (!raw) return false;
-  const length = Number(raw);
-  return (
-    !Number.isSafeInteger(length) || length < 0 || length > MAX_PAYLOAD_BYTES
-  );
-}
 
 type ResponseDeliveryStatus = "pending" | "processing" | "succeeded" | "failed";
 
@@ -859,9 +854,19 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   const db = getDb();
   const requestedFormId = getRouterParam(event, "id")?.trim() ?? "";
 
-  if (requestPayloadExceedsLimit(event)) {
-    setResponseStatus(event, 413);
-    return { error: "Payload too large" };
+  try {
+    await readLimitedRequestBody(event, MAX_PAYLOAD_BYTES);
+  } catch (error) {
+    setResponseStatus(
+      event,
+      error instanceof RequestBodyTooLargeError ? 413 : 400,
+    );
+    return {
+      error:
+        error instanceof RequestBodyTooLargeError
+          ? "Payload too large"
+          : "Invalid submission payload",
+    };
   }
 
   // coercion-ok: malformed request bodies are rejected as invalid submissions.

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import {
   getRequestOrgId,
@@ -58,10 +58,7 @@ export default defineAction({
       .describe(
         "View to navigate to (ask, adhoc, analyses, extensions, sessions, event-catalog, performance, monitoring, agents, semantic-layer (alias: data-dictionary), data-sources (alias: source-status), settings). event-catalog and performance (per-route Web Vitals and request percentiles) require the Sessions triage Lab.",
       ),
-    dashboardId: z
-      .string()
-      .optional()
-      .describe("Dashboard ID to open (used with view=adhoc)"),
+    dashboardId: z.string().optional().describe("Dashboard ID to open"),
     dashboardName: z
       .string()
       .trim()
@@ -70,18 +67,10 @@ export default defineAction({
       .describe(
         'Accessible SQL dashboard name to open when its id is unknown (for example, "Agent-Native" or "Agent-Native dashboard").',
       ),
-    analysisId: z
-      .string()
-      .optional()
-      .describe("Analysis ID to open (used with view=analyses)"),
-    extensionId: z
-      .string()
-      .optional()
-      .describe("Extension ID to open (used with view=extensions)"),
-    recordingId: z
-      .string()
-      .optional()
-      .describe("Session recording id to open (used with view=sessions)"),
+    analysisId: z.string().optional().describe("Analysis ID to open"),
+    extensionId: z.string().optional().describe("Extension ID to open"),
+    recordingId: z.string().optional().describe("Session recording id to open"),
+    reportId: z.string().optional().describe("Session report id to open"),
     agentsView: z
       .enum(["monitoring", "dashboards", "database", "flags"])
       .optional()
@@ -128,6 +117,7 @@ export default defineAction({
       !args.analysisId &&
       !args.extensionId &&
       !args.recordingId &&
+      !args.reportId &&
       !args.agentsView &&
       !args.dbAdminConnectionId &&
       !args.monitoringView &&
@@ -135,8 +125,9 @@ export default defineAction({
       !args.statusPageId &&
       !args.errorIssueId
     ) {
-      throw new Error(
-        "At least --view, --dashboardId, --dashboardName, --analysisId, --extensionId, --recordingId, --agentsView, --dbAdminConnectionId, --monitoringView, --monitorId, --statusPageId, or --errorIssueId is required.",
+      fail(
+        "At least --view, --dashboardId, --dashboardName, --analysisId, --extensionId, --recordingId, --reportId, --agentsView, --dbAdminConnectionId, --monitoringView, --monitorId, --statusPageId, or --errorIssueId is required.",
+        { errorCode: "invalid_args", statusCode: 400 },
       );
     }
     const dashboardId =
@@ -161,6 +152,10 @@ export default defineAction({
     if (args.recordingId) {
       nav.recordingId = args.recordingId;
       if (!args.view) nav.view = "sessions";
+    }
+    if (args.reportId) {
+      nav.reportId = args.reportId;
+      if (!args.view) nav.view = "session-report";
     }
     if (args.agentsView) {
       nav.agentsView = args.agentsView;
@@ -198,6 +193,7 @@ export default defineAction({
     if (nav.analysisId) parts.push(`analysis:${nav.analysisId}`);
     if (nav.extensionId) parts.push(`extension:${nav.extensionId}`);
     if (nav.recordingId) parts.push(`recording:${nav.recordingId}`);
+    if (nav.reportId) parts.push(`report:${nav.reportId}`);
     if (nav.agentsView) parts.push(`agents:${nav.agentsView}`);
     if (nav.dbAdminConnectionId)
       parts.push(`db-admin:${nav.dbAdminConnectionId}`);
