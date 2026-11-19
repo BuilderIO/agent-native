@@ -82,6 +82,9 @@ export default createAgentChatPlugin({
     },
     connectorCatalog: [
       "resources",
+      "list_app_actions",
+      "call_app_action",
+      "read_view",
       "resolve-integration-source-context",
       "start-workspace-app-creation",
       "list-dispatch-usage-metrics",
