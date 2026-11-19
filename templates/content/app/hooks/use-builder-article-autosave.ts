@@ -19,10 +19,16 @@ const LIST_ACTION = "list-builder-article-autosaves";
 export const BUILDER_AUTOSAVE_ACTIVE_POLL_MS = 3_000;
 export const BUILDER_AUTOSAVE_IDLE_POLL_MS = 30_000;
 
+export function builderArticleAutosaveRows(
+  data: ListBuilderArticleAutosavesResponse | undefined,
+): BuilderArticleRowStatus[] {
+  return Array.isArray(data?.rows) ? data.rows : [];
+}
+
 export function builderAutosavePollMs(
   data: ListBuilderArticleAutosavesResponse | undefined,
 ) {
-  const active = data?.rows.some(
+  const active = builderArticleAutosaveRows(data).some(
     (row) =>
       row.autosave?.enabled &&
       row.autosave.state !== "failed" &&

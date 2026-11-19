@@ -26,6 +26,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  builderArticleAutosaveRows,
   builderArticleRowIdentity,
   builderArticleRowTarget,
   useBuilderArticleAutosaveRunner,
@@ -221,7 +222,7 @@ export function BuilderArticleCellStatus({
   const query = useBuilderArticleAutosaves({
     documentId: collectionDocumentId,
   });
-  const row = query.data?.rows.find(
+  const row = builderArticleAutosaveRows(query.data).find(
     (candidate) => candidate.documentId === documentId,
   );
   if (!row) return null;
@@ -302,7 +303,7 @@ export function BuilderArticleAutosavePanel({
   const query = useBuilderArticleAutosaves(
     builderArticleRowTarget(documentId, databaseId),
   );
-  const row = query.data?.rows.find(
+  const row = builderArticleAutosaveRows(query.data).find(
     (candidate) => candidate.documentId === documentId,
   );
   if (!row) return null;
@@ -321,7 +322,7 @@ export function BuilderArticleRowAutosaveRunner({
   const query = useBuilderArticleAutosaves(
     builderArticleRowTarget(documentId, databaseId),
   );
-  const row = query.data?.rows.find(
+  const row = builderArticleAutosaveRows(query.data).find(
     (candidate) => candidate.documentId === documentId,
   );
   const rows = useMemo(

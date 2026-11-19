@@ -34,6 +34,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 vi.mock("@/hooks/use-builder-article-autosave", () => ({
+  builderArticleAutosaveRows: (
+    data: { rows?: BuilderArticleRowStatus[] } | undefined,
+  ) => (Array.isArray(data?.rows) ? data.rows : []),
   builderArticleRowIdentity: (row: BuilderArticleRowStatus) => ({
     rowDocumentId: row.documentId,
     databaseId: row.databaseId,
