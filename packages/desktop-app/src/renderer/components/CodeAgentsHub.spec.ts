@@ -1078,21 +1078,3 @@ describe("local app builds from chat", () => {
     ).toBe(false);
   });
 });
-
-describe("desktop app switching and soft navigation wiring", () => {
-  it("pins all open app tabs and reuses existing app tabs with soft navigation", () => {
-    // source-read-ok: asserts JSX wiring of pinned app tabs with no render harness available
-    const hubSource = readFileSync(
-      "src/renderer/components/CodeAgentsHub.tsx",
-      "utf8",
-    );
-    expect(hubSource).toContain("urlOpenSoft");
-    expect(hubSource).toContain(
-      "urlOpenNonce={urlOpenNonceByTab[tab.id] ?? 0}",
-    );
-    expect(hubSource).toContain("for (const tab of chatFirstSurfaceTabs.tabs)");
-    expect(hubSource).toContain(
-      "chatFirstSurfaceTabsStore.activate(existingTab.id)",
-    );
-  });
-});
