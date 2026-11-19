@@ -672,7 +672,7 @@ function buildSoftNavigateScript(targetUrl: string): string {
         window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
       }
       return true;
-    } catch {
+    } catch { // coercion-ok: false makes the host fall back to a full src load
       return false;
     }
   })()`;

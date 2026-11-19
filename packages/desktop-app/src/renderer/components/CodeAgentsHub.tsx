@@ -2821,9 +2821,6 @@ export default function CodeAgentsHub({
       }
     />
   );
-  // Keep every open app webview (plus preloaded launch apps) in one DOM
-  // parent for the whole session so switching between chat and apps never
-  // unmounts or reloads the guest.
   const pinnedChatFirstAppTabs = useMemo(() => {
     const byId = new Map<string, ChatFirstSurfaceTab>();
     for (const app of surfaceApps) {

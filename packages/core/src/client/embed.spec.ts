@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+
 import { AGENT_NAVIGATE_MESSAGE_TYPE, postNavigate } from "./embed.js";
 
 describe("postNavigate", () => {
