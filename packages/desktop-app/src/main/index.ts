@@ -248,7 +248,10 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
-import { waitForContentFileHandlesToClose } from "./content-files/file-handles";
+import {
+  restoreClaimedContentFile,
+  waitForContentFileHandlesToClose,
+} from "./content-files/file-handles";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
@@ -10277,7 +10280,7 @@ async function writeContentSourceFile(
     await fs.promises.chmod(temporary, existingStat.mode);
     await fs.promises.rename(target, backup);
     if (!(await waitForContentFileHandlesToClose(backup))) {
-      await fs.promises.rename(backup, target);
+      await restoreClaimedContentFile(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
@@ -10286,7 +10289,7 @@ async function writeContentSourceFile(
     }
     const claimedRevision = await contentSourceFileRevision(backup);
     if (claimedRevision !== expectedRevision) {
-      await fs.promises.rename(backup, target);
+      await restoreClaimedContentFile(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
@@ -10297,7 +10300,7 @@ async function writeContentSourceFile(
       await fs.promises.link(temporary, target);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        await fs.promises.rename(backup, target).catch(() => undefined);
+        await restoreClaimedContentFile(backup, target).catch(() => undefined);
         throw error;
       }
       const competingRevision = await contentSourceFileRevision(target);
@@ -10345,7 +10348,7 @@ async function deleteContentSourceFile(
   const claimed = `${target}.${randomUUID()}.delete-claim`;
   await fs.promises.rename(target, claimed);
   if (!(await waitForContentFileHandlesToClose(claimed))) {
-    await fs.promises.rename(claimed, target);
+    await restoreClaimedContentFile(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
@@ -10354,7 +10357,7 @@ async function deleteContentSourceFile(
   }
   const claimedRevision = await contentSourceFileRevision(claimed);
   if (claimedRevision !== expectedRevision) {
-    await fs.promises.rename(claimed, target);
+    await restoreClaimedContentFile(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,

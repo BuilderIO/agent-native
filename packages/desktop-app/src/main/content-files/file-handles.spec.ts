@@ -5,7 +5,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { waitForContentFileHandlesToClose } from "./file-handles";
+import {
+  restoreClaimedContentFile,
+  waitForContentFileHandlesToClose,
+} from "./file-handles";
 
 const directories: string[] = [];
 
@@ -19,6 +22,7 @@ function temporaryFile(): string {
 
 const canSeeOpenHandles =
   process.platform === "win32" ||
+  process.platform === "linux" ||
   spawnSync("lsof", ["-v"], { stdio: "ignore" }).error === undefined;
 
 afterEach(() => {
@@ -60,4 +64,44 @@ describe("waitForContentFileHandlesToClose", () => {
       await expect(waitForContentFileHandlesToClose(file)).resolves.toBe(true);
     },
   );
+
+  it("refuses on macOS when lsof can't run to say who holds the file", async () => {
+    const file = temporaryFile();
+    const searchPath = process.env.PATH;
+    process.env.PATH = "";
+    try {
+      await expect(
+        waitForContentFileHandlesToClose(file, "darwin"),
+      ).resolves.toBe(false);
+    } finally {
+      process.env.PATH = searchPath;
+    }
+  });
+});
+
+describe("restoreClaimedContentFile", () => {
+  it("puts a claimed file back when its path is still free", async () => {
+    const target = temporaryFile();
+    const claimed = `${target}.claim`;
+    fs.renameSync(target, claimed);
+
+    await expect(restoreClaimedContentFile(claimed, target)).resolves.toBe(
+      true,
+    );
+    expect(fs.readFileSync(target, "utf-8")).toBe("# Note\n");
+    expect(fs.existsSync(claimed)).toBe(false);
+  });
+
+  it("keeps a file written to the path meanwhile, and the claimed copy beside it", async () => {
+    const target = temporaryFile();
+    const claimed = `${target}.claim`;
+    fs.renameSync(target, claimed);
+    fs.writeFileSync(target, "# Written meanwhile\n");
+
+    await expect(restoreClaimedContentFile(claimed, target)).resolves.toBe(
+      false,
+    );
+    expect(fs.readFileSync(target, "utf-8")).toBe("# Written meanwhile\n");
+    expect(fs.readFileSync(claimed, "utf-8")).toBe("# Note\n");
+  });
 });
