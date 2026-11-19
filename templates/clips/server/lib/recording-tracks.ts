@@ -14,6 +14,7 @@ import {
 } from "../../shared/rich-recording.js";
 import {
   HOSTED_MAX_RICH_BYTES,
+  MAX_UPLOAD_BYTES,
   resolveMaxRichBytes,
 } from "../../shared/upload-limits.js";
 import { getDb, schema } from "../db/index.js";
@@ -113,6 +114,10 @@ export function richBytesLimit(storageMode: "own" | "hosted" | null): number {
   return storageMode === "hosted"
     ? HOSTED_MAX_RICH_BYTES
     : resolveMaxRichBytes();
+}
+
+export function trackBytesLimit(storageMode: "own" | "hosted" | null): number {
+  return Math.min(richBytesLimit(storageMode), MAX_UPLOAD_BYTES);
 }
 
 /**
