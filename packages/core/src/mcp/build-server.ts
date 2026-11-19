@@ -629,13 +629,20 @@ function scopeToolSearchToAdvertised(
           { taskRank, taskDeadline, taskCandidateProvider },
           context,
         );
+        const marked = <T extends { name: string }>(item: T) =>
+          Object.hasOwn(unlisted, item.name)
+            ? { ...item, callWith: CALL_TOOL_NAME }
+            : item;
         return {
           ...found,
-          results: found.results.map((result) =>
-            Object.hasOwn(unlisted, result.name)
-              ? { ...result, callWith: CALL_TOOL_NAME }
-              : result,
-          ),
+          results: found.results.map(marked),
+          ...(found.recommendations
+            ? {
+                recommendations: found.recommendations.map((item) =>
+                  item.kind === "tool" ? marked(item) : item,
+                ),
+              }
+            : {}),
         };
       },
     },
@@ -691,7 +698,7 @@ function callToolTarget(
   unlisted: Record<string, ActionEntry>,
 ):
   | { name: string; args: Record<string, unknown> }
-  | { errorType: string; error: string } {
+  | { errorType: string; error: string; name?: string } {
   const input = metadataObject(args);
   const name = typeof input.name === "string" ? input.name.trim() : "";
   if (!name) {
@@ -704,6 +711,7 @@ function callToolTarget(
     return {
       errorType: "unknown_tool",
       error: `call-tool runs only the tools tool-search marks with callWith: call-tool, and ${name} isn't one. Call a tool in your list directly, or search for the right name.`,
+      name,
     };
   }
   const target = input.arguments ?? {};
@@ -3639,7 +3647,10 @@ export async function createMCPServerForRequest(
         ),
       );
   const listsSearchServed =
-    !Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME) ||
+    !(
+      Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME) &&
+      isFrameworkMcpTool(visibleActions[TOOL_SEARCH_TOOL_NAME])
+    ) ||
     deniedToolNames.has(CALL_TOOL_NAME) ||
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
@@ -4582,6 +4593,7 @@ export async function createMCPServerForRequest(
       };
       const result = await withToolCallContext(async () => {
         let { name, arguments: args } = request.params;
+        let refusedTarget: { errorType: string; error: string } | undefined;
 
         if (deniedToolNames.has(name)) {
           failure = {
@@ -4612,18 +4624,23 @@ export async function createMCPServerForRequest(
         ) {
           const target = callToolTarget(args, unlistedActions);
           if ("error" in target) {
-            failure = {
-              errorType: target.errorType,
-              errorMessage: target.error,
-            };
-            return {
-              content: [{ type: "text", text: target.error }],
-              isError: true,
-            };
+            if (target.name === undefined) {
+              failure = {
+                errorType: target.errorType,
+                errorMessage: target.error,
+              };
+              return {
+                content: [{ type: "text", text: target.error }],
+                isError: true,
+              };
+            }
+            refusedTarget = target;
+            name = target.name;
+          } else {
+            ({ name, args } = target);
+            calledName = name;
+            calledArgs = args;
           }
-          ({ name, args } = target);
-          calledName = name;
-          calledArgs = args;
         }
 
         let allowedActions: string[] | null = null;
@@ -4646,6 +4663,17 @@ export async function createMCPServerForRequest(
           });
           return {
             content: [{ type: "text", text: error.message }],
+            isError: true,
+          };
+        }
+
+        if (refusedTarget) {
+          failure = {
+            errorType: refusedTarget.errorType,
+            errorMessage: refusedTarget.error,
+          };
+          return {
+            content: [{ type: "text", text: refusedTarget.error }],
             isError: true,
           };
         }

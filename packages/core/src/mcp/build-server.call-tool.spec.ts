@@ -7,6 +7,7 @@ import {
   type MCPCallerIdentity,
   type MCPConfig,
 } from "./build-server.js";
+import { frameworkMcpTool } from "./framework-tools.js";
 
 vi.mock("../labs/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../labs/store.js")>()),
@@ -33,6 +34,11 @@ vi.mock("./analytics.js", async (importOriginal) => ({
   trackMcpToolCall: (_ctx: unknown, payload: Record<string, unknown>) => {
     trackedCalls.push(payload);
   },
+}));
+
+vi.mock("../agent/production-agent.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/production-agent.js")>()),
+  getJevContextCredentials: vi.fn(async () => ({})),
 }));
 
 vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
@@ -67,22 +73,27 @@ function action(name: string, extra: Record<string, unknown> = {}) {
   };
 }
 
-function actions(): Record<string, unknown> {
+function searchTool() {
   return {
-    "tool-search": {
-      tool: {
-        description: "Discover callable tools",
-        parameters: {
-          type: "object",
-          properties: {
-            query: { type: "string" },
-            names: { type: "array", items: { type: "string" } },
-          },
+    tool: {
+      description: "Discover callable tools",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          query: { type: "string" },
+          task: { type: "string" },
+          names: { type: "array", items: { type: "string" } },
         },
       },
-      readOnly: true,
-      run: async () => ({ results: [] }),
     },
+    readOnly: true,
+    run: async () => ({ results: [] }),
+  };
+}
+
+function actions(): Record<string, unknown> {
+  return {
+    "tool-search": frameworkMcpTool(searchTool()),
     "get-plan": action("get-plan", { readOnly: true, mcpTool: true }),
     "archive-plan": action("archive-plan", { mcpTool: "search" }),
     "purge-plan": action("purge-plan", {
@@ -279,6 +290,18 @@ describe('tools/list with mcpTool: "search" actions', () => {
     },
   );
 
+  it("lists the tools it would hide when the app brings its own tool-search", async () => {
+    const all = { ...actions(), "tool-search": searchTool() };
+    const tools = await listed(
+      await clientFor(config({ actions: all, productionActions: all })),
+    );
+    expect(tools.has("tool-search")).toBe(true);
+    expect(tools.has("call-tool")).toBe(false);
+    for (const name of ["archive-plan", "purge-plan", "plan-history"]) {
+      expect(tools.has(name)).toBe(true);
+    }
+  });
+
   it("doesn't mark a search result for a denied call-tool", async () => {
     const found = await searched(
       await clientFor(
@@ -401,6 +424,34 @@ describe("tool-search with unlisted tools", () => {
     expect(byName.get("plan-history")?.callWith).toBe("call-tool");
   });
 
+  it("marks the unlisted tools it recommends for a task", async () => {
+    const out = asToolResult(
+      await (
+        await clientFor()
+      ).callTool({
+        name: "tool-search",
+        arguments: { task: "plan history" },
+      }),
+    );
+    expect(out.isError).toBeFalsy();
+    const { recommendations } = JSON.parse(textOf(out)) as {
+      recommendations: Array<SearchResult & { kind: string }>;
+    };
+    const tools = recommendations.filter((item) => item.kind === "tool");
+    expect(tools.map((item) => item.name)).toContain("plan-history");
+    const unlisted = [
+      "archive-plan",
+      "purge-plan",
+      "sync-plan",
+      "plan-history",
+    ];
+    for (const item of tools) {
+      expect(item.callWith).toBe(
+        unlisted.includes(item.name) ? "call-tool" : undefined,
+      );
+    }
+  });
+
   it("marks nothing for call-tool when the app has its own", async () => {
     const byName = await searched(await clientFor(withOwnCallTool()), [
       "plan-history",
@@ -502,6 +553,20 @@ describe("tools/call through call-tool", () => {
       expect(out.isError).toBe(true);
       expect(textOf(out)).toContain(message);
     }
+    expect(runs).toEqual([]);
+  });
+
+  it("refuses an ungranted name the same way whether or not it exists", async () => {
+    grant = ["tool-search", "call-tool", "get-plan"];
+    const client = await clientFor();
+    const refusals: string[] = [];
+    for (const name of ["archive-plan", "no-such-plan"]) {
+      const out = await viaCallTool(client, { name });
+      expect(out.isError).toBe(true);
+      refusals.push(textOf(out).replace(name, "NAME"));
+    }
+    expect(refusals[0]).toContain("not permitted");
+    expect(refusals[1]).toBe(refusals[0]);
     expect(runs).toEqual([]);
   });
 
