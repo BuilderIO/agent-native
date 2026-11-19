@@ -55,3 +55,9 @@ export {
   type ProviderReaderRuntimeOptions,
   type ProviderReaderRuntimeResponse,
 } from "./reader.js";
+
+export {
+  OAUTH_ACCOUNT_ALREADY_LINKED_ERROR,
+  readConnectionOAuthCallbackError,
+  type ConnectionOAuthCallbackError,
+} from "./oauth-callback-error.js";
