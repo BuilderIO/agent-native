@@ -422,6 +422,7 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     try {
       return window.localStorage.length;
     } catch {
+      cacheSafetyUnavailable = true;
       return undefined;
     }
   };
