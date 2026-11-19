@@ -1,5 +1,4 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import type { ActionRunContext } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -20,6 +19,7 @@ import {
   verifyPanelWrite,
   type PanelVerification,
   type PanelWriteVerdict,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
@@ -133,6 +133,8 @@ function withFirstPartyDashboardFilters(
   return { ...config, filters };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget("compose-dashboard");
+
 export default defineAction({
   description:
     "Build a large first-party analytics dashboard in ONE fast call: name the metrics you want and the SERVER generates the validated SQL + chart config for every panel. " +
@@ -199,7 +201,7 @@ export default defineAction({
   // adds nothing. Overwrite and refreshExisting replace panels with no revision
   // fence, so a replay could erase an edit made between calls.
   retrySafe: (input) => !input.overwrite && !input.refreshExisting,
-  run: async (args, actionContext?: ActionRunContext) => {
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const ctx = { email, orgId: getRequestOrgId() || null };
@@ -412,6 +414,7 @@ export default defineAction({
               memo: verificationMemo,
               dashboardId: args.dashboardId,
               serverAuthoredPanelIds: new Set([...refreshed, ...appendedIds]),
+              budget: verificationBudget,
             });
           }
           return { kind: "sql" as const, body: merged };
@@ -447,6 +450,7 @@ export default defineAction({
           memo: verificationMemo,
           dashboardId: args.dashboardId,
           serverAuthoredPanelIds: new Set(composedPanels.map(({ id }) => id)),
+          budget: verificationBudget,
         });
       }
       // Validation and verification take seconds, so another call may have
@@ -592,7 +596,7 @@ export default defineAction({
       }),
       message: annotateSummary(parts.join("; ") + ".", verdict),
     };
-  },
+  }),
   link: ({ result }) => {
     const dashboardId =
       result && typeof result === "object"
