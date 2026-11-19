@@ -64,7 +64,7 @@ describe("test-title production guard", () => {
       checkout?.with?.ref,
       "${{ github.event.pull_request.base.ref }}",
     );
-    assert.equal(checkout?.with?.["persist-credentials"], true);
+    assert.equal(checkout?.with?.["persist-credentials"], false);
     assert.ok(
       titleGuard?.steps?.some(
         (step) =>
