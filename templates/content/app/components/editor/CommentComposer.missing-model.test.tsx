@@ -245,6 +245,16 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
       expect.stringContaining("Claude Sonnet 5"),
     ]);
     expect(onModelChange).not.toHaveBeenCalled();
+
+    const option = document.querySelector<HTMLElement>(
+      '[role="listbox"] [role="option"]',
+    );
+    await act(async () => option?.click());
+    await settle();
+
+    expect(notice()).toBeNull();
+    expect(editor().textContent).toContain("Claude Sonnet 5");
+    expect(aiSend().disabled).toBe(false);
   });
 
   it("only names the missing model when nothing else is connected", async () => {
@@ -389,6 +399,92 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
 
     expect(notice()).toBeNull();
     expect(aiSend().disabled).toBe(false);
+  });
+
+  it("keeps AI Send off while the model list reloads", async () => {
+    await render(
+      <Owner initialValue="Ask @GPT-5.6 Luna" initialAi={lunaDraft} />,
+    );
+    expect(aiSend().disabled).toBe(false);
+
+    act(() => models.set({ ...models.current, isLoading: true }));
+
+    expect(aiSend().disabled).toBe(true);
+    await act(async () => aiSend().click());
+    expect(onAiSubmit).not.toHaveBeenCalled();
+  });
+
+  it("names a restored draft's model once its provider is disconnected", async () => {
+    staleSavedPick([builderGroup, claudeGroup]);
+    await render(
+      <Owner
+        initialValue="Ask @Claude Sonnet 5"
+        initialAi={{
+          selection: {
+            model: "claude-sonnet-5",
+            engine: "anthropic",
+            provider: "Claude",
+          },
+          mode: "auto",
+        }}
+      />,
+    );
+    expect(aiSend().disabled).toBe(false);
+
+    act(() =>
+      models.set({
+        ...models.current,
+        availableModels: [builderGroup],
+        configuredModels: [builderGroup],
+        selectedModel: "gpt-5-6-luna",
+        selectedEngine: "builder",
+        selectionReady: true,
+        unavailableSelection: null,
+      }),
+    );
+
+    expect(notice()?.textContent).toBe(
+      "Claude Sonnet 5 isn’t connected. Click its name to choose another model.",
+    );
+    expect(aiSend().disabled).toBe(true);
+  });
+
+  it("sends a draft naming an older model version to its newer one", async () => {
+    savedPickReady();
+    await render(
+      <Owner
+        initialValue="Ask @GPT-5.5 Luna"
+        initialAi={{
+          selection: {
+            model: "gpt-5-5-luna",
+            engine: "builder",
+            provider: "Builder",
+          },
+          mode: "auto",
+        }}
+      />,
+    );
+
+    expect(notice()).toBeNull();
+    await act(async () => aiSend().click());
+
+    expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
+    expect(onAiSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5-6-luna", engine: "builder" }),
+    );
+  });
+
+  it("sends with automatic effort when the new model can't use the saved one", async () => {
+    models.current = { ...models.current, selectedEffort: "max" };
+    await render(
+      <Owner initialValue="Ask @GPT-5.6 Luna" initialAi={lunaDraft} />,
+    );
+
+    await act(async () => aiSend().click());
+
+    expect(onAiSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5-6-luna", effort: "auto" }),
+    );
   });
 
   it("lets @AI find the default model", async () => {

@@ -80,6 +80,7 @@ import {
   CommentAiSendControl,
   commentAiSelectionKey,
   commentAiSelections,
+  connectedCommentAiModel,
   modelAliases,
   type CommentAiMode,
   type CommentAiSelection,
@@ -535,15 +536,10 @@ export const CommentComposer = forwardRef<
   const aiRecipientKey = aiDraft
     ? commentAiSelectionKey(aiDraft.selection)
     : null;
-  const aiRecipientConnected = Boolean(
-    aiDraft &&
-    models.configuredModels.some(
-      (group) =>
-        group.engine === aiDraft.selection.engine &&
-        (group.models.includes(aiDraft.selection.model) ||
-          group.preserveCustomModels),
-    ),
-  );
+  const aiRecipientModel = aiDraft
+    ? connectedCommentAiModel(models.configuredModels, aiDraft.selection)
+    : null;
+  const aiRecipientConnected = aiRecipientModel !== null;
   const modelSwitchable =
     aiRecipientKey !== null &&
     connectedModels.some(
@@ -555,6 +551,7 @@ export const CommentComposer = forwardRef<
     (Boolean(models.unavailableSelection) ||
       (models.selectionReady && models.configuredModels.length > 0));
   const aiRecipientReady =
+    !models.isLoading &&
     !aiRecipientMissing &&
     (models.selectionReady ||
       (Boolean(models.unavailableSelection) && aiRecipientConnected));
@@ -752,7 +749,8 @@ export const CommentComposer = forwardRef<
     hasText && !disabled && !submitDisabled && !imageUpload.uploading;
   const submitAi = () => {
     if (!aiDraft || !onAiSubmit || !canSend || !aiRecipientReady) return;
-    const { model, engine } = aiDraft.selection;
+    const { engine } = aiDraft.selection;
+    const model = aiRecipientModel ?? aiDraft.selection.model;
     let effort = models.selectedEffort;
     if (model !== models.selectedModel || engine !== models.selectedEngine) {
       if (!getReasoningEffortOptionsForModel(model).includes(effort))
@@ -761,6 +759,7 @@ export const CommentComposer = forwardRef<
     }
     onAiSubmit({
       ...aiDraft.selection,
+      model,
       intent: sendableAiMode(aiDraft.mode, aiSuggestOnly),
       effort,
     });
