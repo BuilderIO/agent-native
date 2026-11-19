@@ -214,6 +214,11 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "approver_email",
     offboard: "retain",
   },
+  {
+    table: "mcp_script_calls",
+    column: "owner_email",
+    offboard: "retain",
+  },
   // A missing connect-token row reads as "not revoked", so revoke, never delete.
   { table: "mcp_connect_tokens", column: "owner_email", offboard: "revoke" },
   { table: "mcp_connect_tokens", column: "created_by" },
@@ -325,6 +330,10 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.actor_email",
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
+  // Per-turn grants, chat-turn admissions and mint counters expire within minutes; they lapse instead of rekeying.
+  "mcp_turn_grants.owner_email",
+  "mcp_chat_turn_admissions.owner",
+  "mcp_chat_turn_mints.owner",
   // Creator attribution on a Vault key, kept as written; the key is owned by its scope.
   "app_secrets.created_by",
   "agent_review_comments.created_by",

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useDocumentReconcileRecovery,
   type ReconcileSaveBase,
+  type UnsentReconcileSave,
 } from "./useDocumentReconcileRecovery";
 
 let root: Root;
@@ -37,7 +38,7 @@ function mount(
   save: (
     draft: { localDraft: string; localTitle: string },
     snapshot?: ReconcileSaveBase,
-  ) => Promise<boolean>,
+  ) => Promise<boolean | UnsentReconcileSave>,
   getSaveIdentity?: () => string,
   retain?: (draft: { localDraft: string; localTitle: string }) => Promise<void>,
   report = true,
@@ -352,6 +353,253 @@ describe("document reconcile recovery", () => {
     expect(save).toHaveBeenCalledTimes(1);
     await after(500, true);
     expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends an automatic save again when its live edits had not reached the server", async () => {
+    vi.useFakeTimers();
+    const retain = vi.fn(async () => undefined);
+    const save = vi.fn(async (): Promise<boolean | UnsentReconcileSave> => {
+      if (save.mock.calls.length > 2) return true;
+      draft = `typed while unsent ${save.mock.calls.length}`;
+      return { unsent: true };
+    });
+    draft = "merged";
+    mount(save, undefined, retain, false);
+
+    let result!: boolean;
+    await act(async () => {
+      const resolved = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      result = await resolved;
+    });
+
+    expect({ result, state: recovery.state }).toEqual({
+      result: true,
+      state: null,
+    });
+    expect(save.mock.calls).toEqual([
+      [{ localDraft: "merged", localTitle: "" }, base],
+      [{ localDraft: "typed while unsent 1", localTitle: "" }, base],
+      [{ localDraft: "typed while unsent 2", localTitle: "" }, base],
+    ]);
+    expect(retain).not.toHaveBeenCalled();
+  });
+
+  it("sends an unsent automatic save again after a newer page replaced a refused one", async () => {
+    vi.useFakeTimers();
+    const firstSave = deferred();
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => firstSave.promise,
+    );
+    draft = "first merge";
+    mount(save, undefined, undefined, false);
+    const newerBase = { ...base, content: "edited by a peer", revision: "r2" };
+
+    let first!: Promise<boolean>;
+    act(() => {
+      first = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+    });
+    save
+      .mockResolvedValueOnce({ unsent: true })
+      .mockImplementation(async () => true);
+    act(() => {
+      draft = "second merge";
+      void recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        newerBase,
+      );
+    });
+
+    await act(async () => {
+      firstSave.resolve(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(await first).toBe(true);
+    expect(save.mock.calls).toEqual([
+      [expect.anything(), base],
+      [expect.anything(), newerBase],
+      [expect.anything(), newerBase],
+    ]);
+    expect(recovery.state).toBeNull();
+  });
+
+  it("saves an automatic merge's title against the one an unsent save wrote", async () => {
+    vi.useFakeTimers();
+    const save = vi
+      .fn(async (): Promise<boolean | UnsentReconcileSave> => true)
+      .mockResolvedValueOnce({ unsent: true, writtenTitle: "Renamed here" });
+    mount(save, undefined, undefined, false);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "Renamed here" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(await result).toBe(true);
+    expect(save.mock.calls).toEqual([
+      [expect.anything(), base],
+      [expect.anything(), { ...base, title: "Renamed here" }],
+    ]);
+  });
+
+  it("publishes a save failure, not a page change, once an automatic save stays unsent for 30 s", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
+    mount(save, undefined, undefined, false);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(29_000);
+    });
+    expect(recovery.state).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+
+    expect(await result).toBe(false);
+    expect(recovery.state).toEqual({
+      reason: "save-failed",
+      localDraft: draft,
+      localTitle: "",
+      saving: false,
+    });
+  });
+
+  it("stops showing a notice as saving once the automatic save it interrupted ends", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
+    mount(save, undefined, undefined, false);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => recovery.report("conflict", draft));
+    expect(recovery.state?.saving).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(await result).toBe(false);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(recovery.state).toEqual({
+      reason: "conflict",
+      localDraft: draft,
+      localTitle: "",
+      saving: false,
+    });
+  });
+
+  it("keeps saving from the banner while its live edits had not reached the server", async () => {
+    vi.useFakeTimers();
+    const save = vi
+      .fn(async (): Promise<boolean | UnsentReconcileSave> => true)
+      .mockResolvedValueOnce({ unsent: true });
+    mount(save);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolve(base);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(recovery.state?.saving).toBe(true);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(await result).toBe(true);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "my edits", localTitle: "" },
+      base,
+    );
+    expect(recovery.state).toBeNull();
+  });
+
+  it("shows a save failure, not a page change, once the banner's save stays unsent for 30 s", async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
+    mount(save);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolve(base);
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+
+    expect(await result).toBe(false);
+    expect(recovery.state).toEqual({
+      reason: "save-failed",
+      localDraft: draft,
+      localTitle: "",
+      saving: false,
+    });
+  });
+
+  it("keeps a notice reported while the banner's unsent save gives up", async () => {
+    vi.useFakeTimers();
+    const retained = deferred();
+    const retain = vi.fn(async () => {
+      await retained.promise;
+    });
+    const save = vi.fn(
+      async (): Promise<boolean | UnsentReconcileSave> => ({ unsent: true }),
+    );
+    mount(save, undefined, retain);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolve(base);
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(retain).toHaveBeenCalledTimes(1);
+    act(() => recovery.report("failed", "newer edits"));
+    await act(async () => retained.resolve(true));
+
+    expect(await result).toBe(false);
+    expect(recovery.state).toEqual({
+      reason: "failed",
+      localDraft: "newer edits",
+      localTitle: "",
+      saving: false,
+    });
+  });
+
+  it("saves the banner's title against the one an unsent save wrote", async () => {
+    vi.useFakeTimers();
+    const save = vi
+      .fn(async (): Promise<boolean | UnsentReconcileSave> => true)
+      .mockResolvedValueOnce({ unsent: true, writtenTitle: "Renamed here" });
+    mount(save);
+
+    let result!: Promise<boolean>;
+    await act(async () => {
+      result = recovery.resolve(base);
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(await result).toBe(true);
+    expect(save.mock.calls).toEqual([
+      [expect.anything(), base],
+      [expect.anything(), { ...base, title: "Renamed here" }],
+    ]);
   });
 
   it("saves text typed during recovery before clearing the banner", async () => {

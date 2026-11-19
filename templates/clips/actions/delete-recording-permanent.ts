@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { and, eq, inArray } from "drizzle-orm";
@@ -13,6 +14,10 @@ import { mediaCleanupSummary } from "../server/lib/recording-media-cleanup-worke
 import { recordingMediaUrls } from "../server/lib/recording-media-cleanup.js";
 import { captureRecordingMediaCleanup } from "../server/lib/recording-media-lifecycle.js";
 import { captureMediaCleanupScope } from "../server/lib/recording-media-provider.js";
+import {
+  discardTrackUploads,
+  listRecordingTracks,
+} from "../server/lib/recording-tracks.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -136,12 +141,28 @@ async function deleteOne(
     )
     .limit(1);
   const initial = initialRows.length ? initialRows[0] : null;
+  if (initial) {
+    // An open track upload would leave cleanup waiting on a producer that
+    // never finishes, so they are cancelled first. One that storage keeps is
+    // still captured below.
+    const left = await discardTrackUploads(initial);
+    if (left.length) {
+      console.warn(
+        `[delete-recording-permanent] not cancelled: ${left.join(", ")}`,
+      );
+    }
+  }
   const scope = initial
     ? await captureMediaCleanupScope({
         ownerEmail,
         orgId: initial.orgId ?? initial.organizationId,
         storageMode: initial.storageMode,
-        urls: recordingMediaUrls(initial),
+        urls: [
+          ...recordingMediaUrls(initial),
+          ...(await listRecordingTracks(id, ownerEmail)).map(
+            (track) => track.url,
+          ),
+        ],
       })
     : {};
   // False when another call deleted it first, while this one waited.
@@ -278,6 +299,14 @@ async function cleanupAfterDelete(
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  // Deleting for good can't be undone, so an outside agent asks a person first.
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Permanently remove one or more owned recordings and their access rows, atomically retaining a durable media cleanup intent for each. Returns recordingRemoved separately from mediaCleanup: pending or blocked does not mean stored media is gone. Context footage moves to Trash. Repeating the call returns the retained cleanup state. With ids, every recording must be yours (or already deleted) before any is deleted; a batch that runs long lists the recordings it didn't reach as skipped, to send again.",
   schema: z
