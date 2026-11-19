@@ -894,10 +894,6 @@ function toolWords(call: AgentWorkCall): string[] {
   return skip === -1 ? named.slice(-1) : named.slice(skip);
 }
 
-function objectNoun(call: AgentWorkCall): string {
-  return toolWords(call).slice(1).join("-");
-}
-
 const PAGE_WORDS = new Set([
   "article",
   "articles",
@@ -973,11 +969,13 @@ function attemptTargets(
   const page =
     object?.kind === "document"
       ? object.id
-      : call.activity.status === "failed" && readKind(call) === "read"
+      : call.activity.status === "failed" &&
+          readKind(call) === "read" &&
+          namesPages(call)
         ? firstString(input, ["id", "documentId"])
         : undefined;
   const targets: [string, string, string | undefined][] = [
-    ["page", objectNoun(call), page],
+    ["page", "", page],
     object?.kind === "file"
       ? ["path", "", object.id]
       : object?.kind === "query"

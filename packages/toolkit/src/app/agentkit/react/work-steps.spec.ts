@@ -1115,19 +1115,34 @@ describe("agentWorkSources", () => {
     expect(failures).toHaveLength(1);
   });
 
-  it("keeps different records with the same id apart", () => {
-    const failed = { status: "failed" as const, output: "Denied" };
+  it("keeps pages with the same id but different titles apart", () => {
     const record = (name: string) => ({ output: { id: "1", name } });
-    const { sources, failures } = agentWorkSources([
+    const { sources } = agentWorkSources([
       call("a", "get-note", { id: "1" }, record("Ann")),
       call("b", "get-doc", { id: "1" }, record("Apollo")),
       call("c", "get-note", { id: "1" }, record("Ann")),
-      call("d", "get-note", { id: "2" }, failed),
-      call("e", "get-doc", { id: "2" }, failed),
-      call("f", "get-doc", { id: "2" }, { output: { id: "2", name: "Zeus" } }),
     ]);
-    expect(sources.map(({ text }) => text)).toEqual(["Ann", "Apollo", "Zeus"]);
-    expect(failures.map(({ label }) => label)).toEqual(["get-note"]);
+    expect(sources.map(({ text }) => text)).toEqual(["Ann", "Apollo"]);
+  });
+
+  it("clears a failed page read with any read of that page from the same source", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { sources, failures } = agentWorkSources([
+      call("a", "get-document", { id: "p" }, failed),
+      call("b", "get-document", { id: "q" }, failed),
+      call("c", "mcp__notion__notion-fetch", { id: "p" }, failed),
+      call(
+        "d",
+        "read-page",
+        { id: "p" },
+        { output: { id: "p", title: "Plan" } },
+      ),
+    ]);
+    expect(sources.map(({ text }) => text)).toEqual(["Plan"]);
+    expect(failures.map(({ label }) => label)).toEqual([
+      "get-document",
+      "mcp__notion__notion-fetch",
+    ]);
   });
 
   it("counts a read as a page only when its tool names one", () => {
