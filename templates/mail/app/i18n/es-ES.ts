@@ -485,6 +485,13 @@ const messages = {
       openStorageSettings: "Abrir ajustes de almacenamiento",
       reconnectBuilderStorage: "Volver a conectar Builder.io",
       useOwnStorage: "Usar tu propio almacenamiento",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o pide a un propietario o administrador que configure el almacenamiento y luego inténtalo de nuevo.",
+      storageRefusedAskAdmin:
+        "El bucket de almacenamiento de tu organización rechazó esta subida, así que el archivo no se adjuntó. Pide a un propietario o administrador que revise el bucket y sus claves.",
+      storageNotConfiguredAskAdmin:
+        "El almacenamiento de archivos no está configurado, así que el archivo no se adjuntó. Conecta tu propia cuenta de Builder.io o pide a un propietario o administrador que configure el almacenamiento.",
+      connectBuilderStorage: "Conectar Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",
@@ -823,6 +830,10 @@ const messages = {
     contacts: {
       noContactSelected: "No hay contacto seleccionado",
     },
+    readingPane: {
+      empty: "Ningún correo seleccionado",
+      resizeList: "Cambiar el tamaño de la lista de correos",
+    },
   },
   agent: {
     emptyState: "Preguntame cualquier cosa sobre tus correos",
@@ -927,6 +938,10 @@ const messages = {
     gmailFilters: "Filtros de Gmail",
     aliases: "Alias",
     tracking: "Seguimiento",
+    reading: "Lectura",
+    readingPane: "Panel de lectura",
+    readingPaneSaveFailed: "No se pudo guardar el ajuste del panel de lectura.",
+    readingPaneLoadFailed: "No se pudo cargar el ajuste del panel de lectura.",
     deleteAlias: "Eliminar alias",
     editAlias: "Editar alias",
   },

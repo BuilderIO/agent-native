@@ -342,6 +342,16 @@ export function useSemanticNavigationState<
       },
     });
 
+  useEffect(() => {
+    if (!enabled) return;
+    const refreshCommand = () => {
+      void queryClient.invalidateQueries({ queryKey: commandQueryKey });
+    };
+    window.addEventListener("agentNative:refresh-data", refreshCommand);
+    return () =>
+      window.removeEventListener("agentNative:refresh-data", refreshCommand);
+  }, [enabled, queryClient, commandQueryKey]);
+
   const clearCommand = useCallback(async () => {
     await Promise.all(
       commandKeys.map((key) =>

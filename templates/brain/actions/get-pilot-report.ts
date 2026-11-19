@@ -566,6 +566,7 @@ export default defineAction({
         and(
           accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
           eq(schema.brainKnowledge.sourceId, sourceId),
+          isNull(schema.brainKnowledge.intelligenceKind),
           accessibleDerivedAudienceFilter,
         ),
       )

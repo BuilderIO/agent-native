@@ -2,6 +2,10 @@ mod accessibility;
 mod adhoc_meetings_watcher;
 mod call_activity;
 mod capture_audio_bus;
+#[cfg(target_os = "macos")]
+mod capture_pcm;
+#[cfg(target_os = "macos")]
+mod capture_stop;
 mod capture_graph;
 mod clips;
 mod config;

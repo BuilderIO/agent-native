@@ -8,9 +8,11 @@ const { PGlite } = createRequire(
   new URL("../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+import { PrivateMediaStorageUnavailableError } from "@agent-native/core/private-media";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -25,9 +27,15 @@ import {
   upsertPlanAsset,
   importPlanAssets,
   applyImportedAssets,
+  deletePrivatePlanAssetBytes,
+  loadPlanAssetsForExport,
   mimeTypeFromFilename,
+  PlanAssetStorageUnavailableError,
   PLAN_ASSET_MAX_SINGLE_BYTES,
   PLAN_ASSET_MAX_TOTAL_BYTES,
+  skippedPlanAssetsWarning,
+  storePlanAsset,
+  type SkippedPlanAsset,
 } from "./lib/plan-assets.js";
 import {
   exportPlanContentToMdxFolder,
@@ -68,6 +76,31 @@ vi.mock("./db/index.js", () => ({
 vi.mock("@agent-native/core/file-upload", () => ({
   uploadFile: vi.fn(async () => null),
   getActiveFileUploadProvider: vi.fn(() => null),
+}));
+
+// No request user unless a test signs one in, so images take the local
+// database fallback by default.
+const request = vi.hoisted(() => ({
+  userEmail: undefined as string | undefined,
+  orgId: undefined as string | undefined,
+}));
+const privateMedia = vi.hoisted(() => ({
+  put: vi.fn(),
+  delete: vi.fn(async () => true),
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  getRequestUserEmail: () => request.userEmail,
+  getRequestOrgId: () => request.orgId,
+}));
+
+vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/private-media")
+  >()),
+  putPrivateMedia: privateMedia.put,
+  deletePrivateMedia: privateMedia.delete,
 }));
 
 const OWNER = "owner@example.com";
@@ -441,5 +474,259 @@ describe("plan-asset access control", () => {
       .where(eq(planSchema.planAssets.id, result.assetId));
     expect(row).toBeDefined();
     expect(access).toBeNull();
+  });
+});
+
+describe("plan images in private storage", () => {
+  const planId = "plan-private-media-test";
+  const mediaId = "11111111-1111-4111-8111-111111111111";
+
+  async function assetRows() {
+    const result = await execute({
+      sql: "SELECT id, data, byte_size FROM plan_assets WHERE plan_id = ?",
+      args: [planId],
+    });
+    return result.rows as Array<{
+      id: string;
+      data: string;
+      byte_size: number;
+    }>;
+  }
+
+  beforeEach(async () => {
+    await insertPlan(planId);
+    request.userEmail = OWNER;
+    request.orgId = "org_1";
+    privateMedia.put.mockImplementation(
+      async (input: { mimeType: string }) => ({
+        id: mediaId,
+        mimeType: input.mimeType,
+      }),
+    );
+  });
+
+  afterEach(() => {
+    request.userEmail = undefined;
+    request.orgId = undefined;
+    privateMedia.put.mockReset();
+    privateMedia.delete.mockClear();
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps an editor's image in private storage and links it through the plan's image route", async () => {
+    const data = new Uint8Array(3 * 1024 * 1024);
+    const result = await storePlanAsset({
+      planId,
+      filename: "diagram.png",
+      mimeType: "image/png",
+      data,
+    });
+
+    expect(privateMedia.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: OWNER,
+        orgId: "org_1",
+        mimeType: "image/png",
+        filename: "diagram.png",
+      }),
+    );
+    expect(result.src).toBe(
+      `/_agent-native/plan-asset/${result.assetId}/diagram.png`,
+    );
+    expect(result.cdnUrl).toBeNull();
+    // The database copy's 2 MB cap doesn't apply to private storage.
+    expect(await assetRows()).toEqual([
+      {
+        id: result.assetId,
+        data: `private:${mediaId}`,
+        byte_size: data.byteLength,
+      },
+    ]);
+  });
+
+  it("files the image under the plan's organization when it is given", async () => {
+    await storePlanAsset({
+      planId,
+      filename: "diagram.png",
+      mimeType: "image/png",
+      data: new Uint8Array(10),
+      orgId: null,
+    });
+
+    expect(privateMedia.put).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: null }),
+    );
+  });
+
+  it("refuses on a hosted database when no storage can keep the image", async () => {
+    privateMedia.put.mockRejectedValue(
+      new PrivateMediaStorageUnavailableError(),
+    );
+    vi.stubEnv("DATABASE_URL", "postgres://db.example.com/plan");
+
+    await expect(
+      storePlanAsset({
+        planId,
+        filename: "diagram.png",
+        mimeType: "image/png",
+        data: new Uint8Array(10),
+      }),
+    ).rejects.toBeInstanceOf(PlanAssetStorageUnavailableError);
+    expect(await assetRows()).toEqual([]);
+  });
+
+  it("keeps the image in the plan's own table on a local database with no storage", async () => {
+    privateMedia.put.mockRejectedValue(
+      new PrivateMediaStorageUnavailableError(),
+    );
+
+    const result = await storePlanAsset({
+      planId,
+      filename: "diagram.png",
+      mimeType: "image/png",
+      data: Buffer.from("PNGDATA"),
+    });
+
+    expect(await assetRows()).toEqual([
+      {
+        id: result.assetId,
+        data: Buffer.from("PNGDATA").toString("base64"),
+        byte_size: 7,
+      },
+    ]);
+  });
+
+  it("removes the stored image when the plan's row can't be written", async () => {
+    await expect(
+      storePlanAsset({
+        planId,
+        filename: null as unknown as string,
+        mimeType: "image/png",
+        data: new Uint8Array(10),
+      }),
+    ).rejects.toThrow();
+    expect(privateMedia.delete).toHaveBeenCalledWith(mediaId);
+  });
+
+  it("leaves private images out of a publish's copied bytes", async () => {
+    await storePlanAsset({
+      planId,
+      filename: "private.png",
+      mimeType: "image/png",
+      data: new Uint8Array(10),
+    });
+    request.userEmail = undefined;
+    await upsertPlanAsset({
+      planId,
+      filename: "local.png",
+      base64: makeBase64(10),
+    });
+
+    expect(await loadPlanAssetsForExport(planId)).toEqual({
+      "local.png": makeBase64(10),
+    });
+  });
+
+  it("deletes only the private bytes behind a plan's images", async () => {
+    await deletePrivatePlanAssetBytes([
+      { data: `private:${mediaId}` },
+      { data: "cdn:https://cdn.example.com/a.png" },
+      { data: makeBase64(10) },
+    ]);
+
+    expect(privateMedia.delete).toHaveBeenCalledTimes(1);
+    expect(privateMedia.delete).toHaveBeenCalledWith(mediaId);
+  });
+});
+
+describe("images an import couldn't keep", () => {
+  const planId = "plan-import-skips-test";
+
+  beforeEach(() => insertPlan(planId));
+
+  it("reports each one, so the import can warn about them", async () => {
+    const skipped: SkippedPlanAsset[] = [];
+    await importPlanAssets(
+      planId,
+      {
+        "script.js": "aGVsbG8=",
+        "too-big.png": makeBase64(PLAN_ASSET_MAX_SINGLE_BYTES + 1),
+        "ok.png": makeBase64(100),
+      },
+      { onSkip: (asset) => skipped.push(asset) },
+    );
+
+    expect(skipped.map((asset) => asset.filename)).toEqual([
+      "script.js",
+      "too-big.png",
+    ]);
+    const warning = skippedPlanAssetsWarning(skipped);
+    expect(warning).toMatch(/^2 images weren't added to the plan/);
+    expect(warning).toContain("assets/script.js: unsupported file type");
+    expect(warning).toContain("assets/too-big.png: Asset");
+    expect(skippedPlanAssetsWarning([])).toBeNull();
+  });
+});
+
+describe("MDX export of a plan's images", () => {
+  it("copies only the exported plan's own images", async () => {
+    await insertPlan("plan-export-owner");
+    await insertPlan("plan-export-other");
+    const { assetId } = await upsertPlanAsset({
+      planId: "plan-export-other",
+      filename: "secret.png",
+      base64: makeBase64(50),
+    });
+
+    const folder = await exportPlanContentToMdxFolder({
+      content: {
+        version: 2,
+        title: "Borrowed image",
+        blocks: [{ id: "img", type: "image", data: { assetId, alt: "x" } }],
+      },
+      title: "Borrowed image",
+      planId: "plan-export-owner",
+    });
+
+    expect(folder["assets/"]).toEqual({});
+    expect(folder["plan.mdx"]).not.toContain("assets/secret.png");
+  });
+
+  it("keeps a private image as a link to the plan's image route", async () => {
+    const planId = "plan-export-private";
+    await insertPlan(planId);
+    request.userEmail = OWNER;
+    privateMedia.put.mockImplementation(
+      async (input: { mimeType: string }) => ({
+        id: "22222222-2222-4222-8222-222222222222",
+        mimeType: input.mimeType,
+      }),
+    );
+    try {
+      const { assetId } = await storePlanAsset({
+        planId,
+        filename: "diagram.png",
+        mimeType: "image/png",
+        data: new Uint8Array(10),
+      });
+
+      const folder = await exportPlanContentToMdxFolder({
+        content: {
+          version: 2,
+          title: "Private image",
+          blocks: [{ id: "img", type: "image", data: { assetId, alt: "x" } }],
+        },
+        title: "Private image",
+        planId,
+      });
+
+      expect(folder["assets/"]).toEqual({});
+      expect(folder["plan.mdx"]).toContain(
+        `/_agent-native/plan-asset/${assetId}/diagram.png`,
+      );
+    } finally {
+      request.userEmail = undefined;
+      privateMedia.put.mockReset();
+    }
   });
 });

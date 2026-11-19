@@ -31,6 +31,7 @@ const WRAPPER_TYPES = new Set([
   "prefault",
   "nullable",
   "readonly",
+  "catch",
 ]);
 
 export function describeConfigFields(

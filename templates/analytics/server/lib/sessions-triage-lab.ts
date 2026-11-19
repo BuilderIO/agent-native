@@ -38,7 +38,8 @@ export type SessionsTriageLabFeature =
   | "events"
   | "friction"
   | "speed"
-  | "outputs";
+  | "outputs"
+  | "reports";
 
 function labFeatureSubject(
   features: readonly SessionsTriageLabFeature[],
@@ -49,7 +50,10 @@ function labFeatureSubject(
       ? nouns.join(" and ")
       : `${nouns.slice(0, -1).join(", ")}, and ${nouns[nouns.length - 1]}`;
   const plural =
-    nouns.length > 1 || nouns[0] === "events" || nouns[0] === "outputs";
+    nouns.length > 1 ||
+    nouns[0] === "events" ||
+    nouns[0] === "outputs" ||
+    nouns[0] === "reports";
   return `Session ${list} ${plural ? "are" : "is"}`;
 }
 

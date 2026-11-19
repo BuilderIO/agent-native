@@ -6,6 +6,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BuilderConnectPopover,
@@ -84,6 +85,7 @@ import {
   databaseFrozenColumnIds,
   reorderDatabaseTableColumn,
 } from "@shared/database-table-columns";
+import { GITHUB_PULL_REQUESTS_SOURCE_TYPE } from "@shared/github-pull-requests";
 import { GITHUB_SOURCE_TYPE } from "@shared/github-source";
 import {
   type DocumentPropertyOptionColor,
@@ -392,6 +394,7 @@ import {
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
+  databaseItemHasRowMenu,
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
@@ -9357,7 +9360,8 @@ function DatabaseSettingsSourcePanel({
           if (
             !secondary ||
             secondary.sourceType === "local-folder" ||
-            secondary.sourceType === "github"
+            secondary.sourceType === "github" ||
+            secondary.sourceType === "github-pull-requests"
           )
             return;
           onNavPush({
@@ -9890,7 +9894,8 @@ function DatabaseSettingsSourcePanel({
           onAddDetails={() => {
             if (
               selectedSource.sourceType === "local-folder" ||
-              selectedSource.sourceType === "github"
+              selectedSource.sourceType === "github" ||
+              selectedSource.sourceType === "github-pull-requests"
             )
               return;
             onNavPush({
@@ -9945,6 +9950,17 @@ function DatabaseSettingsSourcePanel({
   );
 }
 
+/** Opens a pull request collection's search on GitHub, when it follows one. */
+function pullRequestSearchOpener(source: ContentDatabaseSource) {
+  const url =
+    source.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
+      ? source.metadata.githubPullRequests?.searchUrl
+      : null;
+  return url
+    ? () => window.open(url, "_blank", "noopener,noreferrer")
+    : undefined;
+}
+
 export function SourcesListView({
   source,
   sources,
@@ -9993,6 +10009,9 @@ export function SourcesListView({
   const lockedByGitHub = githubSource
     ? dbText("githubRowUnavailableWhileLinked")
     : undefined;
+  const followsPullRequests = connectedSources.some(
+    (connected) => connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+  );
   return (
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
@@ -10010,7 +10029,8 @@ export function SourcesListView({
               icon={
                 connected.sourceType === "builder-cms" ? (
                   <BuilderLogoMark className="size-4" />
-                ) : connected.sourceType === GITHUB_SOURCE_TYPE ? (
+                ) : connected.sourceType === GITHUB_SOURCE_TYPE ||
+                  connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE ? (
                   <IconBrandGithub className="size-4" />
                 ) : (
                   <IconLayoutGrid className="size-4" />
@@ -10022,14 +10042,17 @@ export function SourcesListView({
                   : connected.sourceName
               }
               value={
-                connected.sourceType === GITHUB_SOURCE_TYPE
+                connected.sourceType === GITHUB_SOURCE_TYPE ||
+                connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
                   ? undefined
                   : sourceRoleLabel(connected, index)
               }
               description={
                 connected.sourceType === GITHUB_SOURCE_TYPE
                   ? github.description
-                  : undefined
+                  : connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
+                    ? connected.metadata.githubPullRequests?.problem?.message
+                    : undefined
               }
               onClick={
                 connected.metadata.federation?.role === "secondary"
@@ -10038,17 +10061,18 @@ export function SourcesListView({
                     ? () => onOpenBuilder(connected)
                     : connected.sourceType === GITHUB_SOURCE_TYPE
                       ? onOpenGitHubStep
-                      : undefined
+                      : pullRequestSearchOpener(connected)
               }
               disabled={
                 connected.metadata.federation?.role !== "secondary" &&
                 connected.sourceType !== "builder-cms" &&
-                connected.sourceType !== GITHUB_SOURCE_TYPE
+                connected.sourceType !== GITHUB_SOURCE_TYPE &&
+                !pullRequestSearchOpener(connected)
               }
             />
           ))}
-          {/* A GitHub folder is the collection's whole content, so nothing joins it. */}
-          {githubSource ? null : (
+          {/* GitHub owns a linked folder's or pull request search's rows, so nothing joins it. */}
+          {githubSource || followsPullRequests ? null : (
             <DatabaseSettingsRow
               icon={<IconPlus className="size-4" />}
               label={dbText("addAnotherSource")}
@@ -13420,6 +13444,7 @@ function DatabaseCalendarCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 2);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     <div
@@ -13470,10 +13495,11 @@ function DatabaseCalendarCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -14127,6 +14153,7 @@ function DatabaseBoardCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 3);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     // The whole card drags and opens, but only the title is the button, so
@@ -14189,10 +14216,11 @@ function DatabaseBoardCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -19948,6 +19976,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
   const longPress = useContentTableLongPress(() => onToggleSelected(item.id));
+  const inWidget = useIsMcpAppWidgetEmbed();
   const columnWrap = (id: string) => columnWrapOverrides[id] ?? wrapCells;
   return (
     <DatabaseTableGrid
@@ -20077,10 +20106,11 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
         );
       })}
       actions={
-        canEdit ? (
+        databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
@@ -20097,12 +20127,14 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
 export function RowActionsCell({
   item,
   databaseDocumentId,
+  canEdit,
   onPreviewItem,
   onDeletedPreviewItem,
   onOpenPage,
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
+  canEdit: boolean;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -20132,7 +20164,7 @@ export function RowActionsCell({
   const isWorkspaceCatalog =
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const canDeleteWorkspace =
-    isWorkspaceCatalog && workspaceSpace?.kind === "user";
+    canEdit && isWorkspaceCatalog && workspaceSpace?.kind === "user";
   const databaseData = isContentDatabaseUnavailable(databaseQuery.data)
     ? undefined
     : databaseQuery.data;
@@ -20140,17 +20172,20 @@ export function RowActionsCell({
     databaseData?.sources,
     databaseData?.source ?? null,
   );
-  const canRemoveFromDatabase = removesFavoriteMembership
-    ? databaseDocument?.canEdit === true
-    : databaseData !== undefined &&
-      databaseItemCanRemoveFromDatabase({
-        item,
-        databaseCanManage: databaseDocument?.canManage === true,
-        databaseSystemRole: databaseData.database.systemRole,
-        isWorkspaceCatalog,
-        sources: databaseSources,
-      });
-  const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  const canRemoveFromDatabase =
+    canEdit &&
+    (removesFavoriteMembership
+      ? databaseDocument?.canEdit === true
+      : databaseData !== undefined &&
+        databaseItemCanRemoveFromDatabase({
+          item,
+          databaseCanManage: databaseDocument?.canManage === true,
+          databaseSystemRole: databaseData.database.systemRole,
+          isWorkspaceCatalog,
+          sources: databaseSources,
+        }));
+  const canDuplicateRow =
+    canEdit && databaseItemCanDuplicate(item, isWorkspaceCatalog);
   // A workspace's row opens the workspace, so a link or comment to its Page
   // would land somewhere Open page doesn't.
   const opensAsPage = !isWorkspaceCatalog;

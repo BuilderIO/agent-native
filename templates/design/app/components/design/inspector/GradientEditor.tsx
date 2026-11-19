@@ -759,7 +759,6 @@ export function GradientEditor({
       className={cn("select-none", className)}
       onKeyDown={handleKeyDown}
     >
-      {/* ── Type, angle, reverse, rotate ─────────────────────────────────────── */}
       <div className={cn("flex items-center gap-2 px-3 pt-3")}>
         {!stopsOnly && (
           <>
@@ -824,7 +823,6 @@ export function GradientEditor({
         )}
       </div>
 
-      {/* ── Pins above the bar; clicking the bar adds one ────────────────────── */}
       <div className="px-3 pt-2">
         <div
           className="relative"
@@ -933,7 +931,6 @@ export function GradientEditor({
         </div>
       </div>
 
-      {/* ── Stops ────────────────────────────────────────────────────────────── */}
       <div className="mt-1 flex h-8 items-center justify-between px-3">
         <span className="!text-[11px] font-medium text-foreground">
           {t("editPanel.colorPicker.stops")}

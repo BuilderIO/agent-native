@@ -896,6 +896,16 @@ export async function handleIdentitySso(
   const hub = resolveIdentityHubUrl(event);
   if (!hub) return new Response("Not found", { status: 404 });
 
+  if (
+    (sub === "/bootstrap" ||
+      sub.startsWith("/bootstrap/") ||
+      sub === IDENTITY_SSO_BOOTSTRAP_PATH ||
+      sub.startsWith(`${IDENTITY_SSO_BOOTSTRAP_PATH}/`)) &&
+    getAppConfig().auth.identitySsoExistingAccountsOnly
+  ) {
+    return new Response("Not found", { status: 404 });
+  }
+
   if (sub === `${IDENTITY_SSO_BOOTSTRAP_PATH}/binding`) {
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
@@ -1070,50 +1080,90 @@ export async function handleIdentitySso(
       }
     }
 
-    try {
-      const signupCookieHeader = getHeader(event, "cookie") ?? null;
-      const signupAttribution =
-        signupAttributionContextFromCookieHeader(signupCookieHeader);
-      const signupHeaders = addSignupAttributionHeader(
-        event.headers,
-        signupAttribution,
-      );
-      const linkIdentity = () => jitLinkIdentity(identity, signupHeaders);
-      await (hasContinuationLocalRequestContext()
-        ? runWithRequestContext(
+    if (getAppConfig().auth.identitySsoExistingAccountsOnly) {
+      if (exchange?.bootstrapActivation) {
+        return redirect(event, localSignInHref(stateResult.returnPath));
+      }
+      try {
+        const current = await getSessionForEvent(event);
+        if (
+          current?.email &&
+          current.email.trim().toLowerCase() !== identity.email
+        ) {
+          return redirect(event, localSignInHref(stateResult.returnPath));
+        }
+        const adapter = await getBetterAuthInternalAdapter();
+        const existing = await adapter?.findUserByEmail(identity.email, {
+          includeAccounts: true,
+        });
+        const user = existing?.user;
+        const accountId = identity.sub || identity.email;
+        const links =
+          existing?.accounts.filter(
+            (account) => account.providerId === IDENTITY_SSO_PROVIDER_ID,
+          ) ?? [];
+        const { listOrgMemberships } = await import("../org/context.js");
+        const memberships = await listOrgMemberships(identity.email, {
+          fresh: true,
+        });
+        if (
+          !user?.id ||
+          user.emailVerified !== true ||
+          Reflect.get(user, "twoFactorEnabled") !== false ||
+          links.some((account) => account.accountId !== accountId) ||
+          !memberships?.length
+        ) {
+          return redirect(event, localSignInHref(stateResult.returnPath));
+        }
+      } catch {
+        return redirect(event, localSignInHref(stateResult.returnPath));
+      }
+    } else {
+      try {
+        const signupCookieHeader = getHeader(event, "cookie") ?? null;
+        const signupAttribution =
+          signupAttributionContextFromCookieHeader(signupCookieHeader);
+        const signupHeaders = addSignupAttributionHeader(
+          event.headers,
+          signupAttribution,
+        );
+        const linkIdentity = () => jitLinkIdentity(identity, signupHeaders);
+        await (hasContinuationLocalRequestContext()
+          ? runWithRequestContext(
+              {
+                ...(getRequestContext() ?? {}),
+                ...(signupAttribution ? { signupAttribution } : {}),
+                signupOrigin: "sso_jit",
+              },
+              linkIdentity,
+            )
+          : linkIdentity());
+        if (identity.orgId && identity.orgName && identity.orgRole) {
+          const { provisionFederatedOrganization } =
+            await import("../org/federation.js");
+          await provisionFederatedOrganization(
             {
-              ...(getRequestContext() ?? {}),
-              signupAttribution,
-              signupOrigin: "sso_jit",
+              authority: binding.authority,
+              id: identity.orgId,
+              name: identity.orgName,
+              role: identity.orgRole,
+              email: identity.email,
+              ...(identity.orgIcon !== undefined
+                ? {
+                    icon: identity.orgIcon,
+                    iconRevision: identity.orgIconRevision,
+                  }
+                : {}),
             },
-            linkIdentity,
-          )
-        : linkIdentity());
-      if (identity.orgId && identity.orgName && identity.orgRole) {
-        const { provisionFederatedOrganization } =
-          await import("../org/federation.js");
-        await provisionFederatedOrganization(
-          {
-            authority: binding.authority,
-            id: identity.orgId,
-            name: identity.orgName,
-            role: identity.orgRole,
-            email: identity.email,
-            ...(identity.orgIcon !== undefined
-              ? {
-                  icon: identity.orgIcon,
-                  iconRevision: identity.orgIconRevision,
-                }
-              : {}),
-          },
-          { event },
+            { event },
+          );
+        }
+      } catch {
+        return errorPage(
+          "Could not finish linking your account. Please try again.",
+          loginPath,
         );
       }
-    } catch {
-      return errorPage(
-        "Could not finish linking your account. Please try again.",
-        loginPath,
-      );
     }
     try {
       await createOAuthSession(event, identity.email, {
