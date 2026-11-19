@@ -1484,6 +1484,17 @@ export const acceptInvitationHandler = defineEventHandler(
     const invOrgId = String(inv.orgId ?? inv.org_id);
     const inviteRole: OrgRole = inv.role === "admin" ? "admin" : "member";
 
+    const existingMembership = await e.execute({
+      sql: `SELECT role, federation_removal_pending_at FROM org_members
+            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [invOrgId, email.toLowerCase()],
+    });
+
+    // Read the marker after the membership. An admin's removal writes it and
+    // deletes the membership in one transaction, so finding no membership
+    // means any removal has committed and its marker is visible here; reading
+    // the marker first would let a removal commit in between and send this
+    // acceptance down the new-member path.
     const removalMarker = await e.execute({
       sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated' LIMIT 1`,
       args: [invOrgId, email.toLowerCase()],
@@ -1494,12 +1505,6 @@ export const acceptInvitationHandler = defineEventHandler(
         message: "An admin removed this address; ask an admin to re-invite it.",
       });
     }
-
-    const existingMembership = await e.execute({
-      sql: `SELECT role, federation_removal_pending_at FROM org_members
-            WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-      args: [invOrgId, email.toLowerCase()],
-    });
 
     if ((existingMembership.rows[0] as any)?.federation_removal_pending_at) {
       throw createError({
@@ -1539,6 +1544,20 @@ export const acceptInvitationHandler = defineEventHandler(
           federated: Boolean(linked),
           event,
         });
+      } else {
+        // A removal that commits after the marker read cancels this pending
+        // invitation, so the claim above loses; don't report success for it.
+        const removedMeanwhile = await e.execute({
+          sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated' LIMIT 1`,
+          args: [invOrgId, email.toLowerCase()],
+        });
+        if (removedMeanwhile.rows.length > 0) {
+          throw createError({
+            statusCode: 403,
+            message:
+              "An admin removed this address; ask an admin to re-invite it.",
+          });
+        }
       }
       await setActiveOrgId(email, invOrgId, "accepted invitation", event);
       return {
