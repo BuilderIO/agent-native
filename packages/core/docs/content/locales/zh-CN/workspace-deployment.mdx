@@ -166,6 +166,8 @@ npx @agent-native/core@latest deploy
 
 每次运行都会变化但不会影响构建的变量,例如 `PATH`、`PWD`、`npm_*` 和 `PNPM_*`,已经被排除在缓存键之外。如果部署环境自行添加了这类变量(比如运行 ID),请把它列在 `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` 中;末尾的 `*` 匹配前缀。其他变量都会计入,因此 `VITE_*` 或 `DATABASE_URL` 发生变化会让所有应用重新构建。
 
+将 `AGENT_NATIVE_BUILD_ID` 设为其提交的工作区，否则每次提交都会重新构建所有应用。启用缓存时，该变量不计入键，每个应用使用由自身键派生的 id（`content-…`）构建，因此未更改的应用在新提交上会恢复相同的输出。Netlify 响应仍在 `x-agent-native-build-sha` 中携带提交，并在 `x-agent-native-app-build-id` 中携带应用内置的 id。部署会把预期值写入 `.netlify/agent-native-served-builds.json`，`@agent-native/core/deploy/served-build` 中的 `checkServedAppBuild` 会将线上响应与之比较。`DEPLOY_ID` 优先，并保留在键中。
+
 每次都从干净磁盘开始的托管构建器无法从缓存中获益。请在那里设置 `AGENT_NATIVE_DEPLOY_CACHE=false`,以跳过它在每次构建后进行的复制。
 
 ## 用 Docker Compose 自托管工作区 {#workspace-docker-compose}

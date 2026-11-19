@@ -16,6 +16,17 @@ export const OPEN_ROUTE_SUBPATH = "/open";
 
 export const DESKTOP_OPEN_URL = "agentnative://open";
 
+/**
+ * Deep-link schemes the desktop app registers, stable channel first. Nightly
+ * builds register `agentnative-nightly` so both channels can be installed.
+ */
+export const DESKTOP_DEEP_LINK_PROTOCOLS = [
+  "agentnative",
+  "agentnative-nightly",
+] as const;
+export type DesktopDeepLinkProtocol =
+  (typeof DESKTOP_DEEP_LINK_PROTOCOLS)[number];
+
 export const VSCODE_OPEN_URL = "vscode://builder.agent-native/open";
 
 export function isSameOriginUrl(urlOrPath: string, origin?: string): boolean {
@@ -100,10 +111,14 @@ function withBasePath(urlOrPath: string, basePath: string): string {
   return `${basePath}${leadingPath}`;
 }
 
-export function toDesktopOpenUrl(urlOrPath: string): string {
+export function toDesktopOpenUrl(
+  urlOrPath: string,
+  protocol: DesktopDeepLinkProtocol = "agentnative",
+): string {
   const qIdx = urlOrPath.indexOf("?");
   const query = qIdx >= 0 ? urlOrPath.slice(qIdx + 1) : "";
-  return query ? `${DESKTOP_OPEN_URL}?${query}` : DESKTOP_OPEN_URL;
+  const base = `${protocol}://open`;
+  return query ? `${base}?${query}` : base;
 }
 
 export function toVsCodeOpenUrl(urlOrPath: string): string {

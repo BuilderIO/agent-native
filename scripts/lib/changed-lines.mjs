@@ -220,6 +220,7 @@ function scanUnifiedDiff(diff, cwd, pathApi) {
   // "++i;" or a removed "--y"); headers are only read once both counts are 0.
   let oldLeft = 0;
   let newLeft = 0;
+  let symlink = false;
   for (const raw of diff.split("\n")) {
     if (oldLeft > 0 || newLeft > 0) {
       if (raw.startsWith("+")) {
@@ -240,6 +241,13 @@ function scanUnifiedDiff(diff, cwd, pathApi) {
     }
     if (raw.startsWith("diff --git ")) {
       file = null;
+      symlink = false;
+      continue;
+    }
+    // A symlink's only "line" is its target path; guards that read the file
+    // would open the directory it points at.
+    if (/^(?:new file mode|new mode|index \S+) 120000$/.test(raw)) {
+      symlink = true;
       continue;
     }
     // Git emits no +++/@@/+ lines for a file it considers binary, so such a
@@ -271,7 +279,7 @@ function scanUnifiedDiff(diff, cwd, pathApi) {
       // path.join/path.resolve result; a "/"-joined key never matches on Windows.
       // Prototypes are throwaway design artifacts, not shipped code, so the diff-scoped guards don't police them.
       file =
-        target === "/dev/null" || path.startsWith("prototypes/")
+        symlink || target === "/dev/null" || path.startsWith("prototypes/")
           ? null
           : pathApi.resolve(cwd, path);
       continue;

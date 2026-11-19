@@ -1,4 +1,5 @@
 import { callAction, useSession } from "@agent-native/core/client/hooks";
+import type { DataSourceType } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import {
   confirmedScanBytes,
@@ -16,8 +17,6 @@ import {
 import type { TrafficEnvironment } from "@shared/traffic-environment";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef } from "react";
-
-import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 import { recordQueryCost } from "./cost-tracker";
 import {
@@ -581,7 +580,9 @@ export function useSqlQuery(
       return result;
     },
     enabled,
-    refetchInterval: options?.refetchInterval,
+    ...(options?.refetchInterval === undefined
+      ? {}
+      : { refetchInterval: options.refetchInterval }),
     refetchOnMount: options?.refetchOnMount ?? Boolean(options?.rerunPartial),
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,

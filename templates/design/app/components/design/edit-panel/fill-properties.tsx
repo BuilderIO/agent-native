@@ -101,7 +101,6 @@ import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type { CapturedStyleTarget } from "./style-change-types";
 import type {
   BreakpointOverrideFieldContext,
-  MotionKeyframeFieldContext,
   StyleChangeMeta,
   StyleChangeHandler,
   StylesChangeHandler,
@@ -200,7 +199,6 @@ export function FillProperties({
   documentColorPalette = [],
   shaderContext,
   onRemoveShaderFill,
-  motionKeyframeContext,
   breakpointOverrideContext,
   hideAddFill = false,
   cancelOpacityGestureOnHistoryUndo = false,
@@ -224,7 +222,6 @@ export function FillProperties({
   onRemoveShaderFill?: () => void;
   /** Where the selected text layer is, so the picker can measure its contrast. */
   contrastContext?: TextContrastContext;
-  motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   hideAddFill?: boolean;
   cancelOpacityGestureOnHistoryUndo?: boolean;
@@ -1113,10 +1110,8 @@ export function FillProperties({
                 <InspectorGridCell span={1} className="flex justify-center">
                   <FieldTrailer
                     element={element}
-                    motionCssProperty="background-color"
-                    motionKeyframeContext={motionKeyframeContext}
+                    overrideProperty="background-color"
                     breakpointOverrideContext={breakpointOverrideContext}
-                    hoverRevealClassName="opacity-0 group-hover:opacity-100"
                   />
                 </InspectorGridCell>
               ) : null}

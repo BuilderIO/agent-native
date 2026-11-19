@@ -1,4 +1,7 @@
-import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
+import {
+  commercialSurfacesHidden,
+  injectedAgentNativeAppId,
+} from "@agent-native/core/client/app-config";
 import { useT } from "@agent-native/core/client/i18n";
 import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
 import { Button, type ButtonProps } from "@agent-native/toolkit/ui/button";
@@ -80,6 +83,15 @@ export function BuilderConnectChoicePanel({
 }: BuilderConnectChoicePanelProps) {
   const t = useT();
   const statusReadFailed = flow.errorKind === "status-read";
+  // Without commercial surfaces, account creation is offered without the
+  // free-credit pitch: the copy that names credits is left out, not reworded.
+  const hideCredits = commercialSurfacesHidden();
+  const showDescription =
+    !flow.accountExists &&
+    !(hideCredits && (flow.connecting || canProvisionAccount));
+  const descriptionId = showDescription
+    ? "builder-connect-popover-description"
+    : undefined;
 
   return (
     <div
@@ -91,11 +103,26 @@ export function BuilderConnectChoicePanel({
         id="builder-connect-popover-title"
         className="text-sm font-semibold text-foreground"
       >
-        {t("agentChat.onboarding.builderActivateTitle", {
-          defaultValue: "Activate free credits",
-        })}
+        {hideCredits
+          ? t("agentChat.onboarding.builderConnect", {
+              defaultValue: "Connect Builder.io",
+            })
+          : t("agentChat.onboarding.builderActivateTitle", {
+              defaultValue: "Activate free credits",
+            })}
       </h2>
-      {!flow.accountExists ? (
+      {hideCredits && flow.connecting && !flow.accountExists ? (
+        <p
+          className="text-xs leading-5 text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          {t("agentPanel.connectingBuilder", {
+            defaultValue: "Setting up Builder.io…",
+          })}
+        </p>
+      ) : null}
+      {showDescription ? (
         <p
           id="builder-connect-popover-description"
           className="text-xs leading-5 text-muted-foreground"
@@ -185,22 +212,28 @@ export function BuilderConnectChoicePanel({
           ) : null}
         </div>
       ) : null}
-      <BuilderConnectIncludedServices appId={appId} />
+      {hideCredits ? null : (
+        <BuilderConnectIncludedServices {...(appId ? { appId } : {})} />
+      )}
       {canProvisionAccount && !flow.accountExists ? (
         <div className="flex flex-col gap-2">
           <Button
             type="button"
             data-testid={primaryTestId}
             className="w-full"
-            aria-describedby="builder-connect-popover-description"
+            aria-describedby={descriptionId}
             onClick={onCreateAndActivate}
             disabled={flow.connecting}
           >
             {flow.connecting ? <Spinner aria-hidden /> : null}
             {flow.connecting
-              ? t("agentChat.onboarding.builderActivating", {
-                  defaultValue: "Activating Builder.io free credits",
-                })
+              ? hideCredits
+                ? t("agentChat.onboarding.builderConnect", {
+                    defaultValue: "Connect Builder.io",
+                  })
+                : t("agentChat.onboarding.builderActivating", {
+                    defaultValue: "Activating Builder.io free credits",
+                  })
               : t("agentChat.onboarding.builderCreateAndActivate", {
                   defaultValue: "Create and activate",
                 })}
@@ -226,7 +259,7 @@ export function BuilderConnectChoicePanel({
           aria-describedby={
             flow.accountExists
               ? "builder-connect-popover-account-exists"
-              : "builder-connect-popover-description"
+              : descriptionId
           }
           onClick={onExistingAccount}
           disabled={flow.connecting}

@@ -3036,6 +3036,106 @@ describe("createBuilderEngine", () => {
     }
   });
 
+  it.each([
+    { code: "overloaded_error", classification: "overloaded_error" },
+    { code: "  OvErLoAdEd_ErRoR  ", classification: "overloaded_error" },
+    { code: "rate_limited", classification: "rate_limited" },
+    { code: "rate_limit_exceeded", classification: "rate_limit_exceeded" },
+    {
+      code: "too_many_concurrent_requests",
+      classification: "too_many_concurrent_requests",
+    },
+    { code: "invalid_request", classification: "invalid_request" },
+    { code: "invalid_request_error", classification: "invalid_request_error" },
+    {
+      code: "provider_internal_error",
+      classification: "provider_internal_error",
+    },
+    {
+      code: "builder_gateway_internal_error",
+      classification: "builder_gateway_internal_error",
+    },
+    {
+      code: "context_length_exceeded",
+      classification: "context_length_exceeded",
+    },
+    { code: "input_too_long", classification: "input_too_long" },
+    { code: undefined, classification: undefined },
+    { code: "private_canary_code_4c7d1e", classification: undefined },
+    { code: "  private_canary_Unknown_4c7d1e  ", classification: undefined },
+    {
+      code: "overloaded_error_private_canary_4c7d1e",
+      classification: undefined,
+    },
+  ])(
+    "captures only a known no-detail provider classification for $code",
+    async ({ code, classification }) => {
+      const events: TrackingEvent[] = [];
+      const contexts: captureErrorModule.CaptureErrorContext[] = [];
+      registerTrackingProvider({
+        name: "gateway-no-detail-classification",
+        track: (event) => events.push(event),
+      });
+      const unregister = captureErrorModule.registerErrorCaptureProvider(
+        "gateway-no-detail-classification",
+        (error, context) => {
+          contexts.push(context);
+          captureException(error, context);
+        },
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code,
+              requestId: "req_no_detail",
+              providerNote: "private_canary_note_4c7d1e",
+            },
+          ]),
+        ),
+      );
+      try {
+        const streamEvents = await collectEvents(
+          createBuilderEngine().stream(BASE_OPTS),
+        );
+        expect(
+          streamEvents.find((event) => event.type === "stop"),
+        ).toMatchObject({
+          reason: "error",
+          error: "Gateway error (no detail)",
+          errorCode: code ?? "builder_gateway_error",
+        });
+        expect(contexts).toHaveLength(1);
+        expect(contexts[0].tags?.providerErrorCode).toBe(classification);
+        expect(contexts[0].contexts?.builderGateway?.providerErrorCode).toBe(
+          classification,
+        );
+        const exceptions = events.filter(
+          (event) => event.name === "$exception",
+        );
+        expect(exceptions).toHaveLength(1);
+        expect(exceptions[0].properties?.exceptionTags).toMatchObject({
+          errorCode: "builder_gateway_error",
+          ...(classification ? { providerErrorCode: classification } : {}),
+        });
+        if (!classification) {
+          expect(exceptions[0].properties?.exceptionTags).not.toHaveProperty(
+            "providerErrorCode",
+          );
+        }
+        expect(JSON.stringify([contexts, exceptions])).not.toContain(
+          "private_canary",
+        );
+      } finally {
+        unregister();
+        unregisterTrackingProvider("gateway-no-detail-classification");
+      }
+    },
+  );
+
   it("captures no-detail gateway stop errors to Sentry with model + requestId tags", async () => {
     const captureSpy = vi
       .spyOn(captureErrorModule, "captureError")

@@ -81,6 +81,8 @@ function createFetchFixture({
   ollamaModelsResponse,
   role = "admin",
   orgMeResponse,
+  modelDefaults,
+  modelDefaultsDeleteResponse,
 }: {
   engines?: EngineFixture[] | (() => EngineFixture[]);
   current?: { engine: string; model: string };
@@ -93,10 +95,23 @@ function createFetchFixture({
   ollamaModelsResponse?: () => Promise<Response> | Response;
   role?: "owner" | "admin" | "member" | null;
   orgMeResponse?: () => Promise<Response> | Response;
+  modelDefaults?: { engine: string | null; model: string | null };
+  modelDefaultsDeleteResponse?: () => Promise<Response> | Response;
 }) {
   const setRequests: Array<Record<string, unknown>> = [];
   const providerSettingsRequests: Array<Record<string, unknown>> = [];
   let listRequests = 0;
+  const modelDefaultsBody = (value: {
+    engine: string | null;
+    model: string | null;
+  }) => ({
+    appId: "analytics",
+    ...value,
+    scope: value.engine ? "user" : "default",
+    source: value.engine ? "user" : "default",
+    canUpdate: true,
+    engines: typeof engines === "function" ? engines() : engines,
+  });
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -138,6 +153,16 @@ function createFetchFixture({
         providerSettingsRequests.push(JSON.parse(String(init?.body)));
         return providerSettingsResponse?.() ?? json({ ok: true });
       }
+      if (url.endsWith("/_agent-native/agent-model-defaults")) {
+        if (!modelDefaults) throw new Error("Unexpected model defaults read");
+        if (init?.method === "DELETE") {
+          return (
+            modelDefaultsDeleteResponse?.() ??
+            json(modelDefaultsBody({ engine: null, model: null }))
+          );
+        }
+        return json(modelDefaultsBody(modelDefaults));
+      }
       if (url.includes("/_agent-native/agent-engine/ollama-models")) {
         return ollamaModelsResponse?.() ?? json({ ok: true, models: [] });
       }
@@ -172,7 +197,10 @@ function createFetchFixture({
   };
 }
 
-async function renderSettings(fetchMock: typeof fetch): Promise<{
+async function renderSettings(
+  fetchMock: typeof fetch,
+  sections: string[] = ["llm"],
+): Promise<{
   container: HTMLDivElement;
   root: Root;
 }> {
@@ -189,7 +217,7 @@ async function renderSettings(fetchMock: typeof fetch): Promise<{
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
           <TooltipProvider>
-            <AgentSettingsContent sections={["llm"]} />
+            <AgentSettingsContent sections={sections} />
           </TooltipProvider>
         </QueryClientProvider>
       </MemoryRouter>,
@@ -1062,5 +1090,117 @@ describe("AgentSettingsContent provider save", () => {
       },
     ]);
     act(() => root.unmount());
+  });
+});
+
+describe("AppModelDefaultsSection engine probing", () => {
+  const ollamaConfigured = { ...ollama, configured: true };
+  const engines = [ollamaConfigured, anthropic, openai];
+  const ollamaProbes = (fixture: ReturnType<typeof createFetchFixture>) =>
+    fixture.fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/_agent-native/agent-engine/ollama-models"),
+    );
+  const defaultModelButton = () => {
+    const button = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Default model"]',
+    );
+    if (!button) throw new Error("Missing default model picker");
+    return button;
+  };
+  const chooseModel = async (providerAndModel: string) => {
+    const item = Array.from(document.querySelectorAll("[cmdk-item]")).find(
+      (candidate) => candidate.textContent?.includes(providerAndModel),
+    );
+    if (!(item instanceof HTMLElement)) {
+      throw new Error(`Missing model option: ${providerAndModel}`);
+    }
+    await click(item);
+  };
+
+  it("does not select or probe a catalog-only Ollama engine when no app default is saved", async () => {
+    const fixture = createFetchFixture({
+      engines,
+      modelDefaults: { engine: null, model: null },
+      setResponse: () => json({ ok: true }),
+    });
+    await renderSettings(fixture.fetchMock, ["app-models"]);
+
+    expect(defaultModelButton().textContent).toContain("Global default");
+    expect(ollamaProbes(fixture)).toHaveLength(0);
+  });
+
+  it("keeps Global default and does not probe when no engine is configured and Ollama is listed first", async () => {
+    const fixture = createFetchFixture({
+      engines: [
+        ollama,
+        { ...anthropic, configured: false },
+        { ...openai, configured: false },
+      ],
+      modelDefaults: { engine: null, model: null },
+      setResponse: () => json({ ok: true }),
+    });
+    await renderSettings(fixture.fetchMock, ["app-models"]);
+
+    expect(defaultModelButton().textContent).toContain("Global default");
+    expect(ollamaProbes(fixture)).toHaveLength(0);
+  });
+
+  it("probes once when the user opens the picker with no app default saved", async () => {
+    const fixture = createFetchFixture({
+      engines,
+      modelDefaults: { engine: null, model: null },
+      setResponse: () => json({ ok: true }),
+    });
+    await renderSettings(fixture.fetchMock, ["app-models"]);
+    await click(defaultModelButton());
+
+    expect(document.body.textContent).toContain("Ollama");
+    expect(ollamaProbes(fixture)).toHaveLength(1);
+  });
+
+  it("probes when Ollama is the saved app default", async () => {
+    const fixture = createFetchFixture({
+      engines,
+      modelDefaults: { engine: "ai-sdk:ollama", model: "llama3.1" },
+      setResponse: () => json({ ok: true }),
+    });
+    await renderSettings(fixture.fetchMock, ["app-models"]);
+
+    expect(defaultModelButton().textContent).toContain("Ollama");
+    expect(ollamaProbes(fixture)).toHaveLength(1);
+  });
+
+  it("does not probe a saved non-Ollama default", async () => {
+    const fixture = createFetchFixture({
+      engines,
+      modelDefaults: { engine: "ai-sdk:openai", model: "gpt-5.4" },
+      setResponse: () => json({ ok: true }),
+    });
+    await renderSettings(fixture.fetchMock, ["app-models"]);
+
+    expect(defaultModelButton().textContent).toContain("OpenAI");
+    expect(ollamaProbes(fixture)).toHaveLength(0);
+  });
+
+  it("stays unset without an extra probe after resetting to the global default", async () => {
+    const fixture = createFetchFixture({
+      engines,
+      modelDefaults: { engine: "ai-sdk:openai", model: "gpt-5.4" },
+      setResponse: () => json({ ok: true }),
+    });
+    await renderSettings(fixture.fetchMock, ["app-models"]);
+    await click(defaultModelButton());
+    expect(ollamaProbes(fixture)).toHaveLength(1);
+    await chooseModel("Global default");
+
+    expect(
+      fixture.fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input).endsWith("/_agent-native/agent-model-defaults") &&
+          init?.method === "DELETE",
+      ),
+    ).toBe(true);
+    expect(defaultModelButton().textContent).toContain("Global default");
+    expect(ollamaProbes(fixture)).toHaveLength(1);
   });
 });

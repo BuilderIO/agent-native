@@ -13,7 +13,9 @@ import {
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   normalizeAgentActionScope,
+  type A2APeerApproval,
   type AgentActionScope,
   type AgentChatStructuredContentPart,
   type AgentChatStructuredMessage,
@@ -3825,6 +3827,12 @@ interface AgentNativeMessageProjectionState {
     omitFromPersistedHistory?: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
+    /** Text each delegated call has streamed and not yet sent. */
+    agentCallText?: Map<string, HeldAgentCallText>;
+    /** The task each delegated call named, so a progress event keeps it. */
+    agentCallTasks?: Map<string, string>;
+    /** Background tasks by id, so a progress event keeps the task's name. */
+    backgroundTasks?: Map<string, AgentChatRuntimeTask>;
     /** Ids given to tool input that streamed without one, by tool name. */
     pendingToolInputIds?: Map<string, string>;
   };
@@ -3986,6 +3994,81 @@ function definedMetadata(
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+// The task reducer replaces a task whole, so progress and completion carry
+// forward the identity the task was started with.
+function backgroundTask(
+  ev: SSEEvent,
+  id: string,
+  previous: AgentChatRuntimeTask | undefined,
+): AgentChatRuntimeTask {
+  if (ev.type === "agent_task") {
+    return {
+      id,
+      title: ev.name || ev.description || "Agent task",
+      kind: "sub-agent",
+      status: agentNativeTaskStatus(ev.status),
+      ...(ev.threadId ? { threadId: ev.threadId } : {}),
+      ...(ev.name && ev.description ? { detail: ev.description } : {}),
+    };
+  }
+  if (ev.type === "agent_task_update") {
+    return {
+      ...previous,
+      id,
+      title: previous?.title ?? ev.currentStep ?? "Agent task",
+      kind: "sub-agent",
+      status: "running",
+      ...(ev.currentStep ? { detail: ev.currentStep } : {}),
+      ...(ev.preview ? { summary: ev.preview } : {}),
+    };
+  }
+  return {
+    ...previous,
+    id,
+    title: previous?.title ?? "Agent task",
+    kind: "sub-agent",
+    status: "completed",
+    ...(ev.summary ? { summary: ev.summary } : {}),
+  };
+}
+
+const AGENT_CALL_MESSAGE_PREVIEW_CHARS = 600;
+
+interface HeldAgentCallText {
+  agent: string;
+  text: string;
+  /** Messages already written for this call; each gets its own id. */
+  sent: number;
+}
+
+function takeAgentCallMessage(
+  participantId: string,
+  held: HeldAgentCallText,
+  base: Pick<AgentChatRuntimeEventBase, "sessionId" | "turnId" | "metadata">,
+): AgentChatRuntimeKnownEvent | undefined {
+  if (!held.text) return undefined;
+  // The row shows two lines, so the message keeps a bounded preview.
+  const detail =
+    held.text.length > AGENT_CALL_MESSAGE_PREVIEW_CHARS
+      ? `${held.text.slice(0, AGENT_CALL_MESSAGE_PREVIEW_CHARS)}…`
+      : held.text;
+  const id = `${participantId}:message:${held.sent}`;
+  held.text = "";
+  held.sent += 1;
+  return {
+    type: "interaction",
+    ...base,
+    interaction: {
+      id,
+      kind: "messaged",
+      participantId,
+      detail,
+      scope: "external",
+      source: agentNativeAgentReference(held.agent),
+    },
+  };
+}
+
 function agentNativeParticipantId(event: SSEEvent): string {
   return event.agentCallId ?? event.taskId ?? `agent:${event.agent ?? "agent"}`;
 }
@@ -3994,6 +4077,39 @@ function agentNativeAgentReference(
   agent: string,
 ): AgentChatRuntimeObjectReference {
   return { id: agent, kind: "agent", label: agent };
+}
+
+export { AGENT_CALL_APPROVAL_WIDGET_KIND };
+
+/** The approval page to open, and the paused task to continue once approved. */
+export interface AgentCallApprovalWidgetData extends A2APeerApproval {
+  agent: string;
+  taskId: string;
+  /**
+   * The latest call that found this approval still waiting. A call that pauses
+   * on another approval writes that approval's card, so this one keeps its call.
+   */
+  callId: string;
+}
+
+function agentCallApproval(
+  ev: SSEEvent,
+  agent: string,
+  callId: string,
+): AgentCallApprovalWidgetData | undefined {
+  const approval = ev.approval;
+  const taskId = typeof ev.taskId === "string" ? ev.taskId.trim() : "";
+  if (ev.status !== "pending" || !approval || !taskId) return undefined;
+  const { id, tool, url } = approval;
+  if (!id || !tool || !url) return undefined;
+  try {
+    const { protocol } = new URL(url);
+    if (protocol !== "https:" && protocol !== "http:") return undefined;
+  } catch {
+    // coercion-ok: the card needs an absolute page link; the reply text remains.
+    return undefined;
+  }
+  return { agent, id, tool, url, taskId, callId };
 }
 
 // The renderer swaps this label for its localized working label. An app name or
@@ -4206,6 +4322,9 @@ function mapAgentNativeEvent(
       connectionPending: boolean;
       omitFromPersistedHistory?: boolean;
       activityParticipants?: Set<string>;
+      agentCallText?: Map<string, HeldAgentCallText>;
+      agentCallTasks?: Map<string, string>;
+      backgroundTasks?: Map<string, AgentChatRuntimeTask>;
       pendingToolInputIds?: Map<string, string>;
     };
   },
@@ -4646,6 +4765,12 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call") {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    if (ev.taskId) {
+      (input.message.agentCallTasks ??= new Map()).set(
+        participantId,
+        ev.taskId,
+      );
+    }
     const participantStatus = agentNativeParticipantStatus(ev.status);
     const taskStatus = agentNativeTaskStatus(ev.status);
     const participant: AgentChatRuntimeParticipant = {
@@ -4681,6 +4806,12 @@ function mapAgentNativeEvent(
         participant,
       },
     ];
+    const held = input.message.agentCallText?.get(participantId);
+    const message =
+      ev.status === "start" || !held
+        ? undefined
+        : takeAgentCallMessage(participantId, held, base);
+    if (message) events.push(message);
     if (!reportedByActivity) {
       events.push({
         type: "interaction",
@@ -4720,11 +4851,32 @@ function mapAgentNativeEvent(
         },
       });
     }
+    // A peer waiting on the person's approval in that app shows a card that
+    // opens its approval page and then continues the same task. The card is
+    // keyed by the approval, not the call: a later call that finds the same
+    // approval still pending updates that card instead of adding a second.
+    const approval = agentCallApproval(ev, agent, participantId);
+    if (approval) {
+      events.push({
+        type: "widget",
+        ...base,
+        operation: "create",
+        widget: {
+          id: `${agent}:approval:${approval.id}`,
+          kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+          state: "ready",
+          data: approval,
+        },
+      });
+    }
     return events;
   }
   if (ev.type === "agent_call_progress") {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    // An update replaces the participant, so it repeats the call's task; an
+    // approval card goes by it to tell its own task is being resumed.
+    const activeTaskId = input.message.agentCallTasks?.get(participantId);
     return [
       {
         type: "participant",
@@ -4735,6 +4887,7 @@ function mapAgentNativeEvent(
           name: agent,
           kind: "delegated-agent",
           status: "working",
+          ...(activeTaskId ? { activeTaskId } : {}),
           origin: agentNativeAgentReference(agent),
         },
       },
@@ -4760,22 +4913,21 @@ function mapAgentNativeEvent(
     ];
   }
   if (ev.type === "agent_call_text") {
-    const agent = ev.agent ?? "agent";
+    // Interactions are append-only history, so streamed pieces are held and
+    // written once, when the call ends or pauses or the reply closes.
     const participantId = agentNativeParticipantId(ev);
-    return [
-      {
-        type: "interaction",
-        ...base,
-        interaction: {
-          id: `${participantId}:message:${ev.seq ?? "current"}`,
-          kind: "messaged",
-          participantId,
-          detail: ev.text,
-          scope: "external",
-          source: agentNativeAgentReference(agent),
-        },
-      },
-    ];
+    const texts = (input.message.agentCallText ??= new Map());
+    const held = texts.get(participantId) ?? {
+      agent: ev.agent ?? "agent",
+      text: "",
+      sent: 0,
+    };
+    held.text = (held.text + (ev.text ?? "")).slice(
+      0,
+      AGENT_CALL_MESSAGE_PREVIEW_CHARS + 1,
+    );
+    texts.set(participantId, held);
+    return [];
   }
   if (ev.type === "agent_call_activity" && ev.snapshot) {
     const agent = ev.agent ?? "agent";
@@ -4813,57 +4965,26 @@ function mapAgentNativeEvent(
       },
     ];
   }
-  if (ev.type === "agent_task") {
+  if (
+    ev.type === "agent_task" ||
+    ev.type === "agent_task_update" ||
+    ev.type === "agent_task_complete"
+  ) {
     if (!ev.taskId) return [];
-    const status = agentNativeTaskStatus(ev.status);
+    const tasks = (input.message.backgroundTasks ??= new Map());
+    const task = backgroundTask(ev, ev.taskId, tasks.get(ev.taskId));
+    tasks.set(ev.taskId, task);
     return [
       {
         type: "task",
         ...base,
-        operation: agentNativeTaskOperation(status),
-        task: {
-          id: ev.taskId,
-          title: ev.description ?? "Agent task",
-          kind: "sub-agent",
-          status,
-          threadId: ev.threadId,
-          detail: ev.description,
-        },
-      },
-    ];
-  }
-  if (ev.type === "agent_task_update") {
-    if (!ev.taskId) return [];
-    return [
-      {
-        type: "task",
-        ...base,
-        operation: "update",
-        task: {
-          id: ev.taskId,
-          title: ev.currentStep ?? "Agent task",
-          kind: "sub-agent",
-          status: "running",
-          detail: ev.currentStep,
-          summary: ev.preview,
-        },
-      },
-    ];
-  }
-  if (ev.type === "agent_task_complete") {
-    if (!ev.taskId) return [];
-    return [
-      {
-        type: "task",
-        ...base,
-        operation: "complete",
-        task: {
-          id: ev.taskId,
-          title: "Agent task",
-          kind: "sub-agent",
-          status: "completed",
-          summary: ev.summary,
-        },
+        operation:
+          ev.type === "agent_task"
+            ? agentNativeTaskOperation(task.status)
+            : ev.type === "agent_task_update"
+              ? "update"
+              : "complete",
+        task,
       },
     ];
   }
@@ -5355,6 +5476,12 @@ export function createAgentNativeChatRuntime(
           headers.set("x-agent-native-session-id", browserSessionId);
         }
       }
+      // Tool calls read the user's zone from this header (getRequestTimezone);
+      // without it every chat-run action saw no zone and quoted UTC.
+      const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (timeZone && !headers.has("x-user-timezone")) {
+        headers.set("x-user-timezone", timeZone);
+      }
       return headers;
     },
     capabilities: {
@@ -5618,6 +5745,27 @@ export function createAgentNativeChatRuntime(
         messageId: state.messageId,
         message: state.message,
       });
+      // A call the turn ended or failed under never reports its own end, so
+      // its held text is written before the reply closes.
+      const closing = mapped.findIndex(
+        (item) =>
+          item.type === "message-done" ||
+          item.type === "done" ||
+          item.type === "error",
+      );
+      if (closing >= 0 && state.message.agentCallText?.size) {
+        const base = {
+          sessionId: context.sessionId,
+          ...(context.turnId === undefined ? {} : { turnId: context.turnId }),
+        };
+        const messages = [...state.message.agentCallText].flatMap(
+          ([participantId, held]) => {
+            const message = takeAgentCallMessage(participantId, held, base);
+            return message ? [message] : [];
+          },
+        );
+        mapped.splice(closing, 0, ...messages);
+      }
       if (
         mapped.some(
           (item) => item.type === "done" && item.reason !== "tool-use",

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import {
   readBrainAgentGuidance,
-  searchKnowledgeRows,
+  searchKnowledgePage,
   serializeKnowledge,
 } from "../server/lib/brain.js";
 
@@ -29,12 +29,13 @@ export default defineAction({
     isConsequential: false,
   },
   run: async (args) => {
-    const [{ guidance }, rows] = await Promise.all([
+    const [{ guidance }, { rows, scanLimited }] = await Promise.all([
       readBrainAgentGuidance(),
-      searchKnowledgeRows(args),
+      searchKnowledgePage(args),
     ]);
     return {
       count: rows.length,
+      scanLimited,
       policy: guidance.retrieval,
       responseGuidance: guidance.response,
       knowledge: rows.map(serializeKnowledge),

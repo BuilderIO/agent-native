@@ -1173,6 +1173,7 @@ export default {
     monitoring: "المراقبة - Analytics",
     agents: "الوكلاء - Analytics",
     session: "إعادة تشغيل الجلسة - Analytics",
+    sessionReport: "تقرير الجلسة - Analytics",
     tool: "الأداة - Analytics",
     extensions: "الإضافات - Analytics",
     overview: "نظرة عامة - Analytics",
@@ -1371,6 +1372,8 @@ export default {
     drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
     drilldownAggregateOnly:
       "تحتوي هذه اللوحة على صفوف مجمّعة فقط. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
+    drilldownNoXValueAggregateOnly:
+      "لا يمكن لهذه اللوحة فتح سجلات نقطة بلا قيمة، لذا تعرض الصفوف المجمّعة. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
     drilldownNoRecords: "لا توجد سجلات مطابقة",
     drilldownNoRecordsIncomplete:
       "لم يتم تحميل أي سجلات. النتيجة غير مكتملة، لذا قد تكون هناك سجلات مطابقة.",
@@ -1835,6 +1838,28 @@ export default {
     emptyStepVisit: "زيارة التطبيق",
     installSnippetTitle: "إضافة إعادة تشغيل الجلسة",
     backToSessions: "العودة إلى الجلسات",
+    createReport: "إنشاء تقرير",
+    createReportTooltip:
+      "اطلب من الوكيل كتابة تقرير عن هذه الجلسة: ما الخطأ الذي حدث، ولحظاتها الرئيسية، وكيفية إعادة إنتاجه.",
+    createReportMessage: "اكتب تقريرًا عن هذه الجلسة.",
+    reportCount: "التقارير ({{count}})",
+    reportsUnavailable: "التقارير غير متاحة",
+    reportNeedsLab: "تقارير الجلسات جزء من Lab فرز الجلسات.",
+    reportNotFound: "هذا التقرير غير موجود، أو لم تتم مشاركته معك.",
+    reportLoadFailed: "تعذر تحميل هذا التقرير: {{message}}",
+    reportBackToSession: "العودة إلى الجلسة",
+    reportTitleLabel: "عنوان التقرير",
+    reportSummaryLabel: "الملخص",
+    reportSummaryPlaceholder: "ما الخطأ الذي حدث، ولماذا",
+    reportKeyMoments: "اللحظات الرئيسية",
+    reportReproSteps: "خطوات إعادة الإنتاج",
+    reportErrorIssue: "مشكلة الخطأ",
+    reportCommit: "الالتزام",
+    reportNoCommit: "لم تُبلغ هذه الجلسة عن أي التزام",
+    reportSaveFailed: "تعذر حفظ التقرير: {{message}}",
+    reportDelete: "حذف التقرير",
+    reportDeleteTitle:
+      "هل تريد حذف هذا التقرير؟ ستتوقف روابط الوكلاء الخاصة به عن العمل.",
     copyForAgent: "نسخ للوكيل",
     copyForAgentTooltip:
       "انسخ رابطًا خاصًا مؤقتًا يمكن للوكيل استخدامه لفحص هذا التسجيل.",

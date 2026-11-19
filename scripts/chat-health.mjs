@@ -117,7 +117,8 @@ WITH turn_span AS (
   GROUP BY turn_id
 ), final_run AS (
   SELECT DISTINCT ON (turn_id)
-    turn_id, status, error_code, terminal_reason
+    id, thread_id, turn_id, status, error_code, terminal_reason,
+    started_at, heartbeat_at, last_progress_at, worker_generation
   FROM agent_runs
   WHERE id NOT LIKE 'job-%'
     AND turn_id IS NOT NULL
@@ -139,8 +140,21 @@ SELECT
     WHERE s.span_s > ${STALL_TURN_S}
       AND f.status <> 'completed'
       AND coalesce(f.terminal_reason, '') NOT LIKE 'aborted:user%'
-  )::int AS stalled
-FROM final_run f JOIN turn_span s USING (turn_id)`;
+  )::int AS stalled,
+  (SELECT count(*)::int FROM final_run r
+    WHERE r.status = 'running'
+      AND greatest(r.started_at, coalesce(r.heartbeat_at, r.started_at),
+                   coalesce(r.last_progress_at, r.started_at))
+          < extract(epoch FROM clock_timestamp()) * 1000 - ${STALL_TURN_S * 1000}
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_execution_leases l
+        WHERE l.thread_id = r.thread_id AND l.turn_id = r.turn_id
+          AND l.owner_run_id = r.id
+          AND (r.worker_generation IS NULL OR l.generation = r.worker_generation)
+          AND l.lease_expires_at > clock_timestamp()
+      )) AS stale_running
+FROM final_run f JOIN turn_span s USING (turn_id)
+WHERE f.status <> 'running'`;
 
 const TURN_REASONS_SQL = `
 WITH final_run AS (
@@ -154,7 +168,7 @@ WITH final_run AS (
 )
 SELECT coalesce(error_code, terminal_reason, '(none)') AS reason, count(*)::int AS turns
 FROM final_run
-WHERE status <> 'completed'
+WHERE status NOT IN ('completed', 'running')
   AND coalesce(terminal_reason, '') NOT LIKE 'aborted:user%'
 GROUP BY 1
 ORDER BY turns DESC
@@ -274,7 +288,10 @@ const scored = results
     return {
       ...r,
       badRate: scored > 0 ? r.bad / scored : 0,
-      stallRate: scored > 0 ? r.stalled / scored : 0,
+      stallRate:
+        scored + r.stale_running > 0
+          ? (r.stalled + r.stale_running) / (scored + r.stale_running)
+          : 0,
       scored,
     };
   })
@@ -285,9 +302,10 @@ const fleet = scored.reduce(
     turns: acc.turns + r.turns,
     bad: acc.bad + r.bad,
     stalled: acc.stalled + r.stalled,
+    stale_running: acc.stale_running + r.stale_running,
     scored: acc.scored + r.scored,
   }),
-  { turns: 0, bad: 0, stalled: 0, scored: 0 },
+  { turns: 0, bad: 0, stalled: 0, stale_running: 0, scored: 0 },
 );
 const fleetRate = fleet.scored > 0 ? fleet.bad / fleet.scored : 0;
 
@@ -312,10 +330,10 @@ if (asJson) {
   );
 } else {
   console.log(
-    `Agent chat turns, last ${hours}h (excludes user-stopped turns)\n`,
+    `Agent chat terminal turns, last ${hours}h (rates exclude user-stopped turns)\n`,
   );
   console.log(
-    `  ${"app".padEnd(11)}${"turns".padStart(6)}${"ok".padStart(6)}${"bad".padStart(6)}${"bad%".padStart(7)}${"p50s".padStart(6)}${"p90s".padStart(6)}${"maxs".padStart(6)}${"stall".padStart(6)}  top reasons`,
+    `  ${"app".padEnd(11)}${"turns".padStart(6)}${"ok".padStart(6)}${"bad".padStart(6)}${"bad%".padStart(7)}${"p50s".padStart(6)}${"p90s".padStart(6)}${"maxs".padStart(6)}${"terminal stall".padStart(15)}${"stale running".padStart(15)}  top reasons`,
   );
   for (const r of scored) {
     const pct = `${(r.badRate * 100).toFixed(0)}%`;
@@ -326,14 +344,14 @@ if (asJson) {
     const mark =
       r.badRate > BAD_TURN_BUDGET || r.stallRate > STALL_BUDGET ? "!" : " ";
     console.log(
-      `${mark} ${r.name.padEnd(11)}${String(r.turns).padStart(6)}${String(r.ok).padStart(6)}${String(r.bad).padStart(6)}${pct.padStart(7)}${String(r.p50_wait_s).padStart(6)}${String(r.p90_wait_s).padStart(6)}${String(r.max_wait_s).padStart(6)}${String(r.stalled).padStart(6)}  ${top}`,
+      `${mark} ${r.name.padEnd(11)}${String(r.turns).padStart(6)}${String(r.ok).padStart(6)}${String(r.bad).padStart(6)}${pct.padStart(7)}${String(r.p50_wait_s).padStart(6)}${String(r.p90_wait_s).padStart(6)}${String(r.max_wait_s).padStart(6)}${String(r.stalled).padStart(15)}${String(r.stale_running).padStart(15)}  ${top}`,
     );
   }
   console.log(
     `\n  fleet: ${fleet.bad}/${fleet.scored} turns ended without an answer (${(fleetRate * 100).toFixed(1)}%)`,
   );
   console.log(
-    `  fleet: ${fleet.stalled}/${fleet.scored} turns ran over ${STALL_TURN_S / 60}m and still ended without one`,
+    `  fleet: ${fleet.stalled} terminal turns ran over ${STALL_TURN_S / 60}m and ended without an answer; ${fleet.stale_running} running turns have had no progress or heartbeat for over ${STALL_TURN_S / 60}m and no live matching lease`,
   );
   console.log(
     "  p50s/p90s/maxs are seconds the user waited for one message, first run start to last run end.",

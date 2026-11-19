@@ -1137,6 +1137,16 @@ switch (command) {
     break;
   }
 
+  case "capture-evidence": {
+    import("./capture-evidence.js")
+      .then((m) => m.runCaptureEvidence(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "eval": {
     import("./eval.js")
       .then((m) => m.runEval(args))
@@ -1285,6 +1295,10 @@ Usage:
                                 unless --apply; --builds also selects build/,
                                 dist/, .output/ and .netlify bundles.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
+  agent-native capture-evidence Capture bounded evidence of a page effect in one
+                                browser session (viewports, geometry, motion,
+                                GPU facts, source slices) into a manifest.
+                                Run with --help for options.
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its
                                 threshold. A CI deploy gate. --json for CI,
