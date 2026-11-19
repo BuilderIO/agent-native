@@ -52,7 +52,7 @@ function captureBudgetReceipt(
 
 export default defineAction({
   description:
-    "Read-only. Run one saved dashboard panel as the signed-in user, with the dashboard page's filters and key dates, and return its rows with the chart settings the dashboard draws them with, for another app to keep and draw with toolkit's dashboard charts, such as a chart in a Content page. Also returns who can open the dashboard and a fingerprint that changes when the panel's query or chart settings change. Supports line, area, bar, combo, pie, funnel, metric and table panels. Outside agents over MCP/A2A use the existing outside-agent BigQuery budget: daily person and organization allowances and a 50 GB per-job cap, reserved from a dry run before submission. Returns bigQueryBudget with reserved and billed costs; a budget refusal is an error, with its receipt in details.bigQueryBudget. Receipts are point-in-time snapshots; provisional is true while reservations remain unsettled or a timeout/cancellation may still be settling. Do not treat provisional billed amounts as final charges. Cached reads do not start a warehouse job.",
+    "Read-only. Run one saved dashboard panel as the signed-in user, with the dashboard page's filters and key dates, and return its rows with the chart settings the dashboard draws them with, for another app to keep and draw with toolkit's dashboard charts, such as a chart in a Content page. Also returns who can open the dashboard and a fingerprint that changes when the panel's query or chart settings change. Supports line, area, bar, combo, pie, funnel, metric and table panels. Outside agents over MCP/A2A use the existing outside-agent BigQuery budget: daily person and organization allowances and a 50 GB per-job cap, reserved from a dry run before submission. Returns bigQueryBudget with reserved and billed costs; a budget refusal is an error, with its receipt in details.bigQueryBudget. Receipts are point-in-time snapshots; provisional is true while reservations remain unsettled or a timeout/cancellation may still be settling. Do not treat provisional billed amounts as final charges. Caller aborts return query_cancelled (499); do not automatically retry them. Cached reads do not start a warehouse job.",
   schema: analyticsPanelCaptureRequestSchema,
   outputSchema: analyticsPanelCaptureSchema.extend({
     bigQueryBudget: outsideAgentBigQueryReportSchema
@@ -159,11 +159,15 @@ export default defineAction({
         });
       }
       if (error instanceof PanelCaptureError) {
+        const cancelled =
+          call !== null &&
+          error.errorCode === "query_timed_out" &&
+          actionContext?.signal?.aborted === true;
         const bigQueryBudget =
           outsideAgentCallReportOf(error) ?? completedBudget;
-        fail(error.message, {
-          errorCode: error.errorCode,
-          statusCode: error.statusCode,
+        fail(cancelled ? "Panel capture was cancelled." : error.message, {
+          errorCode: cancelled ? "query_cancelled" : error.errorCode,
+          statusCode: cancelled ? 499 : error.statusCode,
           ...(bigQueryBudget
             ? {
                 details: {

@@ -1167,19 +1167,35 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     expect(submissions).toHaveLength(1);
   });
 
-  it("honors caller cancellation before warehouse submission", async () => {
-    const controller = new AbortController();
-    controller.abort(new Error("capture cancelled"));
-    await expect(
-      capturePanel.run(args, { caller: "mcp", signal: controller.signal }),
-    ).rejects.toThrow();
-    expect(submissions).toHaveLength(0);
-    expect(budget.admit).not.toHaveBeenCalled();
-  });
+  it.each([
+    [
+      "mcp",
+      {
+        errorCode: "query_cancelled",
+        statusCode: 499,
+        message: "Panel capture was cancelled.",
+      },
+    ],
+    ["frontend", { errorCode: "query_timed_out", statusCode: 504 }],
+  ] as const)(
+    "honors %s cancellation before warehouse submission",
+    async (caller, failure) => {
+      const controller = new AbortController();
+      controller.abort(new Error("capture cancelled"));
+      await expect(
+        capturePanel.run(args, { caller, signal: controller.signal }),
+      ).rejects.toMatchObject(failure);
+      expect(submissions).toHaveLength(0);
+      expect(budget.admit).not.toHaveBeenCalled();
+    },
+  );
 
-  it.each(["deadline", "caller abort"] as const)(
+  it.each([
+    ["deadline", "query_timed_out", 504],
+    ["caller abort", "query_cancelled", 499],
+  ] as const)(
     "marks a receipt provisional when %s precedes cancellation settlement",
-    async (stop) => {
+    async (stop, errorCode, statusCode) => {
       vi.useFakeTimers();
       const queryStarted = deferred<void>();
       const cancelResponse = deferred<Response>();
@@ -1214,8 +1230,8 @@ describe("saved-panel capture outside-agent budget adapter", () => {
       const error = await failure;
       try {
         expect(error).toMatchObject({
-          errorCode: "query_timed_out",
-          statusCode: 504,
+          errorCode,
+          statusCode,
           details: {
             bigQueryBudget: {
               provisional: true,
