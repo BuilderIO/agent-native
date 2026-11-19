@@ -65,7 +65,8 @@ export function assertAgentNavigationAllowed(
  * call. Reading data never moves the user's view.
  */
 export function assertNavigateWriteAllowed(key: string): void {
-  if (key !== "navigate" || !currentActionReadOnly()) return;
+  const navigateKey = key === "navigate" || key.startsWith("navigate:");
+  if (!navigateKey || !currentActionReadOnly()) return;
   if (!agentCallRunning()) return;
   throw new AgentNavigationRefusedError(
     'Refused: a read-only action cannot move the user\'s view. Read the data and answer; call navigate with intent: "open" only if the user asked to see it.',

@@ -33,7 +33,7 @@ const isDetailView = (navigation: Record<string, unknown>) =>
 
 function navigatedPaths(): unknown[] {
   return mockAppStatePut.mock.calls
-    .filter(([, key]) => key === "navigate")
+    .filter(([, key]) => String(key).startsWith("navigate"))
     .map(([, , value]) => (value as { path?: unknown }).path);
 }
 
@@ -71,21 +71,24 @@ describe("agent navigation keeps the user's view", () => {
     expect(navigatedPaths()).toEqual(["/tasks", "/tasks/t1"]);
   });
 
-  it("refuses a navigate write from a read-only action an agent called", async () => {
-    const getTask = defineAction({
-      description: "Read a task.",
-      schema: z.object({ id: z.string() }),
-      readOnly: true,
-      run: async ({ id }) => {
-        await writeAppState("navigate", { path: `/tasks/${id}` });
-        return { id };
-      },
-    });
-    await expect(getTask.run({ id: "t1" }, { caller: "mcp" })).rejects.toThrow(
-      /read-only action cannot move the user's view/,
-    );
-    expect(navigatedPaths()).toEqual([]);
-  });
+  it.each(["navigate", "navigate:tab-1"])(
+    "refuses a %s write from a read-only action an agent called",
+    async (key) => {
+      const getTask = defineAction({
+        description: "Read a task.",
+        schema: z.object({ id: z.string() }),
+        readOnly: true,
+        run: async ({ id }) => {
+          await writeAppState(key, { path: `/tasks/${id}` });
+          return { id };
+        },
+      });
+      await expect(
+        getTask.run({ id: "t1" }, { caller: "mcp" }),
+      ).rejects.toThrow(/read-only action cannot move the user's view/);
+      expect(navigatedPaths()).toEqual([]);
+    },
+  );
 
   it("skips a write's follow-up navigation for an agent, keeps it for a person", async () => {
     await expect(
