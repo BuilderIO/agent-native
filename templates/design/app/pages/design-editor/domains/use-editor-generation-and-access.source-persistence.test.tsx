@@ -112,11 +112,6 @@ vi.mock("@agent-native/core/client/review", () => {
   };
 });
 
-vi.mock("@agent-native/creative-context/client", () => {
-  const lab = {};
-  return { useCreativeContextLabState: () => lab };
-});
-
 vi.mock("@/hooks/use-agent-generating", () => {
   const generation = {
     generating: false,
@@ -125,11 +120,6 @@ vi.mock("@/hooks/use-agent-generating", () => {
     track: () => {},
   };
   return { useAgentGenerating: () => generation };
-});
-
-vi.mock("@/hooks/use-annotate-lab", () => {
-  const annotateLab = {};
-  return { useAnnotateLab: () => annotateLab };
 });
 
 vi.mock("@/hooks/use-question-flow", () => {

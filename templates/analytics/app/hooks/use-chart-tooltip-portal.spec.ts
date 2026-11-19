@@ -1,6 +1,5 @@
+import { getChartTooltipPortalPosition } from "@agent-native/toolkit/dashboard/use-chart-tooltip-portal";
 import { describe, expect, it } from "vitest";
-
-import { getChartTooltipPortalPosition } from "./use-chart-tooltip-portal";
 
 describe("getChartTooltipPortalPosition", () => {
   const chartRect = { left: 100, right: 300, top: 100, bottom: 300 };

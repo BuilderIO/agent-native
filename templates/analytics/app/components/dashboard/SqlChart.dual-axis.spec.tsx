@@ -41,10 +41,10 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import { resolveDualAxis } from "@/pages/adhoc/sql-dashboard/dual-axis";
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import { resolveDualAxis } from "@agent-native/toolkit/dashboard/dual-axis";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
-import { SqlChart, seriesValueFormatter } from "./SqlChart";
+import { SqlChart, seriesValueFormatter } from "./SqlChartQuery";
 
 const CHART_SIZE = { width: 640, height: 320 };
 

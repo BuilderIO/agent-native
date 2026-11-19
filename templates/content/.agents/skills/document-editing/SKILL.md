@@ -29,11 +29,12 @@ document operations. `.env` is loaded automatically — never manually set
 
 ### list-documents
 
-List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read.
+List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read. For the most recently edited documents, pass `--sort newest` and read the first page; request the next page only when you need more.
 
 ```bash
 pnpm action list-documents
 pnpm action list-documents --format json
+pnpm action list-documents --sort newest --limit 5
 ```
 
 ### search-documents
@@ -49,6 +50,15 @@ pnpm action search-documents --query "project plan" --format json
 
 Get a single document by ID with full content and description. MCP callers read
 the complete values from `structuredContent`; the text preview may be shortened.
+
+Agent tool calls (in the app, in automation runs, over MCP, A2A or WebMCP) get
+each property's `id`, `databaseId`, `name`, `type`, `description`, `options`
+(option `id`, `name` and `description`), `value` and `editable`, but not the
+editor's display settings, timestamps or option colors. The page body's own
+Blocks field says `valueIsContent: true` instead of repeating `content`. Other
+Blocks fields keep their `value`, and their `blocksField` is just
+`{ fieldId, revision }`; read their blocks with `list-content-database-blocks`.
+Pass `detail: "full"` for the editor's whole read; the CLI always gets it.
 
 ```bash
 pnpm action get-document --id abc123
@@ -117,12 +127,27 @@ pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey gui
 
 Run the dry run first and tell the user each page's `status` and `notes`
 before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
-image named in `uploads` has a `url`; leave an image nobody can supply out of
-`files`, and its references become visible placeholders on the page. Images
-embedded as `data:` URLs are stored privately, readable by whoever can read the
-page; one whose bytes aren't the image type it names fails the apply with
-`IMPORT_IMAGE_INVALID` before any page is created. Other
-formats come back in `skipped` as not supported yet. Pass an
+image, PDF, or CSV named in `uploads` has a `url`; leave a file nobody can
+supply out of `files`, and its references become visible placeholders on the
+page. Images embedded as `data:` URLs are stored privately, readable by
+whoever can read the page; one whose bytes aren't the image type it names
+fails the apply with `IMPORT_IMAGE_INVALID` before any page is created. Other
+formats come back in `skipped` as not supported yet.
+
+A Notion export's files keep their paths from the zip (`Page <id>.md`,
+`Page/Subpage <id>.md`). The import strips Notion's ids from titles, nests
+each subpage under its page (`parentSourceName` in the dry run), keeps
+callouts and toggles, and points links between pages at the new pages.
+Notion's signed file links are fetched and stored on apply, images privately
+like embedded ones; one that can't be fetched stays a link that lapses, noted
+as `expiring-link-not-rehosted`. Databases are not imported yet: they come
+back in `databases` with their row count, and their CSV is kept only when a
+page links to it. A dry-run page with `alreadyImportedAt` was imported from
+the same text before and is still out of Trash; applying again makes new
+pages, so ask first. The Import dialog reads the `.zip` itself; an agent
+passes the files inside it.
+
+Pass an
 `idempotencyKey` on every apply, and reuse it only to retry the same files,
 with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means
 some pages landed before a failure: its `details` name the `importId` and
@@ -156,8 +181,12 @@ pnpm action edit-document --id abc123 --find "delete me" --replace ""
 pnpm action edit-document --id abc123 --edits '[{"find":"old","replace":"new"},{"find":"also old","replace":"also new"}]'
 ```
 
-External MCP, WebMCP, tool, and A2A callers first read the document, then pass
-its `baseRevision` and one stable `idempotencyKey`. When the returned body is
+External MCP, WebMCP, tool, and A2A callers pass a `baseRevision` and one stable
+`idempotencyKey`. The base comes from `get-document` for a page you haven't read,
+from `create-document` for a page you just made, or from the previous edit's
+`receipt.revisions.after`. A receipt with outcome `applied` and
+`readback.verified` already confirms the saved body, so don't read the page again
+to check it; read it again after any other outcome or an error. When the returned body is
 literally empty, pass non-whitespace `initializeContent` instead of `find` or `edits`.
 Initialization rejects whitespace-only and all other nonempty bodies, preserves
 the Markdown bytes exactly, and safely replays an identical retry.
@@ -206,12 +235,18 @@ edit commits. Restore it before editing. A local-folder sync
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
-callers use the revisioned `edit-document` protocol for every body change.
+callers use the revisioned `edit-document` protocol for every body change. A
+script, CLI call or automation that replaces the body passes the `baseRevision`
+`get-document` returned (that read's `updatedAt` as `baseUpdatedAt` also
+works): with neither, the write refuses with `BASE_REVISION_REQUIRED` (400),
+and if the page changed since that read it fails with
+`DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
+`details.currentRevision`, and writes nothing.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"
-pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
-pnpm action update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --content "# Updated Content\n\nNew text here"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
@@ -456,6 +491,18 @@ $$
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
 
+### Code blocks
+
+A code block is a fenced block whose info string is its language, such as
+` ```ts `; leave the language off to have the editor guess its colors.
+
+- A block whose long lines wrap says so after its language:
+  ` ```ts {wrap="true"} `, or ` ``` {wrap="true"} ` without one. Keep the
+  attribute when rewriting the block, and add it only when the user asks for
+  wrapped lines.
+- Markdown exports keep the attribute, which other Markdown tools ignore.
+  Notion has nowhere to keep it, so a Notion-linked page keeps it locally.
+
 ### Diagrams
 
 A Mermaid diagram is a fenced code block whose language is `mermaid`. Its
@@ -471,6 +518,49 @@ source is the diagram, so it stays the editable copy.
   when the user clicks it, so a diagram the user asks to see only needs valid
   source. If the source has a syntax error, the block shows it beside the
   source; fix it there. Public pages show the source as code.
+
+### Analytics charts
+
+An `<AnalyticsChart … />` block is a copy of one Analytics dashboard panel (a
+line, area, bar, combo, pie or funnel chart, a metric, or a table) with the
+rows Analytics returned for the editor who added or last refreshed it, drawn
+with the dashboard's own chart. Readers see only those numbers; Content never queries a data source, and the
+block links back to the panel. When people paste a panel's copied link
+(Copy link on the panel in Analytics) into a page they can edit, Content does
+the same steps below for them.
+
+To add one, call `capture-analytics-chart` with `documentId` and the panel's
+`link` (or `dashboardId`, `panelId` and `filters`). It checks you can edit
+the page, has Analytics run the panel as you, and returns
+`analyticsChartTag`. Put that tag in the page with `edit-document` as its own
+block, exactly as returned; never write or change an `AnalyticsChart` tag's
+data by hand. To refresh a chart, call it again with `purpose: "refresh"` and
+the chart's `id` from `get-document` as `blockId`, then replace the old tag
+with the new one.
+
+Who can open the page and who can open the dashboard can differ:
+
+- `needs_confirmation` means more people can open the page than the
+  dashboard. Tell the person, and call again with
+  `acknowledgeWiderAudience: true` only if they agree.
+- `analytics_chart_wider_than_dashboard` means the copy can't go in this page:
+  the page is public and the dashboard isn't, or the panel is a table (tables
+  list named customers and accounts) and the page reaches more people than the
+  dashboard. Don't work around it; narrow the page's sharing or ask the person
+  to share the dashboard more widely in Analytics.
+- Sharing a page more widely asks first when it holds charts from narrower
+  dashboards. Sharing it, moving it into a space, or duplicating it is
+  refused (`analytics_table_wider_than_dashboard`) when a table would reach
+  more people than its dashboard. A share with someone outside the
+  organization counts as reaching everyone.
+- `analytics_chart_unreadable` means the page holds an `AnalyticsChart` tag
+  that no longer reads as a chart, so it can't be shared more widely. Ask the
+  person to remove it or add the chart again from Analytics.
+- `analytics_chart_too_large` means the copy is too long to hand you as a tag.
+  Ask the person to paste the panel's link into the page instead.
+
+Analytics refusals (`analytics_refused`, such as a dashboard the person can't
+open) come back with Analytics' own reason; pass it on.
 
 ## Parent-Child Hierarchy
 
@@ -528,6 +618,8 @@ failures stop the run.
 | "Delete this page"           | `view-screen` for ID and `updatedAt`, then `delete-document` with both and an idempotency key |
 | "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                                         |
 | "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
+| "Import my Notion export"    | Pass the zip's files with their paths; dry run, report losses and `databases`, then apply     |
+| "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
 | "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.

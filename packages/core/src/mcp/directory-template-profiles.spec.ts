@@ -189,13 +189,12 @@ function mentionsTool(text: string, name: string): boolean {
 describe("ChatGPT directory template profiles", () => {
   it.each(
     [{ appId: "slides", profile: slidesProfile }].flatMap((template) =>
-      [
-        { mode: "generic", catalogMode: undefined },
-        { mode: "directory", catalogMode: "directory" as const },
-      ].map((mode) => ({
-        ...template,
-        ...mode,
-      })),
+      [{ mode: "directory", catalogMode: "directory" as const }].map(
+        (mode) => ({
+          ...template,
+          ...mode,
+        }),
+      ),
     ),
   )(
     "$appId create/add return full-app links without UI resources or tickets in $mode mode",

@@ -437,6 +437,8 @@ Puntos finales REST montados automáticamente:
 | `DELETE` | `/_agent-native/resources/:id`                | Eliminar un recurso                                    |
 | `POST`   | `/_agent-native/resources/upload`             | Subir un archivo como recurso                          |
 
+Un recurso leído con `GET /_agent-native/resources/:id` incluye una `revision`. Devuélvala como `expectedRevision` junto con el nuevo `content` en `PUT`; si alguien guardó otro contenido después de su lectura, no se escribe nada: la respuesta es un 409 con `errorCode: "save_conflict"`, el contenido actual en `details.current.content` y su revisión en `details.currentRevision`. Un `PUT` sin `expectedRevision` sigue sobrescribiendo lo que haya. Un guardado comprobado no puede renombrar el recurso a la vez: envíe primero el nuevo `path` en su propio `PUT`. `<ResourceEditor saveContent>` lo hace por usted: si otra persona guardó otro contenido durante una edición, pregunta qué versión conservar y después ofrece recuperar la otra.
+
 ### Acción API {#script-api}
 
 El agente utiliza estos actions integrados. También puedes llamarlos desde tu propio actions:
@@ -457,9 +459,14 @@ pnpm action resource-effective --path "context/brand.md"
 # Escribe un recurso
 pnpm action resource-write --path "notes/meeting.md" --content "# Notas de la reunión..."
 
+# Reemplazar un recurso solo si nadie lo guardó desde su lectura
+pnpm action resource-write --path "notes/meeting.md" --content "# Notas de la reunión..." --expected-revision "rev_…"
+
 # Eliminar un recurso
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+Las lecturas de recursos del agente empiezan con una línea `[revision …, scope …]`, y sus dos herramientas de escritura aceptan esa revisión como `expectedRevision` (`--expected-revision` en la línea de comandos). Si alguien guardó el archivo después de la lectura, no se escribe nada: la escritura falla con `errorCode: "save_conflict"` y la revisión actual, así que el agente vuelve a leer el archivo y rehace su edición. Una escritura sin revisión sigue reemplazando lo que haya.
 
 ## Qué sigue {#whats-next}
 

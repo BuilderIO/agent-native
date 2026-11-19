@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import {
+  moveToggleSummaryToTitle,
   STRAY_TITLE_REPAIR_DELAY_MS,
   STRAY_TITLE_REPAIR_SPREAD_MS,
 } from "./extensions/NotionExtensions";
@@ -151,6 +152,41 @@ describe("tabs that merge into a Toggle with a title out of place", () => {
     expect(lines[0]).toBe("notionToggleSummary: Plan");
     expect(lines).toContain("paragraph: Plan B");
     expect(lines).toContain("paragraph: Body");
+  });
+
+  it("keeps what a tab on older code typed in the old title as it moved", async () => {
+    const [a, b] = twoTabs(OLD_TOGGLE);
+    moveToggleSummaryToTitle(a.editor, 0);
+    b.editor.view.dispatch(
+      b.editor.state.tr.setNodeAttribute(0, "summary", "Plan with more"),
+    );
+    await settle(a, b);
+
+    const expected = [
+      "notionToggleSummary: Plan",
+      "paragraph: Plan with more",
+      "paragraph: Body",
+      "paragraph: After",
+    ];
+    expect(outline(a.editor)).toEqual(expected);
+    expect(outline(b.editor)).toEqual(expected);
+    expect(a.editor.state.doc.firstChild?.attrs.summary).toBe("");
+  });
+
+  it("clears an old title that only repeats the title", async () => {
+    const [a, b] = twoTabs(OLD_TOGGLE);
+    moveToggleSummaryToTitle(a.editor, 0);
+    b.editor.view.dispatch(
+      b.editor.state.tr.setNodeAttribute(0, "summary", "Plan"),
+    );
+    await settle(a, b);
+
+    expect(outline(a.editor)).toEqual([
+      "notionToggleSummary: Plan",
+      "paragraph: Body",
+      "paragraph: After",
+    ]);
+    expect(a.editor.state.doc.firstChild?.attrs.summary).toBe("");
   });
 
   it("moves a title up when another tab added a line above it", async () => {

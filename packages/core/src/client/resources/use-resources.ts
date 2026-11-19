@@ -37,6 +37,12 @@ export interface Resource {
   runId: string | null;
   expiresAt: number | null;
   metadata: string | null;
+  /**
+   * The content's revision, from a read or save of this resource. Send it back
+   * as `expectedRevision` so the save can't write over newer content. Binary
+   * resources have none.
+   */
+  revision?: string;
 }
 
 export interface ResourceMeta {
@@ -326,6 +332,7 @@ export function useCreateResource() {
       mimeType?: string;
       shared?: boolean;
       uniqueSkillPath?: boolean;
+      ifNotExists?: boolean;
     }) => {
       const res = await fetch(agentNativePath("/_agent-native/resources"), {
         method: "POST",
@@ -381,6 +388,12 @@ export function useUpdateResource() {
       content?: string;
       path?: string;
       mimeType?: string;
+      /**
+       * The `revision` the new content was edited from. If someone saved other
+       * content since, the update throws a save conflict (`isSaveConflict`)
+       * with what's there now, and nothing is written.
+       */
+      expectedRevision?: string | undefined;
     }) => {
       const res = await fetch(
         agentNativePath(`/_agent-native/resources/${id}`),

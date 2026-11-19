@@ -434,6 +434,8 @@ REST एंडपॉइंट स्वचालित रूप से मा�
 | `DELETE` | `/_agent-native/resources/:id`                | संसाधन हटाएं                                        |
 | `POST`   | `/_agent-native/resources/upload`             | फ़ाइल को संसाधन के रूप में अपलोड करें               |
 
+`GET /_agent-native/resources/:id` से पढ़े गए संसाधन के साथ एक `revision` आता है। `PUT` पर नए `content` के साथ इसे `expectedRevision` के रूप में वापस भेजें; अगर आपके पढ़ने के बाद किसी ने दूसरी सामग्री सहेजी है, तो कुछ भी नहीं लिखा जाता: जवाब `errorCode: "save_conflict"` के साथ 409 होता है, अभी मौजूद सामग्री `details.current.content` में और उसका revision `details.currentRevision` में होता है। `expectedRevision` के बिना `PUT` अब भी जो कुछ सहेजा है उसे ओवरराइट करता है। जाँचा गया सेव उसी समय संसाधन का नाम नहीं बदल सकता: पहले नया `path` अलग `PUT` में भेजें। `<ResourceEditor saveContent>` यह आपके लिए करता है: अगर संपादन के दौरान किसी और ने दूसरी सामग्री सहेजी, तो यह पूछता है कि कौन-सा संस्करण रखना है, और बाद में दूसरा संस्करण वापस लाने का विकल्प देता है।
+
 ### क्रिया API {#script-api}
 
 एजेंट इन अंतर्निहित actions का उपयोग करता है। आप उन्हें अपने actions:
@@ -454,9 +456,14 @@ pnpm action resource-effective --path "context/brand.md"
 # एक संसाधन लिखें
 pnpm action resource-write --path "notes/meeting.md" --content "# मीटिंग नोट्स..."
 
+# संसाधन को तभी बदलें जब आपके पढ़ने के बाद किसी ने उसे सहेजा न हो
+pnpm action resource-write --path "notes/meeting.md" --content "# मीटिंग नोट्स..." --expected-revision "rev_…"
+
 # एक संसाधन हटाएं
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+एजेंट के संसाधन पढ़ने की शुरुआत `[revision …, scope …]` पंक्ति से होती है, और उसके दोनों लिखने वाले टूल वह संशोधन `expectedRevision` के रूप में वापस लेते हैं (कमांड लाइन पर `--expected-revision`)। अगर पढ़ने के बाद किसी ने फ़ाइल सहेजी, तो कुछ भी नहीं लिखा जाता: लिखना `errorCode: "save_conflict"` और अभी के संशोधन के साथ विफल होता है, इसलिए एजेंट फ़ाइल को फिर से पढ़ता है और अपना बदलाव दोबारा करता है। बिना संशोधन के लिखना अब भी जो कुछ है उसे बदल देता है।
 
 ## आगे क्या है {#whats-next}
 

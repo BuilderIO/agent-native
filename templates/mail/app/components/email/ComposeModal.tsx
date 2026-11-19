@@ -213,6 +213,7 @@ interface ComposeModalProps {
   onDiscard: (id: string) => void;
   onStageForSend: (id: string) => void;
   onRestoreAfterSend: (id: string) => void;
+  onSettleForSend?: (staged: ComposeState) => Promise<ComposeState>;
   onNewDraft: () => void;
   onFlush: (id: string) => Promise<unknown> | undefined;
   onRegisterComposeCommands?: (commands: ComposePaletteCommands | null) => void;
@@ -238,6 +239,7 @@ export function ComposeModal({
   onDiscard,
   onStageForSend,
   onRestoreAfterSend,
+  onSettleForSend,
   onNewDraft,
   onFlush,
   onRegisterComposeCommands,
@@ -495,18 +497,25 @@ export function ComposeModal({
       const sendingToastId = toast(t("mail.compose.sending"), {
         duration: Infinity,
       });
-      void sendEmail
-        .mutateAsync({
-          to: expandAliasTokens(draftSnapshot.to, aliases),
-          cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
-          bcc: expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
-          subject: draftSnapshot.subject,
-          body: draftSnapshot.body,
-          replyToId: draftSnapshot.replyToId,
-          replyToThreadId: draftSnapshot.replyToThreadId,
-          accountEmail: draftSnapshot.accountEmail,
-          attachments: draftSnapshot.attachments,
+      void (onSettleForSend?.(draftSnapshot) ?? Promise.resolve(draftSnapshot))
+        .catch((error: unknown) => {
+          undoOptimistic?.();
+          throw error;
         })
+        .then((sendable) =>
+          sendEmail.mutateAsync({
+            to: expandAliasTokens(draftSnapshot.to, aliases),
+            cc: expandAliasTokens(draftSnapshot.cc ?? "", aliases) || undefined,
+            bcc:
+              expandAliasTokens(draftSnapshot.bcc ?? "", aliases) || undefined,
+            subject: draftSnapshot.subject,
+            body: draftSnapshot.body,
+            replyToId: draftSnapshot.replyToId,
+            replyToThreadId: draftSnapshot.replyToThreadId,
+            accountEmail: draftSnapshot.accountEmail,
+            attachments: sendable.attachments,
+          }),
+        )
         .then((result) => {
           toast(t("mail.toasts.messageSent"), {
             id: sendingToastId,

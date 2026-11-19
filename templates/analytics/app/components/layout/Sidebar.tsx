@@ -1,4 +1,6 @@
 import { appPath } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
+import { themeStorageKeyForApp } from "@agent-native/core/client/theme";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
@@ -1534,7 +1536,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const { data: popularity, isReady: popularityReady } = usePopularity();
 
   useEffect(() => {
-    if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
+    if (
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(
+        themeStorageKeyForApp(injectedAgentNativeAppId()),
+      )
+    ) {
       return;
     }
     callAction("get-theme", {}, { method: "GET" })

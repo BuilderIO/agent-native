@@ -17,7 +17,14 @@ import type {
   UseMutationResult,
   UseQueryOptions,
 } from "@tanstack/react-query";
-import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -55,8 +62,10 @@ import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cac
 import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
 import {
   claimActionQueryForeground,
+  finishActionQueryOpening,
   invalidateForegroundActionQueries,
   observeActionQuerySurface,
+  refetchActionQueryInForeground,
 } from "./action-query-foreground.js";
 import {
   ACTION_RESOURCES_META_KEY,
@@ -85,6 +94,11 @@ import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
+import {
+  ProviderWriteFailedError,
+  ProviderWritePendingError,
+  subscribeProviderWriteCompletion,
+} from "./provider-writes.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import {
@@ -1761,6 +1775,14 @@ export function useActionQuery<
      */
     interactive?: boolean;
     /**
+     * With `interactive`, the returned `refetch()` is a foreground read when the
+     * surface is visible. Opt in only when every caller of `refetch()` is the
+     * person's own request (Try again, a readback after their write): a
+     * foreground-only provider pause refuses background refetches, so such a
+     * retry could otherwise never recover. Timers must not call it.
+     */
+    foregroundRefetch?: boolean;
+    /**
      * Disable the transport's capability-recovery resend. All observers of a
      * shared query must use the same setting. Query retries are separate.
      */
@@ -1793,6 +1815,7 @@ export function useActionQuery<
   const {
     refetchInterval,
     interactive = false,
+    foregroundRefetch = false,
     retry: callerRetry,
     enabled: callerEnabled,
     queryKeyScope,
@@ -1848,7 +1871,7 @@ export function useActionQuery<
         surfaceOptions.current.restOptions.refetchOnWindowFocus !== undefined,
     );
   }, [interactive, queryClient, queryHash]);
-  return useQuery<R>({
+  const result = useQuery<R>({
     queryKey,
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
@@ -1956,6 +1979,30 @@ export function useActionQuery<
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
     refetchOnWindowFocus: false,
+  });
+  // QueryObserver must apply enabled changes before closing a cached opening. The result is not
+  // read here: React Query tracks the fields a render reads, and reading extra ones narrows what
+  // re-renders a caller that reads `data` outside render.
+  useEffect(() => {
+    if (interactive)
+      finishActionQueryOpening(queryClient.getQueryCache().get<R>(queryHash));
+  });
+  // Held in a ref so the wrapper keeps one identity across renders and never reads a result field.
+  const latestResult = useRef(result);
+  latestResult.current = result;
+  const foregroundRefetchFn = useCallback(
+    (refetchOptions?: Parameters<typeof result.refetch>[0]) =>
+      refetchActionQueryInForeground(
+        queryClient.getQueryCache().get<R>(queryHash),
+        () => latestResult.current.refetch(refetchOptions),
+      ),
+    [queryClient, queryHash],
+  );
+  if (!interactive || !foregroundRefetch) return result;
+  // Proxy, not spread: React Query tracks which result fields a component reads.
+  return new Proxy(result, {
+    get: (target, key) =>
+      key === "refetch" ? foregroundRefetchFn : Reflect.get(target, key),
   });
 }
 
@@ -2103,6 +2150,7 @@ export function useActionMutation<
 ): PrivateActionMutationResult<
   TVariables extends undefined ? ActionParams<TName> : TVariables
 >;
+/** Resolve queued results through resolveResult before success callbacks and cache invalidation. */
 export function useActionMutation<
   TData = undefined,
   TVariables = undefined,
@@ -2356,6 +2404,12 @@ function useNormalActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    resolveResult?: (
+      data: TData extends undefined ? ActionResult<TName> : TData,
+      variables: TVariables extends undefined
+        ? ActionParams<TName>
+        : TVariables,
+    ) => Promise<TData extends undefined ? ActionResult<TName> : TData>;
     /** Commit a local canonical projection before invalidation starts new reads. */
     beforeInvalidate?: (
       data: TData extends undefined ? ActionResult<TName> : TData,
@@ -2406,6 +2460,7 @@ function useNormalActionMutation<
     onSuccess,
     skipActionQueryInvalidation = false,
     beforeInvalidate,
+    resolveResult,
     resources,
     timeoutMs,
     uiOnly,
@@ -2417,6 +2472,48 @@ function useNormalActionMutation<
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
+  const observesProviderWrites = resolveResult !== undefined;
+
+  const pendingProviderWrites = useMemo(
+    () => ({
+      active: false,
+      writes: new Map<
+        string,
+        {
+          scope: object;
+          resources: readonly string[] | undefined;
+          interactive: boolean;
+        }
+      >(),
+    }),
+    [queryClient],
+  );
+  useEffect(() => {
+    if (!observesProviderWrites) return;
+    pendingProviderWrites.active = true;
+    const unsubscribe = subscribeProviderWriteCompletion((id) => {
+      const pending = pendingProviderWrites.writes.get(id);
+      pendingProviderWrites.writes.delete(id);
+      if (!pending || pending.scope !== currentSessionScope()) return;
+      if (!advanceMutationEpoch()) revokeActionQueryCacheForClient(queryClient);
+      void invalidateForegroundActionQueries(
+        queryClient,
+        actionQueryInvalidation(pending.resources),
+        pending.interactive,
+      ).catch(() => {
+        console.warn("Provider write completion refresh failed");
+      });
+    });
+    const unsubscribeScope = subscribeSessionScope(() => {
+      pendingProviderWrites.writes.clear();
+    });
+    return () => {
+      pendingProviderWrites.active = false;
+      pendingProviderWrites.writes.clear();
+      unsubscribe();
+      unsubscribeScope();
+    };
+  }, [observesProviderWrites, pendingProviderWrites, queryClient]);
 
   type D = TData extends undefined ? ActionResult<TName> : TData;
   type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
@@ -2461,8 +2558,9 @@ function useNormalActionMutation<
         );
       }
       const changedResources = invocationResources.get(context);
+      const invocationScope = currentSessionScope();
       let markerFailed = false;
-      const data = await actionFetch<D>(
+      const initialData = await actionFetch<D>(
         actionName,
         method,
         params as Record<string, any>,
@@ -2485,6 +2583,44 @@ function useNormalActionMutation<
           },
         },
       );
+      let data = initialData;
+      if (resolveResult) {
+        try {
+          data = await resolveResult(initialData, params);
+        } catch (error) {
+          if (
+            error instanceof ProviderWritePendingError &&
+            pendingProviderWrites.active &&
+            invocationScope === currentSessionScope()
+          ) {
+            const previous = pendingProviderWrites.writes.get(
+              error.progress.id,
+            );
+            const combinedResources = previous
+              ? previous.resources && changedResources?.length
+                ? [...new Set([...previous.resources, ...changedResources])]
+                : undefined
+              : changedResources?.length
+                ? [...changedResources]
+                : undefined;
+            pendingProviderWrites.writes.set(error.progress.id, {
+              scope: invocationScope,
+              resources: combinedResources,
+              interactive: interactive || previous?.interactive === true,
+            });
+          }
+          if (!(error instanceof ProviderWriteFailedError)) {
+            if (!advanceMutationEpoch())
+              revokeActionQueryCacheForClient(queryClient);
+            await invalidateForegroundActionQueries(
+              queryClient,
+              actionQueryInvalidation(changedResources),
+              interactive,
+            );
+          }
+          throw error;
+        }
+      }
       // A normal success already refreshes these queries in onSuccess. A skip
       // caller manages its own cache, so the failed marker is the only signal
       // that polling did not see this write.

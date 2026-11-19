@@ -8,6 +8,7 @@ export default defineAction({
   schema: z.object({
     view: z
       .enum([
+        "intelligence",
         "home",
         "ask",
         "search",
@@ -22,6 +23,12 @@ export default defineAction({
         "settings",
       ])
       .default("home"),
+    intelligenceTab: z
+      .enum(["actions", "brief", "entities", "recipes", "memory"])
+      .optional(),
+    intelligenceId: z.string().optional(),
+    owner: z.string().optional(),
+    period: z.enum(["daily", "weekly"]).optional(),
     sourceId: z.string().optional(),
     captureId: z.string().optional(),
     knowledgeId: z.string().optional(),

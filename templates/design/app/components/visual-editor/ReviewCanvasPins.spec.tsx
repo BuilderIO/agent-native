@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   agentStop: vi.fn(),
   agentRetry: vi.fn(),
   agentOpen: vi.fn(),
+  hostChatEmbed: false,
   agentMarkSurfaceUsed: vi.fn(),
   useRealComposer: false,
   useRealThreads: false,
@@ -323,6 +324,16 @@ function MockReviewCommentComposer(props: {
               />
               <button
                 type="button"
+                data-review-test-default-agent-mention
+                onClick={() => {
+                  props.onChange("@agent make it bigger");
+                  props.onMentionsChange?.([
+                    { label: "agent", email: null, id: "agent:default" },
+                  ]);
+                }}
+              />
+              <button
+                type="button"
                 data-review-test-mention
                 onClick={() => {
                   props.onChange("@Alice");
@@ -443,6 +454,7 @@ vi.mock("@agent-native/core/client/use-avatar", () => ({
 
 vi.mock("@/lib/agent-chat", () => ({
   sendToDesignAgentChatAndConfirm: mocks.sendToAgent,
+  isDesignHostChatEmbed: () => mocks.hostChatEmbed,
 }));
 
 import { createReviewActiveThreadReporter } from "./review-active-thread-reporter";
@@ -6887,6 +6899,31 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           );
         });
 
+        it("dispatches a saved default agent mention from a root comment", async () => {
+          mocks.hostChatEmbed = true;
+          const dispatchComment = vi.fn();
+          await renderPins(
+            { active: true, onDispatchCommentToAgent: dispatchComment },
+            makeAgentController(),
+          );
+          await openDraftComposer();
+          await click("[data-review-test-default-agent-mention]");
+          await click("[data-review-test-submit]");
+          await succeed(
+            mocks.createMutate,
+            savedComment({
+              body: "@agent make it bigger",
+              resolutionTarget: "agent",
+              mentions: [{ id: "agent:default", label: "agent" }],
+            }),
+          );
+          expect(dispatchComment).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ id: "comment-new" }),
+          );
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+          mocks.hostChatEmbed = false;
+        });
+
         it("starts no run for a comment that mentions only people", async () => {
           await renderPins({ active: true }, makeAgentController());
           await openDraftComposer();
@@ -6922,6 +6959,37 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             triggerCommentId: "reply-new",
             selection: SONNET,
           });
+        });
+
+        it("dispatches a saved default agent mention from a reply", async () => {
+          mocks.hostChatEmbed = true;
+          const dispatchComment = vi.fn();
+          await renderPins(
+            { onDispatchCommentToAgent: dispatchComment },
+            makeAgentController(),
+          );
+          await openFirstThread();
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-default-agent-mention]',
+          );
+          await click(
+            '[data-review-test-composer="reply"] [data-review-test-submit]',
+          );
+          await succeed(
+            mocks.replyMutate,
+            savedComment({
+              id: "reply-new",
+              parentCommentId: "comment-1",
+              threadId: "thread-1",
+              body: "@agent make it bigger",
+              mentions: [{ id: "agent:default", label: "agent" }],
+            }),
+          );
+          expect(dispatchComment).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ id: "reply-new" }),
+          );
+          expect(mocks.agentStart).not.toHaveBeenCalled();
+          mocks.hostChatEmbed = false;
         });
 
         it("starts no run for a reply without an agent chip", async () => {

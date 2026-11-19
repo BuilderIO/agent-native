@@ -7,7 +7,7 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 ## Catalog summary
 
 - Chapters: 6
-- Features: 32
+- Features: 33
 - Named increments: 1
 - Capabilities: 126
 
