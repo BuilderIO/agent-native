@@ -3415,7 +3415,10 @@ export async function preparedCallNeedsApproval(
   ctx: ActionRunContext,
 ): Promise<boolean> {
   const gate = entry.needsApproval;
-  if (typeof gate !== "function") return gate === true;
+  if (typeof gate !== "function" && gate !== true) return false;
+  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
+  if (await isNoApprovalsMode(ctx.userEmail)) return false;
+  if (typeof gate !== "function") return true;
   try {
     return Boolean(await gate(preparedCallArguments(call), ctx));
   } catch {
