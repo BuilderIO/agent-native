@@ -144,7 +144,7 @@ function classifyFloodClass(
 ): ErrorFloodClass | undefined {
   if (
     context.tags?.failureClass === "transient-database" ||
-    causeChain(error).some(isTransientDatabaseError)
+    causeChain(error).some((cause) => isTransientDatabaseError(cause))
   ) {
     return "transient-database";
   }
