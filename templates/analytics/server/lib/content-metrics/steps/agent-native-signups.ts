@@ -76,7 +76,10 @@ export function buildAgentNativeSignupsQuery(
     AND NOT ${testIdentitySql("user_id")}
   QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1
 ), fresh AS (
-  SELECT FORMAT_DATE('%F', MAX(event_date)) AS data_through FROM signups
+  SELECT FORMAT_DATE('%F', MAX(event_date)) AS data_through
+  FROM \`${source.eventsTable}\`
+  WHERE org_id = '${source.orgId}'
+    AND event_date BETWEEN DATE '${window.startDate}' AND DATE '${window.endDate}'
 ), counts AS (
   SELECT utm_content AS tag, FORMAT_DATE('%F', event_date) AS day, COUNT(DISTINCT person) AS signups
   FROM signups

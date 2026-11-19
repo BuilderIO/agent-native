@@ -1728,6 +1728,16 @@ describe("content collection", () => {
       expect(sql).toContain("COUNT(DISTINCT person) AS signups");
     });
 
+    it("dates the window by the organization's newest event of any kind, not its newest signup", () => {
+      const { sql } = buildAgentNativeSignupsQuery(
+        { eventsTable: "example-project.analytics.events_raw", orgId: "org_a" },
+        { startDate: "2026-07-17", endDate: "2026-10-14" },
+      );
+      expect(sql).toContain(
+        "SELECT FORMAT_DATE('%F', MAX(event_date)) AS data_through\n  FROM `example-project.analytics.events_raw`\n  WHERE org_id = 'org_a'\n    AND event_date BETWEEN DATE '2026-07-17' AND DATE '2026-10-14'\n), counts AS",
+      );
+    });
+
     it("needs a collection that belongs to an organization", () => {
       expect(() =>
         agentNativeSignupsSource(
@@ -1955,7 +1965,7 @@ describe("content collection", () => {
       ).toEqual([["a3", "2026-10-13", 2]]);
     });
 
-    it("keeps its place through days without signups instead of starting the backfill again", async () => {
+    it("counts days with events but no signups as zeros, and keeps its place when no events landed", async () => {
       await onlySteps(
         { builderBlog: true, agentNativeSignups: true },
         [],
@@ -1967,12 +1977,14 @@ describe("content collection", () => {
         error: null,
         totalBytesProcessed: 900,
       });
-      const noSignups = {
-        rows: [{ data_through: null, tag: null, day: null, signups: null }],
+      const quiet = (dataThrough: string | null) => ({
+        rows: [
+          { data_through: dataThrough, tag: null, day: null, signups: null },
+        ],
         totalRows: 1,
         schema: [],
         bytesProcessed: 50,
-      };
+      });
       mocks.runQuery
         .mockResolvedValueOnce({
           rows: [
@@ -1987,8 +1999,8 @@ describe("content collection", () => {
           schema: [],
           bytesProcessed: 400,
         })
-        .mockResolvedValueOnce(noSignups)
-        .mockResolvedValueOnce(noSignups);
+        .mockResolvedValueOnce(quiet("2026-10-17"))
+        .mockResolvedValueOnce(quiet(null));
 
       for (const day of ["2026-10-15", "2026-10-18", "2026-10-19"]) {
         await collectContentForAllTenants({
@@ -2000,7 +2012,7 @@ describe("content collection", () => {
         "event_date BETWEEN DATE '2026-10-15' AND DATE '2026-10-17'",
       );
       expect(mocks.runQuery.mock.calls[2]?.[0]).toContain(
-        "event_date BETWEEN DATE '2026-10-15' AND DATE '2026-10-18'",
+        "event_date BETWEEN DATE '2026-10-16' AND DATE '2026-10-18'",
       );
       expect(
         await rows(
@@ -2008,8 +2020,18 @@ describe("content collection", () => {
         ),
       ).toEqual([
         { window_end: "2026-10-14" },
-        { window_end: "2026-10-14" },
-        { window_end: "2026-10-14" },
+        { window_end: "2026-10-17" },
+        { window_end: "2026-10-17" },
+      ]);
+      expect(
+        (await snapshots("agent_native_signups"))
+          .filter((row) => String(row.metric_date) >= "2026-10-14")
+          .map((row) => [row.metric_date, Number(row.value)]),
+      ).toEqual([
+        ["2026-10-14", 1],
+        ["2026-10-15", 0],
+        ["2026-10-16", 0],
+        ["2026-10-17", 0],
       ]);
     });
 
