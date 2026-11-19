@@ -2,6 +2,7 @@ import {
   BigQueryAgentBudgetUnavailableError,
   budgetRefusalFor,
   readBigQueryAgentBudget,
+  type BigQueryAgentReconciler,
   type OutsideAgentIdentity,
 } from "./bigquery-agent-budget.js";
 import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
@@ -11,6 +12,22 @@ import {
   ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
 } from "./onboarding-journey.js";
+
+async function requestReconciler(
+  signal: AbortSignal | undefined,
+): Promise<BigQueryAgentReconciler | null> {
+  try {
+    return await createRequestBigQueryAgentReconciler(signal);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    console.warn(
+      "[onboarding-journey] BigQuery access unavailable for budget reconciliation",
+      { errorType: error instanceof Error ? error.name : "non_error" },
+    );
+    // coercion-ok: without BigQuery access the journey's own read reports the credential failure.
+    return null;
+  }
+}
 
 export async function outsideAgentOnboardingEventBytes(
   identity: OutsideAgentIdentity,
@@ -31,9 +48,11 @@ export async function outsideAgentOnboardingEventBytes(
     ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
   let budget;
   try {
-    budget = await readBigQueryAgentBudget(identity, {
-      reconcile: await createRequestBigQueryAgentReconciler(signal),
-    });
+    const reconcile = await requestReconciler(signal);
+    budget = await readBigQueryAgentBudget(
+      identity,
+      reconcile ? { reconcile } : {},
+    );
   } catch (error) {
     if (error instanceof BigQueryAgentBudgetUnavailableError) {
       throw new OutsideAgentBigQueryRefusalError({

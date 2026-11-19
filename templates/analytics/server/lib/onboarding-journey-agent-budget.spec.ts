@@ -98,6 +98,32 @@ describe("an outside agent's onboarding journey allowance", () => {
     expect(mocks.createReconciler).toHaveBeenCalledWith(signal);
   });
 
+  it("sizes pages from the unreconciled budget when BigQuery access cannot be resolved", async () => {
+    vi.spyOn(console, "warn").mockImplementationOnce(() => {});
+    mocks.createReconciler.mockRejectedValueOnce(new Error("no credentials"));
+    mocks.read.mockResolvedValueOnce(snapshot());
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
+    ).resolves.toMatchObject({ applied: 125 * GB, refusal: null });
+    expect(mocks.read).toHaveBeenCalledWith(identity, {});
+  });
+
+  it("stops when the call is cancelled during the BigQuery access lookup", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const aborted = new DOMException("Aborted", "AbortError");
+    mocks.createReconciler.mockRejectedValueOnce(aborted);
+    await expect(
+      outsideAgentOnboardingEventBytes(
+        identity,
+        undefined,
+        session,
+        controller.signal,
+      ),
+    ).rejects.toBe(aborted);
+    expect(mocks.read).not.toHaveBeenCalled();
+  });
+
   it("settles reservations of queries that already finished before it counts pages", async () => {
     mocks.read.mockImplementationOnce(
       async (_identity: unknown, options?: { reconcile?: unknown }) =>
