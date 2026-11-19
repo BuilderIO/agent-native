@@ -15,11 +15,7 @@ import {
 import { TiptapComposer } from "../../composer/TiptapComposer.js";
 import { TooltipProvider } from "../../ui/tooltip.js";
 
-const mockTrust = vi.hoisted(() => ({
-  frame: true,
-  builder: false,
-  useRealFrame: false,
-}));
+const mockTrust = vi.hoisted(() => ({ frame: true, builder: false }));
 const mockPanelOwnership = vi.hoisted(() => ({ hosted: false }));
 
 const mockHostedHarness = vi.hoisted(() => ({
@@ -185,13 +181,9 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => {
   return {
     ...actual,
     getFramePostMessageTargetOrigin: () => null,
-    isTrustedFrameMessage: (event: MessageEvent) =>
-      mockTrust.useRealFrame
-        ? actual.isTrustedFrameMessage(event)
-        : mockTrust.frame,
+    isTrustedFrameMessage: () => mockTrust.frame,
     isTrustedBuilderMessage: () => mockTrust.builder,
-    shouldParentFrameOwnAgentPanel: () =>
-      mockTrust.useRealFrame && actual.shouldParentFrameOwnAgentPanel(),
+    shouldParentFrameOwnAgentPanel: () => false,
   };
 });
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
@@ -227,8 +219,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
     buildAppChatSidebarStateMessage: (open: boolean) => ({
       data: { open },
     }),
-    isPerAppChatStorageKey: (key: string | undefined) =>
-      mockTrust.useRealFrame && actual.isPerAppChatStorageKey(key),
+    isPerAppChatStorageKey: () => false,
     requestPerAppChatCommand: vi.fn(),
     useActionQuery: (
       action: string,
@@ -346,7 +337,6 @@ beforeEach(() => {
   mockPanel.onSettledChange = undefined;
   mockTrust.frame = true;
   mockTrust.builder = false;
-  mockTrust.useRealFrame = false;
   mockPanelOwnership.hosted = false;
   window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
@@ -3249,238 +3239,5 @@ describe("AgentSidebar width floor", () => {
     expect(panel()?.dataset.agentSidebarState).toBe("open");
     expect(localStorage.getItem("agent-native-sidebar-open")).not.toBe("false");
     expect(localStorage.getItem("agent-native-sidebar-width")).toBe("320");
-  });
-});
-
-describe("workspace app sidebar frame ownership", () => {
-  let parent: { postMessage: ReturnType<typeof vi.fn> };
-  let parentDescriptor: PropertyDescriptor | undefined;
-
-  beforeEach(() => {
-    parentDescriptor = Object.getOwnPropertyDescriptor(window, "parent");
-    mockTrust.useRealFrame = true;
-    parent = { postMessage: vi.fn() };
-  });
-
-  afterEach(async () => {
-    await unmountSidebar();
-    extraSidebarProps = {};
-    if (parentDescriptor) {
-      Object.defineProperty(window, "parent", parentDescriptor);
-    }
-  });
-
-  function setParent(value: object) {
-    Object.defineProperty(window, "parent", { configurable: true, value });
-  }
-
-  function sendMode(
-    mode: "app" | "code",
-    source: object = parent,
-    origin = window.location.origin,
-  ) {
-    window.dispatchEvent(
-      new MessageEvent("message", {
-        source: source as Window,
-        origin,
-        data: { type: "agentNative.sidebarMode", data: { mode, open: false } },
-      }),
-    );
-  }
-
-  function renderWorkspaceSidebar() {
-    extraSidebarProps = {
-      openStorageKey: "dispatch-app-chat",
-      storageKey: "dispatch-app-chat:mail",
-    };
-    renderSidebar(false);
-  }
-
-  function panelState() {
-    return container?.querySelector<HTMLElement>(".agent-sidebar-panel")
-      ?.dataset.agentSidebarState;
-  }
-
-  it("opens a late-mounted workspace rail locally after a trusted app-mode message", async () => {
-    setParent(parent);
-    renderSidebar(false);
-    await act(async () => sendMode("app"));
-    await unmountSidebar();
-    renderWorkspaceSidebar();
-    parent.postMessage.mockClear();
-
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-
-    expect(panelState()).toBe("open");
-    expect(parent.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-      expect.anything(),
-    );
-  });
-
-  it("delegates a late-mounted workspace rail after a trusted code-mode message", async () => {
-    setParent(parent);
-    renderSidebar(false);
-    await act(async () => sendMode("code"));
-    await unmountSidebar();
-    renderWorkspaceSidebar();
-    parent.postMessage.mockClear();
-
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-
-    expect(parent.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "agentNative.toggleSidebar",
-        data: { open: true },
-      }),
-      expect.anything(),
-    );
-    expect(panelState()).toBeUndefined();
-  });
-
-  it("opens a direct top-level sidebar from its real toggle button", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-    await act(async () => {
-      root?.render(
-        <MemoryRouter>
-          <AgentSidebar defaultOpen={false}>
-            <AgentToggleButton showWhenOpen />
-          </AgentSidebar>
-        </MemoryRouter>,
-      );
-    });
-    await act(async () => {
-      container
-        ?.querySelector<HTMLButtonElement>("[data-agent-toggle]")
-        ?.click();
-    });
-    expect(panelState()).toBe("open");
-  });
-
-  it("delegates when an embedded workspace rail has no earlier mode", async () => {
-    setParent(parent);
-    renderWorkspaceSidebar();
-    parent.postMessage.mockClear();
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-    expect(parent.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-      expect.anything(),
-    );
-    expect(panelState()).toBeUndefined();
-  });
-
-  it("uses the most recent trusted mode when the rail mounts", async () => {
-    setParent(parent);
-    renderSidebar(false);
-    await act(async () => {
-      sendMode("app");
-      sendMode("code");
-    });
-    await unmountSidebar();
-    renderWorkspaceSidebar();
-    parent.postMessage.mockClear();
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-    expect(parent.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-      expect.anything(),
-    );
-    expect(panelState()).toBeUndefined();
-  });
-
-  it("does not replace a trusted mode with an untrusted message", async () => {
-    setParent(parent);
-    renderSidebar(false);
-    await act(async () => {
-      sendMode("app");
-      sendMode("code", parent, "https://untrusted.example");
-    });
-    await unmountSidebar();
-    renderWorkspaceSidebar();
-    parent.postMessage.mockClear();
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-    expect(panelState()).toBe("open");
-    expect(parent.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-      expect.anything(),
-    );
-  });
-
-  it.each([undefined, "dispatch-app-chat"])(
-    "opens locally for a top-level sidebar with storage key %s",
-    async (openStorageKey) => {
-      extraSidebarProps = { openStorageKey };
-      renderSidebar(false);
-      await act(async () =>
-        window.dispatchEvent(new Event("agent-panel:open")),
-      );
-      expect(panelState()).toBe("open");
-    },
-  );
-
-  it.each(["wrong source", "wrong origin"])(
-    "does not replay a mode message with %s",
-    async (invalid) => {
-      setParent(parent);
-      renderSidebar(false);
-      await act(async () =>
-        sendMode(
-          "app",
-          invalid === "wrong source" ? { postMessage: vi.fn() } : parent,
-          invalid === "wrong origin"
-            ? "https://untrusted.example"
-            : window.location.origin,
-        ),
-      );
-      await unmountSidebar();
-      renderWorkspaceSidebar();
-      parent.postMessage.mockClear();
-      await act(async () =>
-        window.dispatchEvent(new Event("agent-panel:open")),
-      );
-      expect(parent.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-        expect.anything(),
-      );
-    },
-  );
-
-  it("does not replay a previous parent's mode to a different parent", async () => {
-    setParent(parent);
-    renderSidebar(false);
-    await act(async () => sendMode("app"));
-    await unmountSidebar();
-    const nextParent = { postMessage: vi.fn() };
-    setParent(nextParent);
-    renderWorkspaceSidebar();
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-    expect(nextParent.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-      expect.anything(),
-    );
-  });
-
-  it("continues to honor mode transitions after the workspace rail mounts", async () => {
-    setParent(parent);
-    renderSidebar(false);
-    await act(async () => sendMode("app"));
-    await unmountSidebar();
-    renderWorkspaceSidebar();
-    await act(async () => sendMode("code"));
-    parent.postMessage.mockClear();
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-    expect(parent.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-      expect.anything(),
-    );
-    await act(async () => sendMode("app"));
-    parent.postMessage.mockClear();
-    await act(async () => window.dispatchEvent(new Event("agent-panel:open")));
-    expect(panelState()).toBe("open");
-    expect(parent.postMessage).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: "agentNative.toggleSidebar" }),
-      expect.anything(),
-    );
   });
 });
