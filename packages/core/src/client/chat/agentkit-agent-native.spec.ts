@@ -9658,12 +9658,14 @@ describe("createAgentNativeAgentKitTransport", () => {
           },
         ],
       });
-      for await (const _event of transport.subscribeToRun({
+      const delivered: unknown[] = [];
+      for await (const event of transport.subscribeToRun({
         threadId,
         runId,
       })) {
-        // Draining finishes the run and trims its retained prefix.
+        delivered.push(event);
       }
+      expect(delivered.length).toBeGreaterThan(3);
       const outcome = await Promise.resolve(
         transport.getThreadSnapshot?.({ threadId }),
       ).then(
