@@ -1545,16 +1545,20 @@ export function createAgentKitProtocolAdapter(
     runId?: string;
     turnId?: string;
     includePendingConnectionRequest?: boolean;
+    signal?: AbortSignal;
   }): Promise<RunAuthorityRead> {
     if (!runAuthority) {
       throw new Error("The runtime does not provide run authority.");
     }
+    const { signal, ...request } = input;
     try {
       return {
         kind: "read",
         state: await runAuthority.readRunState({
-          ...input,
-          abortSignal: readers.signal,
+          ...request,
+          abortSignal: signal
+            ? AbortSignal.any([readers.signal, signal])
+            : readers.signal,
         }),
       };
     } catch (error) {
@@ -1655,6 +1659,7 @@ export function createAgentKitProtocolAdapter(
     runtimeRunId: string,
     sessionId?: string,
     authorityRead?: RunAuthorityRead,
+    signal?: AbortSignal,
   ): Promise<{ owner?: ProtocolRun; read?: RunAuthorityRead }> {
     if (!runAuthority) return {};
     const candidates = [...runs.values()].filter(
@@ -1672,6 +1677,7 @@ export function createAgentKitProtocolAdapter(
       (await readAuthoritativeRunState({
         sessionId: resolvedSessionId,
         runId: runtimeRunId,
+        signal,
       }));
     if (read.kind !== "read") return { read };
     const { state } = read;
@@ -1974,6 +1980,7 @@ export function createAgentKitProtocolAdapter(
     input: {
       threadId: string;
       runId: string;
+      signal?: AbortSignal;
     },
     restoreOptions: { includePendingConnectionRequest?: boolean } = {},
   ): Promise<ProtocolRun> {
@@ -1988,6 +1995,7 @@ export function createAgentKitProtocolAdapter(
         sessionId,
         runId,
         includePendingConnectionRequest: true,
+        signal: input.signal,
       });
       if (
         read.kind !== "read" ||
@@ -2007,6 +2015,9 @@ export function createAgentKitProtocolAdapter(
     const initialResolution = await resolveRuntimeRunOwner(
       input.threadId,
       input.runId,
+      undefined,
+      undefined,
+      input.signal,
     );
     if (initialResolution.owner) {
       if (restoreOptions.includePendingConnectionRequest && runAuthority) {
@@ -2030,6 +2041,7 @@ export function createAgentKitProtocolAdapter(
       input.runId,
       session.id,
       initialResolution.read,
+      input.signal,
     );
     if (resolution.owner) {
       if (restoreOptions.includePendingConnectionRequest && runAuthority) {
@@ -2057,6 +2069,7 @@ export function createAgentKitProtocolAdapter(
                 ? resolution.read.state.runId
                 : input.runId,
             includePendingConnectionRequest: true,
+            signal: input.signal,
           })
         : resolution.read;
     if (
@@ -2073,7 +2086,9 @@ export function createAgentKitProtocolAdapter(
       sessionId: session.id,
       runId: input.runId,
       after: 0,
-      abortSignal: readers.signal,
+      abortSignal: input.signal
+        ? AbortSignal.any([readers.signal, input.signal])
+        : readers.signal,
     };
     // With a run authority, a restored run starts as a closed stream so its
     // first read goes through the same server check as every reconnect.

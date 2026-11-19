@@ -1739,6 +1739,7 @@ function reconcileDurableMessages(
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
   const status = asRecord(value)?.type ?? value;
   if (status === "incomplete") return "error";
+  if (status === "running") return "streaming";
   return status === "streaming" || status === "complete" || status === "error"
     ? status
     : undefined;
@@ -3813,13 +3814,13 @@ export function createAgentNativeAgentKitTransport(
           asRecord(asRecord(message.metadata)?.custom)?.submittedRunId ===
             discoveredRun.id,
       ) &&
-      !durableMessages.some(
+      ![...durableMessages, ...thread.messages].some(
         (message) =>
           message.role === "assistant" &&
-          durableRunIds(message).includes(discoveredRun.id),
-      ) &&
-      (!discoveredRun.activeMessageId ||
-        !assistantMessageIds.has(discoveredRun.activeMessageId))
+          message.status !== "streaming" &&
+          (durableRunIds(message).includes(discoveredRun.id) ||
+            message.id === discoveredRun.activeMessageId),
+      )
     ) {
       replayEvents = await protocolTransport.replayTerminalRun({
         threadId,
@@ -3839,7 +3840,21 @@ export function createAgentNativeAgentKitTransport(
     }
     const failedRunIds = failedRunIdsWithError(authoritativeRuns);
     const messages = reconcileDurableMessages(
-      [...thread.messages, ...replayMessages],
+      // The replay rebuilds the run's reply from sequence zero; keep a partial
+      // snapshot of it out so its prefix is not shown beside the final text.
+      [
+        ...thread.messages.filter(
+          (message) =>
+            !replayEvents.length ||
+            message.role !== "assistant" ||
+            message.status !== "streaming" ||
+            !(
+              durableRunIds(message).includes(discoveredRun?.id ?? "") ||
+              message.id === discoveredRun?.activeMessageId
+            ),
+        ),
+        ...replayMessages,
+      ],
       durableMessages.filter(
         (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
       ),

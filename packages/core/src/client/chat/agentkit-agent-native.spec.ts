@@ -9218,6 +9218,152 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it.each([
+    { source: "durable", status: "completed" },
+    { source: "durable", status: "failed" },
+    { source: "snapshot", status: "completed" },
+    { source: "snapshot", status: "cancelled" },
+  ] as const)(
+    "completes a partial $source assistant once when the $status run is terminal",
+    async ({ source, status }) => {
+      const threadId = `thread-terminal-partial-${source}-${status}`;
+      const serverStatus =
+        status === "failed"
+          ? "errored"
+          : status === "cancelled"
+            ? "aborted"
+            : status;
+      const user = {
+        message: {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "Hello" }],
+          metadata: { custom: { submittedRunId: "run-terminal" } },
+        },
+      };
+      const fetcher = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages:
+                source === "durable"
+                  ? [
+                      user,
+                      {
+                        message: {
+                          id: "assistant-partial",
+                          role: "assistant",
+                          content: [{ type: "text", text: "Terminal" }],
+                          status: { type: "running" },
+                          metadata: { runId: "run-terminal" },
+                        },
+                      },
+                    ]
+                  : [user],
+              agentKit: {
+                messages:
+                  source === "snapshot"
+                    ? [
+                        {
+                          id: "assistant-partial",
+                          role: "assistant",
+                          status: "streaming",
+                          parts: [{ type: "text", text: "Terminal" }],
+                          metadata: { runId: "run-terminal" },
+                        },
+                      ]
+                    : [],
+                ...(source === "snapshot"
+                  ? {
+                      events: [
+                        {
+                          id: "run-terminal:1",
+                          threadId,
+                          runId: "run-terminal",
+                          sequence: 1,
+                          occurredAt: "2026-10-01T00:00:00.000Z",
+                          type: "message.created",
+                          message: {
+                            id: "assistant-partial",
+                            role: "assistant",
+                            parts: [{ type: "text", text: "Terminal" }],
+                          },
+                        },
+                      ],
+                    }
+                  : {}),
+              },
+            }),
+          });
+        }
+        if (url.includes(`/runs/active?threadId=${threadId}`)) {
+          return json({
+            active: false,
+            status: serverStatus,
+            runId: "run-terminal",
+            ...(status === "cancelled" ? { terminalReason: "user" } : {}),
+          });
+        }
+        if (url.includes("/runs/latest?")) {
+          return json({
+            runId: "run-terminal",
+            turnId: "turn-terminal",
+            status: serverStatus,
+            ...(status === "cancelled" ? { terminalReason: "user" } : {}),
+          });
+        }
+        if (url.endsWith("/runs/run-terminal/events?after=0")) {
+          const stream = [
+            { type: "text", text: "Terminal", seq: 1 },
+            { type: "text", text: " reply", seq: 2 },
+            ...(status === "failed"
+              ? [{ type: "error", error: "Run failed", seq: 3 }]
+              : []),
+            {
+              type: "done",
+              reason:
+                status === "cancelled"
+                  ? "user"
+                  : status === "failed"
+                    ? "error"
+                    : "complete",
+              seq: status === "failed" ? 4 : 3,
+            },
+          ]
+            .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+            .join("");
+          return new Response(stream, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      }) as typeof fetch;
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+        runtime: createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetcher,
+        }),
+      });
+      const client = new AgentKitClient({ transport });
+      await client.loadThread(threadId);
+      const assistants = client
+        .getThread(threadId)
+        .messages.filter((message) => message.role === "assistant");
+      expect(assistants.map((message) => message.parts)).toEqual([
+        [{ type: "text", text: "Terminal reply" }],
+      ]);
+      expect(client.getThread(threadId).runs["run-terminal"]?.status).toBe(
+        status,
+      );
+      await client.shutdown();
+      await transport.dispose();
+    },
+  );
+
   it("stops waiting for terminal replay when the run lookup hangs", async () => {
     let readStarted!: () => void;
     let releaseRead!: () => void;
@@ -9257,6 +9403,43 @@ describe("createAgentNativeAgentKitTransport", () => {
     controller.abort(new Error("Replay timed out"));
     await expect(replay).rejects.toThrow("Replay timed out");
     releaseRead();
+    await transport.dispose();
+  });
+
+  it("cancels the stalled authority lookup when a terminal replay is aborted", async () => {
+    let lookupSignal: AbortSignal | undefined;
+    let lookupStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      lookupStarted = resolve;
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).includes("/runs/latest?")) {
+          lookupSignal = init?.signal ?? undefined;
+          lookupStarted();
+          return new Promise<Response>(() => {});
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    ) as typeof fetch;
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher,
+      runtime: createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher,
+      }),
+    });
+    const controller = new AbortController();
+    const replay = transport.replayTerminalRun({
+      threadId: "thread-abort-lookup",
+      runId: "run-terminal",
+      signal: controller.signal,
+    });
+    await started;
+    controller.abort(new Error("Replay timed out"));
+    await expect(replay).rejects.toThrow("Replay timed out");
+    expect(lookupSignal?.aborted).toBe(true);
     await transport.dispose();
   });
 
