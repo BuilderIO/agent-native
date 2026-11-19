@@ -4263,14 +4263,14 @@ const PATTERNS = [
       "Had to ask for fixes grouped by root cause instead of one at a time",
     fixedBy:
       ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
-    re: /\b(root causes? (of|behind|for)|same (bug|cause|component)|group(ed)? (them|these|the fixes)|one (bug|fix) not (five|many|\d+)|batch(ed)? (by|the fixes))\b/i,
+    re: /\b(group(ed)? (them|these|the (fixes|bugs|reports)) (by|into)|batch(ed)? (by|the fixes)|one (bug|fix) not (five|many|\d+)|(fix(es|ing)?|handle) (them|these|each)? ?(one|each) (at a time|by one))\b/i,
   },
   {
     key: "pr-file-overlap",
     label: "Had to ask whether open PRs already touch the same files",
     fixedBy:
       ".agents/skills/review-latest-feedback and address-feedback (2026-11-19)",
-    re: /\b(another pr (already|is)|open pr(s)? (already|touch\w*|overlap\w*)|same files? (as|in) (another|an open)|duplicate(d)? (of|another) pr|check (open )?prs? first)\b/i,
+    re: /\b(open prs? (already )?(touch\w*|overlap\w*) (the )?same files?|same files? (as|in|that) (another|an|other|open)( open)? prs?|(overlapping|shared) files? (with|in|across) (another|an|other|open)( open)? prs?|prs? (that )?(touch|edit)\w* the same files?)\b/i,
   },
   {
     key: "missed-siblings",

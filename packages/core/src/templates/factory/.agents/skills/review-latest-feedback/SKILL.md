@@ -274,10 +274,11 @@ do not claim new roots.
   open, one quick planner pass (a subagent is fine) groups symptoms by root
   cause or component, cites the source file, and makes a few work packages: one
   PR each, every symptom an acceptance check. Skip it for top-priority items
-  and obvious single bugs; it is a grouping aid, never a gate.
-- Before starting a package, list open PRs touching the same files
-  (`gh pr list --state open --json number,title,files --limit 200`) and
-  coordinate by file; never pause a whole area. Pushing to another PR still
+  and obvious single bugs; a grouping aid, not a gate.
+- Before starting a package, glance at open PRs touching the same files
+  (`gh pr list --state open --json number,title,files --limit 1000`; at
+  exactly 1000, call the list partial). Advisory, never a gate: coordinate by
+  file and keep going. Pushing to another PR still
   needs the exact-PR authorization above.
 - Give each independent
   group a fresh subagent on your own model and effort, with disjoint files,

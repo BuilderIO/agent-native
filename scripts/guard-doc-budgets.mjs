@@ -6,8 +6,8 @@ const BUDGETS = {
   "CLAUDE.md": 3430,
   ".agents/skills/visual-recap/SKILL.md": 5140,
   ".agents/skills/visual-plan/SKILL.md": 4740,
-  // 4650: root-cause batching planner pass and PR-overlap check (PR 9460).
-  ".agents/skills/review-latest-feedback/SKILL.md": 4650,
+  // 4660: root-cause batching planner pass and PR-overlap check (PR 9460).
+  ".agents/skills/review-latest-feedback/SKILL.md": 4660,
   ".agents/skills/external-agents/SKILL.md": 4060,
   ".agents/skills/turn-into-app/SKILL.md": 2650,
   ".agents/skills/extensions/SKILL.md": 3680,
