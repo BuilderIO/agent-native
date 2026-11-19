@@ -365,17 +365,19 @@ describe('tools/list with mcpTool: "search" actions', () => {
       }),
     };
     const compact = await listed(
-      await clientFor(config({ actions: all, productionActions: all })),
+      await clientFor(
+        config({
+          actions: all,
+          productionActions: all,
+          connectorCatalog: undefined,
+        }),
+      ),
     );
     expect(compact.has("share-plan")).toBe(true);
     expect(compact.has("archive-plan")).toBe(false);
 
     const curatedClient = await clientFor(
-      config({
-        actions: all,
-        productionActions: all,
-        connectorCatalog: ["get-plan"],
-      }),
+      config({ actions: all, productionActions: all }),
     );
     expect((await listed(curatedClient)).has("share-plan")).toBe(false);
     const found = await searched(curatedClient, ["share-plan"]);
