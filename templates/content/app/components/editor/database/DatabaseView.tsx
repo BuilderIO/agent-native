@@ -215,6 +215,7 @@ import {
   forgetDocumentPropertyChanges,
   groupDocumentPropertyChanges,
   recordDocumentPropertyChange,
+  startDocumentPropertySave,
   withExpectedGeneration,
 } from "@/hooks/document-property-undo";
 import {
@@ -6463,6 +6464,7 @@ function DatabaseTableView({
         return {
           target,
           before: cachedDocumentPropertyState(queryClient, target),
+          run: startDocumentPropertySave(queryClient, target),
         };
       });
       try {
@@ -6472,12 +6474,16 @@ function DatabaseTableView({
           propertyId: property.definition.id,
           value: operation.value,
         });
+        const samePage = !changes.some((change) => change.run.leftPage());
         if (
-          response.failed > 0 ||
-          changes.some((change) => change.before === null)
+          samePage &&
+          (response.failed > 0 ||
+            changes.some(
+              (change) => change.before === null || !change.run.trusted(),
+            ))
         ) {
           forgetDocumentPropertyChanges(queryClient);
-        } else {
+        } else if (samePage) {
           const generations = new Map(
             response.results.map((result) => [
               result.documentId,
@@ -6530,6 +6536,8 @@ function DatabaseTableView({
           description:
             err instanceof Error ? err.message : dbText("somethingWentWrong"),
         });
+      } finally {
+        for (const change of changes) change.run.settled();
       }
       return;
     }

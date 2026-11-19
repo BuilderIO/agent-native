@@ -56,6 +56,16 @@ type DocumentPropertyKeyTarget = Pick<
   "documentId" | "propertyId"
 >;
 
+interface DocumentPropertySaveRun {
+  order: number;
+  trusted: boolean;
+}
+
+interface DocumentPropertySaveRuns {
+  runs: Set<DocumentPropertySaveRun>;
+  latest: number;
+}
+
 const controllers = new WeakMap<
   QueryClient,
   LocalOpUndoController<DocumentPropertyUndoStep>
@@ -63,6 +73,12 @@ const controllers = new WeakMap<
 const openGroups = new WeakMap<QueryClient, Set<DocumentPropertyChangeGroup>>();
 const savedGenerations = new WeakMap<QueryClient, Map<string, number>>();
 const applying = new WeakSet<QueryClient>();
+const pages = new WeakMap<QueryClient, number>();
+const saveRuns = new WeakMap<
+  QueryClient,
+  Map<string, DocumentPropertySaveRuns>
+>();
+let saveOrder = 0;
 
 export function documentPropertyUndo(queryClient: QueryClient) {
   let controller = controllers.get(queryClient);
@@ -204,6 +220,52 @@ export function forgetDocumentPropertyChanges(queryClient: QueryClient) {
     group.complete = false;
   }
   documentPropertyUndo(queryClient).clear();
+}
+
+export function leaveDocumentPropertyUndoPage(queryClient: QueryClient) {
+  pages.set(queryClient, (pages.get(queryClient) ?? 0) + 1);
+  forgetDocumentPropertyChanges(queryClient);
+}
+
+export function startDocumentPropertySave(
+  queryClient: QueryClient,
+  target: DocumentPropertyKeyTarget,
+) {
+  const key = documentPropertyKey(target);
+  let byKey = saveRuns.get(queryClient);
+  if (!byKey) {
+    byKey = new Map();
+    saveRuns.set(queryClient, byKey);
+  }
+  let saves = byKey.get(key);
+  if (!saves) {
+    saves = { runs: new Set(), latest: 0 };
+    byKey.set(key, saves);
+  }
+  saveOrder += 1;
+  const run: DocumentPropertySaveRun = { order: saveOrder, trusted: true };
+  saves.runs.add(run);
+  saves.latest = run.order;
+  const page = pages.get(queryClient) ?? 0;
+  const keyRuns = byKey;
+  const ownSaves = saves;
+  return {
+    leftPage: () => (pages.get(queryClient) ?? 0) !== page,
+    trusted: () => run.trusted,
+    failed: () => {
+      if (ownSaves.latest === run.order) return;
+      for (const other of ownSaves.runs) {
+        if (other.order > run.order) other.trusted = false;
+      }
+      forgetDocumentPropertyChanges(queryClient);
+    },
+    settled: () => {
+      ownSaves.runs.delete(run);
+      if (ownSaves.runs.size === 0 && keyRuns.get(key) === ownSaves) {
+        keyRuns.delete(key);
+      }
+    },
+  };
 }
 
 function documentPropertyKey(target: DocumentPropertyKeyTarget) {
@@ -393,7 +455,7 @@ export function useDocumentPropertyUndoShortcuts() {
   const { pathname } = useLocation();
 
   useEffect(() => {
-    forgetDocumentPropertyChanges(queryClient);
+    leaveDocumentPropertyUndoPage(queryClient);
   }, [queryClient, pathname]);
 
   useEffect(() => {

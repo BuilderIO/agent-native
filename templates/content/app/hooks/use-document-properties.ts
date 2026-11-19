@@ -44,6 +44,7 @@ import {
   forgetDocumentPropertyChanges,
   isPropertyGenerationConflict,
   recordDocumentPropertyChange,
+  startDocumentPropertySave,
   withExpectedGeneration,
 } from "./document-property-undo";
 import { useContentActionMutation } from "./use-content-action-mutation";
@@ -747,8 +748,18 @@ export function useSetDocumentProperty(
         request.expectedBlocksFieldRevision === undefined
           ? cachedDocumentPropertyState(queryClient, target)
           : null;
-      const response = await save(...args);
-      if (before) {
+      const run = startDocumentPropertySave(queryClient, target);
+      let response: SetDocumentPropertyResponse;
+      try {
+        response = await save(...args);
+      } catch (error) {
+        run.failed();
+        throw error;
+      } finally {
+        run.settled();
+      }
+      if (run.leftPage()) return response;
+      if (before && run.trusted()) {
         const saved = response.properties.find(
           (property) => property.definition.id === request.propertyId,
         );

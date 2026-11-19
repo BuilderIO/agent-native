@@ -25,6 +25,7 @@ import {
   documentPropertyUndo,
   documentPropertyUndoKey,
   groupDocumentPropertyChanges,
+  leaveDocumentPropertyUndoPage,
   sameDocumentPropertyValue,
 } from "./document-property-undo";
 import {
@@ -385,6 +386,51 @@ describe("Property undo", () => {
     expect(controller.canUndo()).toBe(true);
     await expect(controller.undo()).resolves.toBe(true);
     expect(stored).toBe("alice");
+  });
+
+  it("records nothing from a save made while an earlier one to the same Property failed", async () => {
+    let failFirst = () => {};
+    mutateAsync.mockImplementationOnce((variables) => {
+      queryClient.setQueryData(
+        contentDatabaseQueryKey("database-page-1"),
+        (current: never) =>
+          applyDocumentPropertyValueToDatabaseResponse(current, {
+            documentId: "row-1",
+            propertyId: "turn",
+            value: variables.value,
+          }),
+      );
+      return new Promise((_resolve, reject) => {
+        failFirst = () => reject(new Error("offline"));
+      });
+    });
+    const first = setTurn("agent");
+    await vi.waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    const second = setTurn("bot");
+    failFirst();
+    await expect(first).rejects.toThrow("offline");
+    await second;
+
+    expect(stored).toBe("bot");
+    expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
+  });
+
+  it("leaves a save that lands after the page changed off the new page's list", async () => {
+    let land = () => {};
+    mutateAsync.mockImplementationOnce(async (variables) => {
+      await new Promise<void>((resolve) => {
+        land = resolve;
+      });
+      return serverSave(variables);
+    });
+    const saving = setTurn("agent");
+    await vi.waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    leaveDocumentPropertyUndoPage(queryClient);
+    land();
+    await saving;
+
+    expect(stored).toBe("agent");
+    expect(documentPropertyUndo(queryClient).canUndo()).toBe(false);
   });
 
   it("records neither a save that changes nothing nor a Blocks field", async () => {
