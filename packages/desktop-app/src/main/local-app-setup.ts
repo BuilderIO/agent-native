@@ -9,8 +9,7 @@ export interface LocalAppSetupStep {
 
 export const LOCAL_APP_TEMPLATE = "chat";
 
-export function localAppSetupSteps(
-): LocalAppSetupStep[] {
+export function localAppSetupSteps(): LocalAppSetupStep[] {
   return [
     {
       label: "Creating the app from the starter template",
