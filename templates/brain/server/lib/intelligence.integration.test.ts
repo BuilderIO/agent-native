@@ -14,6 +14,7 @@ import {
   vi,
 } from "vitest";
 
+import { withFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
 import * as schema from "../db/schema.js";
 
 const harness = vi.hoisted(() => ({
@@ -567,49 +568,64 @@ describe("evidence-backed intelligence", () => {
       .update(schema.brainRawCaptures)
       .set({ content: quote })
       .where(eq(schema.brainRawCaptures.id, "capture-a"));
-    await database.insert(schema.brainKnowledge).values({
-      id: "legacy-mention",
-      sourceId: "source-a",
-      captureId: "capture-a",
-      audienceId: "audience-a",
-      title: "Annual planning",
-      body: quote,
-      kind: "fact",
-      status: "published",
-      publishTier: "company",
-      ownerEmail: email,
-      createdBy: email,
-      orgId: "qa-org",
-      visibility: "org",
-      entitiesJson: JSON.stringify([
-        { type: "person", name: "Ann" },
-        { type: "project", name: "Atlas" },
-      ]),
-      evidenceJson: JSON.stringify([
-        { captureId: "capture-a", sourceId: "source-a", quote },
-      ]),
-    });
+    const captureContent = new Map([["capture-a", quote]]);
     await database.insert(schema.brainKnowledge).values(
-      Array.from({ length: 110 }, (_value, index) => ({
-        id: `archived-mention-${index}`,
-        sourceId: "source-a",
-        captureId: "capture-a",
-        audienceId: "audience-a",
-        title: "Archived planning",
-        body: quote,
-        kind: "fact" as const,
-        status: "archived" as const,
-        publishTier: "company" as const,
-        ownerEmail: email,
-        createdBy: email,
-        orgId: "qa-org",
-        visibility: "org" as const,
-        updatedAt: "2030-01-01T00:00:00.000Z",
-        entitiesJson: JSON.stringify([{ type: "project", name: "Atlas" }]),
-        evidenceJson: JSON.stringify([
-          { captureId: "capture-a", sourceId: "source-a", quote },
-        ]),
-      })),
+      await withFixtureProvenance<typeof schema.brainKnowledge.$inferInsert>(
+        {
+          id: "legacy-mention",
+          sourceId: "source-a",
+          captureId: "capture-a",
+          audienceId: "audience-a",
+          title: "Annual planning",
+          body: quote,
+          kind: "fact",
+          status: "published",
+          publishTier: "company",
+          ownerEmail: email,
+          createdBy: email,
+          orgId: "qa-org",
+          visibility: "org",
+          entitiesJson: JSON.stringify([
+            { type: "person", name: "Ann" },
+            { type: "project", name: "Atlas" },
+          ]),
+          evidenceJson: JSON.stringify([
+            { captureId: "capture-a", sourceId: "source-a", quote },
+          ]),
+        },
+        captureContent,
+      ),
+    );
+    await database.insert(schema.brainKnowledge).values(
+      await Promise.all(
+        Array.from({ length: 110 }, (_value, index) =>
+          withFixtureProvenance(
+            {
+              id: `archived-mention-${index}`,
+              sourceId: "source-a",
+              captureId: "capture-a",
+              audienceId: "audience-a",
+              title: "Archived planning",
+              body: quote,
+              kind: "fact" as const,
+              status: "archived" as const,
+              publishTier: "company" as const,
+              ownerEmail: email,
+              createdBy: email,
+              orgId: "qa-org",
+              visibility: "org" as const,
+              updatedAt: "2030-01-01T00:00:00.000Z",
+              entitiesJson: JSON.stringify([
+                { type: "project", name: "Atlas" },
+              ]),
+              evidenceJson: JSON.stringify([
+                { captureId: "capture-a", sourceId: "source-a", quote },
+              ]),
+            },
+            captureContent,
+          ),
+        ),
+      ),
     );
     const people = await getEntityGraph({ type: "person" });
     expect(people.entities).toEqual([]);

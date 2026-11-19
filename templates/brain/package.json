@@ -15,7 +15,8 @@
     "demo:seed": "agent-native action seed-demo-data",
     "demo:eval": "agent-native action run-demo-eval",
     "retrieval:eval": "agent-native action run-retrieval-eval",
-    "privacy:eval": "vitest --run evals/privacy-leakage.test.ts --config vitest.config.ts",
+    "test:db-postgres": "vitest --run --no-file-parallelism server/lib/knowledge-write.postgres.integration.test.ts --config vitest.config.ts",
+    "privacy:eval": "vitest --run evals/privacy-leakage.test.ts server/lib/knowledge-provenance.integration.test.ts server/lib/knowledge-access.integration.test.ts --config vitest.config.ts",
     "eval:ci": "sh -c 'set -e; db=\"./data/pglite/brain-evals-ci-$$\"; cleanup() { rm -rf \"$db\"; }; trap cleanup EXIT; cleanup; DATABASE_URL=\"pglite:$db\" AGENT_USER_EMAIL=\"brain-evals@agent-native.test\" agent-native action run-demo-eval; DATABASE_URL=\"pglite:$db\" AGENT_USER_EMAIL=\"brain-evals@agent-native.test\" agent-native action run-retrieval-eval'",
     "script": "agent-native script"
   },
