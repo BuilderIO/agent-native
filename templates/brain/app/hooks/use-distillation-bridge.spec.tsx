@@ -294,6 +294,34 @@ describe("distillation handoff", () => {
       }),
     );
   });
+  it.each([
+    { reason: "no-window", expected: "cancelled" },
+    { reason: "unsupported-target", expected: "cancelled" },
+    { reason: "send-failed", expected: "delivery-unknown" },
+    { reason: "host-rejected", expected: "delivery-unknown" },
+    { reason: "host-unconfirmed", expected: "delivery-unknown" },
+    { reason: undefined, expected: "delivery-unknown" },
+    { reason: "unexpected", expected: "delivery-unknown" },
+  ])(
+    "retains the request for $reason delivery failure",
+    async ({ reason, expected }) => {
+      mocks.confirm.mockResolvedValue({
+        tabId: "tab",
+        delivered: false,
+        reason,
+      });
+      await render();
+      expect(mocks.confirm).toHaveBeenCalledOnce();
+      expect(mocks.compare).not.toHaveBeenCalled();
+      expect(mocks.action).toHaveBeenCalledWith("release-distillation", {
+        captureId: "capture",
+        queueId: "queue",
+        claimToken: "token",
+        reason: expected,
+      });
+      expect(mocks.report).toHaveBeenCalledOnce();
+    },
+  );
   it("preserves a replacement request after the original is acknowledged", async () => {
     const replacement = { ...request, requestedAt: "B" };
     let stored: typeof request | null = request;
