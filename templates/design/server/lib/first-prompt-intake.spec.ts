@@ -111,7 +111,7 @@ describe("Design first-prompt intake graduation", () => {
     expect(designFirstPromptIntakeInstructions()).toBeNull();
   });
 
-  it("blocks agent, automation, MCP, and unspecified callers of show-design-questions when enabled and allows CLI and rollback", async () => {
+  it("blocks wrapped show-design-questions across all callers when enabled and allows rollback", async () => {
     const showQuestionsRun = vi.fn().mockResolvedValue({ count: 3 });
     const generateRun = vi.fn().mockResolvedValue({ renderable: true });
     const actions = new Map(
@@ -133,6 +133,7 @@ describe("Design first-prompt intake graduation", () => {
 
     for (const caller of [
       "tool",
+      "cli",
       "automation",
       "mcp",
       "webmcp",
@@ -147,9 +148,6 @@ describe("Design first-prompt intake graduation", () => {
     );
     expect(showQuestionsRun).not.toHaveBeenCalled();
 
-    await expect(showQuestions.run({}, { caller: "cli" })).resolves.toEqual({
-      count: 3,
-    });
     await expect(
       generateDesign.run({}, { caller: "tool", threadId: "thread-1" }),
     ).resolves.toEqual({ renderable: true });
@@ -158,6 +156,9 @@ describe("Design first-prompt intake graduation", () => {
     await expect(
       showQuestions.run({}, { caller: "tool", threadId: "thread-1" }),
     ).resolves.toEqual({ count: 3 });
+    await expect(showQuestions.run({}, { caller: "cli" })).resolves.toEqual({
+      count: 3,
+    });
     await expect(
       showQuestions.run({}, { caller: "automation", threadId: "thread-1" }),
     ).resolves.toEqual({ count: 3 });

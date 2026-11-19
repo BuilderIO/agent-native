@@ -55,8 +55,6 @@ export function applyDesignFirstPromptIntakePolicy(): void {
   ];
 }
 
-const ALLOWED_NON_AGENT_CALLERS = new Set(["cli"]);
-
 export function guardDesignFirstPromptActions(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
@@ -69,10 +67,7 @@ export function guardDesignFirstPromptActions(
         {
           ...entry,
           run: async (args, context) => {
-            if (
-              isDesignFirstPromptNoQuestionsEnabled() &&
-              (!context || !ALLOWED_NON_AGENT_CALLERS.has(context.caller))
-            ) {
+            if (isDesignFirstPromptNoQuestionsEnabled()) {
               throw new Error(
                 `Intake questions are disabled for new Design requests. Do not call ${name}; generate the first coherent design with sensible defaults instead.`,
               );
