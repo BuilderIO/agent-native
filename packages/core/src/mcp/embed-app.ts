@@ -166,7 +166,6 @@ export function embedApp(
     let app = null;
     let appConnectPromise = null;
     let openAiBridge = null;
-    let appInitialized = false;
     let lastOpenAiSyncSignature = null;
     let wrapperRequestId = 0;
     let hostChatQueue = Promise.resolve();
@@ -2110,7 +2109,7 @@ export function embedApp(
     }
 
     function nativeAppUsable() {
-      return !!app && (appInitialized || !openAiBridge);
+      return !!app && !openAiBridge;
     }
 
     async function ensureHostAppConnected() {
@@ -2129,7 +2128,6 @@ export function embedApp(
           });
       }
       await appConnectPromise;
-      appInitialized = true;
     }
 
     async function updateHostModelContext(data) {
@@ -2681,6 +2679,12 @@ export function embedApp(
       } catch (_err) {}
       try {
         if (/^(?:[^.]+\\.)?web-sandbox\\.oaiusercontent\\.com$/i.test(window.location.hostname || "")) return true;
+      } catch (_err) {}
+      try {
+        const origins = window.location.ancestorOrigins;
+        for (let i = 0; origins && i < origins.length; i += 1) {
+          if (/(?:^|[./])(?:chatgpt\\.com|oaiusercontent\\.com)$/i.test(String(origins[i]))) return true;
+        }
       } catch (_err) {}
       try {
         return /chatgpt/i.test(String(navigator.userAgent || ""));
