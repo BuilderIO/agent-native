@@ -23,6 +23,7 @@ import type {
   AgentMessage,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
+import { subscribeAgentChatComposerSubmit } from "@agent-native/core/client/agent-chat";
 import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
 import { AgentSelectToggle } from "@agent-native/toolkit/app/agent-select";
 import React, { act, createRef } from "react";
@@ -40,6 +41,7 @@ import {
 } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+import type { Reference } from "../../composer/types.js";
 import {
   AgentCollaborationFeed,
   AgentInteractionItem,
@@ -1109,6 +1111,45 @@ describe("host composer input controls", () => {
       );
     },
   );
+
+  it("admits an app-owned turn with its staged context and references", async () => {
+    const item = {
+      key: "current-item",
+      title: "Selected item",
+      context: "Captured context",
+    };
+    const context: AssistantChatComposerContext = {
+      contextItems: [item],
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(async (items) => items),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const admitComposerMessage = vi.fn(async () => ({
+      threadId: "admitted-thread",
+    }));
+    await mount(
+      baseProps({ composerContextProvider: Provider, admitComposerMessage }),
+    );
+    const references: Reference[] = [
+      { type: "file", path: "reports/q3.csv", name: "q3.csv", source: "files" },
+    ];
+    await act(async () =>
+      chatMocks.composerProps.onSubmit("Use this item", [], references, {
+        intent: "immediate",
+        contextItems: chatMocks.composerProps.contextItems,
+      }),
+    );
+    expect(admitComposerMessage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Captured context"),
+        references,
+      }),
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 function baseProps(
@@ -2190,6 +2231,65 @@ describe("AgentKitAssistantChat host behavior", () => {
         expect(container.textContent).not.toContain("Summarize my inbox"),
       );
     });
+  });
+
+  it("announces a composer send before the agent client accepts it", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+    const submitted: string[] = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit(({ text }) => submitted.push(text)),
+    );
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Show my planner", [], [], {
+        intent: "immediate",
+        submissionId: "pending-bubble",
+      });
+    });
+
+    expect(submitted).toEqual(["Show my planner"]);
+  });
+
+  it("announces a message sent through the chat handle, but not a hidden one", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const submitted: string[] = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit(({ text }) => submitted.push(text)),
+    );
+
+    await act(async () => {
+      await ref.current?.sendMessage("Open my planner");
+      await ref.current?.sendMessage("Background note", undefined, {
+        hideUserMessage: true,
+      });
+    });
+
+    expect(submitted).toEqual(["Open my planner"]);
+  });
+
+  it("withdraws a send that is rejected before it reaches the thread", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("Failed before acceptance"),
+    );
+    const events: Array<{ id: string; withdrawn?: boolean; queued?: boolean }> =
+      [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    await act(async () => {
+      await ref.current?.sendMessage("Open my planner").catch(() => undefined);
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ queued: false });
+    expect(events[1]).toEqual({ id: events[0]?.id, text: "", withdrawn: true });
   });
 
   it("shows attached files in the pending bubble and revokes their previews once it clears", async () => {
