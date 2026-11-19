@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   db: undefined as unknown,
   access: vi.fn(),
   editor: vi.fn(),
+  statements: [] as string[],
 }));
 vi.mock("../server/db/index.js", async () => ({
   schema: await import("../server/db/schema.js"),
@@ -42,7 +43,10 @@ import release from "./release-distillation.js";
 
 const db = new PGlite();
 beforeAll(async () => {
-  state.db = drizzle(db, { schema });
+  state.db = drizzle(db, {
+    schema,
+    logger: { logQuery: (query) => state.statements.push(query) },
+  });
   await db.exec(`CREATE TABLE brain_ingest_queue (
     id text primary key, capture_id text, operation text, status text,
     lease_token text, lease_expires_at text, error text, updated_at text,
@@ -344,3 +348,28 @@ it("refuses unclaimed completion when a claim appears while it runs", async () =
     updated_at: "before",
   });
 });
+
+it.each(["release", "completion"] as const)(
+  "%s locks the capture row before writing the queue row",
+  async (mode) => {
+    state.statements.length = 0;
+    if (mode === "release") {
+      await release.run({ ...args, reason: "read-unavailable" });
+    } else {
+      await complete.run({
+        captureId: "capture",
+        status: "distilled",
+        queueId: "queue",
+        claimToken: "active",
+      });
+    }
+    const lock = state.statements.findIndex((query) =>
+      /from "brain_raw_captures".* for update/s.test(query),
+    );
+    const write = state.statements.findIndex((query) =>
+      query.startsWith('update "brain_ingest_queue"'),
+    );
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(write).toBeGreaterThan(lock);
+  },
+);

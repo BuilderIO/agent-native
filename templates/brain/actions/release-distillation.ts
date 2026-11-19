@@ -33,50 +33,58 @@ export default defineAction({
       });
     await assertAccess("brain-source", access.capture.sourceId, "editor");
     const now = nowIso();
-    let runAfter: string | null = null;
-    if (reason === "read-unavailable") {
-      const currentRows = await getDb()
-        .select({ attempts: schema.brainIngestQueue.attempts })
-        .from(schema.brainIngestQueue)
-        .where(eq(schema.brainIngestQueue.id, queueId))
-        .limit(1);
-      const attempts = Math.max(
-        currentRows.find((row) => row.attempts)?.attempts ?? 1,
-        1,
-      );
-      runAfter = new Date(
-        Date.parse(now) +
-          Math.min(
-            READ_UNAVAILABLE_BASE_BACKOFF_MS * 2 ** (attempts - 1),
-            READ_UNAVAILABLE_MAX_BACKOFF_MS,
+    return getDb().transaction(async (tx) => {
+      await tx
+        .select({ id: schema.brainRawCaptures.id })
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, captureId))
+        .limit(1)
+        .for("update");
+      let runAfter: string | null = null;
+      if (reason === "read-unavailable") {
+        const currentRows = await tx
+          .select({ attempts: schema.brainIngestQueue.attempts })
+          .from(schema.brainIngestQueue)
+          .where(eq(schema.brainIngestQueue.id, queueId))
+          .limit(1);
+        const attempts = Math.max(
+          currentRows.find((row) => row.attempts)?.attempts ?? 1,
+          1,
+        );
+        runAfter = new Date(
+          Date.parse(now) +
+            Math.min(
+              READ_UNAVAILABLE_BASE_BACKOFF_MS * 2 ** (attempts - 1),
+              READ_UNAVAILABLE_MAX_BACKOFF_MS,
+            ),
+        ).toISOString();
+      }
+      const updated = await tx
+        .update(schema.brainIngestQueue)
+        .set({
+          status: reason === "read-unavailable" ? "queued" : "failed",
+          error:
+            reason === "read-unavailable"
+              ? null
+              : reason === "cancelled"
+                ? DISTILLATION_HANDOFF_CANCELLED_ERROR
+                : DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
+          runAfter,
+          leaseToken: null,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.brainIngestQueue.id, queueId),
+            eq(schema.brainIngestQueue.captureId, captureId),
+            eq(schema.brainIngestQueue.operation, "distill"),
+            eq(schema.brainIngestQueue.status, "processing"),
+            eq(schema.brainIngestQueue.leaseToken, claimToken),
           ),
-      ).toISOString();
-    }
-    const updated = await getDb()
-      .update(schema.brainIngestQueue)
-      .set({
-        status: reason === "read-unavailable" ? "queued" : "failed",
-        error:
-          reason === "read-unavailable"
-            ? null
-            : reason === "cancelled"
-              ? DISTILLATION_HANDOFF_CANCELLED_ERROR
-              : DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
-        runAfter,
-        leaseToken: null,
-        leaseExpiresAt: null,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.brainIngestQueue.id, queueId),
-          eq(schema.brainIngestQueue.captureId, captureId),
-          eq(schema.brainIngestQueue.operation, "distill"),
-          eq(schema.brainIngestQueue.status, "processing"),
-          eq(schema.brainIngestQueue.leaseToken, claimToken),
-        ),
-      )
-      .returning({ id: schema.brainIngestQueue.id });
-    return { released: updated.length === 1 };
+        )
+        .returning({ id: schema.brainIngestQueue.id });
+      return { released: updated.length === 1 };
+    });
   },
 });
