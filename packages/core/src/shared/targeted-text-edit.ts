@@ -511,7 +511,6 @@ export function findEditThatRemovedText(
   contentBeforeEachEdit: readonly string[],
   find: string,
 ): number | null {
-  if (!find || !contentBeforeEachEdit[0]?.includes(find)) return null;
   const removed = contentBeforeEachEdit.findIndex(
     (content) => !content.includes(find),
   );
