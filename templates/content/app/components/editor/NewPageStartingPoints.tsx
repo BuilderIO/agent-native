@@ -2,8 +2,6 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { Fragment } from "react";
 
-// Stand-ins for the clickable words, so translators keep the whole sentence
-// and its word order while the words themselves render as buttons.
 const DRAFT_SLOT = String.fromCharCode(0xe000);
 const IMPORT_SLOT = String.fromCharCode(0xe001);
 const SLOTS = new RegExp(`(${DRAFT_SLOT}|${IMPORT_SLOT})`);
@@ -15,7 +13,7 @@ export function NewPageStartingPoints({
 }: {
   documentId: string;
   title: string;
-  onImport?: () => void;
+  onImport?: (() => void) | undefined;
 }) {
   const t = useT();
 

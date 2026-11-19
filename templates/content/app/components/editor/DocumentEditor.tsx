@@ -11453,7 +11453,6 @@ function PageEditorSessionBody({
     !isSuggesting &&
     !isStartingSuggestion &&
     !mcpDirectoryWidgetReadOnly &&
-    !bodyHydrationPending &&
     !bodyHydrationError &&
     !awaitingLiveCopy &&
     isEffectivelyEmptyDocumentContent(localContent) &&

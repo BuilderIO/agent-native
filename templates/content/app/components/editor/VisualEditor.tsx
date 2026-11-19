@@ -1967,7 +1967,6 @@ interface VisualEditorProps {
   onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
-  /** Shown on the first line while the whole body is empty, focused or not. */
   emptyDocumentPlaceholder?: string | null;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -5057,8 +5056,7 @@ export function VisualEditor({
 
   useEffect(() => {
     emptyDocumentPlaceholderRef.current = emptyDocumentPlaceholder;
-    if (!editor || editor.isDestroyed) return;
-    // Decorations only recompute on a transaction, so redraw the placeholder.
+    if (editor.isDestroyed) return;
     editor.view.dispatch(
       editor.state.tr
         .setMeta("addToHistory", false)

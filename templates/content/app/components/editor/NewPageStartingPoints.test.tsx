@@ -56,9 +56,10 @@ describe("NewPageStartingPoints", () => {
   function render(props: { title?: string; onImport?: () => void } = {}) {
     container = document.createElement("div");
     document.body.appendChild(container);
-    root = createRoot(container);
+    const mounted = createRoot(container);
+    root = mounted;
     act(() => {
-      root!.render(
+      mounted.render(
         createElement(NewPageStartingPoints, {
           documentId: "doc-1",
           title: props.title ?? "",
@@ -68,12 +69,17 @@ describe("NewPageStartingPoints", () => {
     });
     const line = container.querySelector("[data-new-page-starting-points]");
     const buttons = [...container.querySelectorAll("button")];
-    return { line, buttons };
+    const press = (index: number) => {
+      const button = buttons[index];
+      if (!button) throw new Error(`no button ${index}`);
+      act(() => button.click());
+    };
+    return { line, buttons, press };
   }
 
   it("shows one sentence whose two offers are buttons", () => {
     const onImport = vi.fn();
-    const { line, buttons } = render({ onImport });
+    const { line, buttons, press } = render({ onImport });
 
     expect(line?.textContent).toBe(
       "Start writing, draft it with the agent, or import Markdown",
@@ -83,15 +89,15 @@ describe("NewPageStartingPoints", () => {
       "import Markdown",
     ]);
 
-    act(() => buttons[1]!.click());
+    press(1);
     expect(onImport).toHaveBeenCalledOnce();
     expect(sendToAgentChat).not.toHaveBeenCalled();
   });
 
   it("opens the agent with the page attached and a prompt to finish", () => {
-    const { buttons } = render({ title: "  Launch plan ", onImport: vi.fn() });
+    const { press } = render({ title: "  Launch plan ", onImport: vi.fn() });
 
-    act(() => buttons[0]!.click());
+    press(0);
 
     expect(sendToAgentChat).toHaveBeenCalledOnce();
     const request = sendToAgentChat.mock.calls[0]?.[0];
@@ -105,12 +111,12 @@ describe("NewPageStartingPoints", () => {
   });
 
   it("drops the import offer when the page can't import", () => {
-    const { line, buttons } = render();
+    const { line, buttons, press } = render();
 
     expect(line?.textContent).toBe("Start writing, or draft it with the agent");
     expect(buttons).toHaveLength(1);
 
-    act(() => buttons[0]!.click());
+    press(0);
     expect(sendToAgentChat.mock.calls[0]?.[0]).toMatchObject({
       message: "Draft this page about ",
       contextLabel: "This page",
