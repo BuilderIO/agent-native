@@ -20,6 +20,7 @@ vi.mock("./comment-images", async (importOriginal) => ({
 }));
 
 const onModelChange = vi.fn();
+const onAiSubmit = vi.fn();
 const models = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   const store = {
@@ -123,7 +124,7 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
           onSubmit={vi.fn()}
           mentions={[]}
           onMentionsChange={vi.fn()}
-          onAiSubmit={vi.fn()}
+          onAiSubmit={onAiSubmit}
           aiDraft={aiDraft}
           onAiDraftChange={setAiDraft}
           aiModelStorageKey="comment-ai:test"
@@ -147,10 +148,12 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     if (!element) throw new Error("The comment editor didn't render.");
     return element;
   };
-  const aiSend = () =>
-    container.querySelector<HTMLButtonElement>(
+  const aiSends = () => [
+    ...container.querySelectorAll<HTMLButtonElement>(
       "[data-comment-ai-send-control] [data-comment-send]",
-    );
+    ),
+  ];
+  const aiSend = () => aiSends()[0];
   const modelOptions = () =>
     [...document.querySelectorAll('[role="listbox"] [role="option"]')].map(
       (option) => option.textContent,
@@ -185,6 +188,7 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
 
   beforeEach(() => {
     onModelChange.mockReset();
+    onAiSubmit.mockReset();
     staleSavedPick();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
@@ -241,34 +245,58 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     expect(modelOptions()).toEqual([]);
   });
 
-  it("makes a restored draft's connected model the pick, so it can send", async () => {
-    onModelChange.mockImplementation((model: string, engine: string) =>
-      models.set({
-        ...models.current,
-        selectedModel: model,
-        selectedEngine: engine,
-        selectionReady: true,
-        unavailableSelection: null,
-      }),
-    );
+  const lunaDraft: CommentAiDraft = {
+    selection: {
+      model: "gpt-5-6-luna",
+      engine: "builder",
+      provider: "Builder",
+    },
+    mode: "auto",
+  };
+
+  it("sends a restored draft to its connected model and saves it then", async () => {
     await render(
-      <Owner
-        initialValue="Ask @GPT-5.6 Luna"
-        initialAi={{
-          selection: {
-            model: "gpt-5-6-luna",
-            engine: "builder",
-            provider: "Builder",
-          },
-          mode: "auto",
-        }}
-      />,
+      <Owner initialValue="Ask @GPT-5.6 Luna" initialAi={lunaDraft} />,
     );
 
     expect(notice()).toBeNull();
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(aiSend()?.disabled).toBe(false);
+
+    await act(async () => aiSend()?.click());
+
     expect(onModelChange).toHaveBeenCalledTimes(1);
     expect(onModelChange).toHaveBeenCalledWith("gpt-5-6-luna", "builder");
-    expect(aiSend()?.disabled).toBe(false);
+    expect(onAiSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5-6-luna", engine: "builder" }),
+    );
+  });
+
+  it("leaves the saved pick alone while restored drafts name different models", async () => {
+    await render(
+      <>
+        <Owner initialValue="Ask @GPT-5.6 Luna" initialAi={lunaDraft} />
+        <Owner
+          initialValue="Ask @Claude Sonnet 5"
+          initialAi={{
+            selection: {
+              model: "claude-sonnet-5",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "auto",
+          }}
+        />
+      </>,
+    );
+
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(aiSends().map((send) => send.disabled)).toEqual([false, false]);
+
+    await act(async () => aiSends()[1]?.click());
+
+    expect(onModelChange).toHaveBeenCalledTimes(1);
+    expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "builder");
   });
 
   it("finds a restored draft's model from the second provider that lists it", async () => {
@@ -288,7 +316,7 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     );
 
     expect(notice()).toBeNull();
-    expect(onModelChange).toHaveBeenCalledWith("claude-sonnet-5", "anthropic");
+    expect(aiSend()?.disabled).toBe(false);
   });
 
   it("lets @AI find the default model", async () => {

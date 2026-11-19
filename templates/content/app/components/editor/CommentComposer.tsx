@@ -2,6 +2,10 @@ import { useChatModels } from "@agent-native/core/client/agent-chat";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  DEFAULT_REASONING_EFFORT,
+  getReasoningEffortOptionsForModel,
+} from "@agent-native/core/shared";
+import {
   ReviewCommentImageStrip,
   useReviewCommentImageUpload,
 } from "@agent-native/toolkit/app/review";
@@ -541,12 +545,9 @@ export const CommentComposer = forwardRef<
     );
   const aiRecipientMissing =
     Boolean(aiDraft && models.unavailableSelection) && !aiRecipientConnected;
-
-  useEffect(() => {
-    if (!aiDraft || !models.unavailableSelection || !aiRecipientConnected)
-      return;
-    onModelChangeRef.current(aiDraft.selection.model, aiDraft.selection.engine);
-  }, [aiDraft, aiRecipientConnected, models.unavailableSelection]);
+  const aiRecipientReady =
+    models.selectionReady ||
+    (Boolean(models.unavailableSelection) && aiRecipientConnected);
 
   const mentionItems = useMemo<MentionItem[]>(() => {
     const memberItems = members.map((member) => {
@@ -740,11 +741,18 @@ export const CommentComposer = forwardRef<
   const canSend =
     hasText && !disabled && !submitDisabled && !imageUpload.uploading;
   const submitAi = () => {
-    if (!aiDraft || !onAiSubmit || !canSend || !models.selectionReady) return;
+    if (!aiDraft || !onAiSubmit || !canSend || !aiRecipientReady) return;
+    const { model, engine } = aiDraft.selection;
+    let effort = models.selectedEffort;
+    if (!models.selectionReady) {
+      if (!getReasoningEffortOptionsForModel(model).includes(effort))
+        effort = DEFAULT_REASONING_EFFORT;
+      models.onModelChange(model, engine);
+    }
     onAiSubmit({
       ...aiDraft.selection,
       intent: sendableAiMode(aiDraft.mode, aiSuggestOnly),
-      effort: models.selectedEffort,
+      effort,
     });
   };
   // One send path for Enter and the button, so an AI recipient can never be
@@ -881,7 +889,7 @@ export const CommentComposer = forwardRef<
   const sendControl = aiDraft ? (
     <CommentAiSendControl
       mode={sendableAiMode(aiDraft.mode, aiSuggestOnly)}
-      disabled={!canSend || !models.selectionReady}
+      disabled={!canSend || !aiRecipientReady}
       suggestOnly={aiSuggestOnly}
       onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
       onSubmit={submitAi}
