@@ -7,6 +7,15 @@ import {
   type PromptComposerSubmitOptions,
   type Reference,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  clampDashboardColumns,
+  clampPanelWidth,
+  DEFAULT_DASHBOARD_COLUMNS,
+  MAX_DASHBOARD_COLUMNS,
+  type ChartType,
+  type DataSourceType,
+  type SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import {
   useEffect,
@@ -46,15 +55,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 
 import { dashboardExtensionSlotId } from "./extension-slot";
-import {
-  clampDashboardColumns,
-  clampPanelWidth,
-  DEFAULT_DASHBOARD_COLUMNS,
-  MAX_DASHBOARD_COLUMNS,
-  type ChartType,
-  type DataSourceType,
-  type SqlPanel,
-} from "./types";
 
 const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
   { value: "line", labelKey: "panelEditor.chartTypeLine" },

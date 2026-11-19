@@ -915,6 +915,38 @@ describe("client application-state helpers", () => {
     );
   });
 
+  it("keeps a write sent as its own request out of a later one", async () => {
+    const releases: Array<() => void> = [];
+    const fetchMock = vi.fn(
+      (_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          releases.push(() =>
+            resolve(jsonResponse(JSON.parse(String(init?.body)))),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = writeClientAppState("selection", { step: 1 });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const own = writeClientAppState(
+      "selection",
+      { step: 2 },
+      { ownRequest: true },
+    );
+    const later = writeClientAppState("selection", { step: 3 });
+    for (let sent = 1; sent <= 3; sent += 1) {
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(sent));
+      releases[sent - 1]();
+    }
+    await Promise.all([first, later]);
+
+    await expect(own).resolves.toEqual({ step: 2 });
+    expect(fetchMock.mock.calls.map(([, init]) => init?.body)).toEqual(
+      [1, 2, 3].map((step) => JSON.stringify({ step })),
+    );
+  });
+
   it("sends keepalive writes with the rest of their tick", async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
@@ -1311,6 +1343,165 @@ describe("client application-state helpers", () => {
       void last;
     });
 
+    it("sends a keepalive write sent as its own request when the page hides", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+      void fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const own = fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true, ownRequest: true },
+      );
+      void fresh.writeClientAppState(
+        "draft",
+        { text: "abc" },
+        { keepalive: true },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+
+      // Left waiting, neither would be sent once the page is gone.
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+      expect(
+        fetchMock.mock.calls.slice(1).map(([, init]) => ({
+          body: init?.body,
+          keepalive: init?.keepalive,
+        })),
+      ).toEqual([
+        { body: JSON.stringify({ text: "ab" }), keepalive: true },
+        { body: JSON.stringify({ text: "abc" }), keepalive: true },
+      ]);
+      void own;
+    });
+
+    it("doesn't send a write sent as its own request ahead of a compare-and-set when the page hides", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      let commitFirst!: () => void;
+      fetchMock.mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((resolve) => {
+            commitFirst = () =>
+              resolve(jsonResponse(JSON.parse(String(init?.body))));
+          }),
+      );
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(jsonResponse({ changed: true })),
+      );
+
+      const first = fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const swap = fresh.compareAndSetClientAppState(
+        "draft",
+        { text: "a" },
+        { text: "b" },
+      );
+      const own = fresh.writeClientAppState(
+        "draft",
+        { text: "c" },
+        { keepalive: true, ownRequest: true },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      commitFirst();
+      await Promise.all([first, swap, own]);
+      expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+        "PUT",
+        "PATCH",
+        "PUT",
+      ]);
+    });
+
+    it("sends a write sent as its own request when the page hides, though a compare-and-set made after it waits", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      let commitFirst!: () => void;
+      fetchMock.mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((resolve) => {
+            commitFirst = () =>
+              resolve(jsonResponse(JSON.parse(String(init?.body))));
+          }),
+      );
+
+      const first = fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const own = fresh.writeClientAppState(
+        "draft",
+        { text: "b" },
+        { keepalive: true, ownRequest: true },
+      );
+      const swap = fresh.compareAndSetClientAppState(
+        "draft",
+        { text: "b" },
+        { text: "c" },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        method: "PUT",
+        body: JSON.stringify({ text: "b" }),
+        keepalive: true,
+      });
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(jsonResponse({ changed: true })),
+      );
+      commitFirst();
+      await Promise.all([first, own, swap]);
+      expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+        "PUT",
+        "PUT",
+        "PATCH",
+      ]);
+    });
+
+    it("sends a write sent as its own request at once when it's made while the page is hidden", async () => {
+      const { fresh, fetchMock } = await hidingPage("hidden");
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+      void fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      void fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true, ownRequest: true },
+      );
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        body: JSON.stringify({ text: "ab" }),
+        keepalive: true,
+      });
+    });
+
+    it("sends a waiting write sent as its own request when the tab is hidden", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      fetchMock.mockImplementationOnce(() => new Promise<Response>(() => {}));
+
+      void fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      void fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true, ownRequest: true },
+      );
+      await Promise.resolve();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // A hidden tab may be discarded without a pagehide.
+      (document as { visibilityState: string }).visibilityState = "hidden";
+      for (const listener of listeners.visibilitychange ?? []) listener();
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        body: JSON.stringify({ text: "ab" }),
+        keepalive: true,
+      });
+    });
+
     it("keeps the newer value when it fails on the client and the write it jumped ahead of commits last", async () => {
       const { fresh, listeners, fetchMock } = await hidingPage();
       // A server that applies the write order: it skips a write numbered at
@@ -1424,6 +1615,60 @@ describe("client application-state helpers", () => {
       // Each carries its number from when it was made.
       expect(seqs).toEqual([1, 2, 3]);
       expect(stored.value).toEqual({ text: "abc" });
+    });
+
+    it("keeps a write sent as its own request that goes ahead of a queued delete when the page hides", async () => {
+      const { fresh, listeners, fetchMock } = await hidingPage();
+      // A server that applies the write order, as above.
+      let stored: { value: unknown; writer?: string; seq?: number } = {
+        value: null,
+      };
+      const apply = (init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string>;
+        const writer = headers["X-Agent-Native-App-State-Writer"];
+        const seq = Number(headers["X-Agent-Native-App-State-Seq"]);
+        if (stored.writer === writer && (stored.seq ?? 0) >= seq) return;
+        stored =
+          init?.method === "DELETE"
+            ? { value: null }
+            : { value: JSON.parse(String(init?.body)), writer, seq };
+      };
+      let commitFirst!: () => void;
+      fetchMock.mockImplementation((_url, init) => {
+        if (fetchMock.mock.calls.length === 1) {
+          return new Promise<Response>((resolve) => {
+            commitFirst = () => {
+              apply(init);
+              resolve(jsonResponse(JSON.parse(String(init?.body))));
+            };
+          });
+        }
+        apply(init);
+        return Promise.resolve(
+          jsonResponse(init?.body ? JSON.parse(String(init.body)) : null),
+        );
+      });
+
+      const first = fresh.writeClientAppState("draft", { text: "a" });
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const deletion = fresh.deleteClientAppState("draft", { keepalive: true });
+      const own = fresh.writeClientAppState(
+        "draft",
+        { text: "ab" },
+        { keepalive: true, ownRequest: true },
+      );
+      await Promise.resolve();
+      for (const listener of listeners.pagehide ?? []) listener();
+      await vi.waitFor(() => expect(stored.value).toEqual({ text: "ab" }));
+
+      // The delete was made first, so its lower number has the server skip it
+      // when it lands after the newer write.
+      commitFirst();
+      await Promise.all([first, deletion, own]);
+      expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toContain(
+        "DELETE",
+      );
+      expect(stored.value).toEqual({ text: "ab" });
     });
 
     it("doesn't send a write ahead of a compare-and-set when the page hides", async () => {

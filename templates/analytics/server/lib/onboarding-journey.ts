@@ -1,11 +1,16 @@
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getAppBasePath, getRequestContext } from "@agent-native/core/server";
 
+import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
 import {
   BigQueryBackendError,
   BigQueryMaximumBytesBilledError,
   BigQueryQueryTimeoutError,
+  newBigQueryQueryTrace,
   type BigQueryBackendReason,
+  type BigQueryJobAttempt,
+  type BigQueryQueryStage,
+  type BigQueryQueryTrace,
 } from "./bigquery.js";
 import {
   getFirstPartyAnalyticsBackend,
@@ -62,8 +67,9 @@ const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
 const ONBOARDING_QUERY_TIMEOUT_MS = 20_000;
 // A hosted request gets about 30 seconds before the gateway answers 504 and
 // drops everything read so far. Queries stop inside these budgets instead, so a
-// slow read returns partial coverage, and a second call with the same
-// observationWatermark continues from the pages already in the query cache.
+// slow read returns partial coverage. A query stopped this way keeps running
+// in BigQuery, and a second call with the same observationWatermark collects
+// it, or its cached result, instead of running it again.
 export const ONBOARDING_EVENT_READ_DEADLINE_MS = 15_000;
 export const ONBOARDING_JOURNEY_QUERY_BUDGET_MS = 22_000;
 // Pages after the first run this many at a time once the first page reports
@@ -74,6 +80,8 @@ export const ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 11;
 export const ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 51;
+export const ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED =
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED * 5;
 // Follow-ups scan every event from the cohort's start to 30 days after its
 // end, which on a two-week cohort is more than one journey page scans.
 export const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED =
@@ -134,7 +142,10 @@ export type OnboardingJourneyReadStage =
 function onboardingJourneyReadErrorType(
   error: unknown,
 ): OnboardingJourneyReadErrorType {
-  if (error instanceof BigQueryMaximumBytesBilledError)
+  if (
+    error instanceof BigQueryMaximumBytesBilledError ||
+    error instanceof OutsideAgentBigQueryRefusalError
+  )
     return "bigquery_cost_limit";
   if (error instanceof BigQueryQueryTimeoutError) return "bigquery_timeout";
   if (error instanceof FirstPartyAnalyticsQueryTimeoutError)
@@ -161,6 +172,7 @@ export class OnboardingJourneyReadError extends Error {
   ) {
     const failure = onboardingJourneyFailureDetails(error);
     super("The scoped onboarding journey query failed");
+    Object.defineProperty(this, "cause", { value: error, enumerable: false });
     this.name = "OnboardingJourneyReadError";
     this.stage = stage;
     this.failureKind = failure.kind;
@@ -183,6 +195,14 @@ function onboardingJourneyFailureDetails(error: unknown): {
       kind: "cost_limited",
       backendStatus: error.backendStatus,
       backendReason: error.backendReason,
+      backendOperation: null,
+    };
+  }
+  if (error instanceof OutsideAgentBigQueryRefusalError) {
+    return {
+      kind: "cost_limited",
+      backendStatus: null,
+      backendReason: null,
       backendOperation: null,
     };
   }
@@ -285,6 +305,13 @@ export interface OnboardingJourneyCohorts {
     conflictingSessions: number;
     sessionlessMcpOauthSignupTree: JourneyCohortTree;
   };
+  /**
+   * Present when a time limit stopped this request. The same call with this
+   * added collects the queries it left running or cached instead of starting
+   * them again.
+   */
+  continueWith?: { observationWatermark: string };
+  stoppedPage?: JourneyStoppedPage;
 }
 
 /** The contract other agents build against; field names are fixed. */
@@ -315,6 +342,13 @@ export interface JourneyTree {
   };
   /** Present only when something limits how far the tree can be trusted. */
   notes?: string[];
+  /**
+   * Present when a time limit stopped this request. The same call with this
+   * added collects the queries it left running or cached instead of starting
+   * them again.
+   */
+  continueWith?: { observationWatermark: string };
+  stoppedPage?: JourneyStoppedPage;
 }
 
 export interface JourneySummary {
@@ -342,6 +376,13 @@ export interface JourneySummary {
     outline: string;
   };
   notes?: string[];
+  /**
+   * Present when a time limit stopped this request. The same call with this
+   * added collects the queries it left running or cached instead of starting
+   * them again.
+   */
+  continueWith?: { observationWatermark: string };
+  stoppedPage?: JourneyStoppedPage;
 }
 
 export interface JourneyFollowup {
@@ -588,6 +629,20 @@ interface EventRead {
     | "page_budget"
     | "read_deadline"
     | null;
+  /** Where the read ran; null when the deadline came before it was known. */
+  backendSink: FirstPartyAnalyticsSink | null;
+  stoppedPage: JourneyStoppedPage | null;
+}
+
+export interface JourneyStoppedPage {
+  page: number;
+  stage: BigQueryQueryStage;
+  stageMs: number;
+  elapsedMs: number;
+  lockWaitMs: number;
+  staleLockCleared: boolean;
+  jobs: BigQueryJobAttempt[];
+  polls: number;
 }
 
 export interface OnboardingJourneyEventPageRequest {
@@ -600,6 +655,30 @@ export interface OnboardingJourneyEventPageRequest {
 interface PendingJourneyPage {
   request: OnboardingJourneyEventPageRequest;
   result: ReturnType<typeof queryFirstPartyAnalytics>;
+  trace: BigQueryQueryTrace;
+}
+
+function stoppedJourneyPage(
+  pending: PendingJourneyPage | undefined,
+  page: number,
+): JourneyStoppedPage | null {
+  if (!pending) return null;
+  const { trace } = pending;
+  const now = performance.now();
+  const ms = (value: number) => Math.round(value);
+  return {
+    page,
+    stage: trace.stage,
+    stageMs: ms(now - trace.stageStartedAt),
+    elapsedMs: ms(now - trace.startedAt),
+    lockWaitMs: ms(
+      trace.lockWaitMs +
+        (trace.lockWaitStartedAt === null ? 0 : now - trace.lockWaitStartedAt),
+    ),
+    staleLockCleared: trace.staleLockCleared,
+    jobs: trace.jobs.map((job) => ({ ...job })),
+    polls: trace.polls,
+  };
 }
 
 /**
@@ -690,9 +769,10 @@ async function readJourneyEvents(
     : deadline.signal;
   const prefetched = new Map<number, PendingJourneyPage>();
   const stopPrefetch = new AbortController();
+  let backendSink: FirstPartyAnalyticsSink | null = null;
+  let stoppedPage: JourneyStoppedPage | null = null;
   try {
     throwIfAborted(signal);
-    let backendSink: FirstPartyAnalyticsSink | null = null;
     try {
       const backend = await getFirstPartyAnalyticsBackend(scope, querySignal);
       backendSink = backend.sink;
@@ -719,6 +799,7 @@ async function readJourneyEvents(
         observation,
         freezeReceivedAt,
       );
+      const trace = newBigQueryQueryTrace();
       return {
         request,
         result: queryFirstPartyAnalytics(request.sql, scope, {
@@ -728,7 +809,10 @@ async function readJourneyEvents(
           eventDateRange: request.eventDateRange,
           ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
           signal: pageSignal,
+          resumable: { deadline: deadline.signal },
+          trace,
         }),
+        trace,
       };
     };
     let prefetchEnd: number | null = null;
@@ -739,6 +823,12 @@ async function readJourneyEvents(
       if (deadline.signal.aborted) {
         truncated = true;
         truncationReason = "read_deadline";
+        if (backendSink === "bigquery") {
+          stoppedPage = stoppedJourneyPage(
+            prefetched.get(raw.length),
+            pages + 1,
+          );
+        }
         break;
       }
       const pending = prefetched.get(raw.length) ?? fetchPage(raw.length);
@@ -752,6 +842,9 @@ async function readJourneyEvents(
         if (deadline.signal.aborted) {
           truncated = true;
           truncationReason = "read_deadline";
+          if (backendSink === "bigquery") {
+            stoppedPage = stoppedJourneyPage(pending, pages + 1);
+          }
           break;
         }
         if (isAbortError(error)) throw error;
@@ -865,6 +958,8 @@ async function readJourneyEvents(
       ? "stable"
       : "may_have_shifted",
     truncationReason,
+    backendSink,
+    stoppedPage,
   };
 }
 
@@ -1109,6 +1204,7 @@ async function readFollowup(
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange: onboardingJourneyEventDateRange(filters, observation),
       signal,
+      resumable: {},
     });
   } catch (error) {
     if (signal?.aborted || isAbortError(error)) throw error;
@@ -1675,6 +1771,7 @@ async function readPersonFollowup(
       eventDateRange,
       ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
       signal,
+      resumable: {},
     });
   } catch (error) {
     if (signal?.aborted || isAbortError(error)) throw error;
@@ -2228,6 +2325,7 @@ async function buildOnboardingJourneyCohorts(
   scope: AnalyticsScope,
   args: OnboardingJourneyArgs,
   read: EventRead,
+  observation: OnboardingJourneyObservationWindow,
   signal?: AbortSignal,
 ): Promise<OnboardingJourneyCohorts> {
   const partition = partitionOnboardingJourneyCohorts(read.rows, args);
@@ -2297,6 +2395,15 @@ async function buildOnboardingJourneyCohorts(
         partition.sessionlessMcpOauthSignupEvents,
     },
     tree: makeTree(partition.allSessionIds),
+    ...(read.truncationReason === "read_deadline" &&
+    observation.observationWatermark
+      ? {
+          continueWith: {
+            observationWatermark: observation.observationWatermark,
+          },
+        }
+      : {}),
+    ...(read.stoppedPage ? { stoppedPage: read.stoppedPage } : {}),
   };
   if (args.experimentId && partition.experiment) {
     const experiment = partition.experiment;
@@ -2380,7 +2487,13 @@ export async function getOnboardingJourney(
     throw new OnboardingJourneyReadError(error);
   }
   if (args.experimentId || args.splitDesignFirstTouch) {
-    return buildOnboardingJourneyCohorts(scope, args, read, signal);
+    return buildOnboardingJourneyCohorts(
+      scope,
+      args,
+      read,
+      observation,
+      signal,
+    );
   }
   const { sessions, terminalSteps, sessionsWithoutSteps } = groupSessions(
     read.rows.filter((row) => row.journeyKind === "onboarding"),
@@ -2569,15 +2682,24 @@ export async function getOnboardingJourney(
   const followupTimedOut =
     followUp.incompleteReason === "followup_aggregate_query_timeout" ||
     personFollowUp?.incompleteReason === "person_followup_query_timeout";
-  // A follow-up that had a query's full time and still ran out will run out
-  // again, so only a cut-short one is worth calling again for.
-  const followupCutShort = followupTimeoutMs < ONBOARDING_QUERY_TIMEOUT_MS;
-  if (
+  // A BigQuery query stopped by a time limit keeps running, so calling again
+  // collects it even when it needed more than one call's time. Elsewhere, only
+  // a follow-up this call cut short can finish on the next one.
+  const followupContinues =
+    read.backendSink === "bigquery" ||
+    followupTimeoutMs < ONBOARDING_QUERY_TIMEOUT_MS;
+  const stoppedForTime =
     read.truncationReason === "read_deadline" ||
-    (followupTimedOut && followupCutShort)
-  ) {
+    (followupTimedOut && followupContinues);
+  if (stoppedForTime) {
+    // Finished queries are cached on every backend; only BigQuery's
+    // unfinished ones are left running.
+    const carriedOver =
+      read.backendSink === "bigquery"
+        ? "queries that finished are kept in the query cache and unfinished BigQuery queries keep running, so the next call collects them instead of starting over"
+        : "queries that finished are kept in the query cache, so the next call continues from them";
     notes.push(
-      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: queries that finished are normally kept in the query cache, so the next call usually continues from them instead of running them again.`,
+      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again within a few minutes with the same arguments and observationWatermark="${observation.observationWatermark}": ${carriedOver}. Repeat until this note is gone.${read.stoppedPage ? ` stoppedPage says which step event page ${read.stoppedPage.page} was on when time ran out.` : ""}`,
     );
   } else if (followupTimedOut) {
     notes.push(
@@ -2589,6 +2711,14 @@ export async function getOnboardingJourney(
     app: args.app,
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
+    ...(stoppedForTime && observation.observationWatermark
+      ? {
+          continueWith: {
+            observationWatermark: observation.observationWatermark,
+          },
+        }
+      : {}),
+    ...(read.stoppedPage ? { stoppedPage: read.stoppedPage } : {}),
   };
   const truncated =
     read.onboardingTruncated || depthTruncated || capped.dropped > 0;

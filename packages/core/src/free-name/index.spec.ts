@@ -58,6 +58,14 @@ describe("nextFreeName", () => {
   it("compares names exactly, the way a unique index does", () => {
     expect(nextFreeName("Home.html", new Set(["home.html"]))).toBe("Home.html");
   });
+
+  it("puts a given separator before the number", () => {
+    expect(
+      nextFreeName("q3_renewals", new Set(["q3_renewals", "q3_renewals_2"]), {
+        separator: "_",
+      }),
+    ).toBe("q3_renewals_3");
+  });
 });
 
 describe("isFreeNameFor", () => {
@@ -81,6 +89,12 @@ describe("isFreeNameFor", () => {
     ]) {
       expect(isFreeNameFor(name, "home.html"), name).toBe(false);
     }
+  });
+
+  it("reads the separator the names were picked with", () => {
+    expect(isFreeNameFor("deals_2", "deals", { separator: "_" })).toBe(true);
+    expect(isFreeNameFor("deals-2", "deals", { separator: "_" })).toBe(false);
+    expect(isFreeNameFor("deals_2", "deals")).toBe(false);
   });
 });
 

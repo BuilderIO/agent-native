@@ -13,11 +13,19 @@ import {
   verdictFields,
   verifyPanelWrite,
   type PanelWriteVerdict,
+  withOutsideAgentVerificationBudget,
 } from "../server/lib/dashboard-panel-verification";
 import {
   getDashboard,
+  requireDashboardAccess,
   restoreDashboardRevision,
+  type DashboardRecord,
 } from "../server/lib/dashboards-store";
+import {
+  expectedUpdatedAtArg,
+  guardWrite,
+  idempotencyKeyArg,
+} from "../server/lib/guarded-writes";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -26,30 +34,66 @@ function resolveScope() {
   return { orgId, email };
 }
 
+const budgetedRun = withOutsideAgentVerificationBudget(
+  "restore-dashboard-revision",
+);
+
 export default defineAction({
   description:
-    "Restore a dashboard to a saved history revision, snapshotting the current dashboard first.",
+    "Restore a dashboard to a saved history revision from list-dashboard-revisions, snapshotting the current dashboard first so the restore can itself be undone.",
   schema: z.object({
     dashboardId: z.string().describe("Dashboard id to restore"),
     revisionId: z.string().describe("Revision id to restore"),
-    expectedUpdatedAt: z
-      .string()
-      .optional()
-      .describe("The dashboard updatedAt value observed before this restore"),
+    expectedUpdatedAt: expectedUpdatedAtArg("dashboard"),
+    idempotencyKey: idempotencyKeyArg,
   }),
   http: { method: "POST" },
-  run: async (args, actionContext) => {
+  mcpTool: true,
+  run: budgetedRun(async (args, actionContext, verificationBudget) => {
     const ctx = resolveScope();
+    const guard = guardWrite({
+      action: "restore-dashboard-revision",
+      target: { kind: "dashboard", id: args.dashboardId },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: { revisionId: args.revisionId },
+    });
+    guard.requireKey();
+    guard.requireFence();
     // Read before the restore: the verifier diffs against the config being replaced.
-    const before = isAgentCaller(actionContext?.caller)
-      ? await getDashboard(args.dashboardId, ctx)
-      : null;
-    const restored = await restoreDashboardRevision(
-      args.dashboardId,
-      args.revisionId,
-      ctx,
-      args.expectedUpdatedAt,
+    let before = null as DashboardRecord | null;
+    const outcome = await guard.run(
+      () => requireDashboardAccess(args.dashboardId, ctx, "editor"),
+      async () => {
+        before = isAgentCaller(actionContext?.caller)
+          ? await getDashboard(args.dashboardId, ctx)
+          : null;
+        return guard.onCommit
+          ? restoreDashboardRevision(
+              args.dashboardId,
+              args.revisionId,
+              ctx,
+              args.expectedUpdatedAt,
+              guard.onCommit,
+            )
+          : restoreDashboardRevision(
+              args.dashboardId,
+              args.revisionId,
+              ctx,
+              args.expectedUpdatedAt,
+            );
+      },
     );
+    if ("replayed" in outcome) {
+      return {
+        id: args.dashboardId,
+        dashboardId: args.dashboardId,
+        ...outcome.replayed,
+      };
+    }
+    const restored = outcome.written;
     if (!restored) {
       throw Object.assign(
         new Error(
@@ -76,6 +120,7 @@ export default defineAction({
           signal: actionContext?.signal,
           mode: "report",
           dashboardId: args.dashboardId,
+          budget: verificationBudget,
         });
       } catch (error) {
         verdict = {
@@ -84,6 +129,9 @@ export default defineAction({
           proof: [],
           unverified: [],
           nextStep: `REQUIRED: the restore was saved but panel verification failed (${error instanceof Error ? error.message : String(error)}). Call inspect-dashboard-panel on the panels the user cares about before telling them the dashboard renders.`,
+          ...(verificationBudget
+            ? { bigQueryBudget: await verificationBudget.report() }
+            : {}),
         };
       }
     }
@@ -93,6 +141,7 @@ export default defineAction({
       name: dashboard.title,
       updatedAt: dashboard.updatedAt,
       snapshotRevisionId,
+      ...guard.resultFields(dashboard),
       ...verdictFields(verdict),
       ...(verdict
         ? {
@@ -108,5 +157,5 @@ export default defineAction({
         verdict,
       ),
     };
-  },
+  }),
 });

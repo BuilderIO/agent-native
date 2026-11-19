@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "Somente administradores podem convidar outras pessoas. Peça ajuda ao seu administrador para convidá-las ou peça que ele também torne você administrador.",
   "settingsApiKeys.approvedOrigins": "Origens aprovadas",
   "settingsApiKeys.originsHint":
     "Uma origem HTTPS exata por linha. Vazio bloqueia o encaminhamento. HTTP local é permitido.",
@@ -1011,6 +1013,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "Obrigatório",
   "secrets.searchKeys": "Pesquisar chaves...",
   "secrets.usePersonalKey": "Usar uma chave pessoal",
+  "secrets.testing": "Testando…",
+  "secrets.cannotCheckAlone": "Esta chave não pode ser verificada isoladamente",
   "selection.attached": "{{formattedCount}} caracteres da seleção anexados",
   "selection.clear": "Limpar contexto da seleção",
   "setup.addKeyInSettings": "Adicionar uma chave nas Configurações",
@@ -1070,6 +1074,10 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultando {{agent}}...",
   "tool.elapsed": "{{duration}} decorridos",
   "tool.askingAgentFailed": "Erro ao consultar {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} precisa da sua aprovação",
+  "tool.agentApprovalReview": "Revisar no {{agent}}",
+  "tool.agentApprovalReturn": "Aprove no {{agent}} e depois continue aqui.",
+  "tool.agentApprovalContinueMessage": "Aprovei no {{agent}}. Pode continuar.",
   "tool.failedWithoutDetails": "Nenhum detalhe do erro disponível.",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",
@@ -1669,6 +1677,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "Público",
   "share.publicDescription": "Qualquer pessoa com o link pode visualizar",
   "share.remove": "Remover",
+  "share.removeInvitee": "Remover {{email}}",
   "share.role": "Função",
   "share.searching": "Procurando...",
   "share.share": "Compartilhar",
@@ -1692,6 +1701,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Todas as pessoas de {{organization}}, incluindo novos membros, poderão abrir isto e ver tudo o que há nele, incluindo mensagens, arquivos e outros conteúdos. Você pode alterar isso depois.",
   "share.confirmOrganizationAction": "Compartilhar com a organização",
   "share.confirmOrganizationSharing": "Compartilhando...",
+  "share.confirmPublicTitle":
+    "Compartilhar com qualquer pessoa que tenha o link?",
+  "share.confirmPublicDescription":
+    "Qualquer pessoa com o link, inclusive fora da sua organização, poderá abrir isto e ver todo o conteúdo. Você pode mudar isso depois.",
+  "share.confirmPublicAction": "Compartilhar publicamente",
   "settings.emailTitle": "E-mail",
   "settings.emailChange": "Alterar e-mail",
   "settings.emailChanging": "Enviando...",
@@ -2434,12 +2448,16 @@ const messages: ToolkitAgentChatTranslation = {
     "Use dados de exemplo neste navegador para apresentações.",
   "settingsShell.appGroup.labsFootnote":
     "Esses recursos novos e instáveis podem ter bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Isso já está definido para você, então não pode ser alterado aqui.",
   "settingsShell.appGroup.labsLoadError":
     "Não foi possível carregar seus Labs.",
   "settingsShell.appGroup.labsReadError":
     "Não foi possível ler esta escolha salva. Escolha Ativado ou Desativado para defini-la novamente.",
   "settingsShell.appGroup.labsSaveError":
     "Não foi possível alterar {{lab}}. Tente novamente.",
+  "settingsShell.appGroup.labsShowAll": "Mostrar todos os recursos do Labs",
+  "settingsShell.appGroup.labsUseDefault": "Usar o padrão",
   "settingsShell.appGroup.mcpAbout":
     "Conecte {{app}} ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar em {{app}} por você. Ele só vê o que você pode ver.",
   "settingsShell.appGroup.mcpAppCards": "Cartões do app em apps de chat",
@@ -3231,6 +3249,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "Gera imagens para slides e designs.",
   "settingsInfra.whyEmbeddings":
     "Melhora a pesquisa semântica. A pesquisa por palavra-chave continua funcionando sem ele.",
+  "settingsInfra.semanticSearch": "Pesquisa semântica",
+  "settingsInfra.semanticSearchOn":
+    "Encontra páginas pelo significado, além das palavras. O texto das páginas e as pesquisas vão para o provedor de Embeddings.",
+  "settingsInfra.semanticSearchOff":
+    "Desativada. A pesquisa encontra só palavras, e nenhum texto de página vai para o provedor de Embeddings.",
+  "settingsInfra.semanticSearchUnknown":
+    "Não foi possível saber se a pesquisa semântica está ativada.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "A pesquisa semântica está ativada. As páginas existentes são indexadas em segundo plano.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "A pesquisa semântica está desativada. Os vetores de páginas armazenados foram excluídos.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Não foi possível alterar a pesquisa semântica.",
   "settingsInfra.designSystem": "Inteligência do design system",
   "settingsInfra.whyDesignSystem":
     "Mantém slides e designs gerados alinhados à marca.",
@@ -3996,6 +4027,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "Não foi possível salvar as configurações da conversa por voz.",
   "voice.dictation.cancelTranscription": "Cancelar transcrição",
+  "common.noData": "Sem dados",
+  "common.rowsPerPage": "Linhas por página:",
+  "dashboardMode.columnResizePersonal":
+    "Arraste para redimensionar só para você. Clique duas vezes para redefinir.",
+  "dashboardMode.columnResizeShared": "Arraste para redimensionar para todos",
+  "sessions.watchReplay": "Ver replay",
+  "sqlDashboard.calloutSeverityCritical": "Crítico",
+  "sqlDashboard.calloutSeverityInfo": "Informação",
+  "sqlDashboard.calloutSeverityWarning": "Aviso",
+  "sqlDashboard.chartPointLimitFirst":
+    "Mostrando os primeiros {{shown}} de {{total}} pontos",
+  "sqlDashboard.chartPointLimitLast":
+    "Mostrando os últimos {{shown}} de {{total}} pontos",
+  "sqlDashboard.chartPointLimitNewest":
+    "Mostrando os {{shown}} pontos mais recentes de {{total}}",
+  "sqlDashboard.collapseDescription": "Recolher descrição",
+  "sqlDashboard.columnFormat": "Formato",
+  "sqlDashboard.columnFormatCurrency": "Moeda",
+  "sqlDashboard.columnFormatDate": "Data",
+  "sqlDashboard.columnFormatDuration": "Duração (segundos)",
+  "sqlDashboard.columnFormatNumber": "Número",
+  "sqlDashboard.columnFormatPercent": "Porcentagem",
+  "sqlDashboard.columnFormatText": "Texto simples",
+  "sqlDashboard.columnHide": "Ocultar coluna",
+  "sqlDashboard.columnName": "Nome da coluna",
+  "sqlDashboard.columnRename": "Renomear coluna",
+  "sqlDashboard.columnResize": "Redimensionar coluna",
+  "sqlDashboard.columnShow": 'Mostrar "{{name}}"',
+  "sqlDashboard.columnShowHidden": "Mostrar colunas ocultas",
+  "sqlDashboard.drilldownChartPoints": "Pontos do gráfico",
+  "sqlDashboard.drilldownNextPage": "Página seguinte dos pontos do gráfico",
+  "sqlDashboard.drilldownPageRange": "Exibindo {{start}}–{{end}} de {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "Página anterior dos pontos do gráfico",
+  "sqlDashboard.expandDescription": "Expandir descrição",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Concluíram",
+  "sqlDashboard.funnelLeft": "Saíram do app",
+  "sqlDashboard.funnelLeftHere": "Saíram do app aqui",
+  "sqlDashboard.funnelMovedOn": "Seguiram sem nenhum dos dois",
+  "sqlDashboard.funnelOptional": "Opcional",
+  "sqlDashboard.funnelShown": "{{count}} viram",
+  "sqlDashboard.funnelShownLabel": "Viram",
+  "sqlDashboard.funnelSkipped": "Pularam",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (melhor)",
+  "sqlDashboard.metricComparisonDown":
+    "Queda de {{change}} em relação a {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "Sem alteração em relação a {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "Sem alteração",
+  "sqlDashboard.metricComparisonPoints": "{{value}} p.p.",
+  "sqlDashboard.metricComparisonPreviousPeriod": "o período anterior",
+  "sqlDashboard.metricComparisonUp":
+    "Alta de {{change}} em relação a {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "em relação a {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (pior)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Clique para ordenar. Shift-clique para adicionar outra ordenação.",
+  "sqlDashboard.noXValue": "Sem valor",
 };
 
 export default messages;

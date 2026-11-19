@@ -39,6 +39,14 @@ const state = vi.hoisted(() => ({
   deleteFails: new Set<string>(),
   frameDeletes: [] as string[],
   frameDeleteFails: false,
+  trackDeletes: [] as string[],
+  tracksLeft: [] as string[],
+  richStops: [] as Array<{
+    ownerEmail: string;
+    id: string;
+    updatesBefore: number;
+  }>,
+  richStopFails: false,
   deletedAppState: [] as string[],
   ffmpegRuns: 0,
   uploadUrl: "https://cdn.example.com/media/clips/rec_1.mp4" as string | null,
@@ -160,6 +168,22 @@ vi.mock("../server/lib/agent-frame-store.js", () => ({
     return state.frameDeleteFails ? 1 : 0;
   },
 }));
+vi.mock("../server/lib/recording-policy.js", () => ({
+  stopRichRecording: async (ownerEmail: string, id: string) => {
+    if (state.richStopFails) throw new Error("app state unavailable");
+    state.richStops.push({
+      ownerEmail,
+      id,
+      updatesBefore: state.updated.length,
+    });
+  },
+}));
+vi.mock("../server/lib/recording-tracks.js", () => ({
+  deleteStoredRecordingTracks: async (target: { id: string }) => {
+    state.trackDeletes.push(target.id);
+    return state.tracksLeft;
+  },
+}));
 vi.mock("../server/lib/ensure-recording-thumbnail.js", () => ({
   ensureRecordingThumbnail: async (params: Record<string, unknown>) => {
     state.thumbnailCalls.push(params);
@@ -224,6 +248,10 @@ describe("burning redactions into a recording", () => {
     state.deleteFails = new Set();
     state.frameDeletes = [];
     state.frameDeleteFails = false;
+    state.trackDeletes = [];
+    state.tracksLeft = [];
+    state.richStops = [];
+    state.richStopFails = false;
     state.deletedAppState = [];
     state.ffmpegRuns = 0;
     state.uploadUrl = "https://cdn.example.com/media/clips/rec_1.mp4";
@@ -438,6 +466,46 @@ describe("burning redactions into a recording", () => {
     state.frameDeleteFails = true;
 
     await expect(run()).rejects.toThrow("could not be deleted from storage");
+  });
+
+  it("deletes a rich recording's separate tracks, which still show what was redacted", async () => {
+    await run();
+
+    expect(state.trackDeletes).toEqual(["rec_1"]);
+    expect(state.updated[0]).toMatchObject({
+      mediaFormat: "flat",
+      richBytes: 0,
+    });
+  });
+
+  it("stops the owner's recording keeping tracks before it swaps the video, whoever burns", async () => {
+    await burnRedactionsFor({
+      recordingId: "rec_1",
+      ownerEmail: "editor@example.com",
+    });
+
+    expect(state.richStops).toEqual([
+      { ownerEmail: "owner@example.com", id: "rec_1", updatesBefore: 0 },
+    ]);
+  });
+
+  it("swaps nothing when it can't stop the recording keeping tracks", async () => {
+    state.richStopFails = true;
+
+    await expect(run()).rejects.toThrow(/app state unavailable/);
+
+    expect(state.updated).toHaveLength(0);
+    expect(state.deleted).toEqual([state.uploadUrl]);
+  });
+
+  it("keeps the clip held when a track cannot be deleted", async () => {
+    state.tracksLeft = ["screen track of rec_1"];
+
+    await expect(run()).rejects.toThrow(/could not be deleted/i);
+
+    expect(
+      state.updated.find((u) => u.editsJson !== undefined),
+    ).toBeUndefined();
   });
 
   it("keeps the clip held when the original cannot be deleted", async () => {

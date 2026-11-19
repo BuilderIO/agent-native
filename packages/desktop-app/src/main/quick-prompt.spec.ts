@@ -128,6 +128,9 @@ vi.mock("electron", () => ({
 
 vi.mock("./app-store", () => appStore);
 
+const OWNER_A = "account:a@example.com";
+const OWNER_B = "account:b@example.com";
+
 describe("Quick Prompt focus behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -144,6 +147,7 @@ describe("Quick Prompt focus behavior", () => {
     } = await import("./quick-prompt.js");
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun: vi.fn(),
       sendOpenRequestToRenderer: vi.fn(),
     });
@@ -184,6 +188,7 @@ describe("Quick Prompt focus behavior", () => {
     mainWindow.focus();
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun: vi.fn(),
       sendOpenRequestToRenderer: vi.fn(),
     });
@@ -204,6 +209,7 @@ describe("Quick Prompt focus behavior", () => {
       await import("./quick-prompt.js");
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun: vi.fn(),
       sendOpenRequestToRenderer: vi.fn(),
     });
@@ -223,6 +229,7 @@ describe("Quick Prompt focus behavior", () => {
       await import("./quick-prompt.js");
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun: vi.fn(),
       sendOpenRequestToRenderer: vi.fn(),
     });
@@ -265,6 +272,7 @@ describe("Quick Prompt focus behavior", () => {
     const sendOpenRequestToRenderer = vi.fn();
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun: vi.fn(),
       sendOpenRequestToRenderer,
     });
@@ -294,6 +302,7 @@ describe("Quick Prompt focus behavior", () => {
       await import("./quick-prompt.js");
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun: vi.fn(),
       sendOpenRequestToRenderer: vi.fn(),
     });
@@ -324,6 +333,7 @@ describe("Quick Prompt focus behavior", () => {
       await import("./quick-prompt.js");
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun: vi.fn(),
       sendOpenRequestToRenderer: vi.fn(),
     });
@@ -357,6 +367,7 @@ describe("Quick Prompt focus behavior", () => {
     const sendOpenRequestToRenderer = vi.fn();
 
     registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
       createCodeAgentRun,
       sendOpenRequestToRenderer,
     });
@@ -390,5 +401,353 @@ describe("Quick Prompt focus behavior", () => {
       { stealFocus: true },
     );
     expect(electronState.getWindow()?.hide).toHaveBeenCalled();
+  });
+});
+
+describe("Quick Prompt account changes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    electronState.reset();
+    appStore.loadQuickPromptPreferences.mockReturnValue({ enabled: true });
+  });
+
+  async function openForAccount(email: string | null) {
+    vi.resetModules();
+    const quickPrompt = await import("./quick-prompt.js");
+    quickPrompt.registerQuickPromptIpc({
+      getIdentityKey: () => OWNER_A,
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    quickPrompt.registerQuickPromptShortcut();
+    quickPrompt.noteQuickPromptIdentity(
+      quickPrompt.quickPromptIdentityKey("signed-in", email),
+    );
+    electronState.getShortcutHandler()?.();
+    const first = electronState.getWindow();
+    electronState.getShortcutHandler()?.();
+    return { quickPrompt, first };
+  }
+
+  it("destroys the window when the account changes and opens a fresh one", async () => {
+    const { quickPrompt, first } = await openForAccount("a@example.com");
+
+    quickPrompt.noteQuickPromptIdentity(
+      quickPrompt.quickPromptIdentityKey("signed-in", "b@example.com"),
+    );
+    expect(first?.destroy).toHaveBeenCalledTimes(1);
+
+    electronState.getShortcutHandler()?.();
+    expect(electronState.getWindow()).not.toBe(first);
+    expect(electronState.getWindow()?.show).toHaveBeenCalled();
+  });
+
+  it("destroys the window on sign-out", async () => {
+    const { quickPrompt, first } = await openForAccount("a@example.com");
+
+    quickPrompt.noteQuickPromptIdentity(
+      quickPrompt.quickPromptIdentityKey("idle", null),
+    );
+    expect(first?.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("destroys the window when the signed-in account cannot be read", async () => {
+    const { quickPrompt, first } = await openForAccount("a@example.com");
+
+    quickPrompt.noteQuickPromptIdentity(
+      quickPrompt.quickPromptIdentityKey("signed-in", null),
+    );
+    expect(first?.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a startup window when the first note matches the window's owner", async () => {
+    vi.resetModules();
+    const quickPrompt = await import("./quick-prompt.js");
+    quickPrompt.registerQuickPromptIpc({
+      getIdentityKey: () => "no-account",
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    quickPrompt.registerQuickPromptShortcut();
+    electronState.getShortcutHandler()?.();
+    const first = electronState.getWindow();
+
+    quickPrompt.noteQuickPromptIdentity(
+      quickPrompt.quickPromptIdentityKey("sign-in-required", null),
+    );
+
+    expect(first?.destroy).not.toHaveBeenCalled();
+    electronState.getShortcutHandler()?.();
+    expect(electronState.getWindow()).toBe(first);
+  });
+
+  it("keeps the window when a status refresh reports the same account", async () => {
+    const { quickPrompt, first } = await openForAccount("a@example.com");
+
+    quickPrompt.noteQuickPromptIdentity(
+      quickPrompt.quickPromptIdentityKey("signed-in", "a@example.com"),
+    );
+    expect(first?.destroy).not.toHaveBeenCalled();
+
+    electronState.getShortcutHandler()?.();
+    expect(electronState.getWindow()).toBe(first);
+  });
+});
+
+describe("Quick Prompt owner binding", () => {
+  let currentOwner: string | null;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    electronState.reset();
+    appStore.loadQuickPromptPreferences.mockReturnValue({ enabled: true });
+    currentOwner = OWNER_A;
+  });
+
+  function createdRun() {
+    return {
+      ok: true as const,
+      message: "Run created",
+      run: {
+        id: "run-1",
+        goalId: "goal-1",
+        title: "Prompt",
+        status: "queued" as const,
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      },
+    };
+  }
+
+  // The owner changes without the broker's status callback ever running.
+  async function openForA(
+    createCodeAgentRun: () => Promise<
+      ReturnType<typeof createdRun>
+    > = async () => createdRun(),
+  ) {
+    vi.resetModules();
+    const quickPrompt = await import("./quick-prompt.js");
+    const sendOpenRequestToRenderer = vi.fn();
+    const runCreator = vi.fn(createCodeAgentRun);
+    quickPrompt.registerQuickPromptIpc({
+      getIdentityKey: () => currentOwner,
+      createCodeAgentRun: runCreator,
+      sendOpenRequestToRenderer,
+    });
+    quickPrompt.registerQuickPromptShortcut();
+    electronState.getShortcutHandler()?.();
+    const first = electronState.getWindow();
+    return { first, sendOpenRequestToRenderer, runCreator };
+  }
+
+  const submit = (prompt = "A private notes") =>
+    electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SUBMIT)?.(undefined, {
+      prompt,
+    });
+
+  it("replaces the window at show when only the verified email changed", async () => {
+    const { first } = await openForA();
+    electronState.getShortcutHandler()?.();
+
+    currentOwner = OWNER_B;
+    electronState.getShortcutHandler()?.();
+
+    expect(first?.destroy).toHaveBeenCalledTimes(1);
+    expect(electronState.getWindow()).not.toBe(first);
+    expect(electronState.getWindow()?.show).toHaveBeenCalled();
+  });
+
+  it("replaces the window at show when the owner cannot be read", async () => {
+    const { first } = await openForA();
+    electronState.getShortcutHandler()?.();
+
+    currentOwner = null;
+    electronState.getShortcutHandler()?.();
+
+    expect(first?.destroy).toHaveBeenCalledTimes(1);
+    expect(electronState.getWindow()).not.toBe(first);
+  });
+
+  it("keeps the window at show for the same owner", async () => {
+    const { first } = await openForA();
+    electronState.getShortcutHandler()?.();
+
+    electronState.getShortcutHandler()?.();
+
+    expect(first?.destroy).not.toHaveBeenCalled();
+    expect(electronState.getWindow()).toBe(first);
+    expect(first?.show).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a submission when only the verified email changed", async () => {
+    const { first, sendOpenRequestToRenderer, runCreator } = await openForA();
+    currentOwner = OWNER_B;
+
+    const result = await submit();
+
+    expect(result).toMatchObject({ ok: false });
+    expect(runCreator).not.toHaveBeenCalled();
+    expect(first?.destroy).toHaveBeenCalledTimes(1);
+    expect(sendOpenRequestToRenderer).not.toHaveBeenCalled();
+  });
+
+  it("opens the run for a same-owner submission", async () => {
+    const { first, sendOpenRequestToRenderer } = await openForA();
+
+    const result = await submit();
+
+    expect(result).toMatchObject({ ok: true });
+    expect(first?.destroy).not.toHaveBeenCalled();
+    expect(sendOpenRequestToRenderer).toHaveBeenCalledWith(
+      { app: CODE_AGENTS_SURFACE_ID, goalId: "goal-1", runId: "run-1" },
+      { stealFocus: true },
+    );
+  });
+
+  it("opens and focuses nothing when the owner changes during run creation", async () => {
+    let finishRun: (value: ReturnType<typeof createdRun>) => void = () => {};
+    const runCreation = new Promise<ReturnType<typeof createdRun>>(
+      (resolve) => {
+        finishRun = resolve;
+      },
+    );
+    const { first, sendOpenRequestToRenderer } = await openForA(
+      () => runCreation,
+    );
+    const focusCalls = first?.focus.mock.calls.length;
+
+    const pending = submit();
+    currentOwner = OWNER_B;
+    finishRun(createdRun());
+    const result = await pending;
+
+    expect(result).toMatchObject({ ok: true });
+    expect(sendOpenRequestToRenderer).not.toHaveBeenCalled();
+    expect(first?.hide).not.toHaveBeenCalled();
+    expect(first?.focus.mock.calls.length).toBe(focusCalls);
+    expect(electronState.app.focus).not.toHaveBeenCalled();
+  });
+});
+
+describe("Quick Prompt owner changes from the identity broker", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    electronState.reset();
+    appStore.loadQuickPromptPreferences.mockReturnValue({ enabled: true });
+  });
+
+  function deferredResponse() {
+    let resolve: (value: Response) => void = () => {};
+    const promise = new Promise<Response>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    return { promise, resolve };
+  }
+
+  const emailResponse = (email: string) =>
+    new Response(JSON.stringify({ email }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  async function brokerWithQuickPrompt(identityFetch: () => Promise<Response>) {
+    vi.resetModules();
+    const quickPrompt = await import("./quick-prompt.js");
+    const { DesktopIdentityBroker } = await import("./desktop-identity.js");
+    const authority = {
+      id: "dispatch",
+      origin: "https://dispatch.example.test",
+      cookieNames: ["an_session_dispatch"],
+      cookieNamesToClear: ["an_session_dispatch"],
+      workspaceSso: true,
+      identityAuthority: true,
+      session: {} as Electron.Session,
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: { get: vi.fn(async () => []) },
+        fetch: vi.fn(identityFetch),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      statusRevalidationIntervalMs: 0,
+      onOwnerChange: quickPrompt.noteQuickPromptIdentity,
+    });
+    quickPrompt.registerQuickPromptIpc({
+      getIdentityKey: () =>
+        quickPrompt.quickPromptIdentityKey(
+          broker.getStatus(),
+          broker.getVerifiedEmail(),
+        ),
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    quickPrompt.registerQuickPromptShortcut();
+    return { broker, authority };
+  }
+
+  it("destroys a visible window when only the verified email changes", async () => {
+    const second = deferredResponse();
+    const fetches = [
+      () => Promise.resolve(emailResponse("a@example.com")),
+      () => second.promise,
+    ];
+    const { broker, authority } = await brokerWithQuickPrompt(
+      () => fetches.shift()?.() ?? Promise.reject(new Error("unexpected")),
+    );
+    await broker.refreshStatus(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+
+    const refresh = broker.refreshStatus(authority);
+    electronState.getShortcutHandler()?.();
+    const visible = electronState.getWindow();
+    expect(visible?.show).toHaveBeenCalled();
+    expect(visible?.destroy).not.toHaveBeenCalled();
+
+    second.resolve(emailResponse("b@example.com"));
+    await refresh;
+
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(broker.getVerifiedEmail()).toBe("b@example.com");
+    expect(visible?.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a visible window while the same owner is verified again", async () => {
+    const second = deferredResponse();
+    const fetches = [
+      () => Promise.resolve(emailResponse("a@example.com")),
+      () => second.promise,
+    ];
+    const { broker, authority } = await brokerWithQuickPrompt(
+      () => fetches.shift()?.() ?? Promise.reject(new Error("unexpected")),
+    );
+    await broker.refreshStatus(authority);
+
+    const refresh = broker.refreshStatus(authority);
+    electronState.getShortcutHandler()?.();
+    const visible = electronState.getWindow();
+    second.resolve(emailResponse("a@example.com"));
+    await refresh;
+
+    expect(visible?.destroy).not.toHaveBeenCalled();
+  });
+
+  it("keeps a startup window when the first status note keeps the start owner", async () => {
+    const first = deferredResponse();
+    const { broker, authority } = await brokerWithQuickPrompt(
+      () => first.promise,
+    );
+
+    const refresh = broker.refreshStatus(authority);
+    electronState.getShortcutHandler()?.();
+    const startup = electronState.getWindow();
+    first.resolve(new Response(null, { status: 401 }));
+    await refresh;
+
+    expect(broker.getStatus()).toBe("sign-in-required");
+    expect(startup?.destroy).not.toHaveBeenCalled();
   });
 });

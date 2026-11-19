@@ -2900,14 +2900,14 @@ export function useSendEmail() {
   return useMutation({
     mutationFn: (data: {
       to: string;
-      cc?: string;
-      bcc?: string;
+      cc?: string | undefined;
+      bcc?: string | undefined;
       subject: string;
       body: string;
-      replyToId?: string;
-      replyToThreadId?: string;
-      accountEmail?: string;
-      attachments?: ComposeAttachment[];
+      replyToId?: string | undefined;
+      replyToThreadId?: string | undefined;
+      accountEmail?: string | undefined;
+      attachments?: ComposeAttachment[] | undefined;
     }) =>
       apiFetch<{
         id: string;

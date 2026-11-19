@@ -1,5 +1,3 @@
-import { describe, expect, it } from "vitest";
-
 import {
   formatPanelEventTime,
   formatPanelEventWhen,
@@ -11,8 +9,9 @@ import {
   panelEventProblem,
   resolvePanelEvents,
   xInstant,
-} from "./panel-events";
-import { unknownPanelConfigKeys } from "./panel-render-contract";
+} from "@agent-native/toolkit/dashboard/panel-events";
+import { unknownPanelConfigKeys } from "@agent-native/toolkit/dashboard/panel-render-contract";
+import { describe, expect, it } from "vitest";
 
 const days = ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"];
 

@@ -6,6 +6,7 @@ export default [
   route("home/:threadId", "./routes/home.$threadId.tsx"),
   route("agent", "./routes/agent.tsx"),
   route("search", "./routes/search.tsx"),
+  route("intelligence", "./routes/intelligence.tsx"),
   route("knowledge", "./routes/knowledge.tsx"),
   route("review", "./routes/review.tsx"),
   route("sources", "./routes/sources.tsx"),
