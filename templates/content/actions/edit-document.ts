@@ -50,6 +50,10 @@ import {
   type ContentSaveOutcomeDimensions,
 } from "./_content-save-outcomes.js";
 import {
+  assertAgentsMayEditPageText,
+  assertAgentsMayEditPagesText,
+} from "./_document-agent-lock.js";
+import {
   assertEditableDocument,
   mutateDocumentBody,
 } from "./_document-edit-mutation.js";
@@ -102,7 +106,7 @@ const editDocumentSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Opaque revision returned by get-document for the exact body being edited.",
+      "Opaque revision of the exact body being edited, from get-document, create-document or the previous edit's receipt.revisions.after. A receipt with outcome \"applied\" and readback.verified already confirms the saved body, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
     ),
   idempotencyKey: z
     .string()
@@ -161,7 +165,7 @@ const externalEditDocumentSchema = editDocumentSchema.extend({
     .string()
     .min(1)
     .describe(
-      "Required. Opaque revision returned by get-document for the exact body being edited.",
+      "Required. Opaque revision of the exact body being edited, from get-document, create-document or the previous edit's receipt.revisions.after. A receipt with outcome \"applied\" and readback.verified already confirms the saved body, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
     ),
   idempotencyKey: z
     .string()
@@ -297,7 +301,7 @@ async function editThroughLiveCopy(args: {
 
 export default defineAction({
   description:
-    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks, and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey.",
+    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks (text between backticks is literal), and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. Pass baseRevision and a caller-generated idempotencyKey; an applied receipt needs no readback.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
@@ -462,6 +466,7 @@ export default defineAction({
     }
 
     assertEditableDocument(existing);
+    assertAgentsMayEditPageText(existing, ctx);
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
@@ -612,6 +617,10 @@ export default defineAction({
           routed: !isLinkedLocalSource,
           content: null,
         });
+        // A linked file has already taken the edit, so its page follows it.
+        if (!isLinkedLocalSource) {
+          await assertAgentsMayEditPagesText(tx, [id], ctx);
+        }
         const mirrored = await tx
           .update(schema.documents)
           .set({

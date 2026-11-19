@@ -64,3 +64,43 @@ export function shouldHandleAgentPanelChatShortcut(
     element.closest?.("[contenteditable]")
   );
 }
+
+/** Open chat without importing the sidebar renderer or its deferred UI graph. */
+export function focusAgentChat() {
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:set-mode", {
+      detail: { mode: "chat" },
+    }),
+  );
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+  );
+  focusAgentChatComposer();
+}
+
+export function focusAgentChatComposer() {
+  const focusComposer = (attempt = 0) => {
+    if (typeof window === "undefined" || typeof document === "undefined")
+      return;
+    const panel = document.querySelector(
+      ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
+        ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
+    );
+    const composer = panel?.querySelector<HTMLElement>(
+      ".ProseMirror, textarea",
+    );
+    if (
+      composer &&
+      composer.getAttribute("contenteditable") !== "false" &&
+      !composer.hasAttribute("disabled")
+    ) {
+      composer.focus();
+      return;
+    }
+    if (attempt < 40) {
+      window.setTimeout(() => focusComposer(attempt + 1), 50);
+    }
+  };
+  // ponytail: retry for 2s so a slow body chunk can still receive shortcut focus.
+  requestAnimationFrame(() => focusComposer());
+}

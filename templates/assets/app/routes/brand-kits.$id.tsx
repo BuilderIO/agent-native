@@ -2,6 +2,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appApiPath,
+  appPath,
 } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
@@ -1266,9 +1267,13 @@ export function BrandKitDetailRoute({
     <ShareButton
       resourceType="asset-library"
       resourceId={library.id}
+      shareUrl={
+        typeof window === "undefined"
+          ? undefined
+          : `${window.location.origin}${appPath(`/library/${encodeURIComponent(library.id)}`)}`
+      }
       allowedRoles={["viewer", "editor", "admin"]}
       resourceTitle={library.title}
-      triggerClassName="h-10 px-4 border-input bg-background hover:bg-accent hover:text-accent-foreground"
     />
   );
   const headerActions = (

@@ -1,5 +1,9 @@
 import { canonicalizeNfm } from "@shared/nfm";
-import type { MarkdownSuggestionOperation } from "@shared/suggestion-diff";
+import { applyMarkdownSuggestionWithSiblings } from "@shared/suggestion-apply";
+import {
+  markdownSuggestionOperationsForFindReplace,
+  type MarkdownSuggestionOperation,
+} from "@shared/suggestion-diff";
 import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
 import { describe, expect, it } from "vitest";
 
@@ -1043,5 +1047,180 @@ describe("committed suggestion presentation proof", () => {
       ]).size,
     ).toBe(0);
     expect(pruneSuggestionPresentationTransitions(retained, []).size).toBe(0);
+  });
+});
+
+describe("a pending piece reloaded beside other accepted edits", () => {
+  const page = [
+    "**To confirm:**",
+    "",
+    "- **Vendor:** whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+    "- **Host:** which regions to test, and who reviews the benchmark.",
+    "",
+    "Thanks.",
+  ].join("\n");
+
+  function split(proposalId: string, find: string, replace: string) {
+    return markdownSuggestionOperationsForFindReplace({
+      before: page,
+      find,
+      replace,
+      start: page.indexOf(find),
+    }).map((operation, index) => ({
+      id: `${proposalId}-${index}`,
+      proposalId,
+      status: "pending" as const,
+      revision: 1,
+      operation,
+      operations: [operation],
+    }));
+  }
+  type Piece = ReturnType<typeof split>[number];
+
+  const lower = split(
+    "lower",
+    "which regions to test, and who reviews the benchmark.",
+    "\n\t- **Regions.** Which three should we test?\n\t- **Benchmark.** Who reviews it?",
+  );
+  const upper = split(
+    "upper",
+    "whether to feature request signing, and in which piece; which plan includes the retry hooks we'd use; whether the vendor's test tool can point at our host; and the vendor's technical reviewer.",
+    "\n\t- **Request signing.** Would the vendor like to show that, and in which article?\n\t- **Retries.** Which vendor plan includes them?\n\t- **Testing.** Can its test tool point at our host?\n\t- **Reviewer.** Who should check the vendor claims?",
+  );
+
+  const written = ({ operation }: Piece) => ({
+    from: operation.anchor.from,
+    to: operation.anchor.to,
+    text: operation.after.changedText,
+  });
+  const asAccepted = (piece: Piece) => ({
+    ...piece,
+    status: "accepted" as const,
+  });
+
+  function accept(pieces: Piece[]) {
+    let body = page;
+    pieces.forEach((piece, index) => {
+      const next = applyMarkdownSuggestionWithSiblings(
+        body,
+        piece.operation,
+        pieces.slice(0, index).map(written),
+      );
+      if (next === null) throw new Error(`Could not accept ${piece.id}`);
+      body = next;
+    });
+    return body;
+  }
+
+  /** Where the Page shows `piece` after a reload, given what was accepted. */
+  function shownAt(body: string, piece: Piece, accepted: Piece[]) {
+    const hydrated = hydrateSuggestionPresentationTransitions(
+      new Map(),
+      [piece],
+      accepted.map(asAccepted),
+      body,
+    );
+    return resolveSuggestionPresentationRange(
+      body,
+      piece.operation,
+      hydrated.get(suggestionPresentationTransitionKey(piece)),
+    );
+  }
+
+  /** Checks that the Page shows `piece` where accepting it would write it. */
+  function expectShownWhereItApplies(
+    body: string,
+    piece: Piece,
+    accepted: Piece[],
+  ) {
+    const applied = applyMarkdownSuggestionWithSiblings(
+      body,
+      piece.operation,
+      accepted.map(written),
+    );
+    expect(applied, `accepting ${piece.id}`).not.toBeNull();
+    const range = shownAt(body, piece, accepted);
+    expect(
+      range &&
+        `${body.slice(0, range.from)}${piece.operation.after.changedText}${body.slice(range.to)}`,
+      `showing ${piece.id}`,
+    ).toBe(applied);
+  }
+
+  it("shows each pending piece where accepting it would write it", () => {
+    expect(upper.length).toBeGreaterThan(5);
+    for (let done = 0; done < upper.length; done += 1) {
+      const accepted = [...lower, ...upper.slice(0, done)];
+      const body = accept(accepted);
+      for (const piece of upper.slice(done)) {
+        expectShownWhereItApplies(body, piece, accepted);
+      }
+    }
+  });
+
+  it("shows a piece with accepted pieces on both sides of it", () => {
+    const accepted = [...lower, ...upper.filter((_, index) => index % 2 === 0)];
+    const body = accept(accepted);
+    for (const piece of upper.filter((_, index) => index % 2 === 1)) {
+      expectShownWhereItApplies(body, piece, accepted);
+    }
+  });
+
+  it("shows the last piece on the Page as the editor saves it", () => {
+    const [lastPiece = null] = upper.slice(-1);
+    if (!lastPiece) throw new Error("No last piece");
+    const accepted = [...lower, ...upper.slice(0, -1)];
+    const saved = canonicalizeNfm(accept(accepted));
+    const range = shownAt(saved, lastPiece, accepted);
+    expect(range && saved.slice(range.from, range.to)).toBe(
+      lastPiece.operation.before.changedText,
+    );
+  });
+
+  it("still hides a piece whose words someone else changed", () => {
+    const piece = upper.find(
+      ({ operation }) => operation.before.changedText.trim().length > 2,
+    );
+    if (!piece) throw new Error("No piece rewrites a word");
+    const accepted = [...lower, ...upper.slice(0, upper.indexOf(piece))];
+    const body = accept(accepted);
+    const changed = body.replace(
+      piece.operation.before.changedText,
+      "something else entirely",
+    );
+    expect(changed).not.toBe(body);
+    expect(shownAt(changed, piece, accepted)).toBeNull();
+  });
+
+  it("hides a piece when the accepted edits do not explain the Page together", () => {
+    // Each accepted edit alone has one place for "foo" on this Page, and they
+    // are different places. Together they explain neither.
+    const base = "A foo B";
+    const piece = {
+      id: "foo",
+      status: "pending" as const,
+      revision: 1,
+      operations: [edit(base, 2, 5, "new")],
+    };
+    const accepted = [
+      { id: "a", operations: [edit(base, 0, 1, "C")] },
+      { id: "b", operations: [edit(base, 6, 7, "D")] },
+    ].map((record) => ({ ...record, status: "accepted" as const }));
+    expect(
+      hydrateSuggestionPresentationTransitions(
+        new Map(),
+        [piece],
+        accepted,
+        "C foo B\n\nA foo D",
+      ).size,
+    ).toBe(0);
+    expect(
+      hydrateSuggestionPresentationTransitions(
+        new Map(),
+        [piece],
+        accepted,
+        "C foo D",
+      ).size,
+    ).toBe(1);
   });
 });

@@ -54,13 +54,12 @@ export async function resolveA2ACallerAuth(options?: {
     userEmail &&
     !isOrgMemberDelegation &&
     options?.audience &&
-    globalSecret &&
-    (options?.userIdentityOnly || !orgId || orgDomain?.trim())
+    globalSecret
   ) {
     addApiKeyAttempt(
       await signA2AToken(
         userEmail,
-        options?.userIdentityOnly ? undefined : orgDomain,
+        options.userIdentityOnly ? undefined : orgDomain?.trim() || undefined,
         undefined,
         {
           expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,

@@ -24,6 +24,7 @@ const { default: queryDashboardPanel } =
   await import("./query-dashboard-panel");
 const { BigQueryMaximumBytesBilledError } =
   await import("../server/lib/bigquery");
+const { newBigQueryJobUsage } = await import("../server/lib/bigquery-usage");
 
 describe("query-dashboard-panel", () => {
   beforeEach(() => {
@@ -38,7 +39,18 @@ describe("query-dashboard-panel", () => {
       orgId: "org-1",
     });
     mocks.normalizeDashboardPanelQuery.mockReturnValue("select 1");
-    mocks.resolveAnalyticsPanelSource.mockResolvedValue({ rows: [] });
+    mocks.resolveAnalyticsPanelSource.mockImplementation(
+      async (_request, context) => {
+        expect(
+          newBigQueryJobUsage("fixture-project", "fixture-job", context),
+        ).toMatchObject({
+          workload: "dashboard-panel",
+          ownerEmail: "alice@example.com",
+          orgId: "org-1",
+        });
+        return { rows: [] };
+      },
+    );
 
     await queryDashboardPanel.run(
       { source: "first-party", query: "select 1", environment: "beta" },

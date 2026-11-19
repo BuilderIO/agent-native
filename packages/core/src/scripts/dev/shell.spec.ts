@@ -14,6 +14,7 @@ describe("dev shell tool", () => {
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_USER_NAME;
     delete process.env.AGENT_ORG_ID;
+    delete process.env.AGENT_ORG_SCOPE;
     delete process.env.AGENT_USER_TIMEZONE;
   });
 
@@ -21,6 +22,7 @@ describe("dev shell tool", () => {
     process.env.AGENT_USER_EMAIL = "stale@example.com";
     process.env.AGENT_USER_NAME = "Stale User";
     process.env.AGENT_ORG_ID = "stale-org";
+    process.env.AGENT_ORG_SCOPE = "personal";
     process.env.AGENT_USER_TIMEZONE = "UTC";
 
     const { run } = await import("./shell.js");
@@ -46,7 +48,27 @@ describe("dev shell tool", () => {
         }),
       }),
     );
+    expect(
+      execSyncMock.mock.calls[0]?.[1]?.env.AGENT_ORG_SCOPE,
+    ).toBeUndefined();
     expect(process.env.AGENT_USER_EMAIL).toBe("stale@example.com");
+  });
+
+  it("keeps a personal request's child commands out of the user's org", async () => {
+    // With no AGENT_ORG_ID, `pnpm action` would otherwise look up the user's
+    // active org, giving the command access the request never had.
+    process.env.AGENT_ORG_ID = "stale-org";
+
+    const { run } = await import("./shell.js");
+
+    await runWithRequestContext({ userEmail: "madison@example.com" }, () =>
+      run({ command: "pnpm action list-items" }),
+    );
+
+    const env = execSyncMock.mock.calls[0]?.[1]?.env;
+    expect(env.AGENT_USER_EMAIL).toBe("madison@example.com");
+    expect(env.AGENT_ORG_ID).toBeUndefined();
+    expect(env.AGENT_ORG_SCOPE).toBe("personal");
   });
 
   it("does not leak stale process identity into anonymous request contexts", async () => {

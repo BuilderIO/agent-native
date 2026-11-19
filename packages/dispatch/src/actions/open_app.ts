@@ -15,39 +15,34 @@ import {
 } from "../server/lib/mcp-gateway.js";
 
 const deepLinkParam = z.union([z.string(), z.number(), z.boolean()]);
-const openAppSchema = z
-  .object({
-    app: z
-      .string()
-      .describe(
-        'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions.',
-      ),
-    view: z.string().optional().describe("Target view in the app, e.g. inbox."),
-    path: z
-      .string()
-      .optional()
-      .describe(
-        'Optional route within the target app, e.g. /adhoc/q2 or /chart?panel=... . Dispatch extension routes such as /extensions/<id>/<slug> belong to app "dispatch".',
-      ),
-    params: z
-      .record(z.string(), deepLinkParam)
-      .optional()
-      .describe("Optional record-focus or filter params."),
-    embed: z
-      .boolean()
-      .optional()
-      .describe(
-        "Render the app or focused route/component inline in MCP Apps when supported.",
-      ),
-    chrome: z
-      .enum(["full", "minimal"])
-      .optional()
-      .describe("Embed chrome preference for compatible app routes."),
-  })
-  .refine((input) => input.view?.trim() || input.path?.trim(), {
-    message: "open_app requires either view or path",
-    path: ["view"],
-  });
+const openAppSchema = z.object({
+  app: z
+    .string()
+    .describe(
+      'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions.',
+    ),
+  view: z.string().optional().describe("Target view in the app, e.g. inbox."),
+  path: z
+    .string()
+    .optional()
+    .describe(
+      'Optional route within the target app, e.g. /adhoc/q2 or /chart?panel=... . Omit both view and path to open the app\'s home. Dispatch extension routes such as /extensions/<id>/<slug> belong to app "dispatch".',
+    ),
+  params: z
+    .record(z.string(), deepLinkParam)
+    .optional()
+    .describe("Optional record-focus or filter params."),
+  embed: z
+    .boolean()
+    .optional()
+    .describe(
+      "Render the app or focused route/component inline in MCP Apps when supported.",
+    ),
+  chrome: z
+    .enum(["full", "minimal"])
+    .optional()
+    .describe("Embed chrome preference for compatible app routes."),
+});
 
 type OpenAppArgs = z.infer<typeof openAppSchema>;
 
@@ -128,13 +123,21 @@ const openAppResource = embedApp({
 
 export default defineAction({
   description:
-    'Build a deep link or embeddable app route/component route for an app available through Dispatch MCP. Use app "dispatch" for Dispatch extension/tool pages. No side effects; surface the returned Open link to the user.',
+    "Show a found or created mail, event, document, or record when viewing it is the useful result. Returns a registered app route for the chat client to open beside the conversation.",
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
+  opensAnotherAppEmbed: true,
   run: async (args, ctx) => {
-    const result = await openGrantedDispatchMcpApp(normalizeOpenAppArgs(args));
+    const normalized = normalizeOpenAppArgs(args);
+    // An MCP host shows the app from the session the target app mints, so
+    // ask for one unless the caller opted out.
+    const result = await openGrantedDispatchMcpApp(
+      normalized.embed == null && ctx?.caller === "mcp"
+        ? { ...normalized, embed: true }
+        : normalized,
+    );
     const targetApp = normalizeTrackingDimension(result.app) ?? result.app;
     if (targetApp !== "dispatch") {
       track(
@@ -149,7 +152,9 @@ export default defineAction({
         ctx,
       );
     }
-    return result;
+    // The gateway echoes only `embed: true`; the MCP server reads an explicit
+    // `false` to open no panel.
+    return normalized.embed === false ? { ...result, embed: false } : result;
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;

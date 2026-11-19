@@ -26,17 +26,22 @@ vi.mock("./bigquery", () => ({
 vi.mock("./dashboard-report-subscriptions", () => ({
   countEnabledDashboardReportSubscriptions: mocks.countReports,
 }));
-vi.mock("../../shared/panel-render-contract", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../shared/panel-render-contract")>();
-  return {
-    ...actual,
-    planPanelRender: (...args: Parameters<typeof actual.planPanelRender>) => {
-      if (mocks.planFailure.current) throw mocks.planFailure.current;
-      return actual.planPanelRender(...args);
-    },
-  };
-});
+vi.mock(
+  "@agent-native/toolkit/dashboard/panel-render-contract",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@agent-native/toolkit/dashboard/panel-render-contract")
+      >();
+    return {
+      ...actual,
+      planPanelRender: (...args: Parameters<typeof actual.planPanelRender>) => {
+        if (mocks.planFailure.current) throw mocks.planFailure.current;
+        return actual.planPanelRender(...args);
+      },
+    };
+  },
+);
 
 const {
   annotateSummary,
@@ -1521,7 +1526,17 @@ describe("cost of a write", () => {
     true;
 
   it("prices only the changed panel and reports monthly runs for its email reports", async () => {
-    mocks.resolve.mockResolvedValue(rows(WIDE));
+    const { newBigQueryJobUsage } = await import("./bigquery-usage");
+    mocks.resolve.mockImplementation(async (_request, context) => {
+      expect(
+        newBigQueryJobUsage("fixture-project", "fixture-job", context),
+      ).toMatchObject({
+        workload: "panel-verification",
+        dashboardId: "d1",
+        panelId: "p1",
+      });
+      return rows(WIDE);
+    });
     mocks.dryRun.mockResolvedValue({
       error: null,
       totalBytesProcessed: 2 * GIB,

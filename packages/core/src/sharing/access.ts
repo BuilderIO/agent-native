@@ -16,11 +16,13 @@ import {
   workspaceUserGroupsIncludeUser,
   workspaceUserGroupsTable,
 } from "../workspace-connections/groups.js";
+import { ForbiddenError } from "./errors.js";
 import {
   listShareableResources,
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "./registry.js";
+export { ForbiddenError } from "./errors.js";
 import {
   LINK_PRINCIPAL_ID,
   LINK_PRINCIPAL_TYPE,
@@ -37,14 +39,6 @@ function findRegistrationByTable(
     if (reg.resourceTable === resourceTable) return reg;
   }
   return undefined;
-}
-
-export class ForbiddenError extends Error {
-  statusCode = 403;
-  constructor(message = "Forbidden") {
-    super(message);
-    this.name = "ForbiddenError";
-  }
 }
 
 export interface AccessContext {
@@ -476,6 +470,21 @@ async function publicAccessRoleForResource(
     : roleResolver;
 }
 
+async function capabilityAccessRoleForResource(
+  reg: ShareableResourceRegistration,
+  resource: Record<string, unknown>,
+  ctx: AccessContext,
+): Promise<ShareRole | null> {
+  if (!reg.capabilityAccessRole || !ctx.authCapability) return null;
+  return (
+    (await reg.capabilityAccessRole(resource, {
+      userEmail: ctx.userEmail,
+      orgId: ctx.orgId,
+      authCapability: ctx.authCapability,
+    })) ?? null
+  );
+}
+
 /** The "Anyone with the link" role, for signed-in callers only. */
 async function linkShareRole(
   reg: ShareableResourceRegistration,
@@ -595,7 +604,9 @@ export function isResourceAvailable(
 function hasDynamicPublicAccessRoleResolver(
   reg: ShareableResourceRegistration,
 ): boolean {
-  return typeof reg.publicAccessRole === "function";
+  return (
+    typeof reg.publicAccessRole === "function" || !!reg.capabilityAccessRole
+  );
 }
 
 interface AccessRow {
@@ -932,6 +943,11 @@ export function registerHostAccessResolver(
   }
 }
 
+/** Whether a host access resolver is registered for `resourceType`. */
+export function hasHostAccessResolver(resourceType: string): boolean {
+  return hostAccessResolvers.has(resourceType);
+}
+
 async function ownerOrAdminRole(
   reg: ShareableResourceRegistration,
   resource: any,
@@ -1007,7 +1023,15 @@ async function accessToResource(
     isOrgMember,
     batch,
   );
-  const shareRole = role === "admin" && reg.canManageAccess ? "editor" : role;
+  const grantedRole = role === "admin" && reg.canManageAccess ? "editor" : role;
+  const capabilityRole = await capabilityAccessRoleForResource(
+    reg,
+    resource,
+    ctx,
+  );
+  const shareRole = capabilityRole
+    ? higherShareRole(capabilityRole, grantedRole)
+    : grantedRole;
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     const publicRole = higherShareRole(
       await publicAccessRoleForResource(reg, resource, ctx),

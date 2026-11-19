@@ -1,10 +1,9 @@
-import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import { i18nCatalog } from "../../app/i18n";
 import { App, installAuthFetchInterceptor } from "./app";
+import { DesktopProviders } from "./desktop-providers";
 import { installBrowserPreview } from "./dev/browser-preview";
 import { initDesktopSentry } from "./lib/sentry";
 import { asDesktopSettingsTab } from "./lib/settings-navigation";
@@ -197,11 +196,11 @@ if (rootEl) {
   installBeforeUnloadCleanup();
   installHeapDebugLog();
   ReactDOM.createRoot(rootEl).render(
-    <AgentNativeI18nProvider catalog={i18nCatalog} persistPreference={false}>
+    <DesktopProviders>
       {pickRoute(route)}
       {route === "popover" || route === "settings" ? (
         <QuitRecoveryDialog />
       ) : null}
-    </AgentNativeI18nProvider>,
+    </DesktopProviders>,
   );
 }

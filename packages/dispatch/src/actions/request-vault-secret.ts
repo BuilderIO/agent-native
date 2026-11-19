@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createRequest } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Request access to a credential for an app. Non-admins use this to ask workspace admins to provision a secret.",
   schema: z.object({

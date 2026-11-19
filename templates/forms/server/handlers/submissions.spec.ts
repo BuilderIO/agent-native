@@ -21,6 +21,7 @@ const fireIntegrations = vi.hoisted(() => vi.fn());
 const buildIntegrationDeliverySnapshots = vi.hoisted(() => vi.fn());
 const deliverIntegrationDelivery = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
+const parseBody = vi.hoisted(() => vi.fn(async () => state.body));
 
 const publishedForm = {
   id: "form_1",
@@ -48,7 +49,7 @@ vi.mock("h3", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: async () => state.session,
-  readBody: async () => state.body,
+  readBody: parseBody,
   runWithRequestContext: (ctx: Record<string, unknown>, fn: () => unknown) => {
     state.requestContexts.push(ctx);
     return fn();
@@ -281,7 +282,17 @@ const { reconcileResponseDeliveries, submitForm } =
 
 async function submit(body: unknown) {
   state.body = body;
-  return (submitForm as unknown as (e: unknown) => Promise<unknown>)({});
+  return (submitForm as unknown as (e: unknown) => Promise<unknown>)({
+    req: new Request("https://forms.example.test/submit", {
+      method: "POST",
+      headers: Object.fromEntries(
+        Object.entries(state.headers).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
+      ),
+      body: JSON.stringify(body),
+    }),
+  });
 }
 
 describe("submitForm pageUrl pass-through", () => {
@@ -297,6 +308,7 @@ describe("submitForm pageUrl pass-through", () => {
     state.session = null;
     state.formIdentifier = "form_1";
     setResponseHeader.mockClear();
+    parseBody.mockClear();
     publishedForm.status = "published";
     publishedForm.deletedAt = null;
     publishedForm.fields = JSON.stringify([
@@ -416,11 +428,15 @@ describe("submitForm pageUrl pass-through", () => {
 
     expect(res).toMatchObject({ success: true });
     expect(setResponseHeader).toHaveBeenCalledWith(
-      {},
+      expect.any(Object),
       "Access-Control-Allow-Origin",
       "https://docs.example.com",
     );
-    expect(setResponseHeader).toHaveBeenCalledWith({}, "Vary", "Origin");
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.any(Object),
+      "Vary",
+      "Origin",
+    );
     expect(state.inserted[0]!.formId).toBe("form_1");
     expect(JSON.parse(String(state.inserted[0]!.data))).toEqual({
       attachment: {
@@ -460,6 +476,7 @@ describe("submitForm pageUrl pass-through", () => {
     const res = await submit({ data: { msg: "x".repeat(101 * 1024) } });
 
     expect(res).toEqual({ error: "Payload too large" });
+    expect(parseBody).not.toHaveBeenCalled();
     expect(state.inserted).toHaveLength(0);
   });
 

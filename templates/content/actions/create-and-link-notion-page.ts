@@ -25,6 +25,7 @@ export default defineAction({
       owner,
       documentId,
       args.parentPageIdOrUrl,
+      ctx,
     );
     track(
       "notion_synced",

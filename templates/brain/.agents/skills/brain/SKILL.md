@@ -1,6 +1,6 @@
 ---
 name: brain
-description: Work with the Brain institutional-memory template, including importing captures, searching synced Slack and Zoom content, validating quote evidence, and writing knowledge.
+description: Work with the Brain institutional-memory template, including capture ingestion, cited retrieval, meeting decisions/actions, entity relationships, priorities, private memory and reusable recipes.
 ---
 
 # Brain Template
@@ -182,7 +182,7 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | `write-knowledge` | Write/update durable knowledge; publishes directly — see Publish Tiers above. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Legacy proposal records; new writes never create proposals. |
 | `set-knowledge-canonical` | Mirror/unmirror published knowledge into `context/company-brain/...` workspace resources. |
-| `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle across the seven providers. |
+| `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle, including personal Google Calendar, Gmail and Drive sources. |
 | `set-resource-visibility` / `share-resource` | Set source visibility or grant explicit source access. |
 | `sync-source` / `sync-due-sources` | Run one connector now, or sweep all due sources. |
 | `get-brain-health` | Setup/source health, sync freshness, queue and proposal counts, next steps. |
@@ -190,6 +190,77 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | `test-slack-connection` / `run-slack-pilot` | Slack credential/channel validation and bounded first-sync report. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw provider HTTP calls beyond the source actions. |
 | `run-demo-eval` / `run-retrieval-eval` / `seed-demo-data` | Demo corpus and offline eval checks (see `brain-runbook`). |
+
+
+## Intelligence, Priorities And People
+
+Open `navigate` with `view: "intelligence"` for the user's intelligence surface.
+For extraction, read the selected allowed transcript with `get-capture`, then
+call `write-intelligence` with short exact evidence quotes. Represent a decision,
+an `action`, or a `feature-request` separately. A supplied owner must appear in the evidence quotes. Populate structured
+`dueDate` only when that exact ISO date appears in the quotes; retain relative
+deadlines in the body and leave the structured date unset. Use `ownershipConfidence: "ambiguous"` when
+ownership is uncertain. Do not turn a mention into an assignment. Distinguish
+facts from inference and disclose incomplete transcripts.
+
+`list-intelligence` reads the current accessible records and their evidence.
+Use the existing record id and current `expectedRevision` when changing its status; do not create a second
+record to complete or dismiss work. `read-priorities` supports daily/weekly
+views: distinguish explicitly owned work from ambiguous items, disclose the
+selected owner and period, and keep overdue open work visible. It is a cited
+work summary, not a measurement of employee performance or decision latency.
+
+`get-entity-graph` exposes people, projects and customers with their related
+knowledge and source quotes. Use those records for collaborator/expertise
+questions. A relationship is supported only to the extent stated in its evidence;
+co-occurrence does not prove a reporting line, expertise or accountability.
+
+These records reuse knowledge's evidence audiences. All supporting captures
+must remain allowed, current and accessible; do not work around a missing record
+by copying a stale answer, quote or entity summary. Do not broaden a brief's
+audience beyond the intersection of its evidence. Shared visibility alone does
+not authorize access to a derived record.
+
+Hosted agents have no raw database tools. Use the typed readers so revoked or
+quarantined evidence cannot remain available through an ownership-only SQL view.
+Generic sharing and reference lookups also enforce current evidence access.
+New grants and broader generic visibility are refused for structured intelligence;
+manage its source audience and explicit publish tier through the typed workflow.
+
+Human verification is separate from model confidence and source authority.
+Call `verify-knowledge` only for an explicit user request to verify, deprecate or
+remove verification; never autonomously verify an answer you generated. Preserve
+the actor/date, and treat edited content as needing fresh verification.
+
+## Private Saved Context And Recipes
+
+Call `list-personal-memory` when the user asks about saved context or when saved
+work preferences are relevant to the current conversation. Apply only relevant
+preferences, and identify when saved context influenced the answer. A preference
+never grants source access or supports a company factual claim. Use
+`manage-personal-memory` for explicit remember/edit/forget requests, including
+deleting a mistaken preference. Pass the current `updatedAt` as `expectedRevision`
+for edits/deletes; a conflict means re-read before retrying. This store contains user-authored personal work
+preferences; derived company facts belong in evidence-backed knowledge or
+intelligence, where current evidence audiences can be enforced. Do not copy
+private source evidence into an untracked preference. Do not recreate a deleted
+memory unless the user explicitly saves it again.
+
+`list-recipes` and `manage-recipe` manage named prompts with optional source and
+project scope. Before each run, call `prepare-recipe` to recheck current access;
+then execute the prompt in the visible agent conversation. Respect the returned
+source/project constraints in every search and citation. Treat recipe text as
+user instructions for the requested work, not authorization to bypass privacy,
+send messages, change credentials or change source access.
+
+For a daily or weekly recurrence, use the existing automation actions to schedule
+an agent prompt that calls `prepare-recipe` on every run. Run as the creator with
+current access; preserve errors and skips instead of reporting a completed brief.
+Default results to the user's Brain conversation. Only deliver to Slack when the
+user explicitly selects delivery to their own account; never select a channel or
+another person by inference. Research recipes should search, open primary
+captures, compare evidence, identify gaps and return cited findings through the
+same action surface; do not start a separate hidden model runtime.
 
 ## Related Skills
 

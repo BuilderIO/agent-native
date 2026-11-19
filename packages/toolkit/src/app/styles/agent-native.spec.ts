@@ -174,6 +174,20 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  it("turns the drawer's collapse icons when hosted chat moves it to the end", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const movedDrawerIcons =
+      /:is\(\s*\.agent-layout-shell:not\(\[data-agent-native-shell-variant="custom"\]\):has\(\s*> \.agent-sidebar-shell\[data-agent-native-hosted-chat="true"\]\s*\),\s*\.agent-sidebar-shell\[data-agent-native-hosted-chat="true"\]\s*\.agent-layout-shell:not\(\[data-agent-native-shell-variant="custom"\]\)\s*\)\s*> \.agent-layout-left-drawer\s*:is\(\s*\.tabler-icon-layout-sidebar-left-collapse,\s*\.tabler-icon-layout-sidebar-left-expand\s*\)/
+        .source;
+
+    expect(css).toMatch(new RegExp(`${movedDrawerIcons} \\{\\s*scale: -1 1;`));
+    expect(css).toMatch(
+      new RegExp(`${movedDrawerIcons}:dir\\(rtl\\) \\{\\s*scale: none;`),
+    );
+  });
+
   it("does not double-animate a named chat handoff through the drawer entry", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
@@ -231,10 +245,10 @@ describe("agent-native shell surface tokens", () => {
     );
 
     expect(tokens).toMatch(
-      /:root\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-raised-surface\);[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 40%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:root\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-raised-surface\);[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 70%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(tokens).toMatch(
-      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-subtle-surface\);[\s\S]*?--agent-kit-composer-border-mix: 80%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 40%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-subtle-surface\);[\s\S]*?--agent-kit-composer-border-mix: 80%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 70%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(css).toMatch(
       /background:\s*var\(\s*--agent-kit-composer-surface,\s*var\(--agent-kit-raised-surface\)\s*\);/,

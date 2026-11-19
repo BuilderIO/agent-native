@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { monitorForCaller } from "../server/lib/monitor-redaction";
 import { getMonitor } from "../server/lib/uptime-monitors";
 
 export default defineAction({
@@ -15,7 +16,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   grounding: true,
-  run: async ({ id }) => {
+  run: async ({ id }, ctx) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
@@ -23,6 +24,9 @@ export default defineAction({
     if (!detail) {
       throw Object.assign(new Error("Monitor not found"), { statusCode: 404 });
     }
-    return detail;
+    return {
+      ...detail,
+      monitor: monitorForCaller(detail.monitor, ctx?.caller),
+    };
   },
 });

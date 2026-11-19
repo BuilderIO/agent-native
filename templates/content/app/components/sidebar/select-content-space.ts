@@ -31,7 +31,7 @@ export function contentSpaceAvailability(args: {
 export function contentSpaceForStoredSelection(args: {
   spaces: ContentSpaceSummary[];
   storedSpaceId: string | null;
-}) {
+}): ContentSpaceSummary | null {
   const stored = args.spaces.find((space) => space.id === args.storedSpaceId);
   if (stored) return stored;
   return (

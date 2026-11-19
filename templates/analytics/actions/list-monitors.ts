@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { monitorForCaller } from "../server/lib/monitor-redaction";
 import { listMonitors } from "../server/lib/uptime-monitors";
 
 export default defineAction({
@@ -13,10 +14,11 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   grounding: true,
-  run: async () => {
+  run: async (_args, ctx) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
-    return listMonitors({ email, orgId });
+    const monitors = await listMonitors({ email, orgId });
+    return monitors.map((monitor) => monitorForCaller(monitor, ctx?.caller));
   },
 });

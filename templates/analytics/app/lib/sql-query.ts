@@ -1,4 +1,5 @@
 import { callAction, useSession } from "@agent-native/core/client/hooks";
+import type { DataSourceType } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import {
   confirmedScanBytes,
@@ -7,6 +8,7 @@ import {
   SqlQueryRefusalError,
   supportsSqlQueryCacheBypass,
   type SqlQueryExecutionMetadata,
+  type BigQueryUsageAccounting,
 } from "@shared/sql-query-contract";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
@@ -15,8 +17,6 @@ import {
 import type { TrafficEnvironment } from "@shared/traffic-environment";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef } from "react";
-
-import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 import { recordQueryCost } from "./cost-tracker";
 import {
@@ -202,6 +202,7 @@ function logSqlQueryTiming(timing: {
 }
 
 function responseMetadata(data: DashboardPanelQueryResponse): {
+  usageAccounting?: BigQueryUsageAccounting;
   cached?: boolean;
   providerCacheHit?: boolean;
   truncated?: boolean;
@@ -209,6 +210,8 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
   fetchedAt?: string;
 } {
   const metadata: ReturnType<typeof responseMetadata> = {};
+  if (data.usageAccounting !== undefined)
+    metadata.usageAccounting = data.usageAccounting;
   if (typeof data.cached === "boolean") metadata.cached = data.cached;
   if (typeof data.providerCacheHit === "boolean") {
     metadata.providerCacheHit = data.providerCacheHit;
@@ -549,7 +552,17 @@ export function useSqlQuery(
       if (manualRequested && pendingManualRefresh.current === manual) {
         pendingManualRefresh.current = null;
       }
-      if (manual && forceRefresh && !manual.failed && !signal.aborted) {
+      // A background data program answers a forced refresh with its last
+      // rows while the new run goes on, so only its fresh rows say
+      // "Refreshed". (BigQuery marks rows cached when a forced refresh joins
+      // one already running, and those rows are new.)
+      if (
+        manual &&
+        forceRefresh &&
+        !manual.failed &&
+        !signal.aborted &&
+        !(source === "program" && result.cached === true)
+      ) {
         completedManualRefresh.current = {
           token: manual.token,
           queryKeyHash,
@@ -567,7 +580,9 @@ export function useSqlQuery(
       return result;
     },
     enabled,
-    refetchInterval: options?.refetchInterval,
+    ...(options?.refetchInterval === undefined
+      ? {}
+      : { refetchInterval: options.refetchInterval }),
     refetchOnMount: options?.refetchOnMount ?? Boolean(options?.rerunPartial),
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,

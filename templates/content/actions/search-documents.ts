@@ -2,13 +2,19 @@ import { defineAction } from "@agent-native/core/action";
 import {
   indexedSearchSql,
   prepareSearchIndex,
+  reciprocalRankFusion,
+  searchSemanticIndex,
+  semanticSearcherAudienceIds,
   SearchTermTooLongError,
   type IndexedSearchSql,
+  type SemanticSearchResult,
+  type SemanticSearchUnavailableReason,
 } from "@agent-native/core/search";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -28,7 +34,6 @@ import { z } from "zod";
 
 import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
-import { endsInHtmlComment } from "../shared/og-description.js";
 import {
   parseSearchQuery,
   type ParsedSearchQuery,
@@ -41,10 +46,8 @@ import {
   documentDiscoveryPagination,
   documentDiscoveryWhere,
 } from "./_document-discovery-query.js";
-import {
-  documentSearchRanking,
-  searchQueryProximityPattern,
-} from "./_document-search-ranking.js";
+import { loadDocumentSearchPreviews } from "./_document-search-preview.js";
+import { documentSearchRanking } from "./_document-search-ranking.js";
 import {
   correctSearchQueryTypos,
   hasCorrectableWord,
@@ -52,59 +55,77 @@ import {
   type SpellingCorrection,
   TYPO_VOCABULARY_LIMIT,
 } from "./_document-search-typo.js";
-import { loadPageSubtree } from "./_page-subtree.js";
-import { SNIPPET_WINDOW_CONTEXT, searchSnippet } from "./_search-snippet.js";
+import { loadPageSubtree, searchSubtreeDocumentIds } from "./_page-subtree.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
-/** How much of the page before a match window search reads for a comment. */
-const COMMENT_SCAN_CHARS = 20_000;
+/**
+ * How many results from each lane hybrid search fuses: the depth the
+ * question-search bake-off measured. Words past it follow the fused results.
+ */
+const LANE_DEPTH = 20;
+/** Meaning matches read, so enough remain after access and filter checks. */
+const SEMANTIC_CANDIDATES = 40;
+
+type SemanticSkipReason =
+  | "words-mode"
+  | "exact-title"
+  | "title-only"
+  | "operators"
+  | "empty-query";
+
+/** Whether the meaning lane ran for a search, and why not when it didn't. */
+type SemanticSearchStatus =
+  | { status: "used" }
+  | { status: "off" }
+  | { status: "unavailable"; reason: SemanticSearchUnavailableReason }
+  | { status: "skipped"; reason: SemanticSkipReason };
+
+type MatchedBy = "words" | "meaning" | "both";
 
 /**
- * Whether a match window starts inside an HTML comment, from the text before it
- * when that has an open marker. A marker too far back to read counts as one.
+ * Why a search is answered by words alone before the meaning lane is asked.
+ * Operators, title-only and exact-title searches ask for literal matches.
  */
-function startsInComment(beforeOpenMarker: string | null | undefined): boolean {
-  if (!beforeOpenMarker) return false;
-  return (
-    !beforeOpenMarker.includes("<!--") || endsInHtmlComment(beforeOpenMarker)
-  );
+function semanticSkipReason(
+  args: {
+    mode?: "hybrid" | "words" | undefined;
+    exactTitle?: string | undefined;
+    searchFields?: "all" | "title" | undefined;
+  },
+  parsed: ParsedSearchQuery,
+): SemanticSkipReason | null {
+  if (args.mode === "words") return "words-mode";
+  if (args.exactTitle !== undefined) return "exact-title";
+  if (args.searchFields === "title") return "title-only";
+  if (parsed.empty) return "empty-query";
+  const usesOperators =
+    parsed.negatives.length > 0 ||
+    parsed.groups.some(
+      (group) =>
+        group.terms.length > 1 ||
+        group.terms.some((term) => term.phrase || term.titleOnly),
+    );
+  return usesOperators ? "operators" : null;
 }
 
-/**
- * A result's snippet from its match window. The window starts
- * `SNIPPET_WINDOW_CONTEXT` characters before the match, or at the top of the
- * page, and the database counts characters the way `Array.from` does.
- */
-function previewSnippet(
-  preview:
-    | {
-        contentPreview: string | null;
-        snippetNeedle: string | null;
-        matchPosition: number | null;
-        contentLength: number | null;
-        beforeOpenMarker: string | null;
-      }
-    | undefined,
-): string {
-  const window = preview?.contentPreview ?? "";
-  const position = Number(preview?.matchPosition) || 0;
-  const windowStart = Math.max(1, position - SNIPPET_WINDOW_CONTEXT);
-  return searchSnippet(window, preview?.snippetNeedle ?? "", {
-    clippedStart: windowStart > 1,
-    clippedEnd:
-      windowStart - 1 + Array.from(window).length <
-      (Number(preview?.contentLength) || 0),
-    startsInComment: startsInComment(preview?.beforeOpenMarker),
-    matchOffset: position > 0 ? position - windowStart : undefined,
-  });
+/** A title or query as the word lane compares them for an exact title. */
+function normalizedTitle(text: string | null | undefined): string {
+  return (text ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+function semanticStatus(result: SemanticSearchResult): SemanticSearchStatus {
+  if (result.status === "unavailable") {
+    return { status: "unavailable", reason: result.reason };
+  }
+  return { status: result.status };
 }
 
 export default defineAction({
   description:
-    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. When nothing matches, each word of four or more letters that appears in no visible title or description is also matched as the closest words that do, and spellingCorrections lists them. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
+    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. When nothing matches, each word of four or more letters that appears in no visible title or description is also matched as the closest words that do, and spellingCorrections lists them. By default a plain query also finds pages by meaning, so a question finds the page that answers it in other words: the best word and meaning matches are merged first, then the remaining word matches follow. Each result says whether it matched by words, meaning, or both, and semanticSearch says whether meaning was used. Pass mode "words" to match words only; operators, searchFields "title", and exactTitle always match words only. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -129,6 +150,13 @@ export default defineAction({
         .describe(
           "Leave out this document and every page beneath it, e.g. to list valid new parents when moving it",
         ),
+      withinSubtreeOf: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Search only this document and everything inside it: its sub-pages, its collections and their rows. Past 5,000 pages, only the nearest are searched and withinSubtreeTruncated is true",
+        ),
       documentType: z
         .enum(["page", "database"])
         .optional()
@@ -137,6 +165,12 @@ export default defineAction({
         .enum(["all", "title"])
         .optional()
         .describe("Match title only, or title, description and body (default)"),
+      mode: z
+        .enum(["hybrid", "words"])
+        .optional()
+        .describe(
+          "hybrid (default) finds pages by meaning as well as words; words matches words only",
+        ),
       modifiedAfter: z.iso
         .datetime()
         .optional()
@@ -214,6 +248,14 @@ export default defineAction({
           ).map((document) => document.id)
         : [args.excludeSubtreeOf];
     }
+    let withinIds: string[] | null = null;
+    let withinSubtreeTruncated = false;
+    if (args.withinSubtreeOf) {
+      await assertAccess("document", args.withinSubtreeOf, "viewer");
+      const subtree = await searchSubtreeDocumentIds(db, args.withinSubtreeOf);
+      withinIds = subtree.ids;
+      withinSubtreeTruncated = subtree.truncated;
+    }
     const parsedQuery = args.query ? parseSearchQuery(args.query) : null;
     const baseWhere = documentDiscoveryWhere({
       userEmail,
@@ -232,6 +274,7 @@ export default defineAction({
         excludedIds.length > 0
           ? notInArray(schema.documents.id, excludedIds)
           : undefined,
+        withinIds ? inArray(schema.documents.id, withinIds) : undefined,
         args.modifiedAfter
           ? gte(
               sql`${schema.documents.updatedAt}::timestamptz`,
@@ -252,7 +295,17 @@ export default defineAction({
       (indexReady ??= prepareSearchIndex(documentSearchIndex).then(
         (state) => state.ready,
       ));
-    const searchPage = async (query: ParsedSearchQuery | null) => {
+    const searchPage = async (
+      query: ParsedSearchQuery | null,
+      window: {
+        limit: number;
+        offset: number;
+        /** Leave out these pages, already shown. */
+        excludeIds?: readonly string[];
+        /** Only these pages, when non-empty. */
+        onlyIds?: readonly string[];
+      },
+    ) => {
       const matchPredicates: SQL[] = [];
       let bodyNeedles: string[] = [];
       if (query) {
@@ -299,98 +352,18 @@ export default defineAction({
           indexedSearch = null;
         }
       }
-      const where = indexedSearch
-        ? and(baseWhere, indexedSearch.match)
-        : and(baseWhere, ...matchPredicates);
-      const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
-      const bodyNeedleArray = bodyNeedles.length
-        ? sql`array[${sql.join(
-            bodyNeedles.map((needle) => sql`${needle}`),
-            sql`, `,
-          )}]::text[]`
-        : undefined;
-      const maxOccurrencesPerNeedle = Math.max(
-        1,
-        Math.floor(256 / Math.max(1, bodyNeedles.length)),
+      const windowWhere = and(
+        window.excludeIds?.length
+          ? notInArray(schema.documents.id, [...window.excludeIds])
+          : undefined,
+        window.onlyIds?.length
+          ? inArray(schema.documents.id, [...window.onlyIds])
+          : undefined,
       );
-      const proximityPattern =
-        bodyNeedleArray && query ? searchQueryProximityPattern(query) : null;
-      const proximityPosition = proximityPattern
-        ? sql<number>`regexp_instr(${normalizedContent}, ${proximityPattern}, 1, 1, 0, 'i')`
-        : undefined;
-      const fallbackBodyPosition =
-        bodyNeedles.length === 1
-          ? sql<number>`nullif(position(lower(${bodyNeedles[0]}) in lower(${normalizedContent})), 0)`
-          : bodyNeedleArray
-            ? sql<number>`(
-            with recursive body_occurrence(needle, query_order, match_position, occurrence_number) as (
-              select candidate.needle, candidate.query_order,
-                position(lower(candidate.needle) in lower(${normalizedContent})), 1
-              from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
-              where position(lower(candidate.needle) in lower(${normalizedContent})) > 0
-              union all
-              select occurrence.needle, occurrence.query_order,
-                occurrence.match_position + position(
-                  lower(occurrence.needle)
-                  in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
-                ), occurrence.occurrence_number + 1
-              from body_occurrence as occurrence
-              where occurrence.occurrence_number < ${maxOccurrencesPerNeedle} and position(
-                lower(occurrence.needle)
-                in substring(lower(${normalizedContent}) from occurrence.match_position + 1)
-              ) > 0
-            )
-            select candidate.match_position
-            from body_occurrence as candidate
-            order by (
-              select count(*)
-              from unnest(${bodyNeedleArray}) as nearby(needle)
-              where position(
-                lower(nearby.needle)
-                in lower(substr(
-                  ${normalizedContent},
-                  greatest(1, candidate.match_position - 120),
-                  240 + length(candidate.needle)
-                ))
-              ) > 0
-            ) desc,
-            candidate.match_position,
-            candidate.query_order
-            limit 1
-          )`
-            : undefined;
-      const selectedBodyPosition =
-        proximityPosition && fallbackBodyPosition
-          ? sql<number>`coalesce(nullif(${proximityPosition}, 0), ${fallbackBodyPosition})`
-          : fallbackBodyPosition;
-      const selectedBodyNeedle =
-        bodyNeedleArray && selectedBodyPosition
-          ? sql<string>`(
-              select candidate.needle
-              from unnest(${bodyNeedleArray}) with ordinality as candidate(needle, query_order)
-              where lower(substr(${normalizedContent}, ${selectedBodyPosition}, length(candidate.needle))) = lower(candidate.needle)
-              order by candidate.query_order
-              limit 1
-            )`
-          : undefined;
-      // The stored page around the match, with enough on each side to leave
-      // text for the snippet once markup is stripped.
-      const context = sql.raw(String(SNIPPET_WINDOW_CONTEXT));
-      const matchWindow = selectedBodyPosition
-        ? sql<string>`case when ${selectedBodyPosition} is not null then substr(${normalizedContent}, greatest(1, ${selectedBodyPosition} - ${context}), least(5000, 2 * ${context} + coalesce(length(${selectedBodyNeedle}), 0))) else substr(${normalizedContent}, 1, 5000) end`
-        : sql<string>`substr(${normalizedContent}, 1, 5000)`;
-      // The end of the page before the window, only when that text, read
-      // backwards, reaches a `<!--` before any `-->`. The window can only start
-      // inside a comment then, and the marker may still be code, which takes
-      // Markdown to tell.
-      const beforeWindow = selectedBodyPosition
-        ? sql<string>`substr(${normalizedContent}, 1, greatest(0, ${selectedBodyPosition} - ${context} - 1))`
-        : undefined;
-      const beforeOpenMarker = beforeWindow
-        ? sql<
-            string | null
-          >`case when strpos(reverse(${beforeWindow}), '--!<') > 0 and (strpos(reverse(${beforeWindow}), '>--') = 0 or strpos(reverse(${beforeWindow}), '--!<') < strpos(reverse(${beforeWindow}), '>--')) then right(${beforeWindow}, ${sql.raw(String(COMMENT_SCAN_CHARS))}) end`
-        : sql<string | null>`null`;
+      const where = indexedSearch
+        ? and(baseWhere, windowWhere, indexedSearch.match)
+        : and(baseWhere, windowWhere, ...matchPredicates);
+      const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
       const ranking =
         !indexedSearch && query?.groups.length
           ? documentSearchRanking(
@@ -405,7 +378,7 @@ export default defineAction({
               },
             )
           : null;
-      const docsQuery = db
+      let docsQuery = db
         .select({
           id: schema.documents.id,
           parentId: schema.documents.parentId,
@@ -432,8 +405,10 @@ export default defineAction({
         .from(schema.documents)
         .where(where)
         .$dynamic();
+      // Reassigned because a new process's database handle replays a query
+      // from its chained steps, so a join added on the side is lost.
       if (indexedSearch) {
-        docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+        docsQuery = docsQuery.innerJoin(indexedSearch.join, indexedSearch.on);
       }
       const docs = await docsQuery
         .orderBy(
@@ -452,41 +427,21 @@ export default defineAction({
           desc(schema.documents.updatedAt),
           asc(schema.documents.id),
         )
-        .limit(args.limit)
-        .offset(args.offset);
-      const previews = docs.length
-        ? await db
-            .select({
-              id: schema.documents.id,
-              contentPreview: matchWindow,
-              matchPosition: selectedBodyPosition ?? sql<number | null>`null`,
-              snippetNeedle: selectedBodyNeedle
-                ? sql<string>`coalesce(${selectedBodyNeedle}, '')`
-                : sql<string>`''`,
-              contentLength: sql<number>`length(${normalizedContent})`,
-              beforeOpenMarker,
-            })
-            .from(schema.documents)
-            .where(
-              and(
-                baseWhere,
-                inArray(
-                  schema.documents.id,
-                  docs.map((doc) => doc.id),
-                ),
-              ),
-            )
-        : [];
-      const previewById = new Map(
-        previews.map((preview) => [preview.id, preview]),
-      );
-      const countQuery = db
+        .limit(window.limit)
+        .offset(window.offset);
+      const previewById = await loadDocumentSearchPreviews({
+        db,
+        where: baseWhere,
+        ids: docs.map((doc) => doc.id),
+        needles: bodyNeedles,
+      });
+      let countQuery = db
         .select({ count: sql<number>`count(*)` })
         .from(schema.documents)
         .where(where)
         .$dynamic();
       if (indexedSearch) {
-        countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
+        countQuery = countQuery.innerJoin(indexedSearch.join, indexedSearch.on);
       }
       let totalItems: number;
       if (docs.length) {
@@ -527,10 +482,32 @@ export default defineAction({
       return searchVocabulary(rows.map((row) => row.word));
     };
 
-    let { docs, previewById, totalItems } = await searchPage(parsedQuery);
+    // The meaning lane runs beside the first word search, never before it.
+    const skipReason = parsedQuery
+      ? semanticSkipReason(args, parsedQuery)
+      : null;
+    const semanticPending =
+      args.query && parsedQuery && !skipReason
+        ? searchSemanticIndex(documentSearchIndex, {
+            query: args.query,
+            audienceIds: semanticSearcherAudienceIds({
+              userEmail,
+              orgIds: authorizedOrgIds,
+            }),
+            limit: SEMANTIC_CANDIDATES,
+          })
+        : null;
+    // Hybrid search reads the top word matches to fuse; words alone read the
+    // requested page.
+    const firstWindow = semanticPending
+      ? { limit: LANE_DEPTH, offset: 0 }
+      : { limit: args.limit, offset: args.offset };
+
+    let lexical = await searchPage(parsedQuery, firstWindow);
+    let lexicalQuery = parsedQuery;
     let spellingCorrections: SpellingCorrection[] | undefined;
     if (
-      totalItems === 0 &&
+      lexical.totalItems === 0 &&
       parsedQuery &&
       !parsedQuery.empty &&
       !args.exactTitle &&
@@ -541,11 +518,125 @@ export default defineAction({
         await visibleVocabulary(),
       );
       if (corrected) {
-        const correctedPage = await searchPage(corrected.query);
+        const correctedPage = await searchPage(corrected.query, firstWindow);
         if (correctedPage.totalItems > 0) {
-          ({ docs, previewById, totalItems } = correctedPage);
+          lexical = correctedPage;
+          lexicalQuery = corrected.query;
           spellingCorrections = corrected.corrections;
         }
+      }
+    }
+
+    let { docs, previewById, totalItems } = lexical;
+    let matchedBy: Map<string, MatchedBy> | undefined;
+    let semanticSearch: SemanticSearchStatus | undefined = skipReason
+      ? { status: "skipped", reason: skipReason }
+      : undefined;
+    if (semanticPending) {
+      const semantic = await semanticPending;
+      semanticSearch = semanticStatus(semantic);
+      // Meaning matches the caller may open, in the requested place, under
+      // the same filters as word matches.
+      const meaningIds: string[] = [];
+      if (semantic.status === "used" && semantic.hits.length) {
+        const hitIds = semantic.hits.map((hit) => hit.id);
+        const visible = await db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(and(baseWhere, inArray(schema.documents.id, hitIds)));
+        const visibleIds = new Set(visible.map((row) => row.id));
+        for (const id of hitIds) {
+          if (visibleIds.has(id)) meaningIds.push(id);
+          if (meaningIds.length >= LANE_DEPTH) break;
+        }
+      }
+      if (!meaningIds.length) {
+        // Words alone, whose first matches are already read.
+        if (args.offset + args.limit > LANE_DEPTH) {
+          ({ docs, previewById, totalItems } = await searchPage(lexicalQuery, {
+            limit: args.limit,
+            offset: args.offset,
+          }));
+        } else {
+          docs = lexical.docs.slice(args.offset, args.offset + args.limit);
+        }
+        if (semantic.status === "used") {
+          matchedBy = new Map(docs.map((doc) => [doc.id, "words" as const]));
+        }
+      } else {
+        const fused = reciprocalRankFusion(
+          {
+            words: lexical.docs.map((doc, index) => ({
+              key: doc.id,
+              value: doc.id,
+              score: LANE_DEPTH - index,
+            })),
+            meaning: meaningIds.map((id, index) => ({
+              key: id,
+              value: id,
+              score: LANE_DEPTH - index,
+            })),
+          },
+          { rankConstant: 60, limit: 2 * LANE_DEPTH },
+        );
+        // A page titled exactly as searched stays first, as it does in words
+        // alone; meaning can otherwise lift a near neighbour above it.
+        const searched = normalizedTitle(args.query);
+        const exactIds = lexical.docs
+          .filter((doc) => normalizedTitle(doc.title) === searched)
+          .map((doc) => doc.id);
+        const fusedIds = [
+          ...exactIds,
+          ...fused
+            .map((candidate) => candidate.key)
+            .filter((id) => !exactIds.includes(id)),
+        ];
+        const pageIds = fusedIds.slice(args.offset, args.offset + args.limit);
+        const lexicalIds = new Set(lexical.docs.map((doc) => doc.id));
+        const meaningOnlyIds = pageIds.filter((id) => !lexicalIds.has(id));
+        const meaningRows = meaningOnlyIds.length
+          ? await searchPage(null, {
+              limit: meaningOnlyIds.length,
+              offset: 0,
+              onlyIds: meaningOnlyIds,
+            })
+          : null;
+        // Word matches past the fused ones, which they never repeat. A page
+        // inside the fused results still reads their count.
+        const tail = await searchPage(lexicalQuery, {
+          limit: args.limit - pageIds.length,
+          offset: Math.max(0, args.offset - fusedIds.length),
+          excludeIds: fusedIds,
+        });
+        const rowById = new Map(
+          [...lexical.docs, ...(meaningRows ? meaningRows.docs : [])].map(
+            (doc) => [doc.id, doc],
+          ),
+        );
+        docs = [
+          ...pageIds.flatMap((id) => {
+            const doc = rowById.get(id);
+            return doc ? [doc] : [];
+          }),
+          ...tail.docs,
+        ];
+        previewById = new Map([
+          ...lexical.previewById,
+          ...(meaningRows ? meaningRows.previewById : []),
+          ...tail.previewById,
+        ]);
+        totalItems = fusedIds.length + tail.totalItems;
+        matchedBy = new Map([
+          ...fused.map((candidate): [string, MatchedBy] => [
+            candidate.key,
+            candidate.laneRanks.words && candidate.laneRanks.meaning
+              ? "both"
+              : candidate.laneRanks.words
+                ? "words"
+                : "meaning",
+          ]),
+          ...tail.docs.map((doc): [string, MatchedBy] => [doc.id, "words"]),
+        ]);
       }
     }
 
@@ -583,10 +674,13 @@ export default defineAction({
           title: doc.title,
           description: doc.description,
           icon: doc.icon,
-          snippet: previewSnippet(preview),
-          contentLength: Number(preview?.contentLength) || 0,
+          snippet: preview?.snippet ?? "",
+          contentLength: preview?.contentLength ?? 0,
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           updatedAt: doc.updatedAt,
+          ...(matchedBy?.has(doc.id)
+            ? { matchedBy: matchedBy.get(doc.id) }
+            : {}),
         };
       }),
       pagination: documentDiscoveryPagination({
@@ -596,6 +690,8 @@ export default defineAction({
         returnedItems: docs.length,
       }),
       ...(spellingCorrections ? { spellingCorrections } : {}),
+      ...(semanticSearch ? { semanticSearch } : {}),
+      ...(args.withinSubtreeOf ? { withinSubtreeTruncated } : {}),
     };
   },
 });

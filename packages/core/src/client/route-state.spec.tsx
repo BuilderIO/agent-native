@@ -51,10 +51,20 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
     requestSource?: string | undefined;
   }> = [];
   const deletes: Array<{ key: string; init: RequestInit }> = [];
+  // The tab's record of its own use (see useBrowserTabUse) is kept apart, so
+  // the writes below are the navigation sync's alone.
+  const tabUses: Array<{ method: string; body: unknown }> = [];
   const fetchMock = vi.fn(
     async (url: RequestInfo | URL, init?: RequestInit) => {
       const key = appStateKey(url);
       const method = init?.method ?? "GET";
+      if (key === "browser-tab-used") {
+        tabUses.push({
+          method,
+          body: JSON.parse(String(init?.body ?? "null")),
+        });
+        return jsonResponse({ ok: true });
+      }
       if (method === "POST" && key === "") {
         // Writes to several keys in one tick arrive as one batch.
         const { writes: batch } = JSON.parse(String(init?.body)) as {
@@ -66,6 +76,13 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
           }>;
         };
         const results = batch.map((write) => {
+          if (write.key === "browser-tab-used") {
+            tabUses.push({
+              method: write.delete ? "DELETE" : "PUT",
+              body: write.value ?? null,
+            });
+            return { ok: true, value: write.value ?? { ok: true } };
+          }
           if (write.delete) {
             delete state[write.key];
             deletes.push({ key: write.key, init: init ?? {} });
@@ -107,7 +124,7 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
       return jsonResponse(state[key] ?? null);
     },
   );
-  return { deletes, fetchMock, state, writes };
+  return { deletes, fetchMock, state, tabUses, writes };
 }
 
 function renderWithQueryClient(element: React.ReactElement) {
@@ -600,6 +617,38 @@ describe("route-state client helpers", () => {
     ).toBe(false);
   });
 
+  it("consumes a local tool navigation command on refresh without waiting for polling", async () => {
+    const { fetchMock, state } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const commands: unknown[] = [];
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "editor" },
+        browserTabId: "tab-local-refresh",
+        commandRefetchInterval: false,
+        onCommand: (command) => commands.push(command),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+    state["navigate:tab-local-refresh"] = { path: "/settings" };
+    state["navigate:other-tab"] = { path: "/other" };
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await flush();
+    });
+    await act(flush);
+    // The consumed command's delete goes out on the tick after it's read.
+    await act(flush);
+    expect(commands).toEqual([{ path: "/settings" }]);
+    expect(state["navigate:tab-local-refresh"]).toBeUndefined();
+    expect(state["navigate:other-tab"]).toEqual({ path: "/other" });
+  });
+
   it("reads the first available command key and deletes the consumed command", async () => {
     const { deletes, fetchMock } = makeAppStateFetch({
       "navigate:tab-1": { view: "thread", threadId: "thread-2", _writeId: "a" },
@@ -804,6 +853,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/market-research/_agent-native/poll",
         assign,
@@ -860,6 +911,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/risk/chat/thread-1",
         assign,
@@ -916,6 +969,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/risk/register",
         assign,

@@ -4,22 +4,16 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { assertAccess } from "@agent-native/core/sharing";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  resolveDefaultDesignSystemId,
-  resolveDesignSystemIdByTitle,
-} from "../server/lib/design-system-defaults.js";
 import { DESIGN_CREATION_METHODS } from "../server/lib/design-tracking.js";
+import { designBriefsSchema } from "../shared/design-briefs.js";
 import {
   defaultCreationMethod,
   trackDesignCreated,
 } from "./_design-tracking.js";
-import getDesignSystem from "./get-design-system.js";
 
 function designDeepLink(designId: string): string {
   return buildDeepLink({
@@ -34,11 +28,7 @@ export default defineAction({
   description:
     "Create a new empty design project shell. This is not a renderable " +
     "artifact by itself — author the screen HTML next and save it with " +
-    "generate-design (files + canvasFrames) or create-file. When a design " +
-    "system is linked, the result includes its `agentContext`; apply it " +
-    "before authoring the screen. Omit designSystemId to link the caller's " +
-    "default design system; pass null for no design system, or pass " +
-    "designSystemId or the exact title as `designSystem` to override.",
+    "generate-design (files + canvasFrames) or create-file.",
   schema: z.object({
     id: z
       .string()
@@ -60,24 +50,16 @@ export default defineAction({
       .optional()
       .default("prototype")
       .describe("Type of design project"),
-    designSystemId: z
-      .string()
-      .nullable()
-      .optional()
-      .describe(
-        "Design system ID to link; omit for the caller's default, or pass null for no design system. Overrides designSystem.",
-      ),
-    designSystem: z
-      .string()
-      .optional()
-      .describe(
-        "Exact title of an accessible design system to link (case-insensitive, whitespace-trimmed); resolved server-side. Use designSystemId when you already have the id; the id wins if both are given.",
-      ),
     creationMethod: z
       .enum(DESIGN_CREATION_METHODS)
       .optional()
       .describe(
         "Internal: set by the Design UI and import flows to record how the project was started. Agents should omit this.",
+      ),
+    briefs: designBriefsSchema
+      .optional()
+      .describe(
+        "Content pages this design is built from, each with its id and http(s) link. The Design UI sets this when a Content page is attached to the prompt; agents may pass a page they read as the brief.",
       ),
   }),
   mcpApp: {
@@ -96,15 +78,7 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (
-    {
-      id: providedId,
-      title,
-      description,
-      projectType,
-      designSystemId,
-      designSystem,
-      creationMethod,
-    },
+    { id: providedId, title, description, projectType, creationMethod, briefs },
     ctx,
   ) => {
     const db = getDb();
@@ -114,25 +88,12 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    let resolvedDesignSystemId = designSystemId;
-    if (resolvedDesignSystemId) {
-      await assertAccess("design-system", resolvedDesignSystemId, "viewer");
-    } else if (designSystemId !== null) {
-      resolvedDesignSystemId =
-        (designSystem
-          ? await resolveDesignSystemIdByTitle(designSystem)
-          : undefined) ??
-        (await resolveDefaultDesignSystemId(ownerEmail)) ??
-        undefined;
-    }
-
     await db.insert(schema.designs).values({
       id,
       title,
       description: description ?? null,
       projectType: projectType ?? "prototype",
-      designSystemId: resolvedDesignSystemId ?? null,
-      data: "{}",
+      data: briefs?.length ? JSON.stringify({ briefs }) : "{}",
       ownerEmail,
       orgId,
       visibility: orgId ? "org" : "private",
@@ -145,7 +106,6 @@ export default defineAction({
       {
         creationMethod: creationMethod ?? defaultCreationMethod(ctx),
         projectType: projectType ?? "prototype",
-        designSystemId: resolvedDesignSystemId,
         variantCount: 0,
       },
       ctx,
@@ -155,12 +115,6 @@ export default defineAction({
       id,
       title,
       projectType,
-      designSystemId: resolvedDesignSystemId ?? null,
-      designSystem: await loadAgentDesignSystemContext(
-        resolvedDesignSystemId,
-        getDesignSystem,
-        { full: true },
-      ),
       renderable: false,
       nextRequiredAction:
         "Author the screen HTML, then save it with generate-design or create-file.",

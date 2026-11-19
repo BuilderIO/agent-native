@@ -47,19 +47,6 @@ vi.mock("../server/source-workspace.js", () => ({
   withDesignSourceMutationTransaction: vi.fn(),
   writeInlineSourceFile: vi.fn(),
 }));
-vi.mock("@agent-native/creative-context/server", () => ({
-  getGenerationCreativeContext: vi.fn(),
-  recordGenerationCreativeContext: vi.fn(),
-  replaceCreativeContextElementProvenance: vi.fn(),
-  resolveGenerationCreativeContext: vi.fn(),
-  validateCreativeContextReuseLabels: vi.fn(),
-  validateGenerationCreativeContext: vi.fn().mockResolvedValue({
-    contextMode: "off",
-    contextPackId: null,
-    reuseLabels: [],
-  }),
-}));
-
 vi.mock("../server/db/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../server/db/index.js")>();
   return {
@@ -109,7 +96,9 @@ beforeAll(async () => {
     id TEXT PRIMARY KEY, design_id TEXT NOT NULL, filename TEXT NOT NULL,
     content TEXT NOT NULL, file_type TEXT NOT NULL,
     content_operation_source TEXT, content_operation_revision INTEGER,
-    content_operation_result_hash TEXT, created_at TEXT, updated_at TEXT
+    content_operation_result_hash TEXT,
+    content_operation_revisions TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT, updated_at TEXT
   )`,
   });
 });
@@ -133,7 +122,6 @@ const run = (filename: string, content: string, fileType = "html") =>
   action.run({
     designId: "generation-design",
     prompt: "Add this screen",
-    contextModeOverride: "off",
     files: [{ filename, content, fileType }],
   });
 async function insert(id: string, content: string, fileType = "html") {

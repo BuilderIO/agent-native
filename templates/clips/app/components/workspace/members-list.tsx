@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconCrown, IconUserX } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -99,9 +100,7 @@ export function MembersList({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("membersList.updateFailed"),
-      );
+      reportWriteFailure(err, { label: t("membersList.updateFailed") });
     }
   }
 
@@ -117,9 +116,7 @@ export function MembersList({
         queryKey: ["action", "list-organization-state"],
       });
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("membersList.removeFailed"),
-      );
+      reportWriteFailure(err, { label: t("membersList.removeFailed") });
     } finally {
       setPendingRemove(null);
     }
