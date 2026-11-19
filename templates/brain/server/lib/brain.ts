@@ -59,6 +59,7 @@ import {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import {
+  captureIdsAffectedByAudienceAssignment,
   ensureCaptureAudience,
   ensureEvidenceIntersectionAudience,
   listAccessibleAudienceIds,
@@ -1107,9 +1108,8 @@ export async function commitPreparedCaptureWithWarnings(
     db,
     invalidatesDerived && (await capturePublishesResources(captureId, db)),
     async (scoped, effects) => {
-      await lockCaptureRows([captureId], scoped);
       audienceInvalidations.length = 0;
-      const audience = await ensureCaptureAudience({
+      const audienceInput = {
         captureId,
         source,
         kind: values.audience?.kind,
@@ -1118,7 +1118,18 @@ export async function commitPreparedCaptureWithWarnings(
           (source.visibility === "org" ? undefined : [source.ownerEmail]),
         upstreamRefHash: values.audience?.upstreamRefHash,
         deferInvalidations: audienceInvalidations,
-      });
+      };
+      await lockCaptureRows(
+        [
+          captureId,
+          ...(await captureIdsAffectedByAudienceAssignment(
+            audienceInput,
+            scoped,
+          )),
+        ],
+        scoped,
+      );
+      const audience = await ensureCaptureAudience(audienceInput);
       const result = (await scoped
         .update(schema.brainRawCaptures)
         .set({
@@ -1144,8 +1155,23 @@ export async function commitPreparedCaptureWithWarnings(
       return { result, audience };
     },
   );
-  const warnings = postCommitWarnings(await runAfterCommitEffects(effects));
-  for (const flush of audienceInvalidations) await flush();
+  const committedEffects = await runAfterCommitEffects(effects);
+  let failedInvalidations = 0;
+  for (const flush of audienceInvalidations) {
+    try {
+      await flush();
+    } catch (error) {
+      failedInvalidations += 1;
+      console.warn(
+        "[brain] Audience invalidation failed after the capture committed:",
+        error instanceof Error ? error.message : "unknown error",
+      );
+    }
+  }
+  const warnings = postCommitWarnings({
+    ...committedEffects,
+    failedInvalidations,
+  });
   if (finalized.rowsAffected === 0 && values.externalId) {
     await db
       .delete(schema.brainCaptureAudiences)
@@ -1440,14 +1466,20 @@ export async function runAfterCommitEffects(
   return { failedNotifications };
 }
 
-export function postCommitWarnings(result: { failedNotifications: number }) {
-  return result.failedNotifications
-    ? {
-        postCommitWarnings: [
-          "The change was saved, but a follow-up notification could not be sent. Do not repeat the write.",
-        ],
-      }
-    : {};
+export function postCommitWarnings(result: {
+  failedNotifications: number;
+  failedInvalidations?: number;
+}) {
+  const warnings: string[] = [];
+  if (result.failedNotifications)
+    warnings.push(
+      "The change was saved, but a follow-up notification could not be sent. Do not repeat the write.",
+    );
+  if (result.failedInvalidations)
+    warnings.push(
+      "The capture and its audience were saved, but refreshing knowledge derived from other captures that share the changed audience did not finish. Access is already enforced from the saved audience; that derived knowledge may refresh later.",
+    );
+  return warnings.length ? { postCommitWarnings: warnings } : {};
 }
 
 function requireResourceStore(effects: AfterCommitEffects) {
@@ -1840,6 +1872,25 @@ export function statusForTier(tier: BrainPublishTier): BrainKnowledgeStatus {
   return tier === "private" ? "draft" : "published";
 }
 
+function decodedForms(value: string) {
+  const forms = [value];
+  let current = value;
+  for (let pass = 0; pass < 2; pass += 1) {
+    let next: string;
+    try {
+      next = decodeURIComponent(current);
+    } catch {
+      next = current.replace(/%([0-9a-f]{2})/gi, (_match, hex: string) =>
+        String.fromCharCode(Number.parseInt(hex, 16)),
+      );
+    }
+    if (next === current) break;
+    forms.push(next);
+    current = next;
+  }
+  return forms;
+}
+
 export function applyRedactions(values: {
   title: string;
   body: string;
@@ -1892,7 +1943,10 @@ export function applyRedactions(values: {
       const next = { ...item };
       for (const key of ["sourceUrl", "url"] as const) {
         const destination = next[key];
-        if (destination && redact(destination) !== destination) {
+        if (
+          destination &&
+          decodedForms(destination).some((form) => redact(form) !== form)
+        ) {
           delete next[key];
         }
       }

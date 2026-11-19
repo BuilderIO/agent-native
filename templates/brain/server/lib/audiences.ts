@@ -111,12 +111,10 @@ export async function ensureCaptureAudience(
   return assignment;
 }
 
-async function ensureCaptureAudienceMutation(
+async function resolveCaptureAudienceTarget(
   input: CaptureAudienceInput,
   db: BrainDb,
-  invalidations: DeferredAudienceInvalidation[],
-): Promise<BrainAudienceAssignment> {
-  const now = nowIso();
+) {
   const kind =
     input.kind ??
     (input.source.visibility === "private" ? "restricted" : "org");
@@ -138,11 +136,54 @@ async function ensureCaptureAudienceMutation(
     upstreamRefHash,
     aclHash,
   });
-  const [previousAudience] = await db
+  const previousRows = await db
     .select({ aclHash: schema.brainAudiences.aclHash })
     .from(schema.brainAudiences)
     .where(eq(schema.brainAudiences.id, audienceId))
     .limit(1);
+  let previousAclHash: string | undefined;
+  for (const row of previousRows) previousAclHash = row.aclHash;
+  return {
+    kind,
+    members,
+    aclHash,
+    upstreamRefHash,
+    audienceId,
+    previousAclHash,
+  };
+}
+
+export async function captureIdsAffectedByAudienceAssignment(
+  input: CaptureAudienceInput,
+  db: BrainDb = getDb(),
+) {
+  const target = await resolveCaptureAudienceTarget(input, db);
+  if (
+    target.kind === "org" ||
+    !audienceMembershipNeedsReplace(target.previousAclHash, target.aclHash)
+  )
+    return [];
+  const linked = await db
+    .select({ captureId: schema.brainCaptureAudiences.captureId })
+    .from(schema.brainCaptureAudiences)
+    .where(eq(schema.brainCaptureAudiences.audienceId, target.audienceId));
+  return linked.map((row) => row.captureId);
+}
+
+async function ensureCaptureAudienceMutation(
+  input: CaptureAudienceInput,
+  db: BrainDb,
+  invalidations: DeferredAudienceInvalidation[],
+): Promise<BrainAudienceAssignment> {
+  const now = nowIso();
+  const {
+    kind,
+    members,
+    aclHash,
+    upstreamRefHash,
+    audienceId,
+    previousAclHash,
+  } = await resolveCaptureAudienceTarget(input, db);
 
   await db
     .insert(schema.brainAudiences)
@@ -191,13 +232,11 @@ async function ensureCaptureAudienceMutation(
       },
       db,
     );
-  } else if (
-    audienceMembershipNeedsReplace(previousAudience?.aclHash, aclHash)
-  ) {
+  } else if (audienceMembershipNeedsReplace(previousAclHash, aclHash)) {
     await replaceAudienceUserMembersMutation(
       audienceId,
       members.map((email) => ({ email })),
-      { previousAclHash: previousAudience?.aclHash },
+      { previousAclHash },
       db,
       invalidations,
     );
@@ -464,7 +503,7 @@ export function assertSingleEvidenceTenant(
 async function replaceAudienceUserMembersMutation(
   audienceId: string,
   members: Array<{ email: string; upstreamPrincipalHash?: string }>,
-  options: { previousAclHash?: string },
+  options: { previousAclHash?: string | undefined },
   db: BrainDb,
   invalidations: DeferredAudienceInvalidation[],
 ) {
@@ -526,6 +565,8 @@ async function replaceAudienceUserMembersMutation(
       .from(schema.brainCaptureAudiences)
       .where(eq(schema.brainCaptureAudiences.audienceId, audienceId));
     const captureIds = captures.map((capture) => capture.captureId);
+    const { lockCaptureRows } = await import("./brain.js");
+    await lockCaptureRows(captureIds, db);
     await db
       .update(schema.brainCaptureAudiences)
       .set({ aclHash })

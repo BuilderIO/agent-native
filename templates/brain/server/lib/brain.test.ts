@@ -815,6 +815,7 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("./audiences.js", () => ({
+  captureIdsAffectedByAudienceAssignment: vi.fn(async () => []),
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
     await mocks.audienceHook.value?.(captureId);
     if (

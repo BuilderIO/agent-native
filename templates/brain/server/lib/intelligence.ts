@@ -56,6 +56,7 @@ import {
 } from "./brain.js";
 import {
   checkKnowledgeProvenance,
+  type CaptureDigestCache,
   evidenceCaptureIds,
   isEvidenceBackedKnowledge,
 } from "./knowledge-provenance.js";
@@ -182,6 +183,7 @@ async function currentEvidence(
 async function ordinaryKnowledgeIsCurrent(
   row: KnowledgeRow,
   loaded: Awaited<ReturnType<typeof loadCurrentEvidence>>,
+  digestCache: CaptureDigestCache,
 ) {
   const cited = evidenceCaptureIds(row.evidenceJson);
   const captureIds = new Set(cited.readable ? cited.captureIds : []);
@@ -191,7 +193,8 @@ async function ordinaryKnowledgeIsCurrent(
     const capture = loaded.get(captureId);
     if (capture) liveContent.set(captureId, capture.content);
   }
-  return (await checkKnowledgeProvenance(row, liveContent)).current;
+  return (await checkKnowledgeProvenance(row, liveContent, digestCache))
+    .current;
 }
 
 async function intelligenceRevision(row: KnowledgeRow, detail: DetailRow) {
@@ -970,13 +973,14 @@ export async function filterCurrentKnowledgeRows(
   }
   const loaded = await loadCurrentEvidence(evidenceForLookup);
   const current: KnowledgeRow[] = [];
+  const digestCache: CaptureDigestCache = new Map();
   for (const row of rows) {
     const evidence = evidenceById.get(row.id);
     if (!evidence || (row.captureId && !loaded.has(row.captureId))) continue;
     if (!row.intelligenceKind) {
       if (
         isEvidenceBackedKnowledge(row) &&
-        !(await ordinaryKnowledgeIsCurrent(row, loaded))
+        !(await ordinaryKnowledgeIsCurrent(row, loaded, digestCache))
       )
         continue;
       current.push(row);

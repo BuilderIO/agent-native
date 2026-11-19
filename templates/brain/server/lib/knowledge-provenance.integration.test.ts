@@ -171,6 +171,7 @@ describe("redacted evidence-backed knowledge stays retrievable", () => {
       const row = await storedRow(id);
       expect(row.status).toBe("redacted");
       expect(JSON.stringify(row)).not.toContain(contact);
+      expect(JSON.stringify(row)).not.toContain("customer-only-contact%");
 
       const listed = await asQa(() => listKnowledgeAction.run({ limit: 25 }));
       expect(listed.knowledge.map((item) => item.id)).toContain(id);
@@ -206,9 +207,20 @@ describe("redacted evidence-backed knowledge stays retrievable", () => {
 
 describe("redaction covers every displayed field", () => {
   const safeUrl = "https://example.test/notes/atlas";
-  it.each(["explicit", "automatic"] as const)(
-    "%s redaction masks topic, citation title and destination",
-    async (mode) => {
+  const destinations = {
+    literal: `https://example.test/?email=${contact}`,
+    "percent-encoded": `https://example.test/?email=${contact.replace("@", "%40")}`,
+    "double-encoded": `https://example.test/?email=${contact.replace("@", "%2540")}`,
+  };
+  it.each(
+    (["explicit", "automatic"] as const).flatMap((mode) =>
+      (Object.keys(destinations) as Array<keyof typeof destinations>).map(
+        (form) => [mode, form] as const,
+      ),
+    ),
+  )(
+    "%s redaction masks topic, citation title and a %s destination",
+    async (mode, form) => {
       harness.autoRedactEmails = mode === "automatic";
       await database
         .update(schema.brainRawCaptures)
@@ -223,7 +235,7 @@ describe("redaction covers every displayed field", () => {
             {
               captureId: "capture",
               quote: captureContent,
-              sourceUrl: `https://example.test/?email=${contact}`,
+              sourceUrl: destinations[form],
             },
           ],
           redactions: mode === "explicit" ? [contact] : [],
@@ -766,5 +778,27 @@ describe("capture finalization is atomic with its audience assignment", () => {
     const after = await audienceState();
     expect(after.audiences.length).toBeGreaterThan(before.audiences.length);
     expect(after.links).not.toEqual(before.links);
+  });
+});
+
+describe("provenance checks reuse each capture's digest within a batch", () => {
+  it("hashes a shared capture once and consults the cache for later rows", async () => {
+    const first = await saveKnowledge();
+    const second = await saveKnowledge({ title: "Atlas plan two" });
+    const { checkKnowledgeProvenance } =
+      await import("./knowledge-provenance.js");
+    const live = new Map([["capture", captureContent]]);
+    const cache = new Map<string, { content: string; digest: string }>();
+    const firstRow = await storedRow(first);
+    const secondRow = await storedRow(second);
+    expect(
+      (await checkKnowledgeProvenance(firstRow, live, cache)).current,
+    ).toBe(true);
+    expect(cache.size).toBe(1);
+    cache.set("capture", { content: captureContent, digest: "poisoned" });
+    expect(await checkKnowledgeProvenance(secondRow, live, cache)).toEqual({
+      current: false,
+      reason: "capture-content-mismatch",
+    });
   });
 });

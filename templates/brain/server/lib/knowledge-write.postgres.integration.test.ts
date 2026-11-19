@@ -166,8 +166,10 @@ const CONTENT_B = "Atlas depends on the security review.";
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
   const target = new URL(POSTGRES_URL);
-  if (!target.pathname.slice(1).toLowerCase().includes("test"))
-    throw new Error("BRAIN_POSTGRES_URL must name an isolated test database.");
+  if (!/(^|_)test(_|$)/.test(target.pathname.slice(1).toLowerCase()))
+    throw new Error(
+      'BRAIN_POSTGRES_URL must name an isolated database whose name has a standalone "test" word, such as brain_test.',
+    );
   process.env.DATABASE_URL = POSTGRES_URL;
   const database = await import("../db/index.js");
   getDb = database.getDb;
@@ -198,6 +200,9 @@ afterAll(async () => {
   await query(
     "DROP TRIGGER IF EXISTS fail_capture_update ON brain_raw_captures",
   );
+  await query(
+    "DROP TRIGGER IF EXISTS fail_access_invalidation ON brain_ingest_queue",
+  );
   delete process.env.DATABASE_URL;
 });
 
@@ -214,6 +219,9 @@ beforeEach(async () => {
   await query("DROP TRIGGER IF EXISTS fail_supersession ON brain_knowledge");
   await query(
     "DROP TRIGGER IF EXISTS fail_capture_update ON brain_raw_captures",
+  );
+  await query(
+    "DROP TRIGGER IF EXISTS fail_access_invalidation ON brain_ingest_queue",
   );
   await query(
     `TRUNCATE brain_sources, brain_raw_captures, brain_audiences, brain_audience_members, brain_capture_audiences, brain_knowledge, brain_knowledge_intelligence, brain_knowledge_verifications, brain_knowledge_shares, brain_source_shares, brain_proposals, brain_sensitivity_events, resources, org_members, organizations`,
@@ -321,6 +329,14 @@ async function failCaptureUpdateWithTrigger() {
     BEGIN RAISE EXCEPTION 'forced failure before the capture update'; END $$ LANGUAGE plpgsql`);
   await query(
     `CREATE TRIGGER fail_capture_update BEFORE UPDATE ON brain_raw_captures FOR EACH ROW WHEN (NEW.title = 'retitled') EXECUTE FUNCTION fail_capture_update()`,
+  );
+}
+
+async function failAccessInvalidationWithTrigger() {
+  await query(`CREATE OR REPLACE FUNCTION fail_access_invalidation() RETURNS trigger AS $$
+    BEGIN RAISE EXCEPTION 'forced failure while queueing the access change'; END $$ LANGUAGE plpgsql`);
+  await query(
+    `CREATE TRIGGER fail_access_invalidation BEFORE INSERT ON brain_ingest_queue FOR EACH ROW WHEN (NEW.payload_json LIKE '%"reason":"access-changed"%') EXECUTE FUNCTION fail_access_invalidation()`,
   );
 }
 
@@ -529,6 +545,79 @@ describe.skipIf(!POSTGRES_URL)(
         ),
       );
       expect(plain.postCommitWarnings).toBeUndefined();
+    });
+
+    const sharedAudience = (members: string[]) => ({
+      kind: "restricted" as const,
+      upstreamRefHash: "shared-upstream-group",
+      memberEmails: members,
+    });
+
+    async function linkBothCapturesToOneAudience() {
+      for (const id of ["a", "b"])
+        await asQa(() =>
+          brain.createCapture(
+            capture({
+              externalId: `external-capture-${id}`,
+              title: `capture-${id}`,
+              content: id === "a" ? CONTENT_A : CONTENT_B,
+              audience: sharedAudience([QA]),
+            }),
+          ),
+        );
+      const links = await query(
+        "SELECT DISTINCT audience_id FROM brain_capture_audiences",
+      );
+      expect(links).toHaveLength(1);
+    }
+
+    it("a membership change locks every capture of the audience in sorted order, so a multi-capture writer cannot deadlock it", async () => {
+      await linkBothCapturesToOneAudience();
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const writer = track(
+        asQa(() =>
+          brain.createCapture(
+            capture({
+              externalId: "external-capture-b",
+              title: "capture-b",
+              content: `${CONTENT_B} Updated.`,
+              audience: sharedAudience([QA, "second-member@example.test"]),
+            }),
+          ),
+        ),
+      );
+      expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
+      holder.release(async (tx) => {
+        await tx.execute(
+          sql`SELECT id FROM brain_raw_captures WHERE id = ${"capture-b"} FOR UPDATE`,
+        );
+      });
+      const held = await holder.done.then(
+        () => "ok",
+        (error: unknown) => postgresCode(error) ?? String(error),
+      );
+      const outcome = await writer.outcome;
+      expect(held).toBe("ok");
+      expect(outcome.ok ? "ok" : postgresCode(outcome.error)).toBe("ok");
+    });
+
+    it("reports a failed audience invalidation after commit as a warning and keeps the committed capture", async () => {
+      await linkBothCapturesToOneAudience();
+      await failAccessInvalidationWithTrigger();
+      const written = await asQa(() =>
+        brain.createCaptureWithWarnings(
+          capture({
+            externalId: "external-capture-b",
+            title: "capture-b",
+            content: `${CONTENT_B} Updated.`,
+            audience: sharedAudience([QA, "second-member@example.test"]),
+          }),
+        ),
+      );
+      expect(written.postCommitWarnings).toHaveLength(1);
+      expect(written).toMatchObject({
+        capture: { content: `${CONTENT_B} Updated.` },
+      });
     });
 
     it("rolls back the audience assignment when finalizing the capture fails", async () => {

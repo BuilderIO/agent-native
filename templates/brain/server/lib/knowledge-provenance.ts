@@ -145,9 +145,27 @@ export type KnowledgeProvenanceCheck =
 const denied = (reason: KnowledgeProvenanceFailure) =>
   ({ current: false, reason }) as const;
 
+export type CaptureDigestCache = Map<
+  string,
+  { content: string; digest: string }
+>;
+
+async function cachedCaptureDigest(
+  captureId: string,
+  content: string,
+  cache: CaptureDigestCache | undefined,
+) {
+  const hit = cache?.get(captureId);
+  if (hit && hit.content === content) return hit.digest;
+  const digest = await captureContentDigest(content);
+  cache?.set(captureId, { content, digest });
+  return digest;
+}
+
 export async function checkKnowledgeProvenance(
   row: KnowledgeProvenanceRow,
   liveContent: ReadonlyMap<string, string>,
+  digestCache?: CaptureDigestCache,
 ): Promise<KnowledgeProvenanceCheck> {
   if (row.provenanceJson === null) return denied("missing");
   let decoded: unknown;
@@ -181,7 +199,10 @@ export async function checkKnowledgeProvenance(
   for (const entry of provenance.captures) {
     const content = liveContent.get(entry.captureId);
     if (content === undefined) return denied("capture-unavailable");
-    if ((await captureContentDigest(content)) !== entry.contentSha256)
+    if (
+      (await cachedCaptureDigest(entry.captureId, content, digestCache)) !==
+      entry.contentSha256
+    )
       return denied("capture-content-mismatch");
   }
   return { current: true };
