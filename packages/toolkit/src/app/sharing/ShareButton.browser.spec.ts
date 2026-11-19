@@ -114,7 +114,16 @@ describe("share invite suggestions", () => {
           name: "Add people by email",
         });
         const list = page.getByRole("listbox");
-        await list.waitFor({ timeout: 7000 });
+        try {
+          await list.waitFor({ timeout: 7000 });
+        } catch (error) {
+          console.error("Share fixture state:", {
+            body: await page.locator("body").innerText(),
+            errors,
+            url: page.url(),
+          });
+          throw error;
+        }
         expect(
           await input.evaluate((el) => document.activeElement === el),
         ).toBe(true);
