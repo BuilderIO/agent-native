@@ -241,16 +241,16 @@ export function createRunnerSessionHandler(options: RunnerSessionRouteOptions) {
     const now = Date.now();
     const ip = getClientIp(event);
     const clientKey = ip ?? "unknown";
-    const retryAfter = failureRetryAfterSeconds(clientKey, now);
-    if (retryAfter !== null) {
-      setResponseHeader(event, "Retry-After", String(retryAfter));
-      return reject(event, 429, "rate_limited", "Too many sign-in attempts.");
-    }
     const fail = (
       status: number,
       code: RunnerSessionErrorCode,
       message: string,
     ) => {
+      const retryAfter = failureRetryAfterSeconds(clientKey, now);
+      if (retryAfter !== null) {
+        setResponseHeader(event, "Retry-After", String(retryAfter));
+        return reject(event, 429, "rate_limited", "Too many sign-in attempts.");
+      }
       recordFailedAttempt(clientKey, now);
       return reject(event, status, code, message);
     };

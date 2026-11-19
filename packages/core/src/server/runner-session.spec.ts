@@ -230,17 +230,23 @@ describe("runner session route", () => {
     expect(await errorCode(response)).toBe("invalid_request");
   });
 
-  it("limits each client address before checking signatures", async () => {
+  it("limits a client's unsigned failures without blocking its signed sign-ins", async () => {
     const ip = "198.51.100.7";
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const response = await post({ email: MEMBER }, ip);
       expect(response.status).toBe(400);
     }
 
-    const limited = await post(signedBody(MEMBER), ip);
+    const limited = await post(
+      signedBody(MEMBER, { secret: "another-secret-of-sufficient-length-333" }),
+      ip,
+    );
     expect(limited.status).toBe(429);
     expect(await errorCode(limited)).toBe("rate_limited");
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+
+    const signed = await post(signedBody(MEMBER), ip);
+    expect(signed.status).toBe(200);
 
     const otherClient = await post({ email: MEMBER }, "198.51.100.8");
     expect(otherClient.status).toBe(400);
