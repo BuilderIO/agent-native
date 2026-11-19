@@ -5,9 +5,16 @@ import {
   type TableCollectionSeed,
   tableCollectionSeedSchema,
 } from "@shared/table-collection-seed";
+import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { EditorState, Transaction } from "@tiptap/pm/state";
+import {
+  type EditorState,
+  NodeSelection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { TableMap } from "@tiptap/pm/tables";
+import type { EditorView } from "@tiptap/pm/view";
+import { yUndoPluginKey } from "@tiptap/y-tiptap";
 
 import { anchorTable, findAnchoredTable } from "./table-anchor";
 import { getTableHeaders, type TableAt } from "./table-commands";
@@ -81,6 +88,25 @@ export function tableCollectionSeed(
 
 export function seedFitsCollection(seed: TableCollectionSeed) {
   return tableCollectionSeedSchema.safeParse(seed).success;
+}
+
+export function replaceTableAsOneUndoStep(
+  view: EditorView,
+  table: TableAt,
+  block: ProseMirrorNode,
+  meta: string,
+) {
+  const tr = view.state.tr.replaceWith(
+    table.pos,
+    table.pos + table.node.nodeSize,
+    block,
+  );
+  tr.setSelection(NodeSelection.create(tr.doc, table.pos));
+  const undoManager = yUndoPluginKey.getState(view.state)?.undoManager;
+  undoManager?.stopCapturing();
+  view.dispatch(closeHistory(tr).setMeta(meta, true).scrollIntoView());
+  view.dispatch(closeHistory(view.state.tr));
+  undoManager?.stopCapturing();
 }
 
 export function followTable(state: EditorState, table: TableAt) {

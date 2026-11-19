@@ -1,9 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { closeHistory } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { NodeSelection, type Transaction } from "@tiptap/pm/state";
+import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
-import { yUndoPluginKey } from "@tiptap/y-tiptap";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -18,6 +16,7 @@ import {
 } from "./SlashCommandMenu";
 import {
   followTable,
+  replaceTableAsOneUndoStep,
   seedFitsCollection,
   tableCollectionSeed,
   tableFitsCollection,
@@ -78,7 +77,6 @@ export function useTurnTableIntoCollection({
       const follow = ({ transaction }: { transaction: Transaction }) =>
         followed.map(transaction);
       editor.on("transaction", follow);
-      let created = false;
       let replaced = false;
       try {
         const result = await create({
@@ -88,27 +86,18 @@ export function useTurnTableIntoCollection({
           ownerBlockId,
           table: seed,
         });
-        created = true;
         editor.off("transaction", follow);
         const current = followed.find(editor.state);
         if (!current) throw new Error(t("editor.tableChangedWhileTurning"));
         const block = editor.schema.nodeFromJSON(
           inlineDatabaseBlockContent(result.block),
         );
-        const tr = editor.state.tr.replaceWith(
-          current.pos,
-          current.pos + current.node.nodeSize,
+        replaceTableAsOneUndoStep(
+          editor.view,
+          current,
           block,
+          LOCAL_FILE_USER_EDIT_META,
         );
-        tr.setSelection(NodeSelection.create(tr.doc, current.pos));
-        const undoManager = yUndoPluginKey.getState(editor.state)?.undoManager;
-        undoManager?.stopCapturing();
-        editor.view.dispatch(
-          closeHistory(tr)
-            .setMeta(LOCAL_FILE_USER_EDIT_META, true)
-            .scrollIntoView(),
-        );
-        undoManager?.stopCapturing();
         replaced = true;
         await waitForEditorUpdateFrame();
         const content = bodyAfterInsert(editor, ownerBlockId, bodyIsLiveCopy);
@@ -117,7 +106,6 @@ export function useTurnTableIntoCollection({
         }
         toast.success(t("editor.turnedIntoCollection"), { id: toastId });
       } catch (error) {
-        const errors: unknown[] = [error];
         if (replaced) {
           const collection = findInlineCollection(editor, ownerBlockId);
           if (collection) {
@@ -132,18 +120,11 @@ export function useTurnTableIntoCollection({
             );
           }
         }
-        try {
-          await trash({ id: newDocumentId });
-        } catch (trashError) {
-          if (created) errors.push(trashError);
-        }
+        await trash({ id: newDocumentId }).catch(() => undefined);
         toast.error(t("editor.failedToTurnIntoCollection"), {
           id: toastId,
-          description: errors
-            .map((value) =>
-              value instanceof Error ? value.message : t("empty.genericError"),
-            )
-            .join("; "),
+          description:
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
       } finally {
         editor.off("transaction", follow);

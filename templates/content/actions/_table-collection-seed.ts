@@ -6,6 +6,7 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import { firstRow } from "../server/lib/first-row.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { serializePropertyValue } from "../shared/properties.js";
 import {
   type TableCollectionSeed,
@@ -150,6 +151,13 @@ export async function seedCollectionFromTable(
   await insertInChunks(values, (chunk) =>
     db.insert(schema.documentPropertyValues).values(chunk),
   );
+  for (const row of rows) {
+    await syncPrivateMediaReferences(db, {
+      documentId: row.documentId,
+      after: row.cells.join("\n"),
+      userEmail: actor,
+    });
+  }
 
   const shares = await db
     .select({

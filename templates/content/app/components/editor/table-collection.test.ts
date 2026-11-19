@@ -2,8 +2,10 @@
 
 import { tableCollectionSeedSchema } from "@shared/table-collection-seed";
 import { getSchema } from "@tiptap/core";
+import { history, undo, undoDepth } from "@tiptap/pm/history";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { EditorState, Plugin } from "@tiptap/pm/state";
+import { EditorState, Plugin, type Transaction } from "@tiptap/pm/state";
+import { EditorView } from "@tiptap/pm/view";
 import {
   initProseMirrorDoc,
   updateYFragment,
@@ -14,6 +16,7 @@ import * as Y from "yjs";
 
 import {
   followTable,
+  replaceTableAsOneUndoStep,
   seedFitsCollection,
   tableCollectionSeed,
   tableFitsCollection,
@@ -260,5 +263,39 @@ describe("followTable on a page with a live copy", () => {
     const after = live.read();
     expect(tableAt(after, 1).node.eq(original)).toBe(true);
     expect(followed.find(after)).toBeNull();
+  });
+});
+
+describe("replaceTableAsOneUndoStep", () => {
+  it("keeps the turn its own undo step, apart from edits to the table just before and to the block just after", () => {
+    const view = new EditorView(document.createElement("div"), {
+      state: EditorState.create({
+        doc: schema.node("doc", null, [paragraph("Hi"), original]),
+        plugins: [history()],
+      }),
+    });
+    const dispatch = (tr: Transaction) => view.dispatch(tr);
+    let afterDone = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (afterDone < 0 && node.text === "Done") afterDone = pos + 4;
+    });
+    dispatch(view.state.tr.insertText("!", afterDone));
+    replaceTableAsOneUndoStep(
+      view,
+      tableAt(view.state, 0),
+      paragraph("Collection"),
+      "test-edit",
+    );
+    dispatch(view.state.tr.deleteSelection());
+    expect(view.state.doc.textContent).toBe("Hi");
+    expect(undoDepth(view.state)).toBe(3);
+
+    undo(view.state, dispatch);
+    expect(view.state.doc.textContent).toBe("HiCollection");
+    undo(view.state, dispatch);
+    expect(view.state.doc.textContent).toBe("HiNameStatusOneDone!");
+    undo(view.state, dispatch);
+    expect(view.state.doc.child(1).eq(original)).toBe(true);
+    view.destroy();
   });
 });

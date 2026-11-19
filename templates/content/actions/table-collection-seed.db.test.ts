@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { registerLabs } from "@agent-native/core/labs/registry";
+import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { and, asc, eq, inArray } from "drizzle-orm";
@@ -26,6 +30,7 @@ let schema: Schema;
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 
 const OWNER = "owner@example.com";
+const OWNED_IMAGE = "a1111111-1111-4111-8111-111111111111";
 
 beforeAll(async () => {
   registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
@@ -146,6 +151,52 @@ describe("create-inline-content-database with a table", () => {
       ["Write brief", JSON.stringify("Ana"), JSON.stringify("Monday")],
       ["Review", undefined, JSON.stringify("Fri\nafternoon")],
     ]);
+  });
+
+  it("attaches a private image named in a cell to that row's page", async () => {
+    await privateMediaStore.ready();
+    await getDb().insert(privateMedia).values({
+      id: OWNED_IMAGE,
+      ownerEmail: OWNER,
+      mimeType: "image/png",
+      size: 3,
+      sha256: "0",
+      blobHandleJson: "{}",
+      createdAt: 0,
+    });
+    const hostDocumentId = await hostPage();
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      createInlineContentDatabaseAction.run({
+        hostDocumentId,
+        table: {
+          properties: ["Screenshot"],
+          rows: [
+            ["Bug", `![](/api/private-media/${OWNED_IMAGE})`],
+            ["Plain", "text"],
+          ],
+        },
+      }),
+    );
+    const { items } = await collectionContents(result.block.databaseId);
+    expect(items).toHaveLength(2);
+    await expect(
+      getDb()
+        .select({
+          documentId: schema.privateMediaReferences.documentId,
+          mediaId: schema.privateMediaReferences.mediaId,
+        })
+        .from(schema.privateMediaReferences)
+        .where(
+          inArray(
+            schema.privateMediaReferences.documentId,
+            items.map((item) => item.documentId),
+          ),
+        ),
+    ).resolves.toEqual(
+      items
+        .slice(0, 1)
+        .map((item) => ({ documentId: item.documentId, mediaId: OWNED_IMAGE })),
+    );
   });
 
   it("makes a collection with properties and no rows from a header-only table", async () => {
