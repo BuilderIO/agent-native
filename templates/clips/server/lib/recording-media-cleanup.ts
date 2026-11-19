@@ -23,6 +23,8 @@ interface RecordingMediaUrls {
   /** A screenshot's served picture and its unmarked base. */
   imageUrl?: string | null;
   baseImageUrl?: string | null;
+  /** A rich recording's track manifest; its tracks are `recording_tracks` rows. */
+  richManifestUrl?: string | null;
   /** Lists a screenshot's replaced files that are still to be deleted. */
   editsJson?: string | null;
   kind?: string | null;
@@ -65,6 +67,7 @@ export function recordingMediaUrls(recording: RecordingMediaUrls): string[] {
     recording.filmstripUrl,
     recording.imageUrl,
     recording.baseImageUrl,
+    recording.richManifestUrl,
     ...screenshotLeftovers(recording),
   ];
   return [...new Set(urls.filter((url): url is string => Boolean(url)))];

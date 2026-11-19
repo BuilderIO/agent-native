@@ -11,10 +11,19 @@ import {
 } from "../server/request-context.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import {
+  WORKSPACE_APP_CHAT_SCOPE,
+  WORKSPACE_APP_CHAT_TTL_SECONDS,
+} from "../shared/workspace-app-chat-capability.js";
+import {
   signAskAppTaskHandle,
   verifyAskAppTaskHandle,
 } from "./ask-app-task-handle.js";
-import type { MCPConfig } from "./build-server.js";
+import type { MCPConfig, MCPCallerIdentity } from "./build-server.js";
+import { mcpChatTurnOwner } from "./chat-turn-scope.js";
+import {
+  hasMcpChatTurnApps,
+  mintMcpChatTurnMetadata,
+} from "./chat-turn-store.js";
 import { embedApp } from "./embed-app.js";
 import { frameworkMcpTool } from "./framework-tools.js";
 import {
@@ -51,6 +60,7 @@ function currentAppId(config: MCPConfig): string {
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
+const ASK_APP_CHAT_TURN_MAX_INLINE_WAIT_MS = 24_000;
 const ASK_APP_POLL_INTERVAL_MS = 1_500;
 const ASK_APP_A2A_REQUEST_TIMEOUT_MS = 10_000;
 const ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
@@ -206,10 +216,16 @@ function askAppIssuerAudience(requestMeta?: AskAppRequestMeta): string | null {
 }
 
 function boundedAskAppWaitMs(raw: unknown): number {
-  if (raw == null || raw === "") return ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  // A verified user's chat turn waits a little longer so a read finishes inline.
+  const chatTurn = hasMcpChatTurnApps() && mcpChatTurnOwner() !== undefined;
+  const maximum = chatTurn
+    ? ASK_APP_CHAT_TURN_MAX_INLINE_WAIT_MS
+    : ASK_APP_MAX_INLINE_WAIT_MS;
+  const fallback = chatTurn ? maximum : ASK_APP_DEFAULT_INLINE_WAIT_MS;
+  if (raw == null || raw === "") return fallback;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return ASK_APP_DEFAULT_INLINE_WAIT_MS;
-  return Math.max(0, Math.min(ASK_APP_MAX_INLINE_WAIT_MS, Math.trunc(parsed)));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(maximum, Math.trunc(parsed)));
 }
 
 function isExplicitAsyncAsk(raw: unknown): boolean {
@@ -487,8 +503,10 @@ async function submitAskAppA2ATask(
     issuerAudience,
     message,
   );
+  const chatTurn = await mintMcpChatTurnMetadata(route.app);
   const task = await client.send(
     {
+      ...(chatTurn ? { metadata: chatTurn } : {}),
       role: "user",
       parts: [{ type: "text", text: message }],
     },
@@ -919,6 +937,9 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
       const app = requestedApp || currentAppId(config);
       const view = String(args.view ?? "").trim();
       const path = safeAppPath(args.path) || (view ? null : "/");
+      if (args.path != null && !safeAppPath(args.path)) {
+        throw new Error("path must be a safe app-relative route");
+      }
       let params: Record<string, string | number | boolean> | undefined;
       const raw = args.params;
       if (raw && typeof raw === "object") {
@@ -991,6 +1012,13 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
         );
         if (match) targetApp = { origin: match.url, id: match.id };
       }
+      if (
+        requestedApp &&
+        requestedApp.toLowerCase() !== currentAppId(config).toLowerCase() &&
+        !targetApp
+      ) {
+        throw new Error(`Unknown or unavailable app "${requestedApp}"`);
+      }
       const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;
@@ -1020,8 +1048,11 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
           await import("../server/embed-request-origin.js");
         const embedOrigin = getEmbedSessionOrigin();
         if (ownerEmail && embedOrigin) {
-          const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-            await import("../server/embed-session.js");
+          const {
+            normalizeEmbedTargetPath,
+            createEmbedSessionTicket,
+            FULL_APP_EMBED_SCOPE,
+          } = await import("../server/embed-session.js");
           const { buildEmbedStartPath } =
             await import("../server/embed-route.js");
           const targetPath = normalizeEmbedTargetPath(
@@ -1033,7 +1064,7 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
               ownerEmail,
               orgId: ctx?.orgId,
               targetPath,
-              scope: chrome ?? null,
+              scope: embedScopeForChrome(chrome, FULL_APP_EMBED_SCOPE),
             });
             const startPath = buildEmbedStartPath(ticket.ticket);
             embedStartUrl = new URL(startPath, embedOrigin).toString();
@@ -1081,7 +1112,10 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
   };
 }
 
-function createEmbedSessionTool(config: MCPConfig): ActionEntry {
+function createEmbedSessionTool(
+  config: MCPConfig,
+  identity?: MCPCallerIdentity,
+): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -1096,6 +1130,16 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
             type: "string",
             description: "Same-origin app-relative path to embed.",
           },
+          ...(identity?.firstPartyMcp === true &&
+          Number.isSafeInteger(identity.workspaceAppChatIssuedAtMs)
+            ? {
+                runtime: {
+                  type: "string",
+                  enum: ["workspace-app-chat"],
+                  description: "Server-to-server workspace chat authority.",
+                },
+              }
+            : {}),
           chrome: {
             type: "string",
             enum: ["full", "minimal"],
@@ -1125,8 +1169,40 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
         );
       }
 
+      const chat = args.runtime === "workspace-app-chat";
+      const chatGrantIssuedAtMs = identity?.workspaceAppChatIssuedAtMs;
+      if (args.runtime !== undefined && !chat)
+        throw new Error("Unknown embed runtime.");
+      if (
+        chat &&
+        (identity?.firstPartyMcp !== true ||
+          identity.identityAssurance !== "user" ||
+          identity.userEmail?.trim().toLowerCase() !==
+            ownerEmail.toLowerCase() ||
+          identity.orgId === undefined ||
+          (identity.orgId ?? undefined) !== ctx?.orgId ||
+          !Number.isSafeInteger(chatGrantIssuedAtMs))
+      ) {
+        throw new Error(
+          "Chat runtime requires a verified scoped MCP user credential.",
+        );
+      }
+      if (chat && ctx?.orgId) {
+        const { isOrgMember } = await import("../org/membership.js");
+        if (
+          !(await isOrgMember(ctx.orgId, ownerEmail, {
+            requireOrganizationMetadata: true,
+          }))
+        ) {
+          throw new Error(
+            "Chat runtime requires current workspace membership.",
+          );
+        }
+      }
+
+      const embedSession = await import("../server/embed-session.js");
       const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-        await import("../server/embed-session.js");
+        embedSession;
       const { buildEmbedStartPath } = await import("../server/embed-route.js");
       const { getEmbedSessionOrigin } =
         await import("../server/embed-request-origin.js");
@@ -1137,7 +1213,10 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
           : typeof args.path === "string"
             ? args.path
             : "";
-      const sibling = await resolveWorkspaceAppForUrl(config, rawTarget);
+      // The chat runtime only grants this app's own routes.
+      const sibling = chat
+        ? null
+        : await resolveWorkspaceAppForUrl(config, rawTarget);
       if (sibling === "unavailable") {
         throw new Error(
           "create_embed_session could not look up the workspace apps; try again.",
@@ -1163,14 +1242,46 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
         );
       }
       if (!embedOrigin) {
+        if (chat)
+          throw new Error("Chat runtime requires a trusted app origin.");
         return { url: targetPath, targetPath, embed: false };
       }
 
+      if (chat) {
+        const { signEmbedSessionToken, resolveEmbedSessionTokenForOrigin } =
+          embedSession;
+        const token = signEmbedSessionToken({
+          ownerEmail,
+          ...(ctx?.orgId === undefined ? {} : { orgId: ctx.orgId }),
+          targetPath,
+          audienceHost: embedOrigin,
+          scope: WORKSPACE_APP_CHAT_SCOPE,
+          ttlSeconds: WORKSPACE_APP_CHAT_TTL_SECONDS,
+          ...(chatGrantIssuedAtMs === undefined
+            ? {}
+            : { ticketCreatedAtMs: chatGrantIssuedAtMs }),
+        });
+        const claims = await resolveEmbedSessionTokenForOrigin(
+          token,
+          embedOrigin,
+        );
+        if (!claims)
+          throw new Error("Workspace chat grant was revoked or expired.");
+        return {
+          runtime: "workspace-app-chat",
+          token,
+          targetPath,
+          expiresAt: claims.exp * 1000,
+        };
+      }
       const ticket = await createEmbedSessionTicket({
         ownerEmail,
         orgId: ctx?.orgId,
         targetPath,
-        scope: typeof args.chrome === "string" ? args.chrome : null,
+        scope: embedScopeForChrome(
+          typeof args.chrome === "string" ? args.chrome : undefined,
+          embedSession.FULL_APP_EMBED_SCOPE,
+        ),
       });
       const startPath = buildEmbedStartPath(ticket.ticket);
       const startUrl = new URL(startPath, embedOrigin).toString();
@@ -1187,6 +1298,15 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
         : null;
     },
   };
+}
+
+// A panel shows the app's own UI to its owner, so it carries that owner's UI
+// authority unless the caller asked for the stripped-down minimal view.
+function embedScopeForChrome(
+  chrome: string | undefined,
+  fullAppScope: string,
+): string | null {
+  return chrome === "minimal" ? chrome : fullAppScope;
 }
 
 async function routeAskOverA2A(
@@ -1233,7 +1353,9 @@ async function routeAskOverA2A(
   const auth = await resolveA2ACallerAuth({
     audience: canonicalA2AAudience(origin),
   });
+  const chatTurn = await mintMcpChatTurnMetadata(id);
   const response = await callAgent(origin, message, {
+    ...(chatTurn ? { metadata: chatTurn } : {}),
     apiKey: auth.apiKey,
     userEmail: auth.userEmail,
     orgId: auth.orgId,
@@ -1665,12 +1787,13 @@ function createWorkspaceAppTool(): ActionEntry {
 export function getBuiltinCrossAppTools(
   config: MCPConfig,
   requestMeta?: AskAppRequestMeta,
+  identity?: MCPCallerIdentity,
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
     open_app: openAppTool(config, requestMeta?.inlineMcpApps === true),
     ...(requestMeta?.inlineMcpApps === true
-      ? { create_embed_session: createEmbedSessionTool(config) }
+      ? { create_embed_session: createEmbedSessionTool(config, identity) }
       : {}),
     ask_app: askAppTool(config, requestMeta),
     ask_app_status: askAppStatusTool(config, requestMeta),

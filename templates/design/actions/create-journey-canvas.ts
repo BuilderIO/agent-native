@@ -450,7 +450,6 @@ export default defineAction({
             title: input.title,
             description: `Onboarding journey for ${input.tree.app}, ${input.tree.window.from} to ${input.tree.window.to}.`,
             projectType: "prototype",
-            designSystemId: null,
             creationMethod: "import_analytics",
           },
           context,

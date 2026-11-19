@@ -4,14 +4,21 @@ import path from "path";
 export const IMMUTABLE_ASSET_CACHE_CONTROL =
   "public, max-age=31536000, immutable";
 
+// An MCP App panel mounts the app inside the host's sandbox origin and imports
+// these chunks from there; module imports are CORS requests, so without this
+// header the panel renders nothing. The files are public and fetched without
+// credentials.
+export const IMMUTABLE_ASSET_CORS_ORIGIN = "*";
+
 export const IMMUTABLE_ASSET_CACHE_HEADERS = {
   "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
   "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
   "netlify-cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
+  "access-control-allow-origin": IMMUTABLE_ASSET_CORS_ORIGIN,
 } as const;
 
 export const IMMUTABLE_ASSET_PATH_PATTERN =
-  "^/assets/(?:[^/]+/)*(?:[^/]+-[A-Za-z0-9_-]{8}\\.[a-z0-9]+|m-[A-Za-z0-9_-]{8}[0-9]+\\.js)$";
+  "^/assets/(?:[^/]+/)*(?:[^/]+-(?:[A-Za-z0-9_-]{8}|[A-Za-z0-9_-]{16})\\.[a-z0-9]+|m-[A-Za-z0-9_-]{8}[0-9]+\\.js)$";
 
 const IMMUTABLE_ASSET_PATH_RE = new RegExp(IMMUTABLE_ASSET_PATH_PATTERN);
 

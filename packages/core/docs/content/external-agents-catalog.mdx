@@ -94,7 +94,9 @@ By default every connected agent sees a small, curated catalog (~20–30 tools v
 
 Tools outside the list — for example `db-exec`, `seed-*`, the extension suite, browser-session tools, and context-xray tools — are not advertised, and calls to them are rejected with "Unknown tool" unless the caller has opted into the full catalog. This keeps each connected agent's context window small and removes footguns that are only safe for single-tenant local development.
 
-`tool-search` works two ways: call it with **no query** for the full menu of tool names plus one-line descriptions (cheap, no schemas), or with a query for ranked matches with parameter summaries. It helps a compacted client discover capabilities; use `ask_app` for anything that requires the app agent's broader reasoning or a write.
+Call `tool-search` with **no query** for a bounded menu of tool names, or with a query for lexical matches and parameter summaries. You can also provide a short `task` summary to request recommendations. The response identifies its `ranking` as `jev` or `bm25` and reports the provider `status`; BM25 results remain available when ranking is unavailable. Use a separate call for explicit `query`, `queries`, or `names` selectors. Recommendations are limited by the current connector and available app grants. Later tool calls still pass the connector's authorization checks; the hosting gateway and target app control app access and execution.
+
+Where the read-only resources tool is enabled, a verified user can read permitted personal or organization memory and top-level skills through `resources` with `action: "read"`, a `scope`, and a `path`. Workspace-inherited and nested agent skills are not available through this tool. Use `ask_app` for broader app reasoning or a write.
 
 #### Authenticated reads by default
 

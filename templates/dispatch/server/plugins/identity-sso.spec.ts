@@ -2,6 +2,25 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
+const identityPolicy = vi.hoisted(() => ({ existingAccountsOnly: false }));
+vi.mock("@agent-native/core/app-config", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/app-config")>();
+  return {
+    ...actual,
+    getAppConfig: () => {
+      const config = actual.getAppConfig();
+      return {
+        ...config,
+        auth: {
+          ...config.auth,
+          identitySsoExistingAccountsOnly: identityPolicy.existingAccountsOnly,
+        },
+      };
+    },
+  };
+});
+
 const featureFlagMocks = vi.hoisted(() => ({
   hasActiveRollout: vi.fn(),
   isEnabled: vi.fn(),
@@ -81,6 +100,7 @@ let organizationRow: Record<string, unknown> | null = null;
 let centralActorRole: string | null = null;
 let centralMemberRole: string | null = null;
 let failNextAuthorizationCodeInsert = false;
+let authorityEmailVerified: boolean | null | "unavailable" = true;
 
 vi.mock("@agent-native/core/feature-flags", async () => {
   const actual = await vi.importActual<
@@ -139,6 +159,19 @@ vi.mock("@agent-native/core/db", () => ({
       const args = (
         typeof input === "string" ? [] : (input.args ?? [])
       ) as any[];
+      if (
+        sql === 'SELECT email_verified FROM "user" WHERE email = $1 LIMIT 1'
+      ) {
+        if (authorityEmailVerified === "unavailable")
+          throw new Error("database unavailable");
+        return {
+          rows:
+            authorityEmailVerified === null
+              ? []
+              : [{ email_verified: authorityEmailVerified }],
+          rowsAffected: 0,
+        };
+      }
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
       if (/^DELETE FROM identity_sso_bootstrap/i.test(sql)) {
         for (let i = bootstrapRows.length - 1; i >= 0; i--) {
@@ -236,6 +269,7 @@ vi.mock("@agent-native/core/db", () => ({
       if (/^INSERT INTO identity_sso_authorization_code/i.test(sql)) {
         if (failNextAuthorizationCodeInsert) {
           failNextAuthorizationCodeInsert = false;
+          authorityEmailVerified = true;
           throw new Error("temporary");
         }
         codeRows.push({
@@ -457,6 +491,7 @@ function event(path: string, extra: Record<string, unknown> = {}): any {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  identityPolicy.existingAccountsOnly = false;
   codeRows.length = 0;
   bootstrapRows.length = 0;
   organizationRow = null;
@@ -1755,5 +1790,218 @@ describe("organization federation endpoint", () => {
     expect(await response.json()).toMatchObject({
       removedMember: "removed@example.test",
     });
+  });
+});
+
+describe("existing-account-only identity authority", () => {
+  it("disables organization federation even for a valid registered source", async () => {
+    identityPolicy.existingAccountsOnly = true;
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    const response = await organizationFederationHandler(
+      event("/_agent-native/identity/organization", {
+        method: "POST",
+        headers: { authorization: "Bearer synthetic-organization-assertion" },
+      }),
+    );
+    expect(response.status).toBe(404);
+    expect(verifyA2ATokenMock).not.toHaveBeenCalled();
+    expect(organizationRow).toBeNull();
+    expect(setActiveOrgIdMock).not.toHaveBeenCalled();
+  });
+
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue({
+      email: "user@example.test",
+      name: "User",
+      orgId: "org-1",
+      emailVerified: true,
+    });
+  });
+
+  it.each([false, undefined])(
+    "refuses authority identity without verified email (%s)",
+    async (emailVerified) => {
+      identityPolicy.existingAccountsOnly = true;
+      getSessionMock.mockResolvedValue({
+        email: "user@example.test",
+        emailVerified,
+      });
+      const response = await authorizeHandler(
+        event(
+          `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${createCodeChallenge(VERIFIER)}&code_challenge_method=S256`,
+        ),
+      );
+      expect(response.status).toBe(403);
+      expect(codeRows).toHaveLength(0);
+      expect(getOrgContextMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("issues and redeems identity without reading or exporting organization context", async () => {
+    identityPolicy.existingAccountsOnly = true;
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    const redirect = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${createCodeChallenge(VERIFIER)}&code_challenge_method=S256`,
+      ),
+    );
+    expect(redirect.status).toBe(302);
+    const code = new URL(
+      redirect.headers.get("Location") ?? "http://invalid.test",
+    ).searchParams.get("code");
+    expect(getOrgContextMock).not.toHaveBeenCalled();
+    expect(getOrgDomainMock).not.toHaveBeenCalled();
+    expect(codeRows[0]).toMatchObject({
+      org_id: null,
+      org_name: null,
+      org_role: null,
+      org_domain: null,
+    });
+    hasGoogleAuthIdentityMock.mockResolvedValue(true);
+    const response = await tokenHandler(
+      event("/_agent-native/identity/token", {
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          code,
+          state: STATE,
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          code_verifier: VERIFIER,
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(signA2ATokenMock).toHaveBeenCalledWith(
+      "user@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        extraClaims: expect.not.objectContaining({ org_id: expect.anything() }),
+      }),
+    );
+    expect(ensureIdentityUserMock).not.toHaveBeenCalled();
+    expect(setActiveOrgIdMock).not.toHaveBeenCalled();
+    expect(signA2ATokenMock.mock.calls[0]?.[3]?.extraClaims).not.toHaveProperty(
+      "identity_auth_provider",
+    );
+  });
+
+  it("omits stored organization claims when the policy changes before redemption", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(true);
+    const redirect = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${createCodeChallenge(VERIFIER)}&code_challenge_method=S256`,
+      ),
+    );
+    expect(redirect.status).toBe(302);
+    expect(codeRows[0]?.org_id).toBe("org-1");
+    identityPolicy.existingAccountsOnly = true;
+    const response = await tokenHandler(
+      event("/_agent-native/identity/token", {
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          code: new URL(
+            redirect.headers.get("Location") ?? "http://invalid.test",
+          ).searchParams.get("code"),
+          state: STATE,
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          code_verifier: VERIFIER,
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const claims = signA2ATokenMock.mock.calls[0]?.[3]?.extraClaims;
+    expect(claims).not.toHaveProperty("org_id");
+    expect(claims).not.toHaveProperty("org_name");
+    expect(claims).not.toHaveProperty("org_role");
+    expect(signA2ATokenMock.mock.calls[0]?.[1]).toBeUndefined();
+  });
+
+  it("refuses a previously issued bootstrap code after the policy changes", async () => {
+    const redirect = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${createCodeChallenge(VERIFIER)}&code_challenge_method=S256`,
+      ),
+    );
+    expect(redirect.status).toBe(302);
+    const row = codeRows[0];
+    if (!row) throw new Error("Expected an issued code");
+    row.bootstrap_handle_hash = "h".repeat(43);
+    identityPolicy.existingAccountsOnly = true;
+    const response = await tokenHandler(
+      event("/_agent-native/identity/token", {
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          code: new URL(
+            redirect.headers.get("Location") ?? "http://invalid.test",
+          ).searchParams.get("code"),
+          state: STATE,
+          app_id: "mail",
+          client_id: "mail",
+          redirect_uri: CALLBACK,
+          code_verifier: VERIFIER,
+        },
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_grant" });
+    expect(signA2ATokenMock).not.toHaveBeenCalled();
+    expect(ensureIdentityUserMock).not.toHaveBeenCalled();
+  });
+
+  it.each([false, null, "unavailable"] as const)(
+    "rechecks authority verification when redeeming an older code (%s)",
+    async (verification) => {
+      const redirect = await authorizeHandler(
+        event(
+          `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${createCodeChallenge(VERIFIER)}&code_challenge_method=S256`,
+        ),
+      );
+      expect(redirect.status).toBe(302);
+      identityPolicy.existingAccountsOnly = true;
+      authorityEmailVerified = verification;
+      const response = await tokenHandler(
+        event("/_agent-native/identity/token", {
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            code: new URL(
+              redirect.headers.get("Location") ?? "http://invalid.test",
+            ).searchParams.get("code"),
+            state: STATE,
+            app_id: "mail",
+            client_id: "mail",
+            redirect_uri: CALLBACK,
+            code_verifier: VERIFIER,
+          },
+        }),
+      );
+      expect(response.status).toBe(verification === "unavailable" ? 503 : 400);
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses both bootstrap entry and activation without account or org writes", async () => {
+    identityPolicy.existingAccountsOnly = true;
+    const bootstrap = await bootstrapHandler(
+      event("/_agent-native/identity/bootstrap", { method: "HEAD" }),
+    );
+    const activation = await bootstrapActivationHandler(
+      event("/_agent-native/identity/bootstrap/activate", { method: "HEAD" }),
+    );
+    expect(bootstrap.status).toBe(404);
+    expect(activation.status).toBe(404);
+    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(ensureIdentityUserMock).not.toHaveBeenCalled();
+    expect(addSessionMock).not.toHaveBeenCalled();
+    expect(setActiveOrgIdMock).not.toHaveBeenCalled();
   });
 });

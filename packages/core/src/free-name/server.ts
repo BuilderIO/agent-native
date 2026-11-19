@@ -7,7 +7,7 @@ export {
   NAME_TAKEN_ERROR_CODE,
   nextFreeName,
 } from "./index.js";
-export type { NameTakenDetails } from "./index.js";
+export type { FreeNameOptions, NameTakenDetails } from "./index.js";
 
 /**
  * The one typed refusal for a name another record already has. It says so

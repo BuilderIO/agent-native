@@ -620,9 +620,13 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       "const mutationObserver = new MutationObserver(update)",
     );
-    // Its own layer keeps Safari from painting the sticky tab row across it.
+    // Its own layer, inside a scroller that is its own stacking context, keeps
+    // Safari from painting the sticky tab row across it.
     expect(source).toContain(
       'className="pointer-events-none absolute z-30 [transform:translateZ(0)]"',
+    );
+    expect(source).toContain(
+      'className="isolate flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"',
     );
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain(

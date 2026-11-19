@@ -613,6 +613,9 @@ describe("data-programs/execute", () => {
       });
 
       expect(enqueueSandboxExecution).toHaveBeenCalledTimes(1);
+      expect(enqueueSandboxExecution).toHaveBeenCalledWith(
+        expect.objectContaining({ caller: null }),
+      );
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.stale).toBe(true);
@@ -620,6 +623,41 @@ describe("data-programs/execute", () => {
       expect(storeMocks.recordDataProgramRun).toHaveBeenCalledWith(
         expect.objectContaining({ status: "queued", executionId: "exec_1" }),
       );
+    });
+
+    it("keeps an outside agent's caller on the background run it queues", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(
+        makeProgram({ background: true }),
+      );
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      storeMocks.getActiveRun.mockResolvedValue(null);
+      const enqueueSandboxExecution = vi.fn().mockResolvedValue({
+        execution: { id: "exec_1" },
+      });
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        enqueueSandboxExecution,
+        getSandboxExecutionForOwner: vi.fn(),
+      }));
+      vi.doMock("../action-frame.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../action-frame.js")>()),
+        currentActionOriginCaller: () => "mcp",
+      }));
+      try {
+        const { runDataProgram } = await loadExecute();
+
+        await runDataProgram({
+          programId: PROGRAM_ID,
+          ctx: { userEmail: OWNER },
+          triggeredBy: "panel_view",
+        });
+
+        expect(enqueueSandboxExecution).toHaveBeenCalledWith(
+          expect.objectContaining({ caller: "mcp" }),
+        );
+      } finally {
+        vi.doUnmock("../action-frame.js");
+      }
     });
 
     it("skips enqueueing a second background run when one is already active and young", async () => {

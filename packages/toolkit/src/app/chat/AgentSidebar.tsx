@@ -81,6 +81,7 @@ import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-st
 import type { BuilderConnectTransport } from "../settings/index.js";
 import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
 import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
+import type { ShareButtonProps } from "../sharing/ShareButton.js";
 import { useRegisterAgentChatSurface } from "./agent-chat-presence.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
@@ -88,6 +89,8 @@ import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_PREPARE_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
+  focusAgentChat,
+  focusAgentChatComposer,
   getAgentChatNavigationKey,
   type AgentChatNavigationKey,
   isAgentPanelChatShortcut,
@@ -288,6 +291,8 @@ export interface AgentSidebarProps {
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   emptyStateFooter?: AssistantChatProps["emptyStateFooter"];
   onMessageCountChange?: AssistantChatProps["onMessageCountChange"];
+  /** Receives the chat share menu's agent destinations instead of a native launch. */
+  onAgentShareHandoff?: ShareButtonProps["onAgentShareHandoff"];
   defaultSidebarWidth?: number;
   /** @deprecated Use `defaultSidebarWidth` — this prop is mount-only. */
   sidebarWidth?: number;
@@ -295,6 +300,8 @@ export interface AgentSidebarProps {
   /** Render the open panel over content even above the mobile breakpoint. */
   forceOverlay?: boolean;
   defaultOpen?: boolean;
+  /** Let an app-owned controller handle the sidebar toggle chord. */
+  disableToggleShortcut?: boolean;
   disableChatShortcut?: boolean;
   /**
    * Draws the panel inside this element instead of beside the page, for an app
@@ -343,11 +350,19 @@ export interface AgentSidebarProps {
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   browserTabId?: string;
+  /**
+   * Query keys the app's agent reads from `__url__`, as exact names and
+   * `prefix*` patterns. Every other query value is redacted before it reaches
+   * the agent; the keys themselves stay visible.
+   */
+  urlQueryKeys?: readonly string[];
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   agentPageHref?: string;
   suppressFirstRunOnboarding?: boolean;
   thinkingDisplay?: AssistantChatProps["thinkingDisplay"];
   showModelSelector?: AssistantChatProps["showModelSelector"];
+  /** Controls the shared composer's "+" menu; the sidebar keeps it by default. */
+  plusMenuMode?: AssistantChatProps["plusMenuMode"];
   chatOnly?: boolean;
 }
 
@@ -409,6 +424,7 @@ export function AgentSidebar({
   position,
   forceOverlay = false,
   defaultOpen,
+  disableToggleShortcut = false,
   disableChatShortcut = false,
   panelHost,
   panelHeadHost,
@@ -445,12 +461,15 @@ export function AgentSidebar({
   isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
+  urlQueryKeys,
   threadUrlSync,
   agentPageHref,
   suppressFirstRunOnboarding = false,
   thinkingDisplay,
   showModelSelector,
+  plusMenuMode,
   chatOnly = true,
+  onAgentShareHandoff,
 }: AgentSidebarProps) {
   const resolvedBrowserTabId =
     browserTabId ??
@@ -1534,7 +1553,11 @@ export function AgentSidebar({
     const handleKeyDown = (e: KeyboardEvent) => {
       // A host's element that isn't on the page yet, such as one a loading
       // page's skeleton holds, has no panel to answer ⌘\, so the shell does.
-      if (!panelHost?.isConnected && isAgentSidebarToggleShortcut(e)) {
+      if (
+        !disableToggleShortcut &&
+        !panelHost?.isConnected &&
+        isAgentSidebarToggleShortcut(e)
+      ) {
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
@@ -1572,7 +1595,7 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [disableChatShortcut, enabled, panelHost]);
+  }, [disableToggleShortcut, disableChatShortcut, enabled, panelHost]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -1887,7 +1910,9 @@ export function AgentSidebar({
           agentPageHref={agentPageHref}
           thinkingDisplay={thinkingDisplay}
           showModelSelector={showModelSelector}
+          plusMenuMode={plusMenuMode}
           chatOnly={chatOnly}
+          onAgentShareHandoff={onAgentShareHandoff}
         />
       </Suspense>
     </LazyChunkErrorBoundary>
@@ -2067,7 +2092,12 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
         <SettingsReturnPathRecorder />
-        {enabled ? <URLSync browserTabId={resolvedBrowserTabId} /> : null}
+        {enabled ? (
+          <URLSync
+            browserTabId={resolvedBrowserTabId}
+            queryKeys={urlQueryKeys}
+          />
+        ) : null}
         {isResizing ? (
           <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
         ) : null}
@@ -2102,18 +2132,7 @@ export function AgentSidebar({
   );
 }
 
-export function focusAgentChat() {
-  void preloadAgentChatSurface();
-  window.dispatchEvent(
-    new CustomEvent("agent-panel:set-mode", {
-      detail: { mode: "chat" },
-    }),
-  );
-  window.dispatchEvent(
-    new CustomEvent("agent-panel:open", { detail: { focus: true } }),
-  );
-  focusAgentChatComposer();
-}
+export { focusAgentChat } from "./agent-sidebar-events.js";
 
 function isComposerReferenceEvent(event: Event): boolean {
   return (
@@ -2136,33 +2155,6 @@ function isPanelNavigationEvent(event: Event): boolean {
   return (
     event.type === "agent-chat:open-thread" || event.type === "agent-task-open"
   );
-}
-
-function focusAgentChatComposer() {
-  const focusComposer = (attempt = 0) => {
-    if (typeof window === "undefined" || typeof document === "undefined")
-      return;
-    const panel = document.querySelector(
-      ".agent-sidebar-panel[data-agent-sidebar-state='open'], " +
-        ".agent-frame-sidebar[data-agent-frame-sidebar-state='open']",
-    );
-    const composer = panel?.querySelector<HTMLElement>(
-      ".ProseMirror, textarea",
-    );
-    if (
-      composer &&
-      composer.getAttribute("contenteditable") !== "false" &&
-      !composer.hasAttribute("disabled")
-    ) {
-      composer.focus();
-      return;
-    }
-    if (attempt < 40) {
-      window.setTimeout(() => focusComposer(attempt + 1), 50);
-    }
-  };
-  // ponytail: retry for 2s so a slow body chunk can still receive shortcut focus.
-  requestAnimationFrame(() => focusComposer());
 }
 
 export function AgentToggleButton({
@@ -2197,6 +2189,7 @@ export function AgentToggleButton({
           type="button"
           aria-label={t("agentPanel.toggleAgent")}
           aria-pressed={open}
+          data-agent-toggle=""
           data-state={open ? "open" : "closed"}
           onClick={() =>
             window.dispatchEvent(

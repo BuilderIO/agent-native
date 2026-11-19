@@ -153,7 +153,6 @@ describe("create-design-from-template", () => {
               title: "Saved campaign",
               description: "Reusable campaign",
               category: "social",
-              designSystemId: "linked-system",
               updatedAt: "2026-07-14T00:00:00.000Z",
               data:
                 testState.templateData ??
@@ -170,34 +169,24 @@ describe("create-design-from-template", () => {
             },
           };
         }
-        if (type === "design-system" && id === "override-system") {
-          return { role: "viewer", resource: { id } };
-        }
-        if (type === "design-system" && id === "linked-system") {
-          return { role: "viewer", resource: { id } };
-        }
         return null;
       },
     );
   });
 
-  it("copies screens and dimensions, preserves locks, and links an override without adaptation", async () => {
+  it("copies screens and dimensions, and preserves locks without adaptation", async () => {
     const result = await action.run({
       templateId: "saved-template",
-      designSystemId: "override-system",
     });
 
     expect(result).toMatchObject({
       id: "copied-design",
-      designSystemId: "override-system",
-      designSystemOverridden: true,
       adaptationPending: false,
       lockedLayerCount: 1,
     });
     expect(result.nextRequiredAction).toBeNull();
     expect(testState.insertedDesign).toMatchObject({
       id: "copied-design",
-      designSystemId: "override-system",
     });
     const data = JSON.parse(String(testState.insertedDesign?.data));
     expect(data.canvasFrames["copied-file"]).toEqual({
@@ -208,9 +197,6 @@ describe("create-design-from-template", () => {
     });
     expect(data.templateSource).toMatchObject({
       templateId: "saved-template",
-      templateDesignSystemId: "linked-system",
-      appliedDesignSystemId: "override-system",
-      designSystemOverridden: true,
     });
     expect(data.templateSource.files).toEqual([
       {
@@ -402,13 +388,10 @@ describe("create-design-from-template", () => {
   it("requests adaptation only when an explicit prompt is supplied", async () => {
     const result = await action.run({
       templateId: "saved-template",
-      designSystemId: "override-system",
       prompt: "Adapt the unlocked content for a summer campaign",
     });
 
     expect(result).toMatchObject({
-      designSystemId: "override-system",
-      designSystemOverridden: true,
       promptPending: true,
       adaptationPending: true,
     });
@@ -441,7 +424,6 @@ describe("create-design-from-template", () => {
     expect(testState.insertedDesign).toBeNull();
     expect(testState.updatedDesign).toMatchObject({
       title: "Saved campaign",
-      designSystemId: "linked-system",
     });
     expect(result.id).toBe("existing-design");
     expect(
@@ -494,18 +476,7 @@ describe("create-design-from-template", () => {
     expect(testState.transactionCount).toBe(1);
     expect(testState.updatedDesign).toBeNull();
   });
-
-  it("rejects an inaccessible explicit override before inserting anything", async () => {
-    await expect(
-      action.run({
-        templateId: "saved-template",
-        designSystemId: "inaccessible-system",
-      }),
-    ).rejects.toThrow("Design system not found");
-
-    expect(testState.transactionCount).toBe(0);
-    expect(testState.insertedDesign).toBeNull();
-  });
+  // oracle-change: Design Systems removed from Design; its assertions no longer apply
 
   it("preserves stable retries without requiring callers to build the fingerprint", async () => {
     const first = await action.run({
@@ -593,7 +564,6 @@ describe("create-design-from-template", () => {
         creation_method: "template",
         project_type: "prototype",
         template_id: "saved-template",
-        design_system_id: "linked-system",
       });
     });
 

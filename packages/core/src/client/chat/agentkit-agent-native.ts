@@ -35,6 +35,7 @@ import {
   isAgentKitProtocolVersion,
   negotiateAgentKitProtocolVersion,
   parseAgentQueuedMessage,
+  parseForkThreadInput,
   parseNullableAgentQueuedSubmissionStatus,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
@@ -85,8 +86,10 @@ import {
 import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
 import { runOutcomeForCode } from "./run-outcome.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   createAgentNativeChatRuntime,
   isAgentNativeChatRuntime,
+  type AgentCallApprovalWidgetData,
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
@@ -109,6 +112,12 @@ export interface CreateAgentNativeAgentKitTransportOptions extends CreateAgentNa
   readonly runtime?: AgentChatRuntime;
   /** Restrict durable thread and queue requests to the configured resource scope. */
   readonly isolateHistoryByScope?: boolean;
+  /**
+   * Client-side thread snapshot persistence. When false, the transport omits
+   * its optional persistThreadSnapshot operation, so the client performs no
+   * snapshot writes; server-side thread history is unaffected.
+   */
+  readonly persistThreadSnapshots?: boolean;
   readonly adapter?: Omit<CreateAgentKitProtocolAdapterOptions, "operations">;
   readonly operations?: CreateAgentKitProtocolAdapterOptions["operations"];
   readonly feedbackUrl?: string;
@@ -154,6 +163,15 @@ const MAX_READINESS_SOURCES = 128;
 const MAX_THREAD_SNAPSHOT_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_THREAD_SNAPSHOT_RETRIES = 2;
 const MAX_THREAD_SNAPSHOT_ANNOTATION_REPLACEMENT_BYTES = 64 * 1024;
+// How many promotion attempts may see a receipt-managed row still "queued" before the client takes it over.
+// Module scope on purpose: the app can rebuild its transport between attempts, and an instance-scoped count
+// would restart every time and never reach the threshold.
+const RECEIPT_QUEUED_TAKEOVER_ATTEMPTS = 3;
+// A row the inbox has left queued for this long is taken over even when the attempts are spread across
+// rebuilt transports (the app can create a new one between promotions).
+const RECEIPT_QUEUED_TAKEOVER_MS = 4_000;
+const receiptQueuedWaits = new Map<string, number>();
+const receiptQueuedFirstSeen = new Map<string, number>();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -2289,10 +2307,9 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       continue;
     }
     if (
-      (event.type === "task.created" ||
-        event.type === "task.updated" ||
-        event.type === "task.completed") &&
-      event.task.assignedAgentId
+      event.type === "task.created" ||
+      event.type === "task.updated" ||
+      event.type === "task.completed"
     ) {
       persisted.push({
         ...base(),
@@ -2450,12 +2467,18 @@ function queuedMessageFileParts(
   const seenUrls = new Set(
     files.flatMap((part) => (part.url ? [part.url] : [])),
   );
+  const unmatchedStored = [...files];
   for (const attachment of queued.requestAttachments ?? []) {
     const url =
       persistedFileUrl(attachment.referenceUrl) ??
       persistedFileUrl(attachment.url);
     if (url) {
-      if (!seenUrls.has(url)) {
+      if (seenUrls.has(url)) {
+        const storedIndex = unmatchedStored.findIndex(
+          (part) => part.url === url,
+        );
+        if (storedIndex >= 0) unmatchedStored.splice(storedIndex, 1);
+      } else {
         files.push({
           type: "file",
           name: attachment.name,
@@ -2468,14 +2491,16 @@ function queuedMessageFileParts(
       }
       continue;
     }
-    if (
-      attachment.data &&
-      !files.some(
-        (part) =>
-          part.name === attachment.name &&
-          part.mediaType === attachment.contentType,
-      )
-    ) {
+    if (!attachment.data) continue;
+    const matchIndex = unmatchedStored.findIndex(
+      (part) =>
+        !part.url &&
+        part.name === attachment.name &&
+        part.mediaType === attachment.contentType,
+    );
+    if (matchIndex >= 0) {
+      unmatchedStored.splice(matchIndex, 1);
+    } else {
       files.push({
         type: "file",
         name: attachment.name,
@@ -2489,7 +2514,7 @@ function queuedMessageFileParts(
   return files;
 }
 
-function withQueuedMessageHistory(
+export function withQueuedMessageHistory(
   messages: AgentMessage[],
   queued: AgentQueuedMessage,
 ): AgentMessage[] {
@@ -2498,14 +2523,23 @@ function withQueuedMessageHistory(
   if (!parts.some((part) => part.type === "text")) {
     parts.unshift({ type: "text", text: queued.text });
   }
+  const unmatchedFiles = parts.filter(
+    (part): part is Extract<AgentMessagePart, { type: "file" }> =>
+      part.type === "file",
+  );
   for (const file of queuedMessageFileParts(queued)) {
-    const alreadyPresent = parts.some(
-      (part) =>
-        part.type === "file" &&
-        (part.url === file.url ||
-          (part.name === file.name && part.mediaType === file.mediaType)),
+    const matchIndex = unmatchedFiles.findIndex((part) =>
+      file.url
+        ? part.url === file.url
+        : !part.url &&
+          part.name === file.name &&
+          part.mediaType === file.mediaType,
     );
-    if (!alreadyPresent) parts.push(file);
+    if (matchIndex >= 0) {
+      unmatchedFiles.splice(matchIndex, 1);
+    } else {
+      parts.push(file);
+    }
   }
   const message: AgentMessage = existing
     ? { ...existing, role: "user", parts }
@@ -2653,13 +2687,45 @@ function mergeStoredAndIncomingWidgets(
   return [...widgets.values()];
 }
 
+function persistedAgentCallApproval(
+  data: Record<string, unknown> | null,
+): AgentCallApprovalWidgetData | undefined {
+  const agent = data?.agent;
+  const id = data?.id;
+  const tool = data?.tool;
+  const url = data?.url;
+  const taskId = data?.taskId;
+  const callId = data?.callId;
+  return typeof agent === "string" &&
+    typeof id === "string" &&
+    typeof tool === "string" &&
+    typeof url === "string" &&
+    typeof taskId === "string" &&
+    typeof callId === "string"
+    ? { agent, id, tool, url, taskId, callId }
+    : undefined;
+}
+
 function persistedActionWidgets(
   widgets: AgentWidgetSnapshot[] = [],
   messageIds: ReadonlySet<string>,
 ): AgentWidgetSnapshot[] {
-  return widgets.flatMap(({ messageId, widget }) => {
+  return widgets.flatMap(({ messageId, widget }): AgentWidgetSnapshot[] => {
     if (!messageIds.has(messageId)) return [];
     const data = asRecord(widget.data);
+    // A peer's approval card has no tool call; it keeps the page to open and
+    // the paused task to continue, so it still shows after a reload.
+    if (widget.kind === AGENT_CALL_APPROVAL_WIDGET_KIND) {
+      const approval = persistedAgentCallApproval(data);
+      return approval
+        ? [
+            {
+              messageId,
+              widget: { id: widget.id, kind: widget.kind, data: approval },
+            },
+          ]
+        : [];
+    }
     if (
       typeof data?.toolCallId !== "string" ||
       typeof data.toolName !== "string"
@@ -4507,6 +4573,22 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
+  // A claim answer that carries the queue instead of a dedicated claimed row still tells us which row the
+  // claim is for. Without this the promotion threw "claim response is invalid" against a server that lists
+  // the row in `queuedMessages`, and the queued message never became a turn.
+  function claimedRowFromClaim(
+    claim: {
+      claimedMessage?: AgentQueuedMessage;
+      queuedMessages: AgentQueuedMessage[];
+    },
+    messageId: string,
+  ): AgentQueuedMessage | undefined {
+    return (
+      claim.claimedMessage ??
+      claim.queuedMessages.find((candidate) => candidate.id === messageId)
+    );
+  }
+
   // A server that predates `active` meaning "in flight" reports a run inside
   // its reconnect window as `active` with a terminal status.
   function runIsInFlight(status: ActiveRunStatus): boolean {
@@ -4652,6 +4734,111 @@ export function createAgentNativeAgentKitTransport(
     return parseNullableAgentQueuedSubmissionStatus(await response.json());
   }
 
+  /**
+   * Sends a receipt-managed queued row as a new turn when the server inbox has left it queued and nothing is
+   * running. The inbox owns delivery normally, but with no run active and the receipt still `queued` the row
+   * waits forever (the row stayed on "Send now" and its text never reached the
+   * transcript). The row is removed from the queue first, so the inbox cannot submit it a second time.
+   */
+  /**
+   * The inbox owns a receipt-managed row; only when it keeps reporting the row still queued does the client
+   * take it over (see `submitReceiptManagedRowDirectly`).
+   */
+  async function reconcileReceiptManagedRow(
+    threadId: string,
+    messageId: string,
+  ) {
+    try {
+      return await reconcileQueuedSubmission(threadId, messageId);
+    } catch (error) {
+      if (asRecord(error)?.code !== "queue_item_busy") throw error;
+      return await submitReceiptManagedRowDirectly(threadId, messageId);
+    }
+  }
+
+  async function submitReceiptManagedRowDirectly(
+    threadId: string,
+    messageId: string,
+  ) {
+    const thread = await snapshot(threadId);
+    if (!thread) throw new Error(`Unknown agent chat thread: ${threadId}`);
+    const queued = (thread.queuedMessages ?? []).find(
+      (message) => message.id === messageId,
+    );
+    if (!queued) {
+      const submitted = submittedQueueMessage(thread, messageId);
+      const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+      if (submitted && typeof runId === "string") {
+        clearPromotionClaimId(threadId, messageId);
+        return { runId, alreadySubmitted: true as const };
+      }
+      return { alreadyRemoved: true as const };
+    }
+    const busy = () => {
+      const error = new Error(
+        `Queued submission ${messageId} is still waiting in the server inbox.`,
+      );
+      Object.assign(error, { code: "queue_item_busy", retryable: true });
+      return error;
+    };
+    try {
+      if (runIsInFlight(await activeRunStatus(threadId))) throw busy();
+    } catch (error) {
+      if (asRecord(error)?.code === "queue_item_busy") throw error;
+      // A transport that cannot report the active run leaves delivery to the inbox, as before.
+      throw busy();
+    }
+    // The inbox owns delivery: give it a few promotion attempts before taking the row over, so a drain that
+    // is merely slow still delivers it once, and only a row nobody is going to send is sent here.
+    const seenKey = JSON.stringify([threadId, messageId]);
+    const seen = (receiptQueuedWaits.get(seenKey) ?? 0) + 1;
+    receiptQueuedWaits.set(seenKey, seen);
+    const firstSeen = receiptQueuedFirstSeen.get(seenKey) ?? Date.now();
+    receiptQueuedFirstSeen.set(seenKey, firstSeen);
+    const waitedTooLong = Date.now() - firstSeen >= RECEIPT_QUEUED_TAKEOVER_MS;
+    if (seen < RECEIPT_QUEUED_TAKEOVER_ATTEMPTS && !waitedTooLong) throw busy();
+    await persistQueueMutation(threadId, { type: "remove", messageId });
+    receiptQueuedWaits.delete(seenKey);
+    receiptQueuedFirstSeen.delete(seenKey);
+    clearPromotionClaimId(threadId, messageId);
+    const latest = (await snapshot(threadId)) ?? thread;
+    const run = await startRunTrackingRunningState(
+      {
+        threadId,
+        messages: [
+          ...latest.messages.filter((message) => message.id !== queued.id),
+          {
+            id: queued.id,
+            role: "user",
+            parts: [
+              { type: "text", text: queued.text },
+              ...(queued.attachments ?? []),
+            ],
+            createdAt: queued.createdAt,
+            ...(queued.metadata === undefined
+              ? {}
+              : { metadata: queued.metadata }),
+          },
+        ],
+        ...(queued.requestAttachments === undefined
+          ? {}
+          : { requestAttachments: queued.requestAttachments }),
+        ...(queued.references === undefined
+          ? {}
+          : { references: queued.references }),
+        ...(queued.options === undefined ? {} : { options: queued.options }),
+        ...(queued.metadata === undefined ? {} : { metadata: queued.metadata }),
+      },
+      undefined,
+    );
+    if (!run.runId) {
+      throw new TypeError(
+        "A queue promotion cannot be acknowledged as a new queued submission.",
+      );
+    }
+    return run;
+  }
+
   async function reconcileQueuedSubmission(
     threadId: string,
     messageId: string,
@@ -4740,6 +4927,10 @@ export function createAgentNativeAgentKitTransport(
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
   const onRunOutcome = options.adapter?.onRunOutcome ?? trackRunOutcome;
+  const {
+    persistThreadSnapshot: hostPersistThreadSnapshot,
+    ...hostOperations
+  } = options.operations ?? {};
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
     ...options.adapter,
     onRunOutcome,
@@ -4924,6 +5115,14 @@ export function createAgentNativeAgentKitTransport(
           } catch (error) {
             const resolved = await resolveMissingQueuedMessage(error);
             if (resolved) return resolved;
+            // The queue is mid-promotion for another message (or another turn
+            // claimed the run slot). This message is still queued and goes after
+            // the current reply -- a state the drawer already renders. Throwing
+            // here put "This message sends after this reply." on screen as an
+            // error for a Send now that the server then honoured.
+            const code = asRecord(error)?.code;
+            if (code === "queue_item_busy" || code === "run_slot_busy")
+              return { delivery: "after_reply" as const };
             throw error;
           }
           if (steered.submissionExpired)
@@ -4954,12 +5153,13 @@ export function createAgentNativeAgentKitTransport(
             claimHeld = false;
             return interruptActiveRun
               ? await interruptForReceiptManagedSubmission(threadId, messageId)
-              : await reconcileQueuedSubmission(threadId, messageId);
+              : await reconcileReceiptManagedRow(threadId, messageId);
           }
-          if (!claim.claimedMessage) {
+          const firstClaimedRow = claimedRowFromClaim(claim, messageId);
+          if (!firstClaimedRow) {
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
-          let claimedMessage = claim.claimedMessage;
+          let claimedMessage = firstClaimedRow;
           const releaseClaim = async () => {
             if (!claimHeld) return;
             await persistQueueMutation(threadId, {
@@ -5043,12 +5243,13 @@ export function createAgentNativeAgentKitTransport(
                   alreadySubmitted: true as const,
                 };
               }
-              if (!claim.claimedMessage) {
+              const reclaimedRow = claimedRowFromClaim(claim, messageId);
+              if (!reclaimedRow) {
                 throw new TypeError(
                   "Agent chat queue claim response is invalid.",
                 );
               }
-              claimedMessage = claim.claimedMessage;
+              claimedMessage = reclaimedRow;
               claimHeld = true;
             }
           }
@@ -5147,7 +5348,15 @@ export function createAgentNativeAgentKitTransport(
           throw error;
         }
       },
-      forkThread: async ({ threadId, fromMessageId, title, metadata }) => {
+      forkThread: async (input) => {
+        const {
+          threadId,
+          fromMessageId,
+          beforeMessageId,
+          title,
+          metadata,
+          forkPurpose,
+        } = parseForkThreadInput(input);
         const source = await fetchThread(threadId);
         if (!source) {
           throw new Error("Unknown agent chat thread: " + threadId);
@@ -5161,7 +5370,7 @@ export function createAgentNativeAgentKitTransport(
         const forkId =
           options.adapter?.createId?.("thread") ?? "thread-" + fallbackId;
         let forkSource: Record<string, unknown> | undefined;
-        if (fromMessageId) {
+        if (fromMessageId || beforeMessageId) {
           const repository = storedRepository(source);
           const agentKit = asRecord(repository.agentKit);
           const sourceMessages = agentKit
@@ -5173,10 +5382,13 @@ export function createAgentNativeAgentKitTransport(
             );
           }
           const throughIndex = sourceMessages.findIndex(
-            (message) => storedMessageId(message) === fromMessageId,
+            (message) =>
+              storedMessageId(message) === (beforeMessageId ?? fromMessageId),
           );
           if (throughIndex < 0) {
-            throw new Error("Unknown message for fork: " + fromMessageId);
+            throw new Error(
+              "Unknown message for fork: " + (beforeMessageId ?? fromMessageId),
+            );
           }
           const messages = sourceMessages.slice(0, throughIndex + 1);
           const retainedMessageIds = new Set(
@@ -5231,6 +5443,17 @@ export function createAgentNativeAgentKitTransport(
             messageCount: messages.length,
             fromMessageId,
           };
+          if (beforeMessageId) {
+            // The server must see the boundary even when the retained prefix is empty.
+            forkSource = {
+              threadData: JSON.stringify(repository),
+              title:
+                title ?? (typeof source.title === "string" ? source.title : ""),
+              preview: "",
+              messageCount: sourceMessages.length,
+              beforeMessageId,
+            };
+          }
         }
         let safeForkSource: Record<string, unknown> | undefined;
         if (forkSource) {
@@ -5255,6 +5478,7 @@ export function createAgentNativeAgentKitTransport(
             body: persistedChatJson(
               {
                 id: forkId,
+                ...(forkPurpose ? { forkPurpose } : {}),
                 ...(safeForkSource ? { source: safeForkSource } : {}),
                 ...(metadata ? { metadata } : {}),
               },
@@ -5301,9 +5525,15 @@ export function createAgentNativeAgentKitTransport(
         if (!response.ok) throw await responseError(response);
         trackRunFeedback({ runId, threadId, positive: value === "positive" });
       },
-      ...options.operations,
-      persistThreadSnapshot:
-        options.operations?.persistThreadSnapshot ?? persistThreadSnapshot,
+      ...hostOperations,
+      // Disabling client snapshot writes omits only this transport operation;
+      // the server's own thread history is unaffected.
+      ...(options.persistThreadSnapshots === false
+        ? {}
+        : {
+            persistThreadSnapshot:
+              hostPersistThreadSnapshot ?? persistThreadSnapshot,
+          }),
     },
   });
   const protocolStartRun = protocolTransport.startRun.bind(protocolTransport);

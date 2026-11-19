@@ -44,7 +44,7 @@ describe("tracking providers", () => {
 
     registerBuiltinProviders();
     track(
-      "qa.event",
+      "qa_event",
       { app: "qa", signed_in: true },
       {
         userId: "u1",
@@ -59,7 +59,7 @@ describe("tracking providers", () => {
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body)).toMatchObject({
       publicKey: "anpk_test",
-      event: "qa.event",
+      event: "qa_event",
       properties: { app: "qa", signed_in: true },
       userId: "u1",
       anonymousId: "anon_1",
@@ -671,5 +671,93 @@ describe("tracking providers", () => {
     registerBuiltinProviders();
 
     expect(listTrackingProviders()).toContain("agent-native-analytics");
+  });
+
+  describe("secrets in an event", () => {
+    // Every provider the server can register, so one canary shows which sink
+    // let it through.
+    async function registerEveryProvider() {
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+      vi.stubEnv("MIXPANEL_TOKEN", "mp_test");
+      vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+      vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+      vi.stubEnv("AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST", "true");
+      vi.stubEnv(
+        "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+        "https://analytics.example.test/track",
+      );
+      vi.stubEnv("TRACKING_WEBHOOK_URL", "https://hooks.example.test/track");
+      const modules = await freshTrackingModules();
+      modules.registerBuiltinProviders();
+      return { ...modules, fetchMock };
+    }
+
+    const sentBody = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls.map(([, init]) => String(init.body)).join("\n");
+
+    it("reaches no provider in a track() call", async () => {
+      const { flushTracking, track, fetchMock } = await registerEveryProvider();
+
+      track(
+        "qa_event",
+        {
+          url: "https://app.example.com/cb?code=CANARYURLCODE&p-key=CANARYPKEY&page=2",
+          token: "CANARYTOKENPROP",
+          api_key: "CANARYAPIKEYPROP",
+          note: 'failed {"apiKey":"CANARYJSONKEY"} at https://u:CANARYUSERINFO@db.example.com/x',
+          nested: { client_secret: "CANARYNESTED" },
+          credential_kind: "builder",
+          input_tokens: 12,
+        },
+        { userId: "u1" },
+      );
+      await flushTracking();
+
+      const body = sentBody(fetchMock);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(body).not.toMatch(/CANARY/);
+      expect(body).toContain("credential_kind");
+      expect(body).toContain("builder");
+      expect(body).toContain("page=2");
+    });
+
+    it("reaches no provider in an exception", async () => {
+      const { flushTracking, fetchMock } = await registerEveryProvider();
+      const { captureException } = await import("./error-capture.js");
+
+      captureException(
+        new Error(
+          'request failed {"apiKey":"CANARYJSONKEY"} GET https://x.example.com/?key=CANARYQUERYKEY&alt=json postgres://app:CANARYDBPASS@db.example.com/app',
+        ),
+        { handled: false, runtime: "node", source: "server" },
+      );
+      await flushTracking();
+
+      expect(fetchMock).toHaveBeenCalled();
+      expect(sentBody(fetchMock)).not.toMatch(/CANARY/);
+    });
+
+    it("does not let a property replace Mixpanel's token, identity or time", async () => {
+      const { flushTracking, track, fetchMock } = await registerEveryProvider();
+
+      track(
+        "qa_event",
+        { token: "attacker-token", distinct_id: "attacker", time: 1 },
+        { userId: "u1" },
+      );
+      await flushTracking();
+
+      const mixpanel = fetchMock.mock.calls.find(
+        ([url]) => url === "https://api.mixpanel.com/track",
+      );
+      const [event] = JSON.parse(mixpanel![1].body);
+      expect(event.properties).toMatchObject({
+        token: "mp_test",
+        distinct_id: "u1",
+      });
+      expect(event.properties.time).toBeGreaterThan(1_000_000_000);
+    });
   });
 });

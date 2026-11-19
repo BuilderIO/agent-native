@@ -135,6 +135,10 @@ async function renderMermaidSvg(
     theme: isDark ? "dark" : "neutral",
     // Throw on bad source instead of leaving an error drawing in <body>.
     suppressErrorRendering: true,
+    // Labels as SVG text, not HTML in a foreignObject. The sanitizer strips every
+    // foreignObject (it can carry script), so with the HTML default each node's
+    // label group comes back empty and the diagram shows boxes with no words.
+    flowchart: { htmlLabels: false },
   });
   try {
     const { svg } = await mermaid.render(id, source);

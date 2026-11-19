@@ -450,12 +450,19 @@ function renderConnectGuide(
   activeGuideId: McpConnectGuideId,
   values: Parameters<typeof interpolateMcpConnectTemplate>[1],
   copyLabel: string,
+  manualSetupLabel: string,
 ): string {
   const guideId = escapeHtml(guide.id);
+  // With an install link, the step that enters the URL by hand is the
+  // fallback, not a step after the link, so it sits behind a disclosure.
+  const manualStep = guide.install?.length ? guide.urlStep : undefined;
+  const fill = (template: string) =>
+    escapeHtml(interpolateMcpConnectTemplate(template, values));
   const installLinks = (guide.install ?? []).map((option) => {
     const link = buildMcpInstallLink(option.client, {
       serverName: values.serverId,
       mcpUrl: values.mcpUrl,
+      displayName: values.appName,
     });
     const target = link.opensWebPage
       ? ` target="_blank" rel="noopener noreferrer"`
@@ -468,11 +475,15 @@ function renderConnectGuide(
       : "",
     guide.steps?.length
       ? `<ol>${guide.steps
-          .map(
-            (step) =>
-              `<li>${escapeHtml(interpolateMcpConnectTemplate(step, values))}</li>`,
-          )
+          .filter((_, index) => index !== manualStep)
+          .map((step) => `<li>${fill(step)}</li>`)
           .join("")}</ol>`
+      : "",
+    manualStep !== undefined && guide.steps?.[manualStep]
+      ? `<details class="advanced">
+          <summary>${escapeHtml(manualSetupLabel)}<span class="chev" aria-hidden="true"></span></summary>
+          <div class="advanced-body"><p>${fill(guide.steps[manualStep])}</p></div>
+        </details>`
       : "",
     guide.intro
       ? `<p>${escapeHtml(interpolateMcpConnectTemplate(guide.intro, values))}</p>`
@@ -553,6 +564,7 @@ function renderConnectPage(params: {
         activeGuideId,
         connectTemplateValues,
         messages.mcpCopy,
+        messages.mcpManualSetup,
       ),
     )
     .join("\n");

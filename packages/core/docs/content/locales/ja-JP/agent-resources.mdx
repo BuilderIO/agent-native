@@ -436,6 +436,8 @@ REST エンドポイントは自動的にマウントされました:
 | `DELETE` | `/_agent-native/resources/:id`                | リソースを削除する                          |
 | `POST`   | `/_agent-native/resources/upload`             | ファイルをリソースとしてアップロードする    |
 
+`GET /_agent-native/resources/:id` で読み取ったリソースには `revision` が含まれます。`PUT` では新しい `content` と一緒にそれを `expectedRevision` として送り返してください。読み取った後に誰かが別の内容を保存していた場合は何も書き込まれず、レスポンスは `errorCode: "save_conflict"` を含む 409 になります。現在の内容は `details.current.content` に、そのリビジョンは `details.currentRevision` に入ります。`expectedRevision` を付けない `PUT` は、これまでどおり保存されている内容を上書きします。リビジョンを確認する保存では、同時にリソースの名前を変更できません。新しい `path` を先に別の `PUT` で送ってください。`<ResourceEditor saveContent>` はこれを自動で行います。編集中に誰かが別の内容を保存した場合は、どちらのバージョンを残すかを尋ね、その後もう一方を取り戻せるようにします。
+
 ### アクション API {#script-api}
 
 エージェントはこれらの組み込み actions を使用します。自分の actions から呼び出すこともできます:
@@ -456,9 +458,14 @@ pnpm action resource-effective --path "context/brand.md"
 # リソースを書く
 pnpm action resource-write --path "notes/meeting.md" --content "# 会議メモ…」
 
+# 読み取り後に誰も保存していない場合にだけリソースを置き換える
+pnpm action resource-write --path "notes/meeting.md" --content "# 会議メモ…」 --expected-revision "rev_…"
+
 # リソースを削除する
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+エージェントのリソース読み取りは `[revision …, scope …]` の行で始まり、エージェントの 2 つの書き込みツールはそのリビジョンを `expectedRevision`（コマンドラインでは `--expected-revision`）として受け取ります。読み取った後に誰かがファイルを保存していた場合は何も書き込まれず、書き込みは `errorCode: "save_conflict"` と現在のリビジョンとともに失敗するので、エージェントはファイルを読み直して編集をやり直します。リビジョンなしの書き込みは、引き続き既存の内容を置き換えます。
 
 ## 次のステップ {#whats-next}
 

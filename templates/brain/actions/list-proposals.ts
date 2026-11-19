@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import { parseJson, serializeProposal } from "../server/lib/brain.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 
 function describeSensitivityCategories(
   categories: string[],
@@ -37,7 +38,12 @@ export default defineAction({
       const accessibleSources = await getDb()
         .select({ id: schema.brainSources.id })
         .from(schema.brainSources)
-        .where(accessFilter(schema.brainSources, schema.brainSourceShares));
+        .where(
+          and(
+            accessFilter(schema.brainSources, schema.brainSourceShares),
+            personalGoogleSourceFilter(),
+          ),
+        );
       const adminSourceIds = (
         await Promise.all(
           accessibleSources.map(async ({ id }) => {
@@ -110,7 +116,7 @@ export default defineAction({
                   sql`exists (
                     select 1 from ${schema.brainSources}
                     where ${schema.brainSources.id} = ${schema.brainProposals.sourceId}
-                      and ${accessFilter(schema.brainSources, schema.brainSourceShares)}
+                      and ${and(accessFilter(schema.brainSources, schema.brainSourceShares), personalGoogleSourceFilter())}
                   )`,
                   inArray(schema.brainProposals.audienceId, audienceIds),
                 )

@@ -8,6 +8,7 @@ import {
   callAction,
   getBrowserTabId,
   setClientAppState,
+  useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -27,6 +28,7 @@ import {
 import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
+import { bodyHoldsChanges } from "@shared/document-intent-merge";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
@@ -66,6 +68,7 @@ import {
   DOMSerializer,
   Fragment,
   Slice,
+  type NodeType,
   type Node as ProseMirrorNode,
   type ResolvedPos,
   type Schema,
@@ -79,7 +82,7 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
-import { CellSelection, cellAround } from "@tiptap/pm/tables";
+import { CellSelection, cellAround, isInTable } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -120,6 +123,10 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import {
+  AnalyticsChartPaste,
+  type AnalyticsChartPasteOptions,
+} from "./analytics-chart/analytics-chart-paste";
 import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import { announceClipCancel } from "./clip-embed/clip-upload-notices";
@@ -127,6 +134,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { CodeBlockToolbar } from "./CodeBlockToolbar";
 import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
@@ -173,7 +181,6 @@ import {
 import {
   CompatibleCode,
   createNotionEditorExtensions,
-  focusMostRecentEmptyToggleSummary,
   TOGGLE_SUMMARY_PLACEHOLDER,
   TOGGLE_TITLE_NODE,
 } from "./extensions/NotionExtensions";
@@ -239,6 +246,13 @@ import {
 } from "./live-body-parity";
 import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import {
+  expandColumnSpans,
+  isSpreadsheetPicture,
+  parseSpreadsheetText,
+  spreadsheetTableSlice,
+  spreadsheetTextForSlice,
+} from "./spreadsheet-clipboard";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
 import { caretAfterPageSwap } from "./suggestions/keep-caret";
@@ -246,7 +260,10 @@ import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
-import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
+import {
+  isSuggestingEdits,
+  SuggestingReadOnlyBlocks,
+} from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
@@ -463,6 +480,14 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
   }
 }
 
+// A table for cells copied as tab-separated text. Suggesting can't add a
+// table, so while suggesting the cells paste as text.
+function spreadsheetTable(editor: CoreEditor, text: string): Slice | null {
+  if (isSuggestingEdits(editor.state)) return null;
+  const rows = parseSpreadsheetText(text);
+  return rows && spreadsheetTableSlice(editor.schema, rows);
+}
+
 const MarkdownPasteDetection = Extension.create({
   name: "markdownPasteDetection",
   addProseMirrorPlugins() {
@@ -471,8 +496,11 @@ const MarkdownPasteDetection = Extension.create({
       new Plugin({
         key: new PluginKey("markdownPasteDetection"),
         props: {
+          transformPastedHTML: expandColumnSpans,
           clipboardTextParser(text, _context, plainText) {
             if (!plainText) {
+              const table = spreadsheetTable(editor, text);
+              if (table) return table;
               const markdown = parseMarkdownClipboardSlice(
                 editor,
                 text,
@@ -481,6 +509,23 @@ const MarkdownPasteDetection = Extension.create({
               if (markdown) return markdown;
             }
             return parsePlainTextClipboardSlice(editor, text, _context);
+          },
+          // A copied table, or cells of one, goes out as tab-separated text,
+          // which spreadsheets paste as cells; anything else as Markdown.
+          // This is the only copy serializer: tiptap-markdown's own copy
+          // transform is off, since its plugin would run ahead of this one.
+          clipboardTextSerializer(slice) {
+            const { serializer } = (
+              editor.storage as unknown as {
+                markdown: {
+                  serializer: { serialize(content: Fragment): string };
+                };
+              }
+            ).markdown;
+            return (
+              spreadsheetTextForSlice(slice, editor.schema) ??
+              serializer.serialize(slice.content)
+            );
           },
           handlePaste(view, event) {
             const context = view.state.selection.$from;
@@ -498,6 +543,18 @@ const MarkdownPasteDetection = Extension.create({
 
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
+
+            // Cells copied as text alone. ProseMirror's table plugin fills a
+            // table at the caret from the table clipboardTextParser made;
+            // anywhere else the table goes in literally, so Markdown paste
+            // rules leave the cells' text as it was.
+            const table = html ? null : spreadsheetTable(editor, plainText);
+            if (table) {
+              if (isInTable(view.state)) return false;
+              event.preventDefault();
+              dispatchLiteralPaste(view, table);
+              return true;
+            }
 
             if (!html && plainText && !looksLikeMarkdown(plainText)) {
               const slice = parsePlainTextClipboardSlice(
@@ -746,6 +803,7 @@ const NotionMarkdownShortcuts = Extension.create({
       // A Toggle's title is its own line, not a block to turn into another.
       if (
         !$from.parent.isTextblock ||
+        $from.parent.type.spec.code ||
         $from.parent.type.name === TOGGLE_TITLE_NODE
       ) {
         return null;
@@ -785,29 +843,58 @@ const NotionMarkdownShortcuts = Extension.create({
             if (!paragraph) return false;
 
             if (shortcut.marker === ">") {
-              const toggle = schema.nodes.notionToggle;
-              if (!toggle) return false;
+              const toggle = schema.nodes.notionToggle as NodeType | undefined;
+              const title = schema.nodes[TOGGLE_TITLE_NODE] as
+                | NodeType
+                | undefined;
+              if (!toggle || !title) return false;
 
-              view.dispatch(
-                view.state.tr
-                  .replaceWith(
-                    shortcut.blockFrom,
-                    shortcut.blockTo,
-                    toggle.create({ summary: "", open: true }),
-                  )
-                  .scrollIntoView(),
+              // In a list the item leaves the list and becomes the Toggle.
+              const item = view.state.selection.$from.node(-1);
+              if (["listItem", "taskItem"].includes(item.type.name)) {
+                editor.commands.liftListItem(item.type.name);
+              }
+
+              // The text after the marker becomes the title, as in Notion.
+              const { $from } = view.state.selection;
+              const tr = view.state.tr.replaceWith(
+                $from.before(),
+                $from.after(),
+                toggle.create(
+                  {
+                    open: true,
+                    headingLevel:
+                      $from.parent.type.name === "heading"
+                        ? ($from.parent.attrs.level as number)
+                        : null,
+                  },
+                  title.create(
+                    null,
+                    $from.parent.content.cut($from.parentOffset),
+                  ),
+                ),
               );
-              focusMostRecentEmptyToggleSummary(editor);
+              tr.setSelection(
+                Selection.near(tr.doc.resolve($from.before() + 2)),
+              );
+              view.dispatch(tr.scrollIntoView());
               return true;
             }
 
             const blockquote = schema.nodes.blockquote;
             if (!blockquote) return false;
 
+            const { $from } = view.state.selection;
             const tr = view.state.tr.replaceWith(
               shortcut.blockFrom,
               shortcut.blockTo,
-              blockquote.create(null, paragraph.create()),
+              blockquote.create(
+                null,
+                paragraph.create(
+                  null,
+                  $from.parent.content.cut($from.parentOffset),
+                ),
+              ),
             );
             tr.setSelection(
               Selection.near(tr.doc.resolve(shortcut.blockFrom + 2)),
@@ -2103,6 +2190,19 @@ export function shouldSeedCollaborativeContent({
   );
 }
 
+/**
+ * Whether a saved body already holds everything the editor changed since
+ * `base`, as the server's merge of the editor's own save does. The editor
+ * holds canonical NFM, so the saved body is compared in that form.
+ */
+export function savedBodyHoldsLiveChanges(
+  base: string,
+  saved: string,
+  live: string,
+): boolean {
+  return bodyHoldsChanges(base, canonicalizeNfm(saved), live);
+}
+
 export function parseNfmForCollabReconcile(
   editor: CoreEditor,
   value: string,
@@ -2248,6 +2348,8 @@ interface VisualEditorExtensionOptions {
     transaction: Transaction,
   ) => void;
   findCommentQuote?: CommentHighlightOptions["findQuote"];
+  /** Turns a pasted Analytics panel link into a chart while it returns one. */
+  analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
 }
 
 export function hasAncestorType(
@@ -3295,6 +3397,7 @@ export function createVisualEditorExtensions({
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
   findCommentQuote,
+  analyticsChartPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -3401,13 +3504,18 @@ export function createVisualEditorExtensions({
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
+      ...(analyticsChartPaste
+        ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
       MarkdownPasteDetection,
       SelectAllDocument,
       JoinFirstBodyBlockToTitle.configure({ onJoinTitle }),
       Markdown.configure({
         html: true,
         transformPastedText: false,
-        transformCopiedText: true,
+        // MarkdownPasteDetection writes copied text, as Markdown or as
+        // tab-separated cells.
+        transformCopiedText: false,
       }),
     ],
   });
@@ -4125,6 +4233,29 @@ export function VisualEditor({
   }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
+  const analyticsLinks = useActionQuery(
+    "get-analytics-links",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const analyticsLinkOriginsRef = useRef<readonly string[]>([]);
+  analyticsLinkOriginsRef.current = analyticsLinks.data?.linkOrigins ?? [];
+  const getAnalyticsChartPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            documentId,
+            canEdit: !suggestingRef.current,
+            linkOrigins: analyticsLinkOriginsRef.current,
+            t: tRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -4186,6 +4317,7 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+        analyticsChartPaste: getAnalyticsChartPasteContext,
       }),
       Extension.create({
         name: "suggestingCaretOnPageSwap",
@@ -4267,6 +4399,7 @@ export function VisualEditor({
       t,
       onMediaSourceCommitted,
       findCommentQuote,
+      getAnalyticsChartPasteContext,
     ],
   );
 
@@ -4415,9 +4548,11 @@ export function VisualEditor({
         if (
           view.editable &&
           onImportFilesRef.current &&
-          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+          droppedFiles.some(
+            (file) =>
+              isMarkdownFilePath(file.name) || /[.]zip$/i.test(file.name),
+          )
         ) {
-          // Images dropped beside Markdown belong to the import, not the page.
           event.preventDefault();
           setIsDraggingMedia(false);
           onImportFilesRef.current(droppedFiles);
@@ -4488,6 +4623,9 @@ export function VisualEditor({
       handlePaste(view, event) {
         if (view.editable) markUserEditIntent();
         if (!view.editable || !event.clipboardData) return false;
+        // Excel puts a picture of the copied cells beside them: paste the
+        // cells as a table, not the picture.
+        if (isSpreadsheetPicture(event.clipboardData)) return false;
 
         const imageFiles = getImageFiles(event.clipboardData.files);
         const videoFiles = getVideoFiles(event.clipboardData.files);
@@ -5257,6 +5395,7 @@ export function VisualEditor({
     onBaseAwareMerge: documentId
       ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
       : undefined,
+    serverHoldsLiveChanges: savedBodyHoldsLiveChanges,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
       : undefined,
@@ -5991,8 +6130,10 @@ export function VisualEditor({
       {editable && !suggesting ? (
         <ColumnResizeControls editor={editor} />
       ) : null}
+      <CodeBlockToolbar editor={editor} canEdit={editable && !suggesting} />
       {editable ? (
         <BlockActionsMenu
+          documentId={documentId}
           editor={editor}
           onComment={onComment}
           suggesting={suggesting}

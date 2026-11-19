@@ -26,6 +26,9 @@ import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-r
 import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.js";
 import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
+import { scrubEventUrlFields } from "./analytics-url-scrub.js";
+import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
+import type { BigQueryQueryTrace } from "./bigquery.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
@@ -146,6 +149,13 @@ export interface AnalyticsQueryOptions {
    * callers that need events newer than the model's last build.
    */
   eventsSource?: "raw";
+  /**
+   * Lets a later identical call collect this query's BigQuery job: stopped by
+   * this call's timeout or by `deadline`, the job keeps running instead of
+   * being cancelled. See RunQueryOptions.resumeAfter.
+   */
+  resumable?: { deadline?: AbortSignal };
+  trace?: BigQueryQueryTrace;
 }
 
 export class FirstPartyAnalyticsQueryTimeoutError extends Error {
@@ -868,8 +878,8 @@ export async function recordAnalyticsEvents(
   }> = [];
   let suppressedTestIdentity = 0;
   const rows = events.flatMap((event) => {
-    const properties = event.properties ?? {};
-    const context = event.context ?? {};
+    const properties = scrubEventUrlFields(event.properties ?? {});
+    const context = scrubEventUrlFields(event.context ?? {});
     const url =
       asString(properties.url) ||
       asString((context as any).url) ||
@@ -1973,6 +1983,14 @@ export async function queryFirstPartyAnalyticsWithBackend(
           scopedEventsProjection: options.scopedEventsProjection,
           scopedEventsSourceProjections: options.scopedEventsSourceProjections,
         };
+        const resumeAfter = options.resumable
+          ? options.resumable.deadline
+            ? AbortSignal.any([
+                options.resumable.deadline,
+                timeoutController.signal,
+              ])
+            : timeoutController.signal
+          : undefined;
         const result = await raceWithAbort(
           queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
             ...renderOptions,
@@ -1983,6 +2001,8 @@ export async function queryFirstPartyAnalyticsWithBackend(
             maxBytesBilled: options.maxBytesBilled,
             timeoutMs: remainingTime(),
             signal,
+            ...(resumeAfter ? { resumeAfter } : {}),
+            ...(options.trace ? { trace: options.trace } : {}),
           }),
           signal,
         );
@@ -1993,7 +2013,10 @@ export async function queryFirstPartyAnalyticsWithBackend(
         return { ...result, backend: "bigquery" };
       } catch (error) {
         const failure = normalizeFailure(error);
-        if (!options.signal?.aborted) {
+        if (
+          !options.signal?.aborted &&
+          !(failure instanceof OutsideAgentBigQueryRefusalError)
+        ) {
           await recordBigQueryPressure(queryOutcomeFromError(failure));
         }
         throw failure;

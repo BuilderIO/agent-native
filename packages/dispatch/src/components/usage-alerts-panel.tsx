@@ -1,4 +1,5 @@
 import type { UsageAlertRule } from "@agent-native/core";
+import { commercialSurfacesHidden } from "@agent-native/core/client/app-config";
 import {
   useActionMutation,
   useActionQuery,
@@ -34,6 +35,17 @@ interface UsageAlertsPanelProps {
 
 type AlertUnit = "usd" | "builder-credits" | "tokens";
 type AlertChannel = "in-app" | "email";
+
+/** Units a rule can be created in; credits are left out where the deployment hides them. */
+export function alertUnitOptions(): Array<{ value: AlertUnit; label: string }> {
+  return [
+    { value: "usd", label: "Dollars" },
+    ...(commercialSurfacesHidden()
+      ? []
+      : [{ value: "builder-credits" as const, label: "Credits" }]),
+    { value: "tokens", label: "Tokens" },
+  ];
+}
 
 interface AlertDraft {
   ruleId?: string;
@@ -147,9 +159,11 @@ function AlertEditor({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="usd">Dollars</SelectItem>
-            <SelectItem value="builder-credits">Credits</SelectItem>
-            <SelectItem value="tokens">Tokens</SelectItem>
+            {alertUnitOptions().map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </label>

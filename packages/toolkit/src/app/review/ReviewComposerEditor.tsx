@@ -95,6 +95,11 @@ export interface ReviewComposerEditorProps {
   onCaretChange?: () => void;
   /** Return true to stop the editor handling the key. */
   onKeyDown?: (event: KeyboardEvent) => boolean;
+  /**
+   * Image files pasted or dropped into the editor. Return true to take them,
+   * so the editor doesn't paste or drop them itself.
+   */
+  onImageFiles?: ((files: File[]) => boolean) | undefined;
   onReady?: () => void;
 }
 
@@ -111,6 +116,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
     onTextChange,
     onCaretChange,
     onKeyDown,
+    onImageFiles,
     onReady,
   }: ReviewComposerEditorProps,
   ref: Ref<ReviewComposerEditorHandle>,
@@ -121,6 +127,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
     onTextChange,
     onCaretChange,
     onKeyDown,
+    onImageFiles,
     onReady,
   });
   latest.current = {
@@ -129,6 +136,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
     onTextChange,
     onCaretChange,
     onKeyDown,
+    onImageFiles,
     onReady,
   };
   // The body the editor last said it holds, or was last given. A `value` equal
@@ -243,6 +251,25 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
           return true;
         }
         return false;
+      },
+      // A copied image comes alone, or with HTML naming it. A spreadsheet's
+      // cells come as text with a picture of them, and paste as the text.
+      handlePaste: (_view, event) => {
+        const data = event.clipboardData;
+        if (!data || data.getData("text/plain")) return false;
+        const files = imageFiles(data.files);
+        if (!files.length || !latest.current.onImageFiles?.(files))
+          return false;
+        event.preventDefault();
+        return true;
+      },
+      handleDrop: (_view, event, _slice, moved) => {
+        if (moved) return false;
+        const files = imageFiles(event.dataTransfer?.files);
+        if (!files.length || !latest.current.onImageFiles?.(files))
+          return false;
+        event.preventDefault();
+        return true;
       },
       // Pasted text reads as the Markdown it shows as; Shift pastes it as
       // plain lines. Rich text from a page comes as HTML and skips this.
@@ -505,4 +532,10 @@ function plainLinesDoc(text: string) {
           : { type: "paragraph" },
       ),
   };
+}
+
+function imageFiles(files: FileList | null | undefined): File[] {
+  return Array.from(files ?? []).filter((file) =>
+    file.type.startsWith("image/"),
+  );
 }

@@ -32,6 +32,10 @@ import {
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import {
+  isWorkspaceAppChatScope,
+  workspaceAppChatAllowsRequest,
+} from "../shared/workspace-app-chat-capability.js";
+import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
@@ -195,6 +199,7 @@ export type ResolvedEmbedSession = {
   token: string;
   targetPath: string;
   scope?: string;
+  sessionId?: string;
 };
 
 export function isEmbedCapabilityScope(
@@ -871,10 +876,161 @@ function isEmbedStaticRuntimeRequest(event: H3Event): boolean {
   );
 }
 
+/**
+ * A session an MCP host's side panel opens the whole app with, for a verified
+ * user. It acts as that user in the app, as a signed-in browser does.
+ */
+export const FULL_APP_EMBED_SCOPE = "full-app";
+
+const FULL_APP_DENIED_PREFIXES = [
+  // Approvals and the MCP surface: the host's agent can steer the panel, so
+  // it must never approve its own calls or mint more credentials there.
+  "/mcp",
+  "/_agent-native/mcp",
+  "/_agent-native/a2a",
+  "/_agent-native/oauth",
+  "/_agent-native/identity",
+  "/_agent-native/sign-in",
+  "/_agent-native/signup",
+  "/_agent-native/login",
+  "/_agent-native/env-vars",
+  "/_agent-native/sql",
+  "/_agent-native/db",
+  "/_agent-native/dev",
+  "/_agent-native/debug",
+  // Stored secrets, the user's own browser, and local processes.
+  "/_agent-native/secrets",
+  "/_agent-native/browser-sessions",
+  "/_agent-native/process-run",
+  "/_agent-native/sandbox",
+  "/_agent-native/agent-terminal-info",
+  "/_agent-native/available-clis",
+  "/_agent-native/agent-chat/save-key",
+  "/_agent-native/agent-chat/_process-run",
+  // OAuth starts and callbacks change state on GET: they set flow state and
+  // cookies, then hand the browser to a provider.
+  "/_agent-native/connections/oauth",
+  "/_agent-native/google/auth-url",
+  "/_agent-native/google/callback",
+  "/_agent-native/google/add-account",
+  "/_agent-native/builder/connect",
+  "/_agent-native/builder/callback",
+  "/_agent-native/builder/provision",
+  "/_agent-native/builder/relay",
+  "/_agent-native/auth/ba/callback",
+  "/_agent-native/auth/ba/oauth2",
+  "/_agent-native/auth/desktop-exchange",
+  "/_agent-native/integrations/remote",
+  // Consumes a one-time ticket and sets a session cookie on GET.
+  "/_agent-native/embed/start",
+];
+const FULL_APP_EMBED_ERROR_ROUTE = "/_agent-native/mcp/embed-error";
+// Reads stay open here; changing an account, connection, org, model key or
+// stored setting needs a login.
+const FULL_APP_READ_ONLY_PREFIXES = [
+  "/_agent-native/auth",
+  "/_agent-native/embed",
+  "/_agent-native/org",
+  "/_agent-native/connections",
+  "/_agent-native/integrations",
+  "/_agent-native/google",
+  "/_agent-native/builder",
+  "/_agent-native/agent-engine",
+  "/_agent-native/agent-model-defaults",
+  "/_agent-native/agent-loop-settings",
+  "/_agent-native/settings",
+  "/_agent-native/env-status",
+  "/_agent-native/credential-probe",
+  // Automations run later as the owner, outside this panel.
+  "/_agent-native/automations",
+  // The app's own agent runs as the owner, and its runs, queued prompts and
+  // background continuations carry no mark of this panel; the host's agent
+  // works the panel instead.
+  "/_agent-native/agent-chat",
+];
+
+// OAuth starts, callbacks, connects and disconnects change the owner's
+// connected accounts, some of them on GET, wherever an app mounts them:
+// `/_agent-native/zoom/disconnect`, `/api/auth/google-calendar`.
+const FULL_APP_DENIED_SEGMENTS = new Set([
+  "oauth",
+  "callback",
+  "connect",
+  "disconnect",
+  "auth-url",
+  "add-account",
+]);
+// App routes that store credentials by name, such as a template's
+// `PUT /api/pylon/key`; a panel can read them but not write them.
+const FULL_APP_READ_ONLY_SEGMENTS = new Set([
+  "key",
+  "keys",
+  "api-key",
+  "api-keys",
+  "secret",
+  "secrets",
+  "token",
+  "tokens",
+  "credential",
+  "credentials",
+  "password",
+  "passwords",
+]);
+
+function underPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+export function fullAppEmbedAllowsRequest(
+  pathname: string,
+  method: string,
+): boolean {
+  // A dot segment or backslash could step from an allowed path to a denied one.
+  if (/(^|\/)\.\.?(\/|$)|\\|%2e|%2f|%5c/i.test(pathname)) return false;
+  // The router decodes escapes and folds repeated slashes, so the policy
+  // matches the route it will serve, not the spelling it was sent in.
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+    // coercion-ok: a path that does not decode is refused, not allowed.
+  } catch {
+    return false;
+  }
+  const route = decoded.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/";
+  // The shell's failure report trusts no identity, and a panel signs every
+  // request under its mount, so refusing the token would drop the report.
+  if (route === FULL_APP_EMBED_ERROR_ROUTE) return method === "POST";
+  if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(route, prefix)))
+    return false;
+  const segments = route.toLowerCase().split("/");
+  // The framework's own `/_agent-native/auth` reads, such as the session,
+  // stay open below; an app's `auth` routes sign in or out.
+  if (
+    segments.some(
+      (segment, index) =>
+        FULL_APP_DENIED_SEGMENTS.has(segment) ||
+        (segment === "auth" && segments[index - 1] !== "_agent-native"),
+    )
+  )
+    return false;
+  const readOnly =
+    FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(route, prefix)) ||
+    segments.some((segment) => FULL_APP_READ_ONLY_SEGMENTS.has(segment));
+  return !readOnly || method === "GET" || method === "HEAD";
+}
+
 function embedSessionAllowsRequest(
   event: H3Event,
   claims: EmbedSessionTokenClaims,
 ): boolean {
+  if (claims.scope === FULL_APP_EMBED_SCOPE) {
+    const path = requestPathname(event);
+    return !!path && fullAppEmbedAllowsRequest(path, requestMethod(event));
+  }
+  if (isWorkspaceAppChatScope(claims.scope)) {
+    const path = requestPathname(event);
+    return !!path && workspaceAppChatAllowsRequest(path, requestMethod(event));
+  }
   if (
     isEmbedCapabilityScope(claims.scope) &&
     isEmbedCapabilityRuntimeRequest(event, claims.scope)
@@ -987,6 +1143,7 @@ export async function createEmbedSessionTicket(
   }
   const checksOwnerRevocation =
     !capabilityScope ||
+    isWorkspaceAppChatScope(input.scope) ||
     widgetCapability ||
     input.revocationAnchorCreatedAtMs !== undefined;
   if (
@@ -1349,6 +1506,11 @@ export async function resolveEmbedSessionTokenForOrigin(
   let scope = claims.scope;
   const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
   if (
+    isWorkspaceAppChatScope(scope) &&
+    !Number.isSafeInteger(claims.ticketCreatedAtMs)
+  )
+    return null;
+  if (
     widgetCapability &&
     (typeof claims.ticketCreatedAtMs !== "number" ||
       !Number.isSafeInteger(claims.ticketCreatedAtMs))
@@ -1356,32 +1518,42 @@ export async function resolveEmbedSessionTokenForOrigin(
     return null;
   }
   if (claims.sessionId) {
-    if (!widgetCapability) return null;
-    const session = await readMcpDirectoryWidgetSessionState(
-      claims.sessionId,
-      origin,
-    );
-    if (
-      !session ||
-      normalizedEmail(session.ownerEmail) !==
-        normalizedEmail(claims.ownerEmail) ||
-      session.orgId !== claims.orgId ||
-      session.targetPath !== claims.targetPath ||
-      session.createdAtMs !== claims.ticketCreatedAtMs ||
-      session.sessionActiveUntilMs === null ||
-      session.sessionActiveUntilMs <= Date.now() ||
-      session.renewalExpiresAtMs <= Date.now()
-    ) {
-      return null;
+    const visualEditCapability =
+      typeof scope === "string" &&
+      scope.startsWith("capability:visual-edit:design:");
+    if (!widgetCapability && !visualEditCapability) return null;
+    if (visualEditCapability) {
+      if (claims.exp * 1000 <= Date.now()) return null;
+    } else {
+      const session = await readMcpDirectoryWidgetSessionState(
+        claims.sessionId,
+        origin,
+      );
+      if (
+        !session ||
+        normalizedEmail(session.ownerEmail) !==
+          normalizedEmail(claims.ownerEmail) ||
+        session.orgId !== claims.orgId ||
+        session.targetPath !== claims.targetPath ||
+        session.createdAtMs !== claims.ticketCreatedAtMs ||
+        session.sessionActiveUntilMs === null ||
+        session.sessionActiveUntilMs <= Date.now() ||
+        session.renewalExpiresAtMs <= Date.now()
+      ) {
+        return null;
+      }
+      scope = session.scope;
     }
-    scope = session.scope;
   } else if (claims.exp * 1000 <= Date.now()) {
     return null;
   }
   if (widgetCapability && !isMcpDirectoryWidgetCapabilityScope(scope)) {
     return null;
   }
-  const revokesWithOwner = !isEmbedCapabilityScope(scope) || widgetCapability;
+  const revokesWithOwner =
+    !isEmbedCapabilityScope(scope) ||
+    widgetCapability ||
+    isWorkspaceAppChatScope(scope);
   if (
     revokesWithOwner &&
     (await embedSessionIsRevoked(
@@ -1470,6 +1642,34 @@ export async function resolveEmbedSessionCookieOwners(
   return [...owners];
 }
 
+/**
+ * Whether a ticket is still redeemable here and was issued to this owner,
+ * without consuming it.
+ */
+export async function embedSessionTicketBelongsTo(
+  ticket: string,
+  ownerEmail: string,
+): Promise<boolean> {
+  const expected = normalizedEmail(ownerEmail);
+  if (!ticket || !expected) return false;
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT owner_email, expires_at, consumed_at FROM agent_native_embed_tickets WHERE ticket_hash = ?",
+    args: [hashTicket(ticket)],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return false;
+  const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
+  const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
+  return (
+    consumedAt === null &&
+    expiresAt !== null &&
+    expiresAt > Date.now() &&
+    normalizedEmail(stringOrUndefined(row.owner_email ?? row.ownerEmail)) ===
+      expected
+  );
+}
+
 export async function consumeEmbedSessionTicket(
   ticket: string | undefined | null,
   options: ConsumeEmbedSessionTicketOptions = {},
@@ -1528,7 +1728,8 @@ export async function consumeEmbedSessionTicket(
   const ticketOrgKey = redactedIdentifier(orgId);
   const capabilityScope = isEmbedCapabilityScope(scope);
   const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
-  const revokesWithOwner = !capabilityScope || widgetCapability;
+  const revokesWithOwner =
+    !capabilityScope || widgetCapability || isWorkspaceAppChatScope(scope);
   if (!ticketMatchesAudience(row, ticketAudience(options.audienceHost))) {
     options.onResult?.({
       outcome: "audience-mismatch",
@@ -1570,6 +1771,7 @@ export async function consumeEmbedSessionTicket(
   const identityMismatchAllowed =
     options.allowCapabilityIdentityMismatch &&
     capabilityScope &&
+    !isWorkspaceAppChatScope(scope) &&
     !isMcpDirectoryWidgetWriteCapabilityScope(scope);
   if (consumedAt != null) {
     options.onResult?.({
@@ -1586,10 +1788,11 @@ export async function consumeEmbedSessionTicket(
     return null;
   }
   if (
-    !identityMismatchAllowed &&
-    expectedOwnerEmail &&
-    ownerEmail &&
-    normalizedEmail(ownerEmail) !== expectedOwnerEmail
+    (isWorkspaceAppChatScope(scope) && !expectedOwnerEmail) ||
+    (!identityMismatchAllowed &&
+      expectedOwnerEmail &&
+      ownerEmail &&
+      normalizedEmail(ownerEmail) !== expectedOwnerEmail)
   ) {
     options.onResult?.({
       outcome: "identity-mismatch",
@@ -1606,9 +1809,10 @@ export async function consumeEmbedSessionTicket(
   }
   if (
     !identityMismatchAllowed &&
-    options.expectedOrgId &&
-    orgId &&
-    orgId !== options.expectedOrgId
+    (isWorkspaceAppChatScope(scope)
+      ? options.expectedOrgId !== undefined &&
+        (orgId ?? null) !== options.expectedOrgId
+      : options.expectedOrgId && orgId && orgId !== options.expectedOrgId)
   ) {
     options.onResult?.({
       outcome: "org-mismatch",
@@ -1721,7 +1925,9 @@ export async function consumeEmbedSessionTicket(
       : {}),
     expiresAt,
     ticketCreatedAtMs: createdAt,
-    ...(isMcpDirectoryWidgetWriteCapabilityScope(scope)
+    ...(isMcpDirectoryWidgetWriteCapabilityScope(scope) ||
+    (typeof scope === "string" &&
+      scope.startsWith("capability:visual-edit:design:"))
       ? { sessionId: ticketHash }
       : {}),
   };
@@ -1781,6 +1987,22 @@ export function signEmbedSessionToken(input: {
   if (input.scope) claims.scope = input.scope;
   const payload = base64UrlEncode(JSON.stringify(claims));
   return `${payload}.${signPayload(payload)}`;
+}
+
+/** Untrusted classification for denying ambient-session fallback only. Never authenticates. */
+export function declaresWorkspaceAppChatCredential(token: string): boolean {
+  if (token.length > 16_384) return false;
+  const dot = token.indexOf(".");
+  if (dot < 0 || token.includes(".", dot + 1)) return false;
+  try {
+    const value = JSON.parse(
+      base64UrlDecode(token.slice(0, dot)).toString("utf8"),
+    );
+    return value?.kind === TOKEN_KIND && isWorkspaceAppChatScope(value?.scope);
+  } catch {
+    // coercion-ok: a payload that does not decode declares no app-chat scope.
+    return false;
+  }
 }
 
 export function verifyEmbedSessionToken(
@@ -1936,6 +2158,24 @@ export async function resolveEmbedSessionFromRequest(
     );
     if (!claims) continue;
     if (!embedSessionAllowsRequest(event, claims)) continue;
+    if (isWorkspaceAppChatScope(claims.scope)) {
+      if (candidate.source !== "bearer") continue;
+      if (claims.orgId) {
+        try {
+          const { isOrgMember } = await import("../org/membership.js");
+          if (
+            !(await isOrgMember(claims.orgId, claims.ownerEmail, {
+              requireOrganizationMetadata: true,
+              requestEvent: event,
+            }))
+          )
+            return null;
+        } catch {
+          // coercion-ok: fail closed when org membership cannot be verified.
+          return null;
+        }
+      }
+    }
     if (candidate.source === "query" && candidate.token) {
       try {
         setEmbedSessionCookie(event, candidate.token);
@@ -1951,6 +2191,7 @@ export async function resolveEmbedSessionFromRequest(
       targetPath: claims.targetPath,
       ...(claims.orgId ? { orgId: claims.orgId } : {}),
       ...(claims.scope ? { scope: claims.scope } : {}),
+      ...(claims.sessionId ? { sessionId: claims.sessionId } : {}),
     };
   }
   return null;
@@ -1995,6 +2236,75 @@ export function hasEmbedSessionRequestMarker(event: H3Event): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Whether the request carries a signed full-app panel credential, not an embed
+ * marker alone. Expired and revoked tokens still count: a panel whose session
+ * lapsed must not fall through to running as a signed-in browser.
+ */
+export function hasFullAppEmbedSession(event: H3Event): boolean {
+  return [
+    queryToken(event),
+    bearerToken(event),
+    getCookie(event, EMBED_SESSION_COOKIE),
+  ].some((token) => {
+    const verified = verifyEmbedSessionToken(token, { allowExpired: true });
+    return verified.ok && verified.claims.scope === FULL_APP_EMBED_SCOPE;
+  });
+}
+
+/**
+ * Whether a resolved full-app session came from a token the request itself
+ * carries (its Authorization header or embed-token query), not the cookie. A
+ * panel runs on the MCP host's origin, where it can neither send same-origin
+ * evidence nor keep a capability cookie; a page on another site cannot attach
+ * the panel's token, while the cookie rides along with any cross-site request.
+ * Compare against the resolved session rather than re-verifying the token: a
+ * renewable panel token keeps its scope server-side and outlives its own exp.
+ */
+export function presentsFullAppEmbedToken(
+  event: H3Event,
+  session: ResolvedEmbedSession | null,
+): boolean {
+  if (session?.scope !== FULL_APP_EMBED_SCOPE) return false;
+  return (
+    session.token === bearerToken(event) || session.token === queryToken(event)
+  );
+}
+
+/**
+ * Why the panel's own header token did not prove a full-app request, in words
+ * that name no credential, so a refusal seen from the MCP host says which
+ * check failed instead of only that the request was cross-origin.
+ */
+export async function fullAppEmbedTokenRefusal(
+  event: H3Event,
+): Promise<string> {
+  const token = bearerToken(event) ?? queryToken(event);
+  if (!token) return "the request carried no panel session";
+  const verified = verifyEmbedSessionToken(token, { allowExpired: true });
+  if (!verified.ok)
+    return `the panel session is unreadable (${verified.reason})`;
+  const claims = verified.claims;
+  if (claims.scope !== FULL_APP_EMBED_SCOPE) {
+    return `the panel session has scope ${claims.scope ?? "none"}`;
+  }
+  if ((claims.audienceBasePath ?? "") !== getConfiguredAppBasePath()) {
+    return `the panel session is for ${claims.audienceBasePath || "/"}, not ${getConfiguredAppBasePath() || "/"}`;
+  }
+  if (!embedTokenMatchesRequestAudience(event, claims)) {
+    return "the panel session is for another host";
+  }
+  if (claims.exp * 1000 <= Date.now()) return "the panel session expired";
+  if (!embedSessionAllowsRequest(event, claims)) {
+    return "the request is outside the panel session's target";
+  }
+  const origin = requestOrigin(event);
+  if (!origin || !(await resolveEmbedSessionTokenForOrigin(token, origin))) {
+    return "the panel session was revoked";
+  }
+  return "another session was resolved first";
 }
 
 export function hasPresentedEmbedSessionCredential(event: H3Event): boolean {
