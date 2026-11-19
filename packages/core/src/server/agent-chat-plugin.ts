@@ -70,6 +70,7 @@ import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js"
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_TURN_GRANT_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
@@ -77,6 +78,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
 } from "../agent/durable-background.js";
+import { verifyDispatchedTurnGrant } from "../agent/durable-turn-grant.js";
 import { listChatGPTSubscriptionModels } from "../agent/engine/chatgpt-subscription-engine.js";
 import { getEngineLlmConnectionSource } from "../agent/engine/credential-owner.js";
 import {
@@ -317,6 +319,7 @@ import {
   runWithAgentRunContext,
   seedAgentRunOwnerContext,
   seedBackgroundAgentRunOwnerContext,
+  VERIFIED_TURN_GRANT_CONTEXT_KEY,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
 import {
@@ -6119,9 +6122,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               currentDevMode = !currentDevMode;
             }
             try {
-              await putSetting(AGENT_MODE_SETTING_KEY, {
-                devMode: currentDevMode,
-              });
+              await putSetting(
+                AGENT_MODE_SETTING_KEY,
+                {
+                  devMode: currentDevMode,
+                },
+                { global: true },
+              );
             } catch {
               // Persistence is best-effort — in-memory flag still applies for
               // the lifetime of this process even if the settings write fails.
@@ -8209,6 +8216,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   source: "checkpoint",
                   type: "change",
                   key: "*",
+                  visibility: "public",
                 });
               } catch {}
               return { success: true, commitSha: checkpoint.commitSha };
@@ -10802,6 +10810,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
             await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+            if (
+              preparedMarkerRecord?.payloadRef === true &&
+              getAppConfig().agent.interactiveChatTurns
+            ) {
+              const turnGrant = await verifyDispatchedTurnGrant(
+                workerBody[AGENT_CHAT_TURN_GRANT_FIELD],
+                prepared.runId,
+                await import("../agent/run-store.js"),
+              );
+              if (turnGrant)
+                event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] = turnGrant;
+            }
             const result = await invokeAgentChatHandler(event);
             const responseStatus = getResponseStatus(event);
             if (responseStatus >= 400) {

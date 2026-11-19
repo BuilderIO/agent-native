@@ -149,10 +149,12 @@ MCP URL、可用时的 A2A 代理卡片，以及与完整连接页面相同的�
 
 ### Claude 和 ChatGPT OAuth {#oauth}
 
-Claude / Claude 桌面：添加自定义连接器，粘贴 MCP URL，点击
-**连接**，使用您的 Agent-Native 帐户登录，批准 MCP 范围，
-并在聊天中启用连接器。 Claude 代码使用相同的 URL：将其添加为
-远程HTTP MCP服务器，运行`/mcp`，然后选择**验证**。
+Claude / Claude Desktop：**添加到 Claude** 会打开 **Customize → Connectors**，
+并且 **Add custom connector** 对话框中已填好应用名称和 MCP URL。选择 **Add**，
+使用您的 Agent-Native 账户登录，批准 MCP 权限范围，然后在聊天中启用该连接器。
+Claude Code 使用相同的 URL：运行
+`claude mcp add --transport http --scope user <server-name> <mcp-url>`，
+让该服务器在所有项目中可用，然后运行 `/mcp` 并选择 **Authenticate**。
 
 ChatGPT：自定义 MCP 应用需要受支持的 ChatGPT web 工作区。如果你有访问权限，请打开
 **Settings → Apps → Advanced settings**，在需要时启用开发者模式，选择 **Create app**，
@@ -173,11 +175,13 @@ Dispatch 不会重写 ChatGPT 或 Claude 的缓存日历/邮件/等。
 
 ### Cursor、VS Code 和 Codex {#install-links}
 
-**Settings → MCP server** 和 `/mcp/connect` 中的 **Cursor** 与 **VS Code**
-选项卡提供安装按钮。**添加到 Cursor** 会打开 Cursor 的 **Install MCP server?**
+**Settings → MCP server** 和 `/mcp/connect` 中的 **Claude**、**Cursor** 与 **VS Code**
+指南提供安装按钮。**添加到 Claude** 会打开 Claude 的添加连接器对话框，并已填好名称和 URL。
+**添加到 Cursor** 会打开 Cursor 的 **Install MCP server?**
 提示。**添加到 VS Code** 和 **添加到 VS Code Insiders** 会打开带有 **Install**
-按钮的服务器页面。链接只包含服务器名称、传输方式和 MCP URL，从不包含令牌、请求头或账户信息。
+按钮的服务器页面。链接只包含名称和 MCP URL（VS Code 还包含传输方式），从不包含令牌、请求头或账户信息。
 客户端首次连接时会自行完成 OAuth 登录。在 VS Code 中，这些工具随后会出现在 Agent 模式下的 Chat 视图中。
+如果没有该按钮，请运行 **Chat: Open Customizations**，打开 **MCP Servers**，选择 **+**，选择 **HTTP**，然后粘贴 MCP URL。
 
 对于 Codex，运行 `codex mcp add <server-name> --url <mcp-url>`，然后运行
 `codex mcp login <server-name>`，通过 OAuth 登录。**Codex** 选项卡会填好这两个值。

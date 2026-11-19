@@ -595,6 +595,7 @@ describe("source vector stroke overlay reconciliation", () => {
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
+    "../../../../shared/design-tool-markers",
     "../../../../shared/export-image-source",
     "../../../../shared/srcset",
     "./native-region-export",
@@ -605,6 +606,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/relative-position-containing-block",
     "../../../../shared/source-equivalent-selector",
     "../../../../shared/svg-shape-offset",
+    "../../../../shared/visual-layers",
   ],
   // The source-equivalent selector walker is shared with the parent canvas, which resolves
   // the selectors the bridge builds, so both sides skip the same siblings.
@@ -1516,6 +1518,13 @@ describe("generated bridge modules", () => {
   const bridgeFiles = getBridgeFiles();
 
   for (const filename of bridgeFiles) {
+    it(`${filename} generated script has no literal closing script tag`, () => {
+      // source-read-ok: The bridge is injected as an inline <script>; a literal closing tag in its text ends it early.
+      expect(readFileSync(generatedPath(filename), "utf-8")).not.toMatch(
+        /<\/script/i,
+      );
+    });
+
     it(`${filename} → .generated/bridge/${filename.replace(".bridge.ts", ".generated.ts")} is up to date`, async () => {
       const outPath = generatedPath(filename);
 
@@ -17825,7 +17834,6 @@ const NON_PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Shift+C toggle comments", key: "C", code: "KeyC", shift: true },
   { name: "Shift+L arrow tool", key: "L", code: "KeyL", shift: true },
   { name: "Shift+N previous frame", key: "N", code: "KeyN", shift: true },
-  { name: "Shift+Y draw tool", key: "Y", code: "KeyY", shift: true },
   { name: "O ellipse tool", key: "o", code: "KeyO" },
   { name: "L line tool", key: "l", code: "KeyL" },
   { name: "I eyedropper", key: "i", code: "KeyI" },

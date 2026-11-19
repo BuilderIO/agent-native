@@ -254,6 +254,18 @@ describe("MCP install links", () => {
   };
 
   function decodePayload(href: string): Record<string, unknown> {
+    if (href.startsWith("https://claude.ai/")) {
+      const url = new URL(href);
+      expect([...url.searchParams.keys()].sort()).toEqual([
+        "connectorName",
+        "connectorUrl",
+        "modal",
+      ]);
+      return {
+        name: url.searchParams.get("connectorName"),
+        url: url.searchParams.get("connectorUrl"),
+      };
+    }
     if (href.startsWith("https://cursor.com/")) {
       const url = new URL(href);
       expect([...url.searchParams.keys()].sort()).toEqual(["config", "name"]);
@@ -264,6 +276,28 @@ describe("MCP install links", () => {
     }
     return JSON.parse(decodeURIComponent(href.slice(href.indexOf("?") + 1)));
   }
+
+  it("opens Claude's add-connector dialog with the display name and URL", () => {
+    const link = buildMcpInstallLink("claude", {
+      ...target,
+      displayName: "Content",
+    });
+    const url = new URL(link.href);
+    expect(`${url.origin}${url.pathname}`).toBe(
+      "https://claude.ai/customize/connectors",
+    );
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      modal: "add-custom-connector",
+      connectorName: "Content",
+      connectorUrl: target.mcpUrl,
+    });
+    expect(link.opensWebPage).toBe(true);
+  });
+
+  it("names a Claude connector after the server when no display name is set", () => {
+    const url = new URL(buildMcpInstallLink("claude", target).href);
+    expect(url.searchParams.get("connectorName")).toBe(target.serverName);
+  });
 
   it("sends Cursor to its install page with the entry as base64 JSON", () => {
     const link = buildMcpInstallLink("cursor", target);
@@ -301,6 +335,7 @@ describe("MCP install links", () => {
     };
     const options = MCP_CONNECT_GUIDES.flatMap((guide) => guide.install ?? []);
     expect(options.map((option) => option.client).sort()).toEqual([
+      "claude",
       "cursor",
       "vscode",
       "vscode-insiders",

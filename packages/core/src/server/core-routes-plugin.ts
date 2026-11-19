@@ -50,6 +50,7 @@ import {
 } from "../agent/loop-settings.js";
 import {
   createBuilderSignupExperiment,
+  builderSignupClientFailureExperimentId,
   setBuilderSignupVerifiedStarter,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
@@ -84,6 +85,7 @@ import {
 } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { scrubUrl } from "../client/url-scrub.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
   getDbExec,
@@ -1604,10 +1606,14 @@ export function buildBuilderWaitlistFormPayload(
   sessionEmail: string,
   body: BuilderWaitlistBody,
 ) {
+  // The page URL comes from the browser, or from the Referer when it sent none;
+  // its query and hash can hold a token the form has no use for.
   const appUrl =
-    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
-    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
-    getOrigin(event);
+    scrubUrl(
+      cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+        cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+        getOrigin(event),
+    ) ?? "";
   const source =
     cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
   const template = normalizeBuilderWaitlistTemplate(body.template);
@@ -3878,9 +3884,11 @@ export function createCoreRoutesPlugin(
               for (const [k, v] of Object.entries(persistedEnvVars)) {
                 if (!builderKeys.has(k)) cleaned[k] = v;
               }
-              await putSetting("persisted-env-vars", cleaned);
+              await putSetting("persisted-env-vars", cleaned, {
+                global: true,
+              });
               console.warn(
-                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
+                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars.`,
               );
             } catch {
               // Couldn't rewrite the row — the skip-on-rehydrate above
@@ -4355,6 +4363,7 @@ export function createCoreRoutesPlugin(
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
         const signupConnectError = await getBuilderSignupConnectError(
+          event,
           ownerContext.session?.userId,
         );
         const provisioningToken =
@@ -6419,6 +6428,13 @@ export function createCoreRoutesPlugin(
               ...(browserSessionId ? { sessionId: browserSessionId } : {}),
               telemetryOrigin: "client" as const,
             };
+            const builderSignupExperimentId =
+              builderSignupClientFailureExperimentId(
+                event,
+                validation.name as string,
+              );
+            if (builderSignupExperimentId)
+              Object.assign(trackingSource, { builderSignupExperimentId });
             const trackClientEvent = () =>
               track(validation.name as string, properties, trackingSource);
             if (isFirstRunOnboardingEvent) {
@@ -6996,15 +7012,17 @@ export function createCoreRoutesPlugin(
                 error: `image must be at most ${AVATAR_MAX_DATA_URL_LENGTH} bytes`,
               };
             }
+            const avatarOwner = session.email.trim().toLowerCase();
             // The photo is the one setting that is a small raster image by
             // design, so this write carries the inline-bytes exemption; the
             // MIME allowlist and the size cap above are what bound it.
             await putSetting(
               `avatar:${session.email}`,
               { image },
-              { allowInlineImageBytes: true },
+              { owner: avatarOwner, allowInlineImageBytes: true },
             );
             await deleteSetting(`avatarRemoved:${session.email}`, {
+              owner: avatarOwner,
               requestSource: "avatar",
             });
             return { ok: true };
@@ -7018,13 +7036,15 @@ export function createCoreRoutesPlugin(
               setResponseStatus(event, 401);
               return { error: "unauthorized" };
             }
+            const avatarOwner = session.email.trim().toLowerCase();
             await deleteSetting(`avatar:${session.email}`, {
+              owner: avatarOwner,
               requestSource: "avatar",
             });
             await putSetting(
               `avatarRemoved:${session.email}`,
               { removed: true, at: Date.now() },
-              { requestSource: "avatar" },
+              { owner: avatarOwner, requestSource: "avatar" },
             );
             return { ok: true };
           }

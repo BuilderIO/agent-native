@@ -1,13 +1,9 @@
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
-import { readCreativeContextState } from "@agent-native/creative-context/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
-import {
-  formatComposerContext,
-  hasComposerSystemContext,
-} from "@/lib/composer-context";
+import { formatComposerContext } from "@/lib/composer-context";
 import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import {
   clearPendingGeneration,
@@ -18,7 +14,6 @@ import {
   snapshotGenerationOutputBaseline,
   shouldSkipPendingGenerationResume,
 } from "@/lib/pending-generation";
-import { designPrecedentDirectives } from "@/pages/design-editor/creative-context-precedent";
 import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
@@ -26,13 +21,8 @@ import {
   designVariantGenerationDirectives,
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
-  loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "@/pages/design-editor/generation-prompt-directives";
-import {
-  allIntakeTopicsCovered,
-  loadIntakeContextFromAppState,
-} from "@/pages/design-editor/intake-question-topics";
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
 export interface ResumePendingGenerationArgs {
@@ -42,9 +32,6 @@ export interface ResumePendingGenerationArgs {
     options?: Omit<AgentChatMessage, "message" | "context">,
   ) => string;
   clearGenerationCompleteTimer: () => void;
-  creativeContextEnabled: boolean;
-  creativeContextLabLoading: boolean;
-  creativeContextLabError: string | null;
   design: DesignData | null;
   files: DesignFile[];
   generationModelRef: RefObject<{
@@ -65,9 +52,6 @@ export interface ResumePendingGenerationArgs {
 export function runResumePendingGeneration({
   agentSubmit,
   clearGenerationCompleteTimer,
-  creativeContextEnabled,
-  creativeContextLabLoading,
-  creativeContextLabError,
   design,
   files,
   generationModelRef,
@@ -80,7 +64,6 @@ export function runResumePendingGeneration({
   setHasPendingGeneration,
 }: ResumePendingGenerationArgs) {
   if (!id || !design) return;
-  if (creativeContextLabLoading) return;
 
   const pending = readPendingGeneration(id);
   if (!pending) {
@@ -103,11 +86,6 @@ export function runResumePendingGeneration({
 
   if (pending.autoGenerate === false) {
     setGenerationIssue(null);
-    setHasPendingGeneration(true);
-    return;
-  }
-  if (creativeContextLabError) {
-    setGenerationIssue(creativeContextLabError);
     setHasPendingGeneration(true);
     return;
   }
@@ -138,13 +116,8 @@ export function runResumePendingGeneration({
   const sourceContext = pending.source
     ? `The user picked the "${pending.source}" template${pending.templateId ? ` (id: "${pending.templateId}")` : ""}.`
     : "The user just created a new empty design.";
-  const pendingDesignSystemId =
-    pending.designSystemId === undefined
-      ? design.designSystemId
-      : pending.designSystemId;
 
-  let cancelled = false;
-  void (async () => {
+  {
     const hasReferenceImages = images.length > 0;
     const shouldExploreVariants =
       !hasReferenceImages && promptRequestsVariantExploration(prompt);
@@ -152,63 +125,20 @@ export function runResumePendingGeneration({
       pending.skipQuestions === true ||
       shouldExploreVariants ||
       hasReferenceImages;
-    const usesTemplate = Boolean(pending.templateId);
-    const [designSystemContext, intake] = await Promise.all([
-      hasComposerSystemContext(pending.contextItems)
-        ? ""
-        : loadDesignSystemGenerationContext(pendingDesignSystemId),
-      usesTemplate || shouldExploreVariants || !creativeContextEnabled
-        ? Promise.resolve(null)
-        : loadIntakeContextFromAppState(
-            readCreativeContextState,
-            creativeContextEnabled,
-          ),
-    ]);
-    if (cancelled) return;
-    const shouldSkipQuestions =
-      explicitSkip ||
-      (intake ? allIntakeTopicsCovered(intake.coverage) : false);
+    const shouldSkipQuestions = explicitSkip;
     let generationDirectives: string[];
     try {
       generationDirectives = pending.templateId
         ? designTemplateRefinementDirectives(
             id,
             pending.templateId,
-            pendingDesignSystemId,
             images.length,
           )
         : shouldExploreVariants
-          ? designVariantGenerationDirectives(id, pendingDesignSystemId, prompt)
+          ? designVariantGenerationDirectives(id, prompt)
           : shouldSkipQuestions
-            ? [
-                ...designGenerationDirectives(
-                  id,
-                  pendingDesignSystemId,
-                  images.length,
-                  prompt,
-                ),
-                ...(intake?.explicitContext &&
-                intake.precedent.status === "strong"
-                  ? designPrecedentDirectives(
-                      intake.precedent.contextId,
-                      intake.precedent.matches,
-                      id,
-                    )
-                  : []),
-              ]
-            : designIntakeQuestionDirectives(
-                id,
-                pendingDesignSystemId,
-                images.length,
-                intake
-                  ? {
-                      coverage: intake.coverage,
-                      contextUnavailable: intake.unavailable,
-                      unavailableReason: intake.unavailableReason,
-                    }
-                  : undefined,
-                prompt,
-              );
+            ? designGenerationDirectives(id, images.length, prompt)
+            : designIntakeQuestionDirectives(id, images.length, prompt);
     } catch (error) {
       if (!(error instanceof InvalidCanvasDimensionsError)) throw error;
       clearPendingGeneration(id);
@@ -221,10 +151,6 @@ export function runResumePendingGeneration({
       `Design id: "${id}"`,
       `Design title: "${design.title}"`,
       `User request: "${prompt}"`,
-      pendingDesignSystemId
-        ? `Design system id: "${pendingDesignSystemId}"`
-        : "",
-      designSystemContext,
       formatComposerContext(pending.contextItems),
       fileContext,
       "",
@@ -252,7 +178,6 @@ export function runResumePendingGeneration({
     patchPendingGeneration(id, {
       runTabId,
       attempt: pending.attempt ?? 1,
-      designSystemId: pendingDesignSystemId,
       startedAt: Date.now(),
       ...(!pending.templateId
         ? {
@@ -263,8 +188,6 @@ export function runResumePendingGeneration({
         : {}),
     });
     setHasPendingGeneration(true);
-  })();
-  return () => {
-    cancelled = true;
-  };
+  }
+  return () => undefined;
 }

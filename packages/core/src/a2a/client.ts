@@ -12,6 +12,13 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
 import { canonicalA2AAudience } from "./audience.js";
+import {
+  A2A_CALL_REFUSED_KIND,
+  A2ACallRefusedError,
+  collectOutgoingA2AActionCallParams,
+  hasA2AActionCallHooks,
+  type A2AActionCallTarget,
+} from "./call-hooks.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import { A2A_ORG_MEMBER_DELEGATION_TYPE } from "./organization-identity.js";
 import { RemoteAgentCredentialRejectedError } from "./remote-agent-auth.js";
@@ -739,15 +746,33 @@ export class A2AClient {
   async invokeAction(
     action: string,
     input: Record<string, unknown> = {},
-    opts?: { metadata?: A2ACorrelationMetadata },
+    opts?: {
+      metadata?: A2ACorrelationMetadata;
+      /** Extra JSON-RPC params, e.g. from an A2A action call hook. */
+      params?: Record<string, unknown>;
+    },
   ): Promise<A2AReadOnlyActionResult> {
     const metadata = sanitizeA2ACorrelationMetadata(opts?.metadata);
     const response = await this.rpc("actions/invoke", {
+      ...opts?.params,
       action,
       input,
       ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     });
     if (response.error) {
+      const data = response.error.data as
+        | { kind?: unknown; hookId?: unknown; reason?: unknown }
+        | undefined;
+      if (data?.kind === A2A_CALL_REFUSED_KIND) {
+        throw new A2ACallRefusedError(
+          `A2A error (${response.error.code}): ${response.error.message}`,
+          {
+            code: response.error.code,
+            ...(typeof data.hookId === "string" ? { hookId: data.hookId } : {}),
+            ...(typeof data.reason === "string" ? { reason: data.reason } : {}),
+          },
+        );
+      }
       throw new Error(
         `A2A error (${response.error.code}): ${response.error.message}`,
       );
@@ -2119,6 +2144,8 @@ export async function callAction(
     agentCardUrl?: string;
     protocolVersion?: A2AProtocolVersion;
     a2aVersion?: A2AProtocolVersion;
+    /** The discovered peer, passed to A2A action call hooks. */
+    invocationTarget?: A2AActionCallTarget;
   },
 ): Promise<A2AReadOnlyActionResult> {
   const actionName = action.trim();
@@ -2159,8 +2186,20 @@ export async function callAction(
         .filter((token): token is string => token !== undefined),
     );
   }
+  const hookParams = hasA2AActionCallHooks()
+    ? await collectOutgoingA2AActionCallParams({
+        url,
+        audience: invocationAudience,
+        action: actionName,
+        input,
+        ...(opts?.userEmail !== undefined ? { userEmail: opts.userEmail } : {}),
+        ...(opts?.orgId !== undefined ? { orgId: opts.orgId } : {}),
+        ...(opts?.invocationTarget ? { target: opts.invocationTarget } : {}),
+      })
+    : {};
   return client.invokeAction(actionName, input, {
     metadata: sanitizeA2ACorrelationMetadata(opts?.correlation),
+    ...(Object.keys(hookParams).length > 0 ? { params: hookParams } : {}),
   });
 }
 
@@ -2184,17 +2223,14 @@ async function buildA2AApiKeyAttempts(
   const globalSecret = getGlobalA2ASecret();
   const isOrgMemberDelegation =
     getRequestContext()?.a2aIdentityAssurance === "org-member";
-  if (
-    opts?.userEmail &&
-    !isOrgMemberDelegation &&
-    globalSecret &&
-    (!opts.orgId || opts.orgDomain?.trim())
-  ) {
+  if (opts?.userEmail && !isOrgMemberDelegation && globalSecret) {
     add(
-      await signA2AToken(opts.userEmail, opts.orgDomain, undefined, {
-        preferGlobalSecret: true,
-        audience,
-      }),
+      await signA2AToken(
+        opts.userEmail,
+        opts.orgDomain?.trim() || undefined,
+        undefined,
+        { preferGlobalSecret: true, ...(audience ? { audience } : {}) },
+      ),
     );
   }
 

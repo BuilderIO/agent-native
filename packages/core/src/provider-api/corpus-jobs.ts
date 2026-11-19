@@ -33,7 +33,16 @@ export interface CreateProviderCorpusJobActionOptions {
   getRuntime: () => ProviderCorpusRuntime;
 }
 
-const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
+const MethodSchema = z.enum([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "PROPFIND",
+  "REPORT",
+]);
 
 const ProviderRequestSchema = z.object({
   provider: z.string().min(1).describe("Configured provider API id."),

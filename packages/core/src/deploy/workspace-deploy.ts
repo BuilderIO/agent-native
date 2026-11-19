@@ -61,6 +61,7 @@ import {
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
 import {
+  bakedBuildId,
   buildAppWithCache,
   createDeployCacheRuntime,
   defaultDeployCacheDir,
@@ -80,7 +81,13 @@ import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
 } from "./immutable-assets.js";
+import {
+  SERVED_APP_BUILD_ID_HEADER,
+  SERVED_REVISION_HEADER,
+  writeServedBuildManifest,
+} from "./served-build.js";
 import { resolveWorkspaceAppPaths } from "./workspace-app-paths.js";
+import { emitNetlifyWorkspaceKeepWarmFunction } from "./workspace-keep-warm.js";
 
 function workspaceFrameworkRoutePrefixEnv(): string {
   return (
@@ -143,6 +150,9 @@ const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_ROOT_GOOGLE_CALLBACK_PATH = "/_agent-native/google/callback";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
+// A split leg's build id travels with its output; whatever moves a leg's
+// output between machines must carry this path too.
+const APP_BUILD_ID_FILE = ".agent-native-app-build-id";
 
 interface WorkspaceAppManifestEntry {
   id: string;
@@ -397,6 +407,9 @@ export async function runWorkspaceDeploy(
   const concurrency = workspaceBuildConcurrency();
   const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
   const cacheConfig = getAppConfig().deployCache;
+  const selection = workspaceBuildSelection(apps, cacheConfig);
+  const toBuild =
+    selection.only ?? apps.filter((app) => !selection.prebuilt.has(app));
   const cache = cacheConfig.enabled
     ? createDeployCacheRuntime({
         dir: path.resolve(
@@ -415,24 +428,45 @@ export async function runWorkspaceDeploy(
     );
   }
   const buildStartedAt = Date.now();
-  await runWithConcurrency(apps, concurrency, (app) =>
-    buildOneApp(
-      workspaceRoot,
-      appsDir,
+  const appBuildIds = new Map<string, string>();
+  await runWithConcurrency(toBuild, concurrency, async (app) => {
+    appBuildIds.set(
       app,
-      preset,
-      runBuild,
-      workspaceApps,
-      workspaceAuthMode,
-      concurrency > 1 ? "pipe" : "inherit",
-      cache,
-    ),
-  );
+      await buildOneApp(
+        workspaceRoot,
+        appsDir,
+        app,
+        preset,
+        runBuild,
+        workspaceApps,
+        workspaceAuthMode,
+        concurrency > 1 ? "pipe" : "inherit",
+        cache,
+      ),
+    );
+  });
+  if (selection.only) {
+    for (const app of selection.only) {
+      fs.writeFileSync(
+        path.join(appsDir, app, APP_BUILD_ID_FILE),
+        appBuildIdFor(appBuildIds, app),
+      );
+    }
+  }
+  for (const app of selection.prebuilt) {
+    appBuildIds.set(app, readPrebuiltAppBuildId(appsDir, app));
+  }
   if (cache) {
     const { hits, misses, savedMs, verified } = cache.stats;
     console.log(
       `[workspace-deploy] Build cache: ${hits} hit, ${misses} miss${verified ? `, ${verified} verified by rebuild` : ""}; build phase ${((Date.now() - buildStartedAt) / 1000).toFixed(1)}s, ~${(savedMs / 1000).toFixed(1)}s saved`,
     );
+  }
+  if (selection.only) {
+    console.log(
+      `[workspace-deploy] Built ${selection.only.join(", ")} only; packaging is left to the job that assembles the workspace`,
+    );
+    return;
   }
   opts.onProgress?.({ step: "package" });
   // Copy in app order after all builds so shared outputs stay deterministic.
@@ -447,6 +481,7 @@ export async function runWorkspaceDeploy(
       vercelOutputDir,
       workspaceApps,
       workspaceAuthMode,
+      appBuildIdFor(appBuildIds, app),
     );
     if (preset === "vercel") {
       sweepCrons.push(
@@ -458,6 +493,19 @@ export async function runWorkspaceDeploy(
     }
   }
   writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
+  if (preset === "netlify") {
+    emitNetlifyWorkspaceKeepWarmFunction(
+      netlifyFunctionsDir(workspaceRoot),
+      apps,
+      workspaceFrameworkRoutePrefix(),
+    );
+    writeServedBuildManifest(workspaceRoot, {
+      revision: workspaceSourceRevision() ?? null,
+      apps: Object.fromEntries(
+        apps.map((app) => [app, appBuildIdFor(appBuildIds, app)]),
+      ),
+    });
+  }
   if (workspaceRootPage === "directory") {
     writeWorkspaceDirectoryPage(
       preset === "vercel" ? path.join(vercelOutputDir, "static") : distDir,
@@ -517,7 +565,7 @@ async function buildOneApp(
   workspaceAuthMode: "shared" | "isolated",
   stdio: "inherit" | "pipe",
   cache: DeployCacheRuntime | null,
-): Promise<void> {
+): Promise<string> {
   const appDir = path.join(appsDir, app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
@@ -596,11 +644,11 @@ async function buildOneApp(
     `[workspace-deploy] Building ${app} (base=/${app}, preset=${preset})`,
   );
 
-  const build = async () => {
+  const build = async (buildEnv: NodeJS.ProcessEnv) => {
     const startedAt = Date.now();
     await runBuild("pnpm", ["--filter", app, "build"], {
       cwd: workspaceRoot,
-      env,
+      env: buildEnv,
       stdio,
     });
     console.log(
@@ -609,10 +657,10 @@ async function buildOneApp(
   };
   if (!cache) {
     removeAppOutputs(appDir);
-    await build();
-    return;
+    await build(env);
+    return bakedBuildId(env);
   }
-  await buildAppWithCache({
+  const { appBuildId } = await buildAppWithCache({
     runtime: cache,
     app,
     appDir,
@@ -621,6 +669,36 @@ async function buildOneApp(
     build,
     log: (message) => console.log(message),
   });
+  return appBuildId;
+}
+
+/** The id a split leg recorded for its build; packaging a prebuilt app cannot recompute it. */
+function readPrebuiltAppBuildId(appsDir: string, app: string): string {
+  const file = path.join(appsDir, app, APP_BUILD_ID_FILE);
+  const id = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
+  if (!id) {
+    throw new Error(
+      `Expected ${APP_BUILD_ID_FILE} under ${path.join(appsDir, app)} but none existed. Build the app with AGENT_NATIVE_DEPLOY_ONLY_APPS so its build id is recorded.`,
+    );
+  }
+  return id;
+}
+
+function appBuildIdFor(appBuildIds: Map<string, string>, app: string): string {
+  const id = appBuildIds.get(app);
+  if (!id) throw new Error(`No build id was recorded for ${app}`);
+  return id;
+}
+
+/**
+ * The workspace commit, stamped on served responses for readback. It is read
+ * from the deploy's own environment, never from an app bundle, so a cached app
+ * still reports the commit being deployed.
+ */
+function workspaceSourceRevision(): string | undefined {
+  // Build-time source metadata, never a runtime credential or deploy setting.
+  const candidate = process.env.AGENT_NATIVE_BUILD_ID?.trim();
+  return /^[a-f0-9]{40}$/i.test(candidate ?? "") ? candidate : undefined;
 }
 
 type BuildRunner = (
@@ -628,6 +706,36 @@ type BuildRunner = (
   args: string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
 ) => unknown;
+
+/**
+ * A workspace deploy can be split across machines: `onlyApps` builds just those
+ * apps and stops before packaging, and `prebuiltApps` packages apps whose build
+ * output was put back into the app directory. An id that is not an app of this
+ * workspace is an error, never an empty selection.
+ */
+function workspaceBuildSelection(
+  apps: string[],
+  config: {
+    onlyApps?: string[] | undefined;
+    prebuiltApps?: string[] | undefined;
+  },
+): { only: string[] | null; prebuilt: Set<string> } {
+  const only = config.onlyApps?.length ? config.onlyApps : null;
+  const prebuilt = config.prebuiltApps ?? [];
+  if (only && prebuilt.length > 0) {
+    throw new Error(
+      "AGENT_NATIVE_DEPLOY_ONLY_APPS and AGENT_NATIVE_DEPLOY_PREBUILT_APPS cannot both be set",
+    );
+  }
+  const known = new Set(apps);
+  const unknown = [...(only ?? []), ...prebuilt].filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Deploy selection names ${unknown.map((id) => `"${id}"`).join(", ")}, which ${unknown.length === 1 ? "is" : "are"} not in this workspace (${apps.join(", ")})`,
+    );
+  }
+  return { only, prebuilt: new Set(prebuilt) };
+}
 
 function workspaceBuildConcurrency(): number {
   const raw = process.env.AGENT_NATIVE_DEPLOY_CONCURRENCY?.trim();
@@ -738,6 +846,7 @@ function moveAppBuildIntoWorkspaceOutput(
   vercelOutputDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
+  appBuildId: string,
 ): void {
   const appDir = path.join(appsDir, app);
   if (preset === "vercel") {
@@ -776,6 +885,7 @@ function moveAppBuildIntoWorkspaceOutput(
       workspaceApps,
       target,
       workspaceAuthMode,
+      appBuildId,
     );
   }
 }
@@ -1119,6 +1229,7 @@ function copyNetlifyFunctionIntoWorkspace(
   workspaceApps: WorkspaceAppManifestEntry[],
   staticDir: string,
   workspaceAuthMode: "shared" | "isolated",
+  appBuildId: string,
 ): void {
   const appDir = path.join(appsDir, app);
   const src = path.join(appDir, ".netlify", "functions-internal", "server");
@@ -1137,6 +1248,7 @@ function copyNetlifyFunctionIntoWorkspace(
     workspaceApps,
     staticDir,
     workspaceAuthMode,
+    appBuildId,
   );
 
   const integrationDurableDispatch =
@@ -1553,16 +1665,13 @@ function patchNetlifyFunctionEntry(
   workspaceApps: WorkspaceAppManifestEntry[],
   staticDir: string,
   workspaceAuthMode: "shared" | "isolated",
+  appBuildId: string,
 ): void {
   const serverPath = path.join(functionDir, "server.mjs");
   if (!fs.existsSync(serverPath)) return;
 
   const basePath = `/${app}`;
-  // Build-time source metadata, never a runtime credential or deploy setting.
-  const candidateRevision = process.env.AGENT_NATIVE_BUILD_ID?.trim();
-  const sourceRevision = /^[a-f0-9]{40}$/i.test(candidateRevision ?? "")
-    ? candidateRevision
-    : undefined;
+  const sourceRevision = workspaceSourceRevision();
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
     workspaceApps,
@@ -1644,13 +1753,14 @@ export default async function handler(...args) {
   setBasePathEnv();
   cachedHandler ??= (await import("./main.mjs")).default;
   const response = await cachedHandler(${handlerArgs});
+  const stamped = new Response(response.body, response);
   ${
     sourceRevision
-      ? `const stamped = new Response(response.body, response);
-  stamped.headers.set("x-agent-native-build-sha", ${JSON.stringify(sourceRevision)});
-  return stamped;`
-      : "return response;"
-  }
+      ? `stamped.headers.set(${JSON.stringify(SERVED_REVISION_HEADER)}, ${JSON.stringify(sourceRevision)});
+  `
+      : ""
+  }stamped.headers.set(${JSON.stringify(SERVED_APP_BUILD_ID_HEADER)}, ${JSON.stringify(appBuildId)});
+  return stamped;
 }
 
 export const config = {

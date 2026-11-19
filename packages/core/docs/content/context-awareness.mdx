@@ -22,7 +22,7 @@ To understand what to put in which surface (AGENTS.md vs. skills vs. application
 Six patterns solve this:
 
 1. **Navigation state** — the UI writes a `navigation` key to application-state on every route change
-2. **Current URL** — the framework writes `__url__` so query params are visible and editable by the agent
+2. **Current URL** — the framework writes `__url__` so the agent sees the page path and the query params the app declares, and can edit them
 3. **Selection state** — the UI writes a `selection` key when the user focuses, selects, or multi-selects something meaningful
 4. **`view-screen`** — an action that reads application state, fetches contextual data, and returns a snapshot of what the user sees
 5. **Prompt handoff** — UI controls call `sendToAgentChat()` when a click should become an agent turn
@@ -95,7 +95,7 @@ Use different context channels for different jobs:
 | Layer                                     | Owner             | Use it for                                                                 |
 | ----------------------------------------- | ----------------- | -------------------------------------------------------------------------- |
 | `navigation` app-state key                | UI                | Semantic route state: current view, open record, active tab, stable IDs    |
-| `__url__` app-state key                   | Framework UI      | Current pathname, search string, hash, and parsed URL query params         |
+| `__url__` app-state key                   | Framework UI      | Current pathname, hash, and query params (values only for declared keys)   |
 | `__set_url__` app-state key               | Agent / framework | One-shot URL edits from `set-search-params` and `set-url-path`             |
 | `selection` app-state key                 | UI                | Durable semantic selection: rows, blocks, shapes, assets, messages         |
 | `pending-selection-context` app-state key | UI / `AgentPanel` | One-shot selected text attached to the next chat turn, usually from Cmd+I  |
@@ -150,6 +150,8 @@ searchParams:
 </current-url>
 ```
 
+The agent sees the path and hash, but a query value only for keys the app declares: pass `urlQueryKeys` to `AgentSidebar` (exact names and `prefix*` patterns; this example declares `["f_*", "q"]`). Any other key keeps its name, and its value shows as `<redacted>`.
+
 This is the canonical layer for shareable filter state. If the user can copy a URL and come back to the same filtered list, the filter belongs in the query string. The agent can change those filters with the built-in `set-search-params` tool:
 
 ```text
@@ -158,7 +160,7 @@ set-search-params({ "params": { "f_region": "east", "q": null } })
 
 Use `navigation` only for semantic aliases that help `view-screen` fetch or summarize the right data. A dashboard might keep `navigation.dashboardId` while `__url__.searchParams` owns `f_region`, `f_dateStart`, and `q`.
 
-When `view-screen` returns a richer snapshot, it can copy important URL filters into a friendly `activeFilters` object:
+When `view-screen` returns a richer snapshot, it can copy important URL filters into a friendly `activeFilters` object. It reads the same scrubbed `__url__`, so declare those keys in `urlQueryKeys` too:
 
 ```ts
 const url = (await readAppState("__url__")) as {

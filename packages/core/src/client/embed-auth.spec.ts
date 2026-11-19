@@ -78,6 +78,24 @@ describe("embed auth client", () => {
     expect(reloadedModule.getEmbedAuthToken()).toBe("signed-token");
   });
 
+  it("forgets the tab's embed token once the tab signs in to an account", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?${EMBED_TOKEN_QUERY_PARAM}=capability-token`,
+    );
+    const auth = await loadEmbedAuth();
+    auth.ensureEmbedAuthFetchInterceptor();
+    expect(auth.getEmbedAuthToken()).toBe("capability-token");
+
+    auth.clearEmbedAuthToken();
+
+    expect(auth.getEmbedAuthToken()).toBeNull();
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    const reloaded = await loadEmbedAuth();
+    expect(reloaded.getEmbedAuthToken()).toBeNull();
+  });
+
   it("tells the session each time the page's requests start carrying another embed token", async () => {
     const heard = vi.fn();
     window.addEventListener(FETCH_TRANSPORT_CHANGED_EVENT, heard);

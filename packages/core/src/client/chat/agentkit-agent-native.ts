@@ -86,8 +86,10 @@ import {
 import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
 import { runOutcomeForCode } from "./run-outcome.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   createAgentNativeChatRuntime,
   isAgentNativeChatRuntime,
+  type AgentCallApprovalWidgetData,
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
@@ -2305,10 +2307,9 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       continue;
     }
     if (
-      (event.type === "task.created" ||
-        event.type === "task.updated" ||
-        event.type === "task.completed") &&
-      event.task.assignedAgentId
+      event.type === "task.created" ||
+      event.type === "task.updated" ||
+      event.type === "task.completed"
     ) {
       persisted.push({
         ...base(),
@@ -2669,13 +2670,45 @@ function mergeStoredAndIncomingWidgets(
   return [...widgets.values()];
 }
 
+function persistedAgentCallApproval(
+  data: Record<string, unknown> | null,
+): AgentCallApprovalWidgetData | undefined {
+  const agent = data?.agent;
+  const id = data?.id;
+  const tool = data?.tool;
+  const url = data?.url;
+  const taskId = data?.taskId;
+  const callId = data?.callId;
+  return typeof agent === "string" &&
+    typeof id === "string" &&
+    typeof tool === "string" &&
+    typeof url === "string" &&
+    typeof taskId === "string" &&
+    typeof callId === "string"
+    ? { agent, id, tool, url, taskId, callId }
+    : undefined;
+}
+
 function persistedActionWidgets(
   widgets: AgentWidgetSnapshot[] = [],
   messageIds: ReadonlySet<string>,
 ): AgentWidgetSnapshot[] {
-  return widgets.flatMap(({ messageId, widget }) => {
+  return widgets.flatMap(({ messageId, widget }): AgentWidgetSnapshot[] => {
     if (!messageIds.has(messageId)) return [];
     const data = asRecord(widget.data);
+    // A peer's approval card has no tool call; it keeps the page to open and
+    // the paused task to continue, so it still shows after a reload.
+    if (widget.kind === AGENT_CALL_APPROVAL_WIDGET_KIND) {
+      const approval = persistedAgentCallApproval(data);
+      return approval
+        ? [
+            {
+              messageId,
+              widget: { id: widget.id, kind: widget.kind, data: approval },
+            },
+          ]
+        : [];
+    }
     if (
       typeof data?.toolCallId !== "string" ||
       typeof data.toolName !== "string"

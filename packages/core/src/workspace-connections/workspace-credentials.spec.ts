@@ -9,12 +9,14 @@ import { resolveWorkspaceConnectionCredentialForApp } from "./credentials.js";
 import { createPersonalCredentialProviderSnapshot } from "./personal-provider-definitions.js";
 import {
   getWorkspaceConnection,
+  getWorkspaceConnectionGrant,
   revokeWorkspaceConnectionGrant,
   upsertWorkspaceConnection,
 } from "./store.js";
 import {
   createWorkspaceCredentialService,
   readWorkspaceCredential,
+  readWorkspaceCredentialProfile,
   type WorkspaceCredentialServiceOptions,
 } from "./workspace-credentials.js";
 
@@ -585,4 +587,169 @@ describe("native validated workspace credentials", () => {
       ).available,
     ).toBe(false);
   });
+});
+
+describe("workspace credential drafts", () => {
+  const validate = vi.fn(async () => {});
+  function drafts(allowDraftEdits: unknown = true) {
+    return createWorkspaceCredentialService({
+      appId: APP,
+      provider,
+      validateCredentials: validate,
+      allowDraftEdits,
+    } as WorkspaceCredentialServiceOptions);
+  }
+  async function revision(connectionId: string) {
+    const opened = await readWorkspaceCredentialProfile({
+      appId: APP,
+      connectionId,
+      provider: provider.id,
+      requestContext: context(),
+    });
+    if (!opened?.revision) throw new Error("profile did not reopen");
+    return opened.revision;
+  }
+  async function rows(connectionId: string) {
+    return as(async () => ({
+      c: await getWorkspaceConnection(connectionId),
+      g: await getWorkspaceConnectionGrant(connectionId, APP),
+    }));
+  }
+  async function draftOf(service = drafts()) {
+    const { connectionId } = await as(() => service.create(input()));
+    validate.mockClear();
+    await as(async () =>
+      service.update({
+        connectionId,
+        revision: await revision(connectionId),
+        draft: true,
+        name: "QA Draft",
+        secretValues: [{ key: KEY, secret: "draft-source-credential" }],
+      }),
+    );
+    return connectionId;
+  }
+
+  beforeEach(() => validate.mockReset().mockResolvedValue(undefined));
+
+  it("refuses a non-boolean opt-in and draft edits without it", async () => {
+    expect(() => drafts("yes")).toThrow(
+      expect.objectContaining({ code: "invalid_input" }),
+    );
+    const service = drafts(false);
+    const { connectionId } = await as(() => service.create(input()));
+    await expect(
+      as(async () =>
+        service.update({
+          connectionId,
+          revision: await revision(connectionId),
+          draft: true,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    expect((await rows(connectionId)).c?.status).toBe("connected");
+  }, 30000);
+
+  it("saves an unvalidated, disabled draft that keeps its marker until activated", async () => {
+    const service = drafts();
+    const connectionId = await draftOf(service);
+    expect(validate).not.toHaveBeenCalled();
+    const saved = await rows(connectionId);
+    expect(saved.c).toMatchObject({
+      status: "disabled",
+      label: "QA Draft",
+      config: { workspaceCredentialDraft: true },
+    });
+    expect(saved.g?.config).toMatchObject({ workspaceCredentialDraft: true });
+    await expect(read(connectionId)).rejects.toBeDefined();
+
+    await as(async () =>
+      service.update({
+        connectionId,
+        revision: await revision(connectionId),
+        name: "QA Draft renamed",
+      }),
+    );
+    expect(validate).not.toHaveBeenCalled();
+    expect((await rows(connectionId)).c).toMatchObject({
+      status: "disabled",
+      config: { workspaceCredentialDraft: true },
+    });
+
+    validate.mockRejectedValueOnce(new Error("bad credential"));
+    const before = await rows(connectionId);
+    await expect(
+      as(async () =>
+        service.update({
+          connectionId,
+          revision: await revision(connectionId),
+          draft: false,
+        }),
+      ),
+    ).rejects.toBeDefined();
+    expect(await rows(connectionId)).toEqual(before);
+
+    await as(async () =>
+      service.update({
+        connectionId,
+        revision: await revision(connectionId),
+        draft: false,
+      }),
+    );
+    const active = await rows(connectionId);
+    expect(active.c?.status).toBe("connected");
+    expect(active.c?.config.workspaceCredentialDraft).toBeUndefined();
+    expect(active.g?.config.workspaceCredentialDraft).toBeUndefined();
+    expect(await read(connectionId)).toBe("draft-source-credential");
+  }, 30000);
+
+  it("archives a draft by dropping its marker, after both rows' last write", async () => {
+    const service = drafts();
+    const connectionId = await draftOf(service);
+    const future = Date.now() + 1_000_000;
+    await db.query(
+      "UPDATE workspace_connections SET updated_at = ? WHERE id = ?",
+      [future, connectionId],
+    );
+    await db.query(
+      "UPDATE workspace_connection_grants SET updated_at = ? WHERE connection_id = ?",
+      [future + 500, connectionId],
+    );
+    await expect(
+      as(() => service.archiveConnection({ connectionId })),
+    ).resolves.toEqual({ archived: true });
+    const archived = await rows(connectionId);
+    expect(archived.c?.status).toBe("disabled");
+    expect(archived.c?.config.workspaceCredentialDraft).toBeUndefined();
+    expect(archived.g?.config.workspaceCredentialDraft).toBeUndefined();
+    expect(Date.parse(archived.c!.updatedAt)).toBe(future + 501);
+    expect(Date.parse(archived.g!.updatedAt)).toBe(future + 501);
+    await expect(
+      as(async () =>
+        service.update({
+          connectionId,
+          revision: "any",
+          draft: false,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
+  }, 30000);
+
+  it("does not treat a connected row carrying the draft marker as a profile", async () => {
+    const service = drafts();
+    const { connectionId } = await as(() => service.create(input()));
+    await expect(revision(connectionId)).resolves.toMatch(/\S/);
+    const { c } = await rows(connectionId);
+    await db.query(
+      "UPDATE workspace_connections SET config_json = ? WHERE id = ?",
+      [
+        JSON.stringify({ ...c!.config, workspaceCredentialDraft: true }),
+        connectionId,
+      ],
+    );
+    await expect(read(connectionId)).rejects.toBeDefined();
+    await expect(revision(connectionId)).rejects.toMatchObject({
+      code: "forbidden",
+    });
+  }, 30000);
 });

@@ -290,6 +290,7 @@ describe("ClipEmbed", () => {
     ["clips_unreachable", "clipEmbed.unreachable"],
     ["clip_rate_limited", "clipEmbed.rateLimited"],
     ["clip_embed_disabled", "clipEmbed.disabled"],
+    ["clip_embed_unavailable", "clipEmbed.flagUnavailable"],
     [undefined, "clipEmbed.failed"],
   ])("tells %s apart with its own message", (code, message) => {
     queries.byName["get-clip-playback"] = fakeQuery(undefined, refusal(code));
@@ -321,6 +322,29 @@ describe("ClipEmbed", () => {
       (button) => button.textContent === "clipEmbed.retry",
     );
     act(() => defined(retry).click());
+    expect(
+      defined(queries.byName["get-clip-playback"]).refetch,
+    ).toHaveBeenCalled();
+  });
+
+  it("offers a retry when Content couldn't check whether Clips are on, and none when they're off", () => {
+    const retryButton = () =>
+      [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "clipEmbed.retry",
+      );
+    queries.byName["get-clip-playback"] = fakeQuery(
+      undefined,
+      refusal("clip_embed_disabled"),
+    );
+    render();
+    expect(retryButton()).toBeUndefined();
+
+    queries.byName["get-clip-playback"] = fakeQuery(
+      undefined,
+      refusal("clip_embed_unavailable"),
+    );
+    render();
+    act(() => defined(retryButton()).click());
     expect(
       defined(queries.byName["get-clip-playback"]).refetch,
     ).toHaveBeenCalled();

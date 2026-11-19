@@ -11,6 +11,7 @@ import {
 import { isOrgMember } from "../membership.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Replace a member's assigned roles for one app. Only organization owners and admins may manage app roles.",
   schema: z.object({

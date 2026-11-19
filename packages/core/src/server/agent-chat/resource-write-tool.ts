@@ -1,7 +1,18 @@
 import type { ActionEntry } from "../../agent/production-agent.js";
 import { registerStrictToolInput } from "../../agent/strict-tool-input.js";
 
-const writeFields = ["path", "content", "scope", "mime", "visibility"] as const;
+/** For a resource write's `expectedRevision`, in both write tools. */
+export const RESOURCE_EXPECTED_REVISION_DESCRIPTION =
+  "write: the revision from your read's [revision …, scope …] line, in that scope. A save since your read fails the write with save_conflict: read again, redo the edit, write with the new revision. Omit only for files you didn't read.";
+
+const writeFields = [
+  "path",
+  "content",
+  "scope",
+  "mime",
+  "visibility",
+  "expectedRevision",
+] as const;
 
 /** Optional write settings have no clear operation: blank padding means use the existing default. */
 function resourceWriteArgs(input: unknown): Record<string, string> {
@@ -15,7 +26,7 @@ function resourceWriteArgs(input: unknown): Record<string, string> {
     )
   ) {
     throw new Error(
-      "Resource write accepts only path, content, scope, mime and visibility.",
+      "Resource write accepts only path, content, scope, mime, visibility and expectedRevision.",
     );
   }
   if (
@@ -31,7 +42,12 @@ function resourceWriteArgs(input: unknown): Record<string, string> {
     path: args.path,
     content: args.content,
   };
-  for (const key of ["scope", "mime", "visibility"] as const) {
+  for (const key of [
+    "scope",
+    "mime",
+    "visibility",
+    "expectedRevision",
+  ] as const) {
     const value = args[key];
     if (value === undefined || value === null || value === "") continue;
     if (typeof value !== "string" || !value.trim())
@@ -54,7 +70,7 @@ export function createResourceWriteEntry(resources: ActionEntry): ActionEntry {
     readOnly: false,
     tool: {
       description:
-        "Create or replace a workspace resource file, including a user-requested skill at skills/<name>/SKILL.md. Prefer this dedicated operation for writing files. Uses the same permissions, visibility defaults and per-action shared-resource approval as resources. Omit unused optional fields; null or empty optional strings select existing defaults.",
+        "Create or replace a workspace resource file, including a user-requested skill at skills/<name>/SKILL.md. Prefer this dedicated operation for writing files. To replace a file you read, pass the expectedRevision and scope from the read's [revision …, scope …] line. Uses the same permissions, visibility defaults and per-action shared-resource approval as resources. Omit unused optional fields; null or empty optional strings select existing defaults.",
       parameters: {
         type: "object",
         additionalProperties: false,
@@ -94,6 +110,17 @@ export function createResourceWriteEntry(resources: ActionEntry): ActionEntry {
             ],
             description:
               "Use workspace for user-requested files. Defaults match resources, including durable skill and instruction paths.",
+          },
+          expectedRevision: {
+            anyOf: [
+              { type: "string", pattern: "\\S" },
+              { type: "string", enum: [""] },
+              { type: "null" },
+            ],
+            description: RESOURCE_EXPECTED_REVISION_DESCRIPTION.replace(
+              /^write: /,
+              "",
+            ),
           },
         },
         required: ["path", "content"],

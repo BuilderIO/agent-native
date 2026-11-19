@@ -38,7 +38,7 @@ const patchSchema = z.object({
   autocompleteEnabled: z.boolean().optional(),
   theme: z.enum(["light", "dark", "system"]).optional(),
   density: z.enum(["compact", "comfortable", "spacious"]).optional(),
-  previewPane: z.enum(["right", "bottom", "off"]).optional(),
+  previewPane: z.enum(["right", "off"]).optional(),
   sendAndArchive: z.boolean().optional(),
   combineInbox: z.boolean().optional(),
   showAllTab: z.boolean().optional(),
