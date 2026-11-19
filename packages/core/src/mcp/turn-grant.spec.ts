@@ -6,6 +6,7 @@ import {
   afterEach,
   beforeAll,
   beforeEach,
+  describe,
   expect,
   it,
   vi,
@@ -83,7 +84,13 @@ import {
 } from "./connect-store.js";
 import { signMcpOAuthAccessToken } from "./oauth-token.js";
 import { handleMcpRequest } from "./server.js";
-import { isMcpTurnGrantAction } from "./turn-grant-scope.js";
+import {
+  admitWithMcpTurnGrantAdmitters,
+  clearMcpTurnGrantAdmittersForTests,
+  MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS,
+  registerMcpTurnGrantAdmitter,
+} from "./turn-grant-admitters.js";
+import { actionUserTurn, isMcpTurnGrantAction } from "./turn-grant-scope.js";
 import { mcpTurnGrantsStore, mintMcpTurnGrant } from "./turn-grant-store.js";
 
 const ORIGIN = "https://app.example.test";
@@ -247,6 +254,7 @@ async function rpc(
     app?: string;
     name?: string;
     method?: string;
+    args?: Record<string, unknown>;
     actions?: Record<string, ActionEntry>;
   } = {},
 ) {
@@ -265,7 +273,7 @@ async function rpc(
       method: options.method ?? "tools/call",
       params: {
         name: options.name ?? "list-items",
-        arguments: {},
+        arguments: options.args ?? {},
       },
     }),
   });
@@ -592,4 +600,323 @@ it("refuses further turn-grant mints once an owner has minted too many recently"
     statusCode: 429,
   });
   await expect(mintMcpTurnGrant(OWNER, APP)).resolves.toHaveProperty("grantId");
+});
+
+describe("deployment turn grant admitters", () => {
+  const external = "ext1.synthetic-grant";
+  afterEach(() => clearMcpTurnGrantAdmittersForTests());
+
+  it("leaves a grant the framework does not know refused when no admitter is registered", async () => {
+    expect(seen(await rpc(external))).toEqual({
+      granted: false,
+      interactive: false,
+    });
+  });
+
+  it("runs the call as the user's turn when an admitter admits the grant", async () => {
+    const admit = vi.fn(() => ({
+      status: "admitted" as const,
+      expiresAt: Date.now() + 60_000,
+      ownerEmail: OWNER,
+      appId: APP,
+    }));
+    registerMcpTurnGrantAdmitter({ id: "external", admit });
+    expect(seen(await rpc(external))).toEqual({
+      granted: true,
+      interactive: true,
+    });
+    expect(admit).toHaveBeenCalledWith({
+      grant: external,
+      appId: APP,
+      actionName: "list-items",
+      userTurn: "read",
+      identity: expect.objectContaining({ userEmail: OWNER }),
+    });
+  });
+
+  it("keeps the call outside the turn when the admitter refuses, passes, throws, or admits an expired, unbound or mismatched grant", async () => {
+    const decisions = [
+      () => ({ status: "refused" as const, reason: "call-cap" }),
+      () => undefined,
+      () => {
+        throw new Error("store down");
+      },
+      () => ({
+        status: "admitted" as const,
+        expiresAt: Date.now() - 1,
+        ownerEmail: OWNER,
+        appId: APP,
+      }),
+      () => ({
+        status: "admitted" as const,
+        expiresAt: Date.now() + 60_000,
+        ownerEmail: "someone-else@example.test",
+        appId: APP,
+      }),
+      () => ({
+        status: "admitted" as const,
+        expiresAt: Date.now() + 60_000,
+        ownerEmail: OWNER,
+        appId: "another-app",
+      }),
+      () => ({ status: "admitted" as const, expiresAt: Date.now() + 60_000 }),
+    ];
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const admit of decisions) {
+      clearMcpTurnGrantAdmittersForTests();
+      registerMcpTurnGrantAdmitter({ id: "external", admit });
+      expect(seen(await rpc(external))).toEqual({
+        granted: false,
+        interactive: false,
+      });
+    }
+    error.mockRestore();
+  });
+
+  it("refuses a grant whose admitter never settles once the admitter deadline passes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      registerMcpTurnGrantAdmitter({
+        id: "external",
+        admit: () => new Promise<never>(() => {}),
+      });
+      const decision = admitWithMcpTurnGrantAdmitters({
+        grant: external,
+        appId: APP,
+        actionName: "list-items",
+        userTurn: "read",
+        identity: undefined,
+      });
+      await vi.advanceTimersByTimeAsync(MCP_TURN_GRANT_ADMITTER_TIMEOUT_MS);
+      await expect(decision).resolves.toEqual({
+        status: "refused",
+        reason: "admitter-timeout",
+      });
+    } finally {
+      vi.useRealTimers();
+      error.mockRestore();
+    }
+  });
+
+  it("is not asked about a framework grant, an undeclared action, or an agent context", async () => {
+    const admit = vi.fn(() => ({
+      status: "admitted" as const,
+      expiresAt: Date.now() + 60_000,
+      ownerEmail: OWNER,
+      appId: APP,
+    }));
+    registerMcpTurnGrantAdmitter({ id: "external", admit });
+    expect(seen(await rpc(await seed()))).toEqual({
+      granted: true,
+      interactive: true,
+    });
+    expect(seen(await rpc(external, { name: "other-read" }))).toEqual({
+      granted: false,
+      interactive: false,
+    });
+    expect(
+      seen(
+        await runWithRequestContext({ a2aIdentityAssurance: "user" }, () =>
+          rpc(external),
+        ),
+      ),
+    ).toEqual({ granted: false, interactive: false });
+    expect(admit).not.toHaveBeenCalled();
+  });
+
+  it("is not asked about a grant from a caller that is not a device-connected user", async () => {
+    const admit = vi.fn(() => ({
+      status: "admitted" as const,
+      expiresAt: Date.now() + 60_000,
+      ownerEmail: OWNER,
+      appId: APP,
+    }));
+    registerMcpTurnGrantAdmitter({ id: "external", admit });
+    expect(seen(await rpc(external, { bearer: ordinaryToken }))).toEqual({
+      granted: false,
+      interactive: false,
+    });
+    expect(admit).not.toHaveBeenCalled();
+  });
+});
+
+describe("userTurn: direct", () => {
+  let runs = 0;
+  let gate: (args: { guests: string[] }) => unknown = (args) =>
+    args.guests.length > 0;
+  const directActions: Record<string, ActionEntry> = {
+    "add-own-item": defineAction({
+      description: "Add an item to the caller's own list",
+      mcpTool: true,
+      userTurn: "direct",
+      schema: z.object({
+        title: z.string().default("Test"),
+        guests: z.array(z.string()).default([]),
+      }),
+      needsApproval: ((args: { guests: string[] }) => gate(args)) as never,
+      run: () => {
+        runs += 1;
+        return probe("add-own-item")();
+      },
+    }),
+  };
+  const call = (
+    grant: string | undefined,
+    args: Record<string, unknown> = {},
+  ) => rpc(grant, { name: "add-own-item", actions: directActions, args });
+  const reviewLink =
+    /https:\/\/app\.example\.test\/mcp\/approvals\/[a-f0-9-]{36}/;
+
+  beforeEach(() => {
+    runs = 0;
+    gate = (args) => args.guests.length > 0;
+  });
+
+  it("rejects direct without a per-call needsApproval predicate", () => {
+    for (const needsApproval of [undefined, true, false]) {
+      expect(() =>
+        defineAction({
+          description: "Misdeclared",
+          userTurn: "direct",
+          ...(needsApproval === undefined ? {} : { needsApproval }),
+          run: () => null,
+        }),
+      ).toThrow(/userTurn: "direct"/);
+    }
+  });
+
+  it("advertises direct in the tool listing", async () => {
+    const result = await rpc(undefined, {
+      method: "tools/list",
+      actions: directActions,
+    });
+    expect(result.tools[0]._meta["agent-native/userTurn"]).toBe("direct");
+  });
+
+  it("runs an admitted safe call immediately, with no review page", async () => {
+    const result = await call(await seed());
+    expect(seen(result)).toEqual({ granted: true, interactive: true });
+    expect(JSON.stringify(result)).not.toMatch(/mcp\/approvals/);
+    expect(runs).toBe(1);
+  });
+
+  it("still sends an admitted unsafe call to the review page", async () => {
+    const result = await call(await seed(), { guests: ["a@example.test"] });
+    expect(JSON.stringify(result)).toMatch(reviewLink);
+    expect(runs).toBe(0);
+  });
+
+  it.each([
+    ["returns a non-boolean", () => undefined],
+    ["returns a truthy non-boolean", () => "yes"],
+    [
+      "throws",
+      () => {
+        throw new Error("state unreadable");
+      },
+    ],
+    ["rejects", () => Promise.reject(new Error("state unreadable"))],
+  ])("reviews an admitted call when the predicate %s", async (_kind, fn) => {
+    gate = fn;
+    const result = await call(await seed());
+    expect(JSON.stringify(result)).toMatch(reviewLink);
+    expect(runs).toBe(0);
+  });
+
+  it.each([
+    "missing",
+    "unknown",
+    "expired",
+    "revoked",
+    "owner",
+    "wrong-app-grant",
+    "non-device",
+    "a2a-context",
+    "agent-run",
+  ])("never runs a safe call when the grant is %s", async (kind) => {
+    const grant =
+      kind === "missing"
+        ? undefined
+        : kind === "unknown"
+          ? randomBytes(32).toString("base64url")
+          : await seed({
+              ...(kind === "revoked" ? { revoked: Date.now() } : {}),
+              ...(kind === "wrong-app-grant" ? { app: "another-app" } : {}),
+            });
+    if (kind === "expired") {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 9 * 60_000);
+    }
+    const send = () =>
+      rpc(grant, {
+        name: "add-own-item",
+        actions: directActions,
+        ...(kind === "owner"
+          ? { bearer: otherToken }
+          : kind === "non-device"
+            ? { bearer: ordinaryToken }
+            : {}),
+      });
+    const result =
+      kind === "a2a-context"
+        ? await runWithRequestContext({ a2aIdentityAssurance: "user" }, send)
+        : kind === "agent-run"
+          ? await runWithRequestContext({ run: { runId: "agent-run" } }, send)
+          : await send();
+    expect(result).toMatchObject({ isError: true });
+    expect(JSON.stringify(result)).toContain(
+      "requires a valid user-turn grant",
+    );
+    expect(runs).toBe(0);
+  });
+
+  it("keeps a grant from admitting a call after it is revoked", async () => {
+    const grant = await seed();
+    expect(seen(await call(grant))).toMatchObject({ granted: true });
+    await getDbExec().execute({
+      sql: "UPDATE mcp_turn_grants SET revoked_at = ? WHERE owner_email = ?",
+      args: [Date.now(), OWNER],
+    });
+    expect(await call(grant)).toMatchObject({ isError: true });
+    expect(runs).toBe(1);
+  });
+
+  it("refuses a direct call without a grant with its own message, and a required-turn call with the review-page one", async () => {
+    const direct = JSON.stringify(await call(undefined));
+    expect(direct).toContain("requires a valid user-turn grant.");
+    expect(direct).not.toContain("review page");
+    const required = JSON.stringify(
+      await rpc(undefined, { name: "send-item" }),
+    );
+    expect(required).toContain("approval on its review page");
+  });
+
+  it("still reviews an approval write whose predicate says false", async () => {
+    let ran = 0;
+    const approval: Record<string, ActionEntry> = {
+      "update-item": defineAction({
+        description: "Update an item",
+        mcpTool: true,
+        userTurn: "approval",
+        needsApproval: (() => false) as never,
+        run: () => {
+          ran += 1;
+          return null;
+        },
+      }),
+    };
+    const result = await rpc(await seed(), {
+      name: "update-item",
+      actions: approval,
+    });
+    expect(JSON.stringify(result)).toMatch(reviewLink);
+    expect(ran).toBe(0);
+  });
+});
+
+it("reads a declared user turn and nothing from a missing or unknown entry", () => {
+  expect(actionUserTurn(undefined)).toBeUndefined();
+  expect(actionUserTurn({ userTurn: "grant" })).toBeUndefined();
+  expect(actionUserTurn({ userTurn: "direct" })).toBe("direct");
 });

@@ -53,7 +53,8 @@ export interface EmbeddingFamily {
   ): Promise<number[][]>;
 }
 
-const DEFAULT_DIMENSIONS = 1024;
+/** What every built-in embedding family stores, unless told otherwise. */
+export const DEFAULT_EMBEDDING_DIMENSIONS = 1024;
 /**
  * voyage-multimodal-3.5's floor, which Builder's model also serves. On the
  * question-search eval corpus every judged page scored 0.326 or more, and no
@@ -220,7 +221,7 @@ function numberVectors(value: unknown): number[][] {
 
 export function createGeminiEmbeddingFamily(
   apiKey: string,
-  dimensions = DEFAULT_DIMENSIONS,
+  dimensions = DEFAULT_EMBEDDING_DIMENSIONS,
 ): EmbeddingFamily {
   const model = "gemini-embedding-2";
   return {
@@ -270,7 +271,7 @@ export function createGeminiEmbeddingFamily(
 }
 export function createCohereEmbeddingFamily(
   apiKey: string,
-  dimensions = DEFAULT_DIMENSIONS,
+  dimensions = DEFAULT_EMBEDDING_DIMENSIONS,
 ): EmbeddingFamily {
   const model = "embed-v4.0";
   return {
@@ -386,8 +387,8 @@ function builderEmbeddingVectors(
     if (index < 0 || index >= expectedCount || vectors[index]) {
       throw new Error("Embedding response was malformed.");
     }
-    const vector = numberVectors([embedding])[0];
-    if (vector.length !== DEFAULT_DIMENSIONS) {
+    const vector = numberVectors([embedding]).at(0);
+    if (!vector || vector.length !== DEFAULT_EMBEDDING_DIMENSIONS) {
       throw new Error("Embedding response contained an invalid vector.");
     }
     vectors[index] = vector;
@@ -402,11 +403,11 @@ export function createBuilderEmbeddingFamily(
   auth: BuilderGatewayAuth,
 ): EmbeddingFamily {
   return {
-    id: `builder:${BUILDER_EMBEDDING_MODEL}:${DEFAULT_DIMENSIONS}`,
+    id: `builder:${BUILDER_EMBEDDING_MODEL}:${DEFAULT_EMBEDDING_DIMENSIONS}`,
     provider: "builder",
     model: BUILDER_EMBEDDING_MODEL,
     version: "3.5",
-    dimensions: DEFAULT_DIMENSIONS,
+    dimensions: DEFAULT_EMBEDDING_DIMENSIONS,
     minSimilarity: VOYAGE_MULTIMODAL_MIN_SIMILARITY,
     supportedImageMimeTypes: [
       "image/png",

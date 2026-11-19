@@ -19,7 +19,7 @@ export default defineAction({
     "Return the capability matrix for a design's current source. " +
     "The matrix maps each capability name (readFile, writeFile, applyEdit, " +
     "resolveNodeToFile, previewPatch, diffPatch, captureSnapshot, captureState, " +
-    "indexComponents, indexTokens, writeTokens, previewMotion, writeMotion, " +
+    "indexComponents, indexTokens, writeTokens, " +
     "branch, deployPreview, deploy) to its status (available | planned | " +
     "unavailable) plus an optional human-readable reason. " +
     "UI controls and agent actions must gate on this matrix — never on sourceType alone.",
@@ -129,9 +129,6 @@ export default defineAction({
           merged.writeFile.status === "available",
         canIndexComponents: merged.indexComponents.status === "available",
         canWriteTokens: merged.writeTokens.status === "available",
-        canMotion:
-          merged.previewMotion.status === "available" ||
-          merged.writeMotion.status === "available",
         canBranch: merged.branch.status === "available",
         canDeploy: merged.deploy.status === "available",
       },

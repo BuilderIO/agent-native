@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { setResponseHeader, setResponseStatus } from "h3";
+import { setResponseHeader, setResponseStatus, type H3Event } from "h3";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
@@ -48,13 +48,20 @@ import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
+import {
+  A2A_CALL_REFUSED_KIND,
+  decideIncomingA2AActionCall,
+  hasA2AActionCallHooks,
+} from "./call-hooks.js";
 import { callAction } from "./client.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import { runAsA2AForegroundCall } from "./foreground-call-scope.js";
 import { assertA2APersistablePayload } from "./persistence-safety.js";
 import {
   createTask,
   createOrReuseTask,
   cancelA2ATask,
+  getIdempotentTask,
   getTask,
   getTaskOwnership,
   updateTask,
@@ -1185,6 +1192,27 @@ async function handleSend(
       },
     };
     event?.context?.__a2aBeforeTaskPersistence?.();
+    if (
+      idempotencyKey &&
+      ownerEmailForTask &&
+      event?.context?.__a2aOrgFromSoleMembership === true
+    ) {
+      const personalTask = await getIdempotentTask(
+        ownerEmailForTask,
+        A2A_PERSONAL_OWNER_SCOPE,
+        idempotencyKey,
+      );
+      if (
+        personalTask &&
+        personalTask.status.state !== "failed" &&
+        personalTask.status.state !== "canceled"
+      ) {
+        return {
+          ...jsonRpcResult(0, sanitizeTaskForResponse(personalTask)),
+          _id: 0,
+        };
+      }
+    }
     const { task, reused } = await createOrReuseTask(
       message,
       contextId,
@@ -1583,8 +1611,8 @@ function authorizeTaskAccess(
       }
     } else if (
       storedScope === A2A_PERSONAL_OWNER_SCOPE &&
-      !verifiedOrgId &&
-      !verifiedOrgDomain
+      ((!verifiedOrgId && !verifiedOrgDomain) ||
+        event?.context?.__a2aOrgFromSoleMembership === true)
     ) {
       // A verified identity with no organization is in its personal scope.
     } else {
@@ -1841,13 +1869,30 @@ async function handleInvokeReadOnlyAction(
     );
   };
 
+  let foreground: { expiresAt: number } | undefined;
+  if (hasA2AActionCallHooks()) {
+    const admission = await admitIncomingA2AActionCall(
+      params,
+      action,
+      input as Record<string, unknown>,
+      verifiedEmail,
+      event,
+    );
+    if ("error" in admission) return admission.error;
+    foreground = admission.foreground;
+  }
+
   try {
-    const result = await withA2ARequestContext(undefined, event, () =>
+    const execute = () =>
       config.executeReadOnlyAction!({
         action,
         input: input as Record<string, unknown>,
         invocationId,
-      }),
+      });
+    const result = await withA2ARequestContext(undefined, event, () =>
+      foreground
+        ? runForegroundA2AActionCall(foreground.expiresAt, event, execute)
+        : execute(),
     );
     emitTracking(result.status);
     return jsonRpcResult(0, { action, ...result });
@@ -1856,6 +1901,154 @@ async function handleInvokeReadOnlyAction(
     console.error(`[a2a] Direct action ${action} failed:`, error);
     return jsonRpcError(0, -32000, "Direct action invocation failed");
   }
+}
+
+function refusedA2AActionCall(
+  message: string,
+  reason: string | undefined,
+  hookId?: string,
+): JsonRpcResponse {
+  return {
+    jsonrpc: "2.0",
+    id: 0,
+    error: {
+      code: -32001,
+      message,
+      data: {
+        kind: A2A_CALL_REFUSED_KIND,
+        ...(hookId ? { hookId } : {}),
+        ...(reason ? { reason } : {}),
+      },
+    },
+  };
+}
+
+/**
+ * Ask the deployment's call hooks about a verified direct action call. An
+ * admitted organization is bound only when the caller's token carried it or
+ * the caller is a member of it.
+ */
+async function admitIncomingA2AActionCall(
+  params: Record<string, unknown>,
+  action: string,
+  input: Record<string, unknown>,
+  verifiedEmail: string,
+  event: H3Event,
+): Promise<
+  { error: JsonRpcResponse } | { foreground: { expiresAt: number } | undefined }
+> {
+  const verifiedOrgId =
+    typeof event.context.__a2aVerifiedOrgId === "string"
+      ? (event.context.__a2aVerifiedOrgId as string)
+      : undefined;
+  const identityAssurance = event.context.__a2aIdentityAssurance;
+  const audiences: unknown = event.context.__a2aVerifiedAudiences;
+  const isOrgMember = async (orgId: string) => {
+    const { isOrgMemberForA2A } = await import("../org/membership.js");
+    return isOrgMemberForA2A(orgId, verifiedEmail, event);
+  };
+  let outcome: Awaited<ReturnType<typeof decideIncomingA2AActionCall>>;
+  try {
+    outcome = await decideIncomingA2AActionCall({
+      action,
+      input,
+      params: Object.freeze({ ...params }),
+      caller: {
+        email: verifiedEmail,
+        ...(typeof identityAssurance === "string" ? { identityAssurance } : {}),
+        ...(verifiedOrgId ? { orgId: verifiedOrgId } : {}),
+        audiences: Array.isArray(audiences)
+          ? audiences.filter((value) => typeof value === "string")
+          : [],
+      },
+      isOrgMember,
+    });
+  } catch (error) {
+    console.error(`[a2a] Call hook failed for direct action ${action}:`, error);
+    return { error: jsonRpcError(0, -32000, "A2A call hook failed") };
+  }
+  if (outcome === undefined) return { foreground: undefined };
+  if (outcome.status === "refused") {
+    return {
+      error: refusedA2AActionCall(
+        outcome.message,
+        outcome.reason,
+        outcome.hookId,
+      ),
+    };
+  }
+  if (outcome.orgId !== undefined && outcome.orgId !== verifiedOrgId) {
+    if (verifiedOrgId) {
+      return {
+        error: refusedA2AActionCall(
+          "A2A call organization does not match the verified organization",
+          "org-mismatch",
+        ),
+      };
+    }
+    let member: boolean;
+    try {
+      member = await isOrgMember(outcome.orgId);
+    } catch (error) {
+      console.error("[a2a] Organization membership check failed:", error);
+      return {
+        error: jsonRpcError(
+          0,
+          -32003,
+          "Organization membership check is temporarily unavailable",
+        ),
+      };
+    }
+    if (!member) {
+      return {
+        error: refusedA2AActionCall(
+          "A2A caller is not a member of the requested organization",
+          "org-not-member",
+        ),
+      };
+    }
+    event.context.__a2aVerifiedOrgId = outcome.orgId;
+  }
+  if (outcome.foreground && outcome.foreground.expiresAt <= Date.now()) {
+    return {
+      error: refusedA2AActionCall(
+        "A2A foreground admission has expired",
+        "foreground-expired",
+      ),
+    };
+  }
+  // A timer cannot run longer than this; a longer window would abort at once.
+  if (
+    outcome.foreground &&
+    outcome.foreground.expiresAt - Date.now() > MAX_TIMER_DELAY_MS
+  ) {
+    return {
+      error: refusedA2AActionCall(
+        "A2A foreground admission is longer than the server can hold",
+        "foreground-too-long",
+      ),
+    };
+  }
+  return { foreground: outcome.foreground };
+}
+
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+
+/** Run an admitted call as foreground work, revoked at expiry or when the request aborts. */
+function runForegroundA2AActionCall<T>(
+  expiresAt: number,
+  event: H3Event,
+  work: () => Promise<T>,
+): Promise<T> {
+  const expiry = AbortSignal.timeout(Math.max(0, expiresAt - Date.now()));
+  const requestSignal: unknown = event.req.signal;
+  const signal =
+    requestSignal instanceof AbortSignal
+      ? AbortSignal.any([requestSignal, expiry])
+      : expiry;
+  return runAsA2AForegroundCall(expiresAt, () =>
+    runWithProviderInteractiveScope(true, work, { signal }),
+  );
 }
 
 export async function handleJsonRpcH3(

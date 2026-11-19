@@ -79,15 +79,15 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 const mirror = vi.hoisted(() => ({
-  comments: vi.fn(async (..._args: unknown[]) => undefined),
   deleted: vi.fn(async (..._args: unknown[]) => undefined),
+  locked: vi.fn(async (..._args: unknown[]) => undefined),
 }));
 vi.mock("@agent-native/core/review", () => ({
   ensureReviewTables: vi.fn(async () => undefined),
 }));
-vi.mock("../server/lib/slide-comment-mirror.js", () => ({
-  mirrorSlideComments: mirror.comments,
-  deleteMirroredSlideComments: mirror.deleted,
+vi.mock("../server/lib/slide-comments.js", () => ({
+  deleteDeckComments: mirror.deleted,
+  lockDeckCommentThreads: mirror.locked,
 }));
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -151,12 +151,23 @@ describe("deleteDeck", () => {
     expect(mockDb.transaction).toHaveBeenCalledOnce();
   });
 
-  it("marks the deck's comments deleted in the review kit with the deck", async () => {
+  it("deletes the deck's comments in the review kit with the deck", async () => {
     mirror.deleted.mockClear();
 
     await deleteDeck.run({ id: "deck-1" });
 
-    expect(mirror.deleted).toHaveBeenCalledWith("deck-1", "all");
+    expect(mirror.deleted).toHaveBeenCalledWith("deck-1");
+  });
+
+  it("locks the deck's comment threads before the deck, as comment writes do", async () => {
+    mirror.locked.mockClear();
+
+    await deleteDeck.run({ id: "deck-1" });
+
+    expect(mirror.locked).toHaveBeenCalledWith("deck-1");
+    expect(mirror.locked.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDb.select.mock.invocationCallOrder.at(-1) ?? 0,
+    );
   });
 
   it("includes the resource organization only for org-visible decks", async () => {

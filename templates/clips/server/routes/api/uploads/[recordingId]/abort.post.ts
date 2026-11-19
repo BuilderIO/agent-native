@@ -19,6 +19,7 @@ import { readUploadPhase } from "../../../../lib/final-chunk-claim.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
+  normalizeRecorderStage,
   normalizeRecordingFailureCode,
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
@@ -119,6 +120,7 @@ export async function handleAbortRecordingUpload(
     httpStatus?: unknown;
     attemptId?: unknown;
     uploadGenerationId?: unknown;
+    recorderStage?: unknown;
   } | null;
   const reasonText =
     typeof body?.reason === "string" ? body.reason.trim().slice(0, 1000) : "";
@@ -565,6 +567,11 @@ export async function handleAbortRecordingUpload(
         failureCode: transitionFailureCode,
         failureStage,
         httpStatus,
+        // The stage describes this request, so it only goes with its code.
+        recorderStage:
+          transitionFailureCode === failureCode
+            ? normalizeRecorderStage(body?.recorderStage)
+            : null,
       });
     }
     const abortedGenerationId =

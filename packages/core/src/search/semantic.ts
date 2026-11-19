@@ -21,6 +21,7 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { MigrationEntry } from "../db/migrations.js";
 import { defineStore } from "../db/store-registry.js";
 import {
+  DEFAULT_EMBEDDING_DIMENSIONS,
   EmbeddingProviderError,
   resolveDefaultEmbeddingFamily,
   type EmbeddingFamily,
@@ -48,6 +49,7 @@ import { recordUsage } from "../usage/store.js";
 import {
   deletePgVectors,
   ensurePgVectorIndex,
+  pgVectorIndexMigration,
   queryPgVectorIndex,
   searchNamespaceIdentifiers,
   upsertPgVector,
@@ -598,6 +600,25 @@ export function semanticSearchMigration(
       );
     },
   };
+}
+
+/**
+ * A named migration that makes the vector table the meaning lane stores
+ * embeddings in, at release, where a hosted request can't. Without it a
+ * hosted app reports no vector store and searches by words alone. Pass
+ * `dimensions` for a family that isn't built in.
+ */
+export function semanticVectorStoreMigration(entry: {
+  version: number;
+  name: string;
+  dimensions?: readonly number[];
+}): MigrationEntry {
+  return pgVectorIndexMigration({
+    version: entry.version,
+    name: entry.name,
+    namespace: VECTOR_NAMESPACE,
+    dimensions: entry.dimensions ?? [DEFAULT_EMBEDDING_DIMENSIONS],
+  });
 }
 
 function backfillFeedFor(

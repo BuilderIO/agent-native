@@ -44,6 +44,7 @@ import {
   withDesignSourceMutationTransaction,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
+import { withServerOwnedTweakSelectionsRevisionJson } from "./design-data-mutation.js";
 import { buildDesignSnapshot, type SnapshotFile } from "./design-snapshot.js";
 import { visualEditCapabilityDesignScope } from "./visual-edit-capability.js";
 
@@ -714,18 +715,6 @@ export function withPreparedDesignVersionSourceFiles<T>(
   );
 }
 
-async function withPreparedDesignVersionSourceFilesForCreativeContextCapture<T>(
-  designId: string,
-  work: (prepared: PreparedDesignVersionSourceFiles) => Promise<T>,
-): Promise<T> {
-  return withPreparedDesignVersionSourceFilesWithAccess(
-    designId,
-    work,
-    [],
-    "viewer",
-  );
-}
-
 async function readDesignVersionSourceRows(
   designId: string,
   options: {
@@ -1095,14 +1084,10 @@ async function seedDesignVersionSourceCollaboration(
 async function prepareDesignVersionCheckpointWithAccess(
   designId: string,
   options: PreparedDesignVersionCheckpoint["options"],
-  accessContract: "editor" | "creative-context-read",
 ): Promise<PreparedDesignVersionCheckpoint> {
   const readRows = (prepared: PreparedDesignVersionSourceFiles) =>
     readDesignVersionSourceRows(designId, options, prepared);
-  const withPreparedSourceFiles =
-    accessContract === "creative-context-read"
-      ? withPreparedDesignVersionSourceFilesForCreativeContextCapture
-      : withPreparedDesignVersionSourceFiles;
+  const withPreparedSourceFiles = withPreparedDesignVersionSourceFiles;
   let rows: DesignVersionSourceRows;
   try {
     rows = await withPreparedSourceFiles(designId, readRows);
@@ -1110,10 +1095,7 @@ async function prepareDesignVersionCheckpointWithAccess(
     if (!(error instanceof DesignVersionSourceCollaborationNeedsSeedError)) {
       throw error;
     }
-    await seedDesignVersionSourceCollaboration(
-      designId,
-      accessContract === "creative-context-read" ? "viewer" : "editor",
-    );
+    await seedDesignVersionSourceCollaboration(designId, "editor");
     rows = await withPreparedSourceFiles(designId, readRows);
   }
   const capture = await buildDesignVersionSourceCapture(
@@ -1169,7 +1151,6 @@ async function prepareDesignVersionCheckpointWithAccess(
     designTitle: capture.designTitle,
     designDescription: capture.designDescription,
     projectType: capture.projectType,
-    designSystemId: capture.designSystemId,
     files: capture.liveSnapshot.files,
     tweaks: capture.liveSnapshot.tweaks,
     appliedTweaks: capture.liveSnapshot.appliedTweaks,
@@ -1230,18 +1211,7 @@ export async function prepareDesignVersionCheckpoint(
   designId: string,
   options: PreparedDesignVersionCheckpoint["options"],
 ): Promise<PreparedDesignVersionCheckpoint> {
-  return prepareDesignVersionCheckpointWithAccess(designId, options, "editor");
-}
-
-async function prepareDesignVersionCheckpointForCreativeContextCapture(
-  designId: string,
-  options: PreparedDesignVersionCheckpoint["options"],
-): Promise<PreparedDesignVersionCheckpoint> {
-  return prepareDesignVersionCheckpointWithAccess(
-    designId,
-    options,
-    "creative-context-read",
-  );
+  return prepareDesignVersionCheckpointWithAccess(designId, options);
 }
 
 async function readPreparedCheckpointSourceInTransaction(
@@ -1478,19 +1448,12 @@ export async function cleanupPreparedDesignVersionCheckpoint(
 async function captureDesignVersion(
   designId: string,
   options: PreparedDesignVersionCheckpoint["options"],
-  accessContract: "editor" | "creative-context-read" = "editor",
 ): Promise<{ id: string; createdAt: string; label: string }> {
-  const isCreativeContextRead = accessContract === "creative-context-read";
-  const preparedCheckpoint = isCreativeContextRead
-    ? await prepareDesignVersionCheckpointForCreativeContextCapture(
-        designId,
-        options,
-      )
-    : await prepareDesignVersionCheckpoint(designId, options);
-  const withPreparedSourceFiles = isCreativeContextRead
-    ? withPreparedDesignVersionSourceFilesForCreativeContextCapture
-    : withPreparedDesignVersionSourceFiles;
-  const requiredAccess = isCreativeContextRead ? "viewer" : "editor";
+  const preparedCheckpoint = await prepareDesignVersionCheckpoint(
+    designId,
+    options,
+  );
+  const withPreparedSourceFiles = withPreparedDesignVersionSourceFiles;
   const transactionOutcome = {
     callbackCompleted: false,
     rollbackConfirmed: false,
@@ -1500,7 +1463,7 @@ async function captureDesignVersion(
       withDesignSourceMutationTransaction(
         designId,
         async (tx) => {
-          await assertAccess("design", designId, requiredAccess);
+          await assertAccess("design", designId, "editor");
           return persistPreparedDesignVersionCheckpoint(
             preparedCheckpoint,
             preparedFiles,
@@ -1613,24 +1576,6 @@ export async function createDesignVersionSnapshotWithSourceMutationLock(
 ) {
   return withDesignVersionLock(designId, async () => {
     return captureDesignVersion(designId, options);
-  });
-}
-
-/**
- * Creative Context reads historically allowed any Design viewer to submit a
- * snapshot. Keep that narrow capture path viewer-authorized while rechecking
- * access with the source locked before its version row is written.
- */
-export async function createDesignVersionSnapshotForCreativeContextCapture(
-  designId: string,
-  options: {
-    label: string;
-    chatContext?: DesignVersionChatContext;
-    deletionGeometry?: ComponentDeletionGeometry;
-  },
-) {
-  return withDesignVersionLock(designId, async () => {
-    return captureDesignVersion(designId, options, "creative-context-read");
   });
 }
 
@@ -2038,10 +1983,6 @@ export async function restoreDesignVersion(args: {
       );
     }
 
-    if (target.designSystemId) {
-      await assertAccess("design-system", target.designSystemId, "viewer");
-    }
-
     const currentFiles = await db
       .select()
       .from(schema.designFiles)
@@ -2244,7 +2185,11 @@ export async function restoreDesignVersion(args: {
 
               const designUpdates: Record<string, unknown> = { updatedAt };
               if (target.designData !== undefined) {
-                designUpdates.data = target.designData;
+                designUpdates.data = withServerOwnedTweakSelectionsRevisionJson(
+                  args.designId,
+                  currentDesign.data,
+                  target.designData,
+                );
                 designUpdates.dataOperationRevisions = "{}";
               }
               if (target.designTitle !== undefined) {
@@ -2255,9 +2200,6 @@ export async function restoreDesignVersion(args: {
               }
               if (target.projectType !== undefined) {
                 designUpdates.projectType = target.projectType;
-              }
-              if (target.designSystemId !== undefined) {
-                designUpdates.designSystemId = target.designSystemId;
               }
 
               const designRevision = currentDesign.updatedAt;

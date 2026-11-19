@@ -1,10 +1,14 @@
+import {
+  redactSecretsInText,
+  redactSecretsInValue,
+} from "../shared/secret-redaction.js";
+
 export const MAX_MESSAGE_LENGTH = 1000;
 export const MAX_STACK_LENGTH = 8000;
 export const MAX_TAGS = 30;
 export const MAX_EXTRA_KEYS = 30;
 export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
-const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
 const SQL_PARAMS_RE = /^([\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
@@ -647,15 +651,26 @@ export function isSqlStatementText(value: string): boolean {
 }
 
 export function redact(value: string): string {
-  return value
-    .replace(SECRET_RE, (match) => `${match.split(/\s+/, 1)[0]} <redacted>`)
-    .replace(
-      /([A-Za-z0-9_$.-]*(?:authorization|cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)[A-Za-z0-9_$.-]*\s*[:=]\s*)([^\s,;}]+)/gi,
-      "$1<redacted>",
-    )
-    .replace(SQL_PARAMS_RE, (match, query: string, params: string) =>
+  return redactSecretsInText(value, { placeholder: "<redacted>" }).replace(
+    SQL_PARAMS_RE,
+    (match, query: string, params: string) =>
       isSqlStatementText(query) ? `${query}${params}<redacted>` : match,
-    );
+  );
+}
+
+/**
+ * The caller's event properties with secrets removed. A field is dropped by its
+ * whole name (`token`, `api_key`, `client_secret`), not by a word in it:
+ * `credential_kind` and `input_tokens` are analytics, not credentials.
+ */
+export function redactEventProperties(
+  properties: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  return redactSecretsInValue(properties ?? {}, {
+    placeholder: "<redacted>",
+    names: "named",
+    redactText: redact,
+  }) as Record<string, unknown>;
 }
 
 export function boundedText(value: unknown, max: number): string {

@@ -9,11 +9,6 @@ import { clearEmbedAuthToken } from "@agent-native/core/client/host";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import {
-  parseCreativeContexts,
-  useCreativeContexts,
-  useCreativeContextState,
-} from "@agent-native/creative-context/client";
 import { type CodeLayerSource } from "@shared/code-layer";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { LayoutGrid } from "@shared/layout-grid";
@@ -33,9 +28,6 @@ import { toast } from "sonner";
 
 import { type DocumentColorSourceFile } from "@/components/design/EditPanel";
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
-import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
-import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
-import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import { isHostedInProcess } from "@/host/design-host-channel";
 import { recordSaveReplayOutcomes } from "@/lib/canvas-outcome-tracking";
@@ -60,7 +52,6 @@ import {
   liveDesignSaveWriterSources,
   waitForDesignSaveWriterRelease,
 } from "@/lib/design-save-outbox-writers";
-import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { createLatestReadGate } from "@/lib/latest-read-gate";
 import {
   clearVisualEditBoardClaimSecret,
@@ -215,7 +206,6 @@ export function useEditorFilesAndSaving({
     canEditDesign,
     publicVisualEdit,
     visualEditSnapshotPublicationState,
-    creativeContextLab,
     canEditDesignRef,
     canPersistDesignSourceRef,
     rawServerFilesByIdRef,
@@ -255,10 +245,6 @@ export function useEditorFilesAndSaving({
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
-  const [promptDesignSystemId, setPromptDesignSystemId] = useState<
-    string | null | undefined
-  >(undefined);
-  const creativeContextEnabled = creativeContextLab.enabled;
   // §6.4 — "show all breakpoints" toggle: when true (default) the overview
   // renders one linked read-write frame per breakpoint width next to each
   // screen (same document at each viewport width); hiding keeps the chips
@@ -882,11 +868,14 @@ export function useEditorFilesAndSaving({
   const {
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     setTweakSelections,
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
     tweakMutationsEnabled,
   } = useTweaks({
     acknowledgeOutboxEntry,
@@ -902,16 +891,6 @@ export function useEditorFilesAndSaving({
     t,
     warnChangesWillRetry,
   });
-  const systemsEnabled = useDesignSystemWorkflows();
-  const {
-    designSystems,
-    defaultSystem,
-    isLoading: designSystemsLoading,
-  } = useDesignSystems(isSignedIn && showPrompt && systemsEnabled);
-  const designSystemOptions = useMemo(
-    () => designSystemPickerOptions(designSystems),
-    [designSystems],
-  );
   const {
     preferences: editorPreferences,
     setPreferences: setEditorPreferences,
@@ -990,74 +969,12 @@ export function useEditorFilesAndSaving({
     t,
   ]);
 
-  const creativeContextsQuery = useCreativeContexts(
-    {},
-    { enabled: creativeContextEnabled },
-  );
-  const creativeContextState = useCreativeContextState({
-    enabled: creativeContextEnabled,
-  });
-  const creativeContextOptions = useMemo(
-    () =>
-      parseCreativeContexts(creativeContextsQuery.data)
-        .filter((context) => context.memberCount > 0)
-        .map((context) => ({ id: context.id, name: context.name })),
-    [creativeContextsQuery.data],
-  );
-  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
-  const handleCreativeContextChange = useCallback(
-    (contextId: string | null) => {
-      creativeContextPersistRef.current = creativeContextState
-        .setState({
-          ...creativeContextState.state,
-          contextMode: "auto",
-          selectedContextId: contextId,
-          pinnedPackId: null,
-        })
-        .catch((error) => {
-          reportWriteFailure(error, {
-            label: t("creativeContext.stateSaveFailed"),
-          });
-          throw error;
-        });
-    },
-    [creativeContextState, t],
-  );
-  const resolvePromptDesignSystemId = useCallback(() => {
-    if (design?.designSystemId) return design.designSystemId;
-    if (!systemsEnabled) return null;
-    if (
-      defaultSystem &&
-      isDesignSystemUsableForGeneration(defaultSystem.data)
-    ) {
-      return defaultSystem.id;
-    }
-    return (
-      designSystems.find((system) =>
-        isDesignSystemUsableForGeneration(system.data),
-      )?.id ?? null
-    );
-  }, [defaultSystem, design?.designSystemId, designSystems, systemsEnabled]);
-
-  const selectedPromptDesignSystemId = !systemsEnabled
-    ? (design?.designSystemId ?? null)
-    : promptDesignSystemId === undefined
-      ? designSystemsLoading
-        ? undefined
-        : resolvePromptDesignSystemId()
-      : promptDesignSystemId;
-
   const handlePromptOpenChange = useCallback(
     (open: boolean) => {
       if (open && !canEditDesign) return;
       setShowPrompt(open);
-      if (open) {
-        setPromptDesignSystemId(design?.designSystemId ?? undefined);
-      } else {
-        setPromptDesignSystemId(undefined);
-      }
     },
-    [canEditDesign, design?.designSystemId],
+    [canEditDesign],
   );
 
   const handleTweakPromptOpenChange = useCallback(
@@ -1756,6 +1673,9 @@ export function useEditorFilesAndSaving({
       text: string;
     } | null;
     revision: number | null;
+    publisherId: string | null;
+    tweakSelectionsRevision: number | null;
+    canClear: boolean;
     updatedAt: string | null;
   }>(
     "get-visual-edit-pending",
@@ -2012,9 +1932,6 @@ export function useEditorFilesAndSaving({
     showTweakPrompt,
     setShowTweakPrompt,
     tweakPromptAnchorRef,
-    promptDesignSystemId,
-    setPromptDesignSystemId,
-    creativeContextEnabled,
     breakpointFramesHidden,
     setBreakpointFramesHidden,
     setPatchProof,
@@ -2034,21 +1951,16 @@ export function useEditorFilesAndSaving({
     flushPendingFileContentSavesForBackground,
     cssVarValues,
     flushPendingTweakSave,
+    settlePendingTweakSaves,
+    resetTweakSelectionsToSourceBaseline,
     handleTweakChange,
     tweakSelections,
     tweaks,
     pendingTweakChanges,
+    persistedTweakSelectionsRevision,
     tweakMutationsEnabled,
-    designSystemsLoading,
-    designSystemOptions,
     editorPreferences,
     setEditorPreferences,
-    creativeContextsQuery,
-    creativeContextState,
-    creativeContextOptions,
-    creativeContextPersistRef,
-    handleCreativeContextChange,
-    selectedPromptDesignSystemId,
     handlePromptOpenChange,
     handleTweakPromptOpenChange,
     handleRequestTweaks,

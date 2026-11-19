@@ -31,6 +31,8 @@ type InteractiveScope = {
   turnGrant?: ProviderTurnGrant;
   /** A grant an external chat host proved for the turn that called the tool. */
   chatTurnGrant?: ProviderTurnGrant;
+  /** A tool call `runWithDurableTurnToolScope` matched to its run's turn grant. */
+  durableTurnCall?: true;
   signal?: AbortSignal;
 };
 
@@ -52,11 +54,7 @@ function hasInteractiveScope(
   actionOnly: boolean,
   allowBackground: boolean,
 ): boolean {
-  if (
-    !allowBackground &&
-    isBackgroundWorkerRun() &&
-    !isChatTurnInteractiveScope()
-  )
+  if (!allowBackground && isBackgroundWorkerRun() && !hasProvenTurn())
     return false;
   let scope = interactiveScope?.getStore();
   if (!scope || (actionOnly && !scope.action)) return false;
@@ -71,6 +69,18 @@ function hasInteractiveScope(
     scope = scope.parent;
   }
   return true;
+}
+
+// A background worker's action counts only for a turn proven on its chain:
+// a chat-turn grant, or a durable tool call matched to its run's turn grant.
+function hasProvenTurn(): boolean {
+  let scope = interactiveScope?.getStore();
+  if (!scope?.action) return false;
+  while (scope) {
+    if (scope.chatTurnGrant || scope.durableTurnCall) return true;
+    scope = scope.parent;
+  }
+  return false;
 }
 
 /** True inside an action whose chain carries a live, unexpired chat-turn grant. */
@@ -92,7 +102,8 @@ export function isChatTurnInteractiveScope(): boolean {
 /**
  * True while a person is waiting on this work through a scope: an MCP/tool call
  * made for a live chat turn. A background worker counts only with a chat-turn
- * grant. A browser request is not marked here; a gate recognises it from the
+ * grant, or inside a durable run's own tool call for the turn its verified
+ * grant names (`runWithDurableTurnToolScope`). A browser request is not marked here; a gate recognises it from the
  * request itself. `actionOnly` also requires the innermost scope to be an
  * action run.
  */
@@ -143,6 +154,7 @@ export async function runWithDurableTurnToolScope<T>(
   const scope: InteractiveScope = {
     active: true,
     action: true,
+    durableTurnCall: true,
     ...(parent ? { parent } : {}),
     signal,
   };
