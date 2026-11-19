@@ -898,10 +898,10 @@ export function closestToolMatches(
   );
   const rankable: RankableTool[] = [];
   for (const [name, entry] of Object.entries(registry)) {
-    if (!entry?.tool || name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (name === TOOL_SEARCH_ACTION_NAME) continue;
     if (isActionHiddenFromEveryAgentSurface(entry)) continue;
     if (parseMcpToolName(name)) continue;
-    const description = normalizeWhitespace(entry.tool.description ?? "");
+    const description = normalizeWhitespace(entry.tool.description);
     rankable.push({
       candidate: {
         name,

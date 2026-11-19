@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-这与插件的 `mcp: { connectorCatalog: [...] }` 列表是同一份目录,只是声明写在 action 上,而不是写在一个每次重命名都要同步的独立数组里。两种写法都有效,应用可以一次迁移一个 action。没有列入的部分仍然可以通过 `tool-search` 发现。
+这与插件的 `mcp: { connectorCatalog: [...] }` 列表是同一份目录,只是声明写在 action 上,而不是写在一个每次重命名都要同步的独立数组里。两种写法都有效,应用可以一次迁移一个 action。没有列入的 action 不在外部代理的默认目录里。`mcpTool: "search"` 会提供 action 但不列出它:`tool-search` 能找到它,`call-tool` 能运行它。对于你自己的代理能调用的其他 action,`tool-search` 会把相近的匹配标为未提供,这样已登录的外部代理就能把这项任务交给 `ask_app`。
 
 把两个 flag 反过来搭配——`agentTool: false` 配 `mcpTool: true`——就得到一个**仅限 MCP** 的 action:外部代理拿得到,你自己应用的代理永远看不到。用它来做外部工具需要、而你自己的代理没有理由调用的导出、同步或交接。
 

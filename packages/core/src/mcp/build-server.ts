@@ -643,7 +643,7 @@ function scopeToolSearchToAdvertised(
           notServed && Object.hasOwn(permitted, ASK_APP_TOOL_NAME)
             ? closestToolMatches(
                 await notServed(),
-                args ?? {},
+                args,
                 MAX_NOT_SERVED_MATCHES,
               )
             : [];
@@ -3548,27 +3548,25 @@ export async function createMCPServerForRequest(
     effectiveIdentity,
     orgId,
   );
-  const availableForDiscovery = (entries: Record<string, ActionEntry>) =>
-    runWithRequestContext(
-      {
+  const visibleActions = await runWithRequestContext(
+    {
+      userEmail: effectiveIdentity?.userEmail,
+      orgId,
+      ...(effectiveIdentity?.identityAssurance === "org-member"
+        ? { a2aIdentityAssurance: "org-member" as const }
+        : {}),
+      ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
+      ...(effectiveIdentity?.orgId === null
+        ? { orgScope: "personal" as const }
+        : {}),
+    },
+    () =>
+      filterActionsAvailableForDiscovery(scopeVisibleActions, {
+        caller: "mcp",
         userEmail: effectiveIdentity?.userEmail,
-        orgId,
-        ...(effectiveIdentity?.identityAssurance === "org-member"
-          ? { a2aIdentityAssurance: "org-member" as const }
-          : {}),
-        ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
-        ...(effectiveIdentity?.orgId === null
-          ? { orgScope: "personal" as const }
-          : {}),
-      },
-      () =>
-        filterActionsAvailableForDiscovery(entries, {
-          caller: "mcp",
-          userEmail: effectiveIdentity?.userEmail,
-          orgId: orgId ?? null,
-        }),
-    );
-  const visibleActions = await availableForDiscovery(scopeVisibleActions);
+        orgId: orgId ?? null,
+      }),
+  );
   // A connection that asks for the script catalog, on an app that turned the
   // script tools on, is offered only `search-actions` and `run-script`, and
   // every other tool name is unknown to it. Directory mode keeps its own
@@ -3675,19 +3673,29 @@ export async function createMCPServerForRequest(
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
   const notServedActions = hasVerifiedMcpUserIdentity(effectiveIdentity)
-    ? async () =>
-        availableForDiscovery(
-          Object.fromEntries(
-            Object.entries(mergedActions).filter(
-              ([name, entry]) =>
-                !Object.hasOwn(advertisedActionsBeforeToolSearchScope, name) &&
-                !Object.hasOwn(searchServedActions, name) &&
-                !deniedToolNames.has(name) &&
-                !isFrameworkMcpTool(entry) &&
-                entry.agentTool !== false &&
-                entry.endsTurn !== true &&
-                isMcpActionNameEligible(name, entry),
+    ? () =>
+        withCallerContext(async () =>
+          filterActionsAvailableForDiscovery(
+            Object.fromEntries(
+              Object.entries(mergedActions).filter(
+                ([name, entry]) =>
+                  !Object.hasOwn(
+                    advertisedActionsBeforeToolSearchScope,
+                    name,
+                  ) &&
+                  !Object.hasOwn(searchServedActions, name) &&
+                  !deniedToolNames.has(name) &&
+                  !isFrameworkMcpTool(entry) &&
+                  entry.agentTool !== false &&
+                  entry.endsTurn !== true &&
+                  isMcpActionNameEligible(name, entry),
+              ),
             ),
+            {
+              caller: "mcp",
+              userEmail: effectiveIdentity.userEmail,
+              orgId: orgId ?? null,
+            },
           ),
         )
     : undefined;

@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-Es el mismo catálogo que la lista `mcp: { connectorCatalog: [...] }` del plugin, declarado en la acción en lugar de en un array aparte que hay que mantener sincronizado a medida que se renombran las acciones. Ambas formas funcionan, y una app puede migrar una acción a la vez. Todo lo que queda fuera sigue siendo localizable mediante `tool-search`.
+Es el mismo catálogo que la lista `mcp: { connectorCatalog: [...] }` del plugin, declarado en la acción en lugar de en un array aparte que hay que mantener sincronizado a medida que se renombran las acciones. Ambas formas funcionan, y una app puede migrar una acción a la vez. Una acción que queda fuera no aparece en el catálogo predeterminado de los agentes externos. `mcpTool: "search"` la ofrece sin listarla: `tool-search` la encuentra y `call-tool` la ejecuta. Para cualquier otra acción que tu agente pueda llamar, `tool-search` señala las coincidencias cercanas como no ofrecidas, para que un agente externo con sesión iniciada pueda pasarle esa tarea a `ask_app`.
 
 Combinar las dos opciones al revés — `agentTool: false` con `mcpTool: true` — hace que una acción sea **solo de MCP**: los agentes externos la reciben y el agente de tu propia app nunca la ve. Úsalo para la exportación, la sincronización o el traspaso que necesita una herramienta externa y que tu propio agente no tiene motivo para llamar.
 

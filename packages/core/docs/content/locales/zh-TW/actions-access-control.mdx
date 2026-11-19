@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-這與外掛的 `mcp: { connectorCatalog: [...] }` 清單是同一份目錄，只是宣告寫在 action 上，而不是寫在一個每次重新命名都要同步的獨立陣列裡。兩種寫法都有效，應用程式可以一次搬移一個 action。沒有列入的部分仍可透過 `tool-search` 找到。
+這與外掛的 `mcp: { connectorCatalog: [...] }` 清單是同一份目錄，只是宣告寫在 action 上，而不是寫在一個每次重新命名都要同步的獨立陣列裡。兩種寫法都有效，應用程式可以一次搬移一個 action。沒有列入的 action 不在外部代理的預設目錄裡。`mcpTool: "search"` 會提供 action 但不列出它：`tool-search` 能找到它，`call-tool` 能執行它。對於你自己的代理能呼叫的其他 action，`tool-search` 會把相近的符合項目標為未提供，這樣已登入的外部代理就能把這項任務交給 `ask_app`。
 
 把兩個旗標反過來搭配——`agentTool: false` 搭配 `mcpTool: true`——就會得到一個**僅限 MCP** 的 action：外部代理拿得到，你自己應用程式的代理永遠看不到。適合用在外部工具需要、而你自己的代理沒有理由呼叫的匯出、同步或交接。
 
