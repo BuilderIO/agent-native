@@ -3444,7 +3444,7 @@ describe("AgentChat lifecycle", () => {
       id: "tool-read",
       name: "get-document",
       input: { id: "d1" },
-      output: { id: "d1", title: "Launch plan" },
+      output: { id: "d1", title: "Launch plan", deepLink: "/page/d1" },
       status: "completed",
     };
     const missing: AgentToolCall = {
@@ -3507,6 +3507,9 @@ describe("AgentChat lifecycle", () => {
       tree.container.querySelectorAll('[data-testid="document-card"]'),
     ).toHaveLength(2);
     expect(sources?.textContent).toContain("Launch plan");
+    const list = sources?.querySelector(".agentkit-sources-list");
+    expect(list?.hasAttribute("data-an-block")).toBe(true);
+    expect(list?.querySelector("a")?.getAttribute("href")).toBe("/page/d1");
     expect(
       sources?.querySelector(".agentkit-work-source-failure-reason")
         ?.textContent,

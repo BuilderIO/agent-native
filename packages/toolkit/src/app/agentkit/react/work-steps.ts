@@ -879,7 +879,28 @@ function nameTokens(name: string): string[] {
 
 const JOINERS = new Set(["and", "or", "then"]);
 
+const RECORD_VERBS = new Set([
+  "archive",
+  "copy",
+  "import",
+  "install",
+  "invite",
+  "like",
+  "lock",
+  "merge",
+  "patch",
+  "post",
+  "reply",
+  "share",
+  "track",
+  "trigger",
+  "upload",
+  "vote",
+]);
+
 function writesBy(tokens: readonly string[]): boolean {
+  const first = tokens.at(0) ?? "";
+  const last = tokens.at(-1) ?? "";
   return (
     tokens.some(
       (token, index) =>
@@ -887,8 +908,10 @@ function writesBy(tokens: readonly string[]): boolean {
         (index === 0 || JOINERS.has(tokens.at(index - 1) ?? "")),
     ) ||
     (tokens.length > 1 &&
-      WRITE_VERBS.has(tokens.at(-1) ?? "") &&
-      inferAgentActivityKind(tokens.at(0) ?? "") === "search")
+      WRITE_VERBS.has(last) &&
+      !RECORD_VERBS.has(last) &&
+      (READ_VERBS.has(first) ||
+        SOURCE_ACTIVITY_KINDS.has(inferAgentActivityKind(first))))
   );
 }
 
@@ -933,8 +956,9 @@ const PAGE_WORDS = new Set([
 ]);
 
 function namesPages(call: AgentWorkCall): boolean {
-  const noun = toolWords(call).slice(1);
-  return noun.length === 0 || noun.some((word) => PAGE_WORDS.has(word));
+  return toolWords(call)
+    .slice(1)
+    .some((word) => PAGE_WORDS.has(word));
 }
 
 function readKind(call: AgentWorkCall): string {

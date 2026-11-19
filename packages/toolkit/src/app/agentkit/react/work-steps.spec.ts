@@ -602,7 +602,7 @@ describe("agentWorkCallObject and agentWorkCallVerb", () => {
       agentWorkCallObject(
         call(
           "c",
-          "read",
+          "read-page",
           { url: "https://content.example/p/d" },
           { output: { id: "d", title: "Roadmap", deepLink: "/p/d" } },
         ),
@@ -760,7 +760,7 @@ describe("agentWorkSources", () => {
       ),
       call(
         "g",
-        "read",
+        "read-page",
         { url: "https://content.example/p/r" },
         { output: { id: "r", title: "Roadmap" } },
       ),
@@ -842,11 +842,18 @@ describe("agentWorkSources", () => {
       call("i", "search-replace", { query: "a", replacement: "b" }),
       call("j", "find-replace", { pattern: "x" }),
       call("k", "web-search", { query: "y", replaceWith: "z" }),
+      call("l", "web-request", { url: "https://a.dev/hook" }, failed),
+      call("m", "list-content-webhook-create", { url: "https://a.dev/hook" }),
+      call("n", "mcp__crm__get_contact_update", { query: "ann" }),
+      call("o", "get-latest-post", { query: "news" }),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "launch"],
+      ["search", "news"],
     ]);
-    expect(failures).toEqual([]);
+    expect(failures.map(({ kind, label }) => [kind, label])).toEqual([
+      ["web", "web-request"],
+    ]);
   });
 
   it("keeps a failure that comes after an earlier read of the same thing", () => {
@@ -982,7 +989,7 @@ describe("agentWorkSources", () => {
       call("a", "mcp__notion__notion-search", { query: "roadmap" }),
       call("b", "mcp__notion__notion-update-view", { query: "x" }),
       call("c", "mcp__slack__send_message", { query: "hi" }, failed),
-      call("d", "mcp__notion__notion-fetch", { id: "z" }, failed),
+      call("d", "mcp__confluence__get_page", { id: "z" }, failed),
       call("e", "mcp__github__search_open_issues", { query: "crash" }),
       call("f", "mcp__wordpress__get_post", { url: "https://blog.dev/p" }),
       call("g", "mcp__notion__get-update-notes", { query: "launch" }),
@@ -1004,7 +1011,7 @@ describe("agentWorkSources", () => {
       ["search", "launch"],
     ]);
     expect(failures.map(({ kind, label }) => [kind, label])).toEqual([
-      ["document", "mcp__notion__notion-fetch"],
+      ["document", "mcp__confluence__get_page"],
     ]);
   });
 
@@ -1158,7 +1165,7 @@ describe("agentWorkSources", () => {
     const { sources, failures } = agentWorkSources([
       call("a", "get-document", { id: "p" }, failed),
       call("b", "get-document", { id: "q" }, failed),
-      call("c", "mcp__notion__notion-fetch", { id: "p" }, failed),
+      call("c", "mcp__notion__get_page", { id: "p" }, failed),
       call(
         "d",
         "read-page",
@@ -1169,7 +1176,7 @@ describe("agentWorkSources", () => {
     expect(sources.map(({ text }) => text)).toEqual(["Plan"]);
     expect(failures.map(({ label }) => label)).toEqual([
       "get-document",
-      "mcp__notion__notion-fetch",
+      "mcp__notion__get_page",
     ]);
   });
 
@@ -1192,6 +1199,8 @@ describe("agentWorkSources", () => {
         { id: "n" },
         { output: { id: "n", title: "Roadmap" } },
       ),
+      call("e2", "get", { id: "1" }, record("Ann")),
+      call("e3", "fetch", { id: "2" }, failed),
       call(
         "f",
         "read-page",
@@ -1213,7 +1222,6 @@ describe("agentWorkSources", () => {
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["document", "Plan"],
-      ["document", "Roadmap"],
       ["document", "Wiki"],
       ["document", "Spec"],
     ]);

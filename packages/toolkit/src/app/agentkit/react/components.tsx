@@ -2345,7 +2345,10 @@ function AgentWorkSourcesLine({ sources, failures }: AgentWorkSources) {
               </TraceLine>
             </TraceCollapsibleTrigger>
             <TraceCollapsibleContent keepMounted>
-              <ul className="agentkit-sources-list">
+              <ul
+                {...SESSION_REPLAY_BLOCK_PROPS}
+                className="agentkit-sources-list"
+              >
                 {sources.map((source) => (
                   <li key={source.key} data-kind={source.kind}>
                     <AgentLink href={source.uri}>
@@ -2354,7 +2357,7 @@ function AgentWorkSourcesLine({ sources, failures }: AgentWorkSources) {
                         <span className="agentkit-work-source-verb">
                           {workSourceVerb(source.kind, labels)}
                         </span>
-                        <TraceTitle {...SESSION_REPLAY_MASK_PROPS}>
+                        <TraceTitle>
                           {source.kind === "search" ? (
                             <q>{readableText(source.text)}</q>
                           ) : (
