@@ -7916,7 +7916,9 @@ describe("action boundary error classification", () => {
       };
       const result = await mounted[0].handler(event);
 
-      expect((event as any)._status).not.toBe(400);
+      expect((event as typeof event & { _status?: number })._status).not.toBe(
+        400,
+      );
       expect(result).toEqual({ ok: true });
       expect(run).toHaveBeenCalledOnce();
       expect(run.mock.calls[0]?.[0]).toEqual({ id: "a", label: "" });
