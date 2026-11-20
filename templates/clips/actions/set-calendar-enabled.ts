@@ -43,6 +43,13 @@ export default defineAction({
     enabled: booleanParam,
   }),
   outputSchema: resultSchema,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+  mcpTool: false,
   run: async (args): Promise<z.infer<typeof resultSchema>> => {
     await assertAccess("calendar-account", args.accountId, "editor");
     const db = getDb();

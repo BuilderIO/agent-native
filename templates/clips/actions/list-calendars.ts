@@ -44,6 +44,7 @@ export default defineAction({
   }),
   outputSchema: resultSchema,
   http: { method: "GET" },
+  mcpTool: false,
   run: async (args): Promise<z.infer<typeof resultSchema>> => {
     const db = getDb();
     const where = [
