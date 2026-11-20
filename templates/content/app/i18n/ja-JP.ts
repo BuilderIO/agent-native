@@ -784,6 +784,15 @@ const editor = {
   creatingDatabase: "インラインコレクションを作成しています...",
   databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
+  newPagePlaceholder: "書き始めましょう",
+  newPageLine: "書き始める、{{draft}}、または {{import}}",
+  newPageLineWithoutImport: "書き始める、または{{draft}}",
+  newPageLineDraft: "エージェントで下書き",
+  newPageLineImport: "Markdown をインポート",
+  newPageDraftPrompt: "次のテーマでこのページを下書きしてください: ",
+  newPageDraftPromptTitled:
+    "「{{title}}」についてこのページを下書きしてください",
+  newPageAgentContextLabel: "このページ",
   describeWhatToGenerate: "何を生成するかを説明します...",
   enterToSubmit: "入力して送信してください",
   failedToCreateDatabase: "インラインコレクションの作成に失敗しました",
@@ -2050,6 +2059,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "保留中の作成と未保存の下書きを消去します。ページがすでに保存されている場合は、ワークスペースに残ります。",
     failedDeletePage: "ページを削除できませんでした",
+    workspaceReferenceProtected:
+      "ワークスペースへの参照は保護されており、ページとして変更できません。",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",
     failedMovePage: "ページを移動できませんでした",

@@ -799,6 +799,14 @@ const editor = {
   creatingDatabase: "Inline-Sammlung wird erstellt...",
   databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
+  newPagePlaceholder: "Schreib los",
+  newPageLine: "Schreib los, {{draft}} oder {{import}}",
+  newPageLineWithoutImport: "Schreib los oder {{draft}}",
+  newPageLineDraft: "entwirf sie mit dem Agenten",
+  newPageLineImport: "importiere Markdown",
+  newPageDraftPrompt: "Entwirf diese Seite über ",
+  newPageDraftPromptTitled: "Entwirf diese Seite über {{title}}",
+  newPageAgentContextLabel: "Diese Seite",
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",
   failedToCreateDatabase: "Inline-Sammlung konnte nicht erstellt werden",
@@ -2096,6 +2104,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
+    workspaceReferenceProtected:
+      "Arbeitsbereichsreferenzen sind geschützt und können nicht als Seiten geändert werden.",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
     failedMovePage: "Seite konnte nicht verschoben werden",

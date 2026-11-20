@@ -792,6 +792,14 @@ const editor = {
   creatingDatabase: "Creando colección integrada...",
   databaseCreated: "Colección creada",
   emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
+  newPagePlaceholder: "Empieza a escribir",
+  newPageLine: "Empieza a escribir, {{draft}} o {{import}}",
+  newPageLineWithoutImport: "Empieza a escribir o {{draft}}",
+  newPageLineDraft: "redáctala con el agente",
+  newPageLineImport: "importa Markdown",
+  newPageDraftPrompt: "Redacta esta página sobre ",
+  newPageDraftPromptTitled: "Redacta esta página sobre {{title}}",
+  newPageAgentContextLabel: "Esta página",
   describeWhatToGenerate: "Describe qué generar...",
   enterToSubmit: "Entra para enviar",
   failedToCreateDatabase: "No se pudo crear la colección integrada",
@@ -2333,6 +2341,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Esto borra la creación pendiente y cualquier borrador sin guardar. Si la página ya se había guardado, seguirá en tu espacio de trabajo.",
     failedDeletePage: "No se pudo eliminar la página",
+    workspaceReferenceProtected:
+      "Las referencias de espacios de trabajo están protegidas y no se pueden modificar como páginas.",
     failedPermanentDeletePage: "No se pudo eliminar la página permanentemente",
     failedRestorePage: "No se pudo restaurar la página",
     failedMovePage: "No se pudo mover la página",

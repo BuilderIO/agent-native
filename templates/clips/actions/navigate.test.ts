@@ -122,6 +122,19 @@ describe("clips navigate action", () => {
     expect(result).toBe("Navigating to /meetings?tab=past");
   });
 
+  it("carries meetingsTab through to application state for the past meetings view", async () => {
+    const result = await action.run({
+      view: "meetings",
+      meetingsTab: "past",
+    });
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "meetings",
+      meetingsTab: "past",
+    });
+    expect(result).toBe("Navigating to meetings:past");
+  });
+
   it("carries viewer panel and playback context through to application state", async () => {
     const result = await action.run({
       view: "recording",

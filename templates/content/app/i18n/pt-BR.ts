@@ -794,6 +794,14 @@ const editor = {
   creatingDatabase: "Criando coleção embutida...",
   databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
+  newPagePlaceholder: "Comece a escrever",
+  newPageLine: "Comece a escrever, {{draft}} ou {{import}}",
+  newPageLineWithoutImport: "Comece a escrever ou {{draft}}",
+  newPageLineDraft: "rascunhe com o agente",
+  newPageLineImport: "importe Markdown",
+  newPageDraftPrompt: "Rascunhe esta página sobre ",
+  newPageDraftPromptTitled: "Rascunhe esta página sobre {{title}}",
+  newPageAgentContextLabel: "Esta página",
   describeWhatToGenerate: "Descreva o que gerar...",
   enterToSubmit: "Entre para enviar",
   failedToCreateDatabase: "Falha ao criar coleção embutida",
@@ -2087,6 +2095,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Isso limpa a criação pendente e qualquer rascunho não salvo. Se a página já tiver sido salva, ela permanecerá no seu espaço de trabalho.",
     failedDeletePage: "Falha ao excluir página",
+    workspaceReferenceProtected:
+      "As referências a espaços de trabalho são protegidas e não podem ser alteradas como páginas.",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",
     failedMovePage: "Falha ao mover página",

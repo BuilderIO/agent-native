@@ -803,6 +803,14 @@ const editor = {
   creatingDatabase: "Création d'une collection intégrée...",
   databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
+  newPagePlaceholder: "Commencez à écrire",
+  newPageLine: "Commencez à écrire, {{draft}} ou {{import}}",
+  newPageLineWithoutImport: "Commencez à écrire ou {{draft}}",
+  newPageLineDraft: "rédigez-la avec l’agent",
+  newPageLineImport: "importez du Markdown",
+  newPageDraftPrompt: "Rédige cette page sur ",
+  newPageDraftPromptTitled: "Rédige cette page sur {{title}}",
+  newPageAgentContextLabel: "Cette page",
   describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
   enterToSubmit: "Entrez pour soumettre",
   failedToCreateDatabase: "Échec de la création de la collection intégrée",
@@ -2100,6 +2108,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
+    workspaceReferenceProtected:
+      "Les références aux espaces de travail sont protégées et ne peuvent pas être modifiées comme des pages.",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",
     failedMovePage: "Échec du déplacement de la page",

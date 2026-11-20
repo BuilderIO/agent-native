@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
+import { shimSpawnTarget } from "@agent-native/core/cli/process";
+
 import { copySkillFiles } from "./skill-files.js";
 
 export type AgentId = "codex" | "claude";
@@ -371,16 +373,26 @@ export function parseGitHubSource(
   };
 }
 
+const SAFE_SOURCE_REF = /^[A-Za-z0-9._/-]+$/;
+
+export function assertSafeSourceRef(ref: string | undefined): void {
+  if (ref === undefined) return;
+  if (ref.startsWith("-") || !SAFE_SOURCE_REF.test(ref)) {
+    throw new Error(`Invalid source ref: ${ref}`);
+  }
+}
+
 function runCommand(
   cmd: string,
   args: string[],
   options: RunCommandOptions = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
+    const [spawnCmd, spawnArgs, shell] = shimSpawnTarget(cmd, args);
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       stdio: "inherit",
-      shell: process.platform === "win32",
+      shell,
       env: process.env,
     });
     child.on("error", reject);
@@ -407,6 +419,8 @@ async function resolveSource(
       `Source does not exist and is not a GitHub source: ${source}`,
     );
   }
+
+  assertSafeSourceRef(github.ref);
 
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-"));
   const repoDir = path.join(tmpRoot, "repo");

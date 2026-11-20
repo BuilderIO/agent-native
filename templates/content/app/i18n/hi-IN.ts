@@ -755,6 +755,14 @@ const editor = {
   creatingDatabase: "इनलाइन संग्रह बनाया जा रहा है...",
   databaseCreated: "संग्रह बनाया गया",
   emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
+  newPagePlaceholder: "लिखना शुरू करें",
+  newPageLine: "लिखना शुरू करें, {{draft}}, या {{import}}",
+  newPageLineWithoutImport: "लिखना शुरू करें, या {{draft}}",
+  newPageLineDraft: "एजेंट से ड्राफ़्ट कराएं",
+  newPageLineImport: "Markdown इंपोर्ट करें",
+  newPageDraftPrompt: "इस विषय पर यह पेज ड्राफ़्ट करें: ",
+  newPageDraftPromptTitled: "{{title}} पर यह पेज ड्राफ़्ट करें",
+  newPageAgentContextLabel: "यह पेज",
   describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
   enterToSubmit: "सबमिट करने के लिए दर्ज करें",
   failedToCreateDatabase: "इनलाइन संग्रह बनाने में विफल",
@@ -1997,6 +2005,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "इससे लंबित निर्माण और कोई भी सहेजा नहीं गया ड्राफ़्ट साफ़ हो जाएगा। अगर पेज पहले से सहेजा गया है, तो वह आपके कार्यक्षेत्र में बना रहेगा।",
     failedDeletePage: "पेज हटाया नहीं जा सका",
+    workspaceReferenceProtected:
+      "कार्यक्षेत्र के संदर्भ सुरक्षित हैं और उन्हें पेज की तरह बदला नहीं जा सकता।",
     failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
     failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",
     failedMovePage: "पेज स्थानांतरित नहीं हो सका",

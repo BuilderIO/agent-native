@@ -8,6 +8,7 @@ import {
   assertAccess,
   currentAccess,
   roleSatisfies,
+  type Visibility,
 } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
@@ -21,9 +22,19 @@ import {
   readsWithoutSessionCookie,
 } from "../server/lib/private-media-agent-links.js";
 import { agentLevelFromStored } from "../shared/agent-level.js";
-import type { DocumentProperty } from "../shared/api.js";
+import type {
+  ContentContextPathEntry,
+  ContentDatabaseBodyHydration,
+  ContentDatabaseMembership,
+  ContentDocumentBodyHydration,
+  DocumentProperty,
+} from "../shared/api.js";
 import { isPrimaryBlocksField } from "../shared/properties.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
+import {
+  contentOutputContract,
+  getDocumentOutputSchema,
+} from "./_content-output-contracts.js";
 import {
   getDatabaseByDocumentId,
   getBuilderBodyHydrationMembershipFromDatabaseItems,
@@ -152,6 +163,61 @@ function deferFailure<T>(read: Promise<T>): () => Promise<T> {
   };
 }
 
+type ResolvedDocument = NonNullable<
+  Awaited<ReturnType<typeof resolveDocumentAccess>>
+>;
+
+type GetDocumentResult = {
+  id: string;
+  spaceId: string | null;
+  deepLink: ReturnType<typeof buildDeepLink>;
+  parentId: string | null;
+  title: string;
+  content: string;
+  revision: string;
+  baseRevision: string;
+  bodyRevision: number;
+  collabContentRevision: string | null;
+  writePath: Awaited<ReturnType<typeof liveBodyWriterGate>>["writePath"];
+  contentHash: string;
+  privateMediaLinks?: NonNullable<
+    Awaited<ReturnType<typeof privateMediaAgentLinks>>
+  >;
+  description: string;
+  icon: string | null;
+  position: number;
+  isFavorite: boolean;
+  hideFromSearch: boolean;
+  agentTextLocked: boolean;
+  agentLevel: ReturnType<typeof agentLevelFromStored>;
+  visibility: Visibility;
+  source: ReturnType<typeof serializeDocumentSource>;
+  accessRole: ResolvedDocument["role"];
+  canComment: boolean;
+  canSuggest: boolean;
+  canEdit: boolean;
+  canManage: boolean;
+  mcpDirectoryWidgetReadOnly?: true;
+  mcpDirectoryWidgetCanEditDocument?: true;
+  mcpDirectoryWidgetCanEditDatabaseRows?: true;
+  database: ReturnType<typeof serializeDatabase> | undefined;
+  databaseMembership: ContentDatabaseMembership | undefined;
+  bodyHydration:
+    | (ContentDocumentBodyHydration & {
+        hydration: ContentDatabaseBodyHydration;
+      })
+    | undefined;
+  createdAt: string;
+  updatedAt: string;
+  properties: DocumentProperty[];
+  propertyGenerations: ReturnType<typeof propertyGenerationsFor>;
+  propertyChangeIds: ReturnType<typeof propertyChangeIdsFor>;
+  contextPath: ContentContextPathEntry[];
+  previewDraft?: NonNullable<
+    Awaited<ReturnType<typeof previewDocumentDraftAnswer>>
+  >;
+};
+
 export default defineAction({
   description:
     'Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. Fields leave out display settings, option colors and block maps, and the page body\'s own field says valueIsContent instead of repeating the body; detail: "full" returns them. Use list-documents or search-documents first when the ID is unknown.',
@@ -187,6 +253,10 @@ export default defineAction({
         "Pass full to get every field as the editor reads it: display settings, timestamps, option colors, each Blocks field's block map, and the page body's own field value. Omit it otherwise.",
       ),
   }),
+  outputSchema: contentOutputContract<GetDocumentResult>(
+    getDocumentOutputSchema,
+  ),
+  mcpOutputSchema: true,
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
@@ -195,7 +265,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async (args, ctx) => {
+  run: async (args, ctx): Promise<GetDocumentResult> => {
     if (!args.id) throw new Error("--id is required");
 
     let access = await resolveDocumentAccess(args.id);

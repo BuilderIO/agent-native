@@ -776,6 +776,14 @@ const editor = {
   creatingDatabase: "인라인 컬렉션 생성 중...",
   databaseCreated: "컬렉션이 생성되었습니다.",
   emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",
+  newPagePlaceholder: "글쓰기 시작",
+  newPageLine: "글쓰기 시작, {{draft}} 또는 {{import}}",
+  newPageLineWithoutImport: "글쓰기 시작 또는 {{draft}}",
+  newPageLineDraft: "에이전트로 초안 작성",
+  newPageLineImport: "Markdown 가져오기",
+  newPageDraftPrompt: "다음 주제로 이 페이지 초안을 작성해 주세요: ",
+  newPageDraftPromptTitled: "{{title}}에 대한 이 페이지 초안을 작성해 주세요",
+  newPageAgentContextLabel: "이 페이지",
   describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
   enterToSubmit: "제출하려면 입력하세요.",
   failedToCreateDatabase: "인라인 컬렉션를 생성하지 못했습니다.",
@@ -2027,6 +2035,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "대기 중인 생성과 저장되지 않은 초안을 지웁니다. 페이지가 이미 저장되었다면 워크스페이스에 계속 남아 있습니다.",
     failedDeletePage: "페이지를 삭제하지 못했습니다",
+    workspaceReferenceProtected:
+      "워크스페이스 참조는 보호되어 있으며 페이지로 변경할 수 없습니다.",
     failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
     failedRestorePage: "페이지를 복원하지 못했습니다",
     failedMovePage: "페이지를 이동하지 못했습니다",

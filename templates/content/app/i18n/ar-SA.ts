@@ -760,6 +760,14 @@ const editor = {
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
   databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
+  newPagePlaceholder: "ابدأ الكتابة",
+  newPageLine: "ابدأ الكتابة، أو {{draft}}، أو {{import}}",
+  newPageLineWithoutImport: "ابدأ الكتابة، أو {{draft}}",
+  newPageLineDraft: "اكتب مسودتها مع الوكيل",
+  newPageLineImport: "استورد Markdown",
+  newPageDraftPrompt: "اكتب مسودة لهذه الصفحة عن ",
+  newPageDraftPromptTitled: "اكتب مسودة لهذه الصفحة عن {{title}}",
+  newPageAgentContextLabel: "هذه الصفحة",
   describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
   enterToSubmit: "أدخل لتقديم",
   failedToCreateDatabase: "فشل في إنشاء المجموعة المضمنة",
@@ -2027,6 +2035,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
+    workspaceReferenceProtected:
+      "مراجع مساحات العمل محمية ولا يمكن تغييرها كصفحات.",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",
     failedMovePage: "فشل نقل الصفحة",
