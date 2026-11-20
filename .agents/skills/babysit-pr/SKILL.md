@@ -113,17 +113,22 @@ Count a round as one batch of bot or AI review findings posted after a push
 `review-round-churn`.
 
 - Rounds 1-2: address every item.
-- Round 3 and later: fix only critical items: data loss or corruption, a
-  security issue, a crash or broken core flow, or a regression in tested
-  behavior. High and critical findings are still always fixed or disproven
-  (see Judging feedback), in any round; only medium and low bot findings may
-  be deferred.
-- Everything else gets a one-line reply in its thread, "Deferred as
-  non-critical after round 2; tracked in <follow-up>". Resolve the thread and
+- Round 3 and later: fix only critical and high items. A finding is critical
+  because of what it does (data loss or corruption, a security issue, a crash
+  or broken core flow, or a regression in tested behavior), not because of the
+  label the bot gave it: those findings are fixed or disproven in any round,
+  whatever their severity label. Only findings that are not critical in that
+  sense and are labelled medium or low may be deferred.
+- Reply to a deferred item in its thread with one line, "Deferred as
+  non-critical after round 2; tracked in <follow-up>", resolve the thread, and
   append the item to one follow-up list (a single PR comment or issue).
-  Deferred threads count as answered. Merge authorization and `ship`'s merge
-  gate (stable head, mergeability) apply unchanged: standalone, merge only if
-  the user asks.
+  Deferred threads count as answered. Scope this to the existing rules: in
+  factory rounds, don't resolve threads, only record the deferral in the
+  follow-up list; on another person's PR, comment only with that PR's
+  authorization, otherwise list the deferral in your report; when posting or
+  resolving isn't permitted, use that instead of the reply.
+- Merge authorization and `ship`'s merge gate (stable head, mergeability)
+  apply unchanged: standalone, merge only if the user asks.
 - Human reviewer comments are always addressed, in any round.
 
 ## Pushing to an existing PR
