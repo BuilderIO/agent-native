@@ -139,8 +139,9 @@ test.describe("a suggesting tab and another tab's change", () => {
       "Suggesting keeps the caret",
     );
 
-    // A saved suggestion before the caret leaves the draft for a mark when
-    // the draft moves, which used to send the caret to the other tab's edit.
+    // A saved suggestion before the caret used to leave the draft for a mark
+    // when the draft moved, which sent the caret to the other tab's edit, and
+    // then put the next words in front of the saved ones.
     await typeAtParagraphEnd(suggester, "Opening paragraph", " First.");
     await expect
       .poll(async () => (await pendingSuggestions(suggester, id)).length, {
@@ -177,5 +178,9 @@ test.describe("a suggesting tab and another tab's change", () => {
     await expect(
       paragraphs(suggester).filter({ hasText: "Closing paragraph" }),
     ).not.toContainText("Second.");
+    await expect(
+      paragraphs(suggester).filter({ hasText: "Opening paragraph" }),
+      "the next words read on from the saved ones",
+    ).toContainText("First. Second.");
   });
 });

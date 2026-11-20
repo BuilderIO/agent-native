@@ -4,7 +4,7 @@ import DiffMatchPatch, {
   DIFF_INSERT,
 } from "diff-match-patch";
 
-import { docToNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
+import { docToNfm, nfmToDoc, type PMNode } from "./nfm.js";
 
 /** Base blocks `from`..`to` become `insert`, whose keys are `keys`. */
 type BlockHunk = {

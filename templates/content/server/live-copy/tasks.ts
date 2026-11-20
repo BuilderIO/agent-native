@@ -29,7 +29,7 @@ import {
   applySuggestionEdit,
   type ApplySuggestionInput,
 } from "./apply-suggestion-edit.js";
-import { rebaseBodyEdit, type BodyTextRange } from "./rebase.js";
+import { rebaseBodyEdit, type BodyTextRange } from "../../shared/body-rebase.js";
 import {
   CONTENT_ANCHOR_TEXT_TASK,
   CONTENT_HOLDS_BODY_TASK,

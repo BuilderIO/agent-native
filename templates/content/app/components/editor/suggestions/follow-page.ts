@@ -1,4 +1,14 @@
-import type { SuggestionDraftSession } from "./draft-session";
+import type { ResourceSuggestion } from "@agent-native/core/review";
+import { rebaseBodyEdit } from "@shared/body-rebase";
+import { canonicalizeNfm } from "@shared/nfm";
+
+import {
+  planSuggestionDraftPersistence,
+  suggestionDraftOperations,
+  suggestionOperationKey,
+  type SuggestionDraftSession,
+  type SuggestionPersistenceEntry,
+} from "./draft-session";
 
 /** How long the draft has to sit still before it moves to a newer Page. */
 export const SUGGESTION_FOLLOW_QUIET_MS = 2000;
@@ -67,6 +77,65 @@ export function suggestionPageFollow(args: {
   if (quietFor < SUGGESTION_FOLLOW_QUIET_MS)
     return { kind: "wait", ms: SUGGESTION_FOLLOW_QUIET_MS - quietFor };
   return { kind: "restart" };
+}
+
+/**
+ * The draft for a newer Page, still holding this tab's saved suggestions.
+ * Starting the draft over from the newer Page alone turned them into marks
+ * drawn just after their place, so words typed right after one went in front
+ * of it. Here they stay in the draft as the text this tab typed, so the next
+ * words read on from them, and their entries are re-keyed to the new draft's
+ * operations so nothing is saved again.
+ *
+ * Null when the draft should start over from the Page alone, as before: when
+ * one of those suggestions is no longer pending, when someone else's change
+ * touches a paragraph one of them changes (`rebaseBodyEdit`), or when the
+ * merged draft doesn't read as exactly the same edits.
+ */
+export function carryOwnSuggestions(args: {
+  session: SuggestionDraftSession;
+  draft: string;
+  next: SuggestionDraftSession;
+  entries: ReadonlyMap<string, SuggestionPersistenceEntry>;
+  latest: (id: string) => Pick<ResourceSuggestion, "status"> | undefined;
+}): { content: string; entries: Map<string, SuggestionPersistenceEntry> } | null {
+  const { session, draft, next, entries } = args;
+  if (entries.size === 0 || session.existingSuggestion) return null;
+  for (const entry of entries.values())
+    if (args.latest(entry.suggestion.id)?.status !== "pending") return null;
+  try {
+    const before = suggestionDraftOperations(session, draft);
+    const plan = planSuggestionDraftPersistence(before, entries);
+    if (
+      plan.unchanged.size !== entries.size ||
+      plan.create.length + plan.amend.length + plan.withdraw.length > 0
+    )
+      return null;
+    const content = rebaseBodyEdit(
+      session.initialContent ?? canonicalizeNfm(session.baseContent),
+      draft,
+      next.initialContent ?? canonicalizeNfm(next.baseContent),
+    );
+    if (content === null) return null;
+    const after = suggestionDraftOperations(next, content);
+    if (after.length !== before.length) return null;
+    const carried = new Map<string, SuggestionPersistenceEntry>();
+    for (const [index, operation] of after.entries()) {
+      const previous = before[index]!;
+      if (
+        operation.kind !== previous.kind ||
+        operation.before.changedText !== previous.before.changedText ||
+        operation.after.changedText !== previous.after.changedText
+      )
+        return null;
+      const entry = entries.get(suggestionOperationKey(previous))!;
+      carried.set(suggestionOperationKey(operation), { ...entry, operation });
+    }
+    return { content, entries: carried };
+  } catch {
+    // An edit the diff can't map (formatting it can't place) starts over.
+    return null;
+  }
 }
 
 /**

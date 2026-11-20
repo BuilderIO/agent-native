@@ -424,6 +424,7 @@ import {
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
+  carryOwnSuggestions,
   readPageOnLiveCopyChange,
   suggestionPageFollow,
 } from "./suggestions/follow-page";
@@ -6874,6 +6875,8 @@ function PageEditorSessionBody({
       ),
     [allSavedSuggestions],
   );
+  const savedSuggestionsRef = useRef(savedSuggestions);
+  savedSuggestionsRef.current = savedSuggestions;
   const rememberFieldSuggestions = useCallback(
     (saved: ResourceSuggestion[]) => {
       setLocallyCreatedSuggestions((current) => {
@@ -7690,18 +7693,34 @@ function PageEditorSessionBody({
   ]);
 
   const continueSuggestionModeFrom = useCallback(
-    (nextDocument: Document) => {
+    (nextDocument: Document, options?: { keepOwnSuggestions?: boolean }) => {
       clearSuggestionAutosave();
-      createdSuggestionOperationsRef.current.clear();
-      suggestionAmendmentKeysRef.current.clear();
       const initial = createDocumentSuggestionDraftSession({
         id: globalThis.crypto.randomUUID(),
         baseContent: nextDocument.content,
         baseRevision: canonicalSuggestionRevision(nextDocument),
         startedAt: new Date().toISOString(),
       });
+      const previous = suggestionBaseRef.current;
+      const carried =
+        options?.keepOwnSuggestions && previous
+          ? carryOwnSuggestions({
+              session: previous,
+              draft: suggestionDraftRef.current,
+              next: initial.session,
+              entries: createdSuggestionOperationsRef.current,
+              latest: (id) =>
+                savedSuggestionsRef.current.find(
+                  (suggestion) => suggestion.id === id,
+                ),
+            })
+          : null;
+      createdSuggestionOperationsRef.current.clear();
+      for (const [key, entry] of carried?.entries ?? [])
+        createdSuggestionOperationsRef.current.set(key, entry);
+      suggestionAmendmentKeysRef.current.clear();
       suggestionBaseRef.current = initial.session;
-      setSuggestionDraft(initial.content);
+      setSuggestionDraft(carried?.content ?? initial.content);
       setSuggestionDraftUpdatedAt(nextDocument.updatedAt);
       setEditingSuggestionId(null);
       setSuggestionInitialSelection(null);
@@ -7763,7 +7782,7 @@ function PageEditorSessionBody({
         timer = setTimeout(() => {
           timer = null;
           if (suggestionDraftChangedAtRef.current === changedAt)
-            continueSuggestionModeFrom(document);
+            continueSuggestionModeFrom(document, { keepOwnSuggestions: true });
           else check();
         }, 0);
       }
