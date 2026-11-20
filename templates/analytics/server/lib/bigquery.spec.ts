@@ -58,6 +58,12 @@ vi.mock("@agent-native/core/server", async (importOriginal) => ({
   platformWaitUntil: () => undefined,
 }));
 
+vi.mock("../db/index", async () => ({
+  schema: await import("../db/schema"),
+  getDb: () => {
+    throw new Error("Unexpected app database access in the provider fixture");
+  },
+}));
 vi.mock("./credentials", () => ({ resolveCredential }));
 
 vi.mock("./scoped-settings", async (importOriginal) => ({
@@ -539,6 +545,7 @@ describe("runQuery cancellation", () => {
     const fetchMock = mockQueryJobs(
       jsonResponse({
         jobComplete: true,
+        totalRows: "1",
         schema: {
           fields: [
             { name: "count_0", type: "INTEGER" },
