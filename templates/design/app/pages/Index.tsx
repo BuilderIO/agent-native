@@ -182,9 +182,12 @@ export default function Index() {
   const urlSearch = searchParams.get("search") ?? "";
   const lastUrlSearchRef = useRef(urlSearch);
   const [search, setSearch] = useState(urlSearch);
-  const [designFilter, setDesignFilter] = useState<DesignFilter>(
-    () => readStoredDesignFilter() ?? "mine",
-  );
+  const [designFilter, setDesignFilter] = useState<DesignFilter>(() => {
+    const stored = readStoredDesignFilter() ?? "mine";
+    // A search that arrived in the URL (for example from the agent) covers
+    // every accessible design, so the home must not hide matches behind Mine.
+    return urlSearch.trim() && stored === "mine" ? "all" : stored;
+  });
   const [page, setPage] = useState(1);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -675,6 +678,9 @@ export default function Index() {
     if (lastUrlSearchRef.current === urlSearch) return;
     lastUrlSearchRef.current = urlSearch;
     setSearch(urlSearch);
+    if (urlSearch.trim()) {
+      setDesignFilter((current) => (current === "mine" ? "all" : current));
+    }
     if (urlSearch.trim()) setHomeSection("recent");
     setPage(1);
     setSelectedDesignIds((current) =>
