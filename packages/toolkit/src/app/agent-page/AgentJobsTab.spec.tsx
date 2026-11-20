@@ -1310,6 +1310,453 @@ describe("AgentJobsTab organization automations", () => {
     client.clear();
   });
 
+  it.each([
+    { operation: "update", read: "delayed" },
+    { operation: "update", read: "failed" },
+    { operation: "delete", read: "delayed" },
+    { operation: "delete", read: "failed" },
+  ] as const)(
+    "retains a successful $operation while a $read refresh and another write are pending",
+    async ({ operation, read }) => {
+      const actual =
+        await vi.importActual<typeof import("./use-jobs.js")>("./use-jobs.js");
+      const job =
+        jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+      const automation =
+        jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+      if (!job || !automation)
+        throw new Error("Job fixtures are not configured");
+      const client = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      const jobsKey = [
+        "action",
+        "list-recurring-jobs",
+        { scope: "organization" },
+      ] as const;
+      const automationsKey = [
+        "action",
+        "list-automations",
+        { scope: "organization" },
+      ] as const;
+      const allAutomationsKey = ["action", "list-automations", {}] as const;
+      const otherJob = { ...job, id: "other", name: "other-job" };
+      const matching = {
+        ...automation,
+        id: job.id,
+        resourceId: job.id,
+        name: job.name,
+      };
+      const otherAutomation = {
+        ...matching,
+        id: "other",
+        resourceId: "other",
+        name: "other-job",
+      };
+      const personalAutomation = {
+        ...matching,
+        id: "personal",
+        resourceId: "personal",
+        scope: "personal",
+      };
+      client.setQueryData(jobsKey, [job, otherJob]);
+      client.setQueryData(automationsKey, [matching, otherAutomation]);
+      client.setQueryData(allAutomationsKey, [
+        matching,
+        otherAutomation,
+        personalAutomation,
+      ]);
+      const writes: Array<{
+        resolve: (response: Response) => void;
+        reject: (error: Error) => void;
+      }> = [];
+      const pendingReads: Array<(error: Error) => void> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          if (
+            init?.method === "POST" &&
+            String(input).includes("manage-recurring-job")
+          ) {
+            return new Promise<Response>((resolve, reject) =>
+              writes.push({ resolve, reject }),
+            );
+          }
+          return new Promise<Response>((_resolve, reject) => {
+            if (read === "failed") reject(new Error("Read unavailable"));
+            else pendingReads.push(reject);
+          });
+        }),
+      );
+      function Controls() {
+        const jobs = actual.useRecurringJobs("org");
+        const automations = actual.useAutomations("org");
+        const allAutomations = actual.useAutomations();
+        const first = actual.useManageRecurringJob("org");
+        const second = actual.useManageRecurringJob("org");
+        return (
+          <>
+            <output
+              data-jobs={JSON.stringify(jobs.data)}
+              data-automations={JSON.stringify(automations.data)}
+              data-all={JSON.stringify(allAutomations.data)}
+              data-read-error={Boolean(
+                jobs.error || automations.error || allAutomations.error,
+              )}
+            />
+            <button
+              onClick={() =>
+                first.mutate(
+                  operation === "delete"
+                    ? { operation, resourceId: job.id }
+                    : { operation, resourceId: job.id, enabled: false },
+                )
+              }
+            >
+              First
+            </button>
+            <button
+              onClick={() =>
+                second.mutate({
+                  operation: "update",
+                  resourceId: "other",
+                  enabled: false,
+                })
+              }
+            >
+              Second
+            </button>
+          </>
+        );
+      }
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <Controls />
+          </QueryClientProvider>,
+        ),
+      );
+      const buttons = container.querySelectorAll("button");
+      await act(async () => {
+        buttons[0].click();
+        await vi.waitFor(() => expect(writes).toHaveLength(1));
+        buttons[1].click();
+        await vi.waitFor(() => expect(writes).toHaveLength(2));
+      });
+      const first = writes.at(0);
+      const second = writes.at(1);
+      if (!first || !second) throw new Error("Writes did not start");
+      await act(async () => {
+        first.resolve(
+          new Response(
+            JSON.stringify(
+              operation === "delete"
+                ? { deleted: true, resourceId: job.id, name: job.name }
+                : {
+                    resourceId: job.id,
+                    name: job.name,
+                    enabled: false,
+                    nextRun: null,
+                  },
+            ),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+        await vi.waitFor(() =>
+          expect(client.getMutationCache().getAll().at(0)?.state.status).toBe(
+            "success",
+          ),
+        );
+      });
+      const output = container.querySelector("output");
+      if (!output) throw new Error("Missing query output");
+      const savedJob = { ...job, enabled: false, nextRun: null };
+      const savedAutomation = { ...matching, enabled: false, nextRun: null };
+      const expectedJobs =
+        operation === "delete"
+          ? [{ ...otherJob, enabled: false }]
+          : [savedJob, { ...otherJob, enabled: false }];
+      const expectedAutomations =
+        operation === "delete"
+          ? [{ ...otherAutomation, enabled: false }]
+          : [savedAutomation, { ...otherAutomation, enabled: false }];
+      expect(JSON.parse(output.dataset.jobs ?? "null")).toEqual(expectedJobs);
+      expect(JSON.parse(output.dataset.automations ?? "null")).toEqual(
+        expectedAutomations,
+      );
+      expect(JSON.parse(output.dataset.all ?? "null")).toEqual([
+        ...expectedAutomations,
+        personalAutomation,
+      ]);
+      expect(client.getQueryData(jobsKey)).toEqual(
+        operation === "delete" ? [otherJob] : [savedJob, otherJob],
+      );
+      expect(client.getQueryData(automationsKey)).toEqual(
+        operation === "delete"
+          ? [otherAutomation]
+          : [savedAutomation, otherAutomation],
+      );
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(
+            read === "failed"
+              ? Boolean(
+                  client.getQueryState(jobsKey)?.error ||
+                  client.getQueryState(automationsKey)?.error,
+                )
+              : pendingReads.length > 0,
+          ).toBe(true),
+        );
+      });
+      expect(output.dataset.readError).toBe(
+        read === "failed" ? "true" : "false",
+      );
+      expect(JSON.parse(output.dataset.jobs ?? "null")).toEqual(expectedJobs);
+      await act(async () => {
+        second.reject(new Error("Second write failed"));
+        await vi.waitFor(() =>
+          expect(client.getMutationCache().getAll().at(1)?.state.status).toBe(
+            "error",
+          ),
+        );
+        await client.cancelQueries();
+        pendingReads.forEach((reject) => reject(new Error("Test finished")));
+      });
+      client.clear();
+    },
+  );
+
+  it("retains a later pending edit on the same job after the first succeeds", async () => {
+    const actual =
+      await vi.importActual<typeof import("./use-jobs.js")>("./use-jobs.js");
+    const job =
+      jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+    if (!job) throw new Error("Job fixture is not configured");
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const key = [
+      "action",
+      "list-recurring-jobs",
+      { scope: "organization" },
+    ] as const;
+    client.setQueryData(key, [job]);
+    const writes: Array<{
+      resolve: (response: Response) => void;
+      reject: (error: Error) => void;
+    }> = [];
+    const reads: Array<(error: Error) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (input: RequestInfo | URL) =>
+          new Promise<Response>((resolve, reject) => {
+            if (String(input).includes("manage-recurring-job"))
+              writes.push({ resolve, reject });
+            else reads.push(reject);
+          }),
+      ),
+    );
+    function Controls() {
+      const jobs = actual.useRecurringJobs("org");
+      const first = actual.useManageRecurringJob("org");
+      const second = actual.useManageRecurringJob("org");
+      return (
+        <>
+          <output data-jobs={JSON.stringify(jobs.data)} />
+          <button
+            onClick={() =>
+              first.mutate({
+                operation: "update",
+                resourceId: job.id,
+                enabled: false,
+              })
+            }
+          >
+            First
+          </button>
+          <button
+            onClick={() =>
+              second.mutate({
+                operation: "update",
+                resourceId: job.id,
+                enabled: true,
+              })
+            }
+          >
+            Second
+          </button>
+        </>
+      );
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Controls />
+        </QueryClientProvider>,
+      ),
+    );
+    const buttons = container.querySelectorAll("button");
+    await act(async () => {
+      buttons[0].click();
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
+      buttons[1].click();
+      await vi.waitFor(() => expect(writes).toHaveLength(2));
+    });
+    const first = writes.at(0);
+    const second = writes.at(1);
+    if (!first || !second) throw new Error("Writes did not start");
+    await act(async () => {
+      first.resolve(
+        new Response(
+          JSON.stringify({
+            resourceId: job.id,
+            name: job.name,
+            enabled: false,
+            nextRun: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(client.getMutationCache().getAll().at(0)?.state.status).toBe(
+          "success",
+        ),
+      );
+    });
+    const output = container.querySelector("output");
+    if (!output) throw new Error("Missing query output");
+    expect(client.getQueryData(key)).toEqual([{ ...job, enabled: false }]);
+    expect(JSON.parse(output.dataset.jobs ?? "null")).toEqual([job]);
+    await act(async () => {
+      second.reject(new Error("Second write failed"));
+      await vi.waitFor(() =>
+        expect(client.getMutationCache().getAll().at(1)?.state.status).toBe(
+          "error",
+        ),
+      );
+    });
+    expect(JSON.parse(output.dataset.jobs ?? "null")).toEqual([
+      { ...job, enabled: false },
+    ]);
+    await act(async () => {
+      await client.cancelQueries();
+      reads.forEach((reject) => reject(new Error("Test finished")));
+    });
+    client.clear();
+  });
+
+  it("projects a successful schedule edit and framework resume from the action result", async () => {
+    const actual =
+      await vi.importActual<typeof import("./use-jobs.js")>("./use-jobs.js");
+    const job =
+      jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+    const automation =
+      jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+    if (!job || !automation) throw new Error("Job fixtures are not configured");
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const jobsKey = [
+      "action",
+      "list-recurring-jobs",
+      { scope: "organization" },
+    ] as const;
+    const automationsKey = [
+      "action",
+      "list-automations",
+      { scope: "organization" },
+    ] as const;
+    const paused = {
+      enabled: false,
+      lastStatus: "paused",
+      lastError: "Pause reason",
+    };
+    const matching = {
+      ...automation,
+      ...paused,
+      id: job.id,
+      resourceId: job.id,
+    };
+    client.setQueryData(jobsKey, [{ ...job, ...paused }]);
+    client.setQueryData(automationsKey, [matching]);
+    let resolveWrite: ((response: Response) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveWrite = resolve;
+          }),
+      ),
+    );
+    function Controls() {
+      const mutation = actual.useManageRecurringJob("org");
+      return (
+        <button
+          onClick={() =>
+            mutation.mutate({
+              operation: "update",
+              resourceId: job.id,
+              enabled: true,
+              schedule: " 0 8 * * * ",
+              timezone: " UTC ",
+            })
+          }
+        >
+          Resume
+        </button>
+      );
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Controls />
+        </QueryClientProvider>,
+      ),
+    );
+    const button = container.querySelector("button");
+    if (!button) throw new Error("Missing control");
+    await act(async () => {
+      button.click();
+      await vi.waitFor(() => expect(resolveWrite).toBeDefined());
+    });
+    const finish = resolveWrite;
+    if (!finish) throw new Error("Write did not start");
+    await act(async () => {
+      finish(
+        new Response(
+          JSON.stringify({
+            resourceId: job.id,
+            name: job.name,
+            enabled: true,
+            nextRun: "2026-01-04T08:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(client.getMutationCache().getAll().at(0)?.state.status).toBe(
+          "success",
+        ),
+      );
+    });
+    const saved = {
+      enabled: true,
+      schedule: "0 8 * * *",
+      timezone: "UTC",
+      scheduleDescription: null,
+      nextRun: "2026-01-04T08:00:00Z",
+      lastStatus: null,
+      lastError: null,
+    };
+    expect(client.getQueryData(jobsKey)).toEqual([{ ...job, ...saved }]);
+    expect(client.getQueryData(automationsKey)).toEqual([
+      { ...matching, ...saved },
+    ]);
+    client.clear();
+  });
+
   it("opens the organization editor with its scope fixed", async () => {
     act(() => {
       root.render(<AgentJobsTab scope="org" canManageOrg />);

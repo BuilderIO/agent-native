@@ -378,10 +378,64 @@ export function useManageRecurringJob(scope: JobsScope) {
   const automationsKey = automationQueryKey(scope);
 
   return useActionMutation<
-    { deleted?: boolean; resourceId?: string; name: string; enabled?: boolean },
+    {
+      deleted?: boolean;
+      resourceId?: string;
+      name: string;
+      enabled?: boolean;
+      nextRun?: string | null;
+    },
     ManageJobInput
   >("manage-recurring-job", {
     mutationKey: ["recurring-job", scope],
+    beforeInvalidate: (result, variables) => {
+      const locator = result.resourceId
+        ? { resourceId: result.resourceId }
+        : variables;
+      const commit = <T extends RecurringJob | Automation>(
+        current: T[] | undefined,
+      ): T[] | undefined => {
+        if (!current) return current;
+        if (variables.operation === "delete")
+          return current.filter((item) => !matchesLocator(item, locator));
+        return current.map((item) => {
+          if (!matchesLocator(item, locator)) return item;
+          return {
+            ...item,
+            ...optimisticJobPatch(variables),
+            ...(variables.schedule !== undefined
+              ? {
+                  schedule: variables.schedule.trim(),
+                  scheduleDescription: null,
+                }
+              : {}),
+            ...(variables.timezone !== undefined
+              ? {
+                  timezone: variables.timezone.trim(),
+                  scheduleDescription: null,
+                }
+              : {}),
+            ...(result.enabled !== undefined
+              ? { enabled: result.enabled }
+              : {}),
+            ...(result.nextRun !== undefined
+              ? { nextRun: result.nextRun }
+              : {}),
+            ...(result.enabled && item.lastStatus === "paused"
+              ? { lastStatus: null, lastError: null }
+              : {}),
+          };
+        });
+      };
+      queryClient.setQueriesData<RecurringJob[]>(
+        { queryKey: ["action", "list-recurring-jobs"] },
+        commit,
+      );
+      queryClient.setQueriesData<Automation[]>(
+        { queryKey: ["action", "list-automations"] },
+        commit,
+      );
+    },
     onError: () => {
       void queryClient.invalidateQueries({ queryKey, exact: true });
       void queryClient.invalidateQueries({
