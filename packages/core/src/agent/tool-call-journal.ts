@@ -43,6 +43,8 @@ export interface ToolCallJournalEntry {
   committed?: true;
   /** Exact identity of the arguments the call ran with, defaults applied. */
   argumentsHash?: string;
+  /** Keyed HMAC identity for deterministic replay of a committed private call. */
+  privateReplayIdentity?: string;
   /** The call settled with an outcome it could not confirm. */
   outcomeUnknown?: true;
   /** Why such a call's outcome is unknown, when its event recorded it. */
@@ -384,6 +386,7 @@ function replayOutcomeIdentity(entry: ToolCallJournalEntry): string {
       entry.id,
       entry.executionStepId,
       entry.argumentsHash,
+      entry.privateReplayIdentity,
       entry.inputFingerprint,
       entry.inputStoredFingerprint,
       entry.result,
@@ -511,6 +514,8 @@ export function classifyToolCallJournal(
         }
         if (event.completedSideEffect === true) entry.committed = true;
         if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
+        if (event.privateReplayIdentity)
+          entry.privateReplayIdentity = event.privateReplayIdentity;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
         if (event.fileMutation) entry.fileMutation = event.fileMutation;
@@ -875,6 +880,34 @@ export function findReplayableJournalEntry(
           ? candidates.at(-1)
           : undefined;
   const entry = candidate;
+  if (entry) consumedKeys?.add(entry.key);
+  return entry;
+}
+
+export function findReplayablePrivateJournalEntry(
+  journal: ToolCallJournal,
+  toolName: string,
+  privateReplayIdentity: string,
+  consumedKeys?: Set<string>,
+): ToolCallJournalEntry | undefined {
+  const candidates = journal.completed.filter(
+    (candidate) =>
+      candidate.tool === toolName &&
+      candidate.committed === true &&
+      !consumedKeys?.has(candidate.key) &&
+      candidate.privateReplayIdentity === privateReplayIdentity,
+  );
+  if (candidates.length === 0) return undefined;
+  const first = candidates[0];
+  const entry =
+    candidates.length === 1
+      ? first
+      : candidates.every(
+            (candidate) =>
+              replayOutcomeIdentity(candidate) === replayOutcomeIdentity(first),
+          )
+        ? candidates.at(-1)
+        : undefined;
   if (entry) consumedKeys?.add(entry.key);
   return entry;
 }

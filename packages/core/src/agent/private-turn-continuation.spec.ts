@@ -381,41 +381,68 @@ describe("private turn continuation paths", () => {
   });
 
   it("resumes a cross-process continuation after a completed private tool without leaking private content", async () => {
-    const { actions, getDraft } = createPrivateMailActions();
-    const persistedPriorEvents: AgentChatEvent[] = [
-      JSON.parse(
-        runStore.persistedRunEventData(
-          JSON.stringify({
-            type: "tool_start",
-            id: "draft-call-prior",
-            tool: "manage-gmail-draft",
-            input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
-            omitFromPersistedHistory: true,
-          }),
-        ),
-      ) as AgentChatEvent,
-      JSON.parse(
-        runStore.persistedRunEventData(
-          JSON.stringify({
-            type: "tool_done",
-            id: "draft-call-prior",
-            tool: "manage-gmail-draft",
-            input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
-            result: JSON.stringify({
-              draftId: "draft-1",
-              body: PRIVATE_DRAFT_CANARY,
-            }),
-            completedSideEffect: true,
-            omitFromPersistedHistory: true,
-          }),
-        ),
-      ) as AgentChatEvent,
-    ];
-    const ledger = createPersistedLedgerRecorder();
-    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue(
-      persistedPriorEvents,
+    const { actions, manageDraft, getDraft } = createPrivateMailActions();
+    const run1Ledger = createPersistedLedgerRecorder();
+    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockImplementation(
+      async () => [...run1Ledger.persistedEvents],
     );
     vi.spyOn(runStore, "recordThreadPrivateRun").mockResolvedValue(undefined);
+
+    let run1Calls = 0;
+    const run1Engine: AgentEngine = {
+      name: "synthetic",
+      label: "Synthetic",
+      defaultModel: "synthetic",
+      supportedModels: ["synthetic"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(_options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        run1Calls += 1;
+        if (run1Calls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "draft-call-prior",
+                name: "manage-gmail-draft",
+                input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        return;
+      },
+    };
+
+    await runAgentLoop({
+      engine: run1Engine,
+      model: "synthetic",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Save the draft and read it back" }],
+        },
+      ],
+      actions,
+      threadId: "thread-private-cross-process",
+      turnId: "turn-private-cross-process",
+      runId: "run-private-cross-process-1",
+      send: run1Ledger.record,
+      signal: new AbortController().signal,
+    });
+    expect(manageDraft).toHaveBeenCalledTimes(1);
+    const persistedPriorEvents = [...run1Ledger.persistedEvents];
+    const ledger = createPersistedLedgerRecorder();
 
     const journalRead = await loadPriorTurnToolCallJournal(
       "thread-private-cross-process",
@@ -442,6 +469,7 @@ describe("private turn continuation paths", () => {
         : {}),
     });
 
+    const UPDATED_DRAFT_CANARY = "PRIVATE_UPDATED_DRAFT_BODY_SENTINEL_2e8d44";
     let streamCall = 0;
     const engine: AgentEngine = {
       name: "synthetic",
@@ -458,6 +486,36 @@ describe("private turn continuation paths", () => {
       async *stream(_options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCall += 1;
         if (streamCall === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "draft-call-reissued",
+                name: "manage-gmail-draft",
+                input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (streamCall === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "draft-call-new-args",
+                name: "manage-gmail-draft",
+                input: { to: "alice@example.com", body: UPDATED_DRAFT_CANARY },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (streamCall === 3) {
           yield {
             type: "assistant-content",
             parts: [
@@ -504,6 +562,27 @@ describe("private turn continuation paths", () => {
       signal: new AbortController().signal,
     });
 
+    expect(manageDraft).toHaveBeenCalledTimes(2);
+    expect(manageDraft).toHaveBeenNthCalledWith(
+      1,
+      { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
+      expect.anything(),
+    );
+    expect(manageDraft).toHaveBeenNthCalledWith(
+      2,
+      { to: "alice@example.com", body: UPDATED_DRAFT_CANARY },
+      expect.anything(),
+    );
+    expect(ledger.rawEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "draft-call-reissued",
+        tool: "manage-gmail-draft",
+        replayed: true,
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      }),
+    );
     expect(getDraft).toHaveBeenCalledTimes(1);
     expect(ledger.rawEvents.some((event) => event.type === "error")).toBe(
       false,
@@ -517,6 +596,12 @@ describe("private turn continuation paths", () => {
     );
     expect(JSON.stringify(ledger.persistedEvents)).not.toContain(
       PRIVATE_READBACK_CANARY,
+    );
+    expect(JSON.stringify(ledger.persistedEvents)).not.toContain(
+      PRIVATE_DRAFT_CANARY,
+    );
+    expect(JSON.stringify(ledger.persistedEvents)).not.toContain(
+      UPDATED_DRAFT_CANARY,
     );
     expect(JSON.stringify(persistedPriorEvents)).not.toContain(
       PRIVATE_DRAFT_CANARY,
@@ -539,6 +624,7 @@ describe("private turn continuation paths", () => {
         input: {},
         result: "[Private content omitted]",
         completedSideEffect: true,
+        privateReplayIdentity: `hmac-v1:${"a".repeat(64)}`,
         omitFromPersistedHistory: true,
       },
     ]);

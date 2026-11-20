@@ -641,8 +641,10 @@ describe("loadedSkillPagesContext", () => {
   });
 });
 
+const SYNTHETIC_PRIVATE_REPLAY_IDENTITY = `hmac-v1:${"a".repeat(64)}`;
+
 describe("private prior-turn recovery", () => {
-  it("resumes a completed private tool pair without persisting private content", async () => {
+  it("resumes a completed private tool pair with an HMAC replay identity without persisting private content", async () => {
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue([
@@ -660,6 +662,7 @@ describe("private prior-turn recovery", () => {
           input: {},
           result: "[Private content omitted]",
           completedSideEffect: true,
+          privateReplayIdentity: SYNTHETIC_PRIVATE_REPLAY_IDENTITY,
           omitFromPersistedHistory: true,
         },
       ]);
@@ -674,10 +677,44 @@ describe("private prior-turn recovery", () => {
               tool: "write",
               result: "[Private content omitted]",
               committed: true,
+              privateReplayIdentity: SYNTHETIC_PRIVATE_REPLAY_IDENTITY,
             }),
           ],
           interrupted: [],
         },
+      });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("refuses to resume a completed private write whose replay identity is missing", async () => {
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([
+        {
+          type: "tool_start",
+          id: "private-call-no-identity",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "private-call-no-identity",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        },
+      ]);
+    try {
+      expect(
+        await loadPriorTurnToolCallJournal("thread", "turn"),
+      ).toMatchObject({
+        status: "unreadable",
+        code: "private_history_unrecoverable",
       });
     } finally {
       read.mockRestore();
@@ -719,6 +756,7 @@ describe("private prior-turn recovery", () => {
           input: {},
           result: "[Private content omitted]",
           completedSideEffect: true,
+          privateReplayIdentity: SYNTHETIC_PRIVATE_REPLAY_IDENTITY,
           omitFromPersistedHistory: true,
         },
       ]);

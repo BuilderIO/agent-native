@@ -13,6 +13,7 @@ import {
   AgentRunJournalUnreadableError,
   getCompletedAgentExecutionSteps,
   getCurrentTurnEventsForThread,
+  PRIVATE_REPLAY_IDENTITY_PATTERN,
 } from "../run-store.js";
 import {
   classifyToolCallJournal,
@@ -493,11 +494,16 @@ export async function loadPriorTurnToolCallJournal(
       }
       privateStarts.set(event.id, event.tool);
     } else if (event.type === "tool_done") {
+      const missingPrivateWriteIdentity =
+        event.completedSideEffect === true &&
+        (typeof event.privateReplayIdentity !== "string" ||
+          !PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity));
       if (
         !event.id ||
         privateStarts.get(event.id) !== event.tool ||
         privateCompleted.has(event.id) ||
-        event.outcomeUnknown === true
+        event.outcomeUnknown === true ||
+        missingPrivateWriteIdentity
       ) {
         return {
           status: "unreadable",

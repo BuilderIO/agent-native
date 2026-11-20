@@ -489,6 +489,8 @@ type AgentChatEventPayload =
        * continued turn replays a committed call only for the same identity.
        */
       argumentsHash?: string;
+      /** Keyed HMAC identity for deterministic replay of a committed private tool call. */
+      privateReplayIdentity?: string;
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;
