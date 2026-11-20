@@ -84,6 +84,7 @@ export default async function deleteMemoryScript(
   }
   if (problems.length > 0) {
     console.log(`${subject}, but ${problems.join(", and ")}`);
+    fail(`Memory "${name}" cleanup was incomplete; see the output above.`);
   } else if (deleted) {
     console.log(`Deleted memory "${name}".`);
   } else {

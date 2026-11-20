@@ -140,9 +140,13 @@ function resolveTombstonePath(
 async function writeAtomic(
   filePath: string,
   content: string,
+  stamp?: number,
 ): Promise<{ ino: number; mtimeMs: number }> {
   const temp = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   await fs.promises.writeFile(temp, content, "utf8");
+  if (stamp !== undefined) {
+    await fs.promises.utimes(temp, new Date(stamp), new Date(stamp));
+  }
   const { ino, mtimeMs } = await fs.promises.stat(temp);
   await fs.promises.rename(temp, filePath);
   return { ino, mtimeMs };
@@ -228,7 +232,7 @@ export async function writeSharedPersonalMemory(
   };
   await assertNotDeleted();
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  const written = await writeAtomic(filePath, content);
+  const written = await writeAtomic(filePath, content, revision);
   try {
     await assertNotDeleted();
   } catch (error) {
@@ -292,9 +296,7 @@ async function quarantineSharedFile(filePath: string): Promise<void> {
     `.${path.basename(filePath)}.${randomUUID()}.removed`,
   );
   await fs.promises.rename(filePath, quarantine);
-  await fs.promises.unlink(quarantine).catch((error) => {
-    console.error("[resources] Could not remove a quarantined file:", error);
-  });
+  await fs.promises.unlink(quarantine);
 }
 
 /**

@@ -138,6 +138,25 @@ describe("personal memory shared across local apps", () => {
     ).resolves.toBeNull();
   });
 
+  it("does not adopt a delayed mirror of an older revision over newer SQL", async () => {
+    useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const { writeSharedPersonalMemory } = await import("./shared-memory.js");
+
+    const older = await resourcePut(OWNER, "memory/late-mirror.md", "older");
+    const newer = await resourcePut(OWNER, "memory/late-mirror.md", "newer");
+    await writeSharedPersonalMemory(
+      OWNER,
+      "memory/late-mirror.md",
+      "older",
+      older.updatedAt,
+    );
+
+    const read = await resourceGetByPath(OWNER, "memory/late-mirror.md");
+    expect(read?.content).toBe("newer");
+    expect(read?.updatedAt).toBe(newer.updatedAt);
+  });
+
   it("never writes a revision below an adopted future one", async () => {
     const dir = useMemoryDir();
     const { resourceGetByPath, resourcePut } = await import("./store.js");

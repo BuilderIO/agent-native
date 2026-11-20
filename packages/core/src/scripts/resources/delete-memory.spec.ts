@@ -52,7 +52,7 @@ describe("delete-memory", () => {
     mocks.resourcePut.mockRejectedValueOnce(new Error("conflict"));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(run()).resolves.toBeUndefined();
+    await expect(run()).rejects.toThrow(/cleanup was incomplete/);
     expect(log).toHaveBeenCalledWith(
       expect.stringMatching(/Deleted memory "style".*index.*conflict/),
     );
@@ -69,7 +69,7 @@ describe("delete-memory", () => {
     );
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(run()).resolves.toBeUndefined();
+    await expect(run()).rejects.toThrow(/cleanup was incomplete/);
     expect(log).toHaveBeenCalledWith(
       expect.stringMatching(/Deleted memory "style".*leftover shared file/),
     );
@@ -87,7 +87,7 @@ describe("delete-memory", () => {
     mocks.resourcePut.mockRejectedValueOnce(new Error("conflict"));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(run()).resolves.toBeUndefined();
+    await expect(run()).rejects.toThrow(/cleanup was incomplete/);
     expect(log).toHaveBeenCalledWith(
       expect.stringMatching(/leftover shared file.*index.*conflict/),
     );

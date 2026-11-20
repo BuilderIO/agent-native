@@ -254,6 +254,52 @@ describe("shared-memory", () => {
     expect(fs.readFileSync(file, "utf8")).toBe("newer writer");
   });
 
+  it("reports a leftover file when the quarantined file cannot be removed either", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/stuck.md",
+      "x",
+      Date.now(),
+    );
+    const realUnlink = fs.promises.unlink.bind(fs.promises);
+    const unlink = vi
+      .spyOn(fs.promises, "unlink")
+      .mockImplementation(async (target) => {
+        const name = String(target);
+        if (name.endsWith("stuck.md") || name.endsWith(".removed")) {
+          throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+        }
+        await realUnlink(target);
+      });
+    try {
+      await expect(
+        deleteSharedPersonalMemory("alice@example.com", "memory/stuck.md"),
+      ).rejects.toBeInstanceOf(MemoryMirrorStaleError);
+    } finally {
+      unlink.mockRestore();
+    }
+  });
+
+  it("stamps a mirrored file with the revision it was written for", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const revision = Date.now() - 3_600_000;
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/stamp.md",
+      "x",
+      revision,
+    );
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/stamp.md",
+    ) as string;
+    expect(fs.statSync(file).mtimeMs).toBe(revision);
+  });
+
   it("publishes a tombstone by renaming a temp file, never in place", async () => {
     const dir = makeTempDir();
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;
