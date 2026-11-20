@@ -1145,6 +1145,20 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     expect(budget.settle).not.toHaveBeenCalled();
   });
 
+  it("uses the same over-cap request status for the first-party query action", async () => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          query: { totalBytesProcessed: "100000000000", referencedTables: [] },
+        },
+      });
+    await expect(
+      queryFirstParty.run({ sql: "SELECT 1" }, { caller: "a2a" }),
+    ).rejects.toMatchObject({ errorCode: "over_job_cap", statusCode: 422 });
+    expect(submissions).toHaveLength(0);
+    expect(budget.admit).not.toHaveBeenCalled();
+  });
+
   it("checks sign-in and dashboard access before warehouse work", async () => {
     captureState.email = null;
     await expect(

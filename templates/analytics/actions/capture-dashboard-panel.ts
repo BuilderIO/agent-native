@@ -14,6 +14,7 @@ import { z } from "zod";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget";
 import {
   createOutsideAgentBigQueryCall,
+  failForOutsideAgentRefusal,
   outsideAgentBigQueryReportSchema,
   outsideAgentCallReportOf,
   outsideAgentRefusalReport,
@@ -153,22 +154,10 @@ export default defineAction({
       return result;
     } catch (error) {
       if (error instanceof OutsideAgentBigQueryRefusalError) {
-        fail(error.message, {
-          errorCode: error.code,
-          statusCode:
-            error.code === "budget_unavailable" ||
-            error.code === "estimate_unavailable"
-              ? 503
-              : error.code === "budget_required"
-                ? 403
-                : error.code === "over_job_cap"
-                  ? 422
-                  : 429,
-          details: {
-            bigQueryBudget: captureBudgetReceipt(
-              outsideAgentRefusalReport(error),
-            ),
-          },
+        failForOutsideAgentRefusal(error, {
+          bigQueryBudget: captureBudgetReceipt(
+            outsideAgentRefusalReport(error),
+          ),
         });
       }
       if (error instanceof PanelCaptureError) {
