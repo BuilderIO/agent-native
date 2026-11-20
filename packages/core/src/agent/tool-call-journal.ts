@@ -910,7 +910,10 @@ export function findReplayablePrivateJournalEntry(
   }
   const sameOutcome = candidates.every(
     (candidate) =>
-      replayOutcomeIdentity(candidate) === replayOutcomeIdentity(first),
+      candidate.isError === first.isError &&
+      candidate.errorCode === first.errorCode &&
+      candidate.result === first.result &&
+      candidate.outcomeUnknown === first.outcomeUnknown,
   );
   if (!sameOutcome) return { status: "ambiguous" };
   const latest = candidates[candidates.length - 1];

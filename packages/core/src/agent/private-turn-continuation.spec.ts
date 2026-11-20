@@ -1127,6 +1127,181 @@ describe("private turn continuation paths", () => {
     );
   });
 
+  it("replays cleanly when multiple committed private calls share the same HMAC identity and outcome", async () => {
+    const { actions, manageDraft } = createPrivateMailActions();
+    const threadId = "thread-private-matching-repeat";
+    const turnId = "turn-private-matching-repeat";
+    const seedLedger = createPersistedLedgerRecorder();
+    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue([]);
+    vi.spyOn(runStore, "recordThreadPrivateRun").mockResolvedValue(undefined);
+
+    let seedCalls = 0;
+    const seedEngine: AgentEngine = {
+      name: "synthetic",
+      label: "Synthetic",
+      defaultModel: "synthetic",
+      supportedModels: ["synthetic"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(_options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        seedCalls += 1;
+        if (seedCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "seed-match-1",
+                name: "manage-gmail-draft",
+                input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "ok" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    await runAgentLoop({
+      engine: seedEngine,
+      model: "synthetic",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "draft" }] }],
+      actions,
+      threadId,
+      turnId,
+      runId: "run-matching-seed",
+      send: seedLedger.record,
+      signal: new AbortController().signal,
+    });
+    manageDraft.mockClear();
+
+    const replayIdentity = seedLedger.persistedEvents.find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done" && event.tool === "manage-gmail-draft",
+    )?.privateReplayIdentity;
+    expect(replayIdentity).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+
+    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "prior-ok-1",
+        tool: "manage-gmail-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "prior-ok-1",
+        tool: "manage-gmail-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        privateReplayIdentity: replayIdentity,
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_start",
+        id: "prior-ok-2",
+        tool: "manage-gmail-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "prior-ok-2",
+        tool: "manage-gmail-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        privateReplayIdentity: replayIdentity,
+        omitFromPersistedHistory: true,
+      },
+    ]);
+
+    const resumeLedger = createPersistedLedgerRecorder();
+    let resumeCalls = 0;
+    const resumeEngine: AgentEngine = {
+      name: "synthetic",
+      label: "Synthetic",
+      defaultModel: "synthetic",
+      supportedModels: ["synthetic"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(_options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        resumeCalls += 1;
+        if (resumeCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "reissued-matching",
+                name: "manage-gmail-draft",
+                input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine: resumeEngine,
+      model: "synthetic",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "continue draft" }] },
+      ],
+      actions,
+      internalContinuation: true,
+      threadId,
+      turnId,
+      runId: "run-matching-resume",
+      send: resumeLedger.record,
+      signal: new AbortController().signal,
+    });
+
+    expect(manageDraft).not.toHaveBeenCalled();
+    expect(resumeLedger.rawEvents.some((event) => event.type === "error")).toBe(
+      false,
+    );
+    expect(resumeLedger.rawEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "reissued-matching",
+        tool: "manage-gmail-draft",
+        replayed: true,
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      }),
+    );
+  });
+
   it("marks the resumed run private when an unreadable private journal stops the turn", async () => {
     const { actions } = createPrivateMailActions();
     vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue([
