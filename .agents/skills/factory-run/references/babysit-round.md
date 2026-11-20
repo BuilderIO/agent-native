@@ -111,7 +111,9 @@ A factory branch can hold more than one git folder (agent-native and
 agent-native-labs). Pass Worktrees `create` the `folder` that holds this
 PR's repository. Only that folder moves into the worktree, so the fix, the
 install, and the proof all happen inside it; files in the other folders stay
-in their original checkouts.
+in their original checkouts. Bash doesn't follow the worktree there: start
+every command with `cd <worktree path>` (the path `create` printed), or it
+runs in the original checkout.
 
 If `create` or `activate` refuses with "Worktrees support workspaces with a
 single git repository" (a Builder CLI from before multi-folder worktrees),
