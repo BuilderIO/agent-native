@@ -1777,13 +1777,6 @@ function SourceFact({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function ingestSourceKey(source: BrainSource) {
-  const sourceKey = source.config?.sourceKey;
-  return typeof sourceKey === "string" && sourceKey.trim()
-    ? sourceKey.trim()
-    : null;
-}
-
 type MarkdownFileSelection = {
   path: string;
   file: File;
@@ -2384,7 +2377,7 @@ export default function SourcesRoute() {
     Record<string, never>
   >("ensure-company-context-source", { errorNotification: "caller" });
   const rotateSourceIngestToken = useActionMutation<
-    CreateSourceResponse,
+    CreateSourceResponse & { sourceKey: string; ingestToken: string },
     { sourceId: string }
   >("rotate-source-ingest-token", { errorNotification: "caller" });
   const syncSource = useActionMutation<unknown, { sourceId: string }>(
@@ -2637,8 +2630,6 @@ export default function SourcesRoute() {
   }
 
   async function rotateIngestToken(source: BrainSource) {
-    const sourceKey = ingestSourceKey(source);
-    if (!sourceKey) return;
     const result = await rotateSourceIngestToken.mutateAsync({
       sourceId: source.id,
     });
@@ -2646,7 +2637,7 @@ export default function SourcesRoute() {
       origin: window.location.origin,
       provider: source.provider ?? "",
       result,
-      sourceKey,
+      sourceKey: result.sourceKey,
     });
     if (handoff) setIngestHandoff(handoff);
   }
@@ -2742,7 +2733,7 @@ export default function SourcesRoute() {
                 onRotateIngestToken={
                   (source.provider === "clips" ||
                     source.provider === "generic") &&
-                  ingestSourceKey(source)
+                  source.hasIngestSourceKey
                     ? () => void rotateIngestToken(source)
                     : undefined
                 }

@@ -62,6 +62,7 @@ describe("rotate-source-ingest-token", () => {
 
     await expect(action.run({ sourceId: source.id })).resolves.toEqual({
       source: { id: source.id },
+      sourceKey: "clips",
       ingestToken: "brain_new-token-material",
     });
 
@@ -95,11 +96,25 @@ describe("rotate-source-ingest-token", () => {
     set.mockReturnValue({ where });
     limit.mockResolvedValue([{ id: "source-generic" }]);
 
-    await action.run({ sourceId: "source-generic" });
+    await expect(
+      action.run({ sourceId: "source-generic" }),
+    ).resolves.toMatchObject({
+      sourceKey: "legacy-clips",
+      ingestToken: "brain_new-token-material",
+    });
 
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({ sourceKey: "legacy-clips" }),
     );
+  });
+
+  it("does not rotate or reveal a key without admin access", async () => {
+    mocks.assertAccess.mockRejectedValueOnce(new Error("Forbidden"));
+
+    await expect(action.run({ sourceId: "source-clips" })).rejects.toThrow(
+      "Forbidden",
+    );
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("rejects sources that cannot receive signed ingest", async () => {

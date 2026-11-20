@@ -12,19 +12,7 @@ import {
   sha256Hex,
   stableJson,
 } from "../server/lib/brain.js";
-
-function sourceKeyFor(source: {
-  sourceKey?: string | null;
-  configJson?: string | null;
-}) {
-  const columnValue = source.sourceKey?.trim();
-  if (columnValue) return columnValue;
-  const config = parseJson<Record<string, unknown>>(source.configJson, {});
-  const configValue = config.sourceKey;
-  return typeof configValue === "string" && configValue.trim()
-    ? configValue.trim()
-    : null;
-}
+import { sourceKeyFor } from "../server/lib/source-ingest.js";
 
 export default defineAction({
   description:
@@ -72,6 +60,6 @@ export default defineAction({
       .limit(1);
     if (!source) throw new Error(`Brain source ${sourceId} was not found`);
 
-    return { source: serializeSource(source), ingestToken };
+    return { source: serializeSource(source), sourceKey, ingestToken };
   },
 });

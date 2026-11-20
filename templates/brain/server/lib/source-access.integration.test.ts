@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { and, SQL } from "drizzle-orm";
+import { and, eq, SQL } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import {
@@ -30,8 +30,9 @@ import shareResource from "@agent-native/core/sharing/actions/share-resource";
 
 import getSource from "../../actions/get-source.js";
 import listSources from "../../actions/list-sources.js";
+import rotateSourceIngestToken from "../../actions/rotate-source-ingest-token.js";
 import { schema } from "../db/index.js";
-import { readBrainScreen } from "./brain.js";
+import { readBrainScreen, sha256Hex } from "./brain.js";
 import { searchEverythingWithLanes } from "./search.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
 vi.mock("@agent-native/core/application-state", () => ({
@@ -109,6 +110,55 @@ beforeEach(async () => {
 function asUser<T>(email: string, work: () => Promise<T>) {
   return runWithRequestContext({ userEmail: email, orgId: "qa-org" }, work);
 }
+
+it("allows only a source admin to rotate a legacy ingest key and stores only the token hash", async () => {
+  await database.insert(schema.brainSources).values({
+    id: "legacy-ingest",
+    title: "Legacy ingest",
+    provider: "generic",
+    ownerEmail: qaEmail,
+    orgId: "qa-org",
+    visibility: "org",
+    configJson: JSON.stringify({
+      sourceKey: "legacy-private-key",
+      ingestTokenHash: "old-private-hash",
+    }),
+  });
+
+  const listed = await asUser("recipient@example.test", async () =>
+    listSources.run({}),
+  );
+  expect(
+    listed.sources.find((source) => source.id === "legacy-ingest"),
+  ).toMatchObject({ hasIngestSourceKey: true });
+  expect(JSON.stringify(listed)).not.toContain("legacy-private-key");
+  expect(JSON.stringify(listed)).not.toContain("old-private-hash");
+  await expect(
+    asUser("recipient@example.test", async () =>
+      rotateSourceIngestToken.run({ sourceId: "legacy-ingest" }),
+    ),
+  ).rejects.toThrow();
+  const [before] = await database
+    .select()
+    .from(schema.brainSources)
+    .where(eq(schema.brainSources.id, "legacy-ingest"));
+  expect(before.ingestTokenHash).toBeNull();
+
+  const result = await asUser(qaEmail, async () =>
+    rotateSourceIngestToken.run({ sourceId: "legacy-ingest" }),
+  );
+  expect(result.sourceKey).toBe("legacy-private-key");
+  expect(result.ingestToken).toMatch(/^brain_/);
+  const [after] = await database
+    .select()
+    .from(schema.brainSources)
+    .where(eq(schema.brainSources.id, "legacy-ingest"));
+  expect(after.sourceKey).toBe("legacy-private-key");
+  expect(after.ingestTokenHash).toBe(await sha256Hex(result.ingestToken));
+  expect(after.configJson).not.toContain(result.ingestToken);
+  expect(JSON.stringify(result.source)).not.toContain("legacy-private-key");
+  expect(JSON.stringify(result.source)).not.toContain(after.ingestTokenHash);
+});
 
 describe("personal connected source privacy", () => {
   it("denies all personal Google generic reads and status projections despite old org visibility", async () => {
