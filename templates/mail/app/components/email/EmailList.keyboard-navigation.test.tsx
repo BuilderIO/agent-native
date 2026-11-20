@@ -10,7 +10,7 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { isValidElement, useState } from "react";
+import { isValidElement, useCallback, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -741,6 +741,27 @@ describe("EmailList keyboard navigation interactions", () => {
         "thread-middle",
       ]),
     );
+  });
+
+  it("reports an unchanged order once while the page re-renders the list with fresh rows", () => {
+    const reports: string[][] = [];
+    function Page() {
+      const [, setOrder] = useState<string[] | null>(null);
+      const report = useCallback((threadIds: string[]) => {
+        reports.push(threadIds);
+        if (reports.length <= 5) setOrder(threadIds);
+      }, []);
+      return (
+        <Harness
+          emails={messages.map((email) => ({ ...email }))}
+          onThreadOrderChange={report}
+        />
+      );
+    }
+
+    render(<Page />);
+
+    expect(reports).toHaveLength(1);
   });
 
   it("ranks a newly scored message that enters the priority window", async () => {
