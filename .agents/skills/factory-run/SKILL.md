@@ -101,7 +101,7 @@ Deliberate differences from `review-latest-feedback`, in both modes:
 - Resolve or change a Sentry or Analytics issue, or a Grafana rule, silence,
   or dashboard.
 - Print a replica URL, token, email, or user content into a commit, PR, reply,
-  or file.
+  Board post or discussion, or file.
 - Edit the feedback skills or this skill.
 - Wait for a fix branch, or end your turn to wait for one.
 
@@ -131,8 +131,8 @@ mode forbids. Record it as a note and move on.
 | `factory-digest post --report "<key>"` (or `--pr "<url>"`) `--file <file>` | One line in that report's or PR's digest thread |
 | `factory-github membership <login>` | `member`, `not-member`, or `unknown` |
 | `factory-github approve "<PR url>" --sha <headRefOid>` | The only approval path (live review workers only) |
-| `factory-board read <n\|alias>` | A problem thread on Fleet Board: its steps, sources and posts (board mode) |
-| `factory-board post <n> --file <file> [--task <id>]` | Post in a problem thread, as the factory (board mode) |
+| `factory-board read <n\|alias>` | A problem thread on Fleet Board: its steps, sources and posts (board mode). `<n>` is the thread number; an alias is a source key such as `slack:<permalink>` or `github:<url>` |
+| `factory-board post <n> --file <file> [--task <id>]` | Post in a problem thread, as the factory (board mode). `--task` attaches the post to one step, by the step id `read` prints |
 | `factory-board discuss "<title>" --file <file>` | Open a discussion thread in `factory/discuss` for talk that isn't one problem's (board mode) |
 
 The digest channel holds one thread per issue: the report's card is its root,
