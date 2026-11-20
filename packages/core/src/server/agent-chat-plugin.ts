@@ -11062,6 +11062,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("../jobs/stale-reaper.js");
             const { nextRecurringSweepHandlerDueAt } =
               await import("../jobs/sweep-hooks.js");
+            const { nextAgentHarnessRecoveryDueAt } =
+              await import("../agent/harness/store.js");
+            const { nextStaleAgentTeamRunDueAt } =
+              await import("./agent-teams-run-queue.js");
             const busy = await hasRunningRuns({ fresh: true });
             const dueTimes = busy
               ? []
@@ -11073,6 +11077,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   await nextQueuedSubmissionDueAt(),
                   await nextAutomationFailureAlertDueAt(),
                   await nextRecurringSweepHandlerDueAt(),
+                  await nextAgentHarnessRecoveryDueAt(),
+                  await nextStaleAgentTeamRunDueAt(),
                 ].filter((dueAt): dueAt is number => dueAt !== null);
             await recordNetlifySweepOutcome({
               startedAt: input.startedAt,

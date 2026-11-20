@@ -176,7 +176,9 @@ export function decideIdleSweepAfter(input: {
 
 /**
  * Records a completed sweep's verdict. Never throws: on any failure the old
- * marker stays, and the worst case is the minute cadence this replaced.
+ * marker stays, and the worst case is the minute cadence this replaced. A sweep
+ * that started before the one behind the current marker leaves it alone, so an
+ * overlapping sweep can't replace a newer verdict with an older one.
  */
 export async function recordNetlifySweepOutcome(input: {
   startedAt: number;
@@ -187,6 +189,19 @@ export async function recordNetlifySweepOutcome(input: {
   const context = readNetlifyBlobsContext();
   if (!context) return null;
   try {
+    const now = input.now ?? Date.now();
+    const current = await readNetlifyWakeMarker<Partial<NetlifyIdleMarker>>(
+      NETLIFY_WAKE_MARKER_IDLE_KEY,
+      context,
+    );
+    const currentDecidedAt = current?.decidedAt;
+    if (
+      typeof currentDecidedAt === "number" &&
+      currentDecidedAt > input.startedAt &&
+      currentDecidedAt <= now
+    ) {
+      return null;
+    }
     const activity = await readNetlifyWakeMarker<NetlifyActivityMarker>(
       NETLIFY_WAKE_MARKER_ACTIVITY_KEY,
       context,
@@ -195,7 +210,6 @@ export async function recordNetlifySweepOutcome(input: {
       typeof activity?.at === "number" && Number.isFinite(activity.at)
         ? activity.at
         : null;
-    const now = input.now ?? Date.now();
     const marker: NetlifyIdleMarker = {
       sweepAfter: decideIdleSweepAfter({
         now,

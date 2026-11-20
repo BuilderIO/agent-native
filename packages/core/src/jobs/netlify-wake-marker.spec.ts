@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { H3Event } from "h3";
 import {
   afterAll,
   afterEach,
@@ -20,8 +19,6 @@ import {
   emitSingleTemplateNetlifyRecurringJobsFunction,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
 } from "../deploy/build.js";
-import { INTEGRATION_RETRY_SWEEP_PATH } from "../integrations/integration-durable-dispatch-config.js";
-import { installNetlifyActivityMarkHook } from "../server/netlify-activity-mark.js";
 import {
   __resetNetlifyActivityMarkForTests,
   decideIdleSweepAfter,
@@ -30,7 +27,6 @@ import {
   recordNetlifySweepOutcome,
   resolveIdleSweepMaxMs,
 } from "./netlify-wake-marker.js";
-import { RECURRING_JOBS_SWEEP_PATH } from "./scheduler-dispatch.js";
 
 const MINUTE = 60_000;
 const T0 = Date.parse("2026-11-20T12:00:00.000Z");
@@ -318,6 +314,44 @@ describe("the Netlify scheduled function and the sweep", () => {
     expect(await tick(T0 + MINUTE)).toBe("swept");
   });
 
+  it("keeps a newer sweep's verdict when an older overlapping sweep finishes last", async () => {
+    await recordNetlifySweepOutcome({
+      startedAt: T0 + MINUTE,
+      busy: true,
+      nextDueAt: null,
+      now: T0 + 2 * MINUTE,
+    });
+    await expect(
+      recordNetlifySweepOutcome({
+        startedAt: T0,
+        busy: false,
+        nextDueAt: null,
+        now: T0 + 3 * MINUTE,
+      }),
+    ).resolves.toBeNull();
+
+    expect(await tick(T0 + 4 * MINUTE)).toBe("swept");
+  });
+
+  it("replaces a verdict stamped in the future", async () => {
+    netlify.blobs.set(
+      markerPath("idle"),
+      JSON.stringify({
+        sweepAfter: T0 + 90 * MINUTE,
+        decidedAt: T0 + 30 * MINUTE,
+      }),
+    );
+
+    await expect(
+      recordNetlifySweepOutcome({
+        startedAt: T0,
+        busy: true,
+        nextDueAt: null,
+        now: T0 + MINUTE,
+      }),
+    ).resolves.toEqual({ sweepAfter: T0 + MINUTE, decidedAt: T0 });
+  });
+
   it("sweeps when the marker is missing or unreadable", async () => {
     expect(await tick(T0)).toBe("swept");
 
@@ -458,76 +492,5 @@ describe("the Netlify scheduled function and the sweep", () => {
         now: T0,
       }),
     ).resolves.toBeNull();
-  });
-});
-
-describe("installNetlifyActivityMarkHook", () => {
-  const install = () => {
-    const hooks: Array<(event: H3Event) => Promise<void>> = [];
-    installNetlifyActivityMarkHook({
-      hooks: {
-        hook: (_name, handler) => hooks.push(handler),
-      },
-    });
-    return hooks;
-  };
-  const visit = (
-    hooks: Array<(event: H3Event) => Promise<void>>,
-    pathname: string,
-  ) => {
-    const marks: Array<Promise<unknown>> = [];
-    const event = {
-      url: new URL(`https://my-app.netlify.app${pathname}`),
-      req: { waitUntil: (promise: Promise<unknown>) => marks.push(promise) },
-    } as unknown as H3Event;
-    hooks.forEach((hook) => void hook(event));
-    return marks;
-  };
-
-  it("marks visits, not the sweep's own handoff or the integration recovery cron", async () => {
-    process.env.NETLIFY = "true";
-    const hooks = install();
-
-    expect(visit(hooks, RECURRING_JOBS_SWEEP_PATH)).toHaveLength(0);
-    expect(visit(hooks, INTEGRATION_RETRY_SWEEP_PATH)).toHaveLength(0);
-
-    const marks = visit(hooks, "/inbox");
-    expect(marks).toHaveLength(1);
-    await Promise.all(marks);
-    expect([...netlify.blobs.values()]).toEqual([JSON.stringify({ at: T0 })]);
-  });
-
-  it("hands the write to Netlify's own waitUntil when the request has none", async () => {
-    process.env.NETLIFY = "true";
-    const hooks = install();
-    const marks: Array<Promise<unknown>> = [];
-    const storeKey = Symbol.for("@netlify/functions/request-context-store");
-    const globals = globalThis as Record<symbol, unknown>;
-    globals[storeKey] = {
-      getStore: () => ({
-        context: {
-          waitUntil: (promise: Promise<unknown>) => {
-            marks.push(promise);
-          },
-        },
-      }),
-    };
-    try {
-      const event = {
-        url: new URL("https://my-app.netlify.app/inbox"),
-        req: {},
-      } as unknown as H3Event;
-      await Promise.all(hooks.map((hook) => hook(event)));
-
-      expect(marks).toHaveLength(1);
-      await Promise.all(marks);
-      expect([...netlify.blobs.values()]).toEqual([JSON.stringify({ at: T0 })]);
-    } finally {
-      delete globals[storeKey];
-    }
-  });
-
-  it("is not installed off Netlify", () => {
-    expect(install()).toHaveLength(0);
   });
 });

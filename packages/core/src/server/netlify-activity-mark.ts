@@ -1,5 +1,6 @@
 import type { H3Event } from "h3";
 
+import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import { INTEGRATION_RETRY_SWEEP_PATH } from "../integrations/integration-durable-dispatch-config.js";
 import { markNetlifyAppActivity } from "../jobs/netlify-wake-marker.js";
 import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
@@ -22,7 +23,8 @@ const installedApps = new WeakSet<object>();
 /**
  * Marks request activity for the Netlify idle sweep (see
  * `jobs/netlify-wake-marker.ts`), so the first visitor after a quiet period
- * puts the sweep back on its minute cadence. The sweep's own handoff and the
+ * puts the sweep back on its minute cadence. Requests to the background
+ * function (the sweep, and automation, agent and A2A work handed to it) and the
  * integration recovery cron are not visitors and are never marked. Workspace
  * deploys keep their every-minute sweep and write nothing.
  */
@@ -31,7 +33,9 @@ export function installNetlifyActivityMarkHook(
 ): void {
   const hook = nitroApp?.hooks?.hook;
   if (!nitroApp || !hook || installedApps.has(nitroApp)) return;
-  if (!isNetlifyRecurringJobsRuntime()) return;
+  if (!isNetlifyRecurringJobsRuntime() || isInBackgroundFunctionRuntime()) {
+    return;
+  }
   installedApps.add(nitroApp);
   hook.call(nitroApp.hooks, "request", async (event) => {
     try {

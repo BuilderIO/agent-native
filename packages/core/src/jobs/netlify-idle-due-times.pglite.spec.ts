@@ -1,8 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { nextAgentHarnessRecoveryDueAt } from "../agent/harness/store.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { nextQueuedSubmissionDueAt } from "../chat-threads/store.js";
 import { closeDbExec, getDbExec } from "../db/client.js";
+import {
+  nextStaleAgentTeamRunDueAt,
+  RUN_DISPATCH_STUCK_AFTER_MS,
+  RUN_RECONCILIATION_RETRY_AFTER_MS,
+} from "../server/agent-teams-run-queue.js";
 import { nextAutomationTriggerEventDueAt } from "../triggers/event-queue.js";
 import { nextAutomationFailureAlertDueAt } from "./run-history.js";
 import {
@@ -154,6 +160,98 @@ describe("due times an idle Netlify app sleeps until", () => {
     await task("working", "working", 3_000);
     await expect(nextStaleWorkDueAt()).resolves.toBe(
       3_000 + STALE_A2A_TASK_AFTER_MS,
+    );
+  });
+
+  it("answers when the next Agent Harness follow-up or approval claim can be recovered", async () => {
+    await expect(nextAgentHarnessRecoveryDueAt()).resolves.toBeNull();
+    const session = (
+      id: string,
+      status: string,
+      fields: {
+        followUpClaimId?: string;
+        followUpClaimExpiresAt?: number;
+        followUpDeadlineAt?: number;
+        approvalResolutionId?: string;
+        approvalClaimExpiresAt?: number;
+      },
+    ) =>
+      getDbExec().execute({
+        sql: `INSERT INTO agent_harness_sessions
+              (id, harness_name, thread_id, status, created_at, updated_at,
+               follow_up_claim_id, follow_up_claim_expires_at,
+               follow_up_deadline_at, approval_resolution_id,
+               approval_resolution_claim_expires_at)
+              VALUES (?, 'codex', 'thread-1', ?, 1000, 1000, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          status,
+          fields.followUpClaimId ?? null,
+          fields.followUpClaimExpiresAt ?? null,
+          fields.followUpDeadlineAt ?? null,
+          fields.approvalResolutionId ?? null,
+          fields.approvalClaimExpiresAt ?? null,
+        ],
+      });
+
+    await session("unclaimed", "running", {});
+    await session("stopped", "stopped", {
+      approvalResolutionId: "approval-0",
+      approvalClaimExpiresAt: 2_000,
+    });
+    await session("follow-up", "running", {
+      followUpClaimId: "claim-1",
+      followUpClaimExpiresAt: 90_000,
+      followUpDeadlineAt: 50_000,
+    });
+    await session("approval", "idle", {
+      approvalResolutionId: "approval-1",
+      approvalClaimExpiresAt: 70_000,
+    });
+    await expect(nextAgentHarnessRecoveryDueAt()).resolves.toBe(50_000);
+
+    await session("follow-up-behind-approval", "running", {
+      followUpClaimId: "claim-2",
+      followUpClaimExpiresAt: 10_000,
+      approvalResolutionId: "approval-2",
+      approvalClaimExpiresAt: 30_000,
+    });
+    await expect(nextAgentHarnessRecoveryDueAt()).resolves.toBe(30_000);
+  });
+
+  it("answers when the next active Agent Teams run can be reconciled", async () => {
+    await expect(nextStaleAgentTeamRunDueAt()).resolves.toBeNull();
+    const run = (
+      taskId: string,
+      status: string,
+      updatedAt: number,
+      reconciliationAttemptedAt: number | null,
+      ownerEmail: string | null = "owner@example.com",
+    ) =>
+      getDbExec().execute({
+        sql: `INSERT INTO agent_team_run_queue
+              (task_id, thread_id, run_id, status, owner_email, payload,
+               created_at, updated_at, reconciliation_attempted_at)
+              VALUES (?, 'thread-1', ?, ?, ?, '{}', 1, ?, ?)`,
+        args: [
+          taskId,
+          `run-${taskId}`,
+          status,
+          ownerEmail,
+          updatedAt,
+          reconciliationAttemptedAt,
+        ],
+      });
+
+    await run("done", "done", 1_000, null);
+    await run("ownerless", "queued", 1_000, null, null);
+    await run("attempted", "running", 2_000, 50_000);
+    await run("queued", "queued", 80_000, null);
+    await expect(nextStaleAgentTeamRunDueAt()).resolves.toBe(
+      Math.min(
+        50_000 + RUN_RECONCILIATION_RETRY_AFTER_MS,
+        80_000 + RUN_DISPATCH_STUCK_AFTER_MS,
+      ),
     );
   });
 });
