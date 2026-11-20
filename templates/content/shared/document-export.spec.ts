@@ -223,6 +223,19 @@ describe("document export", () => {
     expect(exportPayload.content).toContain("<strong>Ship it</strong>");
   });
 
+  it("keeps a link's underscores out of emphasis in HTML exports", () => {
+    const url = "https://design.example.test/design/a_1_b";
+    const html = buildDocumentExport({
+      id: "doc_1",
+      title: "Links",
+      content: `[launch_1](${url}) and _real_ emphasis`,
+      format: "html",
+    }).content;
+    expect(html).toContain(
+      `<a href="${url}">launch_1</a> and <em>real</em> emphasis`,
+    );
+  });
+
   it("renders inline and block math in standalone HTML exports", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",

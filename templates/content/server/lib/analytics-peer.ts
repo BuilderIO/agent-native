@@ -8,34 +8,18 @@ import {
   invokeAgentAction,
   resolveA2ACallerAuth,
 } from "@agent-native/core/a2a";
-import { getAppConfig } from "@agent-native/core/server";
-import { getBuiltinAgents } from "@agent-native/core/server/agent-discovery";
 import {
   getRequestContext,
   runWithRequestContext,
   type RequestContext,
 } from "@agent-native/core/server/request-context";
-import {
-  resolveEnvironmentTargets,
-  resolveLaneEndpoint,
-} from "@agent-native/core/shared/environment-lanes";
 import type { ZodType } from "zod";
 
-function hostnameOf(url: string | undefined): string | undefined {
-  if (!url || !URL.canParse(url)) return undefined;
-  return new URL(url).hostname;
-}
+import { peerAppLinkOrigins, resolvePeerAppUrl } from "./peer-apps.js";
 
 /** The deployment's built-in Analytics, on Content's own lane. */
 export function resolveAnalyticsAppUrl(): string | null {
-  const analytics = getBuiltinAgents("content").find(
-    (app) => app.id === "analytics",
-  );
-  if (!analytics?.url || !URL.canParse(analytics.url)) return null;
-  return resolveLaneEndpoint(
-    analytics.url,
-    hostnameOf(getAppConfig().app.url),
-  ).replace(/\/+$/, "");
+  return resolvePeerAppUrl("analytics");
 }
 
 /**
@@ -43,17 +27,7 @@ export function resolveAnalyticsAppUrl(): string | null {
  * Analytics share one database, so a link from either names the same panel.
  */
 export function analyticsLinkOrigins(): string[] {
-  const appUrl = resolveAnalyticsAppUrl();
-  if (!appUrl) return [];
-  const url = new URL(appUrl);
-  const lanes = resolveEnvironmentTargets(url.hostname);
-  const origins = [appUrl];
-  for (const host of lanes ? [lanes.betaHost, lanes.productionHost] : []) {
-    const lane = new URL(appUrl);
-    lane.hostname = host;
-    origins.push(lane.toString().replace(/\/+$/, ""));
-  }
-  return [...new Set(origins)];
+  return peerAppLinkOrigins("analytics");
 }
 
 export type AnalyticsPeerResult<T> =

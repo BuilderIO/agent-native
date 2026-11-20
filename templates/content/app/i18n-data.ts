@@ -9,6 +9,7 @@ import {
   discussionMessagesByLocale,
 } from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
+import { linkCardMessagesByLocale } from "./link-card-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
@@ -2308,6 +2309,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  linkCard: linkCardMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2373,6 +2375,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    linkCard: enUS.linkCard,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2895,6 +2898,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    linkCard: linkCardMessagesByLocale[locale],
   };
 }
 
