@@ -8,8 +8,9 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { CLIPS_MEETINGS } from "../shared/labs.js";
 import { z } from "zod";
+
+import { CLIPS_MEETINGS } from "../shared/labs.js";
 
 const Views = [
   "library",
@@ -112,8 +113,6 @@ export default defineAction({
   http: false,
   run: async (args) => {
     const path = args.path?.trim() ? args.path : undefined;
-    // The meetings routes redirect to the library while the Meetings Lab is
-    // off, so opening one would report success and land somewhere else.
     if (targetsMeetings({ view: args.view, path })) {
       const userEmail = getRequestUserEmail();
       const orgId = getRequestOrgId();
