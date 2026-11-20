@@ -149,8 +149,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "साइडबार पिन करें",
-      unpinSidebar: "साइडबार अनपिन करें",
       closeSidebar: "साइडबार बंद करें",
       settings: "सेटिंग्स",
       aiSettings: "टैग और नियम प्रबंधित करें",

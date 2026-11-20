@@ -141,8 +141,6 @@ const messages = {
       compose: "撰寫",
       composeShortcut: "撰寫 (C)",
       accounts: "帳號",
-      pinSidebar: "固定側邊欄",
-      unpinSidebar: "取消固定側邊欄",
       closeSidebar: "關閉側邊欄",
       settings: "設定",
       aiSettings: "管理標籤與規則",

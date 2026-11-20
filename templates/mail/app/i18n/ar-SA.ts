@@ -153,8 +153,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "تثبيت الشريط الجانبي",
-      unpinSidebar: "إلغاء تثبيت الشريط الجانبي",
       closeSidebar: "إغلاق الشريط الجانبي",
       settings: "الإعدادات",
       aiSettings: "إدارة الوسوم والقواعد",
