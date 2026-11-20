@@ -17,7 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -213,6 +213,8 @@ export function LibraryGrid({
   extraActions,
 }: LibraryGridProps) {
   const t = useT();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchQuery = searchParams.get("q")?.trim() || "";
   const recordingsHeading =
     kind === "image" ? t("navigation.screenshots") : t("navigation.recordings");
   const [sort, setSort] = useState<SortKey>("recent");
@@ -262,7 +264,7 @@ export function LibraryGrid({
   useEffect(() => {
     setSelected(new Set());
     setLastSelectedId(null);
-  }, [view, kind, folderId, spaceId, tagFilter, sort]);
+  }, [view, kind, folderId, spaceId, tagFilter, searchQuery, sort]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -290,8 +292,9 @@ export function LibraryGrid({
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
+      ...(searchQuery ? { search: searchQuery } : {}),
     }),
-    [view, kind, folderId, spaceId, tagFilter],
+    [view, kind, folderId, spaceId, tagFilter, searchQuery],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
 
@@ -302,10 +305,11 @@ export function LibraryGrid({
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
+      ...(searchQuery ? { search: searchQuery } : {}),
       sort,
       limit: PAGE_SIZE,
     }),
-    [view, kind, folderId, spaceId, tagFilter, sort],
+    [view, kind, folderId, spaceId, tagFilter, searchQuery, sort],
   );
 
   const totalKnown = typeof totalCount === "number";
@@ -441,12 +445,16 @@ export function LibraryGrid({
     () =>
       view === "library" || view === "space"
         ? ((scopedFolders?.folders ?? []) as FolderTargetRow[]).filter(
-            (folder) => (folder.parentId ?? null) === (folderId ?? null),
+            (folder) =>
+              (folder.parentId ?? null) === (folderId ?? null) &&
+              (!searchQuery ||
+                folder.name.toLowerCase().includes(searchQuery.toLowerCase())),
           )
         : [],
-    [folderId, scopedFolders, view],
+    [folderId, scopedFolders, searchQuery, view],
   );
   const isEmptyState =
+    !searchQuery &&
     !isLoading &&
     !(view !== "shared" && isFoldersLoading) &&
     !isError &&
@@ -658,6 +666,30 @@ export function LibraryGrid({
   };
 
   const chips: FilterChip[] = [];
+  if (searchQuery) {
+    chips.push({
+      key: `search:${searchQuery}`,
+      label: `"${searchQuery}"`,
+      active: true,
+      onRemove: () => {
+        trackEvent("recording_filter_changed", {
+          app_name: "clips",
+          template_name: "clips",
+          surface: view,
+          filter_type: "search",
+          action: "removed",
+        });
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete("q");
+            return next;
+          },
+          { replace: true },
+        );
+      },
+    });
+  }
   if (tagFilter) {
     chips.push({
       key: `tag:${tagFilter}`,
@@ -678,19 +710,20 @@ export function LibraryGrid({
     });
   }
 
-  const resolvedEmptyKind =
-    emptyKind ??
-    (view === "archive"
-      ? "archive"
-      : view === "trash"
-        ? "trash"
-        : view === "shared"
-          ? "shared"
-          : view === "space"
-            ? "space"
-            : folderId
-              ? "folder"
-              : "library");
+  const resolvedEmptyKind = searchQuery
+    ? "search"
+    : (emptyKind ??
+      (view === "archive"
+        ? "archive"
+        : view === "trash"
+          ? "trash"
+          : view === "shared"
+            ? "shared"
+            : view === "space"
+              ? "space"
+              : folderId
+                ? "folder"
+                : "library"));
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
