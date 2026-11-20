@@ -310,6 +310,7 @@ type ChartAxisValues = {
   rows: Record<string, unknown>[];
   keys: string[];
   stacked?: boolean | undefined;
+  stackedKeys?: ReadonlySet<string> | undefined;
 };
 
 // Duration axes step in clean units ("6 hours") rather than the decimal
@@ -324,7 +325,7 @@ function durationAxisProps(values: ChartAxisValues, keys: string[]) {
     for (const key of keys) {
       const value = Number(row[key]);
       if (!Number.isFinite(value)) continue;
-      if (values.stacked) {
+      if (values.stacked || values.stackedKeys?.has(key)) {
         if (value < 0) below += value;
         else above += value;
       } else {
@@ -3250,6 +3251,7 @@ export function ComboRenderer({
           {renderChartYAxes(dualAxis, yFormatter, {
             rows,
             keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+            stackedKeys: stacked ? barKeySet : undefined,
           })}
           <CartesianGrid
             strokeDasharray="3 3"
@@ -3278,6 +3280,7 @@ export function ComboRenderer({
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
+          {/* Recharts groups bar positions by stack ID across both Y axes. */}
           {yKeys.map((key, i) =>
             barKeySet.has(key) ? (
               <Bar
@@ -3287,7 +3290,13 @@ export function ComboRenderer({
                 yAxisId={seriesAxisId(dualAxis, key)}
                 fill={colors[i % colors.length]}
                 radius={[4, 4, 0, 0]}
-                stackId={stacked ? "stack" : undefined}
+                stackId={
+                  stacked
+                    ? dualAxis.enabled
+                      ? `stack-${seriesAxisId(dualAxis, key)}`
+                      : "stack"
+                    : undefined
+                }
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
                 {...chartSeriesClickProps(
