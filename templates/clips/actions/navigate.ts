@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 const Views = [
@@ -86,6 +89,7 @@ export default defineAction({
         .describe(
           "Nonempty raw URL path; required unless view is provided. Use only when a view/id combo does not express the target",
         ),
+      intent: navigationIntentSchema,
     })
     .refine((args) => Boolean(args.view || args.path?.trim()), {
       message: "A nonempty view or path is required",

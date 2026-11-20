@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 
 import { fail, type ActionRunContext } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
+import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
 import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   resolveSecretManagedBy,
@@ -97,7 +98,7 @@ export interface MessagingChannelStatus {
 }
 
 export interface MessagingChannelsStatus {
-  /** Owners and admins, or the only user of a workspace without an org. */
+  /** Owners and admins, or a deployment admin when there is no org. */
   canManage: boolean;
   channels: MessagingChannelStatus[];
 }
@@ -115,10 +116,13 @@ async function resolveChannelAccess(
   const email = ctx?.userEmail?.trim();
   if (!email) fail("Sign in to manage channels.", { statusCode: 401 });
   const orgId = ctx?.orgId?.trim();
-  // Matches `checkOrgAdmin` in the integrations plugin: without an org there
-  // is one user and no role gradient.
   if (!orgId)
-    return { email, scopeId: `solo:${email}`, orgId: null, canManage: true };
+    return {
+      email,
+      scopeId: `solo:${email}`,
+      orgId: null,
+      canManage: canManageDeploymentWithoutOrg(email),
+    };
   const role = await readOrgMemberRole(orgId, email);
   return {
     email,
