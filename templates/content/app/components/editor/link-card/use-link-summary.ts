@@ -6,7 +6,6 @@ const MAX_BATCH = 60;
 const BATCH_WINDOW_MS = 20;
 const SUMMARY_STALE_MS = 60_000;
 
-/** The signed-in reader a card asks as: their email and current workspace. */
 export interface LinkSummaryReader {
   email: string;
   orgId: string | null;

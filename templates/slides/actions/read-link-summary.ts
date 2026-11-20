@@ -12,7 +12,7 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Summarize Slides links for another app's link card, as the caller: each deck's title when the caller can open it, otherwise only unavailable. Reads titles; changes nothing.",
+    "For another app's link card, as the caller: names each linked item the caller can open, and answers only unavailable for the rest. Read-only.",
   schema: linkSummaryRequestSchema,
   outputSchema: linkSummaryResultSchema,
   http: false,

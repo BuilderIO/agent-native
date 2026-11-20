@@ -127,11 +127,6 @@ export function linkCardMarkdownLink(url: string): string {
 
 const FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
 
-/**
- * Turns each card in a page body into its plain link, for exports. A card is a
- * block, alone on its line; a tag inside a sentence, inline code or a fenced
- * code block is text and stays as written.
- */
 export function linkCardsAsPlainLinks(markdown: string): string {
   if (!markdown.includes(`<${LINK_CARD_TAG}`)) return markdown;
   let fence: string | null = null;

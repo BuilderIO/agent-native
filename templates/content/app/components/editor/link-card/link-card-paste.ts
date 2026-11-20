@@ -38,11 +38,10 @@ export function linkCardFromPaste(
 }
 
 function holdsOnlyText(paragraph: ProseMirrorNode, link: string): boolean {
-  let onlyText = true;
-  paragraph.forEach((child) => {
-    if (!child.isText) onlyText = false;
-  });
-  return onlyText && paragraph.textContent.trim() === link.trim();
+  for (let index = 0; index < paragraph.childCount; index += 1) {
+    if (!paragraph.child(index).isText) return false;
+  }
+  return paragraph.textContent.trim() === link.trim();
 }
 
 export function replaceLinkWithCard(
