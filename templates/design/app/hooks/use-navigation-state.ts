@@ -42,7 +42,6 @@ export interface NavigationState {
   interactDevice?: string;
   interactTheme?: InteractThemeMode;
   path?: string;
-  /** Design home search term; the home list is filtered by it (`/home?search=`). */
   search?: string;
 }
 
@@ -157,7 +156,6 @@ export function homeSearchFromSearchParams(
   return searchParams.get("search")?.trim() || undefined;
 }
 
-/** Where a navigate command lands: the editor, templates, present, settings, or Design home (filtered by `search` when given). */
 export function commandPathFromNavigation(cmd: NavigationState): string {
   const editorPath = editorPathFromCommand(cmd);
   if (editorPath) return editorPath;

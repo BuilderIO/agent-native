@@ -14,7 +14,6 @@ import {
 } from "./use-navigation-state";
 
 describe("design navigation state", () => {
-  // K-DES-4-1: Design home search is addressable, so an agent can land the pane on it.
   it("sends a list navigation with a search to Design home filtered by it", () => {
     expect(
       commandPathFromNavigation({ view: "list", search: "checkout" }),

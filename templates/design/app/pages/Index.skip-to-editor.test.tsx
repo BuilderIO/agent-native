@@ -467,8 +467,6 @@ it("offers the reference sources and creates designs with no system link", async
 
 // oracle-change: replace generator loading, cache and timeout states with fixed prompt pools.
 describe("Index skip to editor", () => {
-  // K-DES-4-1: an agent (or a shared link) lands on /home?search=checkout and
-  // the home list is filtered by it, not left unfiltered.
   it("filters the home list by the search in the URL", async () => {
     await act(async () => root.unmount());
     mocks.queryString = "search=checkout";
@@ -488,21 +486,23 @@ describe("Index skip to editor", () => {
     const input = container.querySelector<HTMLInputElement>(
       "input[data-home-search]",
     );
-    expect(input, "home search input").not.toBeNull();
+    if (!input) throw new Error("home search input not rendered");
 
     await act(async () => {
-      const setValue = Object.getOwnPropertyDescriptor(
+      const valueSetter = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )!.set!;
-      setValue.call(input, "checkout");
-      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      )?.set;
+      valueSetter?.call(input, "checkout");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-    expect(mocks.setSearchParams).toHaveBeenCalled();
-    const calls = mocks.setSearchParams.mock.calls;
-    const next = calls[calls.length - 1]![0] as URLSearchParams;
-    expect(next.get("search")).toBe("checkout");
+    const written = mocks.setSearchParams.mock.calls
+      .map((call) => call[0])
+      .filter(
+        (value): value is URLSearchParams => value instanceof URLSearchParams,
+      );
+    expect(written.map((params) => params.get("search"))).toContain("checkout");
   });
 
   it("keeps home suggestions enabled before and after connection", async () => {

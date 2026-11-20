@@ -179,8 +179,6 @@ export default function Index() {
   const isSaveTemplateGettingStarted =
     searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
-  // Home search lives in the URL (`/home?search=`) so an agent or a shared link
-  // can land on the filtered list from any screen.
   const urlSearch = searchParams.get("search") ?? "";
   const lastUrlSearchRef = useRef(urlSearch);
   const [search, setSearch] = useState(urlSearch);
@@ -662,7 +660,6 @@ export default function Index() {
       setSelectedDesignIds((current) =>
         current.size === 0 ? current : new Set(),
       );
-      // Our own URL write is not an external navigation (see the effect below).
       lastUrlSearchRef.current = query;
       const next = new URLSearchParams(searchParams);
       if (query) next.set("search", query);
@@ -674,8 +671,6 @@ export default function Index() {
     [searchParams, setSearchParams],
   );
 
-  // An external navigation (agent, link, back/forward) to `/home?search=`
-  // replaces the typed search.
   useEffect(() => {
     if (lastUrlSearchRef.current === urlSearch) return;
     lastUrlSearchRef.current = urlSearch;
