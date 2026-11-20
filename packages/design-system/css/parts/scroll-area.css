@@ -50,7 +50,7 @@
 
   .scroll-area-scrollbar {
     display: flex;
-    margin: 2px;
+    margin: var(--space-1);
     border-radius: var(--scroll-area-scrollbar-radius);
     opacity: 0;
     transition: opacity var(--duration-2) var(--ease-standard);
