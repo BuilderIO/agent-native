@@ -263,8 +263,6 @@ const REVIEW_MUTATIONS = new Set([
   "set-review-thread-muted",
 ]);
 
-// Comment AI writes that change only their page's AI operations, comments and
-// suggestions: the working row, the AI's reply and its suggested edits.
 const PAGE_COMMENT_AI_MUTATIONS = new Set([
   "start-comment-ai-request",
   "submit-comment-ai-classification",
@@ -274,10 +272,8 @@ const PAGE_COMMENT_AI_MUTATIONS = new Set([
   "create-comment-ai-suggestion",
 ]);
 
-// Each names its page (`changeResource`), so everyone on that page hears of it.
 export const COMMENT_AI_MUTATIONS = new Set([
   ...PAGE_COMMENT_AI_MUTATIONS,
-  // These also edit the page body.
   "apply-comment-ai-request",
   "undo-comment-ai-request",
 ]);
@@ -331,8 +327,6 @@ function eventsIncludeMutation(
   );
 }
 
-// Whether the events hold one of `mutations` that could have changed this
-// page: one named for it, or one that names no page.
 function eventsIncludePageMutation(
   events: readonly ActionEvent[],
   mutations: ReadonlySet<string>,

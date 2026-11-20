@@ -4,10 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import { COMMENT_AI_MUTATIONS } from "../app/hooks/content-action-refresh.js";
 
-// An open page refreshes its comments, AI operations and suggestions on these
-// actions' change events. One that names no page tells only the person who
-// asked, so a teammate on the same page saw the AI's reply, its suggested
-// edits or an applied edit only at the next idle poll or a reload.
 const names = readdirSync(new URL(".", import.meta.url))
   .filter(
     (file) =>
