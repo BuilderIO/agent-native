@@ -316,6 +316,27 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "provider_work",
+    () =>
+      import("../provider-api/provider-budget.js").then(
+        (m) => m.providerWorkStore,
+      ),
+  ],
+  [
+    "provider_write_enqueue",
+    () =>
+      import("../provider-api/write-queue.js").then(
+        (m) => m.providerWriteEnqueueStore,
+      ),
+  ],
+  [
+    "provider_write_scheduler",
+    () =>
+      import("../provider-api/write-queue.js").then(
+        (m) => m.providerWriteSchedulerStore,
+      ),
+  ],
+  [
     "recap_images",
     () =>
       import("../server/recap-image-store.js").then((m) => m.recapImagesStore),
@@ -369,6 +390,13 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () =>
       import("../review/suggestions/store.js").then(
         (m) => m.reviewSuggestionsStore,
+      ),
+  ],
+  [
+    "runner_session_nonces",
+    () =>
+      import("../server/runner-session.js").then(
+        (m) => m.runnerSessionNoncesStore,
       ),
   ],
   [

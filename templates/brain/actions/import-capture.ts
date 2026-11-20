@@ -3,12 +3,13 @@ import { z } from "zod";
 
 import {
   BrainCaptureBlockedError,
-  createCapture,
+  createCaptureWithWarnings,
   ensureManualSource,
   serializeCapture,
   serializeSource,
 } from "../server/lib/brain.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
+import { rethrowManualImportError } from "./_manual-import-errors.js";
 import { captureKindSchema, optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -33,9 +34,9 @@ export default defineAction({
       ? null
       : await ensureManualSource(args.sourceTitle ?? "Manual imports");
     const sourceId = args.sourceId ?? source!.id;
-    let capture;
+    let written;
     try {
-      capture = await createCapture({
+      written = await createCaptureWithWarnings({
         sourceId,
         externalId: args.externalId,
         title: args.title,
@@ -45,7 +46,9 @@ export default defineAction({
         metadata: args.metadata,
       });
     } catch (error) {
-      if (!(error instanceof BrainCaptureBlockedError)) throw error;
+      if (!(error instanceof BrainCaptureBlockedError)) {
+        rethrowManualImportError(error);
+      }
       return {
         source: source ? serializeSource(source) : undefined,
         capture: undefined,
@@ -53,6 +56,7 @@ export default defineAction({
         distillation: undefined,
       };
     }
+    const { capture, ...warnings } = written;
     const distillation =
       args.enqueueDistillation &&
       capture.status !== "distilled" &&
@@ -70,6 +74,7 @@ export default defineAction({
           }
         : serializedCapture,
       distillation,
+      ...warnings,
     };
   },
 });

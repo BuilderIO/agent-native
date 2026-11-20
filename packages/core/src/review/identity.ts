@@ -1,4 +1,6 @@
+import { isAgentCaller } from "../action-caller.js";
 import type {
+  ReviewActorKind,
   ReviewComment,
   ReviewResourceAccess,
   ReviewResourceContext,
@@ -13,6 +15,30 @@ export function reviewAuthorNameFromContext(
   const name = value.trim();
   if (!name || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(name)) return null;
   return name;
+}
+
+/** Who a comment comes from: the agent, a signed-in person, or the system. */
+export function reviewActorKindFromContext(
+  ctx: ReviewResourceContext | undefined,
+): ReviewActorKind {
+  const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
+  if (isAgentCaller(caller)) {
+    return "agent";
+  }
+  return ctx?.userEmail ? "human" : "system";
+}
+
+/**
+ * Whose a reaction is, in lower case. The agent runs as the person it works
+ * for, so its reactions are kept as `agent:<email>`, apart from theirs:
+ * neither one's toggle can remove the other's.
+ */
+export function reviewReactionActor(
+  ctx: ReviewResourceContext | undefined,
+): string | null {
+  const email = ctx?.userEmail?.trim().toLowerCase();
+  if (!email) return null;
+  return reviewActorKindFromContext(ctx) === "agent" ? `agent:${email}` : email;
 }
 
 export function shouldRedactReviewIdentity(

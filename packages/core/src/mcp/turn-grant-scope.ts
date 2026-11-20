@@ -17,7 +17,9 @@ export const MCP_TURN_GRANT_HEADER = "x-agent-native-turn-grant";
 export function actionUserTurn(
   entry: { userTurn?: unknown } | undefined,
 ): ActionUserTurn | undefined {
-  return entry?.userTurn === "read" || entry?.userTurn === "approval"
+  return entry?.userTurn === "read" ||
+    entry?.userTurn === "approval" ||
+    entry?.userTurn === "direct"
     ? entry.userTurn
     : undefined;
 }
@@ -66,10 +68,16 @@ export function isMcpTurnGrantAction(actionName: string | undefined): boolean {
   );
 }
 
+/**
+ * True when a call under this grant that needs approval gets it on the app's
+ * review page only. A direct write that reaches approval was not cleared by
+ * its predicate, so it is reviewed like an approval write.
+ */
 export function requiresTurnGrantPageApproval(actionName: string): boolean {
+  const userTurn = turnScope.getStore()?.userTurn;
   return (
     isMcpTurnGrantAction(actionName) &&
-    turnScope.getStore()?.userTurn === "approval"
+    (userTurn === "approval" || userTurn === "direct")
   );
 }
 

@@ -1,3 +1,4 @@
+import { isAgentCaller } from "../../action-caller.js";
 import type { ActionRunContext } from "../../action.js";
 import { resolveMcpClientHostId } from "../../shared/mcp-connect-content.js";
 import type { SuggestionAuthorSource } from "./types.js";
@@ -5,9 +6,8 @@ import type { SuggestionAuthorSource } from "./types.js";
 export function suggestionActorKind(
   ctx: unknown,
 ): "agent" | "human" | "system" {
-  const agentCallers = new Set(["agent", "tool", "mcp", "webmcp", "a2a"]);
   const caller = (ctx as { caller?: unknown })?.caller;
-  if (agentCallers.has(caller as string)) return "agent";
+  if (isAgentCaller(caller)) return "agent";
   return (ctx as { userEmail?: unknown })?.userEmail ? "human" : "system";
 }
 

@@ -387,7 +387,10 @@ export function BulkInviteForm({
           variant="secondary"
           size="sm"
           aria-expanded={pasteOpen}
-          onClick={() => setPasteOpen((v) => !v)}
+          onClick={() => {
+            if (pasteOpen) setPasteValue("");
+            setPasteOpen(!pasteOpen);
+          }}
         >
           <IconUserPlus />
           {t("agentChat.settingsOrg.invite.pasteMany")}
@@ -453,18 +456,8 @@ export function BulkInviteForm({
             </Select>
             <Button
               type="button"
-              variant="ghost"
-              className="ms-auto"
-              onClick={() => {
-                setPasteValue("");
-                setPasteOpen(false);
-              }}
-            >
-              {t("agentChat.common.cancel")}
-            </Button>
-            <Button
-              type="button"
               variant="secondary"
+              className="ms-auto"
               onClick={() => {
                 appendEmails(parseEmailList(pasteValue), pasteRole);
                 setPasteValue("");

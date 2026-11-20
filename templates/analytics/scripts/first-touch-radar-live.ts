@@ -12,6 +12,10 @@ import {
   parseRadarBacktestArgs,
   runRadarBacktest,
 } from "./radar/backtest.ts";
+import {
+  formatDesignNoQuestionsReadout,
+  runDesignNoQuestionsReadout,
+} from "./radar/design-no-questions-ab.ts";
 import { liveDatabaseUrlFromEnv } from "./radar/live.ts";
 import {
   REPO_ROOT,
@@ -85,9 +89,16 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({ ...paths, exitCode: report.exitCode }));
       process.exitCode = report.exitCode;
     } else if (command === "ab") {
-      const result = await runAbReadout(parseAbReadoutArgs(args));
-      console.log(formatAbMarkdown(result));
-      console.log(JSON.stringify(result));
+      const options = parseAbReadoutArgs(args);
+      if (options.experiment === "design_no_questions") {
+        const result = await runDesignNoQuestionsReadout(options);
+        console.log(formatDesignNoQuestionsReadout(result));
+        console.log(JSON.stringify(result));
+      } else {
+        const result = await runAbReadout(options);
+        console.log(formatAbMarkdown(result));
+        console.log(JSON.stringify(result));
+      }
     } else {
       const result = await runRadarBacktest(parseRadarBacktestArgs(args));
       console.log(formatRadarBacktest(result));

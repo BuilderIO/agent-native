@@ -227,6 +227,7 @@ export function seedAgentRunOwnerContext(
 export async function seedBackgroundAgentRunOwnerContext(
   event: H3Event,
   runId: string,
+  initiatorSignature?: unknown,
 ): Promise<AgentRunOwnerContext> {
   const { getTurnInitiatorByRun } = await import("../agent/run-store.js");
   const initiator = await getTurnInitiatorByRun(runId);
@@ -235,6 +236,39 @@ export async function seedBackgroundAgentRunOwnerContext(
       statusCode: 409,
       statusMessage: "Agent turn initiator is unavailable",
     });
+  }
+  const { hasConfiguredA2ASecret } = await import("../a2a/auth-policy.js");
+  if (hasConfiguredA2ASecret()) {
+    const { verifyDispatchedTurnInitiator } =
+      await import("../integrations/internal-token.js");
+    if (!verifyDispatchedTurnInitiator(runId, initiator, initiatorSignature)) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: "Agent turn initiator does not match its dispatch",
+      });
+    }
+  }
+  if (!initiator.anonymous && initiator.orgId) {
+    const { isOrgMember } = await import("../org/membership.js");
+    let member: boolean;
+    try {
+      member = await isOrgMember(initiator.orgId, initiator.email, {
+        requestEvent: event,
+      });
+    } catch (error) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: "Agent turn initiator membership is unavailable",
+        cause: error,
+      });
+    }
+    if (!member) {
+      throw createError({
+        statusCode: 403,
+        statusMessage:
+          "Agent turn initiator is no longer an organization member",
+      });
+    }
   }
   return seedAgentRunOwnerContext(event, {
     owner: initiator.email,

@@ -61,6 +61,7 @@ import {
   createTask,
   createOrReuseTask,
   cancelA2ATask,
+  getIdempotentTask,
   getTask,
   getTaskOwnership,
   updateTask,
@@ -1191,6 +1192,27 @@ async function handleSend(
       },
     };
     event?.context?.__a2aBeforeTaskPersistence?.();
+    if (
+      idempotencyKey &&
+      ownerEmailForTask &&
+      event?.context?.__a2aOrgFromSoleMembership === true
+    ) {
+      const personalTask = await getIdempotentTask(
+        ownerEmailForTask,
+        A2A_PERSONAL_OWNER_SCOPE,
+        idempotencyKey,
+      );
+      if (
+        personalTask &&
+        personalTask.status.state !== "failed" &&
+        personalTask.status.state !== "canceled"
+      ) {
+        return {
+          ...jsonRpcResult(0, sanitizeTaskForResponse(personalTask)),
+          _id: 0,
+        };
+      }
+    }
     const { task, reused } = await createOrReuseTask(
       message,
       contextId,
@@ -1589,8 +1611,8 @@ function authorizeTaskAccess(
       }
     } else if (
       storedScope === A2A_PERSONAL_OWNER_SCOPE &&
-      !verifiedOrgId &&
-      !verifiedOrgDomain
+      ((!verifiedOrgId && !verifiedOrgDomain) ||
+        event?.context?.__a2aOrgFromSoleMembership === true)
     ) {
       // A verified identity with no organization is in its personal scope.
     } else {

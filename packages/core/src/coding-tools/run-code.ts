@@ -449,6 +449,8 @@ async function enqueueBackgroundRunCode(input: {
     orgId: input.context?.orgId ?? null,
     threadId: input.context?.threadId ?? null,
     allowedActionNames: getRequestRunContext()?.allowedActionNames,
+    caller: input.context?.caller ?? null,
+    networkProtocol: input.context?.networkProtocol ?? null,
   });
 
   const hasGetTool = Boolean(input.getActions()["get-code-execution"]);

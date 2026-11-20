@@ -102,6 +102,9 @@ export interface DirectActionCallScope {
   config: MCPConfig;
   actions: Record<string, ActionEntry>;
   advertisedActions: Record<string, ActionEntry>;
+  /** Served actions `tools/list` leaves out (`mcpTool: "search"`): callable
+   *  like listed ones, by name or through `call-tool`. */
+  unlistedActions: Record<string, ActionEntry>;
   /** False for an action whose input schema the request leaves out. */
   isAdvertisable: (name: string) => boolean;
   visibleActions: Record<string, ActionEntry>;
@@ -130,6 +133,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     config,
     actions,
     advertisedActions,
+    unlistedActions,
     isAdvertisable,
     visibleActions,
     fullCatalogRequested,
@@ -141,6 +145,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     inputResponse,
     requestMcpActionApproval,
   } = scope;
+  const servedActions = { ...advertisedActions, ...unlistedActions };
 
   const writeChangeMarker = async (
     entry: ActionEntry,
@@ -179,7 +184,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     fail: (failure: DirectActionCallFailure) => void,
   ) => {
     const { name, args, request, ctx } = call;
-    const callableActions = fullCatalogRequested ? actions : advertisedActions;
+    const callableActions = fullCatalogRequested ? actions : servedActions;
 
     // A directory profile may project results arbitrarily, so the derived
     // contract is advertised and enforced on app catalogs only. It compiles
