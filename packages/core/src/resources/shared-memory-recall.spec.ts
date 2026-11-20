@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   listSharedPersonalMemories,
-  readSharedPersonalMemory,
+  readMirroredMemory,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
 
@@ -32,13 +32,14 @@ describe("cross-chat memory recall", () => {
       owner,
       "memory/wife-contact.md",
       "My wife's email is wife@example.test\n",
+      Date.now(),
     );
 
-    const read = await readSharedPersonalMemory(
-      owner,
-      "memory/wife-contact.md",
-    );
-    expect(read?.content).toContain("wife@example.test");
+    const read = await readMirroredMemory(owner, "memory/wife-contact.md");
+    expect(read).toMatchObject({
+      state: "present",
+      content: expect.stringContaining("wife@example.test"),
+    });
     const listed = await listSharedPersonalMemories(owner);
     expect(listed.map((m) => m.path)).toContain("memory/wife-contact.md");
   });

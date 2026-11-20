@@ -21,6 +21,20 @@ describe("postNavigate", () => {
     pushStateSpy.mockRestore();
   });
 
+  it("keeps the router's history index moving forward on a client-side push", () => {
+    window.history.replaceState({ usr: null, key: "abc", idx: 4 }, "", "/a");
+    const popStateSpy = vi.fn();
+    window.addEventListener("popstate", popStateSpy);
+
+    postNavigate("/b");
+
+    expect(window.history.state).toMatchObject({ usr: null, idx: 5 });
+    expect(window.history.state.key).not.toBe("abc");
+    expect(popStateSpy.mock.calls[0][0].state).toEqual(window.history.state);
+
+    window.removeEventListener("popstate", popStateSpy);
+  });
+
   it("posts a message to the parent window when embedded in an iframe", () => {
     const postMessage = vi.fn();
     const originalParent = window.parent;
