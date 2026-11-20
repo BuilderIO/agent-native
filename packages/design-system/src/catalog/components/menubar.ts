@@ -8,7 +8,7 @@ import {
 
 /** The popup: its rows' size and how the highlighted row is filled. */
 export const menubarPopupProps = {
-  size: sizeProp(["2", "3"], "3", "Row height"),
+  size: sizeProp(["sm", "md"], "md", "Row height"),
   variant: variantProp(["solid", "soft"], "soft"),
   color: popupColorProp,
   highContrast: highContrastProp,

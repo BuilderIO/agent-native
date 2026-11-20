@@ -163,7 +163,7 @@ function ScaleDetail({ scale }: { scale: string }) {
         aria-label="Steps"
         value={kind}
         onValueChange={setKind}
-        size="2"
+        size="sm"
         className="self-start"
       >
         <SegmentedControlItem value="solid">Solid</SegmentedControlItem>
@@ -238,7 +238,7 @@ function Ratio({ ratio }: { ratio: number | null }) {
   return (
     <span className="flex items-center gap-2">
       <span className="tabular-nums">{ratio.toFixed(2)}:1</span>
-      <Badge color={passes ? "success" : "warning"} size="1">
+      <Badge color={passes ? "success" : "warning"} size="xs">
         {passes ? "AA" : "Under AA"}
       </Badge>
     </span>
@@ -291,7 +291,7 @@ function ReadableRow({ color, scale }: { color: Color; scale: string }) {
           <Ratio ratio={ratioOf(values, contrast, `--${scale}-9`)} />
         </Cell>
         <Cell>
-          <Button color={color} variant="solid" size="3">
+          <Button color={color} variant="solid" size="md">
             {label(scale)}
           </Button>
         </Cell>
@@ -310,7 +310,7 @@ function ReadableRow({ color, scale }: { color: Color; scale: string }) {
           <Ratio ratio={ratioOf(values, `--${scale}-11`, `--${scale}-3`)} />
         </Cell>
         <Cell>
-          <Button color={color} variant="soft" size="3">
+          <Button color={color} variant="soft" size="md">
             {label(scale)}
           </Button>
         </Cell>
@@ -494,7 +494,7 @@ function ColorBinding() {
           </Cell>
           <Cell>
             <span className="flex items-center gap-2">
-              <Button color={color} size="2">
+              <Button color={color} size="sm">
                 Save
               </Button>
               <Badge color={color}>{color}</Badge>

@@ -1,9 +1,12 @@
 import {
   CONTROL_SIZES,
+  type ControlSize,
   type EnumPropDef,
   PARTS,
   type PropDefs,
   SIZE_RAMP,
+  SIZE_STEPS,
+  SIZES,
 } from "@agent-native/design-system";
 import { IconPlus } from "@tabler/icons-react";
 
@@ -25,15 +28,15 @@ const px = (resolved: Resolved | undefined) =>
   resolved?.status === "ok" ? Number.parseFloat(resolved.value) : null;
 
 function ControlSizes() {
-  const tokens = CONTROL_SIZES.flatMap((size) => [
-    `--control-height-${size}`,
-    `--control-icon-size-${size}`,
-    `--control-padding-x-${size}`,
+  const tokens = SIZES.flatMap((size) => [
+    `--control-height-${SIZE_STEPS[size]}`,
+    `--control-icon-size-${SIZE_STEPS[size]}`,
+    `--control-padding-x-${SIZE_STEPS[size]}`,
   ]);
   const values = useResolved(tokens, "length");
   return (
     <Table
-      caption="Control sizes"
+      caption="Sizes"
       columns={[
         { label: "size", className: "w-12" },
         { label: "Height" },
@@ -43,10 +46,13 @@ function ControlSizes() {
         { label: "Sample" },
       ]}
     >
-      {CONTROL_SIZES.map((size) => {
-        const height = `--control-height-${size}`;
-        const icon = `--control-icon-size-${size}`;
-        const padding = `--control-padding-x-${size}`;
+      {SIZES.map((size) => {
+        const height = `--control-height-${SIZE_STEPS[size]}`;
+        const icon = `--control-icon-size-${SIZE_STEPS[size]}`;
+        const padding = `--control-padding-x-${SIZE_STEPS[size]}`;
+        const control = CONTROL_SIZES.find(
+          (name): name is ControlSize => name === size,
+        );
         const h = px(values.get(height));
         const i = px(values.get(icon));
         return (
@@ -67,14 +73,16 @@ function ControlSizes() {
               <TokenValue token={padding} resolved={values.get(padding)} />
             </Cell>
             <Cell>
-              <span className="flex items-center gap-2">
-                <Button size={size} variant="soft">
-                  Button
-                </Button>
-                <IconButton size={size} variant="soft" aria-label="Add">
-                  <IconPlus />
-                </IconButton>
-              </span>
+              {control === undefined ? null : (
+                <span className="flex items-center gap-2">
+                  <Button size={control} variant="soft">
+                    Button
+                  </Button>
+                  <IconButton size={control} variant="soft" aria-label="Add">
+                    <IconPlus />
+                  </IconButton>
+                </span>
+              )}
             </Cell>
           </Row>
         );
@@ -151,7 +159,7 @@ function SizeVocabulary() {
               {def.values.map((value) => (
                 <Badge
                   key={value}
-                  size="1"
+                  size="xs"
                   color={value === def.default ? "accent" : "gray"}
                   variant="soft"
                 >
@@ -172,9 +180,9 @@ export function SizingPage() {
   return (
     <Page
       title="Sizing"
-      intro={`Controls come in ${CONTROL_SIZES.length} heights, numbered as Radix numbers them. Each height has its own icon size and padding, and the icon sits centered with an inset of half the difference.`}
+      intro={`Sizes are named xs, sm, md and lg, for 16, 20, 24 and 32px. Controls come in sm and md, and md is the standard; rows are lg. Each size has its own icon size and padding, and the icon sits centered with an inset of half the difference.`}
     >
-      <Section title="Control sizes">
+      <Section title="Sizes">
         <ControlSizes />
       </Section>
       <Section title="Box sizes">

@@ -3,7 +3,7 @@
  *
  *   <div class="tabs" data-orientation>                  Base UI Tabs.Root
  *     <div class="tabs-list" role="tablist"              Tabs.List
- *          data-size="3|4" data-justify="start|center|end"
+ *          data-size="md|lg" data-justify="start|center|end"
  *          data-wrap="nowrap|wrap|wrap-reverse"
  *          [data-color="accent|gray|danger|warning|success|info"]
  *          [data-high-contrast] data-orientation>
@@ -14,7 +14,7 @@
  *
  * Radix Themes' tabs on the system's scale: a row of triggers over a
  * hairline, the active one underlined by Base UI's indicator in the nearest
- * `data-color`'s indicator step. Size 1 triggers are 24px tall, size 2 are
+ * `data-color`'s indicator step. md triggers are 24px tall, lg are
  * 32px; each draws its hover tint one control step shorter, inset from its
  * edges. Vertical tabs stack the list beside the panels with the line on
  * its inline end.
@@ -54,7 +54,7 @@
     display: none;
   }
 
-  :is(.tabs-list, .tab-nav-list)[data-size="3"] {
+  :is(.tabs-list, .tab-nav-list)[data-size="md"] {
     --_tabs-tab-height: var(--control-height-3);
     --_tabs-tab-tint-height: var(--control-height-2);
     --_tabs-tab-padding-x: var(--control-padding-x-2);

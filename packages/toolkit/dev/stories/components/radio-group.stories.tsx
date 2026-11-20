@@ -43,17 +43,6 @@ type Story = StoryObj<typeof meta>;
 /** The group with the props from the controls, which its radios draw with. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3: 12, 16 and 20px circles. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex items-start gap-8">
-      {radioGroupProps.size.values.map((size) => (
-        <Plans key={size} {...args} size={size} />
-      ))}
-    </div>
-  ),
-};
-
 /** Each variant in every color, then in high contrast. */
 export const Variants: Story = {
   render: (args) => (

@@ -49,7 +49,7 @@ export const Playground: Story = {
   ),
 };
 
-/** Sizes 1 to 4: square boxes at the 16, 20, 24 and 32px control heights. */
+/** md and sm: square boxes at the 24 and 20px control heights. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col gap-4">

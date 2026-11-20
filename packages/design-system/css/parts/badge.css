@@ -1,12 +1,12 @@
 /*
  * Part: badge
  *
- *   <span class="badge" data-size="1|2|3"
+ *   <span class="badge" data-size="xs|sm|md"
  *         data-variant="solid|soft|surface|outline"
  *         [data-color="accent|gray|danger|warning|success|info"]
  *         [data-high-contrast] [data-radius] [data-dot]>
  *
- * Radix Themes' badge on the system's scale: sizes 1 to 3 are 16, 20 and
+ * Radix Themes' badge on the system's scale: xs, sm and md are 16, 20 and
  * 24px tall. Like Button, a variant decides how the nearest `data-color`
  * applies. A dot is a 6px circle in the solid color, its label kept for
  * assistive technology.
@@ -40,7 +40,7 @@
     height: var(--control-icon-size-1);
   }
 
-  .badge[data-size="1"] {
+  .badge[data-size="xs"] {
     --_radius: var(--radius-1);
     height: var(--control-height-1);
     padding: 0 var(--space-1);
@@ -48,14 +48,14 @@
     line-height: var(--control-line-height-1);
   }
 
-  .badge[data-size="3"] {
+  .badge[data-size="md"] {
     height: var(--control-height-3);
     padding: 0 var(--space-2);
     font-size: var(--control-font-size-3);
     line-height: var(--control-line-height-3);
   }
 
-  .badge[data-size="3"] svg {
+  .badge[data-size="md"] svg {
     width: var(--control-icon-size-2);
     height: var(--control-icon-size-2);
   }

@@ -167,8 +167,8 @@ function ShapeSample() {
   return (
     <span className="flex flex-col gap-3">
       <span className="flex items-center gap-2">
-        <Button size="2">Save</Button>
-        <Button size="2" variant="outline">
+        <Button size="sm">Save</Button>
+        <Button size="sm" variant="outline">
           Cancel
         </Button>
         <Badge>Beta</Badge>
@@ -194,7 +194,7 @@ function Presets() {
             <span className="text-2 text-fg">{preset}</span>
             <Code>{`factor ${radiusTokens(preset)["--radius-factor"] ?? ""}`}</Code>
             {stage?.radius === preset ? (
-              <Badge size="1" variant="soft">
+              <Badge size="xs" variant="soft">
                 Current
               </Badge>
             ) : null}

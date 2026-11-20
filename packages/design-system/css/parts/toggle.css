@@ -2,11 +2,11 @@
  * Part: toggle
  *
  *   <button class="toggle" aria-pressed               Base UI Toggle
- *           data-size="1|2|3|4" data-variant="ghost|soft|surface|outline"
+ *           data-size="sm|md" data-variant="ghost|soft|surface|outline"
  *           [data-color="accent|gray|danger|warning|success|info"]
  *           [data-high-contrast] [data-radius] [data-pressed] [data-disabled]>
  *
- * Shaped like an Icon Button: sizes 1 to 4 are the 16, 20, 24 and 32px
+ * Shaped like an Icon Button: md and sm are the 24 and 20px
  * control heights, at least as wide as tall, with the icon's own inset on
  * either side, so an icon makes it square and a label widens it. Its rest,
  * hover and press colors are Button's for the same variant, and a pressed
@@ -64,31 +64,12 @@
 
   /* ---- sizes ---- */
 
-  .toggle[data-size="1"] {
-    --_radius: var(--radius-1);
-    --_padding: var(--space-1);
-    --control-font-size: var(--control-font-size-1);
-    --control-line-height: var(--control-line-height-1);
-    --_height: var(--control-height-1);
-    --_icon: var(--control-icon-size-1);
-  }
-
-  .toggle[data-size="2"] {
+  .toggle[data-size="sm"] {
     --_radius: var(--radius-2);
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
     --_icon: var(--control-icon-size-2);
-  }
-
-  .toggle[data-size="4"] {
-    --_radius: var(--radius-4);
-    --_padding: var(--space-3);
-    gap: var(--space-2);
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_height: var(--control-height-4);
-    --_icon: var(--control-icon-size-4);
   }
 
   /* ---- variants ---- */

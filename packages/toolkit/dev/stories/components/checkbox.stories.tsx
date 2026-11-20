@@ -22,22 +22,6 @@ type Story = StoryObj<typeof meta>;
 /** The checkbox with the props from the controls. */
 export const Playground: Story = { args: { "aria-label": "Notify me" } };
 
-/** Sizes 1 to 3: 12, 16 and 20px boxes. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex items-center gap-4">
-      {checkboxProps.size.values.map((size) => (
-        <Checkbox
-          key={size}
-          {...args}
-          size={size}
-          aria-label={`Size ${size}`}
-        />
-      ))}
-    </div>
-  ),
-};
-
 /** Each variant off, on and indeterminate in every color, then in high contrast. */
 export const Variants: Story = {
   render: (args) => (

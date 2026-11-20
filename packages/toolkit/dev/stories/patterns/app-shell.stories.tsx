@@ -60,7 +60,7 @@ function Shell({ collapsed }: { collapsed?: boolean }) {
             </NavigationMenu>
           </SidebarContent>
           <SidebarFooter>
-            <SidebarToggle aria-label="Sidebar" size="4" />
+            <SidebarToggle aria-label="Sidebar" size="md" />
           </SidebarFooter>
         </Sidebar>
         <AppShellCanvas>

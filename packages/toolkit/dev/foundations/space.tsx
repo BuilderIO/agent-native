@@ -1,4 +1,5 @@
 import {
+  CONTROL_HEIGHT_STEPS,
   CONTROL_SIZES,
   DENSITIES,
   type Density,
@@ -36,7 +37,7 @@ function DensityHeader({ density }: { density: string }) {
     <span className="flex items-center gap-1">
       {density}
       {stage?.density === density ? (
-        <Badge size="1" variant="soft">
+        <Badge size="xs" variant="soft">
           Current
         </Badge>
       ) : null}
@@ -82,9 +83,9 @@ function SpaceScale() {
 }
 
 const CONTROL_TOKENS = [
-  ...CONTROL_SIZES.flatMap((size) => [
-    `--control-height-${size}`,
-    `--control-padding-x-${size}`,
+  ...CONTROL_HEIGHT_STEPS.flatMap((step) => [
+    `--control-height-${step}`,
+    `--control-padding-x-${step}`,
   ]),
   "--control-gap",
 ] as TokenName[];
@@ -137,7 +138,7 @@ function Comparison() {
           <span className="flex flex-wrap items-center gap-(--space-2)">
             {CONTROL_SIZES.map((size) => (
               <Button key={size} size={size} variant="soft">
-                Size {size}
+                {size}
               </Button>
             ))}
           </span>

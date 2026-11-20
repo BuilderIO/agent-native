@@ -57,7 +57,7 @@ export const Playground: Story = {
   ),
 };
 
-/** Sizes 1 to 4: the 16, 20, 24 and 32px control heights. */
+/** md and sm: the 24 and 20px control heights. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col gap-3">
@@ -168,7 +168,7 @@ export const WithScrubArea: Story = {
       ].map(({ label, value, min }) => (
         <NumberField
           key={label}
-          size="2"
+          size="sm"
           variant="soft"
           color="gray"
           defaultValue={value}
@@ -178,7 +178,7 @@ export const WithScrubArea: Story = {
         </NumberField>
       ))}
       <NumberField
-        size="2"
+        size="sm"
         variant="soft"
         color="gray"
         defaultValue={0}
@@ -191,7 +191,7 @@ export const WithScrubArea: Story = {
         <InputSlot side="right">°</InputSlot>
       </NumberField>
       <NumberField
-        size="2"
+        size="sm"
         variant="soft"
         color="gray"
         defaultValue={1}

@@ -92,13 +92,13 @@ describe("alert dialog part", () => {
     const cancel = screen.getByRole("button", { name: "Keep" });
     expect(action.classList.contains("button")).toBe(true);
     expect(action.dataset).toMatchObject({
-      size: "3",
+      size: "md",
       variant: "solid",
       color: "danger",
     });
     expect(cancel.classList.contains("button")).toBe(true);
     expect(cancel.dataset).toMatchObject({
-      size: "3",
+      size: "md",
       variant: "surface",
       color: "gray",
     });

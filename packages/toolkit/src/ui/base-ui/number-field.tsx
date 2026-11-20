@@ -53,13 +53,6 @@ export interface NumberFieldProps
 
 const ROOT_PROP_NAMES = new Set<string>(ROOT_PROPS);
 
-const STEPPER_SIZE: Record<ControlSize, ControlSize> = {
-  "1": "1",
-  "2": "1",
-  "3": "1",
-  "4": "2",
-};
-
 interface NumberFieldContextValue {
   inputId: string;
   size: ControlSize;
@@ -103,7 +96,7 @@ const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
     const context = React.useMemo<NumberFieldContextValue>(
       () => ({
         inputId,
-        size: props.size ?? "3",
+        size: props.size ?? "md",
         variant: props.variant ?? "surface",
       }),
       [inputId, props.size, props.variant],
@@ -178,7 +171,7 @@ function createStepper(
     HTMLButtonElement,
     NumberFieldStepperProps
   >(({ className, children, ...props }, ref) => {
-    const { size, variant } = useNumberFieldContext(displayName);
+    const { variant } = useNumberFieldContext(displayName);
     return (
       <Base
         ref={ref}
@@ -186,7 +179,7 @@ function createStepper(
         className={partClassName(part, className)}
         render={
           <IconButton
-            size={STEPPER_SIZE[size]}
+            size="sm"
             variant="ghost"
             {...(variant === "surface" ? { color: "gray" as const } : {})}
           />

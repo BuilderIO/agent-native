@@ -13,7 +13,7 @@ describe("Toggle part", () => {
   it("writes its size and variant, size 3 ghost by default, inheriting its color", () => {
     render(<Toggle aria-label="Bold" />);
     const toggle = screen.getByRole("button", { name: "Bold" });
-    expect(toggle.dataset.size).toBe("3");
+    expect(toggle.dataset.size).toBe("md");
     expect(toggle.dataset.variant).toBe("ghost");
     expect(toggle.dataset.color).toBeUndefined();
     expect(toggle.dataset.radius).toBeUndefined();
@@ -46,11 +46,11 @@ describe("Toggle part", () => {
   it("stays pressed after a press and reports it", () => {
     const onPressedChange = vi.fn();
     render(
-      <Toggle aria-label="Bold" size="2" onPressedChange={onPressedChange} />,
+      <Toggle aria-label="Bold" size="sm" onPressedChange={onPressedChange} />,
     );
     const toggle = screen.getByRole("button", { name: "Bold" });
     expect(toggle.classList.contains("toggle")).toBe(true);
-    expect(toggle.dataset.size).toBe("2");
+    expect(toggle.dataset.size).toBe("sm");
     fireEvent.click(toggle);
     expect(onPressedChange).toHaveBeenCalledWith(true, expect.anything());
     expect(toggle.hasAttribute("data-pressed")).toBe(true);
@@ -73,17 +73,17 @@ describe("Toggle part", () => {
   });
   it("draws its toggles with the group's props, and a toggle's own win", () => {
     render(
-      <ToggleGroup aria-label="Align" size="2" variant="soft" color="gray">
+      <ToggleGroup aria-label="Align" size="sm" variant="soft" color="gray">
         <Toggle value="left" aria-label="Left" />
         <Toggle value="center" aria-label="Center" variant="outline" />
       </ToggleGroup>,
     );
     const left = screen.getByRole("button", { name: "Left" });
-    expect(left.dataset.size).toBe("2");
+    expect(left.dataset.size).toBe("sm");
     expect(left.dataset.variant).toBe("soft");
     expect(left.dataset.color).toBe("gray");
     const center = screen.getByRole("button", { name: "Center" });
-    expect(center.dataset.size).toBe("2");
+    expect(center.dataset.size).toBe("sm");
     expect(center.dataset.variant).toBe("outline");
   });
 
@@ -103,7 +103,7 @@ describe("Badge and Spinner parts", () => {
   it("writes a badge's color, variant and size, and takes render", () => {
     render(
       <>
-        <Badge color="success" variant="solid" size="1">
+        <Badge color="success" variant="solid" size="xs">
           Live
         </Badge>
         <Badge render={<a href="/drafts" />}>Draft</Badge>
@@ -113,23 +113,23 @@ describe("Badge and Spinner parts", () => {
     expect(live.className).toBe("badge");
     expect(live.dataset.color).toBe("success");
     expect(live.dataset.variant).toBe("solid");
-    expect(live.dataset.size).toBe("1");
+    expect(live.dataset.size).toBe("xs");
     const draft = screen.getByText("Draft");
     expect(draft.tagName).toBe("A");
     expect(draft.dataset.variant).toBe("soft");
-    expect(draft.dataset.size).toBe("2");
+    expect(draft.dataset.size).toBe("sm");
   });
 
   it("hides a spinner without a label, and announces one with it", () => {
     const { container } = render(
       <>
         <Spinner />
-        <Spinner label="Saving" size="1" />
+        <Spinner label="Saving" size="sm" />
       </>,
     );
     const spinners = container.querySelectorAll(".spinner");
     expect(spinners[0]?.getAttribute("aria-hidden")).toBe("true");
     const announced = screen.getByRole("status", { name: "Saving" });
-    expect(announced.dataset.size).toBe("1");
+    expect(announced.dataset.size).toBe("sm");
   });
 });

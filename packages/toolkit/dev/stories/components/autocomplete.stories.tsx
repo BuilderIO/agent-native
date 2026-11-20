@@ -147,7 +147,7 @@ type Story = StoryObj<typeof meta>;
 /** Type to see suggestions; any text is kept. The input takes the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4: the field is Input's, and the rows follow its size. */
+/** md and sm: the field is Input's, and the rows follow its size. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex w-72 flex-col gap-3">

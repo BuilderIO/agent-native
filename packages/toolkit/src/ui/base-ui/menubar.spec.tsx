@@ -86,7 +86,7 @@ describe("Menubar on Base UI", () => {
     );
     const menu = await screen.findByRole("menu");
     expect(menu.dataset).toMatchObject({
-      size: "3",
+      size: "md",
       variant: "soft",
       color: "gray",
     });

@@ -168,7 +168,7 @@ type Story = StoryObj<typeof meta>;
 /** The select with the root's and the trigger's props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4: the 16, 20, 24 and 32px control heights. */
+/** md and sm: the 24 and 20px control heights. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex w-56 flex-col items-start gap-3">

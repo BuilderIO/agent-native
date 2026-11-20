@@ -31,7 +31,7 @@ describe("SegmentedControl part", () => {
     render(<Example />);
     const group = screen.getByRole("group", { name: "Easing" });
     expect(group.classList.contains("segmented-control")).toBe(true);
-    expect(group.dataset.size).toBe("3");
+    expect(group.dataset.size).toBe("md");
     expect(group.dataset.variant).toBe("surface");
     expect(group.dataset.radius).toBeUndefined();
     const curve = screen.getByRole("button", { name: "Curve" });
@@ -41,9 +41,9 @@ describe("SegmentedControl part", () => {
   });
 
   it("writes size, variant and radius as Radix names them", () => {
-    render(<Example size="2" variant="soft" radius="full" />);
+    render(<Example size="sm" variant="soft" radius="full" />);
     const group = screen.getByRole("group", { name: "Easing" });
-    expect(group.dataset.size).toBe("2");
+    expect(group.dataset.size).toBe("sm");
     expect(group.dataset.variant).toBe("soft");
     expect(group.dataset.radius).toBe("full");
   });

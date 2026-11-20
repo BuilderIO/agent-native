@@ -31,7 +31,7 @@ export const States: StoryObj = {
             <IconStar />
           </ToolbarButton>
         </Toolbar>
-        <Button size="2">Compose</Button>
+        <Button size="sm">Compose</Button>
       </PageHeaderActions>
     </PageHeader>
   ),

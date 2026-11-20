@@ -1,6 +1,6 @@
-import { sizeProp } from "../props.js";
+import { CONTROL_SIZES, sizeProp } from "../props.js";
 
 /** The size its buttons, toggles and inputs take. */
 export const toolbarProps = {
-  size: sizeProp(["2", "3", "4"], "3"),
+  size: sizeProp(CONTROL_SIZES, "md"),
 } as const;

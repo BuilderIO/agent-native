@@ -2,14 +2,14 @@
  * Part: otp-field
  *
  *   <div class="otp-field"                         Base UI OTPField.Root
- *        data-size="1|2|3|4" data-variant="surface|soft"
+ *        data-size="sm|md" data-variant="surface|soft"
  *        [data-color] [data-radius] [data-complete] [data-disabled]>
  *     <input class="otp-field-input"                OTPField.Input, one per character
  *            [data-filled] [data-invalid] [data-disabled] [aria-invalid]>
  *     <div class="otp-field-separator">             OTPField.Separator, between groups
  *
  * A row of square boxes, each drawn as an Input's surface or soft field:
- * sizes 1 to 4 are the 16, 20, 24 and 32px control heights, square, with
+ * md and sm are the 24 and 20px control heights, square, with
  * the character centered in tabular figures. Each box takes the focus ring
  * as it takes the caret; an invalid field edges every box in the danger
  * color.
@@ -17,10 +17,10 @@
 
 @layer components {
   .otp-field {
-    --_box: var(--control-height-4);
-    --_font-size: var(--control-font-size-4);
-    --_line-height: var(--control-line-height-4);
-    --_radius: var(--radius-4);
+    --_box: var(--control-height-3);
+    --_font-size: var(--control-font-size-3);
+    --_line-height: var(--control-line-height-3);
+    --_radius: var(--radius-3);
 
     display: inline-flex;
     align-items: center;
@@ -29,29 +29,13 @@
 
   /* ---- sizes ---- */
 
-  .otp-field[data-size="1"] {
-    --_box: var(--control-height-1);
-    --_font-size: var(--control-font-size-1);
-    --_line-height: var(--control-line-height-1);
-    --_radius: var(--radius-1);
-
-    gap: var(--space-1);
-  }
-
-  .otp-field[data-size="2"] {
+  .otp-field[data-size="sm"] {
     --_box: var(--control-height-2);
     --_font-size: var(--control-font-size-2);
     --_line-height: var(--control-line-height-2);
     --_radius: var(--radius-2);
 
     gap: var(--space-1);
-  }
-
-  .otp-field[data-size="3"] {
-    --_box: var(--control-height-3);
-    --_font-size: var(--control-font-size-3);
-    --_line-height: var(--control-line-height-3);
-    --_radius: var(--radius-3);
   }
 
   /* ---- boxes ---- */

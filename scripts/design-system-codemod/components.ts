@@ -92,17 +92,17 @@ const BUTTON_VARIANTS: Readonly<Record<string, string[] | "link">> = {
 
 const BUTTON_SIZES: Readonly<Record<string, { size: string; icon: boolean }>> =
   {
-    xs: { size: "3", icon: false },
-    sm: { size: "3", icon: false },
-    default: { size: "3", icon: false },
-    lg: { size: "4", icon: false },
-    icon: { size: "3", icon: true },
-    "icon-xs": { size: "3", icon: true },
-    "icon-sm": { size: "3", icon: true },
-    "icon-lg": { size: "4", icon: true },
+    xs: { size: "md", icon: false },
+    sm: { size: "md", icon: false },
+    default: { size: "md", icon: false },
+    lg: { size: "md", icon: false },
+    icon: { size: "md", icon: true },
+    "icon-xs": { size: "md", icon: true },
+    "icon-sm": { size: "md", icon: true },
+    "icon-lg": { size: "md", icon: true },
   };
 
-const DEFAULT_CONTROL_SIZE = "3";
+const DEFAULT_CONTROL_SIZE = "md";
 
 const LINK_TAGS = new Set(["a", "Link", "NavLink"]);
 
@@ -279,7 +279,7 @@ const BADGE_VARIANTS: Readonly<Record<string, string[]>> = {
 
 const BADGE_SIZES: Readonly<Record<string, string[]>> = {
   default: [],
-  sm: ['size="1"'],
+  sm: ['size="xs"'],
 };
 
 function badgeJsx(tag: JsxTag): Analysis {
@@ -486,13 +486,12 @@ function spinnerSizeClasses(
 }
 
 const SPINNER_DIAMETERS: readonly [string, number][] = [
-  ["1", 12],
-  ["2", 16],
-  ["3", 20],
+  ["sm", 12],
+  ["md", 16],
 ];
 
 function spinnerSize(px: number): { size: string; exact: boolean } | null {
-  if (px < 10 || px > 22) return null;
+  if (px < 10 || px > 18) return null;
   let best = SPINNER_DIAMETERS.at(0);
   for (const entry of SPINNER_DIAMETERS) {
     if (
@@ -550,7 +549,7 @@ function spinnerJsx(tag: JsxTag, context: SiteContext): Analysis {
   }
   const diameter = px ?? 16;
   const mapped = spinnerSize(diameter);
-  if (!mapped) return skip(`${diameter}px is outside the Spinner's 12-20px`);
+  if (!mapped) return skip(`${diameter}px is outside the Spinner's 12-16px`);
   if (!mapped.exact) {
     reviews.push(
       `${diameter}px rounded to size "${mapped.size}" (${SPINNER_DIAMETERS.find(([size]) => size === mapped.size)?.[1]}px)`,
@@ -596,7 +595,7 @@ function spinnerJsx(tag: JsxTag, context: SiteContext): Analysis {
       if (label) edits.add(label.name.getStart(), label.name.end, "label");
       editTag(edits, tag, {
         remove: [findAttr(tag, "size"), hidden],
-        add: mapped.size === "2" ? [] : [`size="${mapped.size}"`],
+        add: mapped.size === "md" ? [] : [`size="${mapped.size}"`],
       });
     },
   };

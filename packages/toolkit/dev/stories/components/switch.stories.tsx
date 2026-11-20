@@ -21,17 +21,6 @@ type Story = StoryObj<typeof meta>;
 /** The switch with the props from the controls. */
 export const Playground: Story = { args: { "aria-label": "Sync" } };
 
-/** Sizes 1 to 3: 12, 16 and 20px tracks. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex items-center gap-4">
-      {switchProps.size.values.map((size) => (
-        <Switch key={size} {...args} size={size} aria-label={`Size ${size}`} />
-      ))}
-    </div>
-  ),
-};
-
 /** Each variant off and on in every color, then in high contrast. */
 export const Variants: Story = {
   render: (args) => (
@@ -81,7 +70,6 @@ export const Radius: Story = {
         <Switch
           key={radius}
           {...args}
-          size="3"
           radius={radius}
           aria-label={`Radius ${radius}`}
         />

@@ -4,14 +4,10 @@ export function Waits() {
   return (
     <div>
       <Spinner />
-      <Spinner size="1" />
+      <Spinner size="sm" />
       <Spinner className="mr-2" label="Saving" />
-      <Spinner
-        size="3"
-        className="text-muted-foreground"
-        label="Loading designs"
-      />
-      <Spinner size="3" />
+      <Spinner className="text-muted-foreground" label="Loading designs" />
+      <Spinner />
       <Spinner className="shrink-0" />
     </div>
   );

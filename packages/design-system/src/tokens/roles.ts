@@ -179,11 +179,11 @@ export const DENSITIES: readonly Density[] = [
   "comfortable",
 ];
 
-/** Control sizes, numbered as Radix numbers them: heights of 16, 20, 24 and 32px. */
-export const CONTROL_SIZES = ["1", "2", "3", "4"] as const;
-export type ControlSize = (typeof CONTROL_SIZES)[number];
+/** The control height scale behind the size names: 16, 20, 24 and 32px. */
+export const CONTROL_HEIGHT_STEPS = ["1", "2", "3", "4"] as const;
+export type ControlHeightStep = (typeof CONTROL_HEIGHT_STEPS)[number];
 
-const CONTROL_TEXT_STEPS: Readonly<Record<ControlSize, number>> = {
+const CONTROL_TEXT_STEPS: Readonly<Record<ControlHeightStep, number>> = {
   "1": 1,
   "2": 1,
   "3": 1,
@@ -230,7 +230,7 @@ export function densityTokens(density: Density): TokenMap {
   scale.space.forEach((value, index) => {
     tokens[`--space-${index + 1}`] = `${value}px`;
   });
-  CONTROL_SIZES.forEach((size, index) => {
+  CONTROL_HEIGHT_STEPS.forEach((size, index) => {
     tokens[`--control-height-${size}`] = `${at(CONTROL_HEIGHTS, index)}px`;
     tokens[`--control-padding-x-${size}`] = `${at(scale.padding, index)}px`;
     tokens[`--control-icon-size-${size}`] =
@@ -239,7 +239,7 @@ export function densityTokens(density: Density): TokenMap {
   tokens["--control-gap"] = `${scale.gap}px`;
   tokens["--control-font-size"] = "var(--font-size-1)";
   tokens["--control-line-height"] = "var(--line-height-1)";
-  for (const size of CONTROL_SIZES) {
+  for (const size of CONTROL_HEIGHT_STEPS) {
     const step = CONTROL_TEXT_STEPS[size];
     tokens[`--control-font-size-${size}`] = `var(--font-size-${step})`;
     tokens[`--control-line-height-${size}`] = `var(--line-height-${step})`;

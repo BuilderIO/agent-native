@@ -18,7 +18,7 @@ const meta = {
     children: (
       <>
         <CollapsibleTrigger
-          render={<Button variant="ghost" color="gray" size="3" />}
+          render={<Button variant="ghost" color="gray" size="md" />}
         >
           Recent
           <IconChevronDown className="collapsible-chevron" aria-hidden />
@@ -63,7 +63,7 @@ export const States: Story = {
       {[false, true].map((open) => (
         <Collapsible key={String(open)} defaultOpen={open}>
           <CollapsibleTrigger
-            render={<Button variant="ghost" color="gray" size="3" />}
+            render={<Button variant="ghost" color="gray" size="md" />}
           >
             {open ? "Library" : "Recent"}
             <IconChevronDown className="collapsible-chevron" aria-hidden />

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { Switch, type SwitchProps } from "./switch.js";
+import { Switch } from "./switch.js";
 
 afterEach(cleanup);
 
@@ -12,7 +12,6 @@ describe("Switch part", () => {
     render(<Switch aria-label="Sync" defaultChecked />);
     const control = screen.getByRole("switch", { name: "Sync" });
     expect(control.classList.contains("switch")).toBe(true);
-    expect(control.dataset.size).toBe("3");
     expect(control.dataset.variant).toBe("surface");
     expect(control.dataset.color).toBeUndefined();
     expect(control.dataset.radius).toBeUndefined();
@@ -24,11 +23,8 @@ describe("Switch part", () => {
 
   it("toggles on click and reports the new state", () => {
     const onCheckedChange = vi.fn();
-    render(
-      <Switch aria-label="Sync" size="1" onCheckedChange={onCheckedChange} />,
-    );
+    render(<Switch aria-label="Sync" onCheckedChange={onCheckedChange} />);
     const control = screen.getByRole("switch", { name: "Sync" });
-    expect(control.dataset.size).toBe("1");
     fireEvent.click(control);
     expect(onCheckedChange).toHaveBeenCalledWith(true, expect.anything());
     expect(control.hasAttribute("data-checked")).toBe(true);
@@ -38,7 +34,6 @@ describe("Switch part", () => {
     render(
       <Switch
         aria-label="Sync"
-        size="3"
         variant="soft"
         color="success"
         highContrast
@@ -46,18 +41,10 @@ describe("Switch part", () => {
       />,
     );
     const control = screen.getByRole("switch", { name: "Sync" });
-    expect(control.dataset.size).toBe("3");
     expect(control.dataset.variant).toBe("soft");
     expect(control.dataset.color).toBe("success");
     expect(control.dataset.highContrast).toBe("");
     expect(control.dataset.radius).toBe("none");
-  });
-
-  it("refuses a size it doesn't have instead of drawing the default", () => {
-    const props = { size: "md" } as unknown as SwitchProps;
-    expect(() => render(<Switch aria-label="Sync" {...props} />)).toThrow(
-      /size="md" is not one of/,
-    );
   });
 
   it("toggles from a label pointed at its id", () => {

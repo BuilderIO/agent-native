@@ -1,14 +1,14 @@
-import { CONTROL_SIZES } from "../../tokens/roles.js";
 import {
   colorProp,
   highContrastProp,
   radiusProp,
+  SIZES,
   sizeProp,
   variantProp,
 } from "../props.js";
 
 export const avatarProps = {
-  size: sizeProp(CONTROL_SIZES, "3", "Diameter"),
+  size: sizeProp(SIZES, "md", "Diameter"),
   variant: variantProp(["solid", "soft"], "soft"),
   color: colorProp,
   highContrast: highContrastProp,

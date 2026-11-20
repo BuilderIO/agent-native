@@ -195,7 +195,7 @@ export const Playground: Story = {
   ),
 };
 
-/** Sizes 2 and 3: 20 and 24px rows. */
+/** md and sm: 24 and 20px rows. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex gap-6 p-8">

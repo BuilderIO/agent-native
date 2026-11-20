@@ -99,10 +99,10 @@ export interface AutocompletePopupOwnProps {
 
 export interface AutocompleteOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -120,10 +120,10 @@ export interface AutocompleteOwnProps {
 
 export interface AvatarOwnProps {
   /**
-   * Diameter: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Diameter: xs is 16px, sm is 20px, md is 24px, lg is 32px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "xs" | "sm" | "md" | "lg";
   /**
    * How the component applies its color.
    * @default "soft"
@@ -146,10 +146,10 @@ export interface AvatarOwnProps {
 
 export interface BadgeOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px.
-   * @default "2"
+   * Control height: xs is 16px, sm is 20px, md is 24px.
+   * @default "sm"
    */
-  size?: "1" | "2" | "3";
+  size?: "xs" | "sm" | "md";
   /**
    * How the component applies its color.
    * @default "soft"
@@ -206,10 +206,10 @@ export interface BlockquoteOwnProps {
 
 export interface ButtonLinkOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "solid"
@@ -232,10 +232,10 @@ export interface ButtonLinkOwnProps {
 
 export interface ButtonOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "solid"
@@ -320,11 +320,6 @@ export interface CheckboxCardsOwnProps {
 
 export interface CheckboxGroupOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
-   */
-  size?: "1" | "2" | "3" | "4";
-  /**
    * How the component applies its color.
    * @default "surface"
    */
@@ -341,11 +336,6 @@ export interface CheckboxGroupOwnProps {
 }
 
 export interface CheckboxOwnProps {
-  /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
-   */
-  size?: "1" | "2" | "3" | "4";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -416,10 +406,10 @@ export interface ComboboxPopupOwnProps {
 
 export interface ComboboxOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -444,10 +434,10 @@ export interface ContextMenuItemOwnProps {
 
 export interface ContextMenuPopupOwnProps {
   /**
-   * Row height: 2 is 20px, 3 is 24px.
-   * @default "3"
+   * Row height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "2" | "3";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "soft"
@@ -547,10 +537,10 @@ export interface HeadingOwnProps {
 
 export interface IconButtonOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "solid"
@@ -578,10 +568,10 @@ export interface IconButtonOwnProps {
 
 export interface InputOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -705,10 +695,10 @@ export interface MenubarItemOwnProps {
 
 export interface MenubarPopupOwnProps {
   /**
-   * Row height: 2 is 20px, 3 is 24px.
-   * @default "3"
+   * Row height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "2" | "3";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "soft"
@@ -735,10 +725,10 @@ export interface MenuItemOwnProps {
 
 export interface MenuPopupOwnProps {
   /**
-   * Row height: 2 is 20px, 3 is 24px.
-   * @default "3"
+   * Row height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "2" | "3";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "soft"
@@ -784,10 +774,10 @@ export interface MeterOwnProps {
 
 export interface NumberFieldOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -805,10 +795,10 @@ export interface NumberFieldOwnProps {
 
 export interface OtpFieldOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -890,11 +880,6 @@ export interface RadioCardsOwnProps {
 
 export interface RadioGroupOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
-   */
-  size?: "1" | "2" | "3" | "4";
-  /**
    * How the component applies its color.
    * @default "surface"
    */
@@ -929,10 +914,10 @@ export interface ScrollAreaOwnProps {
 
 export interface SegmentedControlOwnProps {
   /**
-   * Control height: 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -964,10 +949,10 @@ export interface SelectPopupOwnProps {
 
 export interface SelectRootOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
 }
 
 export interface SelectTriggerOwnProps {
@@ -1035,10 +1020,10 @@ export interface SliderOwnProps {
 
 export interface SpinnerOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * While false, renders its children in place of the spinner, as Radix Themes does.
    * @default true
@@ -1047,11 +1032,6 @@ export interface SpinnerOwnProps {
 }
 
 export interface SwitchOwnProps {
-  /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
-   */
-  size?: "1" | "2" | "3" | "4";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -1108,10 +1088,10 @@ export interface TableRowOwnProps {
 
 export interface TabNavOwnProps {
   /**
-   * Control height: 3 is 24px, 4 is 32px.
-   * @default "4"
+   * Control height: md is 24px, lg is 32px.
+   * @default "lg"
    */
-  size?: "3" | "4";
+  size?: "md" | "lg";
   /**
    * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
    */
@@ -1135,10 +1115,10 @@ export interface TabNavOwnProps {
 
 export interface TabsListOwnProps {
   /**
-   * Control height: 3 is 24px, 4 is 32px.
-   * @default "4"
+   * Control height: md is 24px, lg is 32px.
+   * @default "lg"
    */
-  size?: "3" | "4";
+  size?: "md" | "lg";
   /**
    * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
    */
@@ -1162,10 +1142,10 @@ export interface TabsListOwnProps {
 
 export interface TextAreaOwnProps {
   /**
-   * The height of the Input it matches, which sets its padding and type: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * The height of the Input it matches, which sets its padding and type: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -1252,10 +1232,10 @@ export interface ToastOwnProps {
 
 export interface ToggleGroupOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "ghost"
@@ -1278,10 +1258,10 @@ export interface ToggleGroupOwnProps {
 
 export interface ToggleOwnProps {
   /**
-   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "1" | "2" | "3" | "4";
+  size?: "sm" | "md";
   /**
    * How the component applies its color.
    * @default "ghost"
@@ -1304,10 +1284,10 @@ export interface ToggleOwnProps {
 
 export interface ToolbarOwnProps {
   /**
-   * Control height: 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "3"
+   * Control height: sm is 20px, md is 24px.
+   * @default "md"
    */
-  size?: "2" | "3" | "4";
+  size?: "sm" | "md";
 }
 
 type Equal<A, B> =

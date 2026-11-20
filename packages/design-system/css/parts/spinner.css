@@ -1,7 +1,7 @@
 /*
  * Part: spinner
  *
- *   <span class="spinner" data-size="1|2|3|4">
+ *   <span class="spinner" data-size="sm|md">
  *
  * A turning ring the size of a control icon (12, 16 or 20px), in the
  * current text color. Under reduced motion it pulses instead.
@@ -21,15 +21,10 @@
     animation: spinner-turn 0.7s linear infinite;
   }
 
-  .spinner:is([data-size="1"], [data-size="2"]) {
+  .spinner[data-size="sm"] {
     width: var(--control-icon-size-2);
     height: var(--control-icon-size-2);
     border-width: 1.5px;
-  }
-
-  .spinner[data-size="4"] {
-    width: var(--size-2);
-    height: var(--size-2);
   }
 
   @media (prefers-reduced-motion: reduce) {

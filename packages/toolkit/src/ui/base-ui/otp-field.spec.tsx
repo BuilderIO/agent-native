@@ -39,7 +39,7 @@ describe("OTP Field part", () => {
       boxes()[5],
     );
     const root = first.closest<HTMLElement>(".otp-field");
-    expect(root?.dataset.size).toBe("3");
+    expect(root?.dataset.size).toBe("md");
     expect(root?.dataset.variant).toBe("surface");
     expect(root?.dataset.color).toBeUndefined();
   });
@@ -48,7 +48,7 @@ describe("OTP Field part", () => {
     render(
       <OTPField
         length={4}
-        size="2"
+        size="sm"
         variant="soft"
         color="info"
         radius="full"
@@ -56,7 +56,7 @@ describe("OTP Field part", () => {
       />,
     );
     const root = document.querySelector<HTMLElement>(".otp-field");
-    expect(root?.dataset.size).toBe("2");
+    expect(root?.dataset.size).toBe("sm");
     expect(root?.dataset.variant).toBe("soft");
     expect(root?.dataset.color).toBe("info");
     expect(root?.dataset.radius).toBe("full");

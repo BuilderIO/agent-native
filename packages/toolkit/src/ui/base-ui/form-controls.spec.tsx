@@ -9,7 +9,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CheckboxGroup } from "./checkbox-group.js";
-import { Checkbox, type CheckboxProps } from "./checkbox.js";
+import { Checkbox } from "./checkbox.js";
 import { Field, FieldDescription, FieldError, FieldLabel } from "./field.js";
 import { Fieldset, FieldsetLegend } from "./fieldset.js";
 import { Input, type InputProps, InputSlot } from "./input.js";
@@ -25,7 +25,7 @@ describe("Input and Text Area parts", () => {
     const input = screen.getByRole("textbox", { name: "Name" });
     expect(input.classList.contains("input-control")).toBe(true);
     const frame = input.closest<HTMLElement>(".input");
-    expect(frame?.dataset.size).toBe("3");
+    expect(frame?.dataset.size).toBe("md");
     expect(frame?.dataset.variant).toBe("surface");
     expect(frame?.dataset.color).toBeUndefined();
     fireEvent.change(input, { target: { value: "Ada" } });
@@ -36,7 +36,7 @@ describe("Input and Text Area parts", () => {
     render(
       <Input
         aria-label="Search"
-        size="2"
+        size="sm"
         variant="soft"
         color="gray"
         radius="full"
@@ -47,7 +47,7 @@ describe("Input and Text Area parts", () => {
     const frame = screen
       .getByRole("textbox", { name: "Search" })
       .closest<HTMLElement>(".input");
-    expect(frame?.dataset.size).toBe("2");
+    expect(frame?.dataset.size).toBe("sm");
     expect(frame?.dataset.variant).toBe("soft");
     expect(frame?.dataset.color).toBe("gray");
     expect(frame?.dataset.radius).toBe("full");
@@ -112,7 +112,7 @@ describe("Input and Text Area parts", () => {
         aria-label="Notes"
         rows={4}
         placeholder="Add a note"
-        size="2"
+        size="sm"
         variant="soft"
         resize="none"
         onValueChange={onValueChange}
@@ -121,7 +121,7 @@ describe("Input and Text Area parts", () => {
     const textarea = screen.getByRole("textbox", { name: "Notes" });
     expect(textarea.tagName).toBe("TEXTAREA");
     expect(textarea.classList.contains("text-area")).toBe(true);
-    expect(textarea.dataset.size).toBe("2");
+    expect(textarea.dataset.size).toBe("sm");
     expect(textarea.dataset.variant).toBe("soft");
     expect(textarea.dataset.resize).toBe("none");
     expect(textarea.getAttribute("rows")).toBe("4");
@@ -133,7 +133,7 @@ describe("Input and Text Area parts", () => {
   it("draws a text area at size 3 surface, resizing vertically, by default", () => {
     render(<TextArea aria-label="Notes" />);
     const textarea = screen.getByRole("textbox", { name: "Notes" });
-    expect(textarea.dataset.size).toBe("3");
+    expect(textarea.dataset.size).toBe("md");
     expect(textarea.dataset.variant).toBe("surface");
     expect(textarea.dataset.resize).toBe("vertical");
   });
@@ -200,7 +200,6 @@ describe("Checkbox part", () => {
   it("writes its size and variant, size 3 surface by default, inheriting its color", () => {
     render(<Checkbox aria-label="Notify me" />);
     const box = screen.getByRole("checkbox", { name: "Notify me" });
-    expect(box.dataset.size).toBe("3");
     expect(box.dataset.variant).toBe("surface");
     expect(box.dataset.color).toBeUndefined();
     expect(box.dataset.highContrast).toBeUndefined();
@@ -210,24 +209,15 @@ describe("Checkbox part", () => {
     render(
       <Checkbox
         aria-label="Notify me"
-        size="3"
         variant="soft"
         color="danger"
         highContrast
       />,
     );
     const box = screen.getByRole("checkbox", { name: "Notify me" });
-    expect(box.dataset.size).toBe("3");
     expect(box.dataset.variant).toBe("soft");
     expect(box.dataset.color).toBe("danger");
     expect(box.dataset.highContrast).toBe("");
-  });
-
-  it("refuses a size it doesn't have instead of drawing the default", () => {
-    const props = { size: "5" } as unknown as CheckboxProps;
-    expect(() =>
-      render(<Checkbox aria-label="Notify me" {...props} />),
-    ).toThrow(/size="5" is not one of/);
   });
 
   it("toggles and draws a check while checked", () => {
@@ -269,22 +259,17 @@ describe("Checkbox part", () => {
   });
   it("draws its checkboxes with the group's props, and a checkbox's own win", () => {
     render(
-      <CheckboxGroup aria-label="Channels" size="1" variant="soft" color="gray">
+      <CheckboxGroup aria-label="Channels" variant="soft" color="gray">
         <Checkbox value="email" aria-label="Email" />
-        <Checkbox value="sms" aria-label="SMS" size="3" color="danger" />
+        <Checkbox value="sms" aria-label="SMS" color="danger" />
       </CheckboxGroup>,
     );
     const email = screen.getByRole("checkbox", { name: "Email" });
-    expect(email.dataset.size).toBe("1");
     expect(email.dataset.variant).toBe("soft");
     expect(email.dataset.color).toBe("gray");
     const sms = screen.getByRole("checkbox", { name: "SMS" });
-    expect(sms.dataset.size).toBe("3");
     expect(sms.dataset.variant).toBe("soft");
     expect(sms.dataset.color).toBe("danger");
-    expect(email.closest(".checkbox-group")?.getAttribute("data-size")).toBe(
-      "1",
-    );
   });
 });
 
@@ -317,27 +302,18 @@ describe("Radio part", () => {
       </RadioGroup>,
     );
     const free = screen.getByRole("radio", { name: "Free" });
-    expect(free.dataset.size).toBe("3");
     expect(free.dataset.variant).toBe("surface");
     expect(free.dataset.color).toBeUndefined();
   });
 
   it("writes the group's size, variant, color and high contrast on each radio", () => {
     render(
-      <RadioGroup
-        aria-label="Plan"
-        size="3"
-        variant="soft"
-        color="success"
-        highContrast
-      >
+      <RadioGroup aria-label="Plan" variant="soft" color="success" highContrast>
         <Radio value="free" aria-label="Free" />
       </RadioGroup>,
     );
     const group = screen.getByRole("radiogroup", { name: "Plan" });
-    expect(group.dataset.size).toBe("3");
     const free = screen.getByRole("radio", { name: "Free" });
-    expect(free.dataset.size).toBe("3");
     expect(free.dataset.variant).toBe("soft");
     expect(free.dataset.color).toBe("success");
     expect(free.dataset.highContrast).toBe("");

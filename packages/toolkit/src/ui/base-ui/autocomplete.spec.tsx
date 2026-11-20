@@ -95,7 +95,7 @@ describe("Autocomplete", () => {
     const frame = input().parentElement;
     expect(input().classList.contains("input-control")).toBe(true);
     expect(frame?.classList.contains("input")).toBe(true);
-    expect(frame?.dataset.size).toBe("3");
+    expect(frame?.dataset.size).toBe("md");
     expect(frame?.dataset.variant).toBe("surface");
     expect(frame?.dataset.color).toBeUndefined();
   });
@@ -103,11 +103,11 @@ describe("Autocomplete", () => {
   it("writes the input's size, variant, color and radius on the frame", () => {
     render(
       <Sample
-        input={{ size: "2", variant: "soft", color: "gray", radius: "full" }}
+        input={{ size: "sm", variant: "soft", color: "gray", radius: "full" }}
       />,
     );
     const frame = input().parentElement;
-    expect(frame?.dataset.size).toBe("2");
+    expect(frame?.dataset.size).toBe("sm");
     expect(frame?.dataset.variant).toBe("soft");
     expect(frame?.dataset.color).toBe("gray");
     expect(frame?.dataset.radius).toBe("full");
@@ -128,14 +128,14 @@ describe("Autocomplete", () => {
   });
 
   it("suggests matches as you type, with the popup's defaults and the input's size", async () => {
-    render(<Sample input={{ size: "1" }} />);
+    render(<Sample input={{ size: "sm" }} />);
     await type("ap");
     const listbox = await screen.findByRole("listbox");
     expect(listbox.classList.contains("autocomplete-list")).toBe(true);
     const popup = listbox.closest<HTMLElement>(".autocomplete-popup");
     expect(popup?.dataset.variant).toBe("soft");
     expect(popup?.dataset.color).toBe("gray");
-    expect(popup?.dataset.size).toBe("1");
+    expect(popup?.dataset.size).toBe("sm");
     expect(popup?.parentElement?.className).toContain(
       "autocomplete-positioner",
     );
@@ -243,7 +243,7 @@ describe("Autocomplete", () => {
   it("renders an inline list with the popup's attributes, for a command palette", () => {
     render(
       <Autocomplete items={FRUITS} inline open>
-        <AutocompleteInput aria-label="Fruit" size="4" />
+        <AutocompleteInput aria-label="Fruit" size="md" />
         <AutocompleteList>
           {(fruit: string) => (
             <AutocompleteItem key={fruit} value={fruit}>
@@ -256,7 +256,7 @@ describe("Autocomplete", () => {
     const list = screen.getByRole("listbox");
     expect(list.dataset.variant).toBe("soft");
     expect(list.dataset.color).toBe("gray");
-    expect(list.dataset.size).toBe("4");
+    expect(list.dataset.size).toBe("md");
     expect(screen.getAllByRole("option")).toHaveLength(4);
   });
 });

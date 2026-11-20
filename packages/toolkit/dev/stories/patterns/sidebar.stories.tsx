@@ -81,7 +81,7 @@ function Search() {
         <IconButton
           variant="soft"
           color="gray"
-          size="4"
+          size="md"
           aria-label="Search all"
         >
           <IconSearch aria-hidden />
@@ -94,7 +94,7 @@ function Search() {
     <Input
       aria-label="Search all"
       placeholder="Search all"
-      size="4"
+      size="md"
       variant="soft"
       color="gray"
     >
@@ -123,7 +123,7 @@ function Library() {
             <IconButton
               variant="ghost"
               color="gray"
-              size="2"
+              size="sm"
               aria-label="Show folders"
             />
           }
@@ -148,7 +148,7 @@ function Library() {
 function Account() {
   const iconOnly = useIconOnly();
   const avatar = (
-    <Avatar size="4" color="gray">
+    <Avatar size="lg" color="gray">
       <AvatarFallback>A</AvatarFallback>
     </Avatar>
   );
@@ -160,7 +160,7 @@ function Account() {
             <IconButton
               variant="ghost"
               color="gray"
-              size="4"
+              size="md"
               aria-label="Ada Lovelace"
             />
           }
@@ -218,7 +218,7 @@ function Frame({ collapsed }: { collapsed?: boolean }) {
               href="#home"
               logo={<AgentNativeIcon />}
               badge={
-                <Badge variant="solid" size="1">
+                <Badge variant="solid" size="xs">
                   BETA
                 </Badge>
               }
@@ -301,7 +301,7 @@ function Frame({ collapsed }: { collapsed?: boolean }) {
           </SidebarContent>
           <SidebarFooter>
             <Account />
-            <SidebarToggle aria-label="Sidebar" size="4" />
+            <SidebarToggle aria-label="Sidebar" size="md" />
           </SidebarFooter>
         </Sidebar>
         <AppShellCanvas>

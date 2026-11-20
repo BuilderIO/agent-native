@@ -22,14 +22,13 @@ type Story = StoryObj<typeof meta>;
 /** The spinner with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4, each fitting a control of the same size: 12, 12, 16 and 20px. The last one is announced. */
+/** md and sm, each fitting a control of the same size: 16 and 12px. The last one is announced. */
 export const Sizes: Story = {
   render: () => (
     <div className="flex items-center gap-6">
-      <Spinner size="1" />
-      <Spinner size="2" />
-      <Spinner size="3" />
-      <Spinner size="4" label="Loading" />
+      <Spinner size="sm" />
+      <Spinner size="md" />
+      <Spinner size="md" label="Loading" />
     </div>
   ),
 };

@@ -1,8 +1,8 @@
-import { CONTROL_SIZES } from "../../tokens/roles.js";
 import {
   colorProp,
   enumProp,
   radiusProp,
+  CONTROL_SIZES,
   sizeProp,
   variantProp,
 } from "../props.js";
@@ -10,7 +10,7 @@ import {
 export const textAreaProps = {
   size: sizeProp(
     CONTROL_SIZES,
-    "3",
+    "md",
     "The height of the Input it matches, which sets its padding and type",
   ),
   variant: variantProp(["surface", "soft"], "surface"),

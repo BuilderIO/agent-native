@@ -411,7 +411,7 @@ const ToastAction = React.forwardRef<HTMLButtonElement, ToastActionProps>(
     <BaseToast.Action
       ref={ref}
       className="toast-action"
-      render={<Button size="3" {...props} />}
+      render={<Button size="md" {...props} />}
     />
   ),
 );
@@ -437,7 +437,7 @@ const ToastClose = React.forwardRef<HTMLButtonElement, ToastCloseProps>(
       ref={ref}
       className="toast-close"
       render={
-        <IconButton size="3" variant="ghost" {...props}>
+        <IconButton size="md" variant="ghost" {...props}>
           <IconX aria-hidden />
         </IconButton>
       }
@@ -738,7 +738,7 @@ function ToastItem({
         </div>
         {data.secondaryActionProps === undefined ? null : (
           <Button
-            size="3"
+            size="md"
             variant={solid ? "solid" : "soft"}
             highContrast={highContrast}
             className="toast-action"

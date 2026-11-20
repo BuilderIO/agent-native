@@ -47,7 +47,7 @@ type Story = StoryObj<typeof meta>;
 /** The group with the props from the controls, which its toggles take. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4, set once on the group. */
+/** md and sm, set once on the group. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex items-center gap-6">

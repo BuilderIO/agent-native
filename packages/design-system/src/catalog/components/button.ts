@@ -1,9 +1,9 @@
-import { CONTROL_SIZES } from "../../tokens/roles.js";
 import {
   booleanProp,
   colorProp,
   highContrastProp,
   radiusProp,
+  CONTROL_SIZES,
   sizeProp,
   VARIANTS,
   variantProp,
@@ -11,7 +11,7 @@ import {
 
 /** Button and Icon Button share their props, as in Radix Themes. */
 export const buttonProps = {
-  size: sizeProp(CONTROL_SIZES, "3"),
+  size: sizeProp(CONTROL_SIZES, "md"),
   variant: variantProp(VARIANTS, "solid"),
   color: colorProp,
   highContrast: highContrastProp,

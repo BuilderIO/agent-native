@@ -1,6 +1,5 @@
 import {
-  CONTROL_SIZES,
-  type ControlSize,
+  type ControlHeightStep,
   RADIUS_PRESETS,
   type RadiusPreset,
 } from "../tokens/roles.js";
@@ -111,8 +110,27 @@ export function booleanProp(description: string): BooleanPropDef {
   return { type: "boolean", default: false, description };
 }
 
-/** `size` over a component's subset of the control sizes. */
-export function sizeProp<const V extends ControlSize>(
+/**
+ * Size names and the heights they stand for: xs 16px, sm 20px, md 24px and
+ * lg 32px. `md` is the standard control; rows are 32px.
+ */
+export const SIZES = ["xs", "sm", "md", "lg"] as const;
+export type Size = (typeof SIZES)[number];
+
+/** The step of the `--control-height-*` tokens each size name draws from. */
+export const SIZE_STEPS: Readonly<Record<Size, ControlHeightStep>> = {
+  xs: "1",
+  sm: "2",
+  md: "3",
+  lg: "4",
+};
+
+/** The sizes a control comes in: `md`, the standard, and `sm` for dense rows and toolbars. */
+export const CONTROL_SIZES = ["sm", "md"] as const;
+export type ControlSize = (typeof CONTROL_SIZES)[number];
+
+/** `size` over a component's subset of the size names. */
+export function sizeProp<const V extends Size>(
   values: readonly V[],
   defaultValue: NoInfer<V>,
   measures = "Control height",
@@ -123,11 +141,11 @@ export function sizeProp<const V extends ControlSize>(
   return enumProp(values, `${measures}: ${heights}.`, defaultValue);
 }
 
-const CONTROL_HEIGHT_PX: Readonly<Record<ControlSize, number>> = {
-  "1": 16,
-  "2": 20,
-  "3": 24,
-  "4": 32,
+const CONTROL_HEIGHT_PX: Readonly<Record<Size, number>> = {
+  xs: 16,
+  sm: 20,
+  md: 24,
+  lg: 32,
 };
 
 /** `variant` over a component's subset of the variants. */

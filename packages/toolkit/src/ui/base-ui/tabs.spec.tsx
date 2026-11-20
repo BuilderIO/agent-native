@@ -62,7 +62,7 @@ describe("Tabs part", () => {
   it("writes the list's size, justify and wrap, size 2 by default, inheriting its color", () => {
     render(<Example />);
     const list = screen.getByRole("tablist");
-    expect(list.dataset.size).toBe("4");
+    expect(list.dataset.size).toBe("lg");
     expect(list.dataset.justify).toBe("start");
     expect(list.dataset.wrap).toBe("nowrap");
     expect(list.dataset.color).toBeUndefined();
@@ -73,7 +73,7 @@ describe("Tabs part", () => {
     render(
       <Tabs defaultValue="a">
         <TabsList
-          size="3"
+          size="md"
           color="gray"
           highContrast
           justify="center"
@@ -84,7 +84,7 @@ describe("Tabs part", () => {
       </Tabs>,
     );
     const list = screen.getByRole("tablist");
-    expect(list.dataset.size).toBe("3");
+    expect(list.dataset.size).toBe("md");
     expect(list.dataset.color).toBe("gray");
     expect(list.dataset.highContrast).toBe("");
     expect(list.dataset.justify).toBe("center");

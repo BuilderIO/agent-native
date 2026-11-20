@@ -37,7 +37,7 @@ type Story = StoryObj<typeof meta>;
 /** The input with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4: the 16, 20, 24 and 32px control heights, with a leading icon. */
+/** md and sm: the 24 and 20px control heights, with a leading icon. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col gap-3">
@@ -99,7 +99,7 @@ export const Slots: Story = {
           <IconAt aria-hidden />
         </InputSlot>
         <InputSlot side="right">
-          <IconButton aria-label="Clear" size="1" variant="ghost" color="gray">
+          <IconButton aria-label="Clear" size="sm" variant="ghost" color="gray">
             <IconX />
           </IconButton>
         </InputSlot>

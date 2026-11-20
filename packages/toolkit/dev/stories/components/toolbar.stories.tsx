@@ -61,7 +61,7 @@ export const Playground: Story = {
   render: (args) => <Format {...args} />,
 };
 
-/** Sizes 2 to 4: every button and toggle in it takes the 20, 24 or 32px height. */
+/** md and sm: every button and toggle in it takes the 24 or 20px height. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col items-start gap-4">

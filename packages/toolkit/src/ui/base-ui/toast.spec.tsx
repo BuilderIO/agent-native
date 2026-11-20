@@ -465,10 +465,10 @@ describe("Toaster timing and announcements", () => {
     const element = toastElement("Deleted");
     expect(
       element.querySelector<HTMLElement>(".toast-close")?.dataset.size,
-    ).toBe("3");
+    ).toBe("md");
     expect(
       element.querySelector<HTMLElement>(".toast-action")?.dataset.size,
-    ).toBe("3");
+    ).toBe("md");
   });
 
   it("shows at most three toasts by default", () => {

@@ -2,7 +2,7 @@
  * Part: autocomplete (and the combobox's popup and rows, which are these)
  *
  *   <div class="input"                                  Base UI Autocomplete.InputGroup, drawn by input.css
- *        data-size="1|2|3|4" data-variant="surface|soft"
+ *        data-size="sm|md" data-variant="surface|soft"
  *        [data-color] [data-radius] [data-popup-open] [data-disabled]>
  *     <input class="input-control">                     Autocomplete.Input
  *     <div class="input-slot">                          an icon, or the buttons below
@@ -11,7 +11,7 @@
  *
  *   <div class="autocomplete-positioner">               Autocomplete.Positioner
  *     <div class="autocomplete-popup"                   Autocomplete.Popup
- *          data-size="1|2|3|4" data-variant="solid|soft"
+ *          data-size="sm|md" data-variant="solid|soft"
  *          data-color="gray|accent|danger|warning|success|info" [data-high-contrast]
  *          [data-open] [data-side] [data-empty] [data-starting-style] [data-ending-style]>
  *       <div class="autocomplete-status">               Autocomplete.Status, a live region
@@ -28,8 +28,7 @@
  * are Radix Themes' select and dropdown menu content on the system's scale,
  * and are the combobox's too: every rule below names both parts' classes, and
  * combobox.css adds only the check column and the chips. The popup's size is
- * the input's, so rows are never shorter than 20px, with sizes 2 and 3
- * sharing a row height as in Select. The variant decides how the highlighted
+ * the input's, so its rows are 24 or 20px tall, as in Select. The variant decides how the highlighted
  * row fills: soft (the default, in gray) with the scale's a3 tint, solid
  * with its solid fill.
  *
@@ -139,23 +138,11 @@
     .combobox-popup,
     .autocomplete-list,
     .combobox-list
-  ):is([data-size="1"], [data-size="2"]) {
+  )[data-size="sm"] {
     --control-font-size: var(--control-font-size-1);
     --control-line-height: var(--control-line-height-1);
     --_row-height: var(--control-height-2);
     --_row-icon: var(--control-icon-size-2);
-  }
-
-  :is(
-    .autocomplete-popup,
-    .combobox-popup,
-    .autocomplete-list,
-    .combobox-list
-  )[data-size="4"] {
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_row-height: var(--control-height-4);
-    --_row-icon: var(--control-icon-size-4);
   }
 
   /* ---- list ---- */

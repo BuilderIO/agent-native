@@ -42,7 +42,7 @@ export const Playground: Story = {
   render: (args) => <Example {...args} />,
 };
 
-/** Sizes 2 to 4: the 20, 24 and 32px control heights. */
+/** md and sm: the 24 and 20px control heights. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col items-start gap-4">

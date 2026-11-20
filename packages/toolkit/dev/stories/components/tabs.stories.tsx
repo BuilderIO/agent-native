@@ -56,7 +56,7 @@ export const Playground: Story = {
   render: (args) => <Example {...args} panels />,
 };
 
-/** Sizes 1 and 2: 24 and 32px triggers. */
+/** md and lg: 24 and 32px triggers. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col gap-6">

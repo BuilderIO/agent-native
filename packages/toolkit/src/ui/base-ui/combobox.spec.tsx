@@ -135,7 +135,7 @@ describe("Combobox", () => {
     const frame = input().parentElement;
     expect(input().classList.contains("input-control")).toBe(true);
     expect(frame?.classList.contains("input")).toBe(true);
-    expect(frame?.dataset.size).toBe("3");
+    expect(frame?.dataset.size).toBe("md");
     expect(frame?.dataset.variant).toBe("surface");
     expect(
       frame?.querySelector(".input-slot .combobox-trigger svg"),
@@ -145,11 +145,11 @@ describe("Combobox", () => {
   it("writes the input's size, variant, color and radius on the frame", () => {
     render(
       <Single
-        input={{ size: "4", variant: "soft", color: "info", radius: "large" }}
+        input={{ size: "md", variant: "soft", color: "info", radius: "large" }}
       />,
     );
     const frame = input().parentElement;
-    expect(frame?.dataset.size).toBe("4");
+    expect(frame?.dataset.size).toBe("md");
     expect(frame?.dataset.variant).toBe("soft");
     expect(frame?.dataset.color).toBe("info");
     expect(frame?.dataset.radius).toBe("large");
@@ -167,14 +167,14 @@ describe("Combobox", () => {
   });
 
   it("opens from the trigger with the popup's defaults and the input's size", async () => {
-    render(<Single input={{ size: "2" }} />);
+    render(<Single input={{ size: "sm" }} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show options" }));
     });
     const listbox = await screen.findByRole("listbox");
     expect(listbox.classList.contains("combobox-list")).toBe(true);
     const popup = listbox.closest<HTMLElement>(".combobox-popup");
-    expect(popup?.dataset.size).toBe("2");
+    expect(popup?.dataset.size).toBe("sm");
     expect(popup?.dataset.variant).toBe("soft");
     expect(popup?.dataset.color).toBe("gray");
     expect(popup?.parentElement?.className).toContain("combobox-positioner");

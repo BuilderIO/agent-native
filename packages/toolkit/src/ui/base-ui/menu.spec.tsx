@@ -391,7 +391,7 @@ describe("menu props", () => {
     const menu = await openMenu(
       screen.getByRole("button", { name: "Actions" }),
     );
-    expect(menu.dataset.size).toBe("3");
+    expect(menu.dataset.size).toBe("md");
     expect(menu.dataset.variant).toBe("soft");
     expect(menu.dataset.color).toBe("gray");
     expect(menu.dataset.highContrast).toBeUndefined();
@@ -401,14 +401,14 @@ describe("menu props", () => {
     render(
       <Menu defaultOpen>
         <MenuTrigger>Actions</MenuTrigger>
-        <MenuPopup size="2" variant="solid" color="accent" highContrast>
+        <MenuPopup size="sm" variant="solid" color="accent" highContrast>
           <MenuItem>Rename</MenuItem>
         </MenuPopup>
       </Menu>,
     );
     const menu = await screen.findByRole("menu");
     expect(menu.dataset).toMatchObject({
-      size: "2",
+      size: "sm",
       variant: "solid",
       color: "accent",
       highContrast: "",
@@ -450,7 +450,7 @@ describe("menu props", () => {
     render(
       <Menu defaultOpen>
         <MenuTrigger>File</MenuTrigger>
-        <MenuPopup size="2" variant="solid" color="danger">
+        <MenuPopup size="sm" variant="solid" color="danger">
           <MenuSubmenuRoot>
             <MenuSubmenuTrigger>Export</MenuSubmenuTrigger>
             <MenuSubmenuPopup data-testid="submenu">
@@ -467,7 +467,7 @@ describe("menu props", () => {
     });
     await screen.findByRole("menuitem", { name: "PDF" });
     expect(screen.getByTestId("submenu").dataset).toMatchObject({
-      size: "2",
+      size: "sm",
       variant: "solid",
       color: "danger",
     });

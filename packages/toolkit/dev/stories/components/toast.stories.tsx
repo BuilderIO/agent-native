@@ -277,7 +277,7 @@ function MockEditor({ wide }: { wide: boolean }) {
       >
         <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 gap-1 rounded-full bg-surface-raised p-1 shadow-md">
           {TOOLS.map((tool) => (
-            <Button key={tool} size="4" variant="ghost" color="gray">
+            <Button key={tool} size="md" variant="ghost" color="gray">
               {tool}
             </Button>
           ))}

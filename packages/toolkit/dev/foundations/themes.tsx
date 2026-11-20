@@ -67,12 +67,12 @@ function ThemeCard({ theme, stage }: { theme: ThemeDefinition; stage: Stage }) {
         <h3 className="text-3 font-semibold">{theme.label}</h3>
         <Code>{theme.name}</Code>
         {theme.isDefault ? (
-          <Badge size="1" color="gray">
+          <Badge size="xs" color="gray">
             Default
           </Badge>
         ) : null}
         {stage.theme === theme.name ? (
-          <Badge size="1" variant="soft">
+          <Badge size="xs" variant="soft">
             Current
           </Badge>
         ) : null}
@@ -108,11 +108,11 @@ function ThemeCard({ theme, stage }: { theme: ThemeDefinition; stage: Stage }) {
         ))}
       </ol>
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="2">Save</Button>
-        <Button size="2" variant="soft">
+        <Button size="sm">Save</Button>
+        <Button size="sm" variant="soft">
           Share
         </Button>
-        <Button size="2" variant="outline" color="gray">
+        <Button size="sm" variant="outline" color="gray">
           Cancel
         </Button>
         <Badge>Beta</Badge>
@@ -122,7 +122,7 @@ function ThemeCard({ theme, stage }: { theme: ThemeDefinition; stage: Stage }) {
       <SegmentedControl
         aria-label={`${theme.label} sample view`}
         defaultValue="list"
-        size="2"
+        size="sm"
         className="self-start"
       >
         <SegmentedControlItem value="list">List</SegmentedControlItem>

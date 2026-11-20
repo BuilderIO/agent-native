@@ -35,7 +35,7 @@ describe("Number Field part", () => {
     expect(input).toHaveProperty("value", "2");
     const frame = input.closest<HTMLElement>(".number-field");
     expect(frame?.classList.contains("input")).toBe(true);
-    expect(frame?.dataset.size).toBe("3");
+    expect(frame?.dataset.size).toBe("md");
     expect(frame?.dataset.variant).toBe("surface");
     expect(frame?.dataset.color).toBeUndefined();
   });
@@ -44,7 +44,7 @@ describe("Number Field part", () => {
     render(
       <NumberField
         aria-label="Width"
-        size="2"
+        size="sm"
         variant="soft"
         color="danger"
         radius="full"
@@ -55,7 +55,7 @@ describe("Number Field part", () => {
     const frame = screen
       .getByRole("textbox", { name: "Width" })
       .closest<HTMLElement>(".number-field");
-    expect(frame?.dataset.size).toBe("2");
+    expect(frame?.dataset.size).toBe("sm");
     expect(frame?.dataset.variant).toBe("soft");
     expect(frame?.dataset.color).toBe("danger");
     expect(frame?.dataset.radius).toBe("full");
@@ -93,7 +93,7 @@ describe("Number Field part", () => {
 
   it("steps by its step from ghost icon-button steppers sized one below the field", () => {
     render(
-      <NumberField aria-label="Gap" defaultValue={8} step={4} min={4} size="4">
+      <NumberField aria-label="Gap" defaultValue={8} step={4} min={4} size="md">
         <NumberFieldDecrement />
         <NumberFieldIncrement />
       </NumberField>,
@@ -104,7 +104,7 @@ describe("Number Field part", () => {
     expect(increase.classList.contains("icon-button")).toBe(true);
     expect(increase.classList.contains("number-field-increment")).toBe(true);
     expect(increase.dataset.variant).toBe("ghost");
-    expect(increase.dataset.size).toBe("2");
+    expect(increase.dataset.size).toBe("sm");
     expect(increase.dataset.color).toBe("gray");
     expect(increase.closest(".number-field")).not.toBeNull();
     fireEvent.click(increase);
@@ -123,7 +123,7 @@ describe("Number Field part", () => {
     );
     const increase = screen.getByRole("button", { name: "Increase" });
     expect(increase.dataset.color).toBeUndefined();
-    expect(increase.dataset.size).toBe("1");
+    expect(increase.dataset.size).toBe("sm");
   });
 
   it("names the input from its scrub area and changes the value when the area is dragged", () => {

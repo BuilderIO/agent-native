@@ -102,7 +102,7 @@ export const Variants: Story = {
             {["Ada Lovelace", "Charles Babbage"].map((name) => (
               <Item key={name} size="1" role="listitem">
                 <ItemMedia>
-                  <Avatar size="2" color="gray">
+                  <Avatar size="sm" color="gray">
                     <AvatarFallback>
                       {name
                         .split(" ")
@@ -132,7 +132,7 @@ export const States: Story = {
     <section>
       <ItemGroupHeader>
         <ItemGroupLabel>Notifications</ItemGroupLabel>
-        <Button variant="ghost" color="gray" size="2">
+        <Button variant="ghost" color="gray" size="sm">
           Reset
         </Button>
       </ItemGroupHeader>
@@ -178,7 +178,7 @@ export const States: Story = {
             <ItemTitle>API keys</ItemTitle>
           </ItemContent>
           <ItemActions>
-            <Button variant="surface" color="gray" size="2">
+            <Button variant="surface" color="gray" size="sm">
               Manage
             </Button>
           </ItemActions>

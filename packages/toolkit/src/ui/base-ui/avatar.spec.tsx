@@ -19,7 +19,7 @@ describe("Avatar part", () => {
       </Avatar>,
     );
     const avatar = container.querySelector(".avatar");
-    expect(avatar?.getAttribute("data-size")).toBe("3");
+    expect(avatar?.getAttribute("data-size")).toBe("md");
     expect(avatar?.getAttribute("data-variant")).toBe("soft");
     expect(avatar?.hasAttribute("data-color")).toBe(false);
     expect(avatar?.hasAttribute("data-radius")).toBe(false);
@@ -27,12 +27,12 @@ describe("Avatar part", () => {
 
   it("writes color, high contrast and radius as Radix names them", () => {
     const { container } = render(
-      <Avatar size="1" variant="solid" color="info" highContrast radius="none">
+      <Avatar size="xs" variant="solid" color="info" highContrast radius="none">
         <AvatarFallback>AL</AvatarFallback>
       </Avatar>,
     );
     const avatar = container.querySelector(".avatar");
-    expect(avatar?.getAttribute("data-size")).toBe("1");
+    expect(avatar?.getAttribute("data-size")).toBe("xs");
     expect(avatar?.getAttribute("data-variant")).toBe("solid");
     expect(avatar?.getAttribute("data-color")).toBe("info");
     expect(avatar?.getAttribute("data-high-contrast")).toBe("");
@@ -40,15 +40,15 @@ describe("Avatar part", () => {
   });
 
   it("refuses a size it doesn't have instead of drawing the default", () => {
-    const props = { size: "lg" } as unknown as AvatarProps;
+    const props = { size: "xl" } as unknown as AvatarProps;
     expect(() => render(<Avatar {...props} />)).toThrow(
-      /size="lg" is not one of/,
+      /size="xl" is not one of/,
     );
   });
 
   it("shows the fallback while the image has not loaded", () => {
     render(
-      <Avatar size="4">
+      <Avatar size="lg">
         <AvatarImage src="https://example.com/ada.png" alt="" />
         <AvatarFallback>AL</AvatarFallback>
       </Avatar>,

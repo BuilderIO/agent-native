@@ -15,7 +15,6 @@ import {
   ListboxRootProvider,
   type ListboxPopupProps,
   useReportInputSize,
-  useSlotButtonSize,
 } from "./combobox-parts.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
@@ -171,14 +170,13 @@ const ComboboxTrigger = React.forwardRef<
   HTMLButtonElement,
   BaseCombobox.Trigger.Props
 >(({ className, children, ...props }, ref) => {
-  const size = useSlotButtonSize();
   return (
     <BaseCombobox.Trigger
       ref={ref}
       aria-label="Show options"
       {...props}
       className={partClassName("combobox-trigger", className)}
-      render={<IconButton size={size} variant="ghost" color="gray" />}
+      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconChevronDown aria-hidden />}
     </BaseCombobox.Trigger>
@@ -195,14 +193,13 @@ const ComboboxClear = React.forwardRef<
   HTMLButtonElement,
   BaseCombobox.Clear.Props
 >(({ className, children, ...props }, ref) => {
-  const size = useSlotButtonSize();
   return (
     <BaseCombobox.Clear
       ref={ref}
       aria-label="Clear"
       {...props}
       className={partClassName("combobox-clear", className)}
-      render={<IconButton size={size} variant="ghost" color="gray" />}
+      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconX aria-hidden />}
     </BaseCombobox.Clear>

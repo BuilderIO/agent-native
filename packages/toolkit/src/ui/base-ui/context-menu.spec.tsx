@@ -86,7 +86,7 @@ describe("ContextMenu on Base UI", () => {
         <ContextMenuTrigger>
           <p>Canvas</p>
         </ContextMenuTrigger>
-        <ContextMenuPopup size="2" variant="solid">
+        <ContextMenuPopup size="sm" variant="solid">
           <ContextMenuItem>Duplicate</ContextMenuItem>
           <ContextMenuItem color="danger">Delete</ContextMenuItem>
         </ContextMenuPopup>
@@ -95,7 +95,7 @@ describe("ContextMenu on Base UI", () => {
     await rightClick(screen.getByText("Canvas").parentElement as HTMLElement);
     const menu = await screen.findByRole("menu");
     expect(menu.dataset).toMatchObject({
-      size: "2",
+      size: "sm",
       variant: "solid",
       color: "gray",
     });

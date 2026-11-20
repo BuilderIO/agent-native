@@ -2,7 +2,7 @@ import { colorProp, enumProp, highContrastProp, sizeProp } from "../props.js";
 
 /** Radix Themes' tabs: a row of triggers over an underline indicator. */
 export const tabsListProps = {
-  size: sizeProp(["3", "4"], "4"),
+  size: sizeProp(["md", "lg"], "lg"),
   color: colorProp,
   highContrast: highContrastProp,
   justify: enumProp(

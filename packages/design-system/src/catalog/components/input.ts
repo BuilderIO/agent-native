@@ -1,14 +1,14 @@
-import { CONTROL_SIZES } from "../../tokens/roles.js";
 import {
   colorProp,
   enumProp,
   radiusProp,
+  CONTROL_SIZES,
   sizeProp,
   variantProp,
 } from "../props.js";
 
 export const inputProps = {
-  size: sizeProp(CONTROL_SIZES, "3"),
+  size: sizeProp(CONTROL_SIZES, "md"),
   variant: variantProp(["surface", "soft"], "surface"),
   color: colorProp,
   radius: radiusProp,

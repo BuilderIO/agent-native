@@ -93,7 +93,7 @@ function CellToggle({
   const left = remaining(cell);
   return (
     <Toggle
-      size="2"
+      size="sm"
       color="gray"
       pressed={pressed}
       onPressedChange={onPressedChange}
@@ -212,7 +212,7 @@ export function MigrationStatusPage({ status }: { status: MigrationStatus }) {
                     <span className="flex items-center gap-2">
                       {row.name}
                       {row.status === "planned" ? (
-                        <Badge size="1" color="warning" variant="outline">
+                        <Badge size="xs" color="warning" variant="outline">
                           Planned
                         </Badge>
                       ) : null}

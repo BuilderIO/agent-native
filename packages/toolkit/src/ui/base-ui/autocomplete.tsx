@@ -15,7 +15,6 @@ import {
   ListboxRootProvider,
   type ListboxPopupProps,
   useReportInputSize,
-  useSlotButtonSize,
 } from "./combobox-parts.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
@@ -96,14 +95,13 @@ const AutocompleteTrigger = React.forwardRef<
   HTMLButtonElement,
   BaseAutocomplete.Trigger.Props
 >(({ className, children, ...props }, ref) => {
-  const size = useSlotButtonSize();
   return (
     <BaseAutocomplete.Trigger
       ref={ref}
       aria-label="Show suggestions"
       {...props}
       className={partClassName("autocomplete-trigger", className)}
-      render={<IconButton size={size} variant="ghost" color="gray" />}
+      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconChevronDown aria-hidden />}
     </BaseAutocomplete.Trigger>
@@ -120,14 +118,13 @@ const AutocompleteClear = React.forwardRef<
   HTMLButtonElement,
   BaseAutocomplete.Clear.Props
 >(({ className, children, ...props }, ref) => {
-  const size = useSlotButtonSize();
   return (
     <BaseAutocomplete.Clear
       ref={ref}
       aria-label="Clear"
       {...props}
       className={partClassName("autocomplete-clear", className)}
-      render={<IconButton size={size} variant="ghost" color="gray" />}
+      render={<IconButton size="sm" variant="ghost" color="gray" />}
     >
       {children ?? <IconX aria-hidden />}
     </BaseAutocomplete.Clear>

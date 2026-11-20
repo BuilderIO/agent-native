@@ -8,7 +8,7 @@ import {
 } from "../props.js";
 
 export const badgeProps = {
-  size: sizeProp(["1", "2", "3"], "2"),
+  size: sizeProp(["xs", "sm", "md"], "sm"),
   variant: variantProp(["solid", "soft", "surface", "outline"], "soft"),
   color: colorProp,
   highContrast: highContrastProp,

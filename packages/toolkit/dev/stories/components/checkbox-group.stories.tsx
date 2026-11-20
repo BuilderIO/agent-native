@@ -43,17 +43,6 @@ type Story = StoryObj<typeof meta>;
 /** The group with the props from the controls, which its checkboxes take. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3, set once on the group. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex items-start gap-8">
-      {checkboxGroupProps.size.values.map((size) => (
-        <Channels key={size} {...args} size={size} />
-      ))}
-    </div>
-  ),
-};
-
 /** Each variant in every color, set on the group, then in high contrast. */
 export const Variants: Story = {
   render: (args) => (

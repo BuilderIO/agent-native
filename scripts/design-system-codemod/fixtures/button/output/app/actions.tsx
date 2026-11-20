@@ -19,7 +19,7 @@ export function Actions({ onSave }: { onSave: () => void }) {
       <Button variant="surface" color="danger">
         Remove
       </Button>
-      <Button variant="soft" color="gray" size="4">
+      <Button variant="soft" color="gray">
         Secondary
       </Button>
       <Button variant="ghost" color="gray">

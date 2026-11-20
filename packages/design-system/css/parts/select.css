@@ -2,7 +2,7 @@
  * Part: select
  *
  *   <button class="select-trigger"
- *           data-size="1|2|3|4" data-variant="surface|soft|ghost"
+ *           data-size="sm|md" data-variant="surface|soft|ghost"
  *           [data-color="accent|gray|danger|warning|success|info"] [data-radius]
  *           [data-popup-open] [data-placeholder] [data-disabled] [data-invalid]>
  *     <span class="select-value" [data-placeholder]>
@@ -10,7 +10,7 @@
  *
  *   <div class="select-positioner">                 Base UI Select.Positioner
  *     <div class="select-popup"                     Select.Popup
- *          data-size="1|2|3|4" data-variant="solid|soft"
+ *          data-size="sm|md" data-variant="solid|soft"
  *          [data-color] [data-high-contrast]
  *          [data-open] [data-side] [data-starting-style] [data-ending-style]>
  *       <div class="select-list" role="listbox">    Select.List
@@ -22,9 +22,8 @@
  *         <div class="select-separator">
  *
  * Radix Themes' select on the system's scale. The size is the root's, so
- * the trigger and the popup carry the same one: the trigger is the 16, 20,
- * 24 or 32px control height, and the popup's rows are never shorter than
- * 20px, with sizes 2 and 3 sharing a row height as in Radix. A surface
+ * the trigger and the popup carry the same one: the trigger is the 24 or 20px
+ * control height, and the popup's rows are as tall. A surface
  * trigger keeps neutral edges in every color; soft and ghost take the
  * color. The popup's variant fills the highlighted row: solid with the
  * color, soft with a tint of it.
@@ -75,31 +74,12 @@
     transition-timing-function: var(--ease-standard);
   }
 
-  .select-trigger[data-size="1"] {
-    --control-font-size: var(--control-font-size-1);
-    --control-line-height: var(--control-line-height-1);
-    --_height: var(--control-height-1);
-    --_icon: var(--control-icon-size-1);
-    --_padding: var(--space-1);
-    --_radius: var(--radius-1);
-  }
-
-  .select-trigger[data-size="2"] {
+  .select-trigger[data-size="sm"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
     --_icon: var(--control-icon-size-2);
     --_radius: var(--radius-2);
-  }
-
-  .select-trigger[data-size="4"] {
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_height: var(--control-height-4);
-    --_icon: var(--control-icon-size-4);
-    --_padding: var(--space-3);
-    --_radius: var(--radius-4);
-    gap: var(--space-2);
   }
 
   .select-trigger[data-variant="surface"] {
@@ -248,18 +228,11 @@
     transition-timing-function: var(--ease-enter);
   }
 
-  .select-popup:is([data-size="1"], [data-size="2"]) {
+  .select-popup[data-size="sm"] {
     --control-font-size: var(--control-font-size-1);
     --control-line-height: var(--control-line-height-1);
     --_row: var(--control-height-2);
     --_icon: var(--control-icon-size-2);
-  }
-
-  .select-popup[data-size="4"] {
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_row: var(--control-height-4);
-    --_icon: var(--control-icon-size-4);
   }
 
   .select-popup[data-side="bottom"] {

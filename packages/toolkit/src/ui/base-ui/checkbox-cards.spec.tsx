@@ -46,7 +46,6 @@ describe("Checkbox Cards part", () => {
     const box = email.querySelector<HTMLElement>(".checkbox-cards-checkbox");
     expect(box?.classList.contains("checkbox")).toBe(true);
     expect(box?.getAttribute("aria-hidden")).toBe("true");
-    expect(box?.dataset.size).toBe("3");
     expect(box?.dataset.variant).toBe("surface");
     expect(box?.dataset.highContrast).toBe("");
     expect(box?.hasAttribute("data-checked")).toBe(true);

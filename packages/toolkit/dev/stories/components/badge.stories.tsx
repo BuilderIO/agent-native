@@ -54,7 +54,7 @@ export const Variants: Story = {
   ),
 };
 
-/** Sizes 1 to 3: 16, 20 and 24px. */
+/** xs, sm and md: 16, 20 and 24px. */
 export const Sizes: Story = {
   render: () => (
     <div className="flex items-center gap-2">

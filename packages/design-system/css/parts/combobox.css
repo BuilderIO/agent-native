@@ -2,7 +2,7 @@
  * Part: combobox
  *
  *   <div class="input"                                  Base UI Combobox.InputGroup, drawn by input.css
- *        data-size="1|2|3|4" data-variant="surface|soft"
+ *        data-size="sm|md" data-variant="surface|soft"
  *        [data-color] [data-radius] [data-popup-open] [data-placeholder] [data-disabled]>
  *     <input class="input-control">                     Combobox.Input; or, with `multiple`:
  *     <div class="combobox-chips">                      Combobox.Chips
@@ -30,8 +30,7 @@
  * check, as Select's do, so labels and group labels share one start edge.
  *
  * With `multiple`, the selected values are chips before the text, and the
- * field grows a line at a time to hold them. Chips are 16px (20px in a size
- * 4 field), inset from the edge by half the difference to the field's
+ * field grows a line at a time to hold them. Chips are 16px, inset from the edge by half the difference to the field's
  * height, as an icon is. They are neutral in a surface field and take the
  * color in a soft one. Arrow keys and Backspace move into them from the
  * text, so a focused chip shows the focus ring.
@@ -81,10 +80,6 @@
     box-sizing: border-box;
     min-width: 0;
     padding: var(--_chip-inset);
-  }
-
-  .input[data-size="4"] > .combobox-chips {
-    --_chip: var(--control-height-2);
   }
 
   .combobox-chips > .input-control {

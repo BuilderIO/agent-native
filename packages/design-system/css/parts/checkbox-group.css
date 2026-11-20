@@ -2,7 +2,7 @@
  * Part: checkbox-group
  *
  *   <div class="checkbox-group"                   Base UI CheckboxGroup
- *        data-size="1|2|3" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        [data-color] [data-high-contrast]>
  *     <span class="checkbox">                     Checkbox, one per value
  *

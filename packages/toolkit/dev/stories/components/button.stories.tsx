@@ -27,7 +27,7 @@ type Story = StoryObj<typeof meta>;
 /** The button with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4: the 16, 20, 24 and 32px control heights. */
+/** md and sm: the 24 and 20px control heights. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex items-center gap-3">

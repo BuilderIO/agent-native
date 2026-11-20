@@ -234,9 +234,9 @@ describe("Toolbar part", () => {
   it("writes its size on the toolbar, size 3 by default", () => {
     const { rerender } = render(<Toolbar aria-label="Format" />);
     const toolbar = screen.getByRole("toolbar", { name: "Format" });
-    expect(toolbar.dataset.size).toBe("3");
-    rerender(<Toolbar aria-label="Format" size="2" />);
-    expect(toolbar.dataset.size).toBe("2");
+    expect(toolbar.dataset.size).toBe("md");
+    rerender(<Toolbar aria-label="Format" size="sm" />);
+    expect(toolbar.dataset.size).toBe("sm");
   });
 
   it("refuses a size it doesn't have instead of drawing the default", () => {

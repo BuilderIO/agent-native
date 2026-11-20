@@ -2,7 +2,7 @@
  * Part: toggle-group
  *
  *   <div class="toggle-group" role="group"          Base UI ToggleGroup
- *        data-size="1|2|3|4" data-variant="ghost|soft|surface|outline"
+ *        data-size="sm|md" data-variant="ghost|soft|surface|outline"
  *        [data-color] [data-high-contrast] [data-radius]
  *        [data-orientation] [data-multiple] [data-disabled]>
  *     <button class="toggle" [data-pressed]>        Toggle, one per option

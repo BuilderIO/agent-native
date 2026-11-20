@@ -2,20 +2,19 @@
  * Part: input
  *
  *   <div class="input"                               the frame: edge, fill, focus ring
- *        data-size="1|2|3|4" data-variant="surface|soft"
+ *        data-size="sm|md" data-variant="surface|soft"
  *        [data-color="accent|gray|danger|warning|success|info"] [data-radius]>
  *     <input class="input-control"                   Base UI Input
  *            [data-focused] [data-invalid] [data-disabled] [aria-invalid]>
  *     <div class="input-slot" [data-side="left|right"]>   an icon, a shortcut, a unit, a button
  *
- * Radix Themes' text field on the system's scale: sizes 1 to 4 are the 16,
- * 20, 24 and 32px control heights. The frame draws the field, so its slots
+ * Radix Themes' text field on the system's scale: md and sm are the 24 and
+ * 20px control heights. The frame draws the field, so its slots
  * sit inside the same edge; the input itself is bare. Slots follow the
  * input in the markup and are placed by `order`: a slot goes before the
  * text unless it is marked right, and a second unmarked slot goes after
  * it. A slot's outer padding belongs to what sits at the edge: the text
- * padding for a unit or a shortcut, and --space-1 (--space-2 at size 4)
- * for an icon or a button. Surface is the field with an edge, and soft a
+ * padding for a unit or a shortcut, and --space-1 for an icon or a button. Surface is the field with an edge, and soft a
  * tint of the color without one; as in Radix, a surface field keeps neutral
  * edges in every color.
  */
@@ -52,29 +51,12 @@
 
   /* ---- sizes ---- */
 
-  .input[data-size="1"] {
-    --control-font-size: var(--control-font-size-1);
-    --control-line-height: var(--control-line-height-1);
-    --_height: var(--control-height-1);
-    --_icon: var(--control-icon-size-1);
-    --_padding: var(--space-1);
-    --_radius: var(--radius-1);
-  }
-
-  .input[data-size="2"] {
+  .input[data-size="sm"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
     --_icon: var(--control-icon-size-2);
     --_radius: var(--radius-2);
-  }
-
-  .input[data-size="4"] {
-    --_radius: var(--radius-4);
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_height: var(--control-height-4);
-    --_icon: var(--control-icon-size-4);
   }
 
   /* ---- the input and its slots ---- */
@@ -126,12 +108,14 @@
     --_edge: var(--space-1);
   }
 
-  .input:is([data-size="1"], [data-size="2"]) .input-slot:has(> svg, > button) {
+  .input[data-size="sm"] .input-slot:has(> svg, > button) {
     --_gap: var(--space-1);
   }
 
-  .input[data-size="4"] .input-slot:has(> svg, > button) {
-    --_edge: var(--space-2);
+  .input .icon-button[data-size] {
+    --_radius: var(--radius-1);
+    width: var(--control-height-1);
+    height: var(--control-height-1);
   }
 
   .input-slot svg {

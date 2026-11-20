@@ -27,7 +27,7 @@ function RunDetails() {
         <DataListValue>
           <span className="flex items-center gap-2">
             run_8f2a91
-            <Button size="2" variant="ghost" color="gray">
+            <Button size="sm" variant="ghost" color="gray">
               Copy
             </Button>
           </span>

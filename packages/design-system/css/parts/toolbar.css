@@ -2,7 +2,7 @@
  * Part: toolbar
  *
  *   <div class="toolbar" role="toolbar"                     Base UI Toolbar.Root
- *        data-size="2|3|4" data-orientation>
+ *        data-size="sm|md" data-orientation>
  *     <div class="toolbar-group">                           Toolbar.Group
  *       <button class="toolbar-button"                      Toolbar.Button
  *               [data-pressed] [data-popup-open] [data-disabled]>
@@ -10,7 +10,7 @@
  *     <div class="toolbar-separator">                       Toolbar.Separator
  *
  * A row of ghost gray controls a step apart, groups divided by hairlines.
- * Sizes 2 to 4 are the 20, 24 and 32px control heights, and every button,
+ * md and sm are the 24 and 20px control heights, and every button,
  * link and toggle in the toolbar takes it. A button that renders as another
  * part, such as a Toggle or a Button, keeps that part's colors: the
  * toolbar's own colors sit in `:where()` so any part's rule wins over them,
@@ -28,22 +28,13 @@
     --_toolbar-icon-size: var(--control-icon-size-3);
   }
 
-  .toolbar[data-size="2"] {
+  .toolbar[data-size="sm"] {
     --_toolbar-font-size: var(--control-font-size-2);
     --_toolbar-line-height: var(--control-line-height-2);
     --_toolbar-height: var(--control-height-2);
     --_toolbar-padding-x: var(--space-2);
     --_toolbar-radius: var(--radius-2);
     --_toolbar-icon-size: var(--control-icon-size-2);
-  }
-
-  .toolbar[data-size="4"] {
-    --_toolbar-font-size: var(--control-font-size-4);
-    --_toolbar-line-height: var(--control-line-height-4);
-    --_toolbar-height: var(--control-height-4);
-    --_toolbar-padding-x: var(--space-3);
-    --_toolbar-radius: var(--radius-4);
-    --_toolbar-icon-size: var(--control-icon-size-4);
   }
 
   .toolbar,

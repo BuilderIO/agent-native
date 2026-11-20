@@ -127,7 +127,7 @@ export const States: Story = {
         </CalloutIcon>
         <CalloutText>Usage couldn't load.</CalloutText>
         <CalloutActions>
-          <Button variant="surface" color="gray" size="3">
+          <Button variant="surface" color="gray" size="md">
             Retry
           </Button>
         </CalloutActions>

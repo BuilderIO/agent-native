@@ -59,7 +59,7 @@ function createButton(part: "button" | "icon-button", displayName: string) {
               </span>
               <VisuallyHidden>{children}</VisuallyHidden>
               <span className="button-spinner">
-                <Spinner size={props.size ?? "3"} />
+                <Spinner size={props.size ?? "md"} />
               </span>
             </>
           ) : (

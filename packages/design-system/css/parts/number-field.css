@@ -2,7 +2,7 @@
  * Part: number-field
  *
  *   <div class="input number-field"                  Base UI NumberField.Root, Input's frame
- *        data-size="1|2|3|4" data-variant="surface|soft"
+ *        data-size="sm|md" data-variant="surface|soft"
  *        [data-color] [data-radius] [data-scrubbing] [data-disabled]>
  *     <input class="input-control">                  NumberField.Input
  *     <span class="input-slot number-field-scrub-area" data-side="left">
@@ -25,10 +25,6 @@
 @layer components {
   .number-field {
     --_stepper: var(--control-height-1);
-  }
-
-  .number-field[data-size="4"] {
-    --_stepper: var(--control-height-2);
   }
 
   .number-field .input-control {

@@ -78,7 +78,7 @@ describe("Select", () => {
     render(<Sample />);
     const trigger = screen.getByRole("combobox", { name: "Fruit" });
     expect(trigger.classList.contains("select-trigger")).toBe(true);
-    expect(trigger.dataset.size).toBe("3");
+    expect(trigger.dataset.size).toBe("md");
     expect(trigger.dataset.variant).toBe("surface");
     expect(trigger.dataset.color).toBeUndefined();
     expect(trigger.querySelector(".select-value")?.textContent).toBe("Banana");
@@ -98,17 +98,17 @@ describe("Select", () => {
   it("gives the root's size to the trigger and the popup, and the popup its own props", async () => {
     render(
       <Sample
-        size="2"
+        size="sm"
         popup={{ variant: "soft", color: "danger", highContrast: true }}
       />,
     );
     const trigger = screen.getByRole("combobox", { name: "Fruit" });
-    expect(trigger.dataset.size).toBe("2");
+    expect(trigger.dataset.size).toBe("sm");
     await act(async () => press(trigger));
     const popup = (await screen.findByRole("listbox")).closest<HTMLElement>(
       ".select-popup",
     );
-    expect(popup?.dataset.size).toBe("2");
+    expect(popup?.dataset.size).toBe("sm");
     expect(popup?.dataset.variant).toBe("soft");
     expect(popup?.dataset.color).toBe("danger");
     expect(popup?.dataset.highContrast).toBe("");
@@ -130,7 +130,7 @@ describe("Select", () => {
 
     const listbox = await screen.findByRole("listbox");
     const popup = listbox.closest<HTMLElement>(".select-popup");
-    expect(popup?.dataset.size).toBe("3");
+    expect(popup?.dataset.size).toBe("md");
     expect(popup?.dataset.variant).toBe("soft");
     expect(popup?.dataset.color).toBe("gray");
     expect(

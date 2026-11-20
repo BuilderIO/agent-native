@@ -38,7 +38,7 @@ function TooltipSection() {
           {CASES.map((testCase) => (
             <Tooltip key={testCase.id} open>
               <TooltipTrigger
-                render={<Button variant="surface" color="gray" size="2" />}
+                render={<Button variant="surface" color="gray" size="sm" />}
               >
                 {testCase.label}
               </TooltipTrigger>

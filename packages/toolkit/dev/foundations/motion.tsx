@@ -149,7 +149,7 @@ function Demo() {
           aria-label="Easing for the durations"
           value={easing}
           onValueChange={setEasing}
-          size="2"
+          size="sm"
           className="self-start"
         >
           {EASINGS.map((token) => (
@@ -177,7 +177,7 @@ function Demo() {
           aria-label="Duration for the easings"
           value={duration}
           onValueChange={setDuration}
-          size="2"
+          size="sm"
           className="self-start"
         >
           {DURATIONS.map((token) => (

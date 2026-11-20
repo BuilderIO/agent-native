@@ -38,7 +38,7 @@ describe("Button Link part", () => {
       buttons: 0,
       class: "button",
       href: "/docs",
-      "data-size": "3",
+      "data-size": "md",
       "data-variant": "soft",
       "data-color": "gray",
     });
@@ -47,12 +47,12 @@ describe("Button Link part", () => {
   it("draws with the same attributes as the Button it sits beside", () => {
     render(
       <>
-        <Button size="4" variant="surface" color="danger" highContrast>
+        <Button size="md" variant="surface" color="danger" highContrast>
           Delete
         </Button>
         <ButtonLink
           href="/trash"
-          size="4"
+          size="md"
           variant="surface"
           color="danger"
           highContrast
@@ -118,7 +118,7 @@ describe("Button Link part", () => {
       href: "/app/settings",
       router: true,
       classes: ["button", "extra"],
-      size: "3",
+      size: "md",
     });
   });
 
@@ -133,7 +133,7 @@ describe("Button Link part", () => {
   });
 
   it("rejects a value outside the scale", () => {
-    const invalid = { size: "5" } as unknown as { size: "1" };
+    const invalid = { size: "5" } as unknown as { size: "sm" };
     expect(() =>
       render(
         <ButtonLink href="/docs" {...invalid}>

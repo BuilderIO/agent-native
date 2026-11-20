@@ -2,16 +2,15 @@
  * Part: button (and icon-button, which shares every rule here)
  *
  *   <button | a href class="button | icon-button"
- *           data-size="1|2|3|4" data-variant="solid|soft|surface|outline|ghost"
+ *           data-size="sm|md" data-variant="solid|soft|surface|outline|ghost"
  *           [data-color="accent|gray|danger|warning|success|info"]
  *           [data-high-contrast] [data-radius] [data-loading] [data-disabled]>
  *     <span class="button-content">   the label, hidden while loading
  *     <span class="button-spinner">   the Spinner, while loading
  *
- * Radix Themes' button on the system's scale: sizes 1 to 4 are the 16, 20,
- * 24 and 32px control heights, and like Radix the corner radius, padding and
- * gap step up with the size (--radius-1 to 4; --space-1, 2, 2, 3; --space-1
- * to --space-2). The full radius preset still makes it a pill: its
+ * Radix Themes' button on the system's scale: md is the 24px control
+ * height and sm the 20px one, and like Radix the corner radius steps with the
+ * size (--radius-3 and --radius-2) while the padding stays --space-2. The full radius preset still makes it a pill: its
  * --shape-control is --radius-full, which outweighs the step. A variant
  * decides how the color applies, and the color is whichever `data-color` is
  * nearest, the theme's accent at the root. Every variant reads the `--accent-*` steps, so a new color needs no
@@ -63,15 +62,7 @@
 
   /* ---- sizes ---- */
 
-  :is(.button, .icon-button)[data-size="1"] {
-    --control-font-size: var(--control-font-size-1);
-    --control-line-height: var(--control-line-height-1);
-    --_radius: var(--radius-1);
-    height: var(--control-height-1);
-    padding-inline: var(--space-1);
-  }
-
-  :is(.button, .icon-button)[data-size="2"] {
+  :is(.button, .icon-button)[data-size="sm"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_radius: var(--radius-2);
@@ -79,28 +70,9 @@
     padding-inline: var(--space-2);
   }
 
-  :is(.button, .icon-button)[data-size="4"] {
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_radius: var(--radius-4);
-    gap: var(--space-2);
-    height: var(--control-height-4);
-    padding-inline: var(--space-3);
-  }
-
-  :is(.button, .icon-button)[data-size="1"] svg {
-    width: var(--control-icon-size-1);
-    height: var(--control-icon-size-1);
-  }
-
-  :is(.button, .icon-button)[data-size="2"] svg {
+  :is(.button, .icon-button)[data-size="sm"] svg {
     width: var(--control-icon-size-2);
     height: var(--control-icon-size-2);
-  }
-
-  :is(.button, .icon-button)[data-size="4"] svg {
-    width: var(--control-icon-size-4);
-    height: var(--control-icon-size-4);
   }
 
   /* ---- variants ---- */

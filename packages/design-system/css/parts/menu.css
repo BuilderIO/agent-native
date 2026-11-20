@@ -4,7 +4,7 @@
  *
  *   <div class="menu-positioner">               Base UI Menu.Positioner
  *     <div class="menu-popup" data-side         Menu.Popup
- *          data-size="2|3" data-variant="soft|solid"
+ *          data-size="sm|md" data-variant="soft|solid"
  *          data-color="gray|accent|danger|warning|success|info"
  *          [data-high-contrast]>
  *       <div class="menu-group-label">
@@ -18,8 +18,8 @@
  *       <div class="menu-submenu-trigger">      [data-popup-open]; same slots as an item
  *       <div class="menu-separator">
  *
- * Radix Themes' DropdownMenu.Content on the system's scale: sizes 2 and 3
- * are 20 and 24px rows. The variant decides how the highlighted row fills:
+ * Radix Themes' DropdownMenu.Content on the system's scale: md and sm
+ * are 24 and 20px rows. The variant decides how the highlighted row fills:
  * soft (the default, in gray) is the scale's a3 tint under the row's own
  * text, solid is the scale's solid fill under its contrast text. The scale
  * is the popup's `data-color`; an item's own `data-color` re-binds it for
@@ -133,7 +133,7 @@
     --_icon-size: var(--control-icon-size-3);
   }
 
-  .menu-popup[data-size="2"] {
+  .menu-popup[data-size="sm"] {
     --_row-height: var(--control-height-2);
     --_icon-size: var(--control-icon-size-2);
   }

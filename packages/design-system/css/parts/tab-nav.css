@@ -3,7 +3,7 @@
  *
  *   <nav class="tab-nav" data-orientation="horizontal">   Base UI NavigationMenu.Root
  *     <ul class="tab-nav-list"                            NavigationMenu.List
- *         data-size="3|4" data-justify="start|center|end"
+ *         data-size="md|lg" data-justify="start|center|end"
  *         data-wrap="nowrap|wrap|wrap-reverse"
  *         [data-color="accent|gray|danger|warning|success|info"]
  *         [data-high-contrast]>

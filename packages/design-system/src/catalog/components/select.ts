@@ -1,16 +1,16 @@
-import { CONTROL_SIZES } from "../../tokens/roles.js";
 import {
   colorProp,
   popupColorProp,
   highContrastProp,
   radiusProp,
+  CONTROL_SIZES,
   sizeProp,
   variantProp,
 } from "../props.js";
 
 /** On the root: the trigger and the popup share one size, as in Radix Themes. */
 export const selectRootProps = {
-  size: sizeProp(CONTROL_SIZES, "3"),
+  size: sizeProp(CONTROL_SIZES, "md"),
 } as const;
 
 export const selectTriggerProps = {

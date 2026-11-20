@@ -2,13 +2,13 @@
  * Part: segmented-control
  *
  *   <div class="segmented-control" role="group"         Base UI ToggleGroup
- *        data-size="2|3|4" data-variant="surface|soft"
+ *        data-size="sm|md" data-variant="surface|soft"
  *        [data-radius] [data-disabled] data-orientation>
  *     <button class="segmented-control-item"              Toggle, one per choice
  *             aria-pressed [data-pressed] [data-disabled]>
  *
  * Radix Themes' segmented control on the system's scale: one track, its
- * items in equal columns, sizes 2 to 4 the 20, 24 and 32px control heights.
+ * items in equal columns, md and sm the 24 and 20px control heights.
  * The selected item fills a segment inset 1px from the track: surface
  * raises it in the panel color onto the gray track, soft tints it with the
  * nearest `data-color` in its text step. Hairlines divide unselected
@@ -43,7 +43,7 @@
     background-color: var(--gray-3);
   }
 
-  .segmented-control[data-size="2"] {
+  .segmented-control[data-size="sm"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
@@ -53,18 +53,6 @@
       calc(var(--shape-control) - 4 * var(--size-8))
     );
     --_icon-size: var(--control-icon-size-2);
-  }
-
-  .segmented-control[data-size="4"] {
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_height: var(--control-height-4);
-    --_padding-x: var(--space-3);
-    --_radius: max(
-      calc(var(--radius-4) * var(--corner-scale, 1)),
-      calc(var(--shape-control) - 4 * var(--size-8))
-    );
-    --_icon-size: var(--control-icon-size-4);
   }
 
   .segmented-control[data-variant="soft"] {

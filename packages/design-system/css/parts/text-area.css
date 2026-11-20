@@ -2,7 +2,7 @@
  * Part: text-area
  *
  *   <textarea class="text-area"                   Base UI Field.Control
- *             data-size="1|2|3|4" data-variant="surface|soft"
+ *             data-size="sm|md" data-variant="surface|soft"
  *             data-resize="none|vertical|horizontal|both"
  *             [data-color="accent|gray|danger|warning|success|info"] [data-radius]
  *             [data-focused] [data-invalid] [data-disabled] [aria-invalid]>
@@ -49,28 +49,12 @@
 
   /* ---- sizes ---- */
 
-  .text-area[data-size="1"] {
-    --control-font-size: var(--control-font-size-1);
-    --control-line-height: var(--control-line-height-1);
-    --_height: var(--control-height-1);
-    --_padding: var(--space-1);
-    --_padding-y: var(--space-1);
-    --_radius: var(--radius-1);
-  }
-
-  .text-area[data-size="2"] {
+  .text-area[data-size="sm"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
     --_padding-y: var(--space-1);
     --_radius: var(--radius-2);
-  }
-
-  .text-area[data-size="4"] {
-    --_radius: var(--radius-4);
-    --control-font-size: var(--control-font-size-4);
-    --control-line-height: var(--control-line-height-4);
-    --_height: var(--control-height-4);
   }
 
   .text-area[data-resize="none"] {

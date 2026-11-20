@@ -11,7 +11,7 @@ describe("Button part", () => {
     render(<Button>Save</Button>);
     const button = screen.getByRole("button", { name: "Save" });
     expect(button.classList.contains("button")).toBe(true);
-    expect(button.dataset.size).toBe("3");
+    expect(button.dataset.size).toBe("md");
     expect(button.dataset.variant).toBe("solid");
     expect(button.dataset.color).toBeUndefined();
     expect(button.dataset.highContrast).toBeUndefined();
@@ -19,12 +19,18 @@ describe("Button part", () => {
 
   it("writes color, high contrast and radius as Radix names them", () => {
     render(
-      <Button size="2" variant="soft" color="danger" highContrast radius="full">
+      <Button
+        size="sm"
+        variant="soft"
+        color="danger"
+        highContrast
+        radius="full"
+      >
         Delete
       </Button>,
     );
     const button = screen.getByRole("button", { name: "Delete" });
-    expect(button.dataset.size).toBe("2");
+    expect(button.dataset.size).toBe("sm");
     expect(button.dataset.variant).toBe("soft");
     expect(button.dataset.color).toBe("danger");
     expect(button.dataset.highContrast).toBe("");

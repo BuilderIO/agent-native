@@ -14,6 +14,7 @@ import {
   propAttribute,
   propAttributes,
   RADII,
+  SIZES,
   sizeProp,
   TEXT_SIZES,
   VARIANTS,
@@ -21,7 +22,7 @@ import {
 } from "./props.js";
 
 const defs = {
-  size: sizeProp(["2", "3"], "3"),
+  size: sizeProp(["sm", "md"], "md"),
   variant: variantProp(["solid", "soft"], "solid"),
   color: colorProp,
   highContrast: highContrastProp,
@@ -30,13 +31,13 @@ const defs = {
 describe("propAttributes", () => {
   it("writes each prop as its data attribute, defaults filled in", () => {
     expect(propAttributes(defs, {})).toEqual({
-      "data-size": "3",
+      "data-size": "md",
       "data-variant": "solid",
     });
     expect(
-      propAttributes(defs, { size: "2", color: "danger", highContrast: true }),
+      propAttributes(defs, { size: "sm", color: "danger", highContrast: true }),
     ).toEqual({
-      "data-size": "2",
+      "data-size": "sm",
       "data-variant": "solid",
       "data-color": "danger",
       "data-high-contrast": "",
@@ -60,7 +61,7 @@ describe("the catalog's props", () => {
     variant: VARIANTS,
     color: COLORS,
     radius: RADII,
-    size: TEXT_SIZES,
+    size: [...TEXT_SIZES, ...SIZES],
   };
   const defsOf = (part: (typeof PARTS)[number]) => [
     ...(part.props ? [["", part.props] as const] : []),
