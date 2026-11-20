@@ -105,7 +105,7 @@ test("falls back to all core tests for fixture, config, and instruction changes"
   );
 });
 
-test("includes disk-referenced CLI tests for Core source and launcher changes", () => {
+void test("includes disk-referenced CLI tests for Core source and launcher changes", () => {
   const specs = [
     "src/cli/create-tui.spec.ts",
     "src/cli/deploy-build.spec.ts",
