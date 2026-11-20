@@ -178,7 +178,7 @@ export const agentConfig = z.object({
       doc: "User emails for which no-approvals mode defaults on unless overridden by their stored setting.",
     }),
   detailRoutes: z.array(z.string().trim().min(1)).optional().meta({
-    doc: "Optional per-app route patterns (for example '/tasks/:id' or '/apps/:appId/*') that mark item detail pages for agent navigation checks. When set, pathname matching uses these patterns instead of the generic multi-segment rule; item ID keys and query parameters still apply.",
+    doc: "Optional per-app route patterns (for example `/tasks/:id` or `/apps/:appId/*`) that mark item detail pages for agent navigation checks. When set, pathname matching uses these patterns instead of the generic multi-segment rule; item ID keys and query parameters still apply.",
   }),
   sharedMemoryDir: z
     .string()
