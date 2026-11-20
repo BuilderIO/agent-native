@@ -132,7 +132,7 @@ describe("open_app MCP App metadata", () => {
         { caller } as any,
       );
 
-      const [input] = mocks.openGrantedDispatchMcpApp.mock.calls[0]!;
+      const input = mocks.openGrantedDispatchMcpApp.mock.calls[0]?.[0];
       expect(input.embed).toBe(expected);
     },
   );
@@ -173,7 +173,7 @@ describe("open_app MCP App metadata", () => {
         { text: "my unread email from Dana" },
         undefined,
       );
-      const [input] = mocks.openGrantedDispatchMcpApp.mock.calls[0]!;
+      const input = mocks.openGrantedDispatchMcpApp.mock.calls[0]?.[0];
       expect(input).toEqual({ app: "mail" });
     });
 
@@ -185,7 +185,7 @@ describe("open_app MCP App metadata", () => {
       });
 
       expect(mocks.routeAppIntentRun).not.toHaveBeenCalled();
-      const [input] = mocks.openGrantedDispatchMcpApp.mock.calls[0]!;
+      const input = mocks.openGrantedDispatchMcpApp.mock.calls[0]?.[0];
       expect(input).toEqual({ app: "calendar", view: "week" });
     });
 

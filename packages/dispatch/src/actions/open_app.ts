@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core";
 import { normalizeTrackingDimension } from "@agent-native/core/shared";
 import { track } from "@agent-native/core/tracking";
+import { fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -132,21 +133,21 @@ const openAppResource = embedApp({
   openLabel: "Open app",
 });
 
-// Same router the desktop chat uses, so an intent lands on the app a saved
-// pointer or the granted-app list says it belongs to.
 async function pickAppForIntent(
   intent: string,
   ctx: Parameters<typeof routeAppIntent.run>[1],
 ): Promise<string> {
   const routed = await routeAppIntent.run({ text: intent }, ctx);
   if (routed.status !== "ok") {
-    throw new Error(
+    fail(
       `open_app could not pick an app for that intent (${routed.reason}). Pass app explicitly; list_apps shows the choices.`,
+      { errorCode: "app_not_resolved", statusCode: 422 },
     );
   }
   if (routed.app === "none") {
-    throw new Error(
+    fail(
       "That request needs no app on screen. Answer in chat, or pass app explicitly to open one.",
+      { errorCode: "no_app_needed", statusCode: 422 },
     );
   }
   return routed.app;
@@ -165,7 +166,10 @@ export default defineAction({
     let app = normalizedArgs.app?.trim();
     if (!app) {
       if (!intent) {
-        throw new Error("open_app needs an app, or an intent to pick one.");
+        fail("open_app needs an app, or an intent to pick one.", {
+          errorCode: "app_required",
+          statusCode: 400,
+        });
       }
       app = await pickAppForIntent(intent, ctx);
     }
