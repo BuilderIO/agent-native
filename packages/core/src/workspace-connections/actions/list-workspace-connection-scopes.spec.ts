@@ -55,7 +55,7 @@ function listAs(userEmail: string, appId: string | undefined) {
 
 beforeAll(async () => {
   process.env.SECRETS_ENCRYPTION_KEY ??= "workspace-connection-scopes-test-key";
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await asUser("alice@example.com", async () => {
     await upsertWorkspaceConnection({
       id: "hubspot-alice",

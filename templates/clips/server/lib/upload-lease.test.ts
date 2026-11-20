@@ -5,7 +5,15 @@ const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
 import { drizzle } from "drizzle-orm/pglite";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../../shared/meeting-finalization.js";
 
@@ -163,16 +171,9 @@ async function statusOf(id: string) {
 }
 
 describe("upload lease", () => {
-  beforeEach(async () => {
+  beforeAll(async () => {
     client = await PGlite.create("memory://");
     db = drizzle(client);
-    mockAbortResumableUploadSession.mockResolvedValue(true);
-    mockDeleteS3ObjectByUrl.mockClear();
-    mockReleaseHostedClipRecording.mockClear();
-    mockReleaseHostedClipAllowanceAfterCleanup.mockClear();
-    mockReleaseOrphanedHostedClipAllowance.mockClear();
-    mockReconcileMeetingOnRecordingFailed.mockClear();
-    mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
     await execute(
       client,
       `CREATE TABLE recordings (
@@ -239,6 +240,26 @@ describe("upload lease", () => {
         full_text TEXT NOT NULL DEFAULT ''
       )`,
     );
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  beforeEach(async () => {
+    const { rows } = await client.query(
+      "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+    );
+    await client.exec(
+      `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+    );
+    mockAbortResumableUploadSession.mockResolvedValue(true);
+    mockDeleteS3ObjectByUrl.mockClear();
+    mockReleaseHostedClipRecording.mockClear();
+    mockReleaseHostedClipAllowanceAfterCleanup.mockClear();
+    mockReleaseOrphanedHostedClipAllowance.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
     mockDeleteS3ObjectByUrl.mockResolvedValue(true);
     mockReleaseHostedClipRecording.mockImplementation(
       async (input: { recordingId: string }) => {

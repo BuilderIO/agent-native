@@ -185,7 +185,7 @@ beforeEach(async () => {
   calls.invalidated.length = 0;
   calls.notified.length = 0;
   calls.noticeFails.clear();
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE visibility_docs (
       id TEXT PRIMARY KEY,

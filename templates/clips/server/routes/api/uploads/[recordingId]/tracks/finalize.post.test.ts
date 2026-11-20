@@ -2,7 +2,15 @@
 import { PGlite } from "@electric-sql/pglite";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import * as schema from "../../../../../db/schema.js";
 
@@ -246,11 +254,7 @@ async function trackRows() {
   ).rows;
 }
 
-beforeEach(async () => {
-  vi.clearAllMocks();
-  mocks.state.clear();
-  mocks.rich = true;
-  mocks.stopped = false;
+beforeAll(async () => {
   client = new PGlite();
   db = drizzle(client, { schema });
   await client.exec(
@@ -258,6 +262,14 @@ beforeEach(async () => {
       createTable(schema.recordingTracks) +
       "CREATE UNIQUE INDEX recording_tracks_recording_track_unique_idx ON recording_tracks (recording_id, track);",
   );
+});
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  mocks.state.clear();
+  mocks.rich = true;
+  mocks.stopped = false;
+  await client.exec("TRUNCATE recordings, recording_tracks CASCADE");
   await client.query(
     "INSERT INTO recordings (id, owner_email, status, storage_mode, upload_generation_id, edits_json, media_format, rich_bytes) VALUES ('rec-1', 'Owner@example.com', 'ready', 'own', 'gen-1', '{}', 'flat', 0)",
   );
@@ -284,7 +296,7 @@ async function setEdits(editsJson: string) {
   await client.query("UPDATE recordings SET edits_json=$1", [editsJson]);
 }
 
-afterEach(async () => {
+afterAll(async () => {
   await client.close();
 });
 
