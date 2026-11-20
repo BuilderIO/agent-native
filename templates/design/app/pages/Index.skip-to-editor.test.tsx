@@ -467,6 +467,44 @@ it("offers the reference sources and creates designs with no system link", async
 
 // oracle-change: replace generator loading, cache and timeout states with fixed prompt pools.
 describe("Index skip to editor", () => {
+  // K-DES-4-1: an agent (or a shared link) lands on /home?search=checkout and
+  // the home list is filtered by it, not left unfiltered.
+  it("filters the home list by the search in the URL", async () => {
+    await act(async () => root.unmount());
+    mocks.queryString = "search=checkout";
+    mocks.ownCount = 1;
+    root = createRoot(container);
+
+    await act(async () => root.render(<Index />));
+
+    expect(mocks.listParams).toMatchObject({ search: "checkout" });
+  });
+
+  it("writes typed home search into the URL so the view can be shared and restored", async () => {
+    await act(async () => root.unmount());
+    mocks.ownCount = 1;
+    root = createRoot(container);
+    await act(async () => root.render(<Index />));
+    const input = container.querySelector<HTMLInputElement>(
+      "input[data-home-search]",
+    );
+    expect(input, "home search input").not.toBeNull();
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setValue.call(input, "checkout");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(mocks.setSearchParams).toHaveBeenCalled();
+    const calls = mocks.setSearchParams.mock.calls;
+    const next = calls[calls.length - 1]![0] as URLSearchParams;
+    expect(next.get("search")).toBe("checkout");
+  });
+
   it("keeps home suggestions enabled before and after connection", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));

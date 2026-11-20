@@ -179,7 +179,11 @@ export default function Index() {
   const isSaveTemplateGettingStarted =
     searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
+  // Home search lives in the URL (`/home?search=`) so an agent or a shared link
+  // can land on the filtered list from any screen.
+  const urlSearch = searchParams.get("search") ?? "";
+  const lastUrlSearchRef = useRef(urlSearch);
+  const [search, setSearch] = useState(urlSearch);
   const [designFilter, setDesignFilter] = useState<DesignFilter>(
     () => readStoredDesignFilter() ?? "mine",
   );
@@ -650,14 +654,38 @@ export default function Index() {
     });
   }, [designs]);
 
-  const handleSearchChange = useCallback((query: string) => {
-    setSearch(query);
-    if (query.trim()) setHomeSection("recent");
+  const handleSearchChange = useCallback(
+    (query: string) => {
+      setSearch(query);
+      if (query.trim()) setHomeSection("recent");
+      setPage(1);
+      setSelectedDesignIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+      // Our own URL write is not an external navigation (see the effect below).
+      lastUrlSearchRef.current = query;
+      const next = new URLSearchParams(searchParams);
+      if (query) next.set("search", query);
+      else next.delete("search");
+      if (next.toString() !== searchParams.toString()) {
+        setSearchParams(next, { replace: true });
+      }
+    },
+    [searchParams, setSearchParams],
+  );
+
+  // An external navigation (agent, link, back/forward) to `/home?search=`
+  // replaces the typed search.
+  useEffect(() => {
+    if (lastUrlSearchRef.current === urlSearch) return;
+    lastUrlSearchRef.current = urlSearch;
+    setSearch(urlSearch);
+    if (urlSearch.trim()) setHomeSection("recent");
     setPage(1);
     setSelectedDesignIds((current) =>
       current.size === 0 ? current : new Set(),
     );
-  }, []);
+  }, [urlSearch]);
 
   const handleDesignFilterChange = useCallback(
     (next: "all" | "mine" | "shared") => {

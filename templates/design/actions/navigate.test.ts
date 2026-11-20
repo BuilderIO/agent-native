@@ -17,6 +17,21 @@ beforeEach(() => {
 });
 
 describe("design navigate action", () => {
+  // K-DES-4-1: "find designs with 'checkout' in the name" has to land the pane
+  // on Design home filtered by that search, from any screen (including an open editor).
+  it("carries a design-home search into the one-shot navigation command", async () => {
+    const args = { view: "list", search: "checkout" } as const;
+    expect(action.schema!.safeParse(args).success).toBe(true);
+
+    const result = await action.run(args);
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "list",
+      search: "checkout",
+    });
+    expect(result).toContain('(search: "checkout")');
+  });
+
   it("carries the requested editor tool into the one-shot navigation command", async () => {
     const result = await action.run({
       view: "editor",
