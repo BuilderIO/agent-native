@@ -90,6 +90,7 @@
     align-items: center;
     gap: var(--space-3);
     box-sizing: border-box;
+    min-height: var(--size-5);
     padding: var(--space-3) var(--space-4);
     color: var(--fg-default);
     font-size: var(--font-size-2);
@@ -100,7 +101,8 @@
   }
 
   .item[data-size="1"] {
-    padding: var(--space-2) var(--space-3);
+    min-height: var(--size-4);
+    padding: var(--space-1) var(--space-2);
   }
 
   /* A row that is a control: the whole row is its hit area. */
@@ -136,7 +138,8 @@
   }
 
   .item:focus-visible {
-    box-shadow: inset 0 0 0 var(--focus-ring-width) var(--line-focus);
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(-1 * var(--focus-ring-width));
   }
 
   .item-media {

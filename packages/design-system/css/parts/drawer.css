@@ -68,7 +68,7 @@
     position: fixed;
     box-sizing: border-box;
     pointer-events: auto;
-    border: 0 solid var(--line-default);
+    border: 0;
     background-color: var(--surface-raised);
     color: var(--fg-default);
     box-shadow: var(--shadow-5);
@@ -107,7 +107,6 @@
     flex-direction: column;
     height: auto;
     margin-top: var(--space-9);
-    border-top-width: 1px;
     border-top-left-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
     border-top-right-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
@@ -116,24 +115,30 @@
   .drawer-popup[data-side="top"] {
     inset-inline: 0;
     top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
     padding: var(--space-5);
-    border-bottom-width: 1px;
   }
 
   .drawer-popup[data-side="right"] {
     inset-block: 0;
     right: 0;
     width: 75%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
     padding: var(--space-5);
-    border-left-width: 1px;
   }
 
   .drawer-popup[data-side="left"] {
     inset-block: 0;
     left: 0;
     width: 75%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
     padding: var(--space-5);
-    border-right-width: 1px;
   }
 
   @media (min-width: 40rem) {
@@ -172,10 +177,10 @@
 
   .drawer-handle {
     flex-shrink: 0;
-    width: 100px;
+    width: calc(2 * var(--size-6));
     height: var(--space-2);
     margin: var(--space-4) auto 0;
-    border-radius: var(--radius-full);
+    border-radius: calc(var(--shape-pill) * var(--corner-scale, 1));
     background-color: var(--gray-a4);
   }
 
@@ -253,7 +258,7 @@
     border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
     background-color: transparent;
-    color: var(--gray-text);
+    color: var(--fg-muted);
     outline-style: none;
     transition-property: color, background-color;
     transition-duration: var(--duration-2);

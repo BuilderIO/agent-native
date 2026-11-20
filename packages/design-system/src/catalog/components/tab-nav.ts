@@ -1,8 +1,8 @@
-import { colorProp, enumProp, highContrastProp } from "../props.js";
+import { colorProp, enumProp, highContrastProp, sizeProp } from "../props.js";
 
 /** Radix Themes' tab nav: Tabs' look for links between pages. */
 export const tabNavProps = {
-  size: enumProp(["1", "2"], "Link height: 1 is 24px, 2 is 32px.", "2"),
+  size: sizeProp(["3", "4"], "4"),
   color: colorProp,
   highContrast: highContrastProp,
   justify: enumProp(

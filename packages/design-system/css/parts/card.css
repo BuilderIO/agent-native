@@ -20,27 +20,27 @@
 
 @layer components {
   .card {
-    --card-padding: var(--space-3);
-    --card-border-width: 1px;
-    --card-radius: calc(var(--shape-card) * var(--corner-scale, 1));
-    --card-line: var(--line-subtle);
+    --_card-padding: var(--space-3);
+    --_card-border-width: 1px;
+    --_card-radius: calc(var(--shape-card) * var(--corner-scale, 1));
+    --_card-line: var(--line-subtle);
 
-    --inset-border-width: var(--card-border-width);
-    --inset-border-radius: var(--card-radius);
-    --inset-padding-top: calc(var(--card-padding) - var(--card-border-width));
-    --inset-padding-right: calc(var(--card-padding) - var(--card-border-width));
+    --inset-border-width: var(--_card-border-width);
+    --inset-border-radius: var(--_card-radius);
+    --inset-padding-top: calc(var(--_card-padding) - var(--_card-border-width));
+    --inset-padding-right: calc(var(--_card-padding) - var(--_card-border-width));
     --inset-padding-bottom: calc(
-      var(--card-padding) - var(--card-border-width)
+      var(--_card-padding) - var(--_card-border-width)
     );
-    --inset-padding-left: calc(var(--card-padding) - var(--card-border-width));
+    --inset-padding-left: calc(var(--_card-padding) - var(--_card-border-width));
 
     position: relative;
     display: block;
     box-sizing: border-box;
-    padding: var(--card-padding);
+    padding: var(--_card-padding);
     overflow: hidden;
     border: 0;
-    border-radius: var(--card-radius);
+    border-radius: var(--_card-radius);
     corner-shape: var(--corner-shape, round);
     color: var(--fg-default);
     font-weight: var(--font-weight-regular);
@@ -60,7 +60,7 @@
     inset: 0;
     border-radius: inherit;
     corner-shape: inherit;
-    box-shadow: inset 0 0 0 var(--card-border-width) var(--card-line);
+    box-shadow: inset 0 0 0 var(--_card-border-width) var(--_card-line);
     pointer-events: none;
     transition: box-shadow var(--duration-1) var(--ease-standard);
   }
@@ -73,19 +73,19 @@
   /* ---- sizes ---- */
 
   .card[data-size="1"] {
-    --card-padding: var(--space-2);
+    --_card-padding: var(--space-2);
   }
 
   .card[data-size="3"] {
-    --card-padding: var(--space-4);
+    --_card-padding: var(--space-4);
   }
 
   .card[data-size="4"] {
-    --card-padding: var(--space-5);
+    --_card-padding: var(--space-5);
   }
 
   .card[data-size="5"] {
-    --card-padding: var(--space-6);
+    --_card-padding: var(--space-6);
   }
 
   /* ---- variants ---- */
@@ -95,21 +95,21 @@
   }
 
   .card[data-variant="ghost"] {
-    --card-border-width: 0px;
-    margin: calc(var(--card-padding) * -1);
+    --_card-border-width: 0px;
+    margin: calc(var(--_card-padding) * -1);
     background-color: transparent;
   }
 
   /* A button doesn't stretch as a block does; this one spans its margins too. */
   button.card[data-variant="ghost"] {
-    width: calc(100% + var(--card-padding) * 2);
+    width: calc(100% + var(--_card-padding) * 2);
   }
 
   /* ---- a card that is a control ---- */
 
   @media (hover: hover) {
     .card[data-variant="surface"]:is(a[href], button, label):hover {
-      --card-line: var(--gray-a7);
+      --_card-line: var(--gray-a7);
     }
 
     .card[data-variant="ghost"]:is(a[href], button, label):hover {
@@ -118,7 +118,7 @@
   }
 
   .card[data-variant="surface"]:is(a[href], button, label)[data-popup-open] {
-    --card-line: var(--gray-a7);
+    --_card-line: var(--gray-a7);
   }
 
   .card[data-variant="ghost"]:is(a[href], button, label)[data-popup-open] {
@@ -128,7 +128,7 @@
   .card[data-variant="surface"]:is(a[href], button, label):active:not(
       [data-popup-open]
     ) {
-    --card-line: var(--gray-a6);
+    --_card-line: var(--gray-a6);
   }
 
   .card[data-variant="ghost"]:is(a[href], button, label):active:not(

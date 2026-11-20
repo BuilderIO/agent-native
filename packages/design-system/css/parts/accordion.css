@@ -38,7 +38,8 @@
     min-height: var(--control-height-4);
     padding: var(--space-2) 0;
     border: 0;
-    border-radius: var(--shape-control);
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
     background: transparent;
     color: var(--fg-default);
     font: inherit;
@@ -52,7 +53,7 @@
 
   .accordion-trigger:focus-visible {
     outline: var(--focus-ring-width) solid var(--line-focus);
-    outline-offset: var(--focus-ring-offset);
+    outline-offset: calc(-1 * var(--focus-ring-width));
   }
 
   .accordion-trigger[data-disabled] {

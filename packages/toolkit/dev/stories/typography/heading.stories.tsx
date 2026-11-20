@@ -23,6 +23,19 @@ type Story = StoryObj<typeof meta>;
 /** A heading with the props from the controls. */
 export const Playground: Story = {};
 
+/** Each text style a heading takes; title-large is the default. */
+export const TextStyles: Story = {
+  render: () => (
+    <div className="flex flex-col gap-3">
+      {headingProps.textStyle.values.map((textStyle) => (
+        <Heading key={textStyle} as="h2" textStyle={textStyle} truncate>
+          {textStyle}: Ship the draft
+        </Heading>
+      ))}
+    </div>
+  ),
+};
+
 /** Every step of the type scale; the level stays h2 throughout. */
 export const Sizes: Story = {
   render: () => (

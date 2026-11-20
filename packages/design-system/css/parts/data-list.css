@@ -19,17 +19,17 @@
 
 @layer components {
   .data-list {
-    --data-list-gap: var(--space-3);
-    --data-list-line-height: var(--line-height-2);
-    --data-list-trim: calc((1em - var(--data-list-line-height)) / 2);
+    --_data-list-gap: var(--space-3);
+    --_data-list-line-height: var(--line-height-2);
+    --_data-list-trim: calc((1em - var(--_data-list-line-height)) / 2);
 
     margin: 0;
-    gap: var(--data-list-gap);
+    gap: var(--_data-list-gap);
     color: var(--fg-default);
     font-size: var(--font-size-2);
     font-weight: var(--font-weight-regular);
     font-style: normal;
-    line-height: var(--data-list-line-height);
+    line-height: var(--_data-list-line-height);
     text-align: start;
     overflow-wrap: anywhere;
   }
@@ -54,14 +54,14 @@
   /* ---- sizes ---- */
 
   .data-list[data-size="1"] {
-    --data-list-gap: var(--space-2);
-    --data-list-line-height: var(--line-height-1);
+    --_data-list-gap: var(--space-2);
+    --_data-list-line-height: var(--line-height-1);
     font-size: var(--font-size-1);
   }
 
   .data-list[data-size="3"] {
-    --data-list-gap: var(--space-4);
-    --data-list-line-height: var(--line-height-3);
+    --_data-list-gap: var(--space-4);
+    --_data-list-line-height: var(--line-height-3);
     font-size: var(--font-size-3);
   }
 
@@ -120,11 +120,11 @@
 
   .data-list:is([data-trim="start"], [data-trim="both"])
     .data-list-item:first-child {
-    margin-top: var(--data-list-trim);
+    margin-top: var(--_data-list-trim);
   }
 
   .data-list:is([data-trim="end"], [data-trim="both"])
     .data-list-item:last-child {
-    margin-bottom: var(--data-list-trim);
+    margin-bottom: var(--_data-list-trim);
   }
 }

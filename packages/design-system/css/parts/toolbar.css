@@ -72,7 +72,7 @@
     );
     corner-shape: var(--corner-shape, round);
     background-color: transparent;
-    color: var(--gray-text);
+    color: var(--fg-muted);
     font: inherit;
     font-size: var(--control-font-size);
     line-height: var(--control-line-height);
@@ -106,7 +106,7 @@
 
   @media (hover: hover) {
     :where(.toolbar-button, .toolbar-link):where(:not([data-disabled])):hover {
-      background-color: var(--gray-a3);
+      background-color: var(--fill-hover);
       color: var(--fg-default);
     }
   }
@@ -132,7 +132,7 @@
     align-self: stretch;
     width: 1px;
     margin-block: var(--space-1);
-    background-color: var(--gray-a5);
+    background-color: var(--line-subtle);
   }
 
   .toolbar[data-orientation="vertical"] .toolbar-separator {

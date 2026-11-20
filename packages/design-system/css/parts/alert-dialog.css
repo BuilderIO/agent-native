@@ -10,7 +10,8 @@
  *       <button class="button">   (AlertDialogAction / AlertDialogCancel)
  *
  * An alert dialog is the dialog that must be answered, so it stacks above
- * dialogs, drawers and popovers on its own layers. `data-size` steps the
+ * dialogs and drawers on its own layers; a popup opened inside it stacks
+ * above it. `data-size` steps the
  * popup's padding, gap and type as the dialog's does; 3 is the default.
  * Action and Cancel are the button part.
  */
@@ -21,6 +22,8 @@
     inset: 0;
     z-index: var(--layer-alert-dialog-backdrop);
     background-color: var(--surface-overlay);
+    -webkit-backdrop-filter: blur(1px);
+    backdrop-filter: blur(1px);
     transition-property: opacity;
     transition-duration: var(--duration-2);
     transition-timing-function: var(--ease-standard);
@@ -36,9 +39,12 @@
     box-sizing: border-box;
     width: calc(100vw - var(--space-3) * 2);
     max-width: 32rem;
+    max-height: min(760px, calc(100vh - var(--space-6)));
+    overflow-x: hidden;
+    overflow-y: auto;
     translate: -50% -50%;
     padding: var(--space-5);
-    border: 1px solid var(--line-default);
+    border: 0;
     border-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
     background-color: var(--surface-raised);
@@ -46,7 +52,7 @@
     box-shadow: var(--shadow-5);
     outline-style: none;
     transition-property: opacity, scale;
-    transition-duration: 200ms;
+    transition-duration: var(--duration-2);
     transition-timing-function: var(--ease-standard);
   }
 
@@ -102,6 +108,7 @@
     font-size: var(--font-size-4);
     line-height: var(--line-height-4);
     font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--letter-spacing-4);
     color: var(--fg-default);
   }
 

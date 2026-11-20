@@ -91,7 +91,7 @@
     border-radius: var(--_radius);
     corner-shape: var(--corner-shape, round);
     background-color: transparent;
-    color: var(--gray-text);
+    color: var(--fg-muted);
     font: inherit;
     font-size: var(--control-font-size);
     line-height: var(--control-line-height);

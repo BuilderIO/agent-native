@@ -29,12 +29,12 @@
 
 @layer components {
   .table-root {
-    --table-cell-padding-y: var(--space-2);
-    --table-cell-padding-x: var(--space-3);
-    --table-cell-min-height: var(--size-5);
-    --table-font-size: var(--font-size-2);
-    --table-line-height: var(--line-height-2);
-    --table-radius: calc(var(--shape-panel) * var(--corner-scale, 1));
+    --_table-cell-padding-y: var(--space-2);
+    --_table-cell-padding-x: var(--space-3);
+    --_table-cell-min-height: var(--size-5);
+    --_table-font-size: var(--font-size-2);
+    --_table-line-height: var(--line-height-2);
+    --_table-radius: calc(var(--shape-panel) * var(--corner-scale, 1));
 
     display: flex;
     flex-direction: column;
@@ -43,8 +43,8 @@
   }
 
   .table {
-    --table-row-background-color: transparent;
-    --table-row-box-shadow: inset 0 -1px var(--line-subtle);
+    --_table-row-background-color: transparent;
+    --_table-row-box-shadow: inset 0 -1px var(--line-subtle);
 
     box-sizing: border-box;
     width: 100%;
@@ -52,8 +52,8 @@
     border-collapse: collapse;
     border-spacing: 0;
     color: var(--fg-default);
-    font-size: var(--table-font-size);
-    line-height: var(--table-line-height);
+    font-size: var(--_table-font-size);
+    line-height: var(--_table-line-height);
     text-align: start;
     vertical-align: top;
   }
@@ -70,10 +70,10 @@
 
   .table-cell {
     box-sizing: border-box;
-    height: var(--table-cell-min-height);
-    padding: var(--table-cell-padding-y) var(--table-cell-padding-x);
-    background-color: var(--table-row-background-color);
-    box-shadow: var(--table-row-box-shadow);
+    height: var(--_table-cell-min-height);
+    padding: var(--_table-cell-padding-y) var(--_table-cell-padding-x);
+    background-color: var(--_table-row-background-color);
+    box-shadow: var(--_table-row-box-shadow);
     vertical-align: inherit;
     text-align: start;
     transition: background-color var(--duration-1) var(--ease-standard);
@@ -113,27 +113,27 @@
   }
 
   .inset .table-cell:first-child {
-    padding-left: var(--inset-padding-left, var(--table-cell-padding-x));
+    padding-left: var(--inset-padding-left, var(--_table-cell-padding-x));
   }
 
   .inset .table-cell:last-child {
-    padding-right: var(--inset-padding-right, var(--table-cell-padding-x));
+    padding-right: var(--inset-padding-right, var(--_table-cell-padding-x));
   }
 
   /* ---- sizes ---- */
 
   .table-root[data-size="1"] {
-    --table-cell-padding-y: var(--space-1);
-    --table-cell-padding-x: var(--space-2);
-    --table-cell-min-height: var(--size-4);
-    --table-font-size: var(--font-size-1);
-    --table-line-height: var(--line-height-1);
+    --_table-cell-padding-y: var(--space-1);
+    --_table-cell-padding-x: var(--space-2);
+    --_table-cell-min-height: var(--size-4);
+    --_table-font-size: var(--font-size-1);
+    --_table-line-height: var(--line-height-1);
   }
 
   .table-root[data-size="3"] {
-    --table-cell-padding-y: var(--space-3);
-    --table-cell-padding-x: var(--space-4);
-    --table-cell-min-height: var(--size-6);
+    --_table-cell-padding-y: var(--space-3);
+    --_table-cell-padding-x: var(--space-4);
+    --_table-cell-min-height: var(--size-6);
   }
 
   /* ---- variants ---- */
@@ -141,17 +141,17 @@
   .table-root[data-variant="surface"] {
     overflow: hidden;
     border: 1px solid var(--line-subtle);
-    border-radius: var(--table-radius);
+    border-radius: var(--_table-radius);
     corner-shape: var(--corner-shape, round);
     background-color: var(--surface-raised);
   }
 
   .table-root[data-variant="surface"] .table-header {
-    --table-row-background-color: var(--gray-a2);
+    --_table-row-background-color: var(--gray-a2);
   }
 
   .table-root[data-variant="surface"] .table-body .table-row:last-child {
-    --table-row-box-shadow: none;
+    --_table-row-box-shadow: none;
   }
 
   /* ---- a row that is a control ---- */
@@ -162,12 +162,12 @@
 
   @media (hover: hover) {
     .table-row:is([tabindex], [role="button"], [role="link"]):hover {
-      --table-row-background-color: var(--gray-a2);
+      --_table-row-background-color: var(--fill-hover);
     }
   }
 
   .table-row:is([aria-pressed="true"], [aria-selected="true"]) {
-    --table-row-background-color: var(--gray-a3);
+    --_table-row-background-color: var(--fill-selected);
   }
 
   .table-row:focus-visible {

@@ -7,7 +7,7 @@ import {
   variantProp,
 } from "../props.js";
 
-/** Not in Radix Themes: an Icon Button that stays filled while pressed. */
+/** Not in Radix Themes: a row of Toggles that share their look and, single or multiple, their pressed state. */
 export const toggleGroupProps = {
   size: sizeProp(CONTROL_SIZES, "3"),
   variant: variantProp(["ghost", "soft", "surface", "outline"], "ghost"),

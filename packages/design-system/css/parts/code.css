@@ -18,7 +18,7 @@
 @layer components {
   .code {
     /* Radix's mono adjustments: filled variants sit a step smaller than ghost. */
-    --code-scale: 0.9025;
+    --_code-scale: 0.9025;
     box-sizing: border-box;
     /* Holds its own height in a flex or grid row instead of stretching. */
     height: fit-content;
@@ -26,7 +26,7 @@
     border-radius: calc((0.5px + 0.2em) * var(--radius-factor));
     corner-shape: var(--corner-shape, round);
     font-family: var(--font-family-mono);
-    font-size: calc(var(--code-scale) * 1em);
+    font-size: calc(var(--_code-scale) * 1em);
     font-style: normal;
     line-height: 1.25;
     letter-spacing: -0.007em;
@@ -39,61 +39,61 @@
   /* ---- sizes ---- */
 
   .code[data-size="0"] {
-    font-size: calc(var(--font-size-0) * var(--code-scale));
+    font-size: calc(var(--font-size-0) * var(--_code-scale));
     line-height: var(--line-height-0);
     letter-spacing: calc(var(--letter-spacing-0) - 0.007em);
   }
 
   .code[data-size="1"] {
-    font-size: calc(var(--font-size-1) * var(--code-scale));
+    font-size: calc(var(--font-size-1) * var(--_code-scale));
     line-height: var(--line-height-1);
     letter-spacing: calc(var(--letter-spacing-1) - 0.007em);
   }
 
   .code[data-size="2"] {
-    font-size: calc(var(--font-size-2) * var(--code-scale));
+    font-size: calc(var(--font-size-2) * var(--_code-scale));
     line-height: var(--line-height-2);
     letter-spacing: calc(var(--letter-spacing-2) - 0.007em);
   }
 
   .code[data-size="3"] {
-    font-size: calc(var(--font-size-3) * var(--code-scale));
+    font-size: calc(var(--font-size-3) * var(--_code-scale));
     line-height: var(--line-height-3);
     letter-spacing: calc(var(--letter-spacing-3) - 0.007em);
   }
 
   .code[data-size="4"] {
-    font-size: calc(var(--font-size-4) * var(--code-scale));
+    font-size: calc(var(--font-size-4) * var(--_code-scale));
     line-height: var(--line-height-4);
     letter-spacing: calc(var(--letter-spacing-4) - 0.007em);
   }
 
   .code[data-size="5"] {
-    font-size: calc(var(--font-size-5) * var(--code-scale));
+    font-size: calc(var(--font-size-5) * var(--_code-scale));
     line-height: var(--line-height-5);
     letter-spacing: calc(var(--letter-spacing-5) - 0.007em);
   }
 
   .code[data-size="6"] {
-    font-size: calc(var(--font-size-6) * var(--code-scale));
+    font-size: calc(var(--font-size-6) * var(--_code-scale));
     line-height: var(--line-height-6);
     letter-spacing: calc(var(--letter-spacing-6) - 0.007em);
   }
 
   .code[data-size="7"] {
-    font-size: calc(var(--font-size-7) * var(--code-scale));
+    font-size: calc(var(--font-size-7) * var(--_code-scale));
     line-height: var(--line-height-7);
     letter-spacing: calc(var(--letter-spacing-7) - 0.007em);
   }
 
   .code[data-size="8"] {
-    font-size: calc(var(--font-size-8) * var(--code-scale));
+    font-size: calc(var(--font-size-8) * var(--_code-scale));
     line-height: var(--line-height-8);
     letter-spacing: calc(var(--letter-spacing-8) - 0.007em);
   }
 
   .code[data-size="9"] {
-    font-size: calc(var(--font-size-9) * var(--code-scale));
+    font-size: calc(var(--font-size-9) * var(--_code-scale));
     line-height: var(--line-height-9);
     letter-spacing: calc(var(--letter-spacing-9) - 0.007em);
   }
@@ -137,7 +137,7 @@
   }
 
   .code[data-variant="ghost"] {
-    --code-scale: 0.95;
+    --_code-scale: 0.95;
     padding: 0;
   }
 

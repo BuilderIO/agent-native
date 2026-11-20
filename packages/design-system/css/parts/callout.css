@@ -18,7 +18,7 @@
 
 @layer components {
   .callout {
-    --callout-gap: var(--space-3);
+    --_callout-gap: var(--space-3);
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
@@ -44,7 +44,7 @@
     grid-row: 1;
     grid-column: 1;
     align-items: center;
-    margin-inline-end: var(--callout-gap);
+    margin-inline-end: var(--_callout-gap);
   }
 
   .callout-icon svg {
@@ -62,13 +62,13 @@
     grid-column: 3;
     align-items: center;
     gap: var(--space-2);
-    margin-inline-start: var(--callout-gap);
+    margin-inline-start: var(--_callout-gap);
   }
 
   /* ---- sizes ---- */
 
   .callout[data-size="1"] {
-    --callout-gap: var(--space-2);
+    --_callout-gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     font-size: var(--font-size-1);
     line-height: var(--line-height-1);
@@ -80,7 +80,7 @@
   }
 
   .callout[data-size="3"] {
-    --callout-gap: var(--space-4);
+    --_callout-gap: var(--space-4);
     row-gap: var(--space-3);
     padding: var(--space-4) var(--space-5);
     font-size: var(--font-size-3);

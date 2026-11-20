@@ -39,7 +39,7 @@ describe("OTP Field part", () => {
       boxes()[5],
     );
     const root = first.closest<HTMLElement>(".otp-field");
-    expect(root?.dataset.size).toBe("4");
+    expect(root?.dataset.size).toBe("3");
     expect(root?.dataset.variant).toBe("surface");
     expect(root?.dataset.color).toBeUndefined();
   });

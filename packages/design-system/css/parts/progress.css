@@ -20,7 +20,7 @@
 
 @layer components {
   .progress {
-    --progress-height: calc(var(--space-2) * 0.75);
+    --_progress-height: calc(var(--space-2) * 0.75);
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: baseline;
@@ -29,11 +29,11 @@
   }
 
   .progress[data-size="1"] {
-    --progress-height: var(--space-1);
+    --_progress-height: var(--space-1);
   }
 
   .progress[data-size="3"] {
-    --progress-height: var(--space-2);
+    --_progress-height: var(--space-2);
   }
 
   .progress-label {
@@ -54,13 +54,13 @@
   .progress-track {
     position: relative;
     grid-column: 1 / -1;
-    height: var(--progress-height);
+    height: var(--_progress-height);
     overflow: hidden;
     border-radius: var(--radius-full);
   }
 
   .progress[data-radius]:not([data-radius="full"]) .progress-track {
-    border-radius: calc(var(--radius-factor) * var(--progress-height) / 3);
+    border-radius: calc(var(--radius-factor) * var(--_progress-height) / 3);
   }
 
   /* The edge draws over the fill, as Radix Themes' does. */

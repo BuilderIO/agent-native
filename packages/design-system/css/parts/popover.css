@@ -29,12 +29,12 @@
     box-sizing: border-box;
     width: 18rem;
     padding: var(--space-4);
-    border: 1px solid var(--line-default);
+    border: 0;
     border-radius: calc(var(--shape-popup) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
     background-color: var(--surface-raised);
     color: var(--fg-default);
-    box-shadow: var(--shadow-3);
+    box-shadow: var(--shadow-4);
     outline-style: none;
     transform-origin: var(--transform-origin);
     transition-property: opacity, scale, translate;
@@ -123,7 +123,7 @@
     width: var(--_size);
     height: var(--_size);
     background-color: var(--surface-raised);
-    border: 1px solid var(--line-default);
+    border: 1px solid var(--gray-a3);
     rotate: 45deg;
   }
   .popover-arrow[data-side="bottom"] {

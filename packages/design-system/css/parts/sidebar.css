@@ -42,7 +42,7 @@
     align-items: center;
     gap: var(--space-2);
     box-sizing: border-box;
-    height: var(--size-7);
+    height: var(--size-6);
     padding-inline: var(--space-4);
   }
 
@@ -56,14 +56,16 @@
     min-width: 0;
     align-items: center;
     gap: var(--space-2);
-    border-radius: var(--radius-2);
+    border-radius: calc(var(--radius-2) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
     color: var(--fg-default);
     text-decoration: none;
     outline-style: none;
   }
 
   .sidebar-brand:focus-visible {
-    box-shadow: 0 0 0 var(--focus-ring-width) var(--line-focus);
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
   }
 
   .sidebar-brand-logo {

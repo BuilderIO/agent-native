@@ -18,7 +18,7 @@
 
 @layer components {
   .meter {
-    --meter-height: calc(var(--space-2) * 0.75);
+    --_meter-height: calc(var(--space-2) * 0.75);
     display: grid;
     grid-template-columns: 1fr auto;
     align-items: baseline;
@@ -27,11 +27,11 @@
   }
 
   .meter[data-size="1"] {
-    --meter-height: var(--space-1);
+    --_meter-height: var(--space-1);
   }
 
   .meter[data-size="3"] {
-    --meter-height: var(--space-2);
+    --_meter-height: var(--space-2);
   }
 
   .meter-label {
@@ -52,13 +52,13 @@
   .meter-track {
     position: relative;
     grid-column: 1 / -1;
-    height: var(--meter-height);
+    height: var(--_meter-height);
     overflow: hidden;
     border-radius: var(--radius-full);
   }
 
   .meter[data-radius]:not([data-radius="full"]) .meter-track {
-    border-radius: calc(var(--radius-factor) * var(--meter-height) / 3);
+    border-radius: calc(var(--radius-factor) * var(--_meter-height) / 3);
   }
 
   /* The edge draws over the fill, as Radix Themes' does. */

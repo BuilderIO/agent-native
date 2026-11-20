@@ -45,7 +45,7 @@
     box-sizing: border-box;
     padding: 0 var(--space-2) var(--space-1);
     overflow: hidden;
-    color: var(--gray-text);
+    color: var(--fg-muted);
     font-size: var(--font-size-1);
     line-height: var(--line-height-1);
     font-weight: var(--font-weight-medium);
@@ -76,7 +76,7 @@
       var(--space-2) + var(--control-icon-size-3) / 2 - 0.5px
     );
     padding-inline-start: var(--space-2);
-    border-inline-start: 1px solid var(--gray-a5);
+    border-inline-start: 1px solid var(--line-subtle);
   }
 
   .navigation-menu-link {
@@ -108,7 +108,7 @@
 
   @media (hover: hover) {
     .navigation-menu-link:hover {
-      background-color: var(--gray-a3);
+      background-color: var(--fill-hover);
     }
 
     .navigation-menu-link[data-active]:hover {
@@ -166,7 +166,7 @@
     flex-shrink: 0;
     align-items: center;
     gap: var(--space-1);
-    color: var(--gray-text);
+    color: var(--fg-muted);
     font-size: var(--font-size-1);
     font-weight: var(--font-weight-regular);
     font-variant-numeric: tabular-nums;

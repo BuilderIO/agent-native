@@ -16,8 +16,8 @@
 
 @layer components {
   .scroll-area {
-    --scroll-area-scrollbar-size: var(--space-1);
-    --scroll-area-scrollbar-radius: var(--radius-full);
+    --_scroll-area-scrollbar-size: var(--space-1);
+    --_scroll-area-scrollbar-radius: var(--radius-full);
     position: relative;
     display: flex;
     flex-direction: column;
@@ -26,15 +26,15 @@
   }
 
   .scroll-area[data-size="2"] {
-    --scroll-area-scrollbar-size: var(--space-2);
+    --_scroll-area-scrollbar-size: var(--space-2);
   }
 
   .scroll-area[data-size="3"] {
-    --scroll-area-scrollbar-size: var(--space-3);
+    --_scroll-area-scrollbar-size: var(--space-3);
   }
 
   .scroll-area[data-radius]:not([data-radius="full"]) {
-    --scroll-area-scrollbar-radius: var(--radius-1);
+    --_scroll-area-scrollbar-radius: var(--radius-1);
   }
 
   .scroll-area-viewport {
@@ -45,13 +45,14 @@
   }
 
   .scroll-area-viewport:focus-visible {
-    box-shadow: inset 0 0 0 var(--focus-ring-width) var(--line-focus);
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(-1 * var(--focus-ring-width));
   }
 
   .scroll-area-scrollbar {
     display: flex;
     margin: var(--space-1);
-    border-radius: var(--scroll-area-scrollbar-radius);
+    border-radius: var(--_scroll-area-scrollbar-radius);
     opacity: 0;
     transition: opacity var(--duration-2) var(--ease-standard);
     touch-action: none;
@@ -61,11 +62,11 @@
 
   .scroll-area-scrollbar[data-orientation="vertical"] {
     flex-direction: column;
-    width: var(--scroll-area-scrollbar-size);
+    width: var(--_scroll-area-scrollbar-size);
   }
 
   .scroll-area-scrollbar[data-orientation="horizontal"] {
-    height: var(--scroll-area-scrollbar-size);
+    height: var(--_scroll-area-scrollbar-size);
   }
 
   .scroll-area-scrollbar[data-hovering],

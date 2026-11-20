@@ -74,9 +74,9 @@ export const LAYERS = {
   "--layer-dialog": "280",
   "--layer-drawer-over-dialog-backdrop": "284",
   "--layer-drawer-over-dialog": "285",
-  "--layer-popup": "290",
   "--layer-alert-dialog-backdrop": "340",
   "--layer-alert-dialog": "350",
+  "--layer-popup": "360",
   "--layer-toast": "400",
   "--layer-tooltip": "500",
 } as const satisfies TokenMap;

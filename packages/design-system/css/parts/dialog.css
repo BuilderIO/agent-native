@@ -43,7 +43,7 @@
     overflow-y: auto;
     translate: -50% -50%;
     padding: var(--space-5);
-    border: 1px solid var(--line-default);
+    border: 0;
     border-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
     background-color: var(--surface-raised);
@@ -62,7 +62,7 @@
 
   .dialog-popup[data-motion="default"] {
     transition-property: opacity, scale;
-    transition-duration: 200ms;
+    transition-duration: var(--duration-2);
     transition-timing-function: var(--ease-standard);
   }
 
@@ -85,7 +85,7 @@
 
   .dialog-backdrop[data-motion="instant"] {
     transition-property: backdrop-filter;
-    transition-duration: 1000ms;
+    transition-duration: var(--duration-4);
     transition-timing-function: var(--ease-enter);
   }
 
@@ -215,7 +215,7 @@
     border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
     background-color: transparent;
-    color: var(--gray-text);
+    color: var(--fg-muted);
     outline-style: none;
     transition-property: color, background-color;
     transition-duration: var(--duration-2);
