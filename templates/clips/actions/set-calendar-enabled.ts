@@ -72,7 +72,6 @@ export default defineAction({
     }
 
     const enabled = await db.transaction(async (tx) => {
-      // Holds the row so two quick switches can't overwrite each other.
       if (!(await lockCalendarAccount(tx, account.id, account.ownerEmail))) {
         failAccountNotFound(args.accountId);
       }
@@ -98,7 +97,6 @@ export default defineAction({
         .where(eq(schema.calendarAccounts.id, account.id));
 
       if (!args.enabled) {
-        // Events no meeting holds leave with the calendar.
         await tx
           .delete(schema.calendarEvents)
           .where(

@@ -1,11 +1,10 @@
 /**
  * Minimal Google Calendar v3 client.
  *
- * Hand-rolled fetch-only — no `googleapis` SDK. We use this for three narrow
+ * Hand-rolled fetch-only — no `googleapis` SDK. We use this for two narrow
  * operations:
  *   1. Exchange / refresh OAuth tokens.
  *   2. List events for a connected calendar account.
- *   3. List the calendars in a connected account.
  *
  * Tokens themselves live in `app_secrets` (see `connect-calendar.ts` /
  * `sync-calendars.ts`); this module never persists them.
@@ -14,7 +13,6 @@
  *   Auth:    https://accounts.google.com/o/oauth2/v2/auth
  *   Token:   https://oauth2.googleapis.com/token
  *   Events:  https://www.googleapis.com/calendar/v3/calendars/{calId}/events
- *   Calendars: https://www.googleapis.com/calendar/v3/users/me/calendarList
  *   Userinfo: https://www.googleapis.com/oauth2/v2/userinfo
  */
 
@@ -294,7 +292,6 @@ export interface CalendarListEntry {
   primary?: boolean;
 }
 
-/** Every calendar the Google account has in its calendar list. */
 export async function listCalendarList(args: {
   accessToken: string;
 }): Promise<CalendarListEntry[]> {

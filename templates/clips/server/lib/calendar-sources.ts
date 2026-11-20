@@ -1,11 +1,3 @@
-/**
- * Which calendars Clips reads in each connected Google account.
- *
- * An account starts with only its main calendar on. Turning another calendar
- * on adds its Google id to `calendar_accounts.enabled_calendar_ids_json`; the
- * main calendar is stored as "primary", the alias Google accepts for it.
- */
-
 import {
   listCalendarList,
   listEvents,
@@ -15,7 +7,6 @@ import {
 
 export const PRIMARY_CALENDAR_ID = "primary";
 
-// Free/busy-only calendars return busy blocks with no title or attendees.
 const READABLE_ACCESS_ROLES = new Set(["owner", "writer", "reader"]);
 
 export interface CalendarSourceSetting {
@@ -35,7 +26,6 @@ export interface CalendarEventFromSource {
   event: CalendarEvent;
 }
 
-/** The calendars Clips reads for an account, main calendar first. */
 export function enabledCalendarIds(account: CalendarSourceSetting): string[] {
   const raw = account.enabledCalendarIdsJson;
   if (raw == null) return [PRIMARY_CALENDAR_ID];
@@ -66,7 +56,6 @@ export function isCalendarEnabled(
   return enabledCalendarIds(account).includes(calendarId);
 }
 
-/** The account's readable calendars, main calendar first, with their switch state. */
 export function calendarChoices(
   entries: CalendarListEntry[],
   account: CalendarSourceSetting,
@@ -98,14 +87,11 @@ export async function listCalendarChoices(args: {
   return calendarChoices(entries, args.account);
 }
 
-// A calendar removed from the account since it was turned on.
 function isGoneCalendarError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /failed \((404|410)\)/.test(message);
 }
 
-// The same meeting can sit on several calendars of one account, each giving
-// its start in that calendar's own time zone.
 function sameMeetingKey(event: CalendarEvent): string {
   const dateTime = event.start?.dateTime;
   const startMs = dateTime ? Date.parse(dateTime) : Number.NaN;
@@ -115,13 +101,6 @@ function sameMeetingKey(event: CalendarEvent): string {
   return `${event.iCalUID ?? event.id}|${start}`;
 }
 
-/**
- * Read the events of every calendar turned on for the account. A meeting on
- * more than one of them is kept once, from the first calendar (the main one
- * when it is on), and its cancelled copies are dropped while it is still live
- * on another. Throws when no calendar read; when only some failed, returns
- * the others' events and the first failure as `error`.
- */
 export async function listEnabledCalendarEvents(args: {
   account: CalendarSourceSetting;
   accessToken: string;
@@ -172,7 +151,6 @@ export async function listEnabledCalendarEvents(args: {
     for (const event of read.value.items) {
       const key = sameMeetingKey(event);
       if (seen.has(key)) continue;
-      // A cancelled copy never hides a live one read later.
       if (event.status !== "cancelled") seen.add(key);
       items.push({ calendarId, event });
     }
@@ -180,8 +158,6 @@ export async function listEnabledCalendarEvents(args: {
 
   if (failed > 0 && succeeded === 0) throw error;
 
-  // Removed from one calendar's copy (say, as a guest) while another calendar
-  // still holds the meeting: not a cancellation, so the meeting keeps its notes.
   const live = items.filter(({ event }) => event.status !== "cancelled");
   const liveKeys = new Set(live.map(({ event }) => sameMeetingKey(event)));
   const liveIds = new Set(live.map(({ event }) => event.id));

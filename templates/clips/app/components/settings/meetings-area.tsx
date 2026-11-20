@@ -116,14 +116,11 @@ function CalendarSwitchItem({
     unknown,
     { accountId: string; calendarId: string; enabled: boolean }
   >("set-calendar-enabled");
-  // Holds the switch where it was flipped until the saved list catches up,
-  // then lets the list lead again, so a later change elsewhere shows.
   const [flipped, setFlipped] = useState<boolean | null>(null);
   if (flipped !== null && flipped === calendar.enabled) setFlipped(null);
   const checked = flipped ?? calendar.enabled;
 
   function toggle(enabled: boolean) {
-    // Ignored rather than disabled while saving, so the switch keeps focus.
     if (setEnabled.isPending) return;
     setFlipped(enabled);
     setEnabled.mutate(
@@ -169,7 +166,6 @@ function CalendarSwitchItem({
   );
 }
 
-/** The calendars in one Google account, each with a switch for whether Clips reads it. */
 function AccountCalendarList({ accountId }: { accountId: string }) {
   const t = useT();
   const query = useActionQuery<{ accounts: AccountCalendars[] }>(

@@ -102,8 +102,6 @@ export default defineAction({
               : calendars.filter((calendar) => calendar.enabled),
           };
         } catch (err) {
-          // Not recorded on the account: a calendar list the grant can't
-          // read still leaves its events readable.
           return {
             ...base,
             canChange,

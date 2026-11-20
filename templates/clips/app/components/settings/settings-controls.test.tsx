@@ -498,7 +498,6 @@ describe("Meetings › Calendar accounts", () => {
     return element;
   }
 
-  // Each account's calendars load once the account list has.
   async function renderWithCalendars() {
     await render(<ClipsMeetingsArea canManage={false} />);
     await flush();
@@ -628,8 +627,6 @@ describe("Meetings › Calendar accounts", () => {
     );
     expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("true");
 
-    // Turned off elsewhere, as another tab or the agent can, and seen when
-    // the next save refreshes the list.
     mocks.queries["list-calendars"] = withTeam(false);
     await click(calendarSwitch("ok@example.com"));
     await settle(() =>

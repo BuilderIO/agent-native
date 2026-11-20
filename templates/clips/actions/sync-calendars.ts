@@ -1,9 +1,8 @@
 /**
  * sync-calendars
  *
- * Pulls events from the calendars turned on in each calendar account visible
- * to the current user (or, when invoked from a recurring job, every connected
- * account).
+ * Pulls events for all calendar accounts visible to the current user
+ * (or, when invoked from a recurring job, every connected account).
  * Upserts events into `calendar_events` for compatibility with existing
  * recorded meetings. The Meetings UI reads Google Calendar live and no
  * longer bulk-creates `meetings` rows from every upcoming event.
@@ -187,7 +186,6 @@ export default defineAction({
         }
 
         if (calendarError) {
-          // The token works, since another calendar of the account read.
           const failure = await recordCalendarFetchError(
             account,
             calendarError,

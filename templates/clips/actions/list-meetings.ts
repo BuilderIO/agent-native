@@ -421,7 +421,6 @@ export default defineAction({
           }
 
           if (calendarError) {
-            // The token works, since another calendar of the account read.
             calendarErrors.push(
               await recordCalendarFetchError(account, calendarError, {
                 needsReauth: false,

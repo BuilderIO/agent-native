@@ -58,7 +58,6 @@ function parseAccessBundle(raw: string): AccessTokenBundle {
   return { accessToken: raw };
 }
 
-/** How `calendar_events.calendar_id` stores a calendar: NULL for the main one. */
 export function storedCalendarId(calendarId?: string | null): string | null {
   return calendarId && calendarId !== PRIMARY_CALENDAR_ID ? calendarId : null;
 }
@@ -226,8 +225,6 @@ export function encodeCalendarMeetingId(
 ): string {
   const encoded = Buffer.from(externalId, "utf8").toString("base64url");
   const id = `${CALENDAR_MEETING_ID_PREFIX}_${accountId}_${encoded}`;
-  // Main-calendar events keep the original id, so links made before other
-  // calendars could be read still open. base64url never contains ".".
   if (calendarId === PRIMARY_CALENDAR_ID) return id;
   return `${id}.${Buffer.from(calendarId, "utf8").toString("base64url")}`;
 }
@@ -346,7 +343,6 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
     .where(eq(schema.calendarAccounts.id, parsed.accountId))
     .limit(1);
   if (!account || account.provider !== "google") return null;
-  // Only calendars the owner turned on are readable through Clips.
   if (!isCalendarEnabled(account, parsed.calendarId)) return null;
 
   let accessToken: string | null;
