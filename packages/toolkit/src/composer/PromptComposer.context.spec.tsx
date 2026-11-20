@@ -1019,6 +1019,103 @@ describe("controlled composer context", () => {
     );
   });
 
+  it.each([
+    ["source", { source: "reports", referenceType: "dashboard" }],
+    ["reference type", { source: "dashboards", referenceType: "report" }],
+  ])(
+    "reloads an open scoped picker when its %s changes",
+    async (_changedField, nextFilter) => {
+      const oldItem = {
+        id: "old",
+        label: "Old result",
+        source: "dashboards",
+        refType: "dashboard",
+        refId: "old",
+      };
+      const newItem = {
+        id: "new",
+        label: "New result",
+        source: nextFilter.source,
+        refType: nextFilter.referenceType,
+        refId: "new",
+      };
+      let finish: (response: Response) => void = () => {
+        throw new Error("No second search started");
+      };
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ items: [oldItem] })),
+        )
+        .mockImplementationOnce(
+          () => new Promise<Response>((resolve) => (finish = resolve)),
+        );
+      vi.stubGlobal("fetch", fetch);
+      const composerRef = React.createRef<TiptapComposerHandle>();
+      const onSubmit = vi.fn();
+      const render = async (filter: typeof nextFilter) => {
+        await act(async () =>
+          root.render(
+            <PromptComposer
+              composerRef={composerRef}
+              onSubmit={onSubmit}
+              contextMenuItems={[
+                {
+                  id: "scoped",
+                  label: "Choose reference",
+                  section: "context",
+                  referencePicker: filter,
+                },
+              ]}
+              showModelSelector={false}
+              modelStatusChecksEnabled={false}
+              includeDefaultSlashSkills={false}
+              voiceEnabled={false}
+            />,
+          ),
+        );
+      };
+      const options = () =>
+        Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+
+      await render({ source: "dashboards", referenceType: "dashboard" });
+      await act(async () =>
+        container
+          .querySelector<HTMLElement>('button[aria-label="Add context"]')!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          ),
+      );
+      await act(async () => {
+        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+          .find((item) => item.textContent === "Choose reference")!
+          .click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(options().map((item) => item.textContent)).toEqual(["Old result"]);
+
+      await render(nextFilter);
+      expect(options()).toHaveLength(0);
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(fetch.mock.calls[1][0]).toContain(`source=${nextFilter.source}`);
+      await act(async () =>
+        finish(new Response(JSON.stringify({ items: [oldItem, newItem] }))),
+      );
+      expect(options().map((item) => item.textContent)).toEqual(["New result"]);
+      await act(async () => options()[0].click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      await act(async () => composerRef.current!.submit());
+      expect(onSubmit.mock.calls[0][2]).toEqual([
+        expect.objectContaining({
+          refType: nextFilter.referenceType,
+          refId: "new",
+        }),
+      ]);
+    },
+  );
+
   it("selects sequential workspace results after the composer re-renders", async () => {
     vi.stubGlobal(
       "fetch",

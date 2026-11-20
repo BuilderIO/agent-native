@@ -6887,6 +6887,11 @@ function TiptapComposerSurface({
     const pickerFor = (filter?: { referenceType: string; source: string }) => {
       return {
         identityScope: "workspace" as const,
+        ...(filter
+          ? {
+              refreshKey: JSON.stringify([filter.source, filter.referenceType]),
+            }
+          : {}),
         presentation: { type: "dialog" as const, mode: "action" as const },
         searchPlaceholder: t("agentChat.composer.menu.searchWorkspace", {
           defaultValue: "Search workspace…",
