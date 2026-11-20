@@ -29,6 +29,9 @@ const AsyncLocalStorageCtor = getAsyncLocalStorageCtor();
 const authorizedAgentNavigation = AsyncLocalStorageCtor
   ? new AsyncLocalStorageCtor<boolean>()
   : undefined;
+const authorizedFrameworkUrlTool = AsyncLocalStorageCtor
+  ? new AsyncLocalStorageCtor<boolean>()
+  : undefined;
 
 /**
  * Marks a navigate write as explicitly approved by a navigate action's own
@@ -42,6 +45,19 @@ export function withAuthorizedAgentNavigation<T>(fn: () => T): T {
 
 export function isAgentNavigationAuthorized(): boolean {
   return authorizedAgentNavigation?.getStore() === true;
+}
+
+/**
+ * Marks a `__set_url__` write from the framework's built-in URL tools
+ * (`set-search-params`, `set-url-path`, `open-settings-page`).
+ */
+export function withAuthorizedFrameworkUrlTool<T>(fn: () => T): T {
+  if (!authorizedFrameworkUrlTool) return fn();
+  return authorizedFrameworkUrlTool.run(true, fn);
+}
+
+function isFrameworkUrlToolAuthorized(): boolean {
+  return authorizedFrameworkUrlTool?.getStore() === true;
 }
 
 function isDetailKey(key: string): boolean {
@@ -91,10 +107,19 @@ export function isDefaultDetailNavigation(
   return typeof navigation.path === "string" && isDetailPath(navigation.path);
 }
 
+function isNavigateKey(key: string): boolean {
+  return key === "navigate" || key.startsWith("navigate:");
+}
+
+function isSetUrlKey(key: string): boolean {
+  return key === "__set_url__" || key.startsWith("__set_url__:");
+}
+
 /**
- * Guards every `navigate` command write (account-wide or tab-scoped) at the
- * application-state store boundary so no helper or hand-written navigate
- * action can bypass the keep-view contract during an agent call:
+ * Guards every `navigate` and `__set_url__` command write (account-wide or
+ * tab-scoped) at the application-state store boundary so no helper or
+ * hand-written navigate action can bypass the keep-view contract during an
+ * agent call:
  * - Reads never move the user's view.
  * - Edits/writes never move the user's view unless `intent: "open"` is set.
  * - Detail opens require `intent: "open"`.
@@ -103,8 +128,10 @@ export function assertNavigateWriteAllowed(
   key: string,
   value?: Record<string, unknown>,
 ): void {
-  if (key !== "navigate" && !key.startsWith("navigate:")) return;
+  const isSetUrl = isSetUrlKey(key);
+  if (!isNavigateKey(key) && !isSetUrl) return;
   if (!isAgentCaller(currentActionOriginCaller())) return;
+  if (isSetUrl && isFrameworkUrlToolAuthorized()) return;
   if (insideReadOnlyAction()) {
     throw new AgentNavigationRefusedError(
       'Refused: a read-only action cannot move the user\'s view. Read the data and answer; call navigate with intent: "open" only if the user asked to see it.',
@@ -122,7 +149,11 @@ export function assertNavigateWriteAllowed(
       'Refused: a write action cannot move the user\'s view unless intent: "open" is set. Keep the user on their current view, or use navigateAfterWrite() so agent writes stay put.',
     );
   }
-  if (value && isDefaultDetailNavigation(value)) {
+  const detailPayload =
+    isSetUrl && value && typeof value.pathname === "string"
+      ? { path: value.pathname }
+      : value;
+  if (detailPayload && isDefaultDetailNavigation(detailPayload)) {
     throw new AgentNavigationRefusedError(
       'Refused: opening this item would move the user off their current view. Call again with intent: "open" only if the user asked to open or show it; otherwise answer without navigating.',
     );

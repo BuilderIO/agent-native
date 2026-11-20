@@ -7,6 +7,7 @@ import {
   AgentNavigationRefusedError,
   assertNavigateWriteAllowed,
   isDefaultDetailNavigation,
+  withAuthorizedFrameworkUrlTool,
 } from "./navigate-write-guard.js";
 
 function inAction<T>(
@@ -65,6 +66,9 @@ describe("assertNavigateWriteAllowed", () => {
     ["mcp", "navigate"],
     ["tool", "navigate:tab-1"],
     ["a2a", "navigate"],
+    ["mcp", "__set_url__"],
+    ["tool", "__set_url__:tab-1"],
+    ["a2a", "__set_url__"],
   ] as const)("refuses a %s read writing %s", async (caller, key) => {
     await expect(
       inAction(caller, { readOnly: true }, () =>
@@ -75,6 +79,34 @@ describe("assertNavigateWriteAllowed", () => {
       code: "agent_navigation_refused",
       message: expect.stringContaining("read-only action cannot move"),
     });
+  });
+
+  it("allows framework URL tools writing __set_url__, and refuses detail __set_url__ from normal actions", async () => {
+    await expect(
+      inAction("tool", { readOnly: true }, () =>
+        withAuthorizedFrameworkUrlTool(() =>
+          assertNavigateWriteAllowed("__set_url__:tab-1", {
+            pathname: "/settings/app",
+          }),
+        ),
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      inAction("mcp", { readOnly: false }, () =>
+        assertNavigateWriteAllowed("__set_url__:tab-1", {
+          pathname: "/tasks/t1",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+
+    await expect(
+      inAction("mcp", { readOnly: false }, () =>
+        assertNavigateWriteAllowed("__set_url__:tab-1", {
+          pathname: "/settings/app/rules",
+        }),
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("refuses a write nested inside an agent's read", async () => {
