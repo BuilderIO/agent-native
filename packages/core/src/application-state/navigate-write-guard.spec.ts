@@ -6,7 +6,11 @@ import { defineAction } from "../action.js";
 import {
   AgentNavigationRefusedError,
   assertNavigateWriteAllowed,
+  buildAgentNavigationKeptResult,
+  isAgentNavigationKeptResult,
+  isAgentNavigationRefusedError,
   isDefaultDetailNavigation,
+  navigationKeyForCommandKey,
   withAuthorizedFrameworkUrlTool,
 } from "./navigate-write-guard.js";
 
@@ -109,7 +113,7 @@ describe("assertNavigateWriteAllowed", () => {
     });
   });
 
-  it("allows framework URL tools writing __set_url__, and refuses detail __set_url__ from normal actions", async () => {
+  it("allows framework URL tools writing __set_url__, and keeps view on detail __set_url__ from navigate actions", async () => {
     await expect(
       inAction("tool", { readOnly: true }, () =>
         withAuthorizedFrameworkUrlTool(() =>
@@ -121,12 +125,21 @@ describe("assertNavigateWriteAllowed", () => {
     ).resolves.toBeUndefined();
 
     await expect(
-      inAction("mcp", { readOnly: false, actionName: "navigate" }, () =>
+      inAction("mcp", { readOnly: false, actionName: "navigate" }, () => {
+        expect(() =>
+          assertNavigateWriteAllowed("__set_url__:tab-1", {
+            pathname: "/tasks/t1",
+          }),
+        ).toThrow(AgentNavigationRefusedError);
         assertNavigateWriteAllowed("__set_url__:tab-1", {
           pathname: "/tasks/t1",
-        }),
-      ),
-    ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+        });
+      }),
+    ).resolves.toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+    });
 
     await expect(
       inAction("mcp", { readOnly: false, actionName: "navigate" }, () =>
@@ -148,18 +161,26 @@ describe("assertNavigateWriteAllowed", () => {
   });
 
   it.each(["mcp", "tool", "a2a"] as const)(
-    "refuses a %s detail navigate write without intent open",
+    "blocks a %s detail navigate write at the store and returns a typed kept-view result from navigate",
     async (caller) => {
       await expect(
-        inAction(caller, { readOnly: false, actionName: "navigate" }, () =>
+        inAction(caller, { readOnly: false, actionName: "navigate" }, () => {
+          expect(() =>
+            assertNavigateWriteAllowed("navigate:tab-1", {
+              view: "tasks",
+              taskId: "t1",
+            }),
+          ).toThrow(AgentNavigationRefusedError);
           assertNavigateWriteAllowed("navigate:tab-1", {
             view: "tasks",
             taskId: "t1",
-          }),
-        ),
-      ).rejects.toMatchObject({
-        name: "AgentNavigationRefusedError",
-        code: "agent_navigation_refused",
+          });
+        }),
+      ).resolves.toMatchObject({
+        kept: true,
+        navigated: false,
+        reason: "detail-requires-open-intent",
+        currentView: null,
         message: expect.stringContaining('intent: "open"'),
       });
     },
@@ -179,7 +200,7 @@ describe("assertNavigateWriteAllowed", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("refuses any navigate write from a top-level write action even before its first write, and after writes or in nested calls", async () => {
+  it("refuses direct navigate writes from write actions, and returns a typed kept-view result for navigate after writes or in nested calls", async () => {
     await expect(
       inAction("mcp", { readOnly: false, actionName: "edit-task" }, () =>
         assertNavigateWriteAllowed("navigate", { view: "tasks" }),
@@ -187,18 +208,35 @@ describe("assertNavigateWriteAllowed", () => {
     ).rejects.toMatchObject({
       name: "AgentNavigationRefusedError",
       code: "agent_navigation_refused",
+      reason: "write-keeps-view",
       message: expect.stringContaining("write action cannot move"),
     });
 
     await expect(
       inAction("mcp", { readOnly: false, actionName: "navigate" }, () => {
         noteObservedWrite("sql");
+        expect(() =>
+          assertNavigateWriteAllowed("navigate", { view: "tasks" }),
+        ).toThrow(AgentNavigationRefusedError);
         assertNavigateWriteAllowed("navigate", { view: "tasks" });
       }),
-    ).rejects.toMatchObject({
-      name: "AgentNavigationRefusedError",
-      code: "agent_navigation_refused",
-      message: expect.stringContaining("write action cannot move"),
+    ).resolves.toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "write-keeps-view",
+      message: expect.stringContaining('intent: "open"'),
+    });
+
+    await expect(
+      inAction("mcp", { readOnly: false, actionName: "navigate" }, () => {
+        noteObservedWrite("sql");
+        assertNavigateWriteAllowed("navigate", { eventId: "ev-1" });
+      }),
+    ).resolves.toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      message: expect.stringContaining('intent: "open"'),
     });
 
     await expect(
@@ -207,7 +245,11 @@ describe("assertNavigateWriteAllowed", () => {
           assertNavigateWriteAllowed("navigate", { view: "tasks" }),
         ),
       ),
-    ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+    ).resolves.toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "write-keeps-view",
+    });
   });
 
   it("allows an explicit allowsAgentNavigation write action, but still refuses reads", async () => {
@@ -290,5 +332,93 @@ describe("assertNavigateWriteAllowed", () => {
     expect(() =>
       assertNavigateWriteAllowed("navigate", { path: "/tasks/t1" }),
     ).not.toThrow();
+  });
+});
+
+describe("kept-view result and guard helpers", () => {
+  it("formats kept-view messages for view/mode, mode, view, screen, path, and empty views", () => {
+    const week = buildAgentNavigationKeptResult("detail-requires-open-intent", {
+      view: "calendar",
+      calendarViewMode: "week",
+    });
+    expect(week).toEqual({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      currentView: { view: "calendar", calendarViewMode: "week" },
+      message:
+        'Kept the user on calendar (week) (instead of opening the item). Pass intent: "open" only if the user asked to open or switch to it.',
+    });
+    expect(
+      buildAgentNavigationKeptResult("write-keeps-view", {
+        calendarViewMode: " day ",
+      }).message,
+    ).toContain("Kept the user on day (after agent writes)");
+    expect(
+      buildAgentNavigationKeptResult("detail-requires-open-intent", {
+        view: " tasks ",
+      }).message,
+    ).toContain("Kept the user on tasks (instead of opening the item)");
+    expect(
+      buildAgentNavigationKeptResult("detail-requires-open-intent", {
+        screen: " inbox ",
+      }).message,
+    ).toContain("Kept the user on inbox (instead of opening the item)");
+    expect(
+      buildAgentNavigationKeptResult("detail-requires-open-intent", {
+        path: " /my-issues ",
+      }).message,
+    ).toContain("Kept the user on /my-issues (instead of opening the item)");
+    expect(
+      buildAgentNavigationKeptResult("write-keeps-view", { view: "   " })
+        .message,
+    ).toContain("Kept the user's current view (after agent writes)");
+    expect(
+      buildAgentNavigationKeptResult("detail-requires-open-intent").currentView,
+    ).toBeNull();
+  });
+
+  it("recognizes kept-view results and refused errors", () => {
+    const kept = buildAgentNavigationKeptResult("detail-requires-open-intent");
+    expect(isAgentNavigationKeptResult(kept)).toBe(true);
+    expect(isAgentNavigationKeptResult(null)).toBe(false);
+    expect(isAgentNavigationKeptResult("kept")).toBe(false);
+    expect(isAgentNavigationKeptResult({ ...kept, kept: false })).toBe(false);
+    expect(isAgentNavigationKeptResult({ ...kept, navigated: true })).toBe(
+      false,
+    );
+    expect(isAgentNavigationKeptResult({ ...kept, reason: 123 })).toBe(false);
+    expect(isAgentNavigationKeptResult({ ...kept, message: 123 })).toBe(false);
+
+    const err = new AgentNavigationRefusedError("nope", {
+      reason: "write-keeps-view",
+      currentView: { view: "inbox" },
+    });
+    expect(isAgentNavigationRefusedError(err)).toBe(true);
+    expect(err.reason).toBe("write-keeps-view");
+    expect(err.currentView).toEqual({ view: "inbox" });
+    expect(
+      isAgentNavigationRefusedError({
+        code: "agent_navigation_refused",
+        reason: "detail-requires-open-intent",
+      }),
+    ).toBe(true);
+    expect(isAgentNavigationRefusedError(new Error("other"))).toBe(false);
+    expect(isAgentNavigationRefusedError(null)).toBe(false);
+    expect(
+      isAgentNavigationRefusedError({ code: "agent_navigation_refused" }),
+    ).toBe(false);
+  });
+
+  it("maps navigate and __set_url__ command keys to their matching navigation keys", () => {
+    expect(navigationKeyForCommandKey("navigate")).toBe("navigation");
+    expect(navigationKeyForCommandKey("navigate:tab-1")).toBe(
+      "navigation:tab-1",
+    );
+    expect(navigationKeyForCommandKey("__set_url__")).toBe("navigation");
+    expect(navigationKeyForCommandKey("__set_url__:tab-2")).toBe(
+      "navigation:tab-2",
+    );
+    expect(navigationKeyForCommandKey("draft")).toBeNull();
   });
 });
