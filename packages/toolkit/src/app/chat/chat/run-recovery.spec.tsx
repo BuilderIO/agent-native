@@ -429,6 +429,28 @@ describe("run recovery surfaces", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves the server-chosen visitor message for email verification errors", async () => {
+    await act(async () => {
+      root.render(
+        <RunErrorRecoveryCard
+          info={{
+            message: "AI features aren't available on this site right now.",
+            errorCode: "email_verification_required",
+          }}
+          onRetry={vi.fn()}
+          onDismiss={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.querySelector("p")?.textContent).toBe(
+      "AI features aren't available on this site right now.",
+    );
+    expect(container.textContent).not.toContain(
+      "Verify an eligible email address with the connected AI provider account or space, then retry.",
+    );
+  });
+
   it("shows provider verification guidance without app-account resend for a verified account", async () => {
     await act(async () => {
       root.render(

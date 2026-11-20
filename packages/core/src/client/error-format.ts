@@ -203,6 +203,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.builderModelUnauthorized",
   ],
   [
+    "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+    "agentChat.errorMessages.emailVerificationRequired",
+  ],
+  [
     BUILDER_AUTHENTICATION_ERROR,
     "agentChat.errorMessages.builderAuthentication",
   ],

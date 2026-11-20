@@ -1127,9 +1127,7 @@ export function RunErrorRecoveryCard({
             {...SESSION_REPLAY_MASK_PROPS}
             className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground"
           >
-            {isUnblockableExternally
-              ? t("agentChat.errorMessages.emailVerificationRequired")
-              : localizeKnownChatErrorText(info.message, t)}
+            {localizeKnownChatErrorText(info.message, t)}
           </p>
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">

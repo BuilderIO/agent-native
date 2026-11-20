@@ -252,6 +252,12 @@ describe("formatChatErrorText", () => {
       "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
     );
     expect(normalized.details).toBe(raw);
+    expect(
+      localizeKnownChatErrorText(
+        normalized.message,
+        (key) => `localized:${key}`,
+      ),
+    ).toBe("localized:agentChat.errorMessages.emailVerificationRequired");
   });
 
   describe("a message the server already chose for a visitor", () => {
