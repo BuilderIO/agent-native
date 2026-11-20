@@ -174,7 +174,6 @@ export function FilterViewsControl({
 
   return (
     <Popover
-      modal={false}
       open={task !== null}
       onOpenChange={(next) => {
         if (!next) close();

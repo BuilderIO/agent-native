@@ -136,6 +136,16 @@ describe("useFilterUrlState", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("follows its own write when it lands after an outside navigation", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => publish("?r=owner:equals:bob"));
+    expect(shownKey()).toBe("?r=owner:equals:bob");
+    act(() => publish("?r=owner:equals:alice,bob"));
+    expect(shownKey()).toBe("?r=owner:equals:alice,bob");
+    expect(requests).toHaveLength(1);
+  });
+
   it("follows Back after a repeated change", () => {
     act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
     act(() => filters.setState(owners("alice", "bob")));

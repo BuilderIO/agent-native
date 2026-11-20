@@ -74,7 +74,7 @@ function PinnedChip({
   });
   return (
     <span className={CHIP_CLASS}>
-      <Popover modal={false}>
+      <Popover>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -131,7 +131,6 @@ function RuleChip({
   return (
     <span className={cn(CHIP_CLASS, !complete && "border-dashed")}>
       <Popover
-        modal={false}
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
@@ -219,7 +218,6 @@ function GroupChip({
   return (
     <span className={CHIP_CLASS}>
       <Popover
-        modal={false}
         onOpenChange={(next) => {
           onOpenChange(next);
           if (!next) onChange(pruneFilterState(stateRef.current, fields));

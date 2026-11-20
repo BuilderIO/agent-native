@@ -513,6 +513,29 @@ describe("FilterButton", () => {
     click(buttonNamed("Show 3 clips"));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
+
+  it("opens the sheet's pickers as modal popovers so they can scroll", () => {
+    vi.stubGlobal("innerWidth", 390);
+    render(<Panel initial={createFilterState(fields)} />);
+    click(buttonNamed("Filter"));
+    const addRule = buttonNamed("Add rule");
+    click(addRule);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Choose a field",
+    );
+    expect(addRule.closest('[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  it("keeps the desktop panel's pickers non-modal", () => {
+    render(<Panel initial={createFilterState(fields)} />);
+    click(buttonNamed("Filter"));
+    const addRule = buttonNamed("Add rule");
+    click(addRule);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Choose a field",
+    );
+    expect(addRule.closest('[aria-hidden="true"]')).toBeNull();
+  });
 });
 
 const views: FilterSavedView[] = [
