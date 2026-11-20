@@ -2247,6 +2247,60 @@ describe("workspace connection store", () => {
     expect(resolved.reason).toMatch(/needs_reauth/);
   });
 
+  it("keeps a Google Calendar connection made before the calendar list scope connected", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+    const requestContext = {
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    };
+    const connect = (id: string, scopes: string[]) =>
+      runWithRequestContext(requestContext, () =>
+        upsertWorkspaceConnection({
+          id,
+          provider: "google_calendar",
+          label: `Google Calendar ${id}`,
+          accountId: `account-${id}`,
+          status: "connected",
+          scopes,
+          config: { credentialMode: "oauth" },
+        }),
+      );
+    const resolve = (connectionId: string) =>
+      runWithRequestContext(requestContext, () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "calendar",
+          provider: "google_calendar",
+          connectionId,
+          requireConnected: true,
+        }),
+      );
+    const earlierScopes = [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+    ];
+    await connect("conn-calendar-before-list-scope", earlierScopes);
+    await connect("conn-calendar-readonly-only", earlierScopes.slice(0, 4));
+
+    await expect(
+      resolve("conn-calendar-before-list-scope"),
+    ).resolves.toMatchObject({
+      available: true,
+      connection: { status: "connected" },
+    });
+    await expect(resolve("conn-calendar-readonly-only")).resolves.toMatchObject(
+      {
+        available: false,
+        connection: { status: "needs_reauth" },
+      },
+    );
+  });
+
   it("accepts a connected Gmail app grant without the provider-wide scope superset", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

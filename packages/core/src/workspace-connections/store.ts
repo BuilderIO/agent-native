@@ -289,6 +289,7 @@ export interface WorkspaceConnectionProviderLike {
   label?: string;
   oauth?: {
     scopes: readonly string[];
+    requiredScopes?: readonly string[];
   };
   credentialKeys?: readonly {
     key: string;
@@ -1089,7 +1090,7 @@ function connectionStatusForProvider(
     requiredScopeSets === undefined && appGrantScopes !== undefined
       ? false
       : requiredScopeSets === undefined
-        ? provider?.oauth?.scopes.some(
+        ? (provider?.oauth?.requiredScopes ?? provider?.oauth?.scopes)?.some(
             (scope) => !grantedScopes.has(normalizeOAuthScope(scope)),
           )
         : !requiredScopeSets.some(
