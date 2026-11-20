@@ -135,7 +135,7 @@
 
   @media (hover: hover) {
     :is(.tabs-tab, .tab-nav-link):not([data-disabled]):hover {
-      color: var(--gray-12);
+      color: var(--fg-default);
     }
 
     :is(.tabs-tab, .tab-nav-link):not([data-disabled]):hover::before {
@@ -150,7 +150,7 @@
   }
 
   :is(.tabs-tab[data-active], .tab-nav-link[aria-current="page"]) {
-    color: var(--gray-12);
+    color: var(--fg-default);
   }
 
   :is(.tabs-tab, .tab-nav-link):focus-visible::before {

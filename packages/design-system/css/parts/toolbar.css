@@ -97,7 +97,7 @@
   @media (hover: hover) {
     :where(.toolbar-button, .toolbar-link):where(:not([data-disabled])):hover {
       background-color: var(--gray-a3);
-      color: var(--gray-12);
+      color: var(--fg-default);
     }
   }
 

@@ -139,7 +139,7 @@
 
   @media (hover: hover) {
     .segmented-control-item:not([data-pressed], [data-disabled]):hover {
-      color: var(--gray-12);
+      color: var(--fg-default);
     }
 
     .segmented-control-item:not([data-pressed], [data-disabled]):hover::after {
@@ -148,7 +148,7 @@
   }
 
   .segmented-control-item[data-pressed] {
-    color: var(--gray-12);
+    color: var(--fg-default);
   }
 
   .segmented-control[data-variant="surface"]

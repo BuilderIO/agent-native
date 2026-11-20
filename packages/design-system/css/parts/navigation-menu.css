@@ -92,7 +92,7 @@
     border: 0;
     border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
-    color: var(--gray-12);
+    color: var(--fg-default);
     background-color: transparent;
     font-family: inherit;
     font-size: var(--control-font-size);

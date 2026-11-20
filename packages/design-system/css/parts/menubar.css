@@ -34,7 +34,7 @@
     border-radius: max(0px, calc(var(--shape-control) - var(--space-1)));
     corner-shape: var(--corner-shape, round);
     background-color: transparent;
-    color: var(--gray-12);
+    color: var(--fg-default);
     font-size: var(--control-font-size);
     line-height: var(--control-line-height);
     font-weight: var(--font-weight-medium);
