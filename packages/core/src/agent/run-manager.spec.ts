@@ -130,6 +130,7 @@ vi.mock("./run-store.js", () => ({
       omitFromPersistedHistory: true,
       ...(event.type === "text" ? { text: "" } : {}),
       ...(event.type === "error" ? { error: "Private content omitted" } : {}),
+      ...(event.type === "auto_continue" ? { reason: event.reason } : {}),
       ...(event.type === "tool_start" ? { tool: event.tool, input: {} } : {}),
       ...(event.type === "tool_done"
         ? {
@@ -9257,7 +9258,7 @@ describe("run manager soft timeout", () => {
     }
   });
 
-  it("does not auto-continue a private turn that ends after a completed side-effect tool with empty text", async () => {
+  it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {
     const runId = "run-private-empty-final";
     const run = startRun(
       runId,
@@ -9290,51 +9291,71 @@ describe("run manager soft timeout", () => {
     );
     await run.finalized;
     expect(run.status).toBe("completed");
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "truncated", {
+      terminalReason: "stream_ended",
+    });
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       runId,
-      "truncated",
-      expect.anything(),
+      "completed",
     );
-    expect(run.events.some(({ event }) => event.type === "auto_continue")).toBe(
-      false,
-    );
+    expect(
+      run.events.some(
+        ({ event }) =>
+          event.type === "auto_continue" && event.reason === "stream_ended",
+      ),
+    ).toBe(true);
     expect(setRunError).not.toHaveBeenCalled();
   });
 
-  it("keeps a real framework error code on a private run instead of overwriting it", async () => {
-    const runId = "run-private-real-error-code";
-    const run = startRun(
-      runId,
-      `thread-${runId}`,
-      async (send) => {
-        await send({
-          type: "tool_start",
-          tool: "read",
-          input: {},
-          omitFromPersistedHistory: true,
-        });
-        await send({
-          type: "error",
-          error: "private sentinel text",
-          errorCode: "private_history_unrecoverable",
-        });
-      },
-      undefined,
-      { softTimeoutMs: 0 },
-    );
-    await run.finalized;
-    expect(setRunError).toHaveBeenCalledWith(
-      runId,
-      "private_history_unrecoverable",
-      "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
-    );
-    expect(JSON.stringify(setRunError.mock.calls)).not.toContain(
-      "private sentinel text",
-    );
+  it("keeps a real framework error code and safe user message on a private run instead of Private content omitted", async () => {
+    for (const [code, expectedMessage] of [
+      [
+        "private_history_unrecoverable",
+        "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      ],
+      [
+        "tool_call_journal_unreadable",
+        "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. Retrying would risk repeating a step that already completed. Please send the request again.",
+      ],
+      [
+        "private_history_provenance_unavailable",
+        "Private turn provenance is unavailable. Please send the request again.",
+      ],
+      [
+        "write_tool_outcome_unknown",
+        "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
+      ],
+    ] as const) {
+      const runId = `run-private-real-error-code-${code}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: {},
+            omitFromPersistedHistory: true,
+          });
+          await send({
+            type: "error",
+            error: "private sentinel text",
+            errorCode: code,
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, `error:${code}`);
+      expect(setRunError).toHaveBeenCalledWith(runId, code, expectedMessage);
+      expect(JSON.stringify(setRunError.mock.calls)).not.toContain(
+        "private sentinel text",
+      );
+    }
   });
 
-  it("completes a failed private UI result or a later unfinished tool without a doomed continuation", async () => {
+  it("continues after a failed private UI result or a later unfinished tool", async () => {
     for (const kind of ["failed-ui", "later-tool"] as const) {
       const runId = `run-private-unfinished-${kind}`;
       const run = startRun(
@@ -9367,10 +9388,17 @@ describe("run manager soft timeout", () => {
         { softTimeoutMs: 0 },
       );
       await run.finalized;
-      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        "truncated",
+        { terminalReason: "stream_ended" },
+      );
       expect(
-        run.events.some(({ event }) => event.type === "auto_continue"),
-      ).toBe(false);
+        run.events.some(
+          ({ event }) =>
+            event.type === "auto_continue" && event.reason === "stream_ended",
+        ),
+      ).toBe(true);
     }
   });
 

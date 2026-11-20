@@ -6,6 +6,10 @@ import {
 } from "../../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+  PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
+} from "../run-errors.js";
+import {
   AgentRunJournalUnreadableError,
   getCompletedAgentExecutionSteps,
   getCurrentTurnEventsForThread,
@@ -257,7 +261,16 @@ export async function overlayCompletedExecutionStepOutcomes(
       donesById.set(stepId, dones);
     }
   });
-  const candidateIds = [...startsById.keys()];
+  const candidateIds = [...startsById.entries()]
+    .filter(
+      ([stepId, starts]) =>
+        !(
+          starts.every(
+            ({ event }) => event.omitFromPersistedHistory === true,
+          ) && donesById.has(stepId)
+        ),
+    )
+    .map(([stepId]) => stepId);
   if (candidateIds.length === 0) return events;
 
   const rows = await getCompletedAgentExecutionSteps(
@@ -485,9 +498,8 @@ export async function loadPriorTurnToolCallJournal(
       ) {
         return {
           status: "unreadable",
-          code: "private_history_unrecoverable",
-          error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+          code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+          error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
         };
       }
       privateStarts.set(event.id, event.tool);
@@ -503,20 +515,21 @@ export async function loadPriorTurnToolCallJournal(
       ) {
         return {
           status: "unreadable",
-          code: "private_history_unrecoverable",
-          error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+          code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+          error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
         };
       }
       privateStarts.delete(event.id);
-      privateFinished.add(event.id);
+      if (event.approvalPause !== true) {
+        privateFinished.add(event.id);
+      }
     }
   }
   if (privateStarts.size > 0) {
     return {
       status: "unreadable",
-      code: "private_history_unrecoverable",
-      error: "Private tool history cannot be safely resumed. Start a new turn.",
+      code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+      error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
     };
   }
   if (options.recoverCompletedExecutionSteps) {

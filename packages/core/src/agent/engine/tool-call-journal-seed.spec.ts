@@ -642,8 +642,10 @@ describe("loadedSkillPagesContext", () => {
   });
 });
 
+const SYNTHETIC_PRIVATE_REPLAY_IDENTITY = `hmac-v1:${"a".repeat(64)}`;
+
 describe("private prior-turn recovery", () => {
-  it("resumes a completed private tool pair from its redacted ledger entry", async () => {
+  it("resumes a completed private tool pair with an HMAC replay identity without persisting private content", async () => {
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue([
@@ -657,6 +659,50 @@ describe("private prior-turn recovery", () => {
         {
           type: "tool_done",
           id: "private-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: true,
+          privateReplayIdentity: SYNTHETIC_PRIVATE_REPLAY_IDENTITY,
+          omitFromPersistedHistory: true,
+        },
+      ]);
+    try {
+      const result = await loadPriorTurnToolCallJournal("thread", "turn");
+      expect(result).toMatchObject({
+        status: "read",
+        toolCallJournal: {
+          completed: [
+            expect.objectContaining({
+              id: "private-call",
+              tool: "write",
+              result: "[Private content omitted]",
+              committed: true,
+              privateReplayIdentity: SYNTHETIC_PRIVATE_REPLAY_IDENTITY,
+            }),
+          ],
+          interrupted: [],
+        },
+      });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("resumes a completed private tool pair from its redacted ledger entry", async () => {
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([
+        {
+          type: "tool_start",
+          id: "private-call-no-identity",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "private-call-no-identity",
           tool: "write",
           input: {},
           result: "[Private content omitted]",
@@ -794,6 +840,102 @@ describe("private prior-turn recovery", () => {
       });
     } finally {
       read.mockRestore();
+    }
+  });
+
+  it("resumes a private approval pause followed by the approved private execution", async () => {
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([
+        {
+          type: "tool_start",
+          id: "approval-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "approval-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          approvalPause: true,
+          completedSideEffect: false,
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_start",
+          id: "approval-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "approval-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: true,
+          privateReplayIdentity: SYNTHETIC_PRIVATE_REPLAY_IDENTITY,
+          omitFromPersistedHistory: true,
+        },
+      ]);
+    try {
+      expect(
+        await loadPriorTurnToolCallJournal("thread", "turn"),
+      ).toMatchObject({
+        status: "read",
+      });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("refuses to resume an interrupted private tool or unknown private outcome", async () => {
+    for (const events of [
+      [
+        {
+          type: "tool_start" as const,
+          id: "interrupted-private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+      [
+        {
+          type: "tool_start" as const,
+          id: "unknown-private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+        {
+          type: "tool_done" as const,
+          id: "unknown-private-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          outcomeUnknown: true as const,
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+    ]) {
+      const read = vi
+        .spyOn(runStore, "getCurrentTurnEventsForThread")
+        .mockResolvedValue(events);
+      try {
+        expect(
+          await loadPriorTurnToolCallJournal("thread", "turn"),
+        ).toMatchObject({
+          status: "unreadable",
+          code: "private_history_unrecoverable",
+        });
+      } finally {
+        read.mockRestore();
+      }
     }
   });
 });
@@ -966,5 +1108,133 @@ it("finishes a resumed private turn without repeating its write", async () => {
     expect(events.some((event) => event.type === "error")).toBe(false);
   } finally {
     read.mockRestore();
+  }
+});
+
+it("skips execution-step overlay lookups for already-completed private tool calls", async () => {
+  const read = vi
+    .spyOn(runStore, "getCurrentTurnEventsForThread")
+    .mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "private-done-call",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "private-done-call",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      },
+    ]);
+  const getCompleted = vi
+    .spyOn(runStore, "getCompletedAgentExecutionSteps")
+    .mockResolvedValue(new Map());
+  try {
+    const result = await loadPriorTurnToolCallJournal("thread", "turn", {
+      recoverCompletedExecutionSteps: true,
+    });
+    expect(result).toMatchObject({ status: "read" });
+    expect(getCompleted).not.toHaveBeenCalled();
+  } finally {
+    read.mockRestore();
+    getCompleted.mockRestore();
+  }
+});
+
+it("rejects duplicate completion for a non-approval private tool id while allowing approval pause followed by completion", async () => {
+  const duplicateRead = vi
+    .spyOn(runStore, "getCurrentTurnEventsForThread")
+    .mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "dup-private",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "dup-private",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_start",
+        id: "dup-private",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "dup-private",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      },
+    ]);
+  try {
+    expect(await loadPriorTurnToolCallJournal("thread", "turn")).toMatchObject({
+      status: "unreadable",
+      code: "private_history_unrecoverable",
+    });
+  } finally {
+    duplicateRead.mockRestore();
+  }
+
+  const approvedRead = vi
+    .spyOn(runStore, "getCurrentTurnEventsForThread")
+    .mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "approved-private",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "approved-private",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        approvalPause: true,
+        completedSideEffect: false,
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_start",
+        id: "approved-private",
+        tool: "create-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "approved-private",
+        tool: "create-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      },
+    ]);
+  try {
+    expect(await loadPriorTurnToolCallJournal("thread", "turn")).toMatchObject({
+      status: "read",
+    });
+  } finally {
+    approvedRead.mockRestore();
   }
 });
