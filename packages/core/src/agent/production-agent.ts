@@ -294,6 +294,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_TURN_GRANT_FIELD,
+  backgroundRunInitiatorMarker,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -447,7 +448,10 @@ import { applyUncheckedDefaultModelReplacement } from "./provider-model-selectio
 import {
   IncompleteAgentRunError,
   incompleteAgentRunFailure,
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
   RUN_RATE_LIMITED_MESSAGE,
+  TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
+  TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
 } from "./run-errors.js";
 import {
   startRun,
@@ -475,6 +479,8 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   beginAgentExecutionStep,
+  PRIVATE_REPLAY_IDENTITY_PATTERN,
+  privateExecutionStepIdentity,
   privateExecutionStepInputJson,
   completeAgentExecutionStep,
   markAgentExecutionStepDispatched,
@@ -530,6 +536,7 @@ import {
   findUnresolvedJournalStepForCall,
   findInterruptedLegacyJournalEntryForCall,
   findReplayableJournalEntry,
+  findReplayablePrivateJournalEntry,
   hasJournalStepForCall,
   isUnavailableToolCallInput,
   journalEntriesAmbiguousInHistory,
@@ -4355,9 +4362,7 @@ export async function callConnectedAgentReference(input: {
   });
   relay.start();
   try {
-    const callerAuth = await input.resolveCallerAuth({
-      includeGoogleToken: true,
-    });
+    const callerAuth = await input.resolveCallerAuth();
     const response = await input.callAgent(input.path, input.message, {
       async: true,
       apiKey: callerAuth.apiKey,
@@ -8163,8 +8168,29 @@ async function runAgentLoopInternal(
         opts.recoverCompletedExecutionSteps === true,
     },
   );
+  const journalHasPrivateHistory =
+    (journalRead.status === "read" &&
+      journalRead.events.some(
+        (event) => event.omitFromPersistedHistory === true,
+      )) ||
+    (journalRead.status === "unreadable" &&
+      journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE);
+  if (journalHasPrivateHistory) {
+    if (opts.runId) await ensurePrivateTurnRecorded();
+    else send.markPrivate();
+  }
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const priorPrivateSideEffect =
+    journalRead.status === "read" &&
+    journalRead.events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.omitFromPersistedHistory === true &&
+        event.completedSideEffect === true &&
+        (typeof event.privateReplayIdentity !== "string" ||
+          !PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity)),
+    );
   turnHasActionWarnings =
     journalRead.status === "read" &&
     journalRead.events.some(
@@ -8401,14 +8427,12 @@ async function runAgentLoopInternal(
   }
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
-    (journalRead.code === "private_history_unrecoverable" ||
+    (journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE ||
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message:
-            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-            "Retrying would risk repeating a step that already completed. Please send the request again.",
-          errorCode: "tool_call_journal_unreadable",
+          message: TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
+          errorCode: TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
           details: journalRead.error,
         }
       : null;
@@ -10001,6 +10025,19 @@ async function runAgentLoopInternal(
           duplicateReadOnlyToolCalls.clear();
         }
         if (event.id) settleRepeatedToolCall(event.id);
+        const privateReplayIdentity =
+          isPrivateCall() &&
+          event.completedSideEffect === true &&
+          argumentsHash &&
+          opts.threadId &&
+          opts.turnId
+            ? privateExecutionStepIdentity({
+                threadId: opts.threadId,
+                turnId: opts.turnId,
+                toolName: toolCall.name,
+                argumentsHash,
+              })
+            : undefined;
         const persisted = Promise.resolve(
           send({
             ...event,
@@ -10008,6 +10045,7 @@ async function runAgentLoopInternal(
               ? { unknownCause: unknownOutcomeCause }
               : {}),
             ...(argumentsHash ? { argumentsHash } : {}),
+            ...(privateReplayIdentity ? { privateReplayIdentity } : {}),
             ...(executionStepId ? { executionStepId } : {}),
           }),
         ).then(() => {
@@ -10938,17 +10976,46 @@ async function runAgentLoopInternal(
       // for arguments prepared exactly as these are, or a write recorded
       // before calls had identities, by its raw input; anything else runs
       // fresh.
-      if (toolCallJournal && !ambiguousLegacyWrite && !isPrivateCall()) {
-        const journaled = findReplayableJournalEntry(
-          toolCallJournal,
-          toolCall.name,
-          argumentsHash,
-          consumedJournalKeys,
-          actionIsReadOnly ? undefined : { input: toolCall.input },
-          journalEntriesAlreadyRepresented,
-          executionStepId,
-          journalEntriesAmbiguous,
-        );
+      const privateReplayIdentity =
+        isPrivateCall() && opts.threadId && opts.turnId
+          ? privateExecutionStepIdentity({
+              threadId: opts.threadId,
+              turnId: opts.turnId,
+              toolName: toolCall.name,
+              argumentsHash,
+            })
+          : undefined;
+      const privateReplayLookup =
+        toolCallJournal &&
+        !ambiguousLegacyWrite &&
+        isPrivateCall() &&
+        privateReplayIdentity
+          ? findReplayablePrivateJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              privateReplayIdentity,
+              consumedJournalKeys,
+            )
+          : { status: "none" as const };
+      const ambiguousPrivateWrite =
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        privateReplayLookup.status === "ambiguous";
+      if (toolCallJournal && !ambiguousLegacyWrite && !ambiguousPrivateWrite) {
+        const journaled = isPrivateCall()
+          ? privateReplayLookup.status === "replay"
+            ? privateReplayLookup.entry
+            : undefined
+          : findReplayableJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              argumentsHash,
+              consumedJournalKeys,
+              actionIsReadOnly ? undefined : { input: toolCall.input },
+              journalEntriesAlreadyRepresented,
+              executionStepId,
+              journalEntriesAmbiguous,
+            );
         if (journaled) {
           rollbackRepeatedToolCall();
           const recordedResult = journaled.result ?? "";
@@ -11049,14 +11116,15 @@ async function runAgentLoopInternal(
         0,
         ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
       );
-      const priorInterruptions = ambiguousLegacyWrite
-        ? Math.max(1, priorInterruptionsBeforeStepReplay)
-        : (interruptedCallMatchesStep ||
-              ((actionIsReadOnly || actionRetrySafe) &&
-                retryableInterruptedCallKeys.has(preparedCallKey))) &&
-            priorInterruptionsBeforeStepReplay > 0
-          ? 0
-          : priorInterruptionsBeforeStepReplay;
+      const priorInterruptions =
+        ambiguousLegacyWrite || ambiguousPrivateWrite
+          ? Math.max(1, priorInterruptionsBeforeStepReplay)
+          : (interruptedCallMatchesStep ||
+                ((actionIsReadOnly || actionRetrySafe) &&
+                  retryableInterruptedCallKeys.has(preparedCallKey))) &&
+              priorInterruptionsBeforeStepReplay > 0
+            ? 0
+            : priorInterruptionsBeforeStepReplay;
 
       // Another write of a tool whose earlier call may have applied could
       // apply the same change twice, so it does not run; the turn goes on,
@@ -12230,10 +12298,9 @@ async function runAgentLoopInternal(
 
     const skipToolCallAfterStop = (
       toolCall: import("./engine/types.js").EngineToolCallPart,
+      result = `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
+        "Continue with the results already collected.",
     ): EngineContentPart => {
-      const result =
-        `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
-        "Continue with the results already collected.";
       send({
         type: "tool_start",
         id: toolCall.id,
@@ -12280,6 +12347,26 @@ async function runAgentLoopInternal(
       }
       if (turnYieldedToUser || requestedActionStop) {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
+        continue;
+      }
+      const privateResumeIntent = priorPrivateSideEffect
+        ? await resolveToolCallIntent(toolCall)
+        : undefined;
+      if (
+        priorPrivateSideEffect &&
+        (privateResumeIntent === undefined ||
+          (privateResumeIntent.status === "prepared" &&
+            privateResumeIntent.intent.valid &&
+            !intentIsReadOnly(privateResumeIntent.intent)))
+      ) {
+        await flushParallelBatch();
+        toolResultParts.push(
+          skipToolCallAfterStop(
+            toolCall,
+            `Not executed: a private action already completed earlier in this turn, and its details are not available after the run resumed. ` +
+              `Do not repeat it or guess its result. Tell the user that an earlier private step finished, ask them to check what was saved, and to send a new request for anything else.`,
+          ),
+        );
         continue;
       }
       const batchKind = await getParallelBatchKind(toolCall);
@@ -14067,6 +14154,7 @@ export async function chainServerDrivenContinuation(opts: {
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
+    ...backgroundRunInitiatorMarker(nextRunId, opts.turnInitiator),
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
@@ -15646,9 +15734,8 @@ export function createProductionAgentHandler(
           })
         : null;
     if (
-      (requestedApprovedToolCallAskIds?.length ||
-        (privateRequestHistory && exactApprovedToolCall)) &&
-      !resolvedApprovalTurnId
+      requestedApprovedToolCalls?.length &&
+      (!requestedApprovedToolCallAskIds?.length || !resolvedApprovalTurnId)
     ) {
       setResponseStatus(event, 409);
       return {
@@ -17675,6 +17762,7 @@ export function createProductionAgentHandler(
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
                   payloadRef: true,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               }
             : {
@@ -17684,6 +17772,7 @@ export function createProductionAgentHandler(
                   turnId: effectiveTurnId,
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               },
         });

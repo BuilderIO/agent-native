@@ -17,7 +17,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { getSetting, mutateSetting } from "@agent-native/core/settings";
+import {
+  getOrgSetting,
+  getSetting,
+  mutateOrgSetting,
+} from "@agent-native/core/settings";
 import {
   accessFilter,
   assertAccess,
@@ -238,8 +242,43 @@ function serializeSourceConfig(config: Record<string, unknown>) {
   return sanitized;
 }
 
-export async function readBrainSettings(): Promise<BrainSettings> {
-  const stored = await getSetting(BRAIN_SETTINGS_KEY).catch(() => null);
+async function readLegacyBrainSettings(orgId: string | null | undefined) {
+  const firstOrgIds = await readFirstOrganizationIds(2);
+  const owned = orgId
+    ? firstOrgIds.length === 0 || firstOrgIds[0] === orgId
+    : firstOrgIds.length <= 1;
+  return owned ? getSetting(BRAIN_SETTINGS_KEY) : null;
+}
+
+async function readFirstOrganizationIds(limit: number): Promise<string[]> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: "SELECT id FROM organizations ORDER BY created_at ASC, id ASC LIMIT ?",
+      args: [limit],
+    });
+    return rows.map((row) => String(row.id));
+  } catch (error) {
+    if (!isMissingOrganizationsTable(error)) throw error;
+    return [];
+  }
+}
+
+function isMissingOrganizationsTable(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown } | null;
+  return (
+    candidate?.code === "42P01" &&
+    /relation ["']?organizations["']? does not exist/i.test(
+      String(candidate.message ?? ""),
+    )
+  );
+}
+
+export async function readBrainSettings(
+  orgId: string | null | undefined = getRequestOrgId(),
+): Promise<BrainSettings> {
+  const stored =
+    (orgId ? await getOrgSetting(orgId, BRAIN_SETTINGS_KEY) : null) ??
+    (await readLegacyBrainSettings(orgId));
   return {
     ...DEFAULT_BRAIN_SETTINGS,
     ...(stored ?? {}),
@@ -250,16 +289,18 @@ export async function readBrainSettings(): Promise<BrainSettings> {
 // saves both land, and a failed read fails the save instead of merging the
 // patch into defaults and wiping every other stored field.
 export async function writeBrainSettings(
-  patch: Partial<BrainSettings>,
+  orgId: string,
+  patch: { [K in keyof BrainSettings]?: BrainSettings[K] | undefined },
 ): Promise<BrainSettings> {
-  const stored = await mutateSetting(
+  const legacy = await readLegacyBrainSettings(orgId);
+  const stored = await mutateOrgSetting(
+    orgId,
     BRAIN_SETTINGS_KEY,
     (current) => ({
       ...DEFAULT_BRAIN_SETTINGS,
-      ...(current ?? {}),
+      ...(current ?? legacy ?? {}),
       ...patch,
     }),
-    { global: true },
   );
   return { ...DEFAULT_BRAIN_SETTINGS, ...stored } as BrainSettings;
 }

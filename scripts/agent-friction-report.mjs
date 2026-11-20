@@ -4266,6 +4266,13 @@ const PATTERNS = [
     re: /\b(group(ed)? (these|the|those|all|related) (feedback|reports?|bugs|issues|fixes) (by|into|together)|(fix(es|ed|ing)?|handle[ds]?|address(ed)?) (these|the|each|every) (feedback item|report|bug|issue)s? (one|each) (at a time|by one|separately)|(fix(es|ed|ing)?|handle[ds]?|address(ed)?) (each|every) (feedback item|report|bug|issue) separately|(these|the) (reports|bugs|issues) (one by one|one at a time|separately)|one (bug|fix) not (five|many|\d+))\b/i,
   },
   {
+    key: "review-round-churn",
+    label:
+      "Had to cap bot review rounds to critical-and-high only after round 2",
+    fixedBy: ".agents/skills/babysit-pr (Review round cap, 2026-11-20)",
+    re: /\b(too many (rounds? of )?(bot |ai |code )?reviews?( rounds?)?|(\d+ )?(review )?rounds? of (bot |ai )?review (is|are) (way )?too much|after a couple (of )?rounds,? (let'?s )?only (worry about|fix) critical)\b/i,
+  },
+  {
     key: "pr-file-overlap",
     label: "Had to ask whether open PRs already touch the same files",
     fixedBy:

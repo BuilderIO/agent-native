@@ -947,7 +947,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "errorMessages.invalidAttachmentNamed":
     "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
-  "recovery.resendVerificationEmail": "Bestätigungs-E-Mail erneut senden",
+  "recovery.resendVerificationEmail":
+    "Bestätigungs-E-Mail für das App-Konto erneut senden",
   "recovery.sendingVerificationEmail": "Wird gesendet...",
   "recovery.verificationEmailRequested":
     "Bestätigungs-E-Mail angefordert. Prüfe Posteingang und Spam-Ordner.",
@@ -1481,6 +1482,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Anbieter hat eine HTML-Fehlerseite zurückgegeben.",
   "errorMessages.providerNetwork":
     "Der Modellanbieter konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut.",
+  "errorMessages.emailVerificationRequired":
+    "Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
   "errorMessages.providerRateLimit":
     "Der Modellanbieter begrenzt diesen Chat derzeit. Warte einen Moment und versuche es dann erneut.",
   "errorMessages.providerTransientRejection":

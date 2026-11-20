@@ -14,6 +14,7 @@ import {
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
+  oauthCallbackOwner,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
@@ -417,6 +418,7 @@ export const handleGoogleCallback = defineEventHandler(
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
+        state,
       );
 
       if (!addAccount) {
@@ -691,10 +693,10 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         });
       }
 
-      const { redirectUri, owner: stateOwner } = state;
+      const { redirectUri } = state;
       const stateOrgId = getCalendarOAuthStateOrgId(state);
 
-      const ownerEmail = session?.email || stateOwner;
+      const ownerEmail = oauthCallbackOwner(session?.email, state);
       if (!ownerEmail) {
         return oauthErrorPage("Session expired. Please log in again.");
       }

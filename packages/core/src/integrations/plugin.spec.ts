@@ -26,6 +26,9 @@ const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
+const readOrgMemberRoleMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | null> => null),
+);
 const startGoogleDocsPollerMock = vi.hoisted(() => vi.fn());
 const stopGoogleDocsPollerMock = vi.hoisted(() => vi.fn(async () => {}));
 const handlePushNotificationMock = vi.hoisted(() => vi.fn());
@@ -120,6 +123,16 @@ vi.mock("../server/credential-provider.js", async () => {
   >("../server/credential-provider.js");
   return { ...actual, resolveSecret: resolveSecretMock };
 });
+
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    readOrgMemberRole: readOrgMemberRoleMock,
+  }),
+);
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
@@ -475,6 +488,7 @@ describe("integrations plugin routes", () => {
       owner: null,
     }));
     getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
+    readOrgMemberRoleMock.mockResolvedValue(null);
     hasForbiddenOrgScopeMock.mockReturnValue(false);
     resolveOrgScopeForEmailMock.mockResolvedValue({
       status: "organization",
@@ -1130,6 +1144,50 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("refuses a Slack workspace install over a configuration another organization owns", async () => {
+    getSessionMock.mockResolvedValue({ email: "second-owner@example.test" });
+    getOrgContextMock.mockResolvedValue({
+      orgId: "org-second",
+      role: "owner",
+    });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: {
+        enabled: true,
+        managedOAuth: true,
+        ownerOrgId: "org-first",
+      },
+      owner: "first-admin@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-first",
+    });
+    readOrgMemberRoleMock.mockResolvedValue(null);
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const state = encodeOAuthState({
+      redirectUri:
+        "https://app.test/_agent-native/integrations/slack/oauth/callback",
+      owner: "second-owner@example.test",
+      orgId: "org-second",
+      app: "agent-native:slack",
+      addAccount: true,
+      returnUrl: "/messaging",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      `/_agent-native/integrations/slack/oauth/callback?code=fake-code&state=${encodeURIComponent(state)}`,
+    );
+
+    expect(result.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
   it("runs integration status checks in the signed-in request context", async () => {
     getSessionMock.mockResolvedValue({
       email: "alice+qa@agent-native.test",
@@ -1188,6 +1246,205 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("does not hand a channel another organization configured to the owner of a different organization", async () => {
+    getSessionMock.mockResolvedValue({ email: "second-owner@example.test" });
+    getOrgContextMock.mockResolvedValue({
+      orgId: "org-second",
+      role: "owner",
+    });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "first-admin@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-first",
+    });
+    readOrgMemberRoleMock.mockResolvedValue(null);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    for (const action of ["enable", "disable"]) {
+      const result = await dispatch(
+        nitroApp,
+        `/_agent-native/integrations/fake/${action}`,
+        "POST",
+      );
+      expect(result.status).toBe(403);
+    }
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+    expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
+      "org-first",
+      "second-owner@example.test",
+    );
+
+    readOrgMemberRoleMock.mockResolvedValue("admin");
+    const sameOrg = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+    expect(sameOrg.status).toBe(200);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "fake",
+      { enabled: false, ownerOrgId: "org-first" },
+      "default",
+      "second-owner@example.test",
+    );
+  });
+
+  it("keeps a channel with the organization that configured it after its owner switches organizations", async () => {
+    getSessionMock.mockResolvedValue({ email: "second-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({
+      orgId: "org-second",
+      role: "owner",
+    });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "first-admin@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-second",
+    });
+    readOrgMemberRoleMock.mockImplementation(async (orgId: string) =>
+      orgId === "org-second" ? "admin" : null,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(403);
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+    expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
+      "org-first",
+      "second-admin@example.test",
+    );
+  });
+
+  it("needs a current admin of the recorded organization, even for the previous owner", async () => {
+    getSessionMock.mockResolvedValue({ email: "first-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-second", role: "owner" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "first-admin@example.test",
+    } as never);
+    readOrgMemberRoleMock.mockImplementation(async (orgId: string) =>
+      orgId === "org-second" ? "owner" : null,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(403);
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the recorded organization when an admin of it toggles the channel from another organization", async () => {
+    getSessionMock.mockResolvedValue({ email: "shared-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-second", role: "owner" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "first-admin@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-second",
+    });
+    readOrgMemberRoleMock.mockResolvedValue("admin");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "fake",
+      { enabled: false, ownerOrgId: "org-first" },
+      "default",
+      "shared-admin@example.test",
+    );
+  });
+
+  it("keeps a channel recorded without an organization out of the actor's organization", async () => {
+    getSessionMock.mockResolvedValue({ email: "solo-owner@example.test" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: null },
+      owner: "solo-owner@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-later",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "fake",
+      { enabled: false, ownerOrgId: null },
+      "default",
+      "solo-owner@example.test",
+    );
+  });
+
+  it("refuses a Slack workspace install into an organization other than the one recorded on the channel", async () => {
+    getSessionMock.mockResolvedValue({ email: "shared-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-second", role: "owner" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: {
+        enabled: true,
+        managedOAuth: true,
+        ownerOrgId: "org-first",
+      },
+      owner: "first-admin@example.test",
+    } as never);
+    readOrgMemberRoleMock.mockResolvedValue("admin");
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const state = encodeOAuthState({
+      redirectUri:
+        "https://app.test/_agent-native/integrations/slack/oauth/callback",
+      owner: "shared-admin@example.test",
+      orgId: "org-second",
+      app: "agent-native:slack",
+      addAccount: true,
+      returnUrl: "/messaging",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      `/_agent-native/integrations/slack/oauth/callback?code=fake-code&state=${encodeURIComponent(state)}`,
+    );
+
+    expect(result.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
   it("requires a session before mutating integration config", async () => {
     getSessionMock.mockResolvedValueOnce(null);
     const nitroApp = createNitroApp();
@@ -1225,7 +1482,7 @@ describe("integrations plugin routes", () => {
     });
     expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
       "google-docs",
-      { enabled: false },
+      { enabled: false, ownerOrgId: "org-owner" },
       "default",
       "owner@example.test",
     );
@@ -1311,7 +1568,7 @@ describe("integrations plugin routes", () => {
     await vi.waitFor(() =>
       expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
         "google-docs",
-        { enabled: false },
+        { enabled: false, ownerOrgId: "org-owner" },
         "default",
         "owner@example.test",
       ),
@@ -3148,6 +3405,54 @@ describe("integrations plugin routes", () => {
     expect(options.ownerEmail).toBe("owner+qa@example.com");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
     expect(options.initialToolNames).toEqual([]);
+  });
+
+  it("runs a webhook in the organization recorded on the channel", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "owner+qa@example.com",
+    });
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-second",
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "status",
+        senderId: "UQA",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      resolveOwner: async () => "owner+qa@example.com",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: "owner+qa@example.com",
+        orgId: "org-first",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
+    expect(runWithRequestContextMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-second" }),
+      expect.any(Function),
+    );
   });
 
   it("passes the app's own action names as initialToolNames so framework additions defer behind tool-search", async () => {
