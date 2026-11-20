@@ -158,21 +158,19 @@ export function FilterValuePicker({
       onQueryChange={setQuery}
       items={items}
       empty={empty}
+      multiple={multiple}
       onPick={(item, via) => {
-        const selected = rule.value.includes(item.key);
         if (!multiple) {
           onChange([item.key]);
           onDone();
-        } else if (via === "enter") {
-          if (!selected) onChange([...rule.value, item.key]);
-          onDone();
-        } else {
-          onChange(
-            selected
-              ? rule.value.filter((value) => value !== item.key)
-              : [...rule.value, item.key],
-          );
+          return;
         }
+        onChange(
+          rule.value.includes(item.key)
+            ? rule.value.filter((value) => value !== item.key)
+            : [...rule.value, item.key],
+        );
+        if (via === "enter") onDone();
       }}
     />
   );
@@ -281,14 +279,7 @@ export function FilterDateEditor({
           (entry) => `${entry.operator}:${entry.value.join(",")}` === item.key,
         );
         if (!candidate) return;
-        onChange({
-          operator:
-            candidate.operator === "equals" &&
-            EXACT_DATE_OPERATORS.includes(rule.operator)
-              ? rule.operator
-              : candidate.operator,
-          value: candidate.value,
-        });
+        onChange({ operator: candidate.operator, value: candidate.value });
         onDone();
       }}
       footer={

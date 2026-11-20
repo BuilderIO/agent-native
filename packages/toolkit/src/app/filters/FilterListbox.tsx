@@ -21,6 +21,7 @@ export interface FilterListboxProps {
   footer?: ReactNode;
   autoFocus?: boolean;
   label: string;
+  multiple?: boolean;
 }
 
 export function FilterListbox({
@@ -33,6 +34,7 @@ export function FilterListbox({
   footer,
   autoFocus = true,
   label,
+  multiple = false,
 }: FilterListboxProps) {
   const id = useId();
   const [active, setActive] = useState(0);
@@ -101,6 +103,7 @@ export function FilterListbox({
         id={`${id}-list`}
         role="listbox"
         aria-label={label}
+        aria-multiselectable={multiple || undefined}
         className="max-h-72 overflow-y-auto overscroll-contain p-1"
       >
         {items.length === 0 ? (
@@ -123,8 +126,7 @@ export function FilterListbox({
                   id={`${id}-option-${index}`}
                   data-index={index}
                   role="option"
-                  aria-selected={index === activeIndex}
-                  aria-checked={item.checked}
+                  aria-selected={item.checked ?? index === activeIndex}
                   onPointerMove={() => {
                     if (index !== activeIndex) setActive(index);
                   }}
