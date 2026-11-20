@@ -34,8 +34,6 @@ function interpolate(
     "agentChat.errorMessages.providerAuthentication":
       "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
     "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
-    "agentChat.errorMessages.emailVerificationRequired":
-      "Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
     "agentChat.errorMessages.creditsLimitReached":
       "Du hast dein KI-Credit-Limit erreicht.",
     "agentChat.errorMessages.openBuilderSpaceSettings":
@@ -251,7 +249,7 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError(raw, "email_verification_required");
 
     expect(normalized.message).toBe(
-      "Verify an eligible email address with the connected AI provider account or space, then retry.",
+      "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
     );
     expect(normalized.details).toBe(raw);
   });
@@ -560,14 +558,6 @@ describe("malformed provider request", () => {
 });
 
 describe("localizeKnownChatErrorText", () => {
-  it("localizes the provider email verification recovery message", () => {
-    const message =
-      "Error: Verify an eligible email address with the connected AI provider account or space, then retry.";
-    expect(localizeKnownChatErrorText(message, interpolate)).toBe(
-      "Fehler: Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
-    );
-  });
-
   it("localizes the normalized Builder authentication recovery message", () => {
     const normalized = normalizeChatError(
       "Builder rejected this request.",
