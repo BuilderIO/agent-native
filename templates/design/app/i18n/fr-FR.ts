@@ -1042,6 +1042,12 @@ export default {
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
     },
+    leftTabs: {
+      label: "Panneau latéral",
+      agent: "Agent",
+      file: "Fichier",
+      library: "Bibliothèque",
+    },
     columnHead: {
       comments: "Commentaires",
       unreadComments: "Commentaires non lus",

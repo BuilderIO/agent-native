@@ -30,8 +30,9 @@ export interface NavigationState {
   inspectorTab?: string;
   /** Alias for `inspectorTab`. */
   inspector?: string;
-  leftPanel?: DesignLeftPanel;
-  panel?: DesignLeftPanel;
+  /** `tokens` is the Library tab's old id; readers normalize it to `library`. */
+  leftPanel?: DesignLeftPanel | "tokens";
+  panel?: DesignLeftPanel | "tokens";
   fileId?: string;
   screenId?: string;
   filename?: string;

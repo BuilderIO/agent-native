@@ -1019,6 +1019,12 @@ export default {
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
     },
+    leftTabs: {
+      label: "اللوحة الجانبية",
+      agent: "الوكيل",
+      file: "الملف",
+      library: "المكتبة",
+    },
     columnHead: {
       comments: "التعليقات",
       unreadComments: "تعليقات غير مقروءة",

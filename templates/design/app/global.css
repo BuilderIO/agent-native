@@ -184,6 +184,13 @@
      Tabler at this stroke only where Radix has no glyph. */
   --design-ui-icon-size: 15px;
   --design-ui-icon-stroke: 1.25;
+  /* Agent chat in the left panel: the toolkit already gives a raised 14px
+     composer with a 16px corner, one focus border around the prompt box and
+     an 8px user bubble. Design's spec differs only in a 28px Send and a
+     tighter 8px 12px user bubble; the bubble reads AgentKit's own hooks. */
+  --agent-kit-composer-control-size: 1.75rem;
+  --agentkit-user-bubble-padding-block: var(--design-baseline-unit);
+  --agentkit-user-bubble-padding-inline: calc(var(--design-baseline-half) * 3);
   --design-grid-columns: 28;
   --design-inspector-grid-columns: var(--design-grid-columns);
   --design-inspector-grid-unit: var(--design-baseline-unit);

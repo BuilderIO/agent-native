@@ -1039,6 +1039,12 @@ export default {
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
     },
+    leftTabs: {
+      label: "サイドパネル",
+      agent: "エージェント",
+      file: "ファイル",
+      library: "ライブラリ",
+    },
     columnHead: {
       comments: "コメント",
       unreadComments: "未読のコメント",
