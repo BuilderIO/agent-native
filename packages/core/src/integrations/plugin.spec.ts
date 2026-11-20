@@ -1283,9 +1283,43 @@ describe("integrations plugin routes", () => {
     expect(sameOrg.status).toBe(200);
     expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
       "fake",
-      { enabled: false },
+      { enabled: false, ownerOrgId: "org-first" },
       "default",
       "second-owner@example.test",
+    );
+  });
+
+  it("keeps a channel with the organization that configured it after its owner switches organizations", async () => {
+    getSessionMock.mockResolvedValue({ email: "second-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({
+      orgId: "org-second",
+      role: "owner",
+    });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "first-admin@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-second",
+    });
+    readOrgMemberRoleMock.mockImplementation(async (orgId: string) =>
+      orgId === "org-second" ? "admin" : null,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(403);
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+    expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
+      "org-first",
+      "second-admin@example.test",
     );
   });
 
@@ -1326,7 +1360,7 @@ describe("integrations plugin routes", () => {
     });
     expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
       "google-docs",
-      { enabled: false },
+      { enabled: false, ownerOrgId: "org-owner" },
       "default",
       "owner@example.test",
     );
@@ -1412,7 +1446,7 @@ describe("integrations plugin routes", () => {
     await vi.waitFor(() =>
       expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
         "google-docs",
-        { enabled: false },
+        { enabled: false, ownerOrgId: "org-owner" },
         "default",
         "owner@example.test",
       ),

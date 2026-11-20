@@ -945,23 +945,35 @@ export function createIntegrationsPlugin(
       };
     };
 
+    async function integrationOwnerOrgId(
+      ownerEmail: string | undefined,
+    ): Promise<string | null> {
+      const owner = ownerEmail?.trim();
+      if (!owner) return null;
+      const scope = await resolveIntegrationRequestScope({
+        ownerEmail: owner,
+        principalType: "user",
+      });
+      return scope.orgId ?? null;
+    }
+
     async function assertCanReplaceIntegrationOwner(
       platform: string,
       actorEmail: string | undefined,
     ): Promise<void> {
-      const existingOwner = (
-        await getIntegrationConfig(platform)
-      )?.owner?.trim();
+      const existing = await getIntegrationConfig(platform);
+      const existingOwner = existing?.owner?.trim();
       if (!existingOwner) return;
       const actor = actorEmail?.trim().toLowerCase() ?? "";
       if (actor && actor === existingOwner.toLowerCase()) return;
       if (actor) {
-        const scope = await resolveIntegrationRequestScope({
-          ownerEmail: existingOwner,
-          principalType: "user",
-        });
-        if (scope.orgId) {
-          if (canManageOrg(await readOrgMemberRole(scope.orgId, actor))) return;
+        const storedOrgId = existing?.configData.ownerOrgId;
+        const ownerOrgId =
+          typeof storedOrgId === "string" || storedOrgId === null
+            ? storedOrgId
+            : await integrationOwnerOrgId(existingOwner);
+        if (ownerOrgId) {
+          if (canManageOrg(await readOrgMemberRole(ownerOrgId, actor))) return;
         } else if (canManageDeploymentWithoutOrg(actor)) {
           return;
         }
@@ -987,7 +999,7 @@ export function createIntegrationsPlugin(
             }
             await saveIntegrationConfig(
               platform,
-              { enabled },
+              { enabled, ownerOrgId: await integrationOwnerOrgId(ownerEmail) },
               "default",
               ownerEmail,
             );
@@ -999,7 +1011,7 @@ export function createIntegrationsPlugin(
           } else {
             await saveIntegrationConfig(
               platform,
-              { enabled },
+              { enabled, ownerOrgId: await integrationOwnerOrgId(actorEmail) },
               "default",
               actorEmail,
             );
@@ -1009,7 +1021,7 @@ export function createIntegrationsPlugin(
         }
         await saveIntegrationConfig(
           platform,
-          { enabled },
+          { enabled, ownerOrgId: await integrationOwnerOrgId(actorEmail) },
           "default",
           actorEmail,
         );
@@ -3422,7 +3434,11 @@ export function createIntegrationsPlugin(
               });
               await saveIntegrationConfig(
                 "slack",
-                { enabled: true, managedOAuth: true },
+                {
+                  enabled: true,
+                  managedOAuth: true,
+                  ownerOrgId: access.orgId ?? null,
+                },
                 "default",
                 access.ownerEmail,
               );
