@@ -23,6 +23,7 @@ import {
   hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
 } from "../org/context.js";
+import { isOrgMember } from "../org/membership.js";
 import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
 import { canManageOrg } from "../org/permissions.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
@@ -973,6 +974,7 @@ export function createIntegrationsPlugin(
       if (!existingOwner) return undefined;
       const actor = actorEmail?.trim().toLowerCase() ?? "";
       const storedOrgId = storedIntegrationOwnerOrgId(existing);
+      if (actor && canManageDeploymentWithoutOrg(actor)) return storedOrgId;
       if (actor) {
         if (typeof storedOrgId === "string") {
           if (canManageOrg(await readOrgMemberRole(storedOrgId, actor))) {
@@ -3784,6 +3786,52 @@ export function createIntegrationsPlugin(
               console.error(
                 `[integrations] default execution identity denied message:`,
                 err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
+            }
+          }
+          const storedChannelOrgId = storedIntegrationOwnerOrgId(config);
+          const channelOrgId =
+            storedChannelOrgId === undefined
+              ? await integrationOwnerOrgId(config.owner ?? undefined)
+              : storedChannelOrgId;
+          if (channelOrgId) {
+            let permitted = true;
+            const runOwner = executionContext.ownerEmail.trim().toLowerCase();
+            const isUserRun =
+              executionContext.principalType === "user" ||
+              !runOwner.startsWith("integration@");
+            try {
+              let runOrgId = executionContext.orgId;
+              if (!runOrgId && executionContext.principalType === "user") {
+                runOrgId = (
+                  await resolveIntegrationRequestScope({
+                    ownerEmail: executionContext.ownerEmail,
+                    principalType: "user",
+                  })
+                ).orgId;
+              }
+              if (runOrgId && runOrgId !== channelOrgId) {
+                permitted = false;
+              } else if (
+                !runOrgId &&
+                executionContext.principalType === "user"
+              ) {
+                permitted = false;
+              } else if (isUserRun) {
+                permitted = await isOrgMember(channelOrgId, runOwner);
+              }
+            } catch (err) {
+              console.error(
+                `[integrations] ${platform} channel organization check failed:`,
+                err,
+              );
+              permitted = false;
+            }
+            if (!permitted) {
+              console.warn(
+                `[integrations] ${platform} message ignored: sender is outside the channel's organization`,
               );
               setResponseStatus(event, 200);
               return "ok";
