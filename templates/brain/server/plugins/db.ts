@@ -1,22 +1,7 @@
-import {
-  ensureAdditiveColumns,
-  getDbExec,
-  runMigrations,
-} from "@agent-native/core/db";
+import { runMigrations } from "@agent-native/core/db";
+import { pgVectorIndexMigration } from "@agent-native/core/search";
 
-import * as schema from "../db/schema.js";
-
-function isDrizzleTable(value: unknown): value is object {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    Object.getOwnPropertySymbols(value).some((s) =>
-      s.toString().includes("drizzle"),
-    )
-  );
-}
-
-const schemaTables = Object.values(schema).filter(isDrizzleTable);
+import { BRAIN_EMBEDDING_DIMENSIONS } from "../lib/brain-embedding-family.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -494,36 +479,48 @@ export const runBrainMigrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS brain_zoom_audit_source_created_idx ON brain_zoom_audit_events (source_id, created_at)`,
       ].join(";\n"),
     },
+    pgVectorIndexMigration({
+      version: 30,
+      name: "brain-vectors-1024",
+      namespace: "brain",
+      dimensions: [BRAIN_EMBEDDING_DIMENSIONS],
+    }),
+    {
+      version: 31,
+      name: "brain-evidence-backed-intelligence",
+      sql: `ALTER TABLE brain_knowledge ADD COLUMN IF NOT EXISTS intelligence_kind TEXT;
+CREATE TABLE IF NOT EXISTS brain_knowledge_intelligence (
+  knowledge_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  owner TEXT,
+  due_date TEXT,
+  task_status TEXT NOT NULL DEFAULT 'open',
+  ownership_confidence TEXT NOT NULL DEFAULT 'ambiguous',
+  knowledge_revision TEXT NOT NULL,
+  evidence_snapshots_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS brain_intelligence_status_updated_idx ON brain_knowledge_intelligence (task_status, updated_at);
+CREATE TABLE IF NOT EXISTS brain_knowledge_verifications (
+  knowledge_id TEXT PRIMARY KEY,
+  knowledge_revision TEXT NOT NULL,
+  state TEXT NOT NULL,
+  actor_email TEXT NOT NULL,
+  acted_at TEXT NOT NULL
+)`,
+    },
+    {
+      version: 32,
+      name: "brain-knowledge-provenance",
+      sql: `ALTER TABLE brain_knowledge ADD COLUMN IF NOT EXISTS provenance_json TEXT`,
+    },
+    {
+      version: 33,
+      name: "brain-knowledge-verification-reminder",
+      sql: `ALTER TABLE brain_knowledge_verifications ADD COLUMN IF NOT EXISTS remind_at TEXT`,
+    },
   ],
   { table: "brain_migrations" },
 );
 
-/**
- * The migration list above is the authoritative source for tables, indexes,
- * and data transforms. `ensureAdditiveColumns` runs after it as a
- * belt-and-braces safety net for the failure mode where a column is added to
- * schema.ts without a matching hand-written ALTER migration, which silently
- * 500s every query touching a pre-existing production table. It only ever
- * adds missing columns — never drops, renames, or retypes anything — and any
- * failure here is logged and swallowed so it can never fail boot.
- */
-export default async (nitroApp: any): Promise<void> => {
-  await runBrainMigrations(nitroApp);
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
-      console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
-};
+export default runBrainMigrations;

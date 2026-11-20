@@ -12,6 +12,8 @@ import {
   IconBrandGithub,
   IconBrandSlack,
   IconBrandZoom,
+  IconCalendar,
+  IconMail,
   IconChecks,
   IconChevronDown,
   IconCircleCheck,
@@ -129,9 +131,14 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  DISTILLATION_HANDOFF_CANCELLED_ERROR,
+  DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
+} from "../../shared/distillation-handoff-errors";
+import {
   documentImportFormat,
   DOCUMENT_IMPORT_EXTENSIONS,
 } from "../../shared/document-import";
+import { isGoogleSourceProvider } from "../../shared/google-source-config";
 import {
   sourceListValues,
   validateGitHubRepoInput,
@@ -152,7 +159,10 @@ type Provider =
   | "slack"
   | "granola"
   | "github"
-  | "zoom";
+  | "zoom"
+  | "google_calendar"
+  | "gmail"
+  | "google_drive";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
 type BrainT = ReturnType<typeof useT>;
 
@@ -171,6 +181,10 @@ interface SourceFormState {
   githubState: "open" | "closed" | "all";
   githubIncludeIssues: boolean;
   githubIncludePullRequests: boolean;
+  googleConfigExtras: Record<string, unknown>;
+  googleCalendarId: string;
+  googleMailQuery: string;
+  googleDriveFileIds: string;
   workspaceConnectionId: string;
   pollMinutes: string;
   sourceKey: string;
@@ -184,6 +198,19 @@ const providers: Array<{
   detail: string;
   icon: typeof IconDatabaseImport;
 }> = [
+  {
+    value: "google_calendar",
+    label: "",
+    detail: "",
+    icon: IconCalendar,
+  },
+  { value: "gmail", label: "", detail: "", icon: IconMail },
+  {
+    value: "google_drive",
+    label: "",
+    detail: "",
+    icon: IconFolderOpen,
+  },
   {
     value: "slack",
     label: "Slack",
@@ -230,6 +257,12 @@ const providers: Array<{
 
 function defaultTitle(provider: Provider, t?: ReturnType<typeof useT>) {
   switch (provider) {
+    case "google_calendar":
+      return t?.("sources.defaultTitle.google_calendar") ?? "Google Calendar";
+    case "gmail":
+      return t?.("sources.defaultTitle.gmail") ?? "Gmail";
+    case "google_drive":
+      return t?.("sources.defaultTitle.google_drive") ?? "Google Drive";
     case "slack":
       return t?.("sources.defaultTitle.slack") ?? "Slack knowledge channels";
     case "granola":
@@ -269,6 +302,10 @@ function defaultForm(
     githubState: "all",
     githubIncludeIssues: true,
     githubIncludePullRequests: true,
+    googleConfigExtras: {},
+    googleCalendarId: "primary",
+    googleMailQuery: "newer_than:30d",
+    googleDriveFileIds: "",
     workspaceConnectionId: "",
     pollMinutes: "60",
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
@@ -276,7 +313,8 @@ function defaultForm(
       provider === "slack" ||
       provider === "granola" ||
       provider === "github" ||
-      provider === "zoom",
+      provider === "zoom" ||
+      isGoogleSourceProvider(provider),
     includePublicChannels: false,
   };
 }
@@ -339,6 +377,32 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "all",
     githubIncludeIssues: config.includeIssues !== false,
     githubIncludePullRequests: config.includePullRequests !== false,
+    googleConfigExtras:
+      typeof config.google === "object" &&
+      config.google &&
+      !Array.isArray(config.google)
+        ? (config.google as Record<string, unknown>)
+        : {},
+    googleCalendarId:
+      typeof config.google === "object" &&
+      config.google &&
+      "calendarId" in config.google &&
+      typeof config.google.calendarId === "string"
+        ? config.google.calendarId
+        : "primary",
+    googleMailQuery:
+      typeof config.google === "object" &&
+      config.google &&
+      "query" in config.google &&
+      typeof config.google.query === "string"
+        ? config.google.query
+        : "newer_than:30d",
+    googleDriveFileIds:
+      typeof config.google === "object" &&
+      config.google &&
+      "fileIds" in config.google
+        ? listValue(config.google.fileIds)
+        : "",
     workspaceConnectionId:
       typeof config.workspaceConnectionId === "string"
         ? config.workspaceConnectionId
@@ -402,6 +466,14 @@ function buildConfig(form: SourceFormState) {
     config.limit = numberValue(form.githubLimit, 25, 1, 100);
     config.includeIssues = form.githubIncludeIssues;
     config.includePullRequests = form.githubIncludePullRequests;
+  }
+  if (isGoogleSourceProvider(form.provider)) {
+    config.google = {
+      ...form.googleConfigExtras,
+      calendarId: form.googleCalendarId.trim(),
+      query: form.googleMailQuery.trim(),
+      fileIds: splitLines(form.googleDriveFileIds),
+    };
   }
   config.workspaceConnectionId = form.workspaceConnectionId.trim();
   if (form.sourceKey.trim()) config.sourceKey = form.sourceKey.trim();
@@ -681,7 +753,10 @@ function workspaceStatusClass(status: BrainWorkspaceConnectionStatus) {
 
 function supportsWorkspaceConnectionBinding(provider: Provider) {
   return (
-    provider === "slack" || provider === "granola" || provider === "github"
+    provider === "slack" ||
+    provider === "granola" ||
+    provider === "github" ||
+    isGoogleSourceProvider(provider)
   );
 }
 
@@ -1899,7 +1974,9 @@ function MarkdownImportDialog({
                     {resultIssues.slice(0, 5).map((file) => (
                       <p key={file.path}>
                         <span className="font-mono">{file.path}</span>:{" "}
-                        {file.error ?? t("sources.manualImportBlocked")}
+                        {file.errorCode === "screening_unavailable"
+                          ? t("sources.manualImportScreeningUnavailable")
+                          : (file.error ?? t("sources.manualImportBlocked"))}
                       </p>
                     ))}
                     {resultIssues.length > 5 ? (
@@ -2390,7 +2467,10 @@ export default function SourcesRoute() {
     slackChannelIssues.length > 0 ||
     githubRepoIssues.length > 0 ||
     zoomMeetingIdIssues.length > 0 ||
-    zoomMeetingIdsMissing;
+    zoomMeetingIdsMissing ||
+    (isGoogleSourceProvider(form.provider) && !form.workspaceConnectionId) ||
+    (form.provider === "google_drive" &&
+      !splitLines(form.googleDriveFileIds).length);
   const formMissingCredentialKeys =
     formProviderMetadata?.credentialHealth?.status === "missing"
       ? formProviderMetadata.credentialHealth.missingCredentialKeys
@@ -2448,7 +2528,8 @@ export default function SourcesRoute() {
       type === "github" ||
       type === "clips" ||
       type === "manual" ||
-      type === "generic"
+      type === "generic" ||
+      isGoogleSourceProvider(type)
         ? (type as Provider)
         : "slack");
     setEditingSource(null);
@@ -3036,7 +3117,19 @@ export default function SourcesRoute() {
                                   ) : null}
                                 </div>
                                 {queue.error ? (
-                                  <p className="mt-2">{queue.error}</p>
+                                  <p className="mt-2">
+                                    {queue.error ===
+                                    DISTILLATION_HANDOFF_CANCELLED_ERROR
+                                      ? t(
+                                          "sources.distillationHandoffCancelled",
+                                        )
+                                      : queue.error ===
+                                          DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR
+                                        ? t(
+                                            "sources.distillationDeliveryUnknown",
+                                          )
+                                        : queue.error}
+                                  </p>
                                 ) : queueIsActive ? (
                                   <p className="mt-2">
                                     {t("sources.waitingForWorker")}
@@ -3277,7 +3370,9 @@ export default function SourcesRoute() {
                 <SelectContent>
                   {selectableProviders.map((provider) => (
                     <SelectItem key={provider.value} value={provider.value}>
-                      {provider.label}
+                      {isGoogleSourceProvider(provider.value)
+                        ? t(`sources.defaultTitle.${provider.value}`)
+                        : provider.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -3316,7 +3411,11 @@ export default function SourcesRoute() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__automatic__">
-                      {t("sources.automaticCredentialSelection")}
+                      {t(
+                        isGoogleSourceProvider(form.provider)
+                          ? "sources.googleConnectionRequired"
+                          : "sources.automaticCredentialSelection",
+                      )}
                     </SelectItem>
                     {formWorkspaceConnections.map((connection) => (
                       <SelectItem key={connection.id} value={connection.id}>
@@ -3588,6 +3687,59 @@ export default function SourcesRoute() {
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground">
                   {t("sources.zoomDescription")}
+                </p>
+              </div>
+            )}
+
+            {isGoogleSourceProvider(form.provider) && (
+              <div className="grid gap-3 rounded-md border border-border p-4">
+                {form.provider === "google_calendar" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-calendar-id">
+                      {t("sources.googleCalendarId")}
+                    </Label>
+                    <Input
+                      id="google-calendar-id"
+                      value={form.googleCalendarId}
+                      onChange={(event) =>
+                        updateForm({ googleCalendarId: event.target.value })
+                      }
+                    />
+                  </div>
+                )}
+                {form.provider === "gmail" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-mail-query">
+                      {t("sources.googleMailQuery")}
+                    </Label>
+                    <Input
+                      id="google-mail-query"
+                      value={form.googleMailQuery}
+                      onChange={(event) =>
+                        updateForm({ googleMailQuery: event.target.value })
+                      }
+                    />
+                  </div>
+                )}
+                {form.provider === "google_drive" && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="google-drive-file-ids">
+                      {t("sources.googleDriveFileIds")}
+                    </Label>
+                    <Textarea
+                      id="google-drive-file-ids"
+                      value={form.googleDriveFileIds}
+                      onChange={(event) =>
+                        updateForm({ googleDriveFileIds: event.target.value })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t("sources.googleDriveFileIdsHint")}
+                    </p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {t("sources.googlePrivateSource")}
                 </p>
               </div>
             )}

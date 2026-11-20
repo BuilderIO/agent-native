@@ -3,6 +3,12 @@
  * Postgres full-text tables keyed by namespace, and reciprocal rank fusion.
  */
 import type { DbExec } from "../db/index.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import {
+  deferMigration,
+  isPermissionError,
+  type MigrationEntry,
+} from "../db/migrations.js";
 
 export const DEFAULT_SEARCH_NAMESPACE = "creative_context";
 export const PGVECTOR_REQUIRED_MESSAGE =
@@ -65,7 +71,7 @@ export function searchNamespaceIdentifiers(
   }
   const suffix =
     dimensions === undefined ? "" : `_${checkedDimensions(dimensions)}`;
-  return {
+  const names = {
     namespace,
     ftsTable: `${namespace}_search_documents`,
     ftsIndex: `${namespace}_search_documents_gin`,
@@ -74,6 +80,12 @@ export function searchNamespaceIdentifiers(
     vectorIndex: `${namespace}_vectors${suffix}_hnsw`,
     vectorAudienceIndex: `${namespace}_vectors${suffix}_audience_gin`,
   };
+  if (dimensions !== undefined && names.vectorAudienceIndex.length > 63) {
+    throw new Error(
+      `Search namespace "${namespace}" is too long for ${dimensions}-dimension vectors: Postgres cuts names past 63 characters, so tables of different sizes could share one.`,
+    );
+  }
+  return names;
 }
 
 function checkedDimensions(value: number): number {
@@ -81,6 +93,16 @@ function checkedDimensions(value: number): number {
     throw new Error("Embedding dimensions must be an integer from 1 to 16000.");
   }
   return value;
+}
+
+const PGVECTOR_HNSW_MAX_DIMENSIONS = 2_000;
+
+function checkedIndexDimensions(dimensions: number): void {
+  if (dimensions > PGVECTOR_HNSW_MAX_DIMENSIONS) {
+    throw new Error(
+      `pgvector indexes vectors of at most ${PGVECTOR_HNSW_MAX_DIMENSIONS} dimensions, so a ${dimensions}-dimension vector table can't be made.`,
+    );
+  }
 }
 
 function vectorLiteral(vector: readonly number[], dimensions: number): string {
@@ -113,9 +135,7 @@ export function assertPgVectorAvailable(postgres = true): void {
   if (!postgres) throw new Error(PGVECTOR_REQUIRED_MESSAGE);
 }
 
-// guard:allow-unreleased-schema - the table name is derived at call time from
-// the search namespace and embedding dimensions (`${namespace}_vectors${suffix}`),
-// so the set of tables is not known at release time and cannot be pre-created.
+// guard:allow-unreleased-schema - table names come from the namespace and dimensions at call time.
 export async function ensurePgVectorIndex(
   db: DbExec,
   dimensions: number,
@@ -123,8 +143,10 @@ export async function ensurePgVectorIndex(
 ): Promise<void> {
   const resolved = pgVectorOptions(options);
   const names = searchNamespaceIdentifiers(resolved.namespace, dimensions);
+  checkedIndexDimensions(dimensions);
   assertPgVectorAvailable(resolved.postgres);
   try {
+    if (await pgVectorIndexComplete(db, names)) return;
     await db.execute("CREATE EXTENSION IF NOT EXISTS vector");
     // raw-sql-ok: names come from searchNamespaceIdentifiers (lowercase letters, digits, underscores); values are bound.
     await db.execute(`
@@ -151,6 +173,92 @@ export async function ensurePgVectorIndex(
   } catch (error) {
     throw new Error(PGVECTOR_REQUIRED_MESSAGE, { cause: error });
   }
+}
+
+async function pgVectorIndexComplete(
+  db: DbExec,
+  names: SearchNamespaceIdentifiers,
+): Promise<boolean> {
+  const { rows } = await db.execute({
+    sql: `SELECT EXISTS (
+          SELECT 1 FROM pg_attribute
+          WHERE attrelid = to_regclass(?)
+            AND attname = 'audience_ids'
+            AND NOT attisdropped
+        ) AND (
+          SELECT count(*) FROM pg_index
+          JOIN pg_class ON pg_class.oid = pg_index.indexrelid
+          WHERE pg_index.indrelid = to_regclass(?)
+            AND pg_class.relname IN (?, ?)
+        ) = 2 AS complete`,
+    args: [
+      names.vectorTable,
+      names.vectorTable,
+      names.vectorIndex,
+      names.vectorAudienceIndex,
+    ],
+  });
+  return rows[0]?.complete === true;
+}
+
+/**
+ * A named migration that makes pgvector tables at release, since hosted
+ * request functions can't change schema: it installs the extension and makes
+ * a table, with both indexes, for each of `dimensions` in `namespace`. A
+ * database without pgvector defers it, so it runs at a later release once the
+ * extension is there. So does a server migrating as it boots whose database
+ * role may not install the extension or make the table; a release fails.
+ */
+export function pgVectorIndexMigration(entry: {
+  version: number;
+  name: string;
+  namespace: string;
+  dimensions: readonly number[];
+}): MigrationEntry {
+  if (entry.dimensions.length === 0) {
+    throw new Error(
+      `"${entry.name}" needs at least one vector size to make a table for.`,
+    );
+  }
+  for (const dimensions of entry.dimensions) {
+    searchNamespaceIdentifiers(entry.namespace, dimensions);
+    checkedIndexDimensions(dimensions);
+  }
+  return {
+    version: entry.version,
+    name: entry.name,
+    sql: {},
+    changesSchema: true,
+    run: async (exec) => {
+      const { rows } = await exec.execute(
+        "SELECT 1 AS present FROM pg_available_extensions WHERE name = 'vector'",
+      );
+      if (!rows.length) {
+        console.info(
+          `[search] This database has no pgvector, so "${entry.name}" waits for a later release.`,
+        );
+        return deferMigration();
+      }
+      for (const dimensions of entry.dimensions) {
+        try {
+          await ensurePgVectorIndex(exec, dimensions, {
+            namespace: entry.namespace,
+          });
+        } catch (error) {
+          const cause = error instanceof Error ? error.cause : undefined;
+          if (!isMigrationAuthorizedRuntime() && isPermissionError(cause)) {
+            console.warn(
+              `[search] The database role may not make "${entry.name}"'s vector tables, so it waits for a later boot.`,
+              cause,
+            );
+            return deferMigration();
+          }
+          if (cause instanceof Error) throw cause;
+          throw error;
+        }
+      }
+    },
+  };
 }
 
 export async function upsertPgVector(

@@ -66,7 +66,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * in-app catalog; each carries one clause, and the protocol itself lives in the
  * MCP instructions, which no in-app turn pays for.
  */
-const BASELINE_BUDGET_TOKENS = 19_010;
+// oracle-change: save-memory and delete-memory join the first-request tools so "remember this" works on the first turn
+const BASELINE_BUDGET_TOKENS = 19_460;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;

@@ -108,7 +108,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional human-readable summary of the linked design system tokens " +
+        "Optional human-readable summary of the design tokens " +
           "(e.g. from index-design-tokens) to include in the migration seed. " +
           "Improves token fidelity in the generated React app.",
       ),

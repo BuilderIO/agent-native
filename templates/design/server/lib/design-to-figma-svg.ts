@@ -204,6 +204,92 @@ export async function isAllowedFigmaSvgRenderRequest(
   }
 }
 
+const MAX_RENDER_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+function isTopLevelNavigation(
+  request: import("@playwright/test").Request,
+): boolean {
+  return (
+    request.isNavigationRequest() && request.frame().parentFrame() === null
+  );
+}
+
+export class RenderNavigatedAwayError extends Error {
+  readonly code = "render_navigated_away" as const;
+  constructor(readonly url: string) {
+    super(
+      "The screen navigates the page away from its own document, so it cannot be rendered. Remove the script that changes the page location.",
+    );
+    this.name = "RenderNavigatedAwayError";
+  }
+}
+
+function throwIfNavigatedAway(blockedNavigations: string[]): void {
+  const [url] = blockedNavigations;
+  if (url) throw new RenderNavigatedAwayError(url);
+}
+
+export async function routeAllowedRenderRequests(
+  context: import("@playwright/test").BrowserContext,
+  isAllowed: (url: string) => Promise<boolean> = (url) =>
+    isAllowedFigmaSvgRenderRequest(url),
+): Promise<{ blockedNavigations: string[] }> {
+  const blockedNavigations: string[] = [];
+  await context.route("**/*", async (route) => {
+    const request = route.request();
+    if (isTopLevelNavigation(request)) {
+      blockedNavigations.push(request.url());
+      await route.abort("blockedbyclient");
+      return;
+    }
+    if (!(await isAllowed(request.url()))) {
+      await route.abort("blockedbyclient");
+      return;
+    }
+    if (!/^https?:/i.test(request.url())) {
+      await route.continue();
+      return;
+    }
+    let url = request.url();
+    let method = request.method();
+    let postData = request.postDataBuffer() ?? undefined;
+    for (let hop = 0; hop <= MAX_RENDER_REDIRECTS; hop++) {
+      let response: import("@playwright/test").APIResponse;
+      try {
+        response = await route.fetch({
+          url,
+          method,
+          postData,
+          maxRedirects: 0,
+        });
+      } catch {
+        await route.abort("failed");
+        return;
+      }
+      const location = response.headers()["location"];
+      if (!REDIRECT_STATUSES.has(response.status()) || !location) {
+        await route.fulfill({ response });
+        return;
+      }
+      url = new URL(location, url).href;
+      if (!(await isAllowed(url))) {
+        await route.abort("blockedbyclient");
+        return;
+      }
+      if (
+        response.status() === 303 ||
+        (method === "POST" && response.status() <= 302)
+      ) {
+        method = "GET";
+        postData = undefined;
+      }
+    }
+    await route.abort("blockedbyclient");
+  });
+  return { blockedNavigations };
+}
+
 async function rasterizeUnsupportedNodes(
   page: import("@playwright/test").Page,
   node: RawFigmaSvgNode,
@@ -280,17 +366,12 @@ export async function renderDesignToFigmaSvg(
     await context.addInitScript(
       "globalThis.__name = globalThis.__name || function (value) { return value; };",
     );
-    await context.route("**/*", async (route) => {
-      if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
-        await route.continue();
-      } else {
-        await route.abort("blockedbyclient");
-      }
-    });
+    const requests = await routeAllowedRenderRequests(context);
     const page = await context.newPage();
     try {
       await page.setContent(options.html, { waitUntil: "networkidle" });
       await page.waitForTimeout(300);
+      throwIfNavigatedAway(requests.blockedNavigations);
 
       const scene = (await page.evaluate(
         collectRawFigmaSvgScene,

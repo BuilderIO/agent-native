@@ -11,6 +11,7 @@ import {
   type ProviderCallGate,
   type ProviderCallGateRequest,
 } from "./call-gates.js";
+import { runWithProviderDispatchTracking } from "./provider-dispatch.js";
 
 const URL_ = "https://www.googleapis.com/calendar/v3/freeBusy";
 
@@ -345,3 +346,24 @@ describe("fetchWithProviderCallGate", () => {
     expect(prepared).toHaveLength(1);
   });
 });
+
+it.each([false, true])(
+  "tracks actual mutations after read-only POSTs with registered gate=%s",
+  async (registered) => {
+    if (registered) gate();
+    const tracking = { writes: 0 };
+    const send = transport();
+    await runWithProviderDispatchTracking(tracking, async () => {
+      await fetchWithProviderCallGate(input(), send);
+      expect(tracking.writes).toBe(0);
+      await fetchWithProviderCallGate(
+        input({
+          url: "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        }),
+        send,
+      );
+      expect(tracking.writes).toBe(1);
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+  },
+);

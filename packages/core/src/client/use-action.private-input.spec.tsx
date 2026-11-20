@@ -8,6 +8,7 @@ import {
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { PRIVATE_ACTION_SCOPE_HEADER } from "../shared/private-action-scope.js";
 import {
@@ -822,6 +823,108 @@ describe("private ui action mutation", () => {
     await harness.unmount();
   });
 
+  it("lets a typed private rejection finish streaming without exposing its body", async () => {
+    const cancel = vi.fn();
+    const encoder = new TextEncoder();
+    const chunks = ['{"errorCode":"fixture_rejected","error":"', `${SECRET}"}`];
+    const body = new ReadableStream({
+      pull(controller) {
+        const chunk = chunks.shift();
+        if (chunk !== undefined) controller.enqueue(encoder.encode(chunk));
+        if (chunks.length === 0) controller.close();
+      },
+      cancel,
+    });
+    routes.unshift((call) =>
+      bodyText(call.body).includes(SECRET)
+        ? new Response(body, {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          })
+        : undefined,
+    );
+    const harness = await renderPrivate();
+    try {
+      await act(async () => {
+        await expect(
+          harness.result.mutateAsync(RAW_VARIABLES),
+        ).rejects.toMatchObject({
+          status: 400,
+        });
+      });
+      expect(chunks).toEqual([]);
+      expect(cancel).not.toHaveBeenCalled();
+      expectSanitized(harness.result.error);
+    } finally {
+      harness.stopSnapshots();
+      await harness.unmount();
+    }
+  });
+
+  it("exposes only schema-validated private rejection metadata", async () => {
+    const onError = vi.fn();
+    const metadata = {
+      errorCode: "fixture_rejected",
+      details: { position: 2 },
+    };
+    routes.unshift((call) =>
+      bodyText(call.body).includes(SECRET)
+        ? jsonResponse(
+            {
+              ...metadata,
+              error: SECRET,
+              details: { position: 2, echoed: SECRET },
+            },
+            400,
+          )
+        : undefined,
+    );
+    const harness = await renderPrivate({
+      privateErrorSchema: z.object({
+        errorCode: z.literal("fixture_rejected"),
+        details: z.object({ position: z.number().int().nonnegative() }),
+      }),
+      onError,
+    });
+    try {
+      await act(async () => {
+        await expect(
+          harness.result.mutateAsync(RAW_VARIABLES),
+        ).rejects.toMatchObject(metadata);
+      });
+      expectSanitized(harness.result.error);
+      expect(harness.result.error).toMatchObject(metadata);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(harness.result.error);
+    } finally {
+      harness.stopSnapshots();
+      await harness.unmount();
+    }
+  });
+
+  it("requests the action cache flush after the private success callback", async () => {
+    const events: string[] = [];
+    const onFlush = () => events.push("flush");
+    window.addEventListener("agentNative:actionCacheFlush", onFlush);
+    routes.unshift((call) =>
+      bodyText(call.body).includes(SECRET) ? jsonResponse({}) : undefined,
+    );
+    const harness = await renderPrivate({
+      onSuccess: () => {
+        events.push("onSuccess");
+      },
+    });
+    try {
+      await act(async () => {
+        await harness.result.mutateAsync(RAW_VARIABLES);
+      });
+      expect(events).toEqual(["onSuccess", "flush"]);
+    } finally {
+      window.removeEventListener("agentNative:actionCacheFlush", onFlush);
+      harness.stopSnapshots();
+      await harness.unmount();
+    }
+  });
+
   it("fences success callbacks if a synchronous sync subscriber changes scope", async () => {
     const onSuccess = vi.fn();
     const listener = () => recordSessionIdentity("other-actor", "org-b");
@@ -868,7 +971,7 @@ describe("private ui action mutation", () => {
     await harness.unmount();
   });
 
-  it.each([401, 403, 409, 429, 503])(
+  it.each([400, 401, 403, 409, 429, 503])(
     "never resends or trusts response details after HTTP %s",
     async (status) => {
       routes.unshift((call) =>
@@ -888,6 +991,7 @@ describe("private ui action mutation", () => {
         });
       });
       expectSanitized(failure);
+      expect(failure).toMatchObject({ status });
       expect(actionPosts()).toHaveLength(1);
       expect(harness.result.isError).toBe(true);
       expect(trackEvent).not.toHaveBeenCalled();
@@ -938,6 +1042,9 @@ describe("private ui action mutation", () => {
         });
       });
       expectSanitized(failure);
+      expect(failure).toMatchObject({
+        errorCode: "private_action_session_unavailable",
+      });
       expect(currentPrivateActionScope()).toBeUndefined();
       expect(toJSON).not.toHaveBeenCalled();
       expect(calls).toHaveLength(0);

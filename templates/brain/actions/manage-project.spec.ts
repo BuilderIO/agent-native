@@ -34,6 +34,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => null,
+  mutateOrgSetting: async () => undefined,
   putUserSetting: vi.fn(),
 }));
 
@@ -42,7 +44,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
   inArray: (column: unknown, values: unknown[]) => ({ column, values }),
@@ -56,7 +59,11 @@ vi.mock("../server/db/index.js", () => ({
     brainProjectSources: {
       projectId: "brainProjectSources.projectId",
     },
-    brainSources: { id: "brainSources.id" },
+    brainSources: {
+      id: "brainSources.id",
+      provider: "brainSources.provider",
+      ownerEmail: "brainSources.ownerEmail",
+    },
     brainSourceShares: {},
   },
 }));

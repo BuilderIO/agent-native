@@ -350,4 +350,113 @@ describe("useActionQuery model observers", () => {
       "serverResult:1",
     ]);
   });
+  it("requests the action cache flush after projection and the caller success settle", async () => {
+    const events: string[] = [];
+    const success = deferred<void>();
+    const onFlush = () => events.push("flush");
+    window.addEventListener("agentNative:actionCacheFlush", onFlush);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ id: "task-1" })),
+    );
+    let mutate: (() => Promise<unknown>) | undefined;
+    function Probe() {
+      const mutation = useActionMutation("update-task" as never, {
+        beforeInvalidate: () => {
+          events.push("beforeInvalidate");
+        },
+        onSuccess: () => {
+          events.push("onSuccess");
+          return success.promise;
+        },
+      });
+      mutate = () => mutation.mutateAsync({} as never);
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    try {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Probe />
+          </QueryClientProvider>,
+        );
+      });
+      let settled: Promise<unknown> | undefined;
+      await act(async () => {
+        settled = mutate?.();
+      });
+      await vi.waitFor(() => expect(events).toContain("onSuccess"));
+      expect(events).toEqual(["beforeInvalidate", "onSuccess"]);
+
+      await act(async () => {
+        success.resolve();
+        await settled;
+      });
+      expect(events).toEqual(["beforeInvalidate", "onSuccess", "flush"]);
+    } finally {
+      window.removeEventListener("agentNative:actionCacheFlush", onFlush);
+    }
+  });
+  it("waits for the post-write refetch before requesting the action cache flush", async () => {
+    const events: string[] = [];
+    const refetch = deferred<Response>();
+    const onFlush = () => events.push("flush");
+    window.addEventListener("agentNative:actionCacheFlush", onFlush);
+    let reads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: unknown, init?: RequestInit) => {
+        if ((init?.method ?? "GET").toUpperCase() !== "GET")
+          return jsonResponse({ ok: true });
+        reads += 1;
+        return reads === 1
+          ? jsonResponse({ title: "before" })
+          : refetch.promise;
+      }),
+    );
+    let mutate: (() => Promise<unknown>) | undefined;
+    let title: string | undefined;
+    function Probe() {
+      const query = useActionQuery("get-task" as never);
+      title = (query.data as { title?: string } | undefined)?.title;
+      const mutation = useActionMutation("update-task" as never);
+      mutate = () => mutation.mutateAsync({} as never);
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+    try {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Probe />
+          </QueryClientProvider>,
+        );
+      });
+      await vi.waitFor(() => expect(title).toBe("before"));
+      await act(async () => {
+        await mutate?.();
+      });
+      await vi.waitFor(() => expect(reads).toBe(2));
+      expect(events).toEqual([]);
+
+      await act(async () => {
+        refetch.resolve(jsonResponse({ title: "after" }));
+      });
+      await vi.waitFor(() => expect(events).toEqual(["flush"]));
+      expect(title).toBe("after");
+    } finally {
+      window.removeEventListener("agentNative:actionCacheFlush", onFlush);
+    }
+  });
 });
