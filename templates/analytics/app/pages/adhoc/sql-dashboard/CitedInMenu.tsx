@@ -46,7 +46,7 @@ export function CitedInMenu({ dashboardId }: { dashboardId: string }) {
               aria-label={label}
             >
               <IconFileText className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{label}</span>
+              <span className="hidden xl:inline">{label}</span>
               <IconChevronDown className="h-3 w-3 opacity-60" />
             </Button>
           </DropdownMenuTrigger>
