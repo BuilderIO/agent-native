@@ -118,6 +118,129 @@ describe("edit-design conflict retry", () => {
     mocks.snapshotDesignBeforeAgentEdit.mockReset().mockResolvedValue(null);
   });
 
+  it.each([
+    [
+      "whitespace",
+      "<main><p>One</p> <p>Two</p></main>",
+      "<main><p>One</p>  <p>Two</p></main>",
+    ],
+    [
+      "stable id",
+      '<main><p data-agent-native-node-id="old">One</p></main>',
+      '<main><p data-agent-native-node-id="live">One</p></main>',
+    ],
+    [
+      "extra content",
+      "<main>One</main>",
+      "<main>One</main><aside>Concurrent</aside>",
+    ],
+  ])(
+    "rejects %s changes since the snapshot before any write",
+    async (_kind, snapshot, live) => {
+      mocks.readLiveSourceFile.mockResolvedValue({
+        content: live,
+        versionHash: "live-hash",
+        language: "html",
+      });
+      await expect(
+        action.run({
+          designId: "design_1",
+          filename: "index.html",
+          matchEntireFile: true,
+          edits: [{ search: snapshot, replace: "<main>Updated</main>" }],
+        } as never),
+      ).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        errorCode: "design_edit_conflict",
+      });
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it("saves a whole-file edit only when the snapshot matches the live file", async () => {
+    const snapshot = "<main>One</main>";
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: snapshot,
+      versionHash: "h0",
+      language: "html",
+    });
+    mocks.writeInlineSourceFile.mockResolvedValue({
+      versionHash: "h1",
+      changed: true,
+    });
+    const result = await action.run({
+      designId: "design_1",
+      filename: "index.html",
+      matchEntireFile: true,
+      edits: [{ search: snapshot, replace: "<main>Updated</main>" }],
+    } as never);
+    expect(result).toMatchObject({ changed: true, editsApplied: 1 });
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "<main>Updated</main>",
+        expectedVersionHash: "h0",
+      }),
+    );
+  });
+
+  it("rejects a whole-file edit that changes a locked layer", async () => {
+    const snapshot =
+      '<main><div data-agent-native-node-id="legal" data-agent-native-locked="true">Legal</div></main>';
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: snapshot,
+      versionHash: "h0",
+      language: "html",
+    });
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        matchEntireFile: true,
+        edits: [
+          { search: snapshot, replace: snapshot.replace("Legal", "Changed") },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "locked_layer_edit_rejected",
+    });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a whole-file edit after a concurrent persist conflict", async () => {
+    const snapshot = "<main><p>One</p> <p>Two</p></main>";
+    mocks.readLiveSourceFile
+      .mockResolvedValueOnce({
+        content: snapshot,
+        versionHash: "h0",
+        language: "html",
+      })
+      .mockResolvedValueOnce({
+        content: "<main><p>One</p>  <p>Two</p></main>",
+        versionHash: "h1",
+        language: "html",
+      });
+    mocks.writeInlineSourceFile.mockRejectedValueOnce(
+      new SourceWorkspaceEditConflictError(),
+    );
+    const failure = action.run({
+      designId: "design_1",
+      filename: "index.html",
+      matchEntireFile: true,
+      edits: [{ search: snapshot, replace: "<main>Updated</main>" }],
+    } as never);
+    await expect(failure).rejects.toMatchObject({
+      errorCode: "design_edit_conflict",
+    });
+    await expect(failure).rejects.not.toHaveProperty("noWrite");
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+    expect(mocks.writeInlineSourceFile).toHaveBeenCalledOnce();
+  });
+
   it("re-reads and reapplies search-replace edits after a persist conflict", async () => {
     mocks.readLiveSourceFile
       .mockResolvedValueOnce({
@@ -453,7 +576,9 @@ describe("edit-design conflict retry", () => {
       await expect(failure).rejects.toThrow("get-design-snapshot");
       await expect(failure).rejects.toThrow("smaller");
       await expect(failure).rejects.toThrow("selected variant expansion");
-      await expect(failure).rejects.toThrow("one complete replace-file edit");
+      await expect(failure).rejects.toThrow(
+        "one full-file search-replace edit with matchEntireFile: true",
+      );
       await expect(failure).rejects.toThrow(
         "all intended edits in the rejected batch",
       );

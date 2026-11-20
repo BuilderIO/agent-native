@@ -402,7 +402,7 @@ describe("present-design-variants", () => {
     expect(firstOption?.value).toContain("get-design-snapshot with designId");
     expect(firstOption?.value).toContain("fileId file-a");
     expect(firstOption?.value).toContain("edit-design with fileId file-a");
-    expect(firstOption?.value).toContain('mode "replace-file"');
+    expect(firstOption?.value).toContain("matchEntireFile: true");
     expect(firstOption?.value).toContain(
       "replace the representative direction screen",
     );
@@ -457,16 +457,16 @@ describe("present-design-variants", () => {
       ]),
     });
     expect(result.fallbackInstructions).toContain(
-      "retry one complete replace-file edit",
+      "retry one full-file search-replace edit with matchEntireFile: true",
     );
     expect(result.nextRequiredAction).toContain(
-      "retry one complete replace-file edit",
+      "retry one full-file search-replace edit with matchEntireFile: true",
     );
     expect(firstOption?.value).toContain(
-      "retry one complete replace-file edit",
+      "retry one full-file search-replace edit with matchEntireFile: true",
     );
     expect(guidedQuestions.submitMessage).toContain(
-      "retry one complete replace-file edit",
+      "retry one full-file search-replace edit with matchEntireFile: true",
     );
     expect(result.nextRequiredAction).toContain("get-design-snapshot");
     expect(result.nextRequiredAction).toContain(
@@ -477,7 +477,7 @@ describe("present-design-variants", () => {
     );
     expect(result.nextRequiredAction).toContain("fileId");
     expect(result.nextRequiredAction).toContain("edit-design");
-    expect(result.nextRequiredAction).toContain('mode "replace-file"');
+    expect(result.nextRequiredAction).toContain("matchEntireFile: true");
     expect(result.nextRequiredAction).toContain("complete but compact");
     expect(result.nextRequiredAction).toContain("primary workflow");
     expect(result.nextRequiredAction).toContain(

@@ -94,7 +94,7 @@ describe("get-design-snapshot", () => {
     expect(result.nextRequiredAction).toContain("smaller sequential batches");
     expect(result.nextRequiredAction).toContain("selected variant");
     expect(result.nextRequiredAction).toContain(
-      "one complete replace-file edit",
+      "one full-file search-replace edit with matchEntireFile: true",
     );
     expect(result.nextRequiredAction).toContain("none of its edits were saved");
     expect(result.nextRequiredAction).toContain("re-read the current file");

@@ -235,7 +235,9 @@ describe("variant content directives", () => {
       const text = directives.join("\n");
       expect(text).toContain("re-read");
       expect(text).toContain("retry");
-      expect(text).toContain("one complete replace-file edit");
+      expect(text).toContain(
+        "one full-file search-replace edit with matchEntireFile: true",
+      );
       expect(text).toContain(
         "Stop after the first successful `edit-design` save",
       );

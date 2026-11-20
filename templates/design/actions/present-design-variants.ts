@@ -101,8 +101,8 @@ const FALLBACK_INSTRUCTIONS =
   "a screen by name if the inline buttons are not available; after they pick, " +
   "delete each other variant screen at most once, call get-design-snapshot with fileId for " +
   "the kept screen, then call edit-design on that same fileId in a bounded pass. " +
-  "On conflict, re-read the kept screen and retry without repeating deletion; retry one complete replace-file edit, not partial batches, and stop after the first successful save. " +
-  'Use mode "replace-file" to replace the representative direction screen with ' +
+  "On conflict, re-read the kept screen and retry without repeating deletion; retry one full-file search-replace edit with matchEntireFile: true, not partial batches, and stop after the first successful save. " +
+  "Use one full-file search-replace edit with matchEntireFile: true, the snapshot content as search, and the complete updated file as replace, to replace the representative direction screen with " +
   "the actual requested product UI; make the result complete but compact and " +
   "prefer visible controls/affordances over exhaustive content if the request is large. " +
   "Do not leave a direction board, summary card, or variant brief as the final result. " +
@@ -119,7 +119,7 @@ const VARIANT_PICK_SUBMIT_MESSAGE =
   "screen must not be a direction board, variant brief, or summary card. " +
   "If a cleanup action reports a screen was " +
   "already missing, continue. Use the exact file ids and tool instructions in " +
-  "the selected answer below. On conflict, re-read the kept screen and retry without repeating cleanup; retry one complete replace-file edit, not partial batches; do not create " +
+  "the selected answer below. On conflict, re-read the kept screen and retry without repeating cleanup; retry one full-file search-replace edit with matchEntireFile: true, not partial batches; do not create " +
   "a new index.html, and stop after the first successful screen update.";
 
 const variantSchema = z.object({
@@ -807,7 +807,7 @@ export default defineAction({
     "the chosen screen, delete the other generated variant screens, and " +
     "call get-design-snapshot with fileId for the kept screen before " +
     "calling edit-design on that same fileId in a bounded pass. Use " +
-    '`mode: "replace-file"` when expanding the representative placeholder ' +
+    "one full-file search-replace edit with `matchEntireFile: true`, using the snapshot as search and the complete updated file as replace, when expanding the representative placeholder " +
     "into a complete but compact product UI in the chosen direction. Pass " +
     "the original user request in `brief` and keep `prompt` as the short chat " +
     "caption so size and output type are preserved. Do not call generate-design after a " +
@@ -1221,7 +1221,7 @@ export default defineAction({
               value:
                 `Keep "${screen.label}" (${screen.filename}, file id ${screen.id}) ` +
                 `from variant set ${variantSetId}. Delete each other variant screen at most once: ${otherScreens}. If delete-file says a screen is already missing, continue. ` +
-                `Then call get-design-snapshot with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}), then call edit-design with fileId ${screen.id} on that same kept file in a bounded single-file pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow; if the full feature list is too large for one reliable edit, render secondary details as visible controls, states, or affordances instead of expanding the action input. The final saved screen must be the actual usable UI requested by the user, not a direction board, variant brief, summary card, or description of the direction. Do not call generate-design after this variant pick, if the edit conflicts, re-read the kept screen and retry without repeating deletion; retry one complete replace-file edit, not partial batches; do not create index.html, and do not resend a huge payload. Stop after the first successful edit-design save.`,
+                `Then call get-design-snapshot with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}), then call edit-design with fileId ${screen.id} on that same kept file in a bounded single-file pass. Use one full-file search-replace edit with matchEntireFile: true, using the snapshot as search and the complete updated file as replace, to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow; if the full feature list is too large for one reliable edit, render secondary details as visible controls, states, or affordances instead of expanding the action input. The final saved screen must be the actual usable UI requested by the user, not a direction board, variant brief, summary card, or description of the direction. Do not call generate-design after this variant pick, if the edit conflicts, re-read the kept screen and retry without repeating deletion; retry one full-file search-replace edit with matchEntireFile: true, not partial batches; do not create index.html, and do not resend a huge payload. Stop after the first successful edit-design save.`,
             };
           }),
         },
@@ -1264,7 +1264,7 @@ export default defineAction({
         : {}),
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
-        'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the full feature list is too large for one reliable edit. Do not leave a direction board, variant brief, or summary card as the final result. If the edit conflicts, re-read the kept screen and retry without repeating deletion; retry one complete replace-file edit, not partial batches. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',
+        "Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use one full-file search-replace edit with matchEntireFile: true, using the snapshot as search and the complete updated file as replace, to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the full feature list is too large for one reliable edit. Do not leave a direction board, variant brief, or summary card as the final result. If the edit conflicts, re-read the kept screen and retry without repeating deletion; retry one full-file search-replace edit with matchEntireFile: true, not partial batches. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.",
     };
   }),
   link: ({ result }) => {

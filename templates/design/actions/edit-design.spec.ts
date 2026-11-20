@@ -79,6 +79,32 @@ describe("edit-design action schema", () => {
     ).toBe(true);
   });
 
+  it("requires one search-replace block for whole-file matching", () => {
+    const base = { designId: "design_123", matchEntireFile: true };
+    expect(
+      action.schema.safeParse({
+        ...base,
+        edits: [{ search: "before", replace: "after" }],
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        mode: "replace-file",
+        replacementContent: "after",
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        edits: [
+          { search: "a", replace: "b" },
+          { search: "c", replace: "d" },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts replace-file mode for broad copy-only edits", () => {
     expect(
       action.schema.safeParse({
