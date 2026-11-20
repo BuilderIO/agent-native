@@ -518,23 +518,23 @@ describe("FilterButton", () => {
     vi.stubGlobal("innerWidth", 390);
     render(<Panel initial={createFilterState(fields)} />);
     click(buttonNamed("Filter"));
-    const sheet = document.querySelector('[role="dialog"]');
-    click(buttonNamed("Add rule"));
+    const addRule = buttonNamed("Add rule");
+    click(addRule);
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Choose a field",
     );
-    expect(sheet?.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(addRule.closest('[aria-hidden="true"]')).not.toBeNull();
   });
 
   it("keeps the desktop panel's pickers non-modal", () => {
     render(<Panel initial={createFilterState(fields)} />);
     click(buttonNamed("Filter"));
-    const panel = document.querySelector('[role="dialog"]');
-    click(buttonNamed("Add rule"));
+    const addRule = buttonNamed("Add rule");
+    click(addRule);
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Choose a field",
     );
-    expect(panel?.closest('[aria-hidden="true"]')).toBeNull();
+    expect(addRule.closest('[aria-hidden="true"]')).toBeNull();
   });
 });
 
