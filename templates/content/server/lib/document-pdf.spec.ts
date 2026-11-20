@@ -462,4 +462,21 @@ describe("renderDocumentPdf", () => {
       }),
     ).not.toThrow();
   });
+
+  it("refuses a table too wide to draw well before the page limit", () => {
+    const row = (cell: string) =>
+      `| ${Array.from({ length: 100 }, () => cell).join(" | ")} |`;
+    const table = (rows: number) =>
+      [
+        row("head"),
+        row("---"),
+        ...Array.from({ length: rows }, () => row("cell")),
+      ].join("\n");
+    const { pageCount } = recordLayout("Wide", table(400));
+
+    expect(pageCount).toBeLessThan(PDF_MAX_PAGES);
+    expect(() =>
+      renderDocumentPdf({ title: "Wide", content: table(400) }),
+    ).toThrow(PdfTooLongError);
+  });
 });

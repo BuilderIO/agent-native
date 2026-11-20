@@ -477,7 +477,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "이 페이지에는 중국어, 일본어, 한국어, 아랍어, 히브리어, 힌디어처럼 PDF에서 아직 표시할 수 없는 텍스트가 있습니다. 대신 Markdown으로 첨부하세요.",
       contentPagePdfTooLong:
-        "이 페이지는 너무 길어서 PDF로 첨부할 수 없습니다(200페이지 초과). 대신 Markdown으로 첨부하세요.",
+        "이 페이지는 너무 길어서 PDF로 첨부할 수 없습니다(200페이지 초과 또는 너무 넓은 표). 대신 Markdown으로 첨부하세요.",
       contentPagePdfUnavailable:
         "Content에서 이 페이지의 PDF를 만들지 못했습니다. 대신 Markdown으로 첨부하세요.",
       failedToUploadImage: "이미지 업로드 실패",

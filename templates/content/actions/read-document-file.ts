@@ -312,7 +312,7 @@ export default defineAction({
         } catch (error) {
           if (error instanceof PdfTooLongError) {
             fail(
-              `This page is too long to attach as a PDF (over ${PDF_MAX_PAGES} pages). Attach it as Markdown instead.`,
+              `This page is too long to attach as a PDF (over ${PDF_MAX_PAGES} pages, or a table too wide to fit). Attach it as Markdown instead.`,
               { statusCode: 413, errorCode: "document_file_pdf_too_long" },
             );
           }

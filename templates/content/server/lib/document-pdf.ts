@@ -46,7 +46,9 @@ export const PDF_MAX_PAGES = 200;
 
 export class PdfTooLongError extends Error {
   constructor() {
-    super(`The page runs past ${PDF_MAX_PAGES} PDF pages.`);
+    super(
+      `The page runs past ${PDF_MAX_PAGES} PDF pages or has a table too wide to draw.`,
+    );
     this.name = "PdfTooLongError";
   }
 }
@@ -998,6 +1000,7 @@ export function layoutDocumentPdf(
   layout.pageNumbers();
 }
 
+const MAX_TEXT_RUNS = 100_000;
 const SANS = "LiberationSans";
 const SANS_FILES = {
   normal: "LiberationSans-Regular.ttf",
@@ -1108,11 +1111,23 @@ export function renderDocumentPdf(input: {
     doc.setFont(mono ? "courier" : SANS, style);
     doc.setFontSize(font.size);
   };
-  const measure = (text: string, font: PdfFont) =>
+  const characterWidths = new Map<string, number>();
+  const measureRuns = (text: string, font: PdfFont) =>
     segments(text, font).reduce((total, segment) => {
       selectFont(font, segment.mono);
       return total + doc.getTextWidth(segment.text);
     }, 0);
+  const measure = (text: string, font: PdfFont) => {
+    if (text.length > 2) return measureRuns(text, font);
+    const key = `${font.size}|${Number(font.mono)}${Number(font.bold)}|${text}`;
+    let width = characterWidths.get(key);
+    if (width === undefined) {
+      width = measureRuns(text, font);
+      characterWidths.set(key, width);
+    }
+    return width;
+  };
+  let textRuns = 0;
   const canvas: PdfCanvas = {
     width,
     height,
@@ -1130,6 +1145,8 @@ export function renderDocumentPdf(input: {
     },
     measure,
     text: (text, x, baseline, font, color) => {
+      textRuns += 1;
+      if (textRuns > MAX_TEXT_RUNS) throw new PdfTooLongError();
       doc.setTextColor(color[0], color[1], color[2]);
       let cursor = x;
       for (const segment of segments(text, font)) {

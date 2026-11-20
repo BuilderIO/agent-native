@@ -496,7 +496,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "Cette page contient du texte qu’un PDF ne peut pas encore afficher, comme le chinois, le japonais, le coréen, l’arabe, l’hébreu ou l’hindi. Joignez-la plutôt en Markdown.",
       contentPagePdfTooLong:
-        "Cette page est trop longue pour être jointe en PDF (plus de 200 pages). Joignez-la plutôt en Markdown.",
+        "Cette page est trop longue pour être jointe en PDF (plus de 200 pages, ou un tableau trop large). Joignez-la plutôt en Markdown.",
       contentPagePdfUnavailable:
         "Content n’a pas pu créer de PDF pour cette page. Joignez-la plutôt en Markdown.",
       failedToUploadImage: "Échec du téléversement de l’image",
