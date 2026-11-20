@@ -35,8 +35,8 @@ function createButton(part: "button" | "icon-button", displayName: string) {
           {...rest}
           {...attributes}
           className={partClassName(part, className)}
-          disabled={disabled ?? loading}
-          aria-busy={loading || undefined}
+          disabled={disabled === true || loading}
+          aria-busy={loading || rest["aria-busy"]}
         >
           {loading ? (
             <>

@@ -76,7 +76,7 @@ import type { PropDefs } from "./props.js";
  */
 export type PartKind = "component" | "pattern";
 
-export type PartStatus = "available" | "built" | "planned";
+export type PartStatus = "built" | "planned";
 
 export interface PartDefinition {
   /** Catalog name and root class: `menu` renders `.menu-*` classes. */
@@ -173,7 +173,7 @@ export const PARTS: readonly PartDefinition[] = [
     subParts: ["content", "spinner"],
     baseUi: "@base-ui/react/button",
     toolkit: "@agent-native/toolkit/ui/base-ui/button",
-    status: "available",
+    status: "built",
     props: buttonProps,
   },
   {
@@ -828,7 +828,7 @@ export const PARTS: readonly PartDefinition[] = [
       "report",
     ],
     toolkit: "@agent-native/toolkit/app/settings",
-    status: "built",
+    status: "planned",
     stylesheet: false,
   },
   planned("filter-bar", "pattern", ["chip", "add"]),

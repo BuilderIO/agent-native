@@ -68,12 +68,9 @@
     text-transform: uppercase;
   }
 
-  .avatar[data-size="1"] .avatar-fallback {
-    font-size: 8px;
-  }
-
-  .avatar[data-size="2"] .avatar-fallback {
-    font-size: 10px;
+  .avatar:where([data-size="1"], [data-size="2"]) .avatar-fallback {
+    font-size: var(--font-size-0);
+    letter-spacing: var(--letter-spacing-0);
   }
 
   .avatar[data-size="4"] .avatar-fallback {

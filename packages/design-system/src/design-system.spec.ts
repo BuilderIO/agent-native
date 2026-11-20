@@ -232,8 +232,8 @@ describe("agent-native theme and appearance tints", () => {
   it("carries the shared Agent-Native palette in light and dark", () => {
     expect(agentNativeTheme.base["--theme-background"]).toBe("0 0% 100%");
     expect(agentNativeTheme.dark["--theme-background"]).toBe("0 0% 13%");
-    expect(agentNativeTheme.scopedOnly?.base["--font-sans"]).toContain(
-      "Inter Variable",
+    expect(agentNativeTheme.scopedOnly?.base["--font-sans"]).toBe(
+      "var(--font-family-sans)",
     );
   });
 

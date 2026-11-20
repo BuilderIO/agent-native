@@ -10,16 +10,15 @@ export { baselineTheme };
 
 const AGENT_NATIVE_EXTRAS = {
   base: {
-    "font-sans": '"Inter Variable", "Inter", sans-serif',
-    "font-wordmark": '"Geist Variable", "Geist", sans-serif',
-    "radius-xl": "0.75rem",
-    "shadow-composer":
-      "0 8px 15px hsl(var(--agent-native-shadow-color) / 0.06)",
-    "agent-kit-composer-radius": "0.75rem",
+    "font-sans": "var(--font-family-sans)",
+    "font-wordmark": "var(--font-family-wordmark)",
+    "radius-xl": "var(--radius-5)",
+    "shadow-composer": "0 8px 15px var(--shadow-tint-a1)",
+    "agent-kit-composer-radius": "var(--radius-5)",
     "agent-kit-composer-elevation": "var(--shadow-composer)",
   },
   dark: {
-    "shadow-composer": "0 8px 30px hsl(var(--background) / 0.22)",
+    "shadow-composer": "0 8px 30px var(--shadow-tint-a2)",
     "agent-kit-composer-elevation": "var(--shadow-composer)",
   },
 };

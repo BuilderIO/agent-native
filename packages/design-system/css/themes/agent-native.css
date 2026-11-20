@@ -58,7 +58,6 @@
   --gradient-brand: linear-gradient(135deg, var(--brand-8), var(--brand-10));
   --gradient-surface: linear-gradient(180deg, var(--base-background), var(--gray-2));
   --gradient-glow: radial-gradient(120% 80% at 50% 0%, var(--brand-a4), transparent 70%);
-  --agent-native-shadow-color: 0 0% 10%;
   --theme-background: 0 0% 100%;
   --background: var(--theme-background);
   --theme-foreground: 0 0% 10%;
@@ -175,7 +174,6 @@
   --gradient-brand: linear-gradient(135deg, var(--brand-8), var(--brand-10));
   --gradient-surface: linear-gradient(180deg, var(--base-background), var(--gray-2));
   --gradient-glow: radial-gradient(120% 80% at 50% 0%, var(--brand-a4), transparent 70%);
-  --agent-native-shadow-color: 0 0% 10%;
   --theme-background: 0 0% 13%;
   --background: var(--theme-background);
   --theme-foreground: 0 0% 90%;
@@ -292,7 +290,6 @@
   --gradient-brand: linear-gradient(135deg, var(--brand-8), var(--brand-10));
   --gradient-surface: linear-gradient(180deg, var(--base-background), var(--gray-2));
   --gradient-glow: radial-gradient(120% 80% at 50% 0%, var(--brand-a4), transparent 70%);
-  --agent-native-shadow-color: 0 0% 10%;
   --theme-background: 0 0% 100%;
   --background: var(--theme-background);
   --theme-foreground: 0 0% 10%;
@@ -1211,7 +1208,6 @@
     --gradient-brand: linear-gradient(135deg, var(--brand-8), var(--brand-10));
     --gradient-surface: linear-gradient(180deg, var(--base-background), var(--gray-2));
     --gradient-glow: radial-gradient(120% 80% at 50% 0%, var(--brand-a4), transparent 70%);
-    --agent-native-shadow-color: 0 0% 10%;
     --theme-background: 0 0% 100%;
     --background: var(--theme-background);
     --theme-foreground: 0 0% 10%;
@@ -1268,11 +1264,11 @@
     --sidebar-ring: var(--theme-sidebar-ring);
     --theme-radius: 0.75rem;
     --radius: var(--theme-radius);
-    --font-sans: "Inter Variable", "Inter", sans-serif;
-    --font-wordmark: "Geist Variable", "Geist", sans-serif;
-    --radius-xl: 0.75rem;
-    --shadow-composer: 0 8px 15px hsl(var(--agent-native-shadow-color) / 0.06);
-    --agent-kit-composer-radius: 0.75rem;
+    --font-sans: var(--font-family-sans);
+    --font-wordmark: var(--font-family-wordmark);
+    --radius-xl: var(--radius-5);
+    --shadow-composer: 0 8px 15px var(--shadow-tint-a1);
+    --agent-kit-composer-radius: var(--radius-5);
     --agent-kit-composer-elevation: var(--shadow-composer);
   }
 
@@ -1335,7 +1331,6 @@
     --gradient-brand: linear-gradient(135deg, var(--brand-8), var(--brand-10));
     --gradient-surface: linear-gradient(180deg, var(--base-background), var(--gray-2));
     --gradient-glow: radial-gradient(120% 80% at 50% 0%, var(--brand-a4), transparent 70%);
-    --agent-native-shadow-color: 0 0% 10%;
     --theme-background: 0 0% 13%;
     --background: var(--theme-background);
     --theme-foreground: 0 0% 90%;
@@ -1392,7 +1387,7 @@
     --sidebar-ring: var(--theme-sidebar-ring);
     --theme-radius: 0.75rem;
     --radius: var(--theme-radius);
-    --shadow-composer: 0 8px 30px hsl(var(--theme-background) / 0.22);
+    --shadow-composer: 0 8px 30px var(--shadow-tint-a2);
     --agent-kit-composer-elevation: var(--shadow-composer);
   }
 
@@ -1455,7 +1450,6 @@
     --gradient-brand: linear-gradient(135deg, var(--brand-8), var(--brand-10));
     --gradient-surface: linear-gradient(180deg, var(--base-background), var(--gray-2));
     --gradient-glow: radial-gradient(120% 80% at 50% 0%, var(--brand-a4), transparent 70%);
-    --agent-native-shadow-color: 0 0% 10%;
     --theme-background: 0 0% 100%;
     --background: var(--theme-background);
     --theme-foreground: 0 0% 10%;

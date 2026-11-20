@@ -115,7 +115,6 @@
     --sidebar-ring: var(--theme-sidebar-ring);
     --theme-radius: 0.5rem;
     --radius: var(--theme-radius);
-    --agent-native-shadow-color: initial;
   }
 
   :scope.dark,

@@ -87,4 +87,22 @@ describe("Button part", () => {
     expect(button.tagName).toBe("SPAN");
     expect(button.classList.contains("button")).toBe(true);
   });
+
+  it("stays disabled while loading and keeps a caller's aria-busy", () => {
+    render(
+      <>
+        <Button loading disabled={false}>
+          Save
+        </Button>
+        <Button aria-busy>Sync</Button>
+      </>,
+    );
+    const save = screen.getByRole("button", { name: "Save" });
+    const sync = screen.getByRole("button", { name: "Sync" });
+    expect({
+      saveDisabled: save.hasAttribute("disabled"),
+      saveBusy: save.getAttribute("aria-busy"),
+      syncBusy: sync.getAttribute("aria-busy"),
+    }).toEqual({ saveDisabled: true, saveBusy: "true", syncBusy: "true" });
+  });
 });

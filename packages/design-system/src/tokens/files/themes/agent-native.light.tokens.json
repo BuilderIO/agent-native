@@ -1,19 +1,5 @@
 {
   "color": {
-    "agent-native-shadow-color": {
-      "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [0.1, 0.1, 0.1],
-        "alpha": 1,
-        "hex": "#1a1a1a"
-      },
-      "$extensions": {
-        "com.agent-native": {
-          "hsl": "0 0% 10%"
-        }
-      }
-    },
     "background": {
       "$type": "color",
       "$value": {

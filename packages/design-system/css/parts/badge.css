@@ -36,8 +36,10 @@
 
   .badge[data-size="1"] {
     height: var(--control-height-1);
-    padding: 0 6px;
-    font-size: 11px;
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-0);
+    line-height: var(--line-height-0);
+    letter-spacing: var(--letter-spacing-0);
   }
 
   .badge[data-size="3"] {
