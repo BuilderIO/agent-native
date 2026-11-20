@@ -1,15 +1,3 @@
-/**
- * Calendar accounts held in Dispatch.
- *
- * When this deployment points at Dispatch's Google account hub, the Google
- * accounts Dispatch holds for a person and grants to Clips show up as
- * ordinary `calendar_accounts` rows with `token_source = 'dispatch'`. Those
- * rows carry no tokens: each read asks the hub for a short-lived access
- * token. Clips keeps the rows so per-account state (sync errors, cached
- * events, shares) works the same as for an account connected here, and an
- * account the person also connected in Clips keeps using Clips' own tokens.
- */
-
 import { randomUUID } from "node:crypto";
 
 import {
@@ -28,39 +16,48 @@ import {
 } from "./recordings.js";
 
 const HUB_PROVIDER = "google_calendar";
-// Rows change only when Dispatch's answer does, so look at most this often.
 const SYNC_INTERVAL_MS = 60_000;
+
+type HubAccountStatus = "connected" | "needs-reauth";
 
 const lastSyncedAt = new Map<string, number>();
 const syncsInFlight = new Map<string, Promise<void>>();
 
 function sameEmail(a: string | null | undefined, b: string): boolean {
-  return Boolean(a) && a!.trim().toLowerCase() === b.trim().toLowerCase();
+  return (
+    typeof a === "string" && a.trim().toLowerCase() === b.trim().toLowerCase()
+  );
 }
 
-async function syncOwner(owner: string): Promise<void> {
-  let granted: Map<string, "connected" | "needs-reauth">;
+async function grantedHubAccounts(
+  owner: string,
+): Promise<Map<string, HubAccountStatus> | null> {
   try {
     const { accounts, errors } = await listHubGoogleAccounts({
       appId: CLIPS_GOOGLE_OAUTH_APP_ID,
       userEmail: owner,
       provider: HUB_PROVIDER,
     });
-    granted = new Map();
+    const granted = new Map<string, HubAccountStatus>();
     for (const error of errors) {
       granted.set(error.accountEmail.toLowerCase(), "needs-reauth");
     }
     for (const account of accounts) {
       granted.set(account.accountEmail.toLowerCase(), "connected");
     }
+    return granted;
   } catch (error) {
-    // Leave the rows as they are; reads report their own token errors.
     console.warn(
       "[clips] Google account hub unavailable:",
       error instanceof Error ? error.message : error,
     );
-    return;
+    return null;
   }
+}
+
+async function syncOwner(owner: string): Promise<void> {
+  const granted = await grantedHubAccounts(owner);
+  if (!granted) return;
 
   const db = getDb();
   const rows = await db
@@ -78,14 +75,14 @@ async function syncOwner(owner: string): Promise<void> {
   for (const [accountEmail, status] of granted) {
     const ownConnection = rows.find(
       (row) =>
-        row.tokenSource !== "dispatch" &&
+        row.managedBy !== "dispatch" &&
         row.status === "connected" &&
         sameEmail(row.email, accountEmail),
     );
     if (ownConnection) continue;
     const existing = rows.find(
       (row) =>
-        row.tokenSource === "dispatch" && sameEmail(row.email, accountEmail),
+        row.managedBy === "dispatch" && sameEmail(row.email, accountEmail),
     );
     if (existing) {
       if (existing.status !== status) {
@@ -96,14 +93,14 @@ async function syncOwner(owner: string): Promise<void> {
       }
       continue;
     }
-    orgId ??= await getActiveOrganizationId().catch(() => null);
-    await db.insert(schema.calendarAccounts).values({
+    orgId ??= await getActiveOrganizationId();
+    const values: typeof schema.calendarAccounts.$inferInsert = {
       id: randomUUID(),
       provider: "google",
       externalAccountId: accountEmail,
       accessTokenSecretRef: null,
       refreshTokenSecretRef: null,
-      tokenSource: "dispatch",
+      managedBy: "dispatch",
       displayName: accountEmail,
       email: accountEmail,
       status,
@@ -112,18 +109,17 @@ async function syncOwner(owner: string): Promise<void> {
       createdAt: now,
       updatedAt: now,
       ownerEmail: owner,
-      orgId: orgId ?? null,
+      orgId,
       visibility: "private",
-    } as any);
+    };
+    await db.insert(schema.calendarAccounts).values(values);
   }
 
-  // Dispatch no longer grants these to Clips (disconnected there, or the
-  // grant was removed), so they stop being read.
   for (const row of rows) {
     if (
-      row.tokenSource === "dispatch" &&
+      row.managedBy === "dispatch" &&
       row.status !== "disconnected" &&
-      !granted.has((row.email ?? "").toLowerCase())
+      !(row.email && granted.has(row.email.toLowerCase()))
     ) {
       await db
         .update(schema.calendarAccounts)
@@ -133,10 +129,6 @@ async function syncOwner(owner: string): Promise<void> {
   }
 }
 
-/**
- * Brings this person's Dispatch-held calendar accounts into
- * `calendar_accounts`. A no-op when no account hub is configured.
- */
 export async function syncDispatchCalendarAccounts(
   ownerEmail: string | null | undefined,
   options: { force?: boolean } = {},
@@ -145,9 +137,11 @@ export async function syncDispatchCalendarAccounts(
   const owner = normalizeOwnerEmail(ownerEmail);
   const pending = syncsInFlight.get(owner);
   if (pending) return pending;
+  const last = lastSyncedAt.get(owner);
   if (
     !options.force &&
-    Date.now() - (lastSyncedAt.get(owner) ?? 0) < SYNC_INTERVAL_MS
+    last !== undefined &&
+    Date.now() - last < SYNC_INTERVAL_MS
   ) {
     return;
   }
@@ -162,7 +156,6 @@ export async function syncDispatchCalendarAccounts(
   return sync;
 }
 
-/** A short-lived access token for a Dispatch-held account, or null. */
 export async function resolveDispatchCalendarAccessToken(account: {
   ownerEmail?: string | null;
   email?: string | null;

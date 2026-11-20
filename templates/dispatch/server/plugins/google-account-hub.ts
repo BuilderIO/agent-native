@@ -1,22 +1,3 @@
-/**
- * Google account hub.
- *
- * Dispatch holds a person's Google accounts as workspace connections. A
- * hosted app on its own database asks here for a short-lived access token
- * instead of keeping Google refresh tokens of its own:
- *
- *   1. The app signs a two-minute assertion with its own federation secret
- *      (`AGENT_NATIVE_IDENTITY_FEDERATION_SECRET_<APP>` here), naming the
- *      person, its `app_id`, and its origin as issuer.
- *   2. Dispatch checks the assertion against that app's registration, finds
- *      the person's connections for the requested provider that are granted
- *      to that app, and refreshes each one's Google token with only that
- *      provider's scopes.
- *   3. The app gets the access tokens (about an hour each) and calls Google
- *      directly. The refresh token never leaves Dispatch, and removing an
- *      app's grant cuts it off at its next request.
- */
-
 import { verifyA2AToken } from "@agent-native/core/a2a";
 import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import { GOOGLE_ACCOUNT_HUB_SCOPE } from "@agent-native/core/google-account-hub";
@@ -50,7 +31,6 @@ const PERMANENT_REFRESH_ERRORS = new Set([
   "invalid_client",
 ]);
 
-/** Providers whose connections share Dispatch's Google token row. */
 export const GOOGLE_ACCOUNT_HUB_PROVIDERS = new Set([
   "google_calendar",
   "gmail",
@@ -77,7 +57,6 @@ function bearerToken(event: H3Event): string | null {
   return match?.[1] ?? null;
 }
 
-/** The registered app that signed this assertion, and the person it names. */
 async function verifyAppAssertion(
   event: H3Event,
   token: string,
@@ -114,10 +93,6 @@ function splitScopes(value: unknown): string[] {
   return typeof value === "string" ? value.split(/\s+/).filter(Boolean) : [];
 }
 
-/**
- * The scopes this app's token may carry: the grant's own list when it has
- * one, else the provider's, kept to what the stored Google token was granted.
- */
 function scopesForApp(
   provider: string,
   connection: WorkspaceConnectionForApp,
@@ -161,16 +136,14 @@ async function mintScopedAccessToken(
         refresh_token: refreshToken,
         client_id: credentials.clientId,
         client_secret: credentials.clientSecret,
-        // Google narrows a refreshed access token to a subset of the scopes
-        // the refresh token holds.
         scope: scopes.join(" "),
       }),
       signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     });
-    const data = (await response.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
+    const data = (await response
+      .json()
+      // coercion-ok: a reply that is not JSON has no access_token, so it is reported as refresh_failed
+      .catch(() => ({}))) as Record<string, unknown>;
     if (response.ok && typeof data.access_token === "string") {
       return {
         ok: true,
@@ -180,8 +153,6 @@ async function mintScopedAccessToken(
       };
     }
     lastError = typeof data.error === "string" ? data.error : lastError;
-    // Another client may own this token; anything else won't change by
-    // trying the next one.
     if (!PERMANENT_REFRESH_ERRORS.has(lastError)) break;
   }
   return {
@@ -201,12 +172,26 @@ export const googleAccountHubHandler = defineEventHandler(
     const caller = await verifyAppAssertion(event, token);
     if (!caller) return jsonResponse({ error: "Unauthorized" }, 401);
 
-    const body = ((await readBody(event).catch(() => null)) ?? {}) as Record<
-      string,
-      unknown
-    >;
-    const provider = typeof body.provider === "string" ? body.provider : "";
-    if (!GOOGLE_ACCOUNT_HUB_PROVIDERS.has(provider)) {
+    let body: unknown;
+    try {
+      body = await readBody(event);
+    } catch (error) {
+      return jsonResponse(
+        {
+          error: "Invalid JSON body",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        400,
+      );
+    }
+    const provider =
+      body && typeof body === "object" && "provider" in body
+        ? body.provider
+        : undefined;
+    if (
+      typeof provider !== "string" ||
+      !GOOGLE_ACCOUNT_HUB_PROVIDERS.has(provider)
+    ) {
       return jsonResponse({ error: "Unsupported provider" }, 400);
     }
 
@@ -278,6 +263,6 @@ export const googleAccountHubHandler = defineEventHandler(
   },
 );
 
-export default async (nitroApp: any) => {
+export default async (nitroApp: unknown) => {
   getH3App(nitroApp).use(GOOGLE_ACCOUNT_HUB_PATH, googleAccountHubHandler);
 };

@@ -34,7 +34,7 @@ export interface CalendarAccountForEvents {
   accessTokenSecretRef?: string | null;
   refreshTokenSecretRef?: string | null;
   email?: string | null;
-  tokenSource?: string | null;
+  managedBy?: string | null;
 }
 
 export interface CalendarFetchError {
@@ -86,8 +86,7 @@ export function shouldMarkNeedsReauth(message: string): boolean {
 export async function resolveCalendarAccessToken(
   account: CalendarAccountForEvents,
 ): Promise<string | null> {
-  // Dispatch holds this account's tokens; Clips needs no Google client.
-  if (account.tokenSource === "dispatch") {
+  if (account.managedBy === "dispatch") {
     return resolveDispatchCalendarAccessToken(account);
   }
   const credentialCandidates = await resolveGoogleOAuthCredentialCandidates();

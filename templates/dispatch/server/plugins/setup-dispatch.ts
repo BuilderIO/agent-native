@@ -14,7 +14,6 @@ export default setupDispatch({
       "/_agent-native/identity/authorize",
       "/_agent-native/identity/token",
       "/_agent-native/identity/organization",
-      // Verifies its own app-signed bearer; see plugins/google-account-hub.ts.
       "/_agent-native/google-accounts/token",
       "/_agent-native/org/apps",
     ],

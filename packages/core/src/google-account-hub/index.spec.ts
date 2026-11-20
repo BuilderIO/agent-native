@@ -98,22 +98,30 @@ describe("Google account hub client", () => {
     const result = await listHubGoogleAccounts(OPTIONS);
 
     expect(signA2ATokenMock).toHaveBeenCalledTimes(1);
-    const [email, , secret, signOptions] = signA2ATokenMock.mock.calls[0]!;
-    expect(email).toBe("person@example.test");
-    expect(secret).toBe("calendar-secret");
-    expect(signOptions).toMatchObject({
-      expiresIn: "2m",
-      extraClaims: { app_id: "calendar", scope: "google-account-hub" },
-    });
-    expect(typeof signOptions.extraClaims.jti).toBe("string");
-
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe(
-      "https://dispatch.example.test/_agent-native/google-accounts/token",
+    expect(signA2ATokenMock).toHaveBeenCalledWith(
+      "person@example.test",
+      undefined,
+      "calendar-secret",
+      expect.objectContaining({
+        expiresIn: "2m",
+        extraClaims: {
+          app_id: "calendar",
+          scope: "google-account-hub",
+          jti: expect.any(String),
+        },
+      }),
     );
-    expect(init.headers.authorization).toBe("Bearer signed-assertion");
-    expect(JSON.parse(init.body)).toEqual({ provider: "google_calendar" });
-    expect(init.redirect).toBe("error");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://dispatch.example.test/_agent-native/google-accounts/token",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer signed-assertion",
+        }),
+        body: JSON.stringify({ provider: "google_calendar" }),
+        redirect: "error",
+      }),
+    );
 
     expect(result).toEqual({
       accounts: [
@@ -142,8 +150,13 @@ describe("Google account hub client", () => {
   it("signs as the configured app identity when there is one", async () => {
     appIdentity.id = "calendar-staging";
     await listHubGoogleAccounts(OPTIONS);
-    expect(signA2ATokenMock.mock.calls[0]![3].extraClaims.app_id).toBe(
-      "calendar-staging",
+    expect(signA2ATokenMock).toHaveBeenCalledWith(
+      "person@example.test",
+      undefined,
+      "calendar-secret",
+      expect.objectContaining({
+        extraClaims: expect.objectContaining({ app_id: "calendar-staging" }),
+      }),
     );
   });
 

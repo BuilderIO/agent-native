@@ -1444,11 +1444,8 @@ export const migrations = runMigrations(
     },
     {
       version: 104,
-      name: "calendar-account-token-source",
-      // Additive. Mirrors `calendarAccounts.tokenSource` in
-      // server/db/schema.ts: null when Clips holds the account's tokens,
-      // 'dispatch' when Dispatch's Google account hub hands them out.
-      sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS token_source TEXT`,
+      name: "calendar-account-managed-by",
+      sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS managed_by TEXT`,
     },
   ]),
   { table: "clips_migrations" },

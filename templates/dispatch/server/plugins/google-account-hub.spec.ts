@@ -86,7 +86,6 @@ function connection(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** A bearer the verifier mock reads as "signed with <secret> for <claims>". */
 function assertion(secret: string, claims: Record<string, unknown>): string {
   return Buffer.from(JSON.stringify({ secret, claims })).toString("base64url");
 }
@@ -104,6 +103,7 @@ function calendarAssertion(overrides: Record<string, unknown> = {}): string {
 async function request(
   token: string | null,
   body: unknown = { provider: "google_calendar" },
+  rawBody?: string,
 ): Promise<Response> {
   const app = createApp();
   app.use(googleAccountHubHandler);
@@ -114,7 +114,7 @@ async function request(
       "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(body),
+    body: rawBody ?? JSON.stringify(body),
   });
 }
 
@@ -203,6 +203,12 @@ describe("Google account hub", () => {
   it("refuses a provider outside Google", async () => {
     const response = await request(calendarAssertion(), { provider: "slack" });
     expect(response.status).toBe(400);
+  });
+
+  it("refuses a body that isn't JSON", async () => {
+    const response = await request(calendarAssertion(), undefined, "{not json");
+    expect(response.status).toBe(400);
+    expect(resolveConnectionsMock).not.toHaveBeenCalled();
   });
 
   it("looks up grants for the app that signed, as the person it names", async () => {

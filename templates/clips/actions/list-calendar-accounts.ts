@@ -31,7 +31,7 @@ export default defineAction({
         displayName: schema.calendarAccounts.displayName,
         email: schema.calendarAccounts.email,
         status: schema.calendarAccounts.status,
-        tokenSource: schema.calendarAccounts.tokenSource,
+        managedBy: schema.calendarAccounts.managedBy,
         lastSyncedAt: schema.calendarAccounts.lastSyncedAt,
         lastSyncError: schema.calendarAccounts.lastSyncError,
         createdAt: schema.calendarAccounts.createdAt,

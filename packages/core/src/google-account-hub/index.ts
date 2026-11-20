@@ -1,17 +1,3 @@
-/**
- * Google account hub client.
- *
- * Dispatch can hold a person's Google accounts as workspace connections and
- * hand each hosted app a short-lived access token for the accounts granted to
- * that app. An app on its own database calls this instead of keeping Google
- * refresh tokens of its own; the refresh token never leaves Dispatch, and the
- * token an app gets covers only the scopes of the connection's provider.
- *
- * The request is signed the same way as cross-app organization federation:
- * an HS256 assertion with the app's own federation secret, its `app_id`, and
- * its origin as issuer, so Dispatch can tell which app is asking.
- */
-
 import { randomUUID } from "node:crypto";
 
 import { canonicalA2AAudience } from "../a2a/audience.js";
@@ -27,7 +13,6 @@ const HUB_URL_ENV = "AGENT_NATIVE_GOOGLE_ACCOUNT_HUB_URL";
 const FEDERATION_SECRET_ENV = "AGENT_NATIVE_IDENTITY_FEDERATION_SECRET";
 const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const REQUEST_TIMEOUT_MS = 10_000;
-// Hand back a cached token only while it has at least this long left.
 const TOKEN_REUSE_MARGIN_MS = 60_000;
 const MAX_CACHE_ENTRIES = 500;
 
@@ -91,6 +76,7 @@ function normalizeHubUrl(raw: string | undefined): string | null {
     }
     return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
   } catch {
+    // coercion-ok: an unparseable hub URL means no hub is configured, the same as a missing one
     return null;
   }
 }
@@ -134,7 +120,6 @@ function remember(key: string, result: HubGoogleAccountsResult): void {
     (min, account) => Math.min(min, account.expiresAt),
     Number.POSITIVE_INFINITY,
   );
-  // An empty answer is cached briefly so a page load doesn't ask per call.
   const reusableUntil = Number.isFinite(soonest)
     ? soonest - TOKEN_REUSE_MARGIN_MS
     : Date.now() + 30_000;

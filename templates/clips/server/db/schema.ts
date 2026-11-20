@@ -683,12 +683,7 @@ export const calendarAccounts = table("calendar_accounts", {
   email: text("email"),
   accessTokenSecretRef: text("access_token_secret_ref"),
   refreshTokenSecretRef: text("refresh_token_secret_ref"),
-  /**
-   * Null when Clips holds this account's tokens in app secrets; "dispatch"
-   * when Dispatch's Google account hub holds them and hands Clips a
-   * short-lived access token per read.
-   */
-  tokenSource: text("token_source", { enum: ["dispatch"] }),
+  managedBy: text("managed_by", { enum: ["dispatch"] }),
   lastSyncedAt: text("last_synced_at"),
   lastSyncError: text("last_sync_error"),
   status: text("status", {
