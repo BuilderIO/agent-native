@@ -682,6 +682,50 @@ describe("Calendar Google auth-url handler", () => {
     expect(mocks.createOAuthSession).not.toHaveBeenCalled();
   });
 
+  it("finishes a new sign-up when saving the calendar tokens fails", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.decodeOAuthState.mockReturnValue({
+      ok: true,
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+      scope: "calendar",
+      builderSignupAttemptId: "attempt-0123456789",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: undefined,
+      hasProductionSession: false,
+    });
+    mocks.exchangeSignInCode.mockResolvedValue({
+      email: "new-user@example.com",
+      id: "google-user-1",
+      connectCalendar: vi.fn().mockRejectedValue(new Error("database offline")),
+    });
+    mocks.ensureGoogleAuthIdentity.mockResolvedValueOnce(true);
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    await expect(handleGoogleCallback(asEvent(event))).resolves.toBe("ok");
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "new-user@example.com",
+      expect.objectContaining({
+        trackSignup: expect.objectContaining({ isNewUser: true }),
+      }),
+    );
+    expect(mocks.recordBuilderSignupBinding).toHaveBeenCalledWith(
+      event,
+      "attempt-0123456789",
+      "google",
+      "new-user@example.com",
+      expect.objectContaining({ token: "owner-session-token" }),
+    );
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it.each([true, false])(
     "binds the Builder signup attempt only for a new identity (new=%s)",
     async (isNewUser: boolean) => {

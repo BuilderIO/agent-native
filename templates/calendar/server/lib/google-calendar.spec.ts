@@ -537,7 +537,7 @@ describe("Google sign-in code exchange", () => {
     await expect(profile.connectCalendar()).resolves.toBe(false);
   });
 
-  it("fails sign-in when saving the tokens fails for another reason", async () => {
+  it("rejects connecting when saving the tokens fails for another reason", async () => {
     mockGoogleExchange(calendarScopes);
     saveOAuthTokensMock.mockRejectedValueOnce(new Error("database offline"));
 

@@ -447,7 +447,16 @@ export const handleGoogleCallback = defineEventHandler(
           name: identity.name,
           image: identity.picture,
         });
-        if (await identity.connectCalendar()) {
+        let calendarConnected = false;
+        try {
+          calendarConnected = await identity.connectCalendar();
+        } catch (error) {
+          console.error(
+            "[google-auth] Sign-in couldn't connect Google Calendar:",
+            error,
+          );
+        }
+        if (calendarConnected) {
           track(
             "account_connected",
             {
