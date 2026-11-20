@@ -1,18 +1,18 @@
-# Skinnable design system on Base UI
+# Themable design system on Base UI
 
-One design system that can restyle any Agent-Native app, from whatever product
-it was modelled on (Hex, Superhuman, Notion, Loom), into a consistent
-Agent-Native app. Components move from shadcn/ui (Radix + CVA + Tailwind class
-strings) to Base UI with semantic CSS. A skin is a set of token values plus
+One design system and a flexible frontend pipeline for every Agent-Native app:
+existing screens map from their current markup onto a model, and part sets
+render that model. Components move from shadcn/ui (Radix + CVA + Tailwind class
+strings) to Base UI with semantic CSS. A theme is a set of token values plus
 optional component CSS, so the same markup can look like anything from a dense
-Paper-style editor to a soft consumer app.
+editor to a soft consumer app.
 
 ## Decisions
 
 | Decision | Choice |
 | --- | --- |
-| First look | Today's look ships as the first skin, `classic`. Switching the default to the new baseline (24px controls, 16/20/24/32 ramp) is its own PR. |
-| What a skin can change | Two layers. A **skin** changes tokens and component CSS over our parts (`classic`, `agent-native`, presets). A **part set** swaps the markup of each part behind one headless model; the reference part set reproduces an original product for QA, is private and never ships. Revisited the same day: a CSS-only skin cannot reproduce an original product's layout, so it could not be the reference. |
+| First look | Today's look ships as the first theme, `classic`. Switching the default to the new baseline (24px controls, 16/20/24/32 ramp) is its own PR. |
+| What a theme can change | Two layers. A **theme** changes tokens and component CSS over our parts (`classic`, `agent-native`, presets). A **part set** swaps the markup of each part behind one headless model, so a screen maps from its source markup to any target part set. A theme alone changes values, not structure. |
 | App code | Components keep today's props (`variant`, `size`, `asChild`). A codemod moves call sites to the new API once the component set is complete. |
 | Class names | Unprefixed, one class per part: `.button`, `.menu-popup`, `.menu-item`. |
 | Package | New framework-free `@agent-native/design-system`. Toolkit's React components depend on it. |
@@ -25,7 +25,7 @@ packages/design-system/
   src/
     tokens/      primitives, semantic roles, presets, the Radix generator,
                  createTheme(): brand inputs -> every token, as data or CSS
-    skins/       skin definitions; classic/<part>.ts holds each part's inputs
+    themes/       theme definitions; classic/<part>.ts holds each part's inputs
     catalog/     part catalog: names, sub-parts, Base UI primitive, status
     css.ts       emitters for the generated stylesheets and runtime themes
   css/
@@ -33,7 +33,7 @@ packages/design-system/
     main.css                Tailwind v4 mapping of roles and scales to utilities
     styles.css              imports parts/*.css: plain component CSS, no Tailwind
     parts/<part>.css        one file per part
-    skins/<skin>.css        imports the skin's generated roles.css
+    themes/<theme>.css        imports the theme's generated roles.css
   scripts/build-css.ts      writes the generated files; `css:check` fails on drift
 ```
 
@@ -47,17 +47,17 @@ server can read it.
 Tailwind v4 owns the layer order `theme, base, components, utilities`.
 
 - Tokens are plain custom properties outside the layers, scoped by selector.
-- Component CSS lives in `@layer components`. Skins never write selectors
+- Component CSS lives in `@layer components`. Themes never write selectors
   against parts: they set the part's public inputs (`--button-outline-bg`),
   which the part reads with a role fallback. A part therefore paints correctly
-  with no skin at all, and a skin is pure data.
+  with no theme at all, and a theme is pure data.
 - Utilities always beat components. A template's `className="h-8"` on a
   Button overrides the part's height exactly as `tailwind-merge` does today,
   which is what makes the compat props safe.
-- Each skin's roles are declared unscoped for the default skin and inside
-  `@scope ([data-skin="<name>"])` for every skin, so the nearest skin wins by
-  scope proximity. Every skin also resets the inputs other skins set
-  (`initial`), so a nested skin never inherits the outer one's values.
+- Each theme's roles are declared unscoped for the default theme and inside
+  `@scope ([data-app-theme="<name>"])` for every theme, so the nearest theme wins by
+  scope proximity. Every theme also resets the inputs other themes set
+  (`initial`), so a nested theme never inherits the outer one's values.
 
 ## Tokens
 
@@ -91,7 +91,7 @@ with shadcn's Tailwind colors.
 | Line | `--line-default`, `--line-subtle`, `--line-strong`, `--line-focus` |
 | Fill | `--fill-hover`, `--fill-pressed`, `--fill-selected`, `--fill-brand`, `--fill-brand-hover`, `--fill-brand-subtle`, `--fill-danger`, `--fill-danger-hover`, `--fill-danger-subtle` |
 | Status | `--status-{danger,warning,success,info}-{solid,subtle,fg,line}` |
-| Shape | `--shape-control`, `--shape-popup`, `--shape-card`, `--shape-panel`, `--shape-dialog`, `--shape-pill` (declared at the skin root, not per appearance; `--radius-card` is taken by CRM) |
+| Shape | `--shape-control`, `--shape-popup`, `--shape-card`, `--shape-panel`, `--shape-dialog`, `--shape-pill` (declared at the theme root, not per appearance; `--radius-card` is taken by CRM) |
 | Elevation | `--shadow-1..6` |
 | Gradient | `--gradient-brand`, `--gradient-surface`, `--gradient-glow` |
 | Layer | `--layer-dialog-backdrop` 270, `--layer-dialog` 280, `--layer-popup` 290, `--layer-alert-dialog-backdrop` 340, `--layer-alert-dialog` 350, `--layer-tooltip` 500 (primitives; toolkit's existing stack) |
@@ -99,13 +99,13 @@ with shadcn's Tailwind colors.
 `main.css` exposes the roles to Tailwind under `@theme inline`, which gives
 `bg-surface-canvas`, `text-fg-muted`, `border-line`, `bg-fill-hover`,
 `rounded-control`, `h-control-md`, `text-0..9`, `shadow-elevation-1..6` and
-the scale steps (`bg-gray-3`, `text-brand-11`), plus `skin-*:`, `compact:`
+the scale steps (`bg-gray-3`, `text-brand-11`), plus `theme-*:`, `compact:`
 and `comfortable:` variants.
 
 **3. Component tokens**: declared on the part, defaulting to roles.
 `.button` reads `--button-height`, `--button-bg`, `--button-radius` and so on.
-A skin overrides these without writing selectors for every variant. This is
-the knob layer that makes Winamp-style skins cheap.
+A theme overrides these without writing selectors for every variant. This is
+the knob layer that makes a new theme cheap.
 
 ### Scopes
 
@@ -114,7 +114,7 @@ Every scope attribute can sit on `:root` or any subtree, and they compose.
 | Attribute | Values | Effect |
 | --- | --- | --- |
 | `.dark` / `.light` | (class) | appearance; existing next-themes strategy stays |
-| `data-skin` | `classic`, then more | token values and skin CSS |
+| `data-app-theme` | `classic`, then more | token values and theme CSS |
 | `data-density` | `compact`, `default`, `comfortable` | control paddings, the in-control gap and `--space-1..9`; control heights stay 16/20/24/32, and Tailwind's `--spacing` stays 4px |
 | `data-radius` | `none`, `small`, `medium`, `large`, `full` | `--radius-factor`; `full` makes controls pills |
 | `data-corners` | `round`, `squircle` | `corner-shape: superellipse()` with radius compensation where supported |
@@ -122,7 +122,7 @@ Every scope attribute can sit on `:root` or any subtree, and they compose.
 Role tokens are re-declared on every appearance and brand scope, so a `.dark`
 subtree recomputes them instead of inheriting values resolved at `:root`.
 Presets carry one extra attribute of specificity
-(`[data-radius][data-radius="full"]`), so an explicit preset beats the skin on
+(`[data-radius][data-radius="full"]`), so an explicit preset beats the theme on
 the same element.
 
 ### Color generation
@@ -157,9 +157,9 @@ The design system is a professional, Material-style system that can theme any
 platform, device or app. Its output depends only on its own tokens and parts.
 
 Why: `packages/toolkit/src/app/styles/theme-families.css` defines shadcn's HSL
-variables under `:root[data-theme-family="agent-native"]`, and the classic skin
+variables under `:root[data-theme-family="agent-native"]`, and the classic theme
 points roles back at them (`hsl(var(--border))`). So a part's paint depends on
-app CSS plus a global root attribute: skins are not portable, cannot nest, work
+app CSS plus a global root attribute: themes are not portable, cannot nest, work
 only at the root, and the palette has two sources of truth. Storybook's preview
 drew black and missing borders until the attribute was set.
 
@@ -170,24 +170,24 @@ Removed outright, with no compat period:
 
 - The `data-theme-family` opt-in and `theme-families.css`. Its palette becomes
   the `agent-native` theme's values, and apps switch to `data-app-theme` in the
-  same change. (Skins became themes: one per app, named for the app, carrying
-  palette, type, shape and sizes; `data-theme` stays core's color mode.)
-- Roles reading shadcn variables. Each skin owns its values; today's palette
-  becomes the classic skin's reference values from the color pipeline.
+  same change. (Themes are one per app, named for the app, carrying palette,
+  type, shape and sizes; `data-theme` stays core's color mode.)
+- Roles reading shadcn variables. Each theme owns its values; today's palette
+  becomes the classic theme's reference values from the color pipeline.
 
 Temporary bridges, which only shrink:
 
-- Skins emit the shadcn variables one way, from our tokens, for call sites not
+- Themes emit the shadcn variables one way, from our tokens, for call sites not
   yet migrated.
 - A shrink-only guard counts the files still using them; the bridge is deleted
   at zero.
 - Compat props, `SettingsRow` and the Radix pieces get the same counted
   baselines, which the codemod drains.
-- A guard fails when skin or part CSS reads a legacy shadcn variable.
+- A guard fails when theme or part CSS reads a legacy shadcn variable.
 
 Order:
 
-1. Foundations: skins own their values, the theme family is removed, and the
+1. Foundations: themes own their values, the theme family is removed, and the
    legacy variables become one-way. This lands before the contractor's tokens
    round-trip through Figma, so they target one path.
 2. The remaining parts.
@@ -216,7 +216,7 @@ own vocabulary rather than shadcn's:
 - Sub-parts follow the catalog's `part.sub-part` names as `part-sub-part`
   classes: `menu.item` is `.menu-item`, `dialog.popup` is `.dialog-popup`.
 - Component CSS uses tokens only. `guard:no-raw-colors` covers
-  `css/parts/` and the hand-written skin files.
+  `css/parts/` and the hand-written theme files.
 - A part's public inputs are `--<part>-*`; its private values are `--_*` and
   never reference themselves (CSS invalidates a self-reference even through a
   `var()` fallback, so size rules write `--_size-*` and the base reads them).
@@ -254,7 +254,9 @@ Accepted differences, recorded while the shadcn parity runner existed (deleted 2
 
 ## Headless model, part sets and the two checks
 
-The "One base, two skins" model: one base per app, drawn by two part sets.
+The pipeline maps from a source to a target. The source is an existing
+rendering, mapped onto row ids; the target is a part set that renders the
+model.
 
 - **Headless model.** Each surface is described once as rows: a stable dotted
   id (`settings.notifications.email`), the catalog part it is
@@ -263,28 +265,22 @@ The "One base, two skins" model: one base per app, drawn by two part sets.
   framework-free and readable by the MCP server.
 - **Part sets.** A part set implements every catalog part as a component that
   draws model rows. The Agent-Native part set is toolkit's parts, styled by a
-  skin. A reference part set reproduces one original product (Superhuman for
-  Mail, Granola for Clips' meeting notes). Reference part sets and captures of
-  the original products live in a private repo that consumes the public
-  parts, model and checks as packages; nothing that imitates another product
-  enters this repo or npm. The
-  seam is toolkit's existing `defineDesignSystem` / `ToolkitProvider`, which
-  already swaps the markup of 17 semantic components, extended to the part
-  catalog.
-- **Row ids.** Every part renders `data-row-id` from its row, in both part
-  sets. It is the join key between the original product, the reference part
-  set and ours.
-- **Fidelity check:** reference part set against the original. The parity
-  runner, keyed by row id instead of `data-parity-case`, compared against
-  captures of the original product.
-- **Equivalence check:** our part set against the reference. Structural, never
-  visual: the same row ids, names, states and actions in both, with only the
-  documented style choices differing. Ours is never compared to the original.
+  theme. The seam is toolkit's existing `defineDesignSystem` /
+  `ToolkitProvider`, which already swaps the markup of 17 semantic components,
+  extended to the part catalog.
+- **Row ids.** Every part renders `data-row-id` from its row. It is the join
+  key between a source rendering and a target part set.
+- **Equivalence check:** `checkPartSetEquivalence({ model, target })`.
+  Structural, never visual: the target renders the same row ids, names,
+  states and actions the model declares.
+- **Row style check:** `compareRowStyles(source, target)` returns a
+  `RowStyleReport` of the rows whose computed styles differ, keyed by row id,
+  so a migration shows exactly what changed.
 - **Three depths per surface.** Swap the shell (sidebar, menus, settings) to
   parts, re-token lists and grids with role utilities, and leave the
   app-defining canvas alone.
 
-Skins still apply inside our part set: `classic` and `agent-native`, density,
+Themes still apply inside our part set: `classic` and `agent-native`, density,
 radius, corners and brand themes work exactly as above.
 
 ## Open items before each swap
@@ -327,7 +323,7 @@ Found while building the parts; each is checked in its swap PR.
 
 ## Part catalog
 
-The vocabulary from the replica skin gallery, mapped to Base UI and to the
+The part vocabulary, mapped to Base UI and to the
 toolkit file it replaces. `src/catalog/` holds this as data; the MCP server
 and the skills read it.
 
@@ -351,15 +347,15 @@ lists, shell) are plain markup with the same class contract.
 Each PR ships live with no flag. Every swap proves parity first.
 
 1. **Foundation** (this PR): package, token tiers, generator, `tokens.css` /
-   `main.css` / `styles.css`, the `classic` skin with the legacy bridge, the
-   `agent-native` skin (selectable, not default), the part catalog, Base UI
+   `main.css` / `styles.css`, the `classic` theme with the legacy bridge, the
+   `agent-native` theme (selectable, not default), the part catalog, Base UI
    Button swapped in place, Base UI Menu, Dialog and Tooltip built under
    `toolkit/ui/base-ui/` with the compat API, the gallery, the parity runner,
    and `guard:no-part-class-redefinition`.
 2. **Headless model and part sets** (`claude/design-system-headless-model`,
    stacked on the foundation; built): model types and row ids in the design
    system, the part-set seam in toolkit, `data-row-id` on every part, the
-   equivalence check, and the fidelity runner keyed by row id.
+   equivalence check, and the row style check keyed by row id.
 3. **Settings, the first pattern** (MVP, Dec 14; `claude/design-system-settings`,
    stacked on step 2. Built: the shared nav for every app, the group, row,
    content and button parts, row regions and hidden group labels in the
@@ -373,7 +369,7 @@ Each PR ships live with no flag. Every swap proves parity first.
    or `SettingsSection` any more; templates still can): settings parts
    (`settings.nav`, `settings.page`, `settings.group`, `settings.row`) drawn
    from the model in Tasks, Analytics and Clips' meeting notes, in our part
-   set, with each app's reference part set in the private repo.
+   set.
 4. **Foundations: legacy styling paths out** (see "Legacy styling paths go").
    Built: a theme per app (`data-app-theme="mail"`) plus `agent-native` and the
    `baseline` preview, each owning its values under `--theme-*` with the shadcn
@@ -400,7 +396,7 @@ Each PR ships live with no flag. Every swap proves parity first.
    toast (sonner stays behind a toolkit `toast()` adapter).
 10. **Local forks**: dispatch's 50-file shadcn fork, Clips desktop's 16
     copies, docs and code-agents-ui, and the 63 direct `@radix-ui/*` imports.
-11. **New baseline skin**: the Agent-Native baseline (24px controls) becomes
+11. **New baseline theme**: the Agent-Native baseline (24px controls) becomes
     the default; `classic` stays selectable.
 12. **Codemod**: call sites move to the new API, draining the counted
     baselines; the one-way shadcn bridge, the compat props, `SettingsRow` and
@@ -415,15 +411,15 @@ Each PR ships live with no flag. Every swap proves parity first.
   and appearances, and axe reports nothing on it. Parts no longer match shadcn.
 - **Behavior specs**: keyboard, focus return, dismissal, nesting and portal
   layering per component, plus the existing toolkit specs.
-- **Skin snapshots**: each template's main screens render under each skin; a
-  skin change may only differ in the properties its definition lists.
+- **Theme snapshots**: each template's main screens render under each theme; a
+  theme change may only differ in the properties its definition lists.
 - **Generator goldens**: generating from each Radix step 9 reproduces that
   Radix scale within ΔE(OK) 0.02; contrast text meets APCA 60 on step 9.
-- **Guards**: `no-raw-colors` on part and skin CSS;
+- **Guards**: `no-raw-colors` on part and theme CSS;
   `no-part-class-redefinition` fails added app CSS that targets a catalog
   class (`.button {}`, `.sidebar .button {}`), since names are unprefixed.
 - **Generated files**: `css:check` and a spec fail when `tokens.css` or a
-  skin's `roles.css` drifts from `src/`.
+  theme's `roles.css` drifts from `src/`.
 
 ## Agent guidance
 
@@ -433,13 +429,13 @@ Each PR ships live with no flag. Every swap proves parity first.
   without catalog entries).
 - **`translating-source-ui` skill**: turning a source product's screen into
   our parts: inventory the screen as rows (name, state, action), map each row
-  to a catalog part, express the source's look as a skin, and only then write
+  to a catalog part, express the source's look as a theme, and only then write
   a new part for what is left.
 - **MCP server** (`@agent-native/design-system/mcp`): `list-parts`,
   `get-part` (anatomy, props, tokens, examples), `get-tokens`,
   `create-theme` (brand inputs to tokens or CSS), `map-source-element`
   (catalog match for a described or captured element), `lint-markup`
-  (catalog classes, token usage, accessibility contract), `skin-diff`.
+  (catalog classes, token usage, accessibility contract), `theme-diff`.
 
 ## Risks
 
@@ -448,6 +444,6 @@ Each PR ships live with no flag. Every swap proves parity first.
 - **Unprefixed names.** App CSS can restyle parts by accident. Mitigation: the
   redefinition guard and the catalog as the reserved-name list.
 - **Two token vocabularies during migration.** Mitigation: the bridge runs one
-  direction per skin and is deleted at the end.
+  direction per theme and is deleted at the end.
 - **Bundle size.** Base UI replaces 30 Radix packages, vaul and cmdk; measure
   per swap.

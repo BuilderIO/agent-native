@@ -3,8 +3,8 @@ name: design-system
 description: >-
   Tokens, themes, parts and the Base UI migration in `@agent-native/design-system`.
   Use before styling a toolkit component, adding or migrating a part to Base UI,
-  changing tokens, colors, density or radius, adding an app theme, or restyling an app
-  modelled on another product (Hex, Superhuman, Notion, Loom) into Agent-Native.
+  changing tokens, colors, density or radius, adding an app theme, or mapping an
+  existing screen onto the parts.
 scope: dev
 metadata:
   internal: true
@@ -129,8 +129,8 @@ the shared lists.
 
 Details: `references/parts.md` (part anatomy and CSS contract),
 `references/tokens.md` (tiers, names, presets, generation),
-`references/themes.md` (app themes), `references/translating.md` (restyling
-a product-modelled app into Agent-Native).
+`references/themes.md` (app themes), `references/translating.md` (mapping an
+existing screen onto parts).
 
 ## Asking Storybook
 

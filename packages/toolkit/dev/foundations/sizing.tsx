@@ -181,8 +181,8 @@ export function SizingPage() {
       </Section>
       <Section title="The size prop">
         <Prose>
-          Only the controls below take a size, sm or md. Text and Heading take
-          a step of the type scale.
+          Only the controls below take a size, sm or md. Text and Heading take a
+          step of the type scale.
         </Prose>
         <SizeVocabulary />
       </Section>

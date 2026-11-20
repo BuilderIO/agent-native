@@ -383,7 +383,7 @@ const SLIDES_MOBILE_IMPORT_FILES = new Set([
 
 const SLIDES_MOBILE_IMPORT_TOOLKIT_FILES = new Set([
   "packages/toolkit/src/ui/button.tsx",
-  "packages/toolkit/src/ui/menu.tsx",
+  "packages/toolkit/src/ui/dropdown-menu.tsx",
   "packages/toolkit/src/ui/popover.tsx",
 ]);
 
@@ -412,7 +412,7 @@ const SLIDES_TEXT_SURFACE_FILES = new Set([
 const SLIDES_TEXT_SURFACE_TOOLKIT_FILES = new Set([
   "packages/toolkit/src/ui/avatar.tsx",
   "packages/toolkit/src/ui/button.tsx",
-  "packages/toolkit/src/ui/menu.tsx",
+  "packages/toolkit/src/ui/dropdown-menu.tsx",
   "packages/toolkit/src/ui/input.tsx",
   "packages/toolkit/src/ui/popover.tsx",
   "packages/toolkit/src/ui/textarea.tsx",

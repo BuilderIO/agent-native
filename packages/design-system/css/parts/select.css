@@ -306,7 +306,8 @@
     transition-timing-function: var(--ease-standard);
   }
 
-  .select-popup[data-variant="solid"] .select-item[data-highlighted]:not([data-disabled]) {
+  .select-popup[data-variant="solid"]
+    .select-item[data-highlighted]:not([data-disabled]) {
     background-color: var(--accent-solid);
     color: var(--accent-contrast);
   }
@@ -317,7 +318,8 @@
     color: var(--accent-1);
   }
 
-  .select-popup[data-variant="soft"] .select-item[data-highlighted]:not([data-disabled]) {
+  .select-popup[data-variant="soft"]
+    .select-item[data-highlighted]:not([data-disabled]) {
     background-color: var(--accent-a3);
   }
 

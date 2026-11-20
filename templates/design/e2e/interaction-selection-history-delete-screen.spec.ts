@@ -1062,7 +1062,7 @@ test("failed Screen deletion keeps the explicit Screen target for retry", async 
   await expect.poll(() => lastSelectedLayers(page)).toEqual([blueBoxId]);
 
   app.allowFailure(
-    /delete-file|intentional E2E route failure|status of 500/,
+    /delete-file|intentional E2E route failure|status of 500|Something went wrong/,
     "the scenario injects a 500 on the first delete-file",
   );
   await page.route("**/_agent-native/actions/delete-file", failFirstDelete);
@@ -1124,7 +1124,7 @@ test("a newer layer selection survives failed Screen deletion settlement", async
       "xpath=ancestor::*[@role='treeitem'][1]",
     );
     app.allowFailure(
-      /delete-file|intentional E2E route failure|status of 500/,
+      /delete-file|intentional E2E route failure|status of 500|Something went wrong/,
       "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {
@@ -1192,7 +1192,7 @@ test("a newer Screen pick survives failed Screen deletion settlement", async ({
     await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
 
     app.allowFailure(
-      /delete-file|intentional E2E route failure|status of 500/,
+      /delete-file|intentional E2E route failure|status of 500|Something went wrong/,
       "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {
@@ -1260,7 +1260,7 @@ test("a newer sidebar Screen selection survives failed Screen deletion settlemen
     await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
 
     app.allowFailure(
-      /delete-file|intentional E2E route failure|status of 500/,
+      /delete-file|intentional E2E route failure|status of 500|Something went wrong/,
       "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {
@@ -1332,7 +1332,7 @@ test("Select All Screens survives failed Screen deletion settlement", async ({
     await expect.poll(() => lastSelectedLayers(page)).toEqual([secondId]);
 
     app.allowFailure(
-      /delete-file|intentional E2E route failure|status of 500/,
+      /delete-file|intentional E2E route failure|status of 500|Something went wrong/,
       "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {

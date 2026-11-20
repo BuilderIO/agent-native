@@ -27,11 +27,15 @@
     --inset-border-width: var(--_card-border-width);
     --inset-border-radius: var(--_card-radius);
     --inset-padding-top: calc(var(--_card-padding) - var(--_card-border-width));
-    --inset-padding-right: calc(var(--_card-padding) - var(--_card-border-width));
+    --inset-padding-right: calc(
+      var(--_card-padding) - var(--_card-border-width)
+    );
     --inset-padding-bottom: calc(
       var(--_card-padding) - var(--_card-border-width)
     );
-    --inset-padding-left: calc(var(--_card-padding) - var(--_card-border-width));
+    --inset-padding-left: calc(
+      var(--_card-padding) - var(--_card-border-width)
+    );
 
     position: relative;
     display: block;

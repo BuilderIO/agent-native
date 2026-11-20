@@ -56,11 +56,11 @@ left alone because templates depend on their current values.
 
 ## Presets
 
-| Attribute                                          | Effect                                                                                                                                                                                                |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attribute                                          | Effect                                                                                                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `data-density` compact / default / comfortable     | control paddings, the in-control gap and `--space-1..9`, all multiples of 4. Control heights stay 20 and 24px (sm and md) at every density |
-| `data-radius` none / small / medium / large / full | `--radius-factor` 0 / .75 / 1 / 1.5; `full` makes controls pills                                                                                                                                      |
-| `data-corners` round / squircle                    | `corner-shape: superellipse(1.3)` with radii × 1.25 where supported                                                                                                                                   |
+| `data-radius` none / small / medium / large / full | `--radius-factor` 0 / .75 / 1 / 1.5; `full` makes controls pills                                                                           |
+| `data-corners` round / squircle                    | `corner-shape: superellipse(1.3)` with radii × 1.25 where supported                                                                        |
 
 Presets out-rank the theme on the same element (one extra attribute of
 specificity) and re-declare what they derive, so a nested preset works.

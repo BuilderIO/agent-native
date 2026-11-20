@@ -315,7 +315,7 @@ test("selects each Slides browser lane from its relevant runtime paths", () => {
     "templates/slides/shared/upload-types.ts",
     "packages/creative-context/src/eval/fixtures/launch-system-v1.pptx",
     "packages/toolkit/src/ui/button.tsx",
-    "packages/toolkit/src/ui/menu.tsx",
+    "packages/toolkit/src/ui/dropdown-menu.tsx",
     "packages/toolkit/src/ui/popover.tsx",
   ]) {
     const scope = classifyChangedPaths([path]);
@@ -326,7 +326,7 @@ test("selects each Slides browser lane from its relevant runtime paths", () => {
       scope.checks.slides_text_surface_e2e,
       path.endsWith("Index.tsx") ||
         path.endsWith("/button.tsx") ||
-        path.endsWith("/menu.tsx") ||
+        path.endsWith("/dropdown-menu.tsx") ||
         path.endsWith("/popover.tsx"),
       path,
     );
@@ -345,7 +345,7 @@ test("selects each Slides browser lane from its relevant runtime paths", () => {
     "templates/slides/app/hooks/use-slide-comments.ts",
     "packages/toolkit/src/ui/avatar.tsx",
     "packages/toolkit/src/ui/button.tsx",
-    "packages/toolkit/src/ui/menu.tsx",
+    "packages/toolkit/src/ui/dropdown-menu.tsx",
     "packages/toolkit/src/ui/input.tsx",
     "packages/toolkit/src/ui/popover.tsx",
     "packages/toolkit/src/ui/textarea.tsx",
@@ -357,7 +357,7 @@ test("selects each Slides browser lane from its relevant runtime paths", () => {
     assert.equal(
       scope.checks.slides_mobile_import_e2e,
       path.endsWith("/button.tsx") ||
-        path.endsWith("/menu.tsx") ||
+        path.endsWith("/dropdown-menu.tsx") ||
         path.endsWith("/popover.tsx"),
       path,
     );

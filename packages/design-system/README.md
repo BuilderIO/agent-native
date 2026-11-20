@@ -17,16 +17,21 @@ Apps get everything through toolkit's stylesheet, plus their own theme:
 Choose a look with attributes on `<html>` or any subtree:
 
 ```html
-<html data-app-theme="mail" data-density="compact" data-radius="large" data-corners="squircle">
+<html
+  data-app-theme="mail"
+  data-density="compact"
+  data-radius="large"
+  data-corners="squircle"
+></html>
 ```
 
-| Attribute | Values |
-| --- | --- |
-| `data-app-theme` | an app's name (`mail`, `clips`, …) or `agent-native` (the default) |
-| `data-density` | `compact`, `default`, `comfortable` |
-| `data-radius` | `none`, `small`, `medium`, `large`, `full` |
-| `data-corners` | `round`, `squircle` |
-| `.dark` / `.light` | appearance |
+| Attribute          | Values                                                             |
+| ------------------ | ------------------------------------------------------------------ |
+| `data-app-theme`   | an app's name (`mail`, `clips`, …) or `agent-native` (the default) |
+| `data-density`     | `compact`, `default`, `comfortable`                                |
+| `data-radius`      | `none`, `small`, `medium`, `large`, `full`                         |
+| `data-corners`     | `round`, `squircle`                                                |
+| `.dark` / `.light` | appearance                                                         |
 
 A theme carries an app's palette, type, shape and part sizes, and owns its
 values: nothing reads a variable the app defines. It also writes shadcn's
@@ -61,12 +66,12 @@ With Tailwind, roles and steps are utilities: `bg-surface-canvas`,
 
 ## Stylesheets
 
-| Export | Contents |
-| --- | --- |
-| `tokens.css` | primitives, default color scales, density, radius and corner presets (generated) |
-| `main.css` | Tailwind v4 mapping of roles and scales to utilities and variants |
-| `styles.css` | component CSS, one file per part |
-| `themes/<name>.css` | one theme's roles, values and part inputs (generated) |
+| Export              | Contents                                                                         |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `tokens.css`        | primitives, default color scales, density, radius and corner presets (generated) |
+| `main.css`          | Tailwind v4 mapping of roles and scales to utilities and variants                |
+| `styles.css`        | component CSS, one file per part                                                 |
+| `themes/<name>.css` | one theme's roles, values and part inputs (generated)                            |
 
 ## Developing
 
