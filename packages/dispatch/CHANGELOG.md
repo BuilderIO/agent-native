@@ -1,5 +1,56 @@
 # @agent-native/dispatch
 
+## 0.43.0
+
+### Minor Changes
+
+- f76439b: Add saved pointers: remember-pointer stores a name for an object in a workspace app (for example "todo list" for a doc), resolve-pointer looks one up over MCP, and route-app-intent opens a matching pointer's object before it asks the model. The route-app-intent cache key moves to v2 because pointers are now part of its input.
+
+### Patch Changes
+
+- 3a066b3: Open the app pane for a new chat's first message as soon as the send names its thread, instead of waiting for the chat URL to settle. The routed app now appears at route latency rather than after the chat route's loader returns.
+- 8ed972b: Skip restoring a previous session's saved app pane on a new chat so routed prompts do not flash an old app before opening the routed pane.
+- b578994: Chat-first Dispatch asks its app route which app a sent message is about while the agent's turn starts, and opens that app's pane as soon as the route answers instead of waiting for the agent to open it. It starts the app's embed session right away. If the agent then opens the same app, that pane moves to the agent's page; if it opens a different app, that app replaces it. Nothing opens for a chat-only, failed, unconfigured or late answer. Nothing opens either when the answer arrives after a newer message, after a send was rejected, after the agent or the person changed the pane, or after the person left that chat. `@agent-native/core/client/agent-chat` exports `reportAgentChatComposerSubmit`, `withdrawAgentChatComposerSubmit`, `subscribeAgentChatComposerSubmit` and `agentChatPreviousTurnText`; the toolkit chat reports each visible send through them.
+- 1faef32: Dispatch now shows the app beside the chat when the agent works in it. An app opened beside a chat is visible instead of sitting in a hidden panel, the panel keeps its width when the width utility is missing, an open requested before a new chat has an id is kept until it has one, and delegating to an app's agent opens that app. The agent is told to open the screen for show and open requests and to send follow-ups on an open app to that app's own agent.
+- 7279520: Expose enabled direct app action tools in the Dispatch MCP connector catalog.
+- 032c910: A saved Dream memory proposal is now marked applied and audited even when copying it to the shared memory directory falls behind; the delay is reported afterwards.
+- b2299d0: Dispatch now prefers the workspace app that owns a domain over a connected third-party tool for the same domain, sends requests to create or draft something to the owning app's agent so the item opens beside the chat as an unsaved draft, and opens its own screens with navigate before summarizing them.
+- b2299d0: An app opened beside a Dispatch chat now fills the side panel. The app's own chat rail is only added when the app takes the main area; beside the chat it took the whole panel and left the app frame 0 pixels wide.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [bf07e40]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [5be6e23]
+- Updated dependencies [830feff]
+- Updated dependencies [b578994]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [6facea0]
+- Updated dependencies [234a3ba]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [fbab2ca]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [7e639f5]
+- Updated dependencies [1faef32]
+- Updated dependencies [0eeea8c]
+- Updated dependencies [75c90a5]
+- Updated dependencies [c8d851d]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [ac21d0b]
+- Updated dependencies
+- Updated dependencies [75c90a5]
+- Updated dependencies [2308970]
+- Updated dependencies [8815d89]
+- Updated dependencies [786235c]
+- Updated dependencies [caec4be]
+- Updated dependencies [b879e94]
+- Updated dependencies [bc7c1b3]
+- Updated dependencies [6938e7c]
+- Updated dependencies [eb5c241]
+- Updated dependencies [66de1ad]
+- Updated dependencies [99491ba]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [d7de14c]
+  - @agent-native/toolkit@0.232.0
+
 ## 0.42.10
 
 ### Patch Changes
@@ -1603,21 +1654,5 @@
 ### Patch Changes
 
 - 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
-
-## 0.31.15
-
-### Patch Changes
-
-- c595519: Automations page now writes the selected automation into a `?automationId=` URL param instead of untracked local state, so a selected row can be linked, reloaded, and reached with browser Back on both `/automations` and `/admin/automations`.
-- c595519: Fix a workspace app opened from Dispatch chat-first mode on a narrow viewport mounting its own full-screen agent chat rail on top of the already full-screen side surface panel.
-- c595519: Fix the chat-first side surface panel's close toggle being stacked beneath the panel it controls on viewports at or below 767px, which made the panel undismissable.
-- d74aff9: Keep Dispatch's Feedback, Search, and Collapse controls flush with the bottom of the left sidebar.
-- af1b3bb: Derive the chat model selection localStorage key through one exported helper, `chatModelSelectionStorageKey`. `useChatModels` takes the raw key while `MultiTabAssistantChat` takes only the namespace suffix, so a hero composer that passed the same string to both wrote to a different key than the chat beside it and never saw its model picks.
-- Updated dependencies [6c2e431]
-- Updated dependencies [af1b3bb]
-- Updated dependencies [c595519]
-- Updated dependencies [9735e4d]
-- Updated dependencies [15b86eb]
-  - @agent-native/toolkit@0.16.11
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,5 +1,49 @@
 # @agent-native/toolkit
 
+## 0.232.0
+
+### Minor Changes
+
+- 2308970: Add a user-level no-approvals mode (`no-approvals` setting and `AGENT_NATIVE_NO_APPROVALS_EMAILS` default-on env list) checked at `preparedCallNeedsApproval` in `@agent-native/core`, plus the Agent settings Approvals toggle in `@agent-native/toolkit`.
+- 66de1ad: Add opt-in sharing, members and credential options: `ShareButton` takes `autoFocusInvite` (focus the add-people field on open and return focus to the opener on close), `confirmOrganization` (skips only the organization prompt; `confirmVisibility` still asks, and `useShareButtonController` takes the same opt-out as `confirmOrgVisibility: false`) and `onLinkCopied`; `MembersSection` takes `showDisabledInviteForMembers` and `onInvite`; workspace credential services take `allowDraftEdits` so an app can save a disabled, unvalidated draft and activate it after validation; an update that omits `draft` keeps a draft a draft. Defaults are unchanged.
+
+### Patch Changes
+
+- bf07e40: The agent's resource writes can now refuse to write over a newer save. An agent's resource read starts with a `[revision …, scope …]` line, and the `resources` write action, `write-resource` and `pnpm action resource-write --expected-revision` take that revision back: when someone saved the file after the read, nothing is written and the write fails with `save_conflict` and the revision there now. Writes report the new revision, and a write without one still replaces what's there. `POST /_agent-native/resources` returns the `revision` too, and with `ifNotExists` it now creates only where no file is, so of two creates at once the second gets the first one's file instead of writing over it, and a shared create in an organization gets the organization's file from before organizations instead of hiding it behind a new copy. `useCreateResource` accepts `ifNotExists`, and `resourcePutIfSnapshot` takes `visibility`, `threadId`, `runId` and `expiresAt`. Toolkit's personalization settings save their instructions over the version each edit started from, merging onto a newer save and asking which version to keep when both changed the text.
+- ac21d0b: Let app chat surfaces admit a turn through their own durable action and reconnect to the core conversation with localized work steps. An admitted turn carries the composer's staged context and references.
+- 5be6e23: Fixes automatic Builder.io account setup reliability across signup paths: a cold-start request to the Builder signup route now waits for the route instead of falling through, and signup callbacks during bootstrap no longer skip setup; Google signup from the login view and mobile/desktop Google exchanges are enrolled; cross-browser magic-link signups keep consent through a single-use landing disclosure; first-run onboarding sends users with an existing Builder account straight to sign-in; and provisioning failures keep a stable `provision_failed` code.
+- 830feff: Remove the duplicate Cancel button from the invite form's "Paste many" panel; collapsing the panel now clears the pasted text.
+- b578994: Chat-first Dispatch asks its app route which app a sent message is about while the agent's turn starts, and opens that app's pane as soon as the route answers instead of waiting for the agent to open it. It starts the app's embed session right away. If the agent then opens the same app, that pane moves to the agent's page; if it opens a different app, that app replaces it. Nothing opens for a chat-only, failed, unconfigured or late answer. Nothing opens either when the answer arrives after a newer message, after a send was rejected, after the agent or the person changed the pane, or after the person left that chat. `@agent-native/core/client/agent-chat` exports `reportAgentChatComposerSubmit`, `withdrawAgentChatComposerSubmit`, `subscribeAgentChatComposerSubmit` and `agentChatPreviousTurnText`; the toolkit chat reports each visible send through them.
+- ac21d0b: Open the new thread as soon as an edited message starts its reply. Preserve work duration after reload, display model refusals as replies, and show each failed run with a single recovery card.
+- 6facea0: Keep the Thinking indicator visible after a chat message appears while its run is starting, including when a queued message starts immediately.
+- 234a3ba: Pressing Enter in the agent composer while the model list is still loading now shows the send button as busy, keeps the draft, and sends it once when the model resolves, instead of silently doing nothing.
+- ac21d0b: Show a link to Model settings when sending a chat message requires connecting an AI provider.
+- fbab2ca: Exclude a composer submission's own pending entry when checking whether a thread already has a turn in progress before announcing `agentNative.chatComposerSubmit`. First messages in new chats and follow-up sends after a previous run settles now report `queued: false`, so Dispatch's send-time app route runs while sends queued behind an active run still report `queued: true`.
+- ac21d0b: Use the configured Builder.io model for new chats across provider groups, and preserve explicit model selections.
+- 7e639f5: Allow apps to show localized generic details for unexpected route errors while retaining diagnostics.
+- 1faef32: Dispatch now shows the app beside the chat when the agent works in it. An app opened beside a chat is visible instead of sitting in a hidden panel, the panel keeps its width when the width utility is missing, an open requested before a new chat has an id is kept until it has one, and delegating to an app's agent opens that app. The agent is told to open the screen for show and open requests and to send follow-ups on an open app to that app's own agent.
+- 0eeea8c: Prevent outdated plan and queued submission failures from displaying stale chat notices.
+- 75c90a5: Finish pending chat snapshot saves before disposing their managed client.
+- c8d851d: Automatic Builder setup at signup can now be enabled for exact hosted hostnames with `onboarding.builderSignupHostedHosts`, so an app copied from a template does not switch it on for its own domain. The sign-in page asks for an assignment only when the server has enabled the experiment for the request host, and the framework default stays off.
+- ac21d0b: Hide Remove for inherited app defaults and show the server’s reason when a resource cannot be removed.
+- ac21d0b: Allow loopback authentication URLs in explicitly local production builds and name the configured URL setting when validation fails. Let apps limit automatic cookie consent prompts to public pages while retaining visitor-initiated cookie settings.
+- Release all public npm packages with a patch version bump.
+- 75c90a5: Preserve literal entity text when rich editor content is saved and reloaded, while plain-URL autolinks keep their URL unescaped.
+- 8815d89: Clarify and localize recovery guidance when an AI provider requires email verification, and distinguish the app account verification email action.
+- 786235c: Stop the App Default Model settings from selecting and probing a catalog-only Ollama engine when no app default is saved.
+- caec4be: Keep sharing access controls reachable while invite suggestions are open.
+- b879e94: Avoid duplicating final browser speech results in dictation.
+- bc7c1b3: Show labeled "Testing…" progress and a persistent, honest result when testing a stored or candidate secret in Settings.
+- 6938e7c: Pressing Escape while the invite suggestion list is fading out now closes the Share panel instead of being swallowed by the closing list.
+- eb5c241: Pressing Escape in the share panel's invite field now closes the panel when no suggestion list is showing, instead of being swallowed by the hidden list.
+- 99491ba: Surface catalog-backed typed action errors and explicit failed read states with retry. Restore focus to state-driven popover openers while preserving native keyboard and modal focus behavior.
+- ac21d0b: Let apps open a chat from a skill description and opt into recoverable skill removal. Open Skills settings without writing default files.
+- d7de14c: An app can now handle the chat share menu's "Open in Claude / Claude Code / Codex" choices itself. Pass `onAgentShareHandoff` to `AgentSidebar` or `ShareButton` and it receives the destination, the agent-read prompt, the share link and the resource, instead of the browser launching a native app. A `sendTo.openInAgent` you pass still takes priority, and without either the menu opens the native app as before.
+- Updated dependencies [6facea0]
+- Updated dependencies
+- Updated dependencies [88dad0f]
+  - @agent-native/agentkit@0.232.0
+
 ## 0.231.0
 
 ### Minor Changes
@@ -1691,11 +1735,5 @@
   keystroke to whatever global shortcut owned that key, so typing a value and
   continuing to type could fire a canvas command (a zoom jump, in the report that
   found this) while the user believed they were still editing the field.
-
-## 0.16.10
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

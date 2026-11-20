@@ -3,6 +3,22 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+## 2026-11-16
+
+### Added
+
+- Wide screens now show your email list and the open email side by side, with a resizable divider and designed emails shown edge to edge.
+
+### Fixed
+
+- Editing a Gmail draft you reopened from Drafts now updates that draft instead of saving a second copy.
+
 ## 2026-11-14
 
 ### Fixed
