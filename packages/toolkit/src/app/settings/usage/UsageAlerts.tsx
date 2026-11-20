@@ -3,9 +3,14 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import {
+  type ModelRow,
+  type RowAttributes,
+  rowAttributes,
+  rowIdSegment,
+} from "@agent-native/design-system/model";
 import { Skeleton } from "@agent-native/toolkit/design-system";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
-import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
@@ -21,9 +26,8 @@ import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Switch } from "@agent-native/toolkit/ui/switch";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconAlertCircle } from "@tabler/icons-react";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
-import { SettingsRow } from "../SettingsRow.js";
 import { UsageGroup } from "./UsageGroup.js";
 
 type AlertUnit = "usd" | "builder-credits" | "tokens";
@@ -128,9 +132,9 @@ function statusLabel(t: Translation, rule: UsageAlertRule): string {
   return t("agentChat.settings.usage.alertOnTrack");
 }
 
-function AlertsSkeleton() {
+function AlertsSkeleton({ attributes }: { attributes: RowAttributes }) {
   return (
-    <div aria-hidden="true" className="px-5 py-4 sm:px-6">
+    <div {...attributes} aria-hidden="true" className="px-5 py-4 sm:px-6">
       <Skeleton className="h-4 w-28" />
       <Skeleton className="mt-2 h-3 w-72 max-w-full" />
     </div>
@@ -155,89 +159,108 @@ export function UsageAlertsGroup({
   const [editing, setEditing] = useState<UsageAlertRule | null>(null);
   const rules = query.data ?? [];
 
+  const rows: ModelRow[] = [];
+  const slots: Record<string, ReactNode | ((row: ModelRow) => ReactNode)> = {};
+  const actions: Record<string, () => void> = {};
+  if (query.isLoading) {
+    rows.push({
+      id: "settings.usage.alerts.loading",
+      part: "settings.content",
+      label: t("agentChat.common.loading"),
+      slot: "alerts-loading",
+    });
+    slots["alerts-loading"] = (row) => (
+      <AlertsSkeleton attributes={rowAttributes(row)} />
+    );
+  }
+  if (query.isError) {
+    rows.push({
+      id: "settings.usage.alerts.load-error",
+      part: "settings.row",
+      label: t("agentChat.settings.usage.alertsLoadError"),
+      rows: [
+        {
+          id: "settings.usage.alerts.load-error.retry",
+          part: "button",
+          kind: "action",
+          label: t("agentChat.common.retry"),
+          state: { disabled: query.isFetching },
+          effect: { kind: "action", effectId: "retry-alerts" },
+        },
+      ],
+    });
+    actions["retry-alerts"] = () => void query.refetch();
+  }
+  for (const rule of rules) {
+    const progress = t(
+      rule.period === "month"
+        ? "agentChat.settings.usage.alertProgressMonth"
+        : "agentChat.settings.usage.alertProgressDay",
+      {
+        current: formatAlertValue(t, format, rule.unit, rule.current),
+        limit: formatAlertValue(t, format, rule.unit, rule.limit),
+      },
+    );
+    const id = `settings.usage.alerts.${rowIdSegment(rule.id)}`;
+    const badge = rule.isDefault
+      ? t("agentChat.settings.usage.alertDefault")
+      : rule.appId
+        ? appName(rule.appId)
+        : null;
+    rows.push({
+      id,
+      part: "settings.row",
+      label: ruleName(t, rule),
+      description: [
+        statusLabel(t, rule),
+        progress,
+        channelsLabel(t, rule.channels),
+      ].join(" · "),
+      anchor: `usage-alert-${rule.id}`,
+      ...(badge
+        ? { state: { badge: { kind: "label" as const, value: badge } } }
+        : {}),
+      slot: `${id}:controls`,
+    });
+    slots[`${id}:controls`] = (
+      <div className="flex items-center gap-2">
+        {rule.enabled && rule.status === "triggered" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={mutation.isPending}
+            onClick={() =>
+              mutation.mutate({
+                operation: "dismiss",
+                scope: "user",
+                ruleId: rule.id,
+              })
+            }
+          >
+            {t("agentChat.common.dismiss")}
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setEditing(rule)}
+        >
+          {t("agentChat.settings.usage.alertEdit")}
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <UsageGroup
       id="usage-alerts"
       title={t("agentChat.settings.usage.yourAlerts")}
+      rows={rows}
+      actions={actions}
+      slots={slots}
     >
-      {query.isLoading ? <AlertsSkeleton /> : null}
-      {query.isError ? (
-        <SettingsRow
-          label={t("agentChat.settings.usage.alertsLoadError")}
-          control={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void query.refetch()}
-              disabled={query.isFetching}
-            >
-              {t("agentChat.common.retry")}
-            </Button>
-          }
-        />
-      ) : null}
-      {rules.map((rule) => {
-        const progress = t(
-          rule.period === "month"
-            ? "agentChat.settings.usage.alertProgressMonth"
-            : "agentChat.settings.usage.alertProgressDay",
-          {
-            current: formatAlertValue(t, format, rule.unit, rule.current),
-            limit: formatAlertValue(t, format, rule.unit, rule.limit),
-          },
-        );
-        return (
-          <SettingsRow
-            key={rule.id}
-            id={`usage-alert-${rule.id}`}
-            label={ruleName(t, rule)}
-            status={
-              rule.isDefault ? (
-                <Badge variant="outline">
-                  {t("agentChat.settings.usage.alertDefault")}
-                </Badge>
-              ) : rule.appId ? (
-                <Badge variant="outline">{appName(rule.appId)}</Badge>
-              ) : null
-            }
-            description={[
-              statusLabel(t, rule),
-              progress,
-              channelsLabel(t, rule.channels),
-            ].join(" · ")}
-            control={
-              <div className="flex items-center gap-2">
-                {rule.enabled && rule.status === "triggered" ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={mutation.isPending}
-                    onClick={() =>
-                      mutation.mutate({
-                        operation: "dismiss",
-                        scope: "user",
-                        ruleId: rule.id,
-                      })
-                    }
-                  >
-                    {t("agentChat.common.dismiss")}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditing(rule)}
-                >
-                  {t("agentChat.settings.usage.alertEdit")}
-                </Button>
-              </div>
-            }
-          />
-        );
-      })}
       {editing ? (
         <AlertDialog
           rule={editing}

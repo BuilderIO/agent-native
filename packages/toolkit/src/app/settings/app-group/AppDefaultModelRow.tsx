@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/client/app-model-default";
 import { useChangeVersions } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { rowAttributes } from "@agent-native/design-system/model";
 import {
   Select,
   SelectContent,
@@ -21,8 +21,11 @@ import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
+import {
+  type ModelFragment,
+  ModelSurface,
+} from "../../../design-system/parts.js";
 import { friendlyModelName } from "../SettingsPanel.js";
-import { SettingsRow } from "../SettingsRow.js";
 import { ReadOnlySettingValue } from "./ReadOnlySettingValue.js";
 
 const USE_DEFAULT = "__default__";
@@ -84,13 +87,15 @@ function orgDefaultModelName(state: AppModelDefaultState): string | null {
   return model ? friendlyModelName(model) : null;
 }
 
+const ROW_ID = "settings.app.agent.default-model";
+
 /**
  * Agent › Default model on the app's General page: the model new chats in
  * this app use, over the organization's default. Owners and admins change
  * it; everyone else sees the value. The agent sets the same value with
  * `manage-agent-engine` (`set-app-default`, `reset-app-default`).
  */
-export function AppDefaultModelRow({ appName }: { appName: string }) {
+export function useAppDefaultModelRow(appName: string): ModelFragment {
   const t = useT();
   const queryClient = useQueryClient();
   // The agent changes this through an action, not this route.
@@ -120,47 +125,65 @@ export function AppDefaultModelRow({ appName }: { appName: string }) {
 
   if (!state) {
     if (query.isError) {
-      return (
-        <SettingsRow
-          id="app-models"
-          label={label}
-          description={t(
-            "agentChat.settingsShell.appGroup.defaultModelLoadError",
-          )}
-          control={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void query.refetch()}
-            >
-              {t("agentChat.settingsShell.appGroup.retry")}
-            </Button>
-          }
-        />
-      );
+      return {
+        rows: [
+          {
+            id: ROW_ID,
+            part: "settings.row",
+            label,
+            description: t(
+              "agentChat.settingsShell.appGroup.defaultModelLoadError",
+            ),
+            anchor: "app-models",
+            rows: [
+              {
+                id: `${ROW_ID}.retry`,
+                part: "button",
+                kind: "action",
+                label: t("agentChat.settingsShell.appGroup.retry"),
+                effect: { kind: "action", effectId: "retry-app-models" },
+              },
+            ],
+          },
+        ],
+        actions: { "retry-app-models": () => void query.refetch() },
+      };
     }
-    // SettingsRow's shape; its description is a <p>, which can't hold a
-    // Skeleton's <div>.
-    return (
-      <div
-        id="app-models"
-        role="status"
-        aria-busy="true"
-        aria-label={label}
-        className="agent-native-settings-row px-5 py-4 sm:px-6"
-      >
-        <div className="agent-native-settings-row__layout flex flex-col gap-3">
-          <div className="agent-native-settings-row__main flex min-w-0 flex-1 flex-col gap-2">
-            <span className="text-sm font-medium text-foreground">{label}</span>
-            <Skeleton className="h-3.5 w-72 max-w-full" />
+    return {
+      rows: [
+        {
+          id: ROW_ID,
+          part: "settings.content",
+          label,
+          anchor: "app-models",
+          state: { pending: true },
+          slot: "app-models-loading",
+        },
+      ],
+      slots: {
+        "app-models-loading": (row) => (
+          <div
+            {...rowAttributes(row)}
+            role="status"
+            aria-busy="true"
+            aria-label={label}
+            className="agent-native-settings-row px-5 py-4 sm:px-6"
+          >
+            <div className="agent-native-settings-row__layout flex flex-col gap-3">
+              <div className="agent-native-settings-row__main flex min-w-0 flex-1 flex-col gap-2">
+                <span className="text-sm font-medium text-foreground">
+                  {label}
+                </span>
+                <Skeleton className="h-3.5 w-72 max-w-full" />
+              </div>
+              <div className="agent-native-settings-row__control max-w-full shrink-0">
+                <Skeleton className="h-8 w-64" />
+              </div>
+            </div>
           </div>
-          <div className="agent-native-settings-row__control max-w-full shrink-0">
-            <Skeleton className="h-8 w-64" />
-          </div>
-        </div>
-      </div>
-    );
+        ),
+      },
+    };
   }
 
   const saved =
@@ -182,11 +205,21 @@ export function AppDefaultModelRow({ appName }: { appName: string }) {
         app: appName,
       });
 
-  return (
-    <SettingsRow
-      id="app-models"
-      label={label}
-      description={
+  return {
+    rows: [
+      {
+        id: ROW_ID,
+        part: "settings.row",
+        label,
+        description,
+        anchor: "app-models",
+        state: { value: selectedLabel },
+        slot: "app-models-control",
+        regions: { description: "app-models-description" },
+      },
+    ],
+    slots: {
+      "app-models-description": (
         <>
           {description}
           {mutation.isError ? (
@@ -195,47 +228,57 @@ export function AppDefaultModelRow({ appName }: { appName: string }) {
             </span>
           ) : null}
         </>
-      }
-      control={
-        state.canUpdate ? (
-          <Select
-            value={value}
-            onValueChange={(next) => {
-              if (next !== value) mutation.mutate(next);
-            }}
-          >
-            <SelectTrigger size="sm" className="w-64" aria-label={label}>
-              <SelectValue>{selectedLabel}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value={USE_DEFAULT}>
-                  {t("agentChat.settingsShell.appGroup.useDefault")}
-                </SelectItem>
+      ),
+      "app-models-control": state.canUpdate ? (
+        <Select
+          value={value}
+          onValueChange={(next) => {
+            if (next !== value) mutation.mutate(next);
+          }}
+        >
+          <SelectTrigger size="sm" className="w-64" aria-label={label}>
+            <SelectValue>{selectedLabel}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value={USE_DEFAULT}>
+                {t("agentChat.settingsShell.appGroup.useDefault")}
+              </SelectItem>
+            </SelectGroup>
+            {groups.length > 0 ? <SelectSeparator /> : null}
+            {groups.map((group) => (
+              <SelectGroup key={group.engine}>
+                <SelectLabel>{group.label}</SelectLabel>
+                {group.models.map((model) => (
+                  <SelectItem
+                    key={model}
+                    value={optionValue(group.engine, model)}
+                  >
+                    {friendlyModelName(model)}
+                  </SelectItem>
+                ))}
               </SelectGroup>
-              {groups.length > 0 ? <SelectSeparator /> : null}
-              {groups.map((group) => (
-                <SelectGroup key={group.engine}>
-                  <SelectLabel>{group.label}</SelectLabel>
-                  {group.models.map((model) => (
-                    <SelectItem
-                      key={model}
-                      value={optionValue(group.engine, model)}
-                    >
-                      {friendlyModelName(model)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <ReadOnlySettingValue
-            value={selectedLabel}
-            reason={t("agentChat.settingsShell.appGroup.adminOnly")}
-          />
-        )
-      }
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <ReadOnlySettingValue
+          value={selectedLabel}
+          reason={t("agentChat.settingsShell.appGroup.adminOnly")}
+        />
+      ),
+    },
+  };
+}
+
+/** The row on its own, for a surface that draws no group around it. */
+export function AppDefaultModelRow({ appName }: { appName: string }) {
+  const fragment = useAppDefaultModelRow(appName);
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: fragment.rows }}
+      actions={fragment.actions}
+      slots={fragment.slots}
     />
   );
 }

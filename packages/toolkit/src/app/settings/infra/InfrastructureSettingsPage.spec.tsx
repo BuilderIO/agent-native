@@ -102,6 +102,7 @@ vi.mock("../StorageSettingsForm.js", () => ({
   fileStorageProviderPreset: (id: string) => ({
     name: id === "cloudflare-r2" ? "Cloudflare R2" : null,
     icon: () => null,
+    symbol: "server",
   }),
 }));
 

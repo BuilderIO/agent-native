@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   creativeContextEnabled: false,
   pageProps: null as Record<string, unknown> | null,
   mutateAsync: vi.fn(async () => ({ success: true })),
+  navigate: vi.fn(),
   // Stable like react-query's structurally shared data.
   prefs: {},
   useActionQuery: vi.fn(() => ({
@@ -204,23 +205,6 @@ vi.mock("@agent-native/core/client/org", () => ({
 vi.mock("@/components/auth/AuthProvider", () => ({
   useAuth: mocks.useLegacyAuth,
 }));
-vi.mock("@/components/ui/switch", () => ({
-  Switch: ({
-    "aria-label": ariaLabel,
-    checked,
-    onCheckedChange,
-  }: {
-    "aria-label"?: string;
-    checked: boolean;
-    onCheckedChange?: (checked: boolean) => void;
-  }) => (
-    <button
-      aria-label={ariaLabel}
-      aria-pressed={checked}
-      onClick={() => onCheckedChange?.(!checked)}
-    />
-  ),
-}));
 vi.mock("sonner", () => ({
   toast: { error: vi.fn() },
 }));
@@ -229,6 +213,8 @@ vi.mock("./settings/AlertRulesSettingsCard", () => ({
 }));
 vi.mock("react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useNavigate: () => mocks.navigate,
+  useInRouterContext: () => false,
 }));
 
 import Settings from "./Settings";
@@ -291,7 +277,7 @@ describe("Analytics Settings", () => {
     const toggle = container.querySelector(
       '[aria-label="settings.errorEmailNotifications"]',
     );
-    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
   });
 
   it("keeps the completion bell disabled by default", async () => {
@@ -300,7 +286,7 @@ describe("Analytics Settings", () => {
     });
 
     const toggle = container.querySelector('[aria-label="settings.bellSound"]');
-    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
   });
 
   it("lists Creative Context in Labs but hides its tab until enabled", async () => {
@@ -391,7 +377,7 @@ describe("Analytics Settings", () => {
       "update-analytics-notification-preferences",
     );
     expect(mocks.mutateAsync).toHaveBeenCalledWith({ bellSoundEnabled: true });
-    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
   });
 
   it.each(["owner", "admin"] as const)(

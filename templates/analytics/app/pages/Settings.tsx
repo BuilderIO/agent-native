@@ -14,19 +14,19 @@ import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability"
 import {
   AccountSettingsCard,
   SettingsGroup,
-  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsAppArea,
   type SettingsTabItem,
 } from "@agent-native/toolkit/app/settings";
+import {
+  ModelSurface,
+  type ModelSurfaceProps,
+} from "@agent-native/toolkit/design-system";
 import { IconActivity, IconBell, IconDatabase } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
-
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 
 import changelog from "../../CHANGELOG.md?raw";
 import {
@@ -43,6 +43,7 @@ import {
   buildAnalyticsNotificationsSearchEntries,
 } from "./settings/settings-search";
 
+type ScreenModel = ModelSurfaceProps["model"];
 type NotificationPref = "errorEmailNotifications" | "bellSoundEnabled";
 type NotificationPatch = Partial<Record<NotificationPref, boolean>>;
 
@@ -88,16 +89,102 @@ function useNotificationPreferences() {
 
 function CredentialsRow() {
   const t = useT();
+  const navigate = useNavigate();
+  const goTo = useCallback((to: string) => void navigate(to), [navigate]);
+  const model = useMemo<ScreenModel>(
+    () => ({
+      id: "settings",
+      rows: [
+        {
+          id: "settings.data-sources.credentials",
+          part: "settings.row",
+          label: t("settings.credentials"),
+          description: t("settings.credentialsDescription"),
+          anchor: "credentials",
+          rows: [
+            {
+              id: "settings.data-sources.credentials.manage",
+              part: "button",
+              kind: "destination",
+              label: t("settings.manageDataSources"),
+              effect: { kind: "navigate", to: "/data-sources" },
+            },
+          ],
+        },
+      ],
+    }),
+    [t],
+  );
+  return <ModelSurface model={model} navigate={goTo} />;
+}
+
+function NotificationGroups() {
+  const t = useT();
+  const preferences = useNotificationPreferences();
+  const toggleRow = (
+    pref: NotificationPref,
+    anchor: string,
+    label: string,
+    description: string,
+  ): ScreenModel["rows"][number] => ({
+    id: `settings.notifications.${anchor}`,
+    part: "settings.row",
+    kind: "toggle",
+    label,
+    description,
+    anchor,
+    state: {
+      checked: preferences.value(pref),
+      disabled: preferences.disabled,
+    },
+    effect: { kind: "action", effectId: `toggle-${anchor}` },
+  });
+  const model: ScreenModel = {
+    id: "settings",
+    rows: [
+      {
+        id: "settings.notifications.email",
+        part: "settings.group",
+        label: t("settings.notificationsEmailGroup"),
+        rows: [
+          toggleRow(
+            "errorEmailNotifications",
+            "error-email-notifications",
+            t("settings.errorEmailNotifications"),
+            t("settings.errorEmailNotificationsDescription"),
+          ),
+        ],
+      },
+      {
+        id: "settings.notifications.sound",
+        part: "settings.group",
+        label: t("settings.notificationsSoundGroup"),
+        rows: [
+          toggleRow(
+            "bellSoundEnabled",
+            "bell-sound",
+            t("settings.bellSound"),
+            t("settings.bellSoundDescription"),
+          ),
+        ],
+      },
+    ],
+  };
   return (
-    <SettingsRow
-      id="credentials"
-      label={t("settings.credentials")}
-      description={t("settings.credentialsDescription")}
-      control={
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/data-sources">{t("settings.manageDataSources")}</Link>
-        </Button>
-      }
+    <ModelSurface
+      model={model}
+      actions={{
+        "toggle-error-email-notifications": () =>
+          preferences.set(
+            "errorEmailNotifications",
+            !preferences.value("errorEmailNotifications"),
+          ),
+        "toggle-bell-sound": () =>
+          preferences.set(
+            "bellSoundEnabled",
+            !preferences.value("bellSoundEnabled"),
+          ),
+      }}
     />
   );
 }
@@ -105,47 +192,12 @@ function CredentialsRow() {
 export default function Settings() {
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
-  const preferences = useNotificationPreferences();
   const {
     data: activeOrg,
     isLoading: orgLoading,
     isError: orgError,
   } = useOrg();
 
-  const bellSoundRow = (
-    <SettingsRow
-      id="bell-sound"
-      label={t("settings.bellSound")}
-      description={t("settings.bellSoundDescription")}
-      control={
-        <Switch
-          aria-label={t("settings.bellSound")}
-          checked={preferences.value("bellSoundEnabled")}
-          disabled={preferences.disabled}
-          onCheckedChange={(enabled) =>
-            preferences.set("bellSoundEnabled", enabled)
-          }
-        />
-      }
-    />
-  );
-  const errorEmailRow = (
-    <SettingsRow
-      id="error-email-notifications"
-      label={t("settings.errorEmailNotifications")}
-      description={t("settings.errorEmailNotificationsDescription")}
-      control={
-        <Switch
-          aria-label={t("settings.errorEmailNotifications")}
-          checked={preferences.value("errorEmailNotifications")}
-          disabled={preferences.disabled}
-          onCheckedChange={(enabled) =>
-            preferences.set("errorEmailNotifications", enabled)
-          }
-        />
-      }
-    />
-  );
   const agentAdditionalTabFactories = useMemo(
     () => (creativeContextEnabled ? [createCreativeContextAgentTab] : []),
     [creativeContextEnabled],
@@ -254,12 +306,7 @@ export default function Settings() {
       appAreas={appAreas}
       notifications={
         <div className="flex flex-col gap-8">
-          <SettingsGroup title={t("settings.notificationsEmailGroup")}>
-            {errorEmailRow}
-          </SettingsGroup>
-          <SettingsGroup title={t("settings.notificationsSoundGroup")}>
-            {bellSoundRow}
-          </SettingsGroup>
+          <NotificationGroups />
         </div>
       }
       notificationsSearchEntries={notificationsSearchEntries}

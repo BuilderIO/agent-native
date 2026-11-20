@@ -56,7 +56,7 @@ export function SettingsSection(props: SettingsSectionProps) {
   );
 }
 
-function ConnectedDot({ size }: { size: "sm" | "md" }) {
+export function ConnectedDot({ size }: { size: "sm" | "md" }) {
   const dim = size === "sm" ? "h-4 w-4" : "h-5 w-5";
   const stroke = size === "sm" ? 3 : 2.5;
   const glyph = size === "sm" ? 10 : 12;
@@ -72,7 +72,7 @@ function ConnectedDot({ size }: { size: "sm" | "md" }) {
   );
 }
 
-function StatusBadge({
+export function StatusBadge({
   label,
   tone,
   size,
@@ -96,7 +96,7 @@ function StatusBadge({
   );
 }
 
-function SettingsSectionBody({
+export function SettingsSectionBody({
   open,
   children,
 }: {

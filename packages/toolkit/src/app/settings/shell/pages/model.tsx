@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 
+import { ModelSurface } from "../../../../design-system/parts.js";
 import ModelSettingsPage from "../../model/ModelSettingsPage.js";
-import { SettingsGroup } from "../../SettingsRow.js";
 import type { SettingsPageProps } from "../registry.js";
 
 // Bridge: rows a template adds to today's Agent overview
@@ -14,9 +14,21 @@ export default function ModelPage(props: SettingsPageProps) {
     <div className="flex flex-col gap-8">
       <ModelSettingsPage {...props} />
       {extra ? (
-        <SettingsGroup title={t("agentChat.settingsShell.page.notifications")}>
-          {extra}
-        </SettingsGroup>
+        <ModelSurface
+          model={{
+            id: "settings",
+            rows: [
+              {
+                id: "settings.model.notifications",
+                part: "settings.group",
+                label: t("agentChat.settingsShell.page.notifications"),
+                slot: "notifications",
+                hosts: "any",
+              },
+            ],
+          }}
+          slots={{ notifications: extra }}
+        />
       ) : null}
     </div>
   );

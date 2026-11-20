@@ -1,26 +1,28 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import type { AppRolesDescriptor } from "@agent-native/core/org/app-roles";
+import type { OrgInfo } from "@agent-native/core/org/types";
+import { combineFragments } from "@agent-native/toolkit/design-system";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import type { ReactNode } from "react";
 
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
 import {
-  WorkspaceAppPrivacySettingsSection,
-  WorkspaceApplicationsSection,
+  useWorkspaceAppPrivacyFragment,
+  useWorkspaceApplicationsFragment,
 } from "./AppsAccessSection.js";
 import {
-  DomainSettingsSection,
-  A2ASecretSection,
+  useA2ASecretFragment,
+  useDomainSettingsFragment,
 } from "./AuthenticationSection.js";
 import { useWorkspaceGroupEditor, GroupsSection } from "./GroupsSection.js";
 import { MembersSection } from "./MembersSection.js";
 import {
-  WorkspaceUrlSettingsSection,
   DangerZoneCard,
   OrgProfileGroup,
+  useWorkspaceUrlFragment,
 } from "./OrgGeneralSection.js";
-import { OrgIdentitySettings } from "./OrgIdentitySettings.js";
+import { useOrgIdentityFragment } from "./OrgIdentitySettings.js";
 import {
   PendingInvitationsCard,
   JoinByDomainCard,
@@ -55,26 +57,11 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
   return (
     <div className="space-y-6">
-      <OrgProfileGroup>
-        {isOwnerOrAdmin && (
-          <>
-            <DomainSettingsSection
-              domain={org.allowedDomain}
-              ownerEmail={org.email}
-            />
-            <WorkspaceAppPrivacySettingsSection
-              visibility={org.workspaceAppDefaultVisibility ?? "org"}
-            />
-            <WorkspaceApplicationsSection />
-            <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
-            <OrgIdentitySettings
-              org={org}
-              requiredAuthProvider={org.requiredAuthProvider}
-            />
-            {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
-          </>
-        )}
-      </OrgProfileGroup>
+      {isOwnerOrAdmin ? (
+        <OrganizationGroup org={org} isOwner={isOwner} />
+      ) : (
+        <OrgProfileGroup />
+      )}
 
       <MembersSection appRoles={appRoles} groupEditor={groupEditor} />
 
@@ -82,6 +69,43 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
     </div>
+  );
+}
+
+function OrganizationGroup({
+  org,
+  isOwner,
+}: {
+  org: OrgInfo;
+  isOwner: boolean;
+}) {
+  const domain = useDomainSettingsFragment({
+    domain: org.allowedDomain,
+    ownerEmail: org.email,
+  });
+  const privacy = useWorkspaceAppPrivacyFragment(
+    org.workspaceAppDefaultVisibility ?? "org",
+  );
+  const applications = useWorkspaceApplicationsFragment();
+  const workspaceUrl = useWorkspaceUrlFragment({
+    workspaceUrl: org.workspaceUrl,
+  });
+  const identity = useOrgIdentityFragment({
+    org,
+    requiredAuthProvider: org.requiredAuthProvider,
+  });
+  const secret = useA2ASecretFragment({ isSet: Boolean(org.a2aSecretSet) });
+  return (
+    <OrgProfileGroup
+      rows={combineFragments([
+        domain,
+        privacy,
+        applications,
+        workspaceUrl,
+        identity,
+        ...(isOwner ? [secret] : []),
+      ])}
+    />
   );
 }
 

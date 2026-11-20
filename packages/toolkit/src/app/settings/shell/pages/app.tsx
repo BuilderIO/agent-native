@@ -9,31 +9,42 @@ import {
   TabsTrigger,
 } from "@agent-native/toolkit/ui/tabs";
 
-import { AppDefaultModelRow } from "../../app-group/AppDefaultModelRow.js";
-import { SettingsGroup, SettingsRow } from "../../SettingsRow.js";
+import {
+  type ModelFragment,
+  ModelSurface,
+} from "../../../../design-system/parts.js";
+import { useAppDefaultModelRow } from "../../app-group/AppDefaultModelRow.js";
 import { useSettingsShell } from "../context.js";
 import type { SettingsPageProps } from "../registry.js";
 
 const GENERAL_AREA = "general";
 
-function DemoModeRow() {
+function useDemoModeRow(): ModelFragment {
   const t = useT();
   const { enabled } = useDemoModeStatus();
   const label = t("agentChat.settingsShell.appGroup.demoMode");
-  return (
-    <SettingsRow
-      id="demo-mode"
-      label={label}
-      description={t("agentChat.settingsShell.appGroup.demoModeDescription")}
-      control={
+  return {
+    rows: [
+      {
+        id: "settings.app.this-browser.demo-mode",
+        part: "settings.row",
+        label,
+        description: t("agentChat.settingsShell.appGroup.demoModeDescription"),
+        anchor: "demo-mode",
+        state: { checked: enabled },
+        slot: "demo-mode-switch",
+      },
+    ],
+    slots: {
+      "demo-mode-switch": (
         <Switch
           checked={enabled}
           onChange={setBrowserDemoModeEnabled}
           aria-label={label}
         />
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
 /** Core's Agent group, the app's own groups, then This browser. */
@@ -41,21 +52,42 @@ function AppGeneralArea({ bridge }: Pick<SettingsPageProps, "bridge">) {
   const t = useT();
   const appName =
     bridge.appName ?? t("agentChat.settingsShell.appFallbackName");
+  const agent = useAppDefaultModelRow(appName);
+  const browser = useDemoModeRow();
   return (
     <div className="flex flex-col gap-8">
-      <SettingsGroup
-        id="agent"
-        title={t("agentChat.settingsShell.group.agent")}
-      >
-        <AppDefaultModelRow appName={appName} />
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.app.agent",
+              part: "settings.group",
+              label: t("agentChat.settingsShell.group.agent"),
+              anchor: "agent",
+              rows: agent.rows,
+            },
+          ],
+        }}
+        actions={agent.actions}
+        slots={agent.slots}
+      />
       {bridge.general}
-      <SettingsGroup
-        id="this-browser"
-        title={t("agentChat.settingsShell.appGroup.thisBrowser")}
-      >
-        <DemoModeRow />
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.app.this-browser",
+              part: "settings.group",
+              label: t("agentChat.settingsShell.appGroup.thisBrowser"),
+              anchor: "this-browser",
+              rows: browser.rows,
+            },
+          ],
+        }}
+        slots={browser.slots}
+      />
     </div>
   );
 }

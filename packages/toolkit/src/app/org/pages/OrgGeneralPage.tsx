@@ -6,7 +6,8 @@ import {
   useUpdateOrg,
 } from "@agent-native/core/client/org";
 import type { OrgInfo } from "@agent-native/core/org/types";
-import { Skeleton } from "@agent-native/toolkit/design-system";
+import type { ScreenModel } from "@agent-native/design-system/model";
+import { ModelSurface, Skeleton } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -28,12 +29,11 @@ import {
 import { IconLock } from "@tabler/icons-react";
 import { useEffect, useId, useState } from "react";
 
-import { SettingsGroup, SettingsRow } from "../../settings/SettingsRow.js";
 import { useSettingsShell } from "../../settings/shell/context.js";
 import { settingsPageHref } from "../../settings/shell/routing.js";
 import {
   OrgIconControl,
-  WorkspaceUrlSettingsSection,
+  useWorkspaceUrlFragment,
 } from "../OrgGeneralSection.js";
 import {
   JoinByDomainCard,
@@ -223,56 +223,100 @@ function OrgGeneralContent({ org }: { org: OrgInfo }) {
   const isOwnerOrAdmin = org.role === "owner" || org.role === "admin";
   const orgName = org.orgName ?? "";
 
+  const workspaceUrl = useWorkspaceUrlFragment({
+    workspaceUrl: org.workspaceUrl,
+  });
+  const model: ScreenModel = {
+    id: "settings",
+    rows: [
+      {
+        id: "settings.org-general.organization",
+        part: "settings.group",
+        label: t("agentChat.settingsOrg.general.organization"),
+        anchor: "organization",
+        rows: [
+          {
+            id: "settings.org-general.organization.name",
+            part: "settings.row",
+            kind: "field",
+            label: t("agentChat.settingsOrg.general.name"),
+            anchor: "organization-name",
+            state: { value: orgName },
+            slot: "organization-name",
+          },
+          ...(isOwnerOrAdmin ? workspaceUrl.rows : []),
+        ],
+      },
+      {
+        id: "settings.org-general.membership",
+        part: "settings.group",
+        label: t("agentChat.settingsOrg.general.membership"),
+        anchor: "membership",
+        rows: [
+          {
+            id: "settings.org-general.membership.your-role",
+            part: "settings.row",
+            kind: "info",
+            label: t("agentChat.settingsOrg.general.yourRole"),
+            anchor: "your-role",
+            state: { value: orgRoleLabel(org.role, t) },
+            slot: "your-role",
+          },
+          {
+            id: "settings.org-general.membership.member-count",
+            part: "settings.row",
+            label: t("org.members"),
+            anchor: "member-count",
+            slot: "member-count",
+          },
+        ],
+      },
+      ...(org.role === "owner"
+        ? [
+            {
+              id: "settings.org-general.danger-zone",
+              part: "settings.group",
+              label: t("org.dangerZone"),
+              anchor: "danger-zone",
+              rows: [
+                {
+                  id: "settings.org-general.danger-zone.delete-organization",
+                  part: "settings.row",
+                  label: t("org.deleteOrg"),
+                  description: t(
+                    "agentChat.settingsOrg.general.deleteDescription",
+                    { name: orgName },
+                  ),
+                  anchor: "delete-organization",
+                  slot: "delete-organization",
+                },
+              ],
+            },
+          ]
+        : []),
+    ],
+  };
+
   return (
     <div className="space-y-8">
       <PendingInvitationsCard />
       {org.domainMatches?.length ? (
         <JoinByDomainCard matches={org.domainMatches} />
       ) : null}
-      <SettingsGroup
-        id="organization"
-        title={t("agentChat.settingsOrg.general.organization")}
-      >
-        <SettingsRow
-          id="organization-name"
-          label={t("agentChat.settingsOrg.general.name")}
-          control={<OrgNameControl org={org} />}
-        />
-        {isOwnerOrAdmin && (
-          <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
-        )}
-      </SettingsGroup>
-      <SettingsGroup
-        id="membership"
-        title={t("agentChat.settingsOrg.general.membership")}
-      >
-        <SettingsRow
-          id="your-role"
-          label={t("agentChat.settingsOrg.general.yourRole")}
-          control={
+      <ModelSurface
+        model={model}
+        slots={{
+          ...workspaceUrl.slots,
+          "organization-name": <OrgNameControl org={org} />,
+          "your-role": (
             <span className="text-sm text-muted-foreground">
               {orgRoleLabel(org.role, t)}
             </span>
-          }
-        />
-        <SettingsRow
-          id="member-count"
-          label={t("org.members")}
-          control={<MemberCountLink />}
-        />
-      </SettingsGroup>
-      {org.role === "owner" && (
-        <SettingsGroup id="danger-zone" title={t("org.dangerZone")}>
-          <SettingsRow
-            id="delete-organization"
-            label={t("org.deleteOrg")}
-            description={t("agentChat.settingsOrg.general.deleteDescription", {
-              name: orgName,
-            })}
-            control={<DeleteOrganizationButton orgName={orgName} />}
-          />
-        </SettingsGroup>
-      )}
+          ),
+          "member-count": <MemberCountLink />,
+          "delete-organization": <DeleteOrganizationButton orgName={orgName} />,
+        }}
+      />
     </div>
   );
 }

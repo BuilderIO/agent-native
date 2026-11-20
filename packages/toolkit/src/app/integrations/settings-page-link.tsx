@@ -46,7 +46,7 @@ export function SettingsPageLink({
   children,
 }: {
   page: string;
-  sub?: string;
+  sub?: string | undefined;
   children: ReactNode;
 }) {
   const { navigate } = useSettingsShell();

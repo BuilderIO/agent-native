@@ -886,7 +886,7 @@ export const PARTS: readonly PartDefinition[] = [
       "report",
     ],
     toolkit: "@agent-native/toolkit/app/settings",
-    status: "planned",
+    status: "built",
     stylesheet: false,
   },
   planned("filter-bar", "pattern", ["chip", "add"]),

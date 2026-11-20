@@ -3,18 +3,14 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { SettingsLoadingRow } from "@agent-native/toolkit/app/settings";
 import {
-  SettingsGroup,
-  SettingsLoadingRow,
-  SettingsRow,
-} from "@agent-native/toolkit/app/settings";
-import {
-  IconArrowUpRight,
-  IconBrandGoogle,
-  IconCalendar,
-} from "@tabler/icons-react";
+  ModelSurface,
+  type ModelSurfaceProps,
+} from "@agent-native/toolkit/design-system";
+import { IconCalendar } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState, type CSSProperties } from "react";
+import { type CSSProperties, Fragment, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -57,6 +53,16 @@ export const CALENDAR_APP_KEYS = [
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
 ] as const;
+
+type ScreenModel = ModelSurfaceProps["model"];
+type ModelRow = ScreenModel["rows"][number];
+
+function rowSegment(anchor: string): string {
+  return anchor
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 interface CalendarAccount {
   id: string;
@@ -266,73 +272,120 @@ function CalendarGroup() {
     </Button>
   );
 
+  let state: ReactNode = null;
+  const rows: ModelRow[] = [];
+  const accountByAction = new Map<string, CalendarAccount>();
+  const slots: Record<string, ReactNode> = {};
+  if (accounts.isError) {
+    state = <LoadFailedRow onRetry={() => void accounts.refetch()} />;
+  } else if (!accounts.data) {
+    state = <SettingsLoadingRow />;
+  } else if (googleAccounts.length === 0) {
+    state = (
+      <Empty id="google-calendar" className="scroll-mt-16">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <IconCalendar />
+          </EmptyMedia>
+          <EmptyTitle>{t("meetingsRoute.guideCalendarTitle")}</EmptyTitle>
+          <EmptyDescription>
+            {t("meetingsRoute.guideCalendarDescription")}
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>{connectButton(t("clipsSettings.connect"))}</EmptyContent>
+      </Empty>
+    );
+  } else {
+    googleAccounts.forEach((account, index) => {
+      const anchor = index === 0 ? "google-calendar" : `calendar-${account.id}`;
+      const id = `settings.meetings.${rowSegment(anchor)}`;
+      const needsReauth = account.status === "needs-reauth";
+      const actionId = `${id}.${needsReauth ? "reconnect" : "disconnect"}`;
+      accountByAction.set(actionId, account);
+      const calendars = `calendars-${account.id}`;
+      if (account.status === "connected") {
+        slots[calendars] = <AccountCalendarList accountId={account.id} />;
+      }
+      rows.push({
+        id,
+        part: "settings.row",
+        icon: { kind: "symbol", key: "google" },
+        label: t("clipsSettings.googleCalendar"),
+        description: needsReauth
+          ? t("clipsSettings.needsReconnect", { account: accountName(account) })
+          : t("clipsSettings.connectedAs", { account: accountName(account) }),
+        anchor,
+        ...(account.status === "connected"
+          ? { regions: { detail: calendars } }
+          : {}),
+        rows: [
+          needsReauth
+            ? {
+                id: actionId,
+                part: "button",
+                kind: "action",
+                label: t("clipsSettings.reconnect"),
+                state: { pending: connecting },
+                effect: { kind: "action", effectId: "reconnect-calendar" },
+              }
+            : {
+                id: actionId,
+                part: "button",
+                kind: "action",
+                label: t("common.disconnect"),
+                effect: { kind: "action", effectId: "disconnect-calendar" },
+              },
+        ],
+      });
+    });
+    rows.push({
+      id: "settings.meetings.add-calendar",
+      part: "settings.row",
+      label: t("meetingsRoute.addAnotherCalendarAccount"),
+      anchor: "add-calendar",
+      rows: [
+        {
+          id: "settings.meetings.add-calendar.connect",
+          part: "button",
+          kind: "action",
+          label: t("clipsSettings.connect"),
+          state: { pending: connecting },
+          effect: { kind: "action", effectId: "connect-calendar" },
+        },
+      ],
+    });
+  }
+
+  const model: ScreenModel = {
+    id: "settings",
+    rows: [
+      {
+        id: "settings.meetings.calendar",
+        part: "settings.group",
+        label: t("clipsSettings.calendarGroup"),
+        anchor: "calendar",
+        slot: state ? "calendar-state" : undefined,
+        rows: rows.length > 0 ? rows : undefined,
+      },
+    ],
+  };
+  const accountFor = (row: ModelRow) => {
+    const account = accountByAction.get(row.id);
+    if (!account) throw new Error(`No calendar account for ${row.id}`);
+    return account;
+  };
+
   return (
     <>
-      <SettingsGroup id="calendar" title={t("clipsSettings.calendarGroup")}>
-        {accounts.isError ? (
-          <LoadFailedRow onRetry={() => void accounts.refetch()} />
-        ) : !accounts.data ? (
-          <SettingsLoadingRow />
-        ) : googleAccounts.length === 0 ? (
-          <Empty id="google-calendar" className="scroll-mt-16">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <IconCalendar />
-              </EmptyMedia>
-              <EmptyTitle>{t("meetingsRoute.guideCalendarTitle")}</EmptyTitle>
-              <EmptyDescription>
-                {t("meetingsRoute.guideCalendarDescription")}
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              {connectButton(t("clipsSettings.connect"))}
-            </EmptyContent>
-          </Empty>
-        ) : (
-          <>
-            {googleAccounts.map((account, index) => (
-              <SettingsRow
-                key={account.id}
-                id={index === 0 ? "google-calendar" : `calendar-${account.id}`}
-                icon={<IconBrandGoogle />}
-                label={t("clipsSettings.googleCalendar")}
-                description={
-                  account.status === "needs-reauth"
-                    ? t("clipsSettings.needsReconnect", {
-                        account: accountName(account),
-                      })
-                    : t("clipsSettings.connectedAs", {
-                        account: accountName(account),
-                      })
-                }
-                control={
-                  account.status === "needs-reauth" ? (
-                    connectButton(t("clipsSettings.reconnect"), account.id)
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setTarget(account)}
-                    >
-                      {t("common.disconnect")}
-                    </Button>
-                  )
-                }
-              >
-                {account.status === "connected" ? (
-                  <AccountCalendarList accountId={account.id} />
-                ) : null}
-              </SettingsRow>
-            ))}
-            <SettingsRow
-              id="add-calendar"
-              label={t("meetingsRoute.addAnotherCalendarAccount")}
-              control={connectButton(t("clipsSettings.connect"))}
-            />
-          </>
-        )}
-      </SettingsGroup>
+      <ModelSurface
+        model={model}
+        slots={state ? { ...slots, "calendar-state": state } : slots}
+        actions={{
+          "connect-calendar": () => connect(),
+          "reconnect-calendar": (row) => connect(accountFor(row).id),
+          "disconnect-calendar": (row) => setTarget(accountFor(row)),
+        }}
+      />
 
       <AlertDialog
         open={!!target}
@@ -391,24 +444,39 @@ export function ClipsMeetingsArea({ canManage }: { canManage: boolean }) {
           keys={CALENDAR_APP_KEYS}
         />
       ) : null}
-      <SettingsGroup id="desktop" title={t("clipsSettings.desktopGroup")}>
-        <SettingsRow
-          id="meeting-capture"
-          label={t("clipsSettings.meetingCapture")}
-          description={t("clipsSettings.meetingCaptureDescription")}
-          control={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => attemptOpenDesktopApp()}
-            >
-              {t("clipsSettings.openClipsDesktop")}
-              <IconArrowUpRight aria-hidden="true" />
-            </Button>
-          }
-        />
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.meetings.desktop",
+              part: "settings.group",
+              label: t("clipsSettings.desktopGroup"),
+              anchor: "desktop",
+              rows: [
+                {
+                  id: "settings.meetings.meeting-capture",
+                  part: "settings.row",
+                  label: t("clipsSettings.meetingCapture"),
+                  description: t("clipsSettings.meetingCaptureDescription"),
+                  anchor: "meeting-capture",
+                  rows: [
+                    {
+                      id: "settings.meetings.meeting-capture.open",
+                      part: "button",
+                      kind: "action",
+                      label: t("clipsSettings.openClipsDesktop"),
+                      icon: { kind: "symbol", key: "external-link" },
+                      effect: { kind: "action", effectId: "open-desktop" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }}
+        actions={{ "open-desktop": () => attemptOpenDesktopApp() }}
+      />
     </div>
   );
 }

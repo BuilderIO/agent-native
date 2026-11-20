@@ -23,6 +23,7 @@ import {
   listRegisteredSecrets,
   type SecretStatus,
 } from "@agent-native/core/client/secrets";
+import { type ModelRow, rowIdSegment } from "@agent-native/design-system/model";
 import {
   Alert,
   AlertDescription,
@@ -70,13 +71,17 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "../../design-system/parts.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
   removeApiKeyValue,
   saveApiKeyValue,
 } from "../settings/api-keys/api-keys-client.js";
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import {
   useSettingsPageHeader,
   useSettingsShell,
@@ -315,35 +320,42 @@ function TokenDialog({
   );
 }
 
-function ConnectedRow({
-  server,
-  canRemove,
-  onRemove,
-  onReconnect,
-  reconnecting,
-  reconnectError,
-}: {
+interface ConnectedServer {
   server: McpServer;
   canRemove: boolean;
   onRemove: () => void;
   onReconnect: () => void;
   reconnecting: boolean;
   reconnectError: string | null;
-}) {
-  const t = useT();
+}
+
+function connectedServerFragment(
+  t: ReturnType<typeof useT>,
+  {
+    server,
+    canRemove,
+    onRemove,
+    onReconnect,
+    reconnecting,
+    reconnectError,
+  }: ConnectedServer,
+): ModelFragment {
   const scope =
     server.scope === "user"
       ? t("mcpIntegrations.personal")
       : t("mcpIntegrations.sharedWithWorkspace");
-  return (
-    <SettingsRow
-      label={
-        server.status.state === "error"
-          ? t("mcpIntegrations.connectionError")
-          : t("mcpIntegrations.connected")
-      }
-      description={
-        reconnectError
+  const key = rowIdSegment(`${server.scope}-${server.id}`);
+  const slot = `server-controls:${key}`;
+  return {
+    rows: [
+      {
+        id: `settings.integration.connection.server-${key}`,
+        part: "settings.row",
+        label:
+          server.status.state === "error"
+            ? t("mcpIntegrations.connectionError")
+            : t("mcpIntegrations.connected"),
+        description: reconnectError
           ? t("mcpIntegrations.reconnectFailed", { error: reconnectError })
           : server.status.state === "connected"
             ? [
@@ -363,9 +375,12 @@ function ConnectedRow({
               ? t("mcpIntegrations.connectionErrorReason", {
                   reason: server.status.error,
                 })
-              : scope
-      }
-      control={
+              : scope,
+        slot,
+      },
+    ],
+    slots: {
+      [slot]: (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
@@ -388,9 +403,9 @@ function ConnectedRow({
             </Button>
           ) : null}
         </div>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
 /**
@@ -455,54 +470,60 @@ function useFallbackToken(secretKey: string | undefined) {
   };
 }
 
-function TokenConnectedRow({
-  secret,
-  onRemove,
-}: {
-  secret: SecretStatus;
-  onRemove: () => Promise<void>;
-}) {
+function TokenRemoveButton({ onRemove }: { onRemove: () => Promise<void> }) {
   const t = useT();
   const [pending, setPending] = useState(false);
   return (
-    <SettingsRow
-      label={
-        secret.status === "invalid"
-          ? t("mcpIntegrations.connectionError")
-          : t("mcpIntegrations.connected")
-      }
-      description={
-        secret.scope === "user"
-          ? t("mcpIntegrations.personal")
-          : t("mcpIntegrations.sharedWithWorkspace")
-      }
-      control={
-        secret.managedHere === false ? null : (
-          <Button
-            type="button"
-            variant="outline-destructive"
-            size="sm"
-            disabled={pending}
-            onClick={() => {
-              setPending(true);
-              onRemove()
-                .catch((cause: unknown) =>
-                  toast.error(
-                    cause instanceof Error
-                      ? cause.message
-                      : t("mcpIntegrations.connectionError"),
-                  ),
-                )
-                .finally(() => setPending(false));
-            }}
-          >
-            {pending ? <Spinner aria-hidden="true" /> : null}
-            {t("agentChat.settingsShell.integrations.remove")}
-          </Button>
-        )
-      }
-    />
+    <Button
+      type="button"
+      variant="outline-destructive"
+      size="sm"
+      disabled={pending}
+      onClick={() => {
+        setPending(true);
+        onRemove()
+          .catch((cause: unknown) =>
+            toast.error(
+              cause instanceof Error
+                ? cause.message
+                : t("mcpIntegrations.connectionError"),
+            ),
+          )
+          .finally(() => setPending(false));
+      }}
+    >
+      {pending ? <Spinner aria-hidden="true" /> : null}
+      {t("agentChat.settingsShell.integrations.remove")}
+    </Button>
   );
+}
+
+function tokenConnectedFragment(
+  t: ReturnType<typeof useT>,
+  secret: SecretStatus,
+  onRemove: () => Promise<void>,
+): ModelFragment {
+  const managed = secret.managedHere !== false;
+  return {
+    rows: [
+      {
+        id: "settings.integration.connection.token",
+        part: "settings.row",
+        label:
+          secret.status === "invalid"
+            ? t("mcpIntegrations.connectionError")
+            : t("mcpIntegrations.connected"),
+        description:
+          secret.scope === "user"
+            ? t("mcpIntegrations.personal")
+            : t("mcpIntegrations.sharedWithWorkspace"),
+        ...(managed ? { slot: "token-remove" } : {}),
+      },
+    ],
+    ...(managed
+      ? { slots: { "token-remove": <TokenRemoveButton onRemove={onRemove} /> } }
+      : {}),
+  };
 }
 
 function NotFound() {
@@ -605,6 +626,7 @@ function CustomServerDetail({
   catalog: DefaultMcpIntegration[];
   integrationId: string;
 }) {
+  const t = useT();
   const { navigate } = useSettingsShell();
   const mcp = useMcpIntegrationsController({ integrations: catalog });
   const [removing, setRemoving] = useState(false);
@@ -619,23 +641,26 @@ function CustomServerDetail({
     }
     void mcp.reconnect(server);
   };
+  const connected = connectedServerFragment(t, {
+    server,
+    canRemove,
+    onRemove: () => setRemoving(true),
+    onReconnect: reconnect,
+    reconnecting: mcp.reconnectingKey === `${server.scope}:${server.id}`,
+    reconnectError:
+      mcp.reconnectError?.key === `${server.scope}:${server.id}`
+        ? mcp.reconnectError.message
+        : null,
+  });
   return (
     <div className="space-y-6" data-connected-server-detail={integrationId}>
       <header className="space-y-1">
         <h2 className="text-base font-medium text-foreground">{server.name}</h2>
         <p className="truncate text-xs text-muted-foreground">{server.url}</p>
       </header>
-      <ConnectedRow
-        server={server}
-        canRemove={canRemove}
-        onRemove={() => setRemoving(true)}
-        onReconnect={reconnect}
-        reconnecting={mcp.reconnectingKey === `${server.scope}:${server.id}`}
-        reconnectError={
-          mcp.reconnectError?.key === `${server.scope}:${server.id}`
-            ? mcp.reconnectError.message
-            : null
-        }
+      <ModelSurface
+        model={{ id: "settings", rows: connected.rows }}
+        slots={connected.slots}
       />
       <RemoveServerDialog
         server={removing ? server : null}
@@ -881,60 +906,117 @@ function IntegrationDetail({
             }
           : null;
 
-  const whoRow = orgOnly ? (
-    <SettingsRow
-      id="who-can-use-it"
-      label={t(`${K}.who`)}
-      description={t(`${K}.whoOrgOnly`, { org: orgName })}
-      control={<RowValue>{orgName}</RowValue>}
-    />
-  ) : !supportsMcpIntegrationOrganizationScope(integration) || !mcp.hasOrg ? (
-    <SettingsRow
-      id="who-can-use-it"
-      label={t(`${K}.who`)}
-      description={t(`${K}.whoPersonal`)}
-      control={<RowValue>{t(`${K}.justMe`)}</RowValue>}
-    />
-  ) : canShare ? (
-    <SettingsRow
-      id="who-can-use-it"
-      label={t(`${K}.who`)}
-      description={t(`${K}.whoShared`, { org: orgName })}
-      control={
-        <ToggleGroup
-          type="single"
-          size="sm"
-          value={shared ? "org" : "user"}
-          onValueChange={(value) => {
-            if (value) setShared(value === "org");
-          }}
-          aria-label={t(`${K}.who`)}
-        >
-          <ToggleGroupItem value="user" className="px-3">
-            {t(`${K}.justMe`)}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="org" className="px-3">
-            {orgName}
-          </ToggleGroupItem>
-        </ToggleGroup>
-      }
-    />
-  ) : (
-    <SettingsRow
-      id="who-can-use-it"
-      label={t(`${K}.who`)}
-      description={t(`${K}.whoMember`, { org: orgName })}
-      control={
-        <LockedValue
-          value={t(`${K}.justMe`)}
-          reason={t(`${K}.whoMember`, { org: orgName })}
-        />
-      }
-    />
-  );
+  const whoAccess = orgOnly
+    ? "org-only"
+    : !supportsMcpIntegrationOrganizationScope(integration) || !mcp.hasOrg
+      ? "personal"
+      : canShare
+        ? "shared"
+        : "member";
+  const whoRow: ModelRow = {
+    id: "settings.integration.connection.who",
+    part: "settings.row",
+    label: t(`${K}.who`),
+    description:
+      whoAccess === "org-only"
+        ? t(`${K}.whoOrgOnly`, { org: orgName })
+        : whoAccess === "personal"
+          ? t(`${K}.whoPersonal`)
+          : whoAccess === "shared"
+            ? t(`${K}.whoShared`, { org: orgName })
+            : t(`${K}.whoMember`, { org: orgName }),
+    anchor: "who-can-use-it",
+    slot: "who",
+  };
+  const whoControl =
+    whoAccess === "org-only" ? (
+      <RowValue>{orgName}</RowValue>
+    ) : whoAccess === "personal" ? (
+      <RowValue>{t(`${K}.justMe`)}</RowValue>
+    ) : whoAccess === "shared" ? (
+      <ToggleGroup
+        type="single"
+        size="sm"
+        value={shared ? "org" : "user"}
+        onValueChange={(value) => {
+          if (value) setShared(value === "org");
+        }}
+        aria-label={t(`${K}.who`)}
+      >
+        <ToggleGroupItem value="user" className="px-3">
+          {t(`${K}.justMe`)}
+        </ToggleGroupItem>
+        <ToggleGroupItem value="org" className="px-3">
+          {orgName}
+        </ToggleGroupItem>
+      </ToggleGroup>
+    ) : (
+      <LockedValue
+        value={t(`${K}.justMe`)}
+        reason={t(`${K}.whoMember`, { org: orgName })}
+      />
+    );
 
   const role = mcp.serversQuery.data?.role;
   const category = integrationCategory(integration.id);
+  const connection = combineFragments([
+    ...servers.map((server) =>
+      connectedServerFragment(t, {
+        server,
+        canRemove:
+          server.scope === "user" || role === "owner" || role === "admin",
+        onRemove: () => setRemoving(server),
+        reconnecting: mcp.reconnectingKey === `${server.scope}:${server.id}`,
+        reconnectError:
+          mcp.reconnectError?.key === `${server.scope}:${server.id}`
+            ? mcp.reconnectError.message
+            : null,
+        onReconnect: () => {
+          if (server.authMode === "oauth") startMcpOAuthReconnect(server);
+          else void mcp.reconnect(server);
+        },
+      }),
+    ),
+    ...(apiFallback && fallbackToken.secret
+      ? [
+          tokenConnectedFragment(t, fallbackToken.secret, () =>
+            removeApiKeyValue(apiFallback.secretKey),
+          ),
+        ]
+      : []),
+    {
+      rows: [
+        whoRow,
+        {
+          id: "settings.integration.connection.sign-in",
+          part: "settings.row",
+          label: t(`${K}.signIn`),
+          anchor: "sign-in",
+          slot: "sign-in",
+        },
+      ],
+      slots: {
+        who: whoControl,
+        "sign-in": (
+          <RowValue>
+            {signIn === "oauth"
+              ? t("mcpIntegrations.auth.oauth")
+              : signIn === "token"
+                ? t(`${K}.accessToken`)
+                : signIn === "none"
+                  ? t(`${K}.signInNone`)
+                  : t(`${K}.callout.unavailable`)}
+          </RowValue>
+        ),
+      },
+    },
+  ]);
+  const copyableUrl =
+    integration.url &&
+    !unavailable &&
+    !getMcpIntegrationApiFallback(integration)
+      ? integration.url
+      : null;
 
   return (
     <div className="flex flex-col gap-8" data-integration-page={integration.id}>
@@ -977,106 +1059,102 @@ function IntegrationDetail({
         ) : null}
       </div>
 
-      <SettingsGroup id="connection" title={t(`${CH}.connection`)}>
-        {servers.map((server) => (
-          <ConnectedRow
-            key={`${server.scope}:${server.id}`}
-            server={server}
-            canRemove={
-              server.scope === "user" || role === "owner" || role === "admin"
-            }
-            onRemove={() => setRemoving(server)}
-            reconnecting={
-              mcp.reconnectingKey === `${server.scope}:${server.id}`
-            }
-            reconnectError={
-              mcp.reconnectError?.key === `${server.scope}:${server.id}`
-                ? mcp.reconnectError.message
-                : null
-            }
-            onReconnect={() => {
-              if (server.authMode === "oauth") startMcpOAuthReconnect(server);
-              else void mcp.reconnect(server);
-            }}
-          />
-        ))}
-        {apiFallback && fallbackToken.secret ? (
-          <TokenConnectedRow
-            secret={fallbackToken.secret}
-            onRemove={() => removeApiKeyValue(apiFallback.secretKey)}
-          />
-        ) : null}
-        {whoRow}
-        <SettingsRow
-          id="sign-in"
-          label={t(`${K}.signIn`)}
-          control={
-            <RowValue>
-              {signIn === "oauth"
-                ? t("mcpIntegrations.auth.oauth")
-                : signIn === "token"
-                  ? t(`${K}.accessToken`)
-                  : signIn === "none"
-                    ? t(`${K}.signInNone`)
-                    : t(`${K}.callout.unavailable`)}
-            </RowValue>
-          }
-        />
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.integration.connection",
+              part: "settings.group",
+              label: t(`${CH}.connection`),
+              anchor: "connection",
+              rows: connection.rows,
+            },
+          ],
+        }}
+        slots={connection.slots}
+      />
 
       {extensionContent}
 
-      <SettingsGroup id="information" title={t(`${CH}.information`)}>
-        <SettingsRow
-          id="developer"
-          label={t(`${K}.developer`)}
-          control={<RowValue>{brand?.developer ?? name}</RowValue>}
-        />
-        <SettingsRow
-          id="category"
-          label={t(`${K}.category`)}
-          control={<RowValue>{t(CATEGORY_LABEL_KEYS[category])}</RowValue>}
-        />
-        {integration.availability === "beta" ? (
-          <SettingsRow
-            id="status"
-            label={t(`${CH}.status`)}
-            control={
-              <Badge variant="outline">
-                {t("mcpIntegrations.status.beta")}
-              </Badge>
-            }
-          />
-        ) : null}
-        {/* An API fallback connects without the server, and an unavailable
-            one can't be reached, so neither URL is one to copy. */}
-        {integration.url &&
-        !unavailable &&
-        !getMcpIntegrationApiFallback(integration) ? (
-          <SettingsRow
-            id="server-url"
-            label={t(`${K}.serverUrl`)}
-            control={
-              <CopyField
-                value={integration.url}
-                label={t(`${K}.copyServerUrl`)}
-              />
-            }
-          />
-        ) : null}
-        {integration.docsUrl ? (
-          <SettingsRow
-            id="documentation"
-            label={t(`${CH}.documentation`)}
-            control={
-              <ExternalRowLink
-                href={integration.docsUrl}
-                label={t(`${CH}.openDocs`)}
-              />
-            }
-          />
-        ) : null}
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.integration.information",
+              part: "settings.group",
+              label: t(`${CH}.information`),
+              anchor: "information",
+              rows: [
+                {
+                  id: "settings.integration.information.developer",
+                  part: "settings.row",
+                  label: t(`${K}.developer`),
+                  anchor: "developer",
+                  slot: "developer",
+                },
+                {
+                  id: "settings.integration.information.category",
+                  part: "settings.row",
+                  label: t(`${K}.category`),
+                  anchor: "category",
+                  slot: "category",
+                },
+                ...(integration.availability === "beta"
+                  ? [
+                      {
+                        id: "settings.integration.information.status",
+                        part: "settings.row",
+                        label: t(`${CH}.status`),
+                        anchor: "status",
+                        slot: "status",
+                      },
+                    ]
+                  : []),
+                ...(copyableUrl
+                  ? [
+                      {
+                        id: "settings.integration.information.server-url",
+                        part: "settings.row",
+                        label: t(`${K}.serverUrl`),
+                        anchor: "server-url",
+                        slot: "server-url",
+                      },
+                    ]
+                  : []),
+                ...(integration.docsUrl
+                  ? [
+                      {
+                        id: "settings.integration.information.documentation",
+                        part: "settings.row",
+                        label: t(`${CH}.documentation`),
+                        anchor: "documentation",
+                        slot: "documentation",
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ],
+        }}
+        slots={{
+          developer: <RowValue>{brand?.developer ?? name}</RowValue>,
+          category: <RowValue>{t(CATEGORY_LABEL_KEYS[category])}</RowValue>,
+          status: (
+            <Badge variant="outline">{t("mcpIntegrations.status.beta")}</Badge>
+          ),
+          "server-url": copyableUrl ? (
+            <CopyField value={copyableUrl} label={t(`${K}.copyServerUrl`)} />
+          ) : null,
+          documentation: integration.docsUrl ? (
+            <ExternalRowLink
+              href={integration.docsUrl}
+              label={t(`${CH}.openDocs`)}
+            />
+          ) : null,
+        }}
+      />
 
       <TokenDialog
         open={tokenOpen && signIn === "token" && !unavailable}

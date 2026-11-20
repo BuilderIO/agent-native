@@ -1,15 +1,19 @@
 import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
+import type { ModelRow } from "@agent-native/design-system/model";
 import { useThemeChoice } from "@agent-native/toolkit/app/providers/theme-choice";
 import { useEffect, useState } from "react";
 
+import {
+  combineFragments,
+  ModelSurface,
+} from "../../../design-system/parts.js";
 import { LanguagePicker } from "../../shared/index.js";
 import { canShowThemeFamilySwitcher } from "../../shared/is-builder-io-employee.js";
 import { SchedulingTimezoneField } from "../SchedulingTimezoneField.js";
-import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { VoiceChatSettings } from "../VoiceChatSettings.js";
-import { VoiceTranscriptionSection } from "../VoiceTranscriptionSection.js";
+import { useVoiceTranscriptionRow } from "../VoiceTranscriptionSection.js";
 import { ThemeFamilySettings } from "./ThemeFamilySettings.js";
 import { ThemeModeSettings } from "./ThemeModeSettings.js";
 
@@ -35,50 +39,107 @@ export function PreferencesSettings() {
   });
 
   useEffect(() => setClientReady(true), []);
+  const voice = useVoiceTranscriptionRow();
+
+  const groups: ModelRow[] = [
+    {
+      id: "settings.preferences.language-region",
+      part: "settings.group",
+      label: t(key("languageAndRegion")),
+      anchor: "language-region",
+      rows: [
+        ...(hasLocale
+          ? [
+              {
+                id: "settings.preferences.language-region.language",
+                part: "settings.row",
+                kind: "choice",
+                label: languageLabel,
+                description: t(key("languageDescription")),
+                anchor: "interface-language",
+                slot: "interface-language",
+              } satisfies ModelRow,
+            ]
+          : []),
+        {
+          id: "settings.preferences.language-region.timezone",
+          part: "settings.row",
+          kind: "choice",
+          label: t(key("timezone")),
+          description: t(key("timezoneDescription")),
+          anchor: "timezone",
+          slot: "timezone",
+        },
+      ],
+    },
+    ...(canChooseThemeMode || canSwitchTheme
+      ? [
+          {
+            id: "settings.preferences.appearance",
+            part: "settings.group",
+            label: t(key("appearance")),
+            anchor: "appearance",
+            rows: [
+              ...(canChooseThemeMode
+                ? [
+                    {
+                      id: "settings.preferences.appearance.theme",
+                      part: "settings.row",
+                      kind: "choice",
+                      label: t(key("theme")),
+                      anchor: "theme",
+                      slot: "theme",
+                    } satisfies ModelRow,
+                  ]
+                : []),
+              ...(canSwitchTheme
+                ? [
+                    {
+                      id: "settings.preferences.appearance.theme-family",
+                      part: "settings.row",
+                      kind: "choice",
+                      label: t(key("themeFamily")),
+                      anchor: "theme-family",
+                      slot: "theme-family",
+                    } satisfies ModelRow,
+                  ]
+                : []),
+            ],
+          } satisfies ModelRow,
+        ]
+      : []),
+    {
+      id: "settings.preferences.voice-input",
+      part: "settings.group",
+      label: t(key("voiceInput")),
+      anchor: "voice-input",
+      rows: voice.rows,
+    },
+  ];
+  const { actions, slots } = combineFragments([
+    {
+      rows: [],
+      slots: {
+        "interface-language": (
+          <div className="w-full sm:w-56">
+            <LanguagePicker label={languageLabel} size="sm" />
+          </div>
+        ),
+        timezone: <SchedulingTimezoneField compact />,
+        theme: <ThemeModeSettings />,
+        "theme-family": <ThemeFamilySettings />,
+      },
+    },
+    voice,
+  ]);
 
   return (
     <div className="flex flex-col gap-8">
-      <SettingsGroup id="language-region" title={t(key("languageAndRegion"))}>
-        {hasLocale ? (
-          <SettingsRow
-            id="interface-language"
-            label={languageLabel}
-            description={t(key("languageDescription"))}
-            control={
-              <div className="w-full sm:w-56">
-                <LanguagePicker label={languageLabel} size="sm" />
-              </div>
-            }
-          />
-        ) : null}
-        <SettingsRow
-          id="timezone"
-          label={t(key("timezone"))}
-          description={t(key("timezoneDescription"))}
-          control={<SchedulingTimezoneField compact />}
-        />
-      </SettingsGroup>
-      {canChooseThemeMode || canSwitchTheme ? (
-        <SettingsGroup id="appearance" title={t(key("appearance"))}>
-          {canChooseThemeMode ? (
-            <SettingsRow
-              id="theme"
-              label={t(key("theme"))}
-              control={<ThemeModeSettings />}
-            />
-          ) : null}
-          {canSwitchTheme ? (
-            <SettingsRow
-              id="theme-family"
-              label={t(key("themeFamily"))}
-              control={<ThemeFamilySettings />}
-            />
-          ) : null}
-        </SettingsGroup>
-      ) : null}
-      <SettingsGroup id="voice-input" title={t(key("voiceInput"))}>
-        <VoiceTranscriptionSection compact />
-      </SettingsGroup>
+      <ModelSurface
+        model={{ id: "settings", rows: groups }}
+        actions={actions}
+        slots={slots}
+      />
       <VoiceChatSettings />
     </div>
   );

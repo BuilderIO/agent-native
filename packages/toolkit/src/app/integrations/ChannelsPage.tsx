@@ -25,6 +25,11 @@ import type {
   MessagingChannelsStatus,
   MessagingChannelStatus,
 } from "@agent-native/core/integrations/channel-settings";
+import {
+  type ModelRow,
+  type RowAttributes,
+  rowIdSegment,
+} from "@agent-native/design-system/model";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
 import {
@@ -66,8 +71,8 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useState, type MouseEvent } from "react";
 
+import { ModelSurface, rowAttributes } from "../../design-system/parts.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
-import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import {
   useSettingsPageHeader,
   useSettingsShell,
@@ -191,9 +196,12 @@ function useConfirmChannelCredentialRemoval() {
   >(CONFIRM_REMOVAL_ACTION as never, { uiOnly: true });
 }
 
-function RowSkeleton({ link = false }: { link?: boolean }) {
+function RowSkeleton({
+  link = false,
+  ...attributes
+}: RowAttributes & { link?: boolean }) {
   return (
-    <div className="flex items-center gap-4 px-5 py-4 sm:px-6">
+    <div {...attributes} className="flex items-center gap-4 px-5 py-4 sm:px-6">
       <div className="flex min-w-0 flex-1 gap-3">
         <Skeleton className="size-8 shrink-0 rounded-md" />
         <div className="grid flex-1 gap-2">
@@ -210,19 +218,31 @@ function RowSkeleton({ link = false }: { link?: boolean }) {
   );
 }
 
-function LoadError({ onRetry }: { onRetry: () => void }) {
-  const t = useT();
-  return (
-    <SettingsRow
-      id="channels-error"
-      label={t(`${K}.loadFailed`)}
-      control={
-        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-          {t(`${K}.retry`)}
-        </Button>
-      }
-    />
-  );
+function loadErrorRow(t: ReturnType<typeof useT>, id: string): ModelRow {
+  return {
+    id,
+    part: "settings.row",
+    label: t(`${K}.loadFailed`),
+    anchor: "channels-error",
+    rows: [
+      {
+        id: `${id}.retry`,
+        part: "button",
+        kind: "action",
+        label: t(`${K}.retry`),
+        effect: { kind: "action", effectId: "retry-channels" },
+      },
+    ],
+  };
+}
+
+function skeletonRow(t: ReturnType<typeof useT>, id: string): ModelRow {
+  return {
+    id,
+    part: "settings.content",
+    label: t("agentChat.common.loading"),
+    slot: "skeleton",
+  };
 }
 
 function CopyButton({ value, label }: { value: string; label: string }) {
@@ -257,15 +277,18 @@ function ChannelLinkRow({
   channel,
   description,
   ariaLabel,
+  attributes,
 }: {
   channel: IntegrationCatalogEntry;
   description?: string;
   ariaLabel: string;
+  attributes: RowAttributes;
 }) {
   const { navigate } = useSettingsShell();
   const stateId = useId();
   return (
     <a
+      {...attributes}
       id={channel.id}
       href={settingsPageHref(PAGE_ID, channel.id)}
       aria-label={ariaLabel}
@@ -322,7 +345,10 @@ function ChannelList({ appName }: { appName: string }) {
       ),
     [list.data],
   );
-  const available = channels.filter((channel) => statusById.has(channel.id));
+  const available = channels.flatMap((channel) => {
+    const status = statusById.get(channel.id);
+    return status ? [{ channel, state: status.state }] : [];
+  });
   const canManage = list.data?.canManage === true;
 
   return (
@@ -330,52 +356,91 @@ function ChannelList({ appName }: { appName: string }) {
       <p className="text-sm leading-[1.6] text-muted-foreground">
         {t(`${K}.about.page`, { app: appName })}
       </p>
-      <SettingsGroup id="channel-list">
-        {list.isPending ? (
-          channels.map((channel) => <RowSkeleton key={channel.id} link />)
-        ) : list.isError ? (
-          <LoadError onRetry={() => void list.refetch()} />
-        ) : available.length === 0 ? (
-          <Empty data-channels-empty="">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <IconMessages aria-hidden="true" />
-              </EmptyMedia>
-              <EmptyDescription>
-                {t(`${K}.empty`, { app: appName })}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          available.map((channel) => {
-            const state = statusById.get(channel.id)!.state;
-            const action = !canManage
-              ? "view"
-              : state === "not-set-up"
-                ? "setUp"
-                : "manage";
-            const aboutKey = ABOUT_KEYS[channel.id as BuiltInChannelId];
-            // Slack's line is how to use it, which reads wrong before it's set up.
-            return (
-              <ChannelLinkRow
-                key={channel.id}
-                channel={channel}
-                description={
-                  aboutKey && channel.id !== "slack"
-                    ? t(`${K}.rowDescription`, {
-                        about: t(aboutKey),
-                        state: t(STATE_KEYS[state]),
-                      })
-                    : t(STATE_KEYS[state])
-                }
-                ariaLabel={t(`${K}.action.${action}Aria`, {
-                  platform: channel.name,
-                })}
-              />
-            );
-          })
-        )}
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.channels.list",
+              part: "settings.group",
+              label: t("agentChat.settingsShell.page.channels"),
+              labelHidden: true,
+              anchor: "channel-list",
+              rows: list.isPending
+                ? channels.map((channel) =>
+                    skeletonRow(
+                      t,
+                      `settings.channels.list.loading-${rowIdSegment(channel.id)}`,
+                    ),
+                  )
+                : list.isError
+                  ? [loadErrorRow(t, "settings.channels.list.error")]
+                  : available.length === 0
+                    ? [
+                        {
+                          id: "settings.channels.list.empty",
+                          part: "settings.content",
+                          label: t(`${K}.empty`, { app: appName }),
+                          slot: "empty",
+                        },
+                      ]
+                    : available.map(({ channel }) => ({
+                        id: `settings.channels.list.${rowIdSegment(channel.id)}`,
+                        part: "settings.content",
+                        kind: "destination",
+                        label: channel.name,
+                        slot: `channel:${channel.id}`,
+                      })),
+            },
+          ],
+        }}
+        actions={{ "retry-channels": () => void list.refetch() }}
+        slots={{
+          skeleton: (row) => <RowSkeleton {...rowAttributes(row)} link />,
+          empty: (row) => (
+            <Empty {...rowAttributes(row)} data-channels-empty="">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <IconMessages aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyDescription>
+                  {t(`${K}.empty`, { app: appName })}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ),
+          ...Object.fromEntries(
+            available.map(({ channel, state }) => {
+              const action = !canManage
+                ? "view"
+                : state === "not-set-up"
+                  ? "setUp"
+                  : "manage";
+              const aboutKey = ABOUT_KEYS[channel.id as BuiltInChannelId];
+              return [
+                `channel:${channel.id}`,
+                (row: ModelRow) => (
+                  <ChannelLinkRow
+                    attributes={rowAttributes(row)}
+                    channel={channel}
+                    description={
+                      aboutKey && channel.id !== "slack"
+                        ? t(`${K}.rowDescription`, {
+                            about: t(aboutKey),
+                            state: t(STATE_KEYS[state]),
+                          })
+                        : t(STATE_KEYS[state])
+                    }
+                    ariaLabel={t(`${K}.action.${action}Aria`, {
+                      platform: channel.name,
+                    })}
+                  />
+                ),
+              ] as const;
+            }),
+          ),
+        }}
+      />
     </div>
   );
 }
@@ -1068,31 +1133,111 @@ function ChannelDetail({
   const removableKeys = removableCredentials.map((item) => item.key);
   const setUp = state !== null && state !== "not-set-up";
 
-  const mentionRow =
-    isSlack && aboutKey ? (
-      <SettingsRow
-        id="mention"
-        label={t(`${K}.mentionAgent`)}
-        description={t(aboutKey)}
-        control={
-          canManage ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setSetupOpen(true)}
-            >
-              {setUp ? t(`${K}.action.manage`) : t(`${K}.action.setUp`)}
-            </Button>
-          ) : state ? (
-            <LockedValue
-              value={t(STATE_KEYS[state])}
-              reason={t(`${K}.setUpLocked`)}
-            />
-          ) : null
-        }
-      />
-    ) : null;
+  const mentionRows: ModelRow[] =
+    isSlack && aboutKey
+      ? [
+          {
+            id: "settings.channels.connection.mention",
+            part: "settings.row",
+            label: t(`${K}.mentionAgent`),
+            description: t(aboutKey),
+            anchor: "mention",
+            ...(canManage
+              ? {
+                  rows: [
+                    {
+                      id: "settings.channels.connection.mention.setup",
+                      part: "button",
+                      kind: "action",
+                      label: setUp
+                        ? t(`${K}.action.manage`)
+                        : t(`${K}.action.setUp`),
+                      effect: { kind: "action", effectId: "open-setup" },
+                    },
+                  ],
+                }
+              : state
+                ? { slot: "mention-locked" }
+                : {}),
+          },
+        ]
+      : [];
+  const webhookLocal = webhookUrl ? isNonPublicWebhookUrl(webhookUrl) : false;
+  const connectionRows: ModelRow[] = list.isPending
+    ? [
+        skeletonRow(t, "settings.channels.connection.loading-1"),
+        skeletonRow(t, "settings.channels.connection.loading-2"),
+      ]
+    : list.isError || !status || !state
+      ? [loadErrorRow(t, "settings.channels.connection.error")]
+      : [
+          ...mentionRows,
+          ...(setUp || (!isSlack && !webhookUrl)
+            ? [
+                {
+                  id: "settings.channels.connection.status",
+                  part: "settings.row",
+                  label: t(`${K}.status`),
+                  description: t(STATE_KEYS[state]),
+                  anchor: "status",
+                  ...(canManage && setUp ? { slot: "status-switch" } : {}),
+                },
+              ]
+            : []),
+          ...(webhookUrl && (!isSlack || setUp)
+            ? [
+                {
+                  id: "settings.channels.connection.webhook-url",
+                  part: "settings.row",
+                  label: t(`${K}.webhookUrl`),
+                  description: webhookLocal
+                    ? t(`${K}.webhookLocalOnly`, { platform: channel.name })
+                    : undefined,
+                  anchor: "webhook-url",
+                  ...(webhookLocal ? {} : { slot: "webhook-url" }),
+                },
+              ]
+            : []),
+          ...(webhookSetup === "automatic" &&
+          webhookUrl &&
+          !webhookLocal &&
+          canManage &&
+          setUp
+            ? [
+                {
+                  id: "settings.channels.connection.webhook-registration",
+                  part: "settings.row",
+                  label: t(`${K}.webhookRegistration`),
+                  anchor: "webhook-registration",
+                  slot: "webhook-registration",
+                },
+              ]
+            : []),
+          ...(serviceAccountEmail
+            ? [
+                {
+                  id: "settings.channels.connection.service-account",
+                  part: "settings.row",
+                  label: t(`${K}.shareDocumentsWith`),
+                  anchor: "service-account",
+                  slot: "service-account",
+                },
+              ]
+            : []),
+          ...(removableKeys.length > 0
+            ? [
+                {
+                  id: "settings.channels.connection.credentials",
+                  part: "settings.row",
+                  label: t(`${K}.credentials`),
+                  description: removableKeys.join(", "),
+                  anchor: "credentials",
+                  regions: { description: "credential-keys" },
+                  slot: "remove-credentials",
+                },
+              ]
+            : []),
+        ];
 
   return (
     <div className="flex flex-col gap-8" data-channel-page={channel.id}>
@@ -1143,126 +1288,86 @@ function ChannelDetail({
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          <SettingsGroup
-            id="connection"
-            title={
-              isSlack
-                ? t(`${K}.agentIn`, { platform: channel.name })
-                : t(`${K}.connection`)
-            }
-          >
-            {list.isPending ? (
-              <>
-                <RowSkeleton />
-                <RowSkeleton />
-              </>
-            ) : list.isError || !status || !state ? (
-              <LoadError onRetry={() => void list.refetch()} />
-            ) : (
-              <>
-                {mentionRow}
-                {/* Before setup the header's Set up says the state; a card
-                    with nothing else in it still names it. */}
-                {setUp || (!isSlack && !webhookUrl) ? (
-                  <SettingsRow
-                    id="status"
-                    label={t(`${K}.status`)}
-                    description={t(STATE_KEYS[state])}
-                    control={
-                      canManage && setUp ? (
-                        <Switch
-                          checked={status.enabled}
-                          disabled={
-                            toggle.isPending ||
-                            (status.configurationUnavailable && !status.enabled)
-                          }
-                          aria-label={t(`${K}.turnOnAria`, {
-                            platform: channel.name,
-                          })}
-                          onCheckedChange={(enabled) =>
-                            toggle.mutate({
-                              operation: enabled ? "enable" : "disable",
-                              platform: channel.id,
-                            })
-                          }
-                        />
-                      ) : null
-                    }
-                  />
-                ) : null}
-                {webhookUrl && (!isSlack || setUp) ? (
-                  <SettingsRow
-                    id="webhook-url"
-                    label={t(`${K}.webhookUrl`)}
-                    description={
-                      isNonPublicWebhookUrl(webhookUrl)
-                        ? t(`${K}.webhookLocalOnly`, {
-                            platform: channel.name,
-                          })
-                        : undefined
-                    }
-                    control={
-                      isNonPublicWebhookUrl(webhookUrl) ? null : (
-                        <CopyField
-                          value={webhookUrl}
-                          label={t(`${K}.copyWebhookUrl`)}
-                        />
-                      )
-                    }
-                  />
-                ) : null}
-                {/* The provider registers the public URL it will call, so a
-                    local address would only fail upstream. */}
-                {webhookSetup === "automatic" &&
-                webhookUrl &&
-                !isNonPublicWebhookUrl(webhookUrl) &&
-                canManage &&
-                setUp ? (
-                  <SettingsRow
-                    id="webhook-registration"
-                    label={t(`${K}.webhookRegistration`)}
-                    control={<RegisterWebhookControl platform={channel.id} />}
-                  />
-                ) : null}
-                {serviceAccountEmail ? (
-                  <SettingsRow
-                    id="service-account"
-                    label={t(`${K}.shareDocumentsWith`)}
-                    control={
-                      <CopyField
-                        value={serviceAccountEmail}
-                        label={t(`${K}.copyServiceAccountEmail`)}
-                      />
-                    }
-                  />
-                ) : null}
-                {removableKeys.length > 0 ? (
-                  <SettingsRow
-                    id="credentials"
-                    label={t(`${K}.credentials`)}
-                    description={
-                      <span className="break-all font-mono text-xs">
-                        {removableKeys.join(", ")}
-                      </span>
-                    }
-                    control={
-                      <Button
-                        type="button"
-                        variant="outline-destructive"
-                        size="sm"
-                        aria-label={t(`${K}.removeCredentials.aria`, {
-                          platform: channel.name,
-                        })}
-                        onClick={() => setRemoveOpen(true)}
-                      >
-                        {t(`${K}.removeCredentials.action`)}
-                      </Button>
-                    }
-                  />
-                ) : null}
-              </>
-            )}
-          </SettingsGroup>
+          <ModelSurface
+            model={{
+              id: "settings",
+              rows: [
+                {
+                  id: "settings.channels.connection",
+                  part: "settings.group",
+                  label: isSlack
+                    ? t(`${K}.agentIn`, { platform: channel.name })
+                    : t(`${K}.connection`),
+                  anchor: "connection",
+                  rows: connectionRows,
+                },
+              ],
+            }}
+            actions={{
+              "retry-channels": () => void list.refetch(),
+              "open-setup": () => setSetupOpen(true),
+            }}
+            slots={{
+              skeleton: (row) => <RowSkeleton {...rowAttributes(row)} />,
+              "mention-locked": state ? (
+                <LockedValue
+                  value={t(STATE_KEYS[state])}
+                  reason={t(`${K}.setUpLocked`)}
+                />
+              ) : null,
+              "status-switch": status ? (
+                <Switch
+                  checked={status.enabled}
+                  disabled={
+                    toggle.isPending ||
+                    (status.configurationUnavailable && !status.enabled)
+                  }
+                  aria-label={t(`${K}.turnOnAria`, {
+                    platform: channel.name,
+                  })}
+                  onCheckedChange={(enabled) =>
+                    toggle.mutate({
+                      operation: enabled ? "enable" : "disable",
+                      platform: channel.id,
+                    })
+                  }
+                />
+              ) : null,
+              "webhook-url": webhookUrl ? (
+                <CopyField
+                  value={webhookUrl}
+                  label={t(`${K}.copyWebhookUrl`)}
+                />
+              ) : null,
+              "webhook-registration": (
+                <RegisterWebhookControl platform={channel.id} />
+              ),
+              "service-account": serviceAccountEmail ? (
+                <CopyField
+                  value={serviceAccountEmail}
+                  label={t(`${K}.copyServiceAccountEmail`)}
+                />
+              ) : null,
+              "credential-keys": (
+                <span className="break-all font-mono text-xs">
+                  {removableKeys.join(", ")}
+                </span>
+              ),
+              "remove-credentials": (
+                <Button
+                  type="button"
+                  variant="outline-destructive"
+                  size="sm"
+                  aria-label={t(`${K}.removeCredentials.aria`, {
+                    platform: channel.name,
+                  })}
+                  onClick={() => setRemoveOpen(true)}
+                >
+                  {t(`${K}.removeCredentials.action`)}
+                </Button>
+              ),
+            }}
+          />
           {toggle.isError ? (
             <p role="alert" className="text-xs text-destructive">
               {actionErrorMessage(toggle.error) ??
@@ -1278,44 +1383,75 @@ function ChannelDetail({
       )}
 
       {isSlack ? null : (
-        <SettingsGroup id="information" title={t(`${K}.information`)}>
-          {brand ? (
-            <SettingsRow
-              id="developer"
-              label={t(`${K}.developer`)}
-              control={<RowValue>{brand.developer}</RowValue>}
-            />
-          ) : null}
-          <SettingsRow
-            id="category"
-            label={t(`${K}.category`)}
-            control={
+        <ModelSurface
+          model={{
+            id: "settings",
+            rows: [
+              {
+                id: "settings.channels.information",
+                part: "settings.group",
+                label: t(`${K}.information`),
+                anchor: "information",
+                rows: [
+                  ...(brand
+                    ? [
+                        {
+                          id: "settings.channels.information.developer",
+                          part: "settings.row",
+                          label: t(`${K}.developer`),
+                          anchor: "developer",
+                          slot: "developer",
+                        },
+                      ]
+                    : []),
+                  {
+                    id: "settings.channels.information.category",
+                    part: "settings.row",
+                    label: t(`${K}.category`),
+                    anchor: "category",
+                    slot: "category",
+                  },
+                  {
+                    id: "settings.channels.information.documentation",
+                    part: "settings.row",
+                    label: t(`${K}.documentation`),
+                    anchor: "documentation",
+                    slot: "documentation",
+                  },
+                  ...(channel.documentation.externalHref
+                    ? [
+                        {
+                          id: "settings.channels.information.developer-site",
+                          part: "settings.row",
+                          label: t(`${K}.developerSite`),
+                          anchor: "developer-site",
+                          slot: "developer-site",
+                        },
+                      ]
+                    : []),
+                ],
+              },
+            ],
+          }}
+          slots={{
+            developer: <RowValue>{brand?.developer}</RowValue>,
+            category: (
               <RowValue>{t("agentChat.settingsShell.page.channels")}</RowValue>
-            }
-          />
-          <SettingsRow
-            id="documentation"
-            label={t(`${K}.documentation`)}
-            control={
+            ),
+            documentation: (
               <ExternalLink
                 href={channel.documentation.href}
                 label={t(`${K}.openDocs`)}
               />
-            }
-          />
-          {channel.documentation.externalHref ? (
-            <SettingsRow
-              id="developer-site"
-              label={t(`${K}.developerSite`)}
-              control={
-                <ExternalLink
-                  href={channel.documentation.externalHref}
-                  label={t(`${K}.open`)}
-                />
-              }
-            />
-          ) : null}
-        </SettingsGroup>
+            ),
+            "developer-site": channel.documentation.externalHref ? (
+              <ExternalLink
+                href={channel.documentation.externalHref}
+                label={t(`${K}.open`)}
+              />
+            ) : null,
+          }}
+        />
       )}
 
       {canManage && status ? (

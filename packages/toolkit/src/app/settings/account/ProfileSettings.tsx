@@ -21,7 +21,11 @@ import { Label } from "@agent-native/toolkit/ui/label";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
-import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "../../../design-system/parts.js";
 import { profileInitials } from "./account-copy.js";
 import { useAvatarUpload, useEmailChange } from "./account-hooks.js";
 
@@ -39,26 +43,38 @@ export function ProfileSettings() {
   );
   const profileName = profileQuery.data?.name || session?.name || "";
 
+  const photo = useProfilePhotoRow(email, profileName || email || "");
+  const name = useProfileNameRow({
+    email,
+    profileName,
+    loading: !!email && profileQuery.isLoading,
+  });
+  const emailRow = useProfileEmailRow();
+  const { actions, slots } = combineFragments([photo, name, emailRow]);
   return (
-    <SettingsGroup id="details" title={t("agentChat.common.details")}>
-      <ProfilePhotoRow email={email} name={profileName || email || ""} />
-      <ProfileNameRow
-        email={email}
-        profileName={profileName}
-        loading={!!email && profileQuery.isLoading}
-      />
-      <ProfileEmailSettings />
-    </SettingsGroup>
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [
+          {
+            id: "settings.profile.details",
+            part: "settings.group",
+            label: t("agentChat.common.details"),
+            anchor: "details",
+            rows: [...photo.rows, ...name.rows, ...emailRow.rows],
+          },
+        ],
+      }}
+      actions={actions}
+      slots={slots}
+    />
   );
 }
 
-function ProfilePhotoRow({
-  email,
-  name,
-}: {
-  email: string | undefined;
-  name: string;
-}) {
+function useProfilePhotoRow(
+  email: string | undefined,
+  name: string,
+): ModelFragment {
   const t = useT();
   const { avatarUrl, uploading, status, upload, remove } =
     useAvatarUpload(email);
@@ -70,26 +86,40 @@ function ProfilePhotoRow({
     if (file) void upload(file);
   };
 
-  return (
-    <SettingsRow
-      id="profile-photo"
-      label={t(key("profilePhoto"))}
-      description={
-        status === "saved" ? (
-          <span className="text-primary" role="status">
-            {t(key("photoUpdated"))}
-          </span>
-        ) : status === "removed" ? (
-          <span className="text-primary" role="status">
-            {t(key("photoRemoved"))}
-          </span>
-        ) : status === "error" ? (
+  const statusText =
+    status === "saved"
+      ? t(key("photoUpdated"))
+      : status === "removed"
+        ? t(key("photoRemoved"))
+        : status === "error"
+          ? t(key("photoError"))
+          : undefined;
+  return {
+    rows: [
+      {
+        id: "settings.profile.details.photo",
+        part: "settings.row",
+        label: t(key("profilePhoto")),
+        description: statusText,
+        anchor: "profile-photo",
+        ...(statusText
+          ? { regions: { description: "profile-photo-status" } }
+          : {}),
+        slot: "profile-photo-control",
+      },
+    ],
+    slots: {
+      "profile-photo-status":
+        status === "error" ? (
           <span className="text-destructive" role="alert">
-            {t(key("photoError"))}
+            {statusText}
           </span>
-        ) : undefined
-      }
-      control={
+        ) : (
+          <span className="text-primary" role="status">
+            {statusText}
+          </span>
+        ),
+      "profile-photo-control": (
         <div className="flex items-center gap-3">
           <Avatar
             name={name}
@@ -127,12 +157,12 @@ function ProfilePhotoRow({
             </Button>
           ) : null}
         </div>
-      }
-    />
-  );
+      ),
+    },
+  };
 }
 
-function ProfileNameRow({
+function useProfileNameRow({
   email,
   profileName,
   loading,
@@ -140,7 +170,7 @@ function ProfileNameRow({
   email: string | undefined;
   profileName: string;
   loading: boolean;
-}) {
+}): ModelFragment {
   const t = useT();
   const updateProfile = useActionMutation<UserProfile, { name: string }>(
     "update-user-profile",
@@ -190,24 +220,37 @@ function ProfileNameRow({
     setDraft(saved);
   };
 
-  return (
-    <SettingsRow
-      id="profile-name"
-      label={t(key("name"))}
-      description={
-        updateProfile.error ? (
-          <span className="text-destructive" role="alert">
-            {t(key("nameSaveError"))}
-          </span>
-        ) : updateProfile.isSuccess ? (
-          <span className="text-primary" role="status">
-            {t(key("nameSaved"))}
-          </span>
-        ) : (
-          t(key("nameDescription"))
-        )
-      }
-      control={
+  const statusText = updateProfile.error
+    ? t(key("nameSaveError"))
+    : updateProfile.isSuccess
+      ? t(key("nameSaved"))
+      : null;
+  return {
+    rows: [
+      {
+        id: "settings.profile.details.name",
+        part: "settings.row",
+        kind: "field",
+        label: t(key("name")),
+        description: statusText ?? t(key("nameDescription")),
+        anchor: "profile-name",
+        ...(statusText
+          ? { regions: { description: "profile-name-status" } }
+          : {}),
+        slot: "profile-name-control",
+      },
+    ],
+    slots: {
+      "profile-name-status": updateProfile.error ? (
+        <span className="text-destructive" role="alert">
+          {statusText}
+        </span>
+      ) : (
+        <span className="text-primary" role="status">
+          {statusText}
+        </span>
+      ),
+      "profile-name-control": (
         <Input
           id="agent-native-profile-name"
           size="sm"
@@ -233,27 +276,44 @@ function ProfileNameRow({
           autoComplete="name"
           className="w-full sm:w-64"
         />
-      }
+      ),
+    },
+  };
+}
+
+/** The email row on its own, where no group draws it. */
+export function ProfileEmailSettings() {
+  const fragment = useProfileEmailRow();
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: fragment.rows }}
+      actions={fragment.actions}
+      slots={fragment.slots}
     />
   );
 }
 
-export function ProfileEmailSettings() {
-  const { session, status } = useSession();
-  return status === "authenticated" && session?.email ? (
-    <EmailRow key={session.email} email={session.email} />
-  ) : null;
-}
-
-function EmailRow({ email }: { email: string }) {
+function useProfileEmailRow(): ModelFragment {
   const t = useT();
+  const { session, status: sessionStatus } = useSession();
+  const email =
+    sessionStatus === "authenticated" && session?.email ? session.email : null;
   // A deployment without an email provider can never deliver the confirmation,
   // so the row says that up front instead of failing after a submit.
-  const org = useOrg();
+  const org = useOrg({ enabled: email !== null });
   const emailDeliveryAvailable = org.data?.emailConfigured !== false;
   const [open, setOpen] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const { pending, status, setStatus, submit } = useEmailChange();
+  const [rowEmail, setRowEmail] = useState(email);
+  if (rowEmail !== email) {
+    setRowEmail(email);
+    setOpen(false);
+    setNewEmail("");
+    setStatus("idle");
+  }
+
+  if (email === null) return { rows: [] };
 
   const trimmed = newEmail.trim();
   const canSend =
@@ -275,24 +335,36 @@ function EmailRow({ email }: { email: string }) {
     if (await submit(trimmed)) setOpen(false);
   };
 
-  return (
-    <SettingsRow
-      id="email"
-      label={t(key("email"))}
-      description={
-        status === "sent" && !open ? (
-          <span className="text-primary" role="status">
-            {t(key("emailChangeSent"))}
-          </span>
-        ) : emailDeliveryAvailable ? (
-          email
-        ) : (
-          <span className="text-muted-foreground" role="status">
-            {t(key("emailDeliveryUnavailable"))}
-          </span>
-        )
-      }
-      control={
+  const sent = status === "sent" && !open;
+  return {
+    rows: [
+      {
+        id: "settings.profile.details.email",
+        part: "settings.row",
+        label: t(key("email")),
+        description: sent
+          ? t(key("emailChangeSent"))
+          : emailDeliveryAvailable
+            ? email
+            : t(key("emailDeliveryUnavailable")),
+        anchor: "email",
+        ...(sent || !emailDeliveryAvailable
+          ? { regions: { description: "profile-email-status" } }
+          : {}),
+        slot: "profile-email-control",
+      },
+    ],
+    slots: {
+      "profile-email-status": sent ? (
+        <span className="text-primary" role="status">
+          {t(key("emailChangeSent"))}
+        </span>
+      ) : (
+        <span className="text-muted-foreground" role="status">
+          {t(key("emailDeliveryUnavailable"))}
+        </span>
+      ),
+      "profile-email-control": (
         <Dialog open={open} onOpenChange={openDialog}>
           <Button
             type="button"
@@ -356,7 +428,7 @@ function EmailRow({ email }: { email: string }) {
             </form>
           </DialogContent>
         </Dialog>
-      }
-    />
-  );
+      ),
+    },
+  };
 }

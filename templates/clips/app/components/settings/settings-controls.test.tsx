@@ -222,6 +222,14 @@ function row(id: string): HTMLElement {
   return element;
 }
 
+function anchored(id: string): HTMLElement {
+  const element = container.querySelector<HTMLElement>(
+    `[id="${id}"][data-row-id]`,
+  );
+  if (!element) throw new Error(`model row ${id} is missing`);
+  return element;
+}
+
 function button(scope: Element, text: string): HTMLButtonElement {
   const match = Array.from(scope.querySelectorAll("button")).find(
     (candidate) => candidate.textContent?.trim() === text,
@@ -532,7 +540,7 @@ describe("Meetings › Calendar accounts", () => {
     mocks.startCalendarOAuth.mockResolvedValue(null);
     await render(<ClipsMeetingsArea canManage={false} />);
 
-    const stale = row("calendar-cal-stale");
+    const stale = anchored("calendar-cal-stale");
     expect(stale.textContent).toContain(
       'clipsSettings.needsReconnect {"account":"stale@example.com"}',
     );
@@ -573,7 +581,7 @@ describe("Meetings › Calendar accounts", () => {
 
   it("asks before disconnecting and disconnects that account", async () => {
     await render(<ClipsMeetingsArea canManage={false} />);
-    const connected = row("google-calendar");
+    const connected = anchored("google-calendar");
     expect(connected.textContent).toContain(
       'clipsSettings.connectedAs {"account":"ok@example.com"}',
     );
@@ -599,7 +607,7 @@ describe("Meetings › Calendar accounts", () => {
 
   it("keeps the dialog open and toasts when disconnecting fails", async () => {
     await render(<ClipsMeetingsArea canManage={false} />);
-    await click(button(row("google-calendar"), "common.disconnect"));
+    await click(button(anchored("google-calendar"), "common.disconnect"));
     await click(
       button(
         container.querySelector('[role="alertdialog"]') as Element,

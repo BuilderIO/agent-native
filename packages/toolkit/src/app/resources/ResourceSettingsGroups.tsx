@@ -58,7 +58,13 @@ import {
   IconTrash,
   type Icon,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  type HTMLAttributes,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
 import {
@@ -663,6 +669,12 @@ export function RowMenuTrigger({ children }: { children: ReactNode }) {
   );
 }
 
+/** Attributes a caller adds to the root, such as a model row's attributes. */
+type RootAttributes = Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "children" | "className" | "role" | "title"
+>;
+
 /**
  * The empty state of a settings group or list: what's missing and the one
  * action that fills it. Rendered inside the group's card.
@@ -672,7 +684,8 @@ export function SettingsEmpty({
   title,
   description,
   children,
-}: {
+  ...root
+}: RootAttributes & {
   icon: Icon;
   title: string;
   description?: string;
@@ -680,7 +693,7 @@ export function SettingsEmpty({
   children?: ReactNode;
 }) {
   return (
-    <Empty>
+    <Empty {...root}>
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <EmptyIcon />
@@ -703,13 +716,15 @@ export function SettingsEmpty({
 export function ErrorRow({
   text,
   onRetry,
-}: {
+  ...root
+}: RootAttributes & {
   text: string;
   onRetry?: () => void;
 }) {
   const t = useT();
   return (
     <div
+      {...root}
       role="alert"
       className="flex items-center gap-3 px-5 py-4 text-sm sm:px-6"
     >

@@ -9,11 +9,14 @@ import { IconNews } from "@tabler/icons-react";
 import { useMemo } from "react";
 
 import {
+  ModelSurface,
+  rowAttributes,
+} from "../../../../design-system/parts.js";
+import {
   ChangelogSettingsCard,
   parseChangelog,
 } from "../../../changelog/index.js";
 import { SettingsHeaderBadge } from "../../app-group/SettingsHeaderBadge.js";
-import { SettingsGroup } from "../../SettingsRow.js";
 import { useSettingsPageHeader } from "../context.js";
 import type { SettingsPageProps } from "../registry.js";
 
@@ -39,19 +42,41 @@ export default function WhatsNewSettingsPage({ bridge }: SettingsPageProps) {
   // A template that passed only a custom element keeps it.
   if (!markdown) return <>{bridge.whatsNew}</>;
   if (!hasEntries) {
+    const emptyLabel = t("agentChat.settingsShell.appGroup.whatsNewEmpty");
     return (
-      <SettingsGroup>
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <IconNews aria-hidden="true" />
-            </EmptyMedia>
-            <EmptyDescription>
-              {t("agentChat.settingsShell.appGroup.whatsNewEmpty")}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.whats-new.entries",
+              part: "settings.group",
+              label: t("agentChat.settingsShell.page.whatsNew"),
+              labelHidden: true,
+              rows: [
+                {
+                  id: "settings.whats-new.empty",
+                  part: "settings.content",
+                  label: emptyLabel,
+                  slot: "empty",
+                },
+              ],
+            },
+          ],
+        }}
+        slots={{
+          empty: (row) => (
+            <Empty {...rowAttributes(row)}>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <IconNews aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyDescription>{emptyLabel}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ),
+        }}
+      />
     );
   }
   return <ChangelogSettingsCard markdown={markdown} hideTitle />;

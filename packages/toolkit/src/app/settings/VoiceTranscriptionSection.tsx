@@ -8,6 +8,7 @@ import {
   STANDARD_APP_ROUTES,
 } from "@agent-native/core/navigation";
 import { GEMINI_API_KEY } from "@agent-native/core/secrets/key-aliases";
+import type { ModelRow } from "@agent-native/design-system/model";
 import { Skeleton, Switch } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -28,8 +29,8 @@ import {
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
+import { type ModelFragment, ModelSurface } from "../../design-system/parts.js";
 import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
-import { SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 import { useBuilderConnectFlow, useBuilderStatus } from "./useBuilderStatus.js";
 
@@ -142,9 +143,7 @@ function batchProvider(provider: Provider | null): Provider {
   return provider;
 }
 
-export function VoiceTranscriptionSection({
-  compact = false,
-}: { compact?: boolean } = {}) {
+function useVoiceTranscription() {
   const t = useT();
   const [transcriptionMode, setTranscriptionMode] =
     useState<TranscriptionMode | null>(null);
@@ -468,18 +467,79 @@ export function VoiceTranscriptionSection({
       void persist(transcriptionMode, provider, next, previous);
     }
   };
+  return {
+    builderConnect,
+    builderStatus,
+    builderStatusLoadFailed,
+    chooseBatchProvider,
+    chooseSource,
+    cleanupEnabled,
+    cleanupLoadFailed,
+    focusKey,
+    geminiConfigured,
+    googleRealtimeConfigured,
+    googleRealtimeReady,
+    groqConfigured,
+    instructions,
+    loadFailed,
+    openAiConfigured,
+    provider,
+    providerStatusLoadFailed,
+    refetchBuilderStatus,
+    retryCleanupPrefs,
+    retryProviderStatus,
+    retryTranscriptionPrefs,
+    saveError,
+    saving,
+    setShowAdvanced,
+    showAdvanced,
+    t,
+    toggleCleanup,
+    transcriptionMode,
+    updateInstructions,
+  };
+}
 
+type VoiceTranscription = ReturnType<typeof useVoiceTranscription>;
+
+export function VoiceTranscriptionSection({
+  compact = false,
+}: { compact?: boolean } = {}) {
+  const voice = useVoiceTranscription();
   if (compact) {
-    return (
-      <CompactVoiceTranscriptionRow
-        mode={transcriptionMode}
-        loadFailed={loadFailed}
-        saveFailed={!!saveError && !saving}
-        onChoose={chooseSource}
-        onRetry={retryTranscriptionPrefs}
-      />
-    );
+    return <VoiceTranscriptionRowSurface voice={voice} />;
   }
+  const {
+    builderConnect,
+    builderStatus,
+    builderStatusLoadFailed,
+    chooseBatchProvider,
+    chooseSource,
+    cleanupEnabled,
+    cleanupLoadFailed,
+    focusKey,
+    geminiConfigured,
+    googleRealtimeConfigured,
+    googleRealtimeReady,
+    groqConfigured,
+    instructions,
+    loadFailed,
+    openAiConfigured,
+    provider,
+    providerStatusLoadFailed,
+    refetchBuilderStatus,
+    retryCleanupPrefs,
+    retryProviderStatus,
+    retryTranscriptionPrefs,
+    saveError,
+    saving,
+    setShowAdvanced,
+    showAdvanced,
+    t,
+    toggleCleanup,
+    transcriptionMode,
+    updateInstructions,
+  } = voice;
 
   if (loadFailed) {
     return (
@@ -919,44 +979,50 @@ const COMPACT_MODE_LABEL_KEYS: Record<TranscriptionMode, string> = {
   batch: "agentChat.settingsShell.account.voiceBatch",
 };
 
-/** One Settings row with a select, used by the Preferences page. */
-function CompactVoiceTranscriptionRow({
-  mode,
-  loadFailed,
-  saveFailed,
-  onChoose,
-  onRetry,
-}: {
-  mode: TranscriptionMode | null;
-  loadFailed: boolean;
-  saveFailed: boolean;
-  onChoose: (mode: TranscriptionMode) => void;
-  onRetry: () => void;
-}) {
-  const t = useT();
+function voiceTranscriptionFragment(voice: VoiceTranscription): ModelFragment {
+  const { t, transcriptionMode: mode, loadFailed } = voice;
+  const saveFailed = !!voice.saveError && !voice.saving;
   const label = t("agentChat.settingsShell.search.voiceTranscription");
-  const description = loadFailed ? (
-    <span className="text-destructive" role="alert">
-      {t("agentChat.settingsShell.account.voiceLoadError")}
-    </span>
-  ) : saveFailed ? (
-    <span className="text-destructive" role="alert">
-      {t("agentChat.settingsShell.account.voiceSaveError")}
-    </span>
-  ) : (
-    t("agentChat.settingsShell.account.voiceDescription")
-  );
-  return (
-    <SettingsRow
-      id="voice"
-      label={label}
-      description={description}
-      control={
-        loadFailed ? (
-          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-            {t("agentChat.common.retry")}
-          </Button>
-        ) : mode === null ? (
+  const error = loadFailed
+    ? t("agentChat.settingsShell.account.voiceLoadError")
+    : saveFailed
+      ? t("agentChat.settingsShell.account.voiceSaveError")
+      : null;
+  const row: ModelRow = {
+    id: "settings.voice.transcription",
+    part: "settings.row",
+    kind: "choice",
+    label,
+    description: error ?? t("agentChat.settingsShell.account.voiceDescription"),
+    anchor: "voice",
+    ...(error ? { regions: { description: "voice-transcription-error" } } : {}),
+    ...(loadFailed
+      ? {
+          rows: [
+            {
+              id: "settings.voice.transcription.retry",
+              part: "button",
+              kind: "action",
+              label: t("agentChat.common.retry"),
+              effect: { kind: "action", effectId: "retry-voice-transcription" },
+            },
+          ],
+        }
+      : { slot: "voice-transcription-control" }),
+  };
+  return {
+    rows: [row],
+    actions: {
+      "retry-voice-transcription": () => voice.retryTranscriptionPrefs(),
+    },
+    slots: {
+      "voice-transcription-error": (
+        <span className="text-destructive" role="alert">
+          {error}
+        </span>
+      ),
+      "voice-transcription-control":
+        mode === null ? (
           <Skeleton
             className="h-8 w-44"
             aria-label={t("agentChat.common.loading")}
@@ -965,7 +1031,7 @@ function CompactVoiceTranscriptionRow({
           <Select
             value={mode}
             onValueChange={(value) => {
-              if (isTranscriptionMode(value)) onChoose(value);
+              if (isTranscriptionMode(value)) voice.chooseSource(value);
             }}
           >
             <SelectTrigger size="sm" className="w-44" aria-label={label}>
@@ -981,8 +1047,30 @@ function CompactVoiceTranscriptionRow({
               </SelectGroup>
             </SelectContent>
           </Select>
-        )
-      }
+        ),
+    },
+  };
+}
+
+/**
+ * The transcription row, for a group that draws it with its own rows: the
+ * Preferences page's Voice input group.
+ */
+export function useVoiceTranscriptionRow(): ModelFragment {
+  return voiceTranscriptionFragment(useVoiceTranscription());
+}
+
+function VoiceTranscriptionRowSurface({
+  voice,
+}: {
+  voice: VoiceTranscription;
+}) {
+  const fragment = voiceTranscriptionFragment(voice);
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: fragment.rows }}
+      actions={fragment.actions}
+      slots={fragment.slots}
     />
   );
 }

@@ -19,7 +19,11 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs/use-lab";
 import { useOrg } from "@agent-native/core/client/org";
-import { Badge } from "@agent-native/toolkit/ui/badge";
+import {
+  type ModelRow,
+  rowAttributes,
+  rowIdSegment,
+} from "@agent-native/design-system/model";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
@@ -33,7 +37,6 @@ import {
 } from "@agent-native/toolkit/ui/select";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   Tooltip,
   TooltipContent,
@@ -53,9 +56,13 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "../../../design-system/parts.js";
 import { ErrorRow, SettingsEmpty } from "../../resources/index.js";
 import { DeferredBuilderConnectPopover } from "../deferred-builder-connect-popover.js";
-import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { useSettingsPageHeader, useSettingsShell } from "../shell/context.js";
 import type { SettingsPageProps } from "../shell/registry.js";
 import {
@@ -63,7 +70,7 @@ import {
   type BuilderConnectFlow,
   type BuilderConnectionScope,
 } from "../useBuilderStatus.js";
-import { ChatGPTSubscriptionRow } from "./ChatGPTSubscriptionRow.js";
+import { useChatGPTSubscriptionRow } from "./ChatGPTSubscriptionRow.js";
 import {
   addableProviders,
   defaultModelGroups,
@@ -98,6 +105,8 @@ const LOOP_QUERY_KEY = [
 type DialogState =
   | { mode: "add" }
   | { mode: "manage"; provider: AgentProviderId; scope: AgentEngineKeyScope };
+
+type DialogFragment = ModelFragment & { dialog: ReactNode };
 
 type ActiveDialogState = {
   dialog: DialogState;
@@ -277,12 +286,28 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
 
   if (listing.isError) {
     return (
-      <SettingsGroup>
-        <ErrorRow
-          text={t(`${K}loadFailed`)}
-          onRetry={() => void listing.refetch()}
-        />
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.model.load-error",
+              part: "settings.group",
+              label: t("agentChat.settingsShell.page.model"),
+              labelHidden: true,
+              slot: "load-error",
+            },
+          ],
+        }}
+        slots={{
+          "load-error": (
+            <ErrorRow
+              text={t(`${K}loadFailed`)}
+              onRetry={() => void listing.refetch()}
+            />
+          ),
+        }}
+      />
     );
   }
   if (!listing.data || org.isLoading) return <ModelPageSkeleton />;
@@ -306,34 +331,41 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
     <TooltipProvider delayDuration={200}>
       <div className="flex flex-col gap-8" data-model-settings="">
         {needsProvider ? (
-          <SettingsGroup id="llm">
-            <NoProviderEmpty
-              listing={data}
-              canAdd={canAdd}
-              builder={builder}
-              onAdd={() => openProviderDialog({ mode: "add" })}
-            />
-          </SettingsGroup>
+          <ModelSurface
+            model={{
+              id: "settings",
+              rows: [
+                {
+                  id: "settings.model.no-provider",
+                  part: "settings.group",
+                  label: t("agentChat.settingsShell.page.model"),
+                  labelHidden: true,
+                  anchor: "llm",
+                  slot: "no-provider",
+                },
+              ],
+            }}
+            slots={{
+              "no-provider": (
+                <NoProviderEmpty
+                  listing={data}
+                  canAdd={canAdd}
+                  builder={builder}
+                  onAdd={() => openProviderDialog({ mode: "add" })}
+                />
+              ),
+            }}
+          />
         ) : data.hasOrganization ? (
-          // #llm is where legacy links to the old LLM section land.
-          <SettingsGroup id="llm" title={t(`${K}orgProviders`)}>
-            <BuilderRow
-              scope="org"
-              flow={builder}
-              canManage={data.canManageOrg}
-              orgName={orgName}
-            />
-            {rows.org.map((row) => (
-              <KeyProviderRow
-                key={row.provider}
-                row={row}
-                canManage={data.canManageOrg}
-                modelsLoading={modelsRead.status === "loading"}
-                onManage={() => openManage(row)}
-                onRemove={() => setRemoving(row)}
-              />
-            ))}
-          </SettingsGroup>
+          <OrgProvidersGroup
+            listing={data}
+            rows={rows.org}
+            builder={builder}
+            orgName={orgName}
+            modelsLoading={modelsRead.status === "loading"}
+            onManage={openManage}
+            onRemove={setRemoving}
+          />
         ) : null}
         <PersonalProvidersGroup
           listing={data}
@@ -535,39 +567,74 @@ function PersonalProvidersGroup({
       ? !listing.canManageOrg && (!!personalGrant || !restricted)
       : true);
   const hasProviderRows = showBuilder || rows.length > 0;
+  const formatters = useFormatters();
+  const builderRow = useBuilderRow({
+    scope: "personal",
+    flow: builder,
+    canManage: true,
+    orgName,
+    hasOrganization: listing.hasOrganization,
+    restricted,
+  });
+  const chatgpt = useChatGPTSubscriptionRow(
+    "settings.model.personal-providers.chatgpt",
+  );
+  const restrictedEmpty: ModelFragment = {
+    rows: [
+      {
+        id: "settings.model.personal-providers.restricted",
+        part: "settings.content",
+        label: t(`${K}restricted`),
+        slot: "personal-providers-restricted",
+      },
+    ],
+    slots: {
+      "personal-providers-restricted": (row: ModelRow) => (
+        <SettingsEmpty
+          {...rowAttributes(row)}
+          icon={IconLock}
+          title={t(`${K}restricted`)}
+        />
+      ),
+    },
+  };
+  const group = combineFragments([
+    ...(showBuilder ? [builderRow] : []),
+    ...rows.map((row) =>
+      keyProviderRow(row, {
+        t,
+        formatters,
+        canManage: true,
+        modelsLoading,
+        onManage: () => onManage(row),
+        onRemove: () => onRemove(row),
+      }),
+    ),
+    chatgpt,
+    ...(!hasProviderRows && restricted ? [restrictedEmpty] : []),
+  ]);
   return (
     <div>
-      <SettingsGroup
-        id={
-          listing.hasOrganization || hideBuilder ? "personal-providers" : "llm"
-        }
-        title={t(`${K}personalProviders`)}
-      >
-        {showBuilder ? (
-          <BuilderRow
-            scope="personal"
-            flow={builder}
-            canManage
-            orgName={orgName}
-            hasOrganization={listing.hasOrganization}
-            restricted={restricted}
-          />
-        ) : null}
-        {rows.map((row) => (
-          <KeyProviderRow
-            key={row.provider}
-            row={row}
-            canManage
-            modelsLoading={modelsLoading}
-            onManage={() => onManage(row)}
-            onRemove={() => onRemove(row)}
-          />
-        ))}
-        <ChatGPTSubscriptionRow />
-        {!hasProviderRows && restricted ? (
-          <SettingsEmpty icon={IconLock} title={t(`${K}restricted`)} />
-        ) : null}
-      </SettingsGroup>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.model.personal-providers",
+              part: "settings.group",
+              label: t(`${K}personalProviders`),
+              anchor:
+                listing.hasOrganization || hideBuilder
+                  ? "personal-providers"
+                  : "llm",
+              rows: group.rows,
+            },
+          ],
+        }}
+        actions={group.actions}
+        slots={group.slots}
+      />
+      {chatgpt.dialog}
       {restricted && hasProviderRows ? (
         <p className="mt-2 px-1 text-xs leading-5 text-muted-foreground">
           {t(`${K}restricted`)}
@@ -577,7 +644,65 @@ function PersonalProvidersGroup({
   );
 }
 
-function BuilderRow({
+function OrgProvidersGroup({
+  listing,
+  rows,
+  builder,
+  orgName,
+  modelsLoading,
+  onManage,
+  onRemove,
+}: {
+  listing: ModelProvidersListing;
+  rows: ProviderKeyRow[];
+  builder: BuilderConnectFlow;
+  orgName: string;
+  modelsLoading: boolean;
+  onManage: (row: ProviderKeyRow) => void;
+  onRemove: (row: ProviderKeyRow) => void;
+}) {
+  const t = useT();
+  const formatters = useFormatters();
+  const builderRow = useBuilderRow({
+    scope: "org",
+    flow: builder,
+    canManage: listing.canManageOrg,
+    orgName,
+  });
+  const group = combineFragments([
+    builderRow,
+    ...rows.map((row) =>
+      keyProviderRow(row, {
+        t,
+        formatters,
+        canManage: listing.canManageOrg,
+        modelsLoading,
+        onManage: () => onManage(row),
+        onRemove: () => onRemove(row),
+      }),
+    ),
+  ]);
+  return (
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [
+          {
+            id: "settings.model.org-providers",
+            part: "settings.group",
+            label: t(`${K}orgProviders`),
+            anchor: "llm",
+            rows: group.rows,
+          },
+        ],
+      }}
+      actions={group.actions}
+      slots={group.slots}
+    />
+  );
+}
+
+function useBuilderRow({
   scope,
   flow,
   canManage,
@@ -591,7 +716,7 @@ function BuilderRow({
   orgName: string;
   hasOrganization?: boolean;
   restricted?: boolean;
-}) {
+}): ModelFragment {
   const t = useT();
   const { navigate } = useSettingsShell();
   const grant = hasOrganization
@@ -608,15 +733,9 @@ function BuilderRow({
       ? flow.orgName
       : null;
 
-  let description: ReactNode;
+  let description: string | undefined;
   if (!flow.hasFetchedStatus) {
-    // The description renders in a <p>, so the placeholder is inline.
-    description = (
-      <span
-        aria-hidden
-        className="skeleton-shimmer inline-block h-4 w-56 rounded-md bg-muted align-middle"
-      />
-    );
+    description = undefined;
   } else if (flow.grants === null && hasOrganization) {
     description = t(`${K}builderUnknown`);
   } else if (scope === "org") {
@@ -644,17 +763,21 @@ function BuilderRow({
       : t(`${K}builderPersonalConnect`);
   }
 
+  const id = `settings.model.${scope}-providers.builder`;
   const openPage = () => navigate("integrations", "builder");
   const mayConnect = hasOrganization ? flow.canConnect[scope] : true;
   let control: ReactNode = null;
+  let manage: ModelRow | null = null;
   let recommended = false;
   if (flow.hasFetchedStatus) {
     if (connected || (flow.grants === null && hasOrganization)) {
-      control = (
-        <RowButton onClick={openPage}>
-          {canManage ? t(`${K}manage`) : t(`${K}view`)}
-        </RowButton>
-      );
+      manage = {
+        id: `${id}.open`,
+        part: "button",
+        kind: "action",
+        label: canManage ? t(`${K}manage`) : t(`${K}view`),
+        effect: { kind: "action", effectId: `${scope}-builder-open` },
+      };
     } else if (mayConnect) {
       // A member connecting their own account over a working organization
       // connection is an override, not the recommended path.
@@ -685,59 +808,81 @@ function BuilderRow({
     }
   }
 
-  return (
-    <SettingsRow
-      id={`provider-${scope}-builder`}
-      label={BUILDER_LABEL}
-      status={
-        recommended ? (
-          <Badge variant="outline">
-            {t("agentChat.integrations.recommended")}
-          </Badge>
-        ) : undefined
-      }
-      description={description}
-      control={control}
-    >
-      {flow.error ? (
+  const regions: Record<string, string> = {};
+  if (!flow.hasFetchedStatus) regions.description = `${scope}-builder-loading`;
+  if (flow.error) regions.detail = `${scope}-builder-error`;
+  return {
+    rows: [
+      {
+        id,
+        part: "settings.row",
+        label: BUILDER_LABEL,
+        description,
+        anchor: `provider-${scope}-builder`,
+        state: recommended
+          ? {
+              badge: {
+                kind: "label",
+                value: t("agentChat.integrations.recommended"),
+              },
+            }
+          : undefined,
+        slot: control ? `${scope}-builder-connect` : undefined,
+        regions,
+        rows: manage ? [manage] : undefined,
+      },
+    ],
+    actions: { [`${scope}-builder-open`]: openPage },
+    slots: {
+      [`${scope}-builder-connect`]: control,
+      [`${scope}-builder-loading`]: (
+        <span
+          aria-hidden
+          className="skeleton-shimmer inline-block h-4 w-56 rounded-md bg-muted align-middle"
+        />
+      ),
+      [`${scope}-builder-error`]: (
         <p role="alert" className="text-sm text-destructive">
           {flow.error}
         </p>
-      ) : null}
-    </SettingsRow>
-  );
+      ),
+    },
+  };
 }
 
-function KeyProviderRow({
-  row,
-  canManage,
-  modelsLoading,
-  onManage,
-  onRemove,
-}: {
-  row: ProviderKeyRow;
-  canManage: boolean;
-  modelsLoading: boolean;
-  onManage: () => void;
-  onRemove: () => void;
-}) {
-  const t = useT();
-  const formatters = useFormatters();
+function keyProviderRow(
+  row: ProviderKeyRow,
+  {
+    t,
+    formatters,
+    canManage,
+    modelsLoading,
+    onManage,
+    onRemove,
+  }: {
+    t: ReturnType<typeof useT>;
+    formatters: ReturnType<typeof useFormatters>;
+    canManage: boolean;
+    modelsLoading: boolean;
+    onManage: () => void;
+    onRemove: () => void;
+  },
+): ModelFragment {
   const { key } = row;
+  const scope = key.scope === "org" ? "org" : "personal";
+  const id = `settings.model.${scope}-providers.${rowIdSegment(row.provider)}`;
+  const effectId = `${scope}-${row.provider}`;
 
   let description: ReactNode;
   let control: ReactNode = null;
+  let action: string | null = null;
   if (key.unreadable) {
     description = t(`${K}unreadable`);
     if (canManage) {
-      control = (
-        <RowButton onClick={onManage}>
-          {t(
-            key.unreadableEndpoint && !key.unreadableKey
-              ? `${K}replaceEndpoint`
-              : `${K}replaceKey`,
-          )}
-        </RowButton>
+      action = t(
+        key.unreadableEndpoint && !key.unreadableKey
+          ? `${K}replaceEndpoint`
+          : `${K}replaceKey`,
       );
     } else {
       description = t(`${K}unreadableAskAdmin`);
@@ -754,9 +899,7 @@ function KeyProviderRow({
           : t(`${K}rejectedAskAdmin`, { provider: row.label, date })}
       </span>
     );
-    if (canManage) {
-      control = <RowButton onClick={onManage}>{t(`${K}replaceKey`)}</RowButton>;
-    }
+    if (canManage) action = t(`${K}replaceKey`);
   } else if (row.restricted) {
     description = t(`${K}restrictedRow`);
     control = (
@@ -788,19 +931,42 @@ function KeyProviderRow({
       ) : (
         text
       );
-    if (canManage) {
-      control = <RowButton onClick={onManage}>{t(`${K}manage`)}</RowButton>;
-    }
+    if (canManage) action = t(`${K}manage`);
   }
 
-  return (
-    <SettingsRow
-      id={`provider-${key.scope === "org" ? "org" : "personal"}-${row.provider}`}
-      label={row.label}
-      description={description || undefined}
-      control={control}
-    />
-  );
+  const text = typeof description === "string" ? description : undefined;
+  return {
+    rows: [
+      {
+        id,
+        part: "settings.row",
+        label: row.label,
+        description: text || undefined,
+        anchor: `provider-${scope}-${row.provider}`,
+        slot: control ? `${effectId}-control` : undefined,
+        regions:
+          description && text === undefined
+            ? { description: `${effectId}-description` }
+            : undefined,
+        rows: action
+          ? [
+              {
+                id: `${id}.manage`,
+                part: "button",
+                kind: "action",
+                label: action,
+                effect: { kind: "action", effectId: `${effectId}-manage` },
+              },
+            ]
+          : undefined,
+      },
+    ],
+    actions: { [`${effectId}-manage`]: onManage },
+    slots: {
+      [`${effectId}-control`]: control,
+      [`${effectId}-description`]: description,
+    },
+  };
 }
 
 function OrganizationSettingsGroup({
@@ -818,26 +984,43 @@ function OrganizationSettingsGroup({
 }) {
   const t = useT();
   const hasOrg = listing.hasOrganization;
+  const defaultModel = useDefaultModelRow({
+    listing,
+    models,
+    chatgpt,
+    builder,
+    hasProvider,
+  });
+  const restrictKeys = useRestrictKeysRow(hasOrg && listing.canManageOrg);
+  const maxIterations = useMaxIterationsRow();
+  const group = combineFragments([defaultModel, restrictKeys, maxIterations]);
   return (
-    // #limits is where legacy links to the old Agent Limits section land.
-    <SettingsGroup
-      id="limits"
-      title={hasOrg ? t(`${K}orgSettings`) : undefined}
-    >
-      <DefaultModelRow
-        listing={listing}
-        models={models}
-        chatgpt={chatgpt}
-        builder={builder}
-        hasProvider={hasProvider}
+    <>
+      <ModelSurface
+        model={{
+          id: "settings",
+          rows: [
+            {
+              id: "settings.model.settings",
+              part: "settings.group",
+              label: hasOrg
+                ? t(`${K}orgSettings`)
+                : t("agentChat.settingsShell.page.model"),
+              labelHidden: !hasOrg,
+              anchor: "limits",
+              rows: group.rows,
+            },
+          ],
+        }}
+        actions={group.actions}
+        slots={group.slots}
       />
-      {hasOrg && listing.canManageOrg ? <RestrictKeysRow /> : null}
-      <MaxIterationsRow />
-    </SettingsGroup>
+      {restrictKeys.dialog}
+    </>
   );
 }
 
-function DefaultModelRow({
+function useDefaultModelRow({
   listing,
   models: modelsRead,
   chatgpt,
@@ -849,7 +1032,7 @@ function DefaultModelRow({
   chatgpt: ChatGPTModelsState;
   builder: BuilderConnectFlow;
   hasProvider: boolean;
-}) {
+}): ModelFragment {
   const t = useT();
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<{
@@ -957,101 +1140,116 @@ function DefaultModelRow({
         ? chatgpt.retry
         : null;
 
-  return (
-    <SettingsRow
-      id="default-model"
-      label={t(DEFAULT_MODEL_LABEL)}
-      description={
-        waitingForProvider
-          ? t(`${K}defaultModelNeedsProvider`)
-          : t(`${K}defaultModelDescription`)
-      }
-      control={
-        modelsRead.status === "loading" || chatgpt.status === "loading" ? (
-          <Skeleton
-            className="h-8 w-64 max-w-full"
-            data-default-model-loading=""
-          />
-        ) : modelsRead.status === "error" ? null : waitingForProvider ||
-          (listing.canUpdateDefault && allGroups.length === 0) ? (
-          <Select disabled>
-            <SelectTrigger
-              size="sm"
-              className="w-64 max-w-full"
-              aria-label={t(DEFAULT_MODEL_LABEL)}
-            >
-              <SelectValue
-                placeholder={
-                  current
-                    ? currentLabel
-                    : waitingForProvider
-                      ? ""
-                      : t(`${K}chooseModel`)
-                }
-              />
-            </SelectTrigger>
-          </Select>
-        ) : listing.canUpdateDefault ? (
-          <Select
-            value={
-              current?.model
-                ? defaultModelValue(current.engine, current.model)
-                : undefined
+  const control: ReactNode =
+    modelsRead.status === "loading" || chatgpt.status === "loading" ? (
+      <Skeleton className="h-8 w-64 max-w-full" data-default-model-loading="" />
+    ) : modelsRead.status === "error" ? null : waitingForProvider ||
+      (listing.canUpdateDefault && allGroups.length === 0) ? (
+      <Select disabled>
+        <SelectTrigger
+          size="sm"
+          className="w-64 max-w-full"
+          aria-label={t(DEFAULT_MODEL_LABEL)}
+        >
+          <SelectValue
+            placeholder={
+              current
+                ? currentLabel
+                : waitingForProvider
+                  ? ""
+                  : t(`${K}chooseModel`)
             }
-            onValueChange={(value) => void choose(value)}
-          >
-            <SelectTrigger
-              size="sm"
-              className="w-64 max-w-full"
-              aria-label={t(DEFAULT_MODEL_LABEL)}
-            >
-              <SelectValue placeholder={t(`${K}chooseModel`)} />
-            </SelectTrigger>
-            <SelectContent>
-              {allGroups.map((group) => (
-                <SelectGroup key={group.engine}>
-                  <SelectLabel>{group.label}</SelectLabel>
-                  {group.models.map((model) => (
-                    <SelectItem
-                      key={model}
-                      value={defaultModelValue(group.engine, model)}
-                    >
-                      {t(`${K}modelOption`, {
-                        model: group.modelDisplayNames?.[model] ?? model,
-                        provider: group.label,
-                      })}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
+          />
+        </SelectTrigger>
+      </Select>
+    ) : listing.canUpdateDefault ? (
+      <Select
+        {...(current?.model
+          ? { value: defaultModelValue(current.engine, current.model) }
+          : {})}
+        onValueChange={(value) => void choose(value)}
+      >
+        <SelectTrigger
+          size="sm"
+          className="w-64 max-w-full"
+          aria-label={t(DEFAULT_MODEL_LABEL)}
+        >
+          <SelectValue placeholder={t(`${K}chooseModel`)} />
+        </SelectTrigger>
+        <SelectContent>
+          {allGroups.map((group) => (
+            <SelectGroup key={group.engine}>
+              <SelectLabel>{group.label}</SelectLabel>
+              {group.models.map((model) => (
+                <SelectItem
+                  key={model}
+                  value={defaultModelValue(group.engine, model)}
+                >
+                  {t(`${K}modelOption`, {
+                    model: group.modelDisplayNames?.[model] ?? model,
+                    provider: group.label,
+                  })}
+                </SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <ReadOnlyValue value={currentLabel} tip={t(`${K}lockedTip`)} />
-        )
-      }
-    >
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-      {retryRead ? (
-        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
-          <p className="text-destructive">{t(`${K}settingLoadFailed`)}</p>
-          <Button type="button" variant="outline" size="sm" onClick={retryRead}>
-            {t("agentChat.common.retry")}
-          </Button>
-        </div>
-      ) : null}
-    </SettingsRow>
-  );
+            </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : (
+      <ReadOnlyValue value={currentLabel} tip={t(`${K}lockedTip`)} />
+    );
+
+  return {
+    rows: [
+      {
+        id: "settings.model.settings.default-model",
+        part: "settings.row",
+        label: t(DEFAULT_MODEL_LABEL),
+        description: waitingForProvider
+          ? t(`${K}defaultModelNeedsProvider`)
+          : t(`${K}defaultModelDescription`),
+        anchor: "default-model",
+        state: { value: currentLabel },
+        slot: control ? "default-model-control" : undefined,
+        regions: { detail: "default-model-detail" },
+      },
+    ],
+    slots: {
+      "default-model-control": control,
+      "default-model-detail": (
+        <>
+          {error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+          {retryRead ? (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center gap-3 text-sm"
+            >
+              <p className="text-destructive">{t(`${K}settingLoadFailed`)}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={retryRead}
+              >
+                {t("agentChat.common.retry")}
+              </Button>
+            </div>
+          ) : null}
+        </>
+      ),
+    },
+  };
 }
 
-function RestrictKeysRow() {
+function useRestrictKeysRow(shown: boolean): DialogFragment {
   const t = useT();
   const queryClient = useQueryClient();
   const policy = useQuery({
+    enabled: shown,
     queryKey: POLICY_QUERY_KEY,
     queryFn: () =>
       callAction<ProviderKeyPolicyStatus>(
@@ -1089,47 +1287,57 @@ function RestrictKeysRow() {
   };
 
   const checked = pending ?? policy.data?.restricted ?? false;
-  const label = t(`${K}restrictLabel`);
-  return (
-    <>
-      <SettingsRow
-        id="restrict-personal-keys"
-        label={label}
-        description={t(`${K}restrictDescription`)}
-        control={
-          policy.data ? (
-            <Switch
-              checked={checked}
-              aria-label={label}
-              disabled={pending !== null}
-              onCheckedChange={(next) => {
-                setError(null);
-                if (next) setConfirmOpen(true);
-                else void unrestrict();
-              }}
-            />
-          ) : policy.isError ? null : (
-            <Skeleton className="h-4.5 w-8 rounded-full" />
-          )
-        }
-      >
-        {error || policy.isError ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error ?? t(`${K}settingLoadFailed`)}
-          </p>
-        ) : null}
-      </SettingsRow>
-      <RestrictKeysDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        affectedMembers={policy.data?.affectedMembers}
-        onConfirm={() => write(true)}
-      />
-    </>
-  );
+  const dialog = shown ? (
+    <RestrictKeysDialog
+      open={confirmOpen}
+      onOpenChange={setConfirmOpen}
+      affectedMembers={policy.data?.affectedMembers}
+      onConfirm={() => write(true)}
+    />
+  ) : null;
+  if (!shown) return { rows: [], dialog };
+  return {
+    rows: [
+      {
+        id: "settings.model.settings.restrict-personal-keys",
+        part: "settings.row",
+        kind: policy.data ? "toggle" : undefined,
+        label: t(`${K}restrictLabel`),
+        description: t(`${K}restrictDescription`),
+        anchor: "restrict-personal-keys",
+        state: policy.data
+          ? { checked, disabled: pending !== null }
+          : undefined,
+        effect: policy.data
+          ? { kind: "action", effectId: "toggle-restrict-personal-keys" }
+          : undefined,
+        slot: policy.data || policy.isError ? undefined : "restrict-loading",
+        regions:
+          error || policy.isError
+            ? { detail: "restrict-personal-keys-error" }
+            : undefined,
+      },
+    ],
+    actions: {
+      "toggle-restrict-personal-keys": () => {
+        setError(null);
+        if (!checked) setConfirmOpen(true);
+        else void unrestrict();
+      },
+    },
+    slots: {
+      "restrict-loading": <Skeleton className="h-4.5 w-8 rounded-full" />,
+      "restrict-personal-keys-error": (
+        <p role="alert" className="text-sm text-destructive">
+          {error ?? t(`${K}settingLoadFailed`)}
+        </p>
+      ),
+    },
+    dialog,
+  };
 }
 
-function MaxIterationsRow() {
+function useMaxIterationsRow(): ModelFragment {
   const t = useT();
   const queryClient = useQueryClient();
   const loop = useQuery({
@@ -1219,20 +1427,31 @@ function MaxIterationsRow() {
     );
   }
 
-  return (
-    <SettingsRow
-      id="max-iterations"
-      label={label}
-      description={t(`${K}maxIterationsDescription`)}
-      control={control}
-    >
-      {error || loop.isError ? (
+  return {
+    rows: [
+      {
+        id: "settings.model.settings.max-iterations",
+        part: "settings.row",
+        label,
+        description: t(`${K}maxIterationsDescription`),
+        anchor: "max-iterations",
+        state: settings ? { value: String(settings.maxIterations) } : undefined,
+        slot: control ? "max-iterations-control" : undefined,
+        regions:
+          error || loop.isError
+            ? { detail: "max-iterations-error" }
+            : undefined,
+      },
+    ],
+    slots: {
+      "max-iterations-control": control,
+      "max-iterations-error": (
         <p id={errorId} role="alert" className="text-sm text-destructive">
           {error ?? t(`${K}settingLoadFailed`)}
         </p>
-      ) : null}
-    </SettingsRow>
-  );
+      ),
+    },
+  };
 }
 
 function RowButton({

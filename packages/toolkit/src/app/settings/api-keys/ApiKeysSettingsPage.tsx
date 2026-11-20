@@ -3,6 +3,16 @@ import type { AgentProviderId } from "@agent-native/core/client/agent-provider-c
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
+import {
+  type ModelRow,
+  rowAttributes,
+  rowIdSegment,
+} from "@agent-native/design-system/model";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   DropdownMenu,
@@ -40,7 +50,6 @@ import {
 } from "../../integrations/index.js";
 import { ReadOnlySettingValue } from "../app-group/ReadOnlySettingValue.js";
 import { ProviderDialog } from "../model/ProviderDialog.js";
-import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { useSettingsPageHeader } from "../shell/context.js";
 import type { SettingsPageProps } from "../shell/registry.js";
 import { testSavedApiKey } from "./api-keys-client.js";
@@ -190,39 +199,53 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
     <TooltipProvider delayDuration={200}>
       <div className="flex flex-col gap-8" data-api-keys-settings="">
         <div>
-          <SettingsGroup id="your-keys" title={t(`${K}yourKeys`)}>
-            {groups.personal.length > 0 ? (
-              groups.personal.map((entry) => (
-                <KeyRow
-                  key={apiKeyEntryId(entry)}
-                  entry={entry}
-                  {...rowProps}
-                />
-              ))
-            ) : (
-              <Empty data-api-keys-empty="">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <IconKey aria-hidden />
-                  </EmptyMedia>
-                  <EmptyTitle>{t(`${K}noKeys`)}</EmptyTitle>
-                  <EmptyDescription>
-                    {t(`${K}noKeysDescription`)}
-                  </EmptyDescription>
-                </EmptyHeader>
-                <EmptyContent>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => setValueDialog({ mode: "add" })}
-                  >
-                    <IconPlus aria-hidden />
-                    {t(`${K}addKey`)}
-                  </Button>
-                </EmptyContent>
-              </Empty>
+          <KeysSurface
+            group={keyGroup(
+              "your-keys",
+              t(`${K}yourKeys`),
+              groups.personal.length > 0
+                ? groups.personal.map((entry) =>
+                    keyRow("your-keys", entry, t, rowProps),
+                  )
+                : [
+                    {
+                      rows: [
+                        {
+                          id: "settings.api-keys.your-keys.empty",
+                          part: "settings.content",
+                          label: t(`${K}noKeys`),
+                          slot: "your-keys-empty",
+                        },
+                      ],
+                      slots: {
+                        "your-keys-empty": (row: ModelRow) => (
+                          <Empty {...rowAttributes(row)} data-api-keys-empty="">
+                            <EmptyHeader>
+                              <EmptyMedia variant="icon">
+                                <IconKey aria-hidden />
+                              </EmptyMedia>
+                              <EmptyTitle>{t(`${K}noKeys`)}</EmptyTitle>
+                              <EmptyDescription>
+                                {t(`${K}noKeysDescription`)}
+                              </EmptyDescription>
+                            </EmptyHeader>
+                            <EmptyContent>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => setValueDialog({ mode: "add" })}
+                              >
+                                <IconPlus aria-hidden />
+                                {t(`${K}addKey`)}
+                              </Button>
+                            </EmptyContent>
+                          </Empty>
+                        ),
+                      },
+                    },
+                  ],
             )}
-          </SettingsGroup>
+          />
           <p className="mt-2 px-1 text-xs leading-5 text-muted-foreground">
             <SentenceWithLink
               text={t(`${K}modelFootnote`, { link: SENTENCE_LINK_TOKEN })}
@@ -235,11 +258,13 @@ export default function ApiKeysSettingsPage({ context }: SettingsPageProps) {
           </p>
         </div>
         {groups.org.length > 0 ? (
-          <SettingsGroup id="org-keys" title={t(`${K}orgKeys`)}>
-            {groups.org.map((entry) => (
-              <KeyRow key={apiKeyEntryId(entry)} entry={entry} {...rowProps} />
-            ))}
-          </SettingsGroup>
+          <KeysSurface
+            group={keyGroup(
+              "org-keys",
+              t(`${K}orgKeys`),
+              groups.org.map((entry) => keyRow("org-keys", entry, t, rowProps)),
+            )}
+          />
         ) : null}
         {groups.managed.length > 0 ? (
           <ManagedKeysGroup entries={groups.managed} orgName={orgName} />
@@ -321,60 +346,112 @@ function UsedBy({ entry }: { entry: ApiKeyEntry }) {
   );
 }
 
-function KeyRow({
-  entry,
-  onManageProvider,
-  onReplace,
-  onDelete,
-  onEditOrigins,
-}: {
-  entry: ApiKeyEntry;
+type Translate = ReturnType<typeof useT>;
+
+interface KeyRowHandlers {
   onManageProvider: (entry: ApiKeyEntry) => void;
   onReplace: (entry: ApiKeyEntry) => void;
   onDelete: (entry: ApiKeyEntry) => void;
   onEditOrigins: (entry: ApiKeyEntry) => void;
-}) {
-  const t = useT();
-  const usedBy = <UsedBy entry={entry} />;
+}
+
+function keyGroup(
+  group: string,
+  label: string,
+  fragments: readonly ModelFragment[],
+): ModelFragment {
+  const combined = combineFragments(fragments);
+  return {
+    rows: [
+      {
+        id: `settings.api-keys.${group}`,
+        part: "settings.group",
+        label,
+        anchor: group,
+        rows: combined.rows,
+      },
+    ],
+    actions: combined.actions,
+    slots: combined.slots,
+  };
+}
+
+function KeysSurface({ group }: { group: ModelFragment }) {
+  return (
+    <ModelSurface
+      model={{ id: "settings", rows: group.rows }}
+      actions={group.actions}
+      slots={group.slots}
+    />
+  );
+}
+
+function keyRow(
+  group: string,
+  entry: ApiKeyEntry,
+  t: Translate,
+  { onManageProvider, onReplace, onDelete, onEditOrigins }: KeyRowHandlers,
+): ModelFragment {
+  const id = `settings.api-keys.${group}.${rowIdSegment(apiKeyEntryId(entry))}`;
   const hasUse = !!entry.provider || usedByFeatures(entry).length > 0;
   const custom = !entry.registered && !entry.provider;
-  const description: ReactNode = (
-    <>
-      {entry.masked ? <span className="font-mono">{entry.masked}</span> : null}
-      {entry.masked && hasUse ? " · " : null}
-      {hasUse ? usedBy : null}
-      {custom && entry.canEditOrigins && (entry.masked || hasUse)
-        ? " · "
-        : null}
-      {custom && entry.canEditOrigins
-        ? entry.urlAllowlist?.length
-          ? t(`${K}originsCount`, { count: entry.urlAllowlist.length })
-          : t(`${K}noApprovedOrigins`)
-        : null}
-    </>
-  );
+  const slots: Record<string, ReactNode> = {};
+  const regions: Record<string, string> = {};
+  if (entry.label === undefined) {
+    regions.label = `${id}:label`;
+    slots[regions.label] = (
+      <span className="font-mono text-[13px]">{entry.name}</span>
+    );
+  } else if (entry.label === "") {
+    regions.label = `${id}:label`;
+    slots[regions.label] = entry.label;
+  }
+  if (entry.masked || hasUse || (custom && entry.canEditOrigins)) {
+    regions.description = `${id}:description`;
+    slots[regions.description] = (
+      <>
+        {entry.masked ? (
+          <span className="font-mono">{entry.masked}</span>
+        ) : null}
+        {entry.masked && hasUse ? " · " : null}
+        {hasUse ? <UsedBy entry={entry} /> : null}
+        {custom && entry.canEditOrigins && (entry.masked || hasUse)
+          ? " · "
+          : null}
+        {custom && entry.canEditOrigins
+          ? entry.urlAllowlist?.length
+            ? t(`${K}originsCount`, { count: entry.urlAllowlist.length })
+            : t(`${K}noApprovedOrigins`)
+          : null}
+      </>
+    );
+  }
 
-  let control: ReactNode = null;
+  let slot: string | undefined;
+  let rows: ModelRow[] | undefined;
+  const actions: Record<string, () => void> = {};
   if (entry.vault) {
-    control = (
+    slot = `${id}:control`;
+    slots[slot] = (
       <ReadOnlySettingValue
         value={t("secrets.sourceVault")}
         reason={t("secrets.managedInVault")}
       />
     );
   } else if (entry.provider && entry.canDelete) {
-    control = (
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => onManageProvider(entry)}
-      >
-        {t(`${M}manage`)}
-      </Button>
-    );
+    rows = [
+      {
+        id: `${id}.manage`,
+        part: "button",
+        kind: "action",
+        label: t(`${M}manage`),
+        effect: { kind: "action", effectId: `${id}.manage` },
+      },
+    ];
+    actions[`${id}.manage`] = () => onManageProvider(entry);
   } else if (entry.canReplace || entry.canDelete) {
-    control = (
+    slot = `${id}:control`;
+    slots[slot] = (
       <KeyMenu
         entry={entry}
         onReplace={() => onReplace(entry)}
@@ -384,22 +461,21 @@ function KeyRow({
     );
   }
 
-  return (
-    <SettingsRow
-      id={apiKeyRowId(entry)}
-      label={
-        entry.label ?? (
-          <span className="font-mono text-[13px]">{entry.name}</span>
-        )
-      }
-      description={
-        entry.masked || hasUse || (custom && entry.canEditOrigins)
-          ? description
-          : undefined
-      }
-      control={control}
-    />
-  );
+  return {
+    rows: [
+      {
+        id,
+        part: "settings.row",
+        label: entry.label || entry.name,
+        anchor: apiKeyRowId(entry),
+        ...(Object.keys(regions).length > 0 ? { regions } : {}),
+        ...(slot ? { slot } : {}),
+        ...(rows ? { rows } : {}),
+      },
+    ],
+    actions,
+    slots,
+  };
 }
 
 function KeyMenu({
@@ -479,63 +555,92 @@ function ManagedKeysGroup({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const slots: Record<string, ReactNode | ((row: ModelRow) => ReactNode)> = {};
+  const rows: ModelRow[] = open
+    ? entries.map((entry): ModelRow => {
+        const owner = entry.managedBy;
+        if (!owner) {
+          throw new Error(`Managed key ${entry.name} has no managing owner`);
+        }
+        const { page, sub } = settingsRouteParts(owner.route);
+        const id = `settings.api-keys.managed-keys.${rowIdSegment(apiKeyEntryId(entry))}`;
+        slots[`${id}:label`] = (
+          <span className="break-all font-mono text-[13px]">{entry.name}</span>
+        );
+        slots[`${id}:description`] = (
+          <SentenceWithLink
+            text={t(`${K}usedBy`, { link: SENTENCE_LINK_TOKEN })}
+            link={
+              <SettingsPageLink page={page} sub={sub}>
+                {owner.owner}
+              </SettingsPageLink>
+            }
+          />
+        );
+        slots[`${id}:control`] = (
+          <ReadOnlySettingValue
+            value={
+              entry.scope === "org" && orgName
+                ? orgName
+                : t(entry.scope === "org" ? `${M}organization` : `${M}personal`)
+            }
+            reason={t(`${K}managedTooltip`, { owner: owner.owner })}
+          />
+        );
+        return {
+          id,
+          part: "settings.row",
+          label: entry.name,
+          anchor: apiKeyRowId(entry),
+          regions: {
+            label: `${id}:label`,
+            description: `${id}:description`,
+          },
+          slot: `${id}:control`,
+        };
+      })
+    : [];
+  const toggleLabel = open
+    ? t(`${K}hideKeys`)
+    : t(`${K}showKeys`, { count: entries.length });
+  rows.push({
+    id: "settings.api-keys.managed-keys.toggle",
+    part: "settings.content",
+    label: toggleLabel,
+    slot: "managed-keys-toggle",
+  });
+  slots["managed-keys-toggle"] = (row) => (
+    <div
+      {...rowAttributes(row)}
+      className="flex justify-center px-5 py-2 sm:px-6"
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {toggleLabel}
+      </Button>
+    </div>
+  );
   return (
-    <SettingsGroup id="managed-keys" title={t(`${K}managedKeys`)}>
-      {open
-        ? entries.map((entry) => {
-            const owner = entry.managedBy!;
-            const { page, sub } = settingsRouteParts(owner.route);
-            return (
-              <SettingsRow
-                key={apiKeyEntryId(entry)}
-                id={apiKeyRowId(entry)}
-                label={
-                  <span className="break-all font-mono text-[13px]">
-                    {entry.name}
-                  </span>
-                }
-                description={
-                  <SentenceWithLink
-                    text={t(`${K}usedBy`, { link: SENTENCE_LINK_TOKEN })}
-                    link={
-                      <SettingsPageLink page={page} sub={sub}>
-                        {owner.owner}
-                      </SettingsPageLink>
-                    }
-                  />
-                }
-                control={
-                  <ReadOnlySettingValue
-                    value={
-                      entry.scope === "org" && orgName
-                        ? orgName
-                        : t(
-                            entry.scope === "org"
-                              ? `${M}organization`
-                              : `${M}personal`,
-                          )
-                    }
-                    reason={t(`${K}managedTooltip`, { owner: owner.owner })}
-                  />
-                }
-              />
-            );
-          })
-        : null}
-      <div className="flex justify-center px-5 py-2 sm:px-6">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open
-            ? t(`${K}hideKeys`)
-            : t(`${K}showKeys`, { count: entries.length })}
-        </Button>
-      </div>
-    </SettingsGroup>
+    <ModelSurface
+      model={{
+        id: "settings",
+        rows: [
+          {
+            id: "settings.api-keys.managed-keys",
+            part: "settings.group",
+            label: t(`${K}managedKeys`),
+            anchor: "managed-keys",
+            rows,
+          },
+        ],
+      }}
+      slots={slots}
+    />
   );
 }
 

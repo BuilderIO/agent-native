@@ -16,6 +16,16 @@ import type {
   InfrastructureSetupTag,
   InfrastructureStatus,
 } from "@agent-native/core/server/infrastructure-status";
+import {
+  type ModelRow,
+  type RowIcon,
+  rowIdSegment,
+} from "@agent-native/design-system/model";
+import {
+  combineFragments,
+  type ModelFragment,
+  ModelSurface,
+} from "@agent-native/toolkit/design-system";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -28,28 +38,14 @@ import {
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Switch } from "@agent-native/toolkit/ui/switch";
-import {
-  IconBox,
-  IconBrowser,
-  IconCode,
-  IconCpu,
-  IconDatabase,
-  IconKey,
-  IconMicrophone,
-  IconPalette,
-  IconPhoto,
-  IconSearch,
-  IconServer,
-} from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { ServiceKeyDialog } from "../api-keys/ApiKeyDialogs.js";
 import { DeferredBuilderConnectPopover } from "../deferred-builder-connect-popover.js";
 import type { ModelProvidersListing } from "../model/model-page-state.js";
 import { ProviderDialog } from "../model/ProviderDialog.js";
-import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { useSettingsShell } from "../shell/context.js";
 import type { SettingsPageProps } from "../shell/registry.js";
 import {
@@ -74,6 +70,7 @@ import {
   SERVICE_PROVIDER_AGENT_IDS,
   SERVICE_PROVIDER_API_KEY_NAMES,
   SERVICE_PROVIDER_LABELS,
+  SERVICE_PROVIDER_LOGOS,
   aiModelSources,
   appAddress,
   optimisticServiceStatus,
@@ -82,7 +79,7 @@ import {
   type ServiceId,
   type ServiceProviderId,
 } from "./infra-page-state.js";
-import { BrandLogo, ServiceProviderLogo } from "./logos.js";
+import { brandLogoUrl } from "./logos.js";
 import { ServiceDialog } from "./ServiceDialog.js";
 
 const K = "agentChat.settingsInfra.";
@@ -93,7 +90,7 @@ type Translate = ReturnType<typeof useT>;
 type ServiceRowMeta = {
   labelKey: string;
   whyKey: string;
-  icon: typeof IconMicrophone;
+  symbol: string;
 };
 
 /**
@@ -109,19 +106,19 @@ const PROVIDER_SERVICES: Record<
     labelKey: `${K}voice`,
     useKey: `${K}useVoice`,
     whyKey: `${K}whyVoice`,
-    icon: IconMicrophone,
+    symbol: "microphone",
   },
   images: {
     labelKey: `${K}images`,
     useKey: `${K}useImages`,
     whyKey: `${K}whyImages`,
-    icon: IconPhoto,
+    symbol: "photo",
   },
   embeddings: {
     labelKey: `${K}embeddings`,
     useKey: `${K}useEmbeddings`,
     whyKey: `${K}whyEmbeddings`,
-    icon: IconSearch,
+    symbol: "search",
   },
 };
 
@@ -134,19 +131,19 @@ const BUILDER_ONLY_SERVICES: Record<
     rowId: "design-system-intelligence",
     labelKey: `${K}designSystem`,
     whyKey: `${K}whyDesignSystem`,
-    icon: IconPalette,
+    symbol: "palette",
   },
   "background-agents": {
     rowId: "background",
     labelKey: "agentChat.settingsShell.search.backgroundAgents",
     whyKey: `${K}whyBackground`,
-    icon: IconCode,
+    symbol: "code",
   },
   "browser-automation": {
     rowId: "browser-automation",
     labelKey: "agentChat.settingsShell.search.browserAutomation",
     whyKey: `${K}whyBrowser`,
-    icon: IconBrowser,
+    symbol: "browser",
   },
 };
 
@@ -159,7 +156,7 @@ const BUILDER_INCLUDED_SERVICES: Record<
     rowId: "web-search",
     labelKey: "agentChat.settingsShell.search.webSearch",
     whyKey: `${K}whyWebSearch`,
-    icon: IconSearch,
+    symbol: "search",
   },
 };
 
@@ -190,6 +187,99 @@ function usePostActionRead<T>(name: string, enabled: boolean) {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function brandIcon(logoId: string | null | undefined, symbol: string): RowIcon {
+  const src = brandLogoUrl(logoId);
+  return src ? { kind: "image", src } : { kind: "symbol", key: symbol };
+}
+
+const BUILDER_ICON = brandIcon("builder-cms", "cube");
+
+type InfraRowControl =
+  | { button: string; segment: string; onClick: () => void }
+  | { content: ReactNode };
+
+interface InfraRow {
+  icon?: RowIcon | undefined;
+  description?: string | undefined;
+  descriptionContent?: ReactNode;
+  badge?: string | undefined;
+  status?: ReactNode;
+  control?: InfraRowControl | undefined;
+  detail?: ReactNode;
+}
+
+function infraRow(
+  id: string,
+  anchor: string,
+  label: string,
+  row: InfraRow,
+): ModelFragment {
+  const regions: Record<string, string> = {};
+  const slots: Record<string, ReactNode> = {};
+  const region = (name: string, content: ReactNode) => {
+    if (content === undefined || content === null) return;
+    regions[name] = `${id}:${name}`;
+    slots[`${id}:${name}`] = content;
+  };
+  region("description", row.descriptionContent);
+  region("status", row.status);
+  region("detail", row.detail);
+  const control = row.control;
+  let slot: string | undefined;
+  let rows: ModelRow[] | undefined;
+  const actions: Record<string, () => void> = {};
+  if (control && "button" in control) {
+    const buttonId = `${id}.${control.segment}`;
+    rows = [
+      {
+        id: buttonId,
+        part: "button",
+        kind: "action",
+        label: control.button,
+        effect: { kind: "action", effectId: buttonId },
+      },
+    ];
+    actions[buttonId] = control.onClick;
+  } else if (control) {
+    slot = `${id}:control`;
+    slots[slot] = control.content;
+  }
+  return {
+    rows: [
+      {
+        id,
+        part: "settings.row",
+        label,
+        anchor,
+        ...(row.icon ? { icon: row.icon } : {}),
+        ...(row.description ? { description: row.description } : {}),
+        ...(row.badge
+          ? { state: { badge: { kind: "label" as const, value: row.badge } } }
+          : {}),
+        ...(Object.keys(regions).length > 0 ? { regions } : {}),
+        ...(slot ? { slot } : {}),
+        ...(rows ? { rows } : {}),
+      },
+    ],
+    actions,
+    slots,
+  };
+}
+
+function infraGroup(
+  id: string,
+  anchor: string,
+  label: string,
+  fragments: readonly ModelFragment[],
+): ModelFragment {
+  const combined = combineFragments(fragments);
+  return {
+    rows: [{ id, part: "settings.group", label, anchor, rows: combined.rows }],
+    actions: combined.actions,
+    slots: combined.slots,
+  };
 }
 
 /**
@@ -436,13 +526,16 @@ function InfrastructurePageContent({
     ) : undefined;
   const rowDescription = (source: string, use: string) =>
     t(`${K}rowDescription`, { source, use });
-  const failedRow = (retry: () => unknown) => ({
-    description: (
+  const failedRow = (retry: () => unknown): InfraRow => ({
+    description: t(`${K}loadFailed`),
+    descriptionContent: (
       <span className="text-destructive">{t(`${K}loadFailed`)}</span>
     ),
-    control: (
-      <RowButton onClick={() => void retry()}>{t(`${K}retry`)}</RowButton>
-    ),
+    control: {
+      button: t(`${K}retry`),
+      segment: "retry",
+      onClick: () => void retry(),
+    },
   });
 
   // Builder.io is the recommended way to power every service, so while it can
@@ -474,67 +567,72 @@ function InfrastructurePageContent({
   );
 
   // Setup › Builder.io
-  let builderDescription: ReactNode;
-  let builderControl: ReactNode = null;
+  let builderDescription: string;
+  let builderControl: InfraRowControl | undefined;
   if (builderUnknown) {
     builderDescription = t(`${K}builderUnknown`);
-    builderControl = (
-      <div className="flex flex-wrap gap-2">
-        <RowButton onClick={() => navigate("integrations", "builder")}>
-          {t(`${K}manage`)}
-        </RowButton>
-        <RowButton onClick={() => void flow.retry()}>
-          {t(`${K}retry`)}
-        </RowButton>
-      </div>
-    );
+    builderControl = {
+      content: (
+        <div className="flex flex-wrap gap-2">
+          <RowButton onClick={() => navigate("integrations", "builder")}>
+            {t(`${K}manage`)}
+          </RowButton>
+          <RowButton onClick={() => void flow.retry()}>
+            {t(`${K}retry`)}
+          </RowButton>
+        </div>
+      ),
+    };
   } else if (builderConnected) {
     builderDescription = t(`${K}builderConnected`);
-    builderControl = (
-      <RowButton onClick={() => navigate("integrations", "builder")}>
-        {t(`${K}manage`)}
-      </RowButton>
-    );
+    builderControl = {
+      button: t(`${K}manage`),
+      segment: "manage",
+      onClick: () => navigate("integrations", "builder"),
+    };
   } else if (recommendBuilder) {
     builderDescription = t(`${K}builderRecommended`);
-    builderControl = connectBuilder(
-      "default",
-      t("agentChat.setup.connectBuilder"),
-    );
+    builderControl = {
+      content: connectBuilder("default", t("agentChat.setup.connectBuilder")),
+    };
   } else {
     builderDescription = t(`${K}builderNotConnected`);
   }
 
   // Services › AI model
-  const aiModelRow = (() => {
+  const aiModelRow = ((): InfraRow => {
     if (!listing.data) return failedRow(listing.refetch);
     const sources = aiModelSources(listing.data, builderConnected);
     const setUp = sources.labels.length > 0;
     return {
       icon:
-        sources.lead === "builder" ? (
-          <BrandLogo logoId="builder-cms" />
-        ) : (
-          <BrandLogo
-            logoId={sources.lead ? AGENT_PROVIDER_LOGOS[sources.lead] : null}
-            fallback={IconCpu}
-          />
-        ),
+        sources.lead === "builder"
+          ? BUILDER_ICON
+          : brandIcon(
+              sources.lead ? AGENT_PROVIDER_LOGOS[sources.lead] : null,
+              "cpu",
+            ),
       status: setUp ? undefined : tag(tags?.model ?? "required"),
       description: rowDescription(
         setUp ? formatters.formatList(sources.labels) : t(`${K}notSetUp`),
         t(`${K}useEveryApp`),
       ),
-      control: (
-        <RowButton onClick={() => navigate("model")}>
-          {setUp ? t(`${K}manage`) : t(`${K}setUp`)}
-        </RowButton>
-      ),
+      control: setUp
+        ? {
+            button: t(`${K}manage`),
+            segment: "manage",
+            onClick: () => navigate("model"),
+          }
+        : {
+            button: t(`${K}setUp`),
+            segment: "set-up",
+            onClick: () => navigate("model"),
+          },
     };
   })();
 
   // Services › File uploads and storage
-  const storageRow = (() => {
+  const storageRow = ((): InfraRow => {
     if (!storage.data) return failedRow(storage.refetch);
     const source = storageSource(storage.data);
     const preset =
@@ -560,33 +658,44 @@ function InfrastructurePageContent({
         : storageBuilderStatusUnknown
           ? t(`${K}storageBuilderStatusUnknown`)
           : rowDescription(text, t(`${K}useUploads`));
-    const Icon = preset?.icon;
     return {
       icon:
-        source.kind === "builder" ? (
-          <BrandLogo logoId="builder-cms" />
-        ) : Icon ? (
-          <Icon aria-hidden />
-        ) : (
-          <IconBox aria-hidden />
-        ),
+        source.kind === "builder"
+          ? BUILDER_ICON
+          : {
+              kind: "symbol",
+              key:
+                source.kind === "bucket"
+                  ? fileStorageProviderPreset(source.provider).symbol
+                  : "box",
+            },
       status: source.kind === "none" ? tag(tags?.storage) : undefined,
       description,
       control:
-        storageBuilderStatusUnknown || storageProviderStatusUnknown ? (
-          <div className="flex flex-wrap gap-2">
-            <RowButton onClick={() => void storage.refetch()}>
-              {t(`${K}retry`)}
-            </RowButton>
-            <RowButton onClick={() => setStorageOpen(true)}>
-              {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
-            </RowButton>
-          </div>
-        ) : (
-          <RowButton onClick={() => setStorageOpen(true)}>
-            {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
-          </RowButton>
-        ),
+        storageBuilderStatusUnknown || storageProviderStatusUnknown
+          ? {
+              content: (
+                <div className="flex flex-wrap gap-2">
+                  <RowButton onClick={() => void storage.refetch()}>
+                    {t(`${K}retry`)}
+                  </RowButton>
+                  <RowButton onClick={() => setStorageOpen(true)}>
+                    {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
+                  </RowButton>
+                </div>
+              ),
+            }
+          : source.kind === "none"
+            ? {
+                button: t(`${K}setUp`),
+                segment: "set-up",
+                onClick: () => setStorageOpen(true),
+              }
+            : {
+                button: t(`${K}manage`),
+                segment: "manage",
+                onClick: () => setStorageOpen(true),
+              },
     };
   })();
 
@@ -612,72 +721,82 @@ function InfrastructurePageContent({
     setStorageBuilderReconnectPending(false);
   }, [storage.data, storageBuilderReconnectPending]);
 
-  const serviceRow = (id: WorkspaceProviderServiceId) => {
+  const serviceRow = (id: WorkspaceProviderServiceId): InfraRow => {
     const entry = PROVIDER_SERVICES[id];
     if (!services.data) return failedRow(services.refetch);
     const status = services.data.services.find((item) => item.service === id);
     if (!status) return failedRow(services.refetch);
     const provider = status.effectiveProvider;
     return {
-      icon: provider ? (
-        <ServiceProviderLogo provider={provider} />
-      ) : (
-        <entry.icon aria-hidden />
-      ),
+      icon: provider
+        ? brandIcon(SERVICE_PROVIDER_LOGOS[provider], "cube")
+        : { kind: "symbol", key: entry.symbol },
       status: provider ? undefined : tag(tags?.[id]),
       description: rowDescription(
         provider ? SERVICE_PROVIDER_LABELS[provider] : t(`${K}notSetUp`),
         t(entry.useKey),
       ),
-      control: (
-        <RowButton onClick={() => setServiceOpen(id)}>
-          {provider ? t(`${K}manage`) : t(`${K}setUp`)}
-        </RowButton>
-      ),
+      control: provider
+        ? {
+            button: t(`${K}manage`),
+            segment: "manage",
+            onClick: () => setServiceOpen(id),
+          }
+        : {
+            button: t(`${K}setUp`),
+            segment: "set-up",
+            onClick: () => setServiceOpen(id),
+          },
     };
   };
 
   // Services › Semantic search, under Embeddings, whose provider it uses.
-  const semanticSearchRow = () => {
+  const semanticSearchRow = (): InfraRow => {
     if (!services.data) return failedRow(services.refetch);
     const setting = services.data.semanticSearch;
+    const icon: RowIcon = { kind: "symbol", key: "search" };
     if (!setting) {
       return {
-        icon: <IconSearch aria-hidden />,
-        description: (
+        icon,
+        description: t(`${K}semanticSearchUnknown`),
+        descriptionContent: (
           <span className="text-destructive">
             {t(`${K}semanticSearchUnknown`)}
           </span>
         ),
-        control: (
-          <RowButton onClick={() => void services.refetch()}>
-            {t(`${K}retry`)}
-          </RowButton>
-        ),
+        control: {
+          button: t(`${K}retry`),
+          segment: "retry",
+          onClick: () => void services.refetch(),
+        },
       };
     }
     return {
-      icon: <IconSearch aria-hidden />,
+      icon,
       description: t(
         setting.enabled ? `${K}semanticSearchOn` : `${K}semanticSearchOff`,
       ),
-      control: (
-        <span className="flex items-center gap-2">
-          {semanticSearchRetry === setting.enabled &&
-          services.data.canManage &&
-          !semanticSearchSaving ? (
-            <RowButton onClick={() => void setSemanticSearch(setting.enabled)}>
-              {t(`${K}retry`)}
-            </RowButton>
-          ) : null}
-          <Switch
-            checked={setting.enabled}
-            disabled={!services.data.canManage || semanticSearchSaving}
-            aria-label={t(`${K}semanticSearch`)}
-            onCheckedChange={(checked) => void setSemanticSearch(checked)}
-          />
-        </span>
-      ),
+      control: {
+        content: (
+          <span className="flex items-center gap-2">
+            {semanticSearchRetry === setting.enabled &&
+            services.data.canManage &&
+            !semanticSearchSaving ? (
+              <RowButton
+                onClick={() => void setSemanticSearch(setting.enabled)}
+              >
+                {t(`${K}retry`)}
+              </RowButton>
+            ) : null}
+            <Switch
+              checked={setting.enabled}
+              disabled={!services.data.canManage || semanticSearchSaving}
+              aria-label={t(`${K}semanticSearch`)}
+              onCheckedChange={(checked) => void setSemanticSearch(checked)}
+            />
+          </span>
+        ),
+      },
     };
   };
 
@@ -690,120 +809,136 @@ function InfrastructurePageContent({
     id: string,
     entry: ServiceRowMeta & { rowId: string },
     builderOnly: boolean,
-  ) => (
-    <SettingsRow
-      key={id}
-      id={entry.rowId}
-      icon={
-        builderOnly && builderConnected ? (
-          <BrandLogo logoId="builder-cms" />
-        ) : (
-          <entry.icon aria-hidden />
-        )
-      }
-      label={t(entry.labelKey)}
-      status={
-        builderOnly && !builderConnected ? (
-          <Badge variant="outline" data-builder-only="">
-            {t(`${K}builderOnly`)}
-          </Badge>
-        ) : undefined
-      }
-      description={rowDescription(
-        builderOnly && builderConnected
-          ? BUILDER_LABEL
-          : t(`${K}availableWithBuilder`),
-        t(entry.whyKey),
-      )}
-      control={
-        recommendBuilder
-          ? connectBuilder("outline", t("agentChat.setup.connectBuilder"))
-          : undefined
-      }
-    />
-  );
+  ): ModelFragment =>
+    infraRow(
+      `settings.infrastructure.services.${rowIdSegment(id)}`,
+      entry.rowId,
+      t(entry.labelKey),
+      {
+        icon:
+          builderOnly && builderConnected
+            ? BUILDER_ICON
+            : { kind: "symbol", key: entry.symbol },
+        status:
+          builderOnly && !builderConnected ? (
+            <Badge variant="outline" data-builder-only="">
+              {t(`${K}builderOnly`)}
+            </Badge>
+          ) : undefined,
+        description: rowDescription(
+          builderOnly && builderConnected
+            ? BUILDER_LABEL
+            : t(`${K}availableWithBuilder`),
+          t(entry.whyKey),
+        ),
+        control: recommendBuilder
+          ? {
+              content: connectBuilder(
+                "outline",
+                t("agentChat.setup.connectBuilder"),
+              ),
+            }
+          : undefined,
+      },
+    );
+
+  const serviceRows = WORKSPACE_SERVICES.flatMap((service): ModelFragment[] => {
+    const rowId = `settings.infrastructure.services.${rowIdSegment(service.id)}`;
+    switch (service.kind) {
+      case "model":
+        return [infraRow(rowId, "ai-model", t(`${K}aiModel`), aiModelRow)];
+      case "storage":
+        return [
+          infraRow(
+            rowId,
+            "uploads",
+            t("agentChat.settingsShell.search.fileUploads"),
+            storageRow,
+          ),
+        ];
+      case "provider":
+        if (!hasOrg) return [];
+        return [
+          infraRow(
+            rowId,
+            service.id,
+            t(PROVIDER_SERVICES[service.id].labelKey),
+            serviceRow(service.id),
+          ),
+          ...(service.id === "embeddings"
+            ? [
+                infraRow(
+                  "settings.infrastructure.services.semantic-search",
+                  "semantic-search",
+                  t(`${K}semanticSearch`),
+                  semanticSearchRow(),
+                ),
+              ]
+            : []),
+        ];
+      case "builder-only":
+        return [
+          builderProvidedServiceRow(
+            service.id,
+            BUILDER_ONLY_SERVICES[service.id],
+            true,
+          ),
+        ];
+      case "builder-included":
+        return [
+          builderProvidedServiceRow(
+            service.id,
+            BUILDER_INCLUDED_SERVICES[service.id],
+            false,
+          ),
+        ];
+    }
+  });
+
+  const page = combineFragments([
+    infraGroup(
+      "settings.infrastructure.setup",
+      "setup",
+      recommendBuilder ? t(`${K}recommended`) : t(`${K}setup`),
+      [
+        infraRow(
+          "settings.infrastructure.setup.builder",
+          "builder",
+          BUILDER_LABEL,
+          {
+            icon: BUILDER_ICON,
+            description: builderDescription,
+            control: builderControl,
+            detail:
+              flow.error && flow.errorKind !== "status-read" ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {flow.error}
+                </p>
+              ) : undefined,
+          },
+        ),
+      ],
+    ),
+    infraGroup(
+      "settings.infrastructure.services",
+      "services",
+      t(`${K}services`),
+      serviceRows,
+    ),
+    environmentGroup({
+      infra,
+      onView: setEnvironmentOpen,
+      t,
+      formatList: (value) => formatters.formatList(value),
+    }),
+  ]);
 
   return (
     <div className="flex flex-col gap-8" data-infrastructure-settings="">
-      <SettingsGroup
-        id="setup"
-        title={recommendBuilder ? t(`${K}recommended`) : t(`${K}setup`)}
-      >
-        <SettingsRow
-          id="builder"
-          icon={<BrandLogo logoId="builder-cms" />}
-          label={BUILDER_LABEL}
-          description={builderDescription}
-          control={builderControl}
-        >
-          {flow.error && flow.errorKind !== "status-read" ? (
-            <p role="alert" className="text-sm text-destructive">
-              {flow.error}
-            </p>
-          ) : null}
-        </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsGroup id="services" title={t(`${K}services`)}>
-        {WORKSPACE_SERVICES.map((service) => {
-          switch (service.kind) {
-            case "model":
-              return (
-                <SettingsRow
-                  key={service.id}
-                  id="ai-model"
-                  label={t(`${K}aiModel`)}
-                  {...aiModelRow}
-                />
-              );
-            case "storage":
-              return (
-                <SettingsRow
-                  key={service.id}
-                  id="uploads"
-                  label={t("agentChat.settingsShell.search.fileUploads")}
-                  {...storageRow}
-                />
-              );
-            case "provider":
-              return hasOrg ? (
-                <Fragment key={service.id}>
-                  <SettingsRow
-                    id={service.id}
-                    label={t(PROVIDER_SERVICES[service.id].labelKey)}
-                    {...serviceRow(service.id)}
-                  />
-                  {service.id === "embeddings" ? (
-                    <SettingsRow
-                      id="semantic-search"
-                      label={t(`${K}semanticSearch`)}
-                      {...semanticSearchRow()}
-                    />
-                  ) : null}
-                </Fragment>
-              ) : null;
-            case "builder-only": {
-              return builderProvidedServiceRow(
-                service.id,
-                BUILDER_ONLY_SERVICES[service.id],
-                true,
-              );
-            }
-            case "builder-included":
-              return builderProvidedServiceRow(
-                service.id,
-                BUILDER_INCLUDED_SERVICES[service.id],
-                false,
-              );
-          }
-        })}
-      </SettingsGroup>
-
-      <EnvironmentGroup
-        infra={infra}
-        onView={setEnvironmentOpen}
-        t={t}
-        formatList={(value) => formatters.formatList(value)}
+      <ModelSurface
+        model={{ id: "settings", rows: page.rows }}
+        actions={page.actions}
+        slots={page.slots}
       />
 
       <Dialog
@@ -985,7 +1120,7 @@ function hostingLabel(status: InfrastructureStatus, t: Translate): string {
   return HOSTING_PLATFORM_LABELS[platform] ?? t(`${K}hostOwnServer`);
 }
 
-function EnvironmentGroup({
+function environmentGroup({
   infra,
   onView,
   t,
@@ -995,40 +1130,57 @@ function EnvironmentGroup({
   onView: (id: EnvironmentDialogId) => void;
   t: Translate;
   formatList: (value: string[]) => string;
-}) {
-  const view = (id: EnvironmentDialogId) => (
-    <RowButton onClick={() => onView(id)}>{t(`${K}view`)}</RowButton>
-  );
+}): ModelFragment {
+  const view = (id: EnvironmentDialogId): InfraRowControl => ({
+    button: t(`${K}view`),
+    segment: "view",
+    onClick: () => onView(id),
+  });
+  const group = (rows: readonly ModelFragment[]) =>
+    infraGroup(
+      "settings.infrastructure.environment",
+      "environment",
+      t(`${K}environment`),
+      rows,
+    );
+  const databaseLabel = t("agentChat.settingsShell.search.database");
+  const hostingLabelText = t("agentChat.settingsShell.search.hosting");
+  const variablesLabel = t(`${K}variables`);
   const status = infra.data;
   if (!status) {
-    const failed = (
-      <span className="text-destructive">{t(`${K}loadFailed`)}</span>
-    );
-    const retry = (
-      <RowButton onClick={() => void infra.refetch()}>
-        {t(`${K}retry`)}
-      </RowButton>
-    );
-    return (
-      <SettingsGroup id="environment" title={t(`${K}environment`)}>
-        <SettingsRow
-          id="database"
-          label={t("agentChat.settingsShell.search.database")}
-          description={failed}
-          control={retry}
-        />
-        <SettingsRow
-          id="hosting"
-          label={t("agentChat.settingsShell.search.hosting")}
-          description={failed}
-        />
-        <SettingsRow
-          id="variables"
-          label={t(`${K}variables`)}
-          description={failed}
-        />
-      </SettingsGroup>
-    );
+    const failed = {
+      description: t(`${K}loadFailed`),
+      descriptionContent: (
+        <span className="text-destructive">{t(`${K}loadFailed`)}</span>
+      ),
+    };
+    return group([
+      infraRow(
+        "settings.infrastructure.environment.database",
+        "database",
+        databaseLabel,
+        {
+          ...failed,
+          control: {
+            button: t(`${K}retry`),
+            segment: "retry",
+            onClick: () => void infra.refetch(),
+          },
+        },
+      ),
+      infraRow(
+        "settings.infrastructure.environment.hosting",
+        "hosting",
+        hostingLabelText,
+        failed,
+      ),
+      infraRow(
+        "settings.infrastructure.environment.variables",
+        "variables",
+        variablesLabel,
+        failed,
+      ),
+    ]);
   }
 
   const { database, hosting } = status;
@@ -1062,50 +1214,42 @@ function EnvironmentGroup({
         keys: formatList(required.map((variable) => variable.key)),
       });
 
-  return (
-    <SettingsGroup id="environment" title={t(`${K}environment`)}>
-      <SettingsRow
-        id="database"
-        icon={
-          <BrandLogo
-            logoId={
-              database.provider
-                ? DATABASE_PROVIDER_LOGOS[database.provider]
-                : null
-            }
-            fallback={IconDatabase}
-          />
-        }
-        label={t("agentChat.settingsShell.search.database")}
-        description={databaseDescription}
-        control={view("database")}
-      />
-      <SettingsRow
-        id="hosting"
-        icon={
-          <BrandLogo
-            logoId={HOSTING_PLATFORM_LOGOS[hosting.platform]}
-            fallback={IconServer}
-          />
-        }
-        label={t("agentChat.settingsShell.search.hosting")}
-        description={hostingDescription}
-        control={view("hosting")}
-      />
-      <SettingsRow
-        id="variables"
-        icon={<IconKey aria-hidden />}
-        label={t(`${K}variables`)}
-        status={
-          missing.length ? (
-            <Badge variant="outline">{t(`${K}required`)}</Badge>
-          ) : undefined
-        }
-        description={variablesDescription}
-        control={view("variables")}
-      />
-    </SettingsGroup>
-  );
+  return group([
+    infraRow(
+      "settings.infrastructure.environment.database",
+      "database",
+      databaseLabel,
+      {
+        icon: brandIcon(
+          database.provider ? DATABASE_PROVIDER_LOGOS[database.provider] : null,
+          "database",
+        ),
+        description: databaseDescription,
+        control: view("database"),
+      },
+    ),
+    infraRow(
+      "settings.infrastructure.environment.hosting",
+      "hosting",
+      hostingLabelText,
+      {
+        icon: brandIcon(HOSTING_PLATFORM_LOGOS[hosting.platform], "server"),
+        description: hostingDescription,
+        control: view("hosting"),
+      },
+    ),
+    infraRow(
+      "settings.infrastructure.environment.variables",
+      "variables",
+      variablesLabel,
+      {
+        icon: { kind: "symbol", key: "key" },
+        badge: missing.length ? t(`${K}required`) : undefined,
+        description: variablesDescription,
+        control: view("variables"),
+      },
+    ),
+  ]);
 }
 
 function RowButton({
