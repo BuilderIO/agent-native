@@ -31,6 +31,9 @@ vi.mock("../../server/lib/recording-created.js", () => ({
   trackRecordingCreated: (...args: unknown[]) =>
     mocks.trackRecordingCreated(...args),
 }));
+vi.mock("../../server/lib/recording-made-by.js", () => ({
+  recordingMadeBy: () => ({ madeBy: "agent", madeByAgent: "Claude" }),
+}));
 vi.mock("../../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
   getDefaultRecordingVisibility: async () => "org",
@@ -97,6 +100,8 @@ describe("importYouTubeVideo", () => {
         width: 1280,
         height: 960,
         visibility: "org",
+        madeBy: "agent",
+        madeByAgent: "Claude",
       }),
     );
     expect(result).toMatchObject({
