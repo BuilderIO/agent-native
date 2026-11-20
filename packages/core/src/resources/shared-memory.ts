@@ -65,6 +65,8 @@ export class MemoryTombstoneError extends Error {}
 
 export class MemoryWriteConflictError extends Error {}
 
+export class MemoryMirrorRepairError extends Error {}
+
 export type MirroredMemory =
   | { state: "absent" }
   | { state: "deleted"; deletedAt: number }

@@ -48,6 +48,7 @@ import {
   deleteSharedPersonalMemory,
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
+  MemoryMirrorRepairError,
   MemoryTombstoneError,
   MemoryWriteConflictError,
   readMirroredMemory,
@@ -2068,7 +2069,6 @@ async function adoptSharedMemory(
 }
 
 function handleMirrorFailure(error: unknown): void {
-  if (error instanceof MemoryWriteConflictError) throw error;
   console.error("[resources] Could not mirror personal memory:", error);
 }
 
@@ -2153,6 +2153,8 @@ async function assertNoNewerSharedEdit(
   resource: MirrorTarget,
   base: { content: string; updatedAt: number },
 ): Promise<void> {
+  const current = await selectMirrorTarget(resource.owner, resource.path);
+  if (!current || !sameMirrorTarget(current, resource)) return;
   const file = await readMirroredMemory(resource.owner, resource.path);
   if (
     file.state !== "present" ||
@@ -2183,15 +2185,36 @@ async function mirrorMemoryUnlocked(resource: MirrorTarget): Promise<void> {
   for (let attempt = 0; attempt < MIRROR_REPAIR_ATTEMPTS; attempt++) {
     const row = await selectMirrorTarget(resource.owner, resource.path);
     if (!row) {
-      if (attempt > 0) {
-        await deleteSharedPersonalMemory(resource.owner, resource.path);
-      }
-      return;
+      if (attempt === 0) return;
+      await deleteSharedPersonalMemory(resource.owner, resource.path);
+      if (!(await selectMirrorTarget(resource.owner, resource.path))) return;
+      continue;
     }
     if (attempt === 0 && !sameMirrorTarget(row, resource)) return;
     await writeSharedPersonalMemory(resource.owner, resource.path, row.content);
     const after = await selectMirrorTarget(resource.owner, resource.path);
     if (after && sameMirrorTarget(after, row)) return;
+  }
+  throw new MemoryMirrorRepairError(
+    `${resource.path} kept changing while it was mirrored to the shared memory directory; the shared copy may be out of date`,
+  );
+}
+
+const ROWLESS_MEMORY_BASE = { content: "", updatedAt: 0 };
+
+async function mirrorWriteReportingConflict(
+  resource: MirrorTarget,
+  base: { content: string; updatedAt: number },
+  emitChange: () => void,
+): Promise<void> {
+  try {
+    await mirrorMemoryIfCurrent(resource, base);
+  } catch (error) {
+    if (error instanceof MemoryWriteConflictError) {
+      emitChange();
+      throw error;
+    }
+    handleMirrorFailure(error);
   }
 }
 
@@ -2641,15 +2664,16 @@ export async function resourcePutWithDb(
     value: resource,
     notifyAfterCommit: async () => {
       if (isPersonalMemoryResourcePath(owner, path)) {
-        await mirrorMemoryIfCurrent(
+        await mirrorWriteReportingConflict(
           resource,
           typeof existingRow?.content === "string"
             ? {
                 content: existingRow.content,
                 updatedAt: Number(existingRow.updated_at),
               }
-            : undefined,
-        ).catch(handleMirrorFailure);
+            : ROWLESS_MEMORY_BASE,
+          () => emitResourceChange(id, path, owner, options?.requestSource),
+        );
       }
       if (typeof existingRow?.content === "string") {
         await noteJobFrontmatterWrite({
@@ -3190,9 +3214,28 @@ export async function resourcePutSnapshotBatchIfCurrent(
     throw error;
   }
 
+  let conflict: MemoryWriteConflictError | undefined;
   for (const [index, { before, resource }] of result.entries()) {
     if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
-      await mirrorMemoryIfCurrent(resource).catch(handleMirrorFailure);
+      try {
+        await mirrorWriteReportingConflict(
+          resource,
+          before
+            ? { content: before.content, updatedAt: before.updatedAt }
+            : ROWLESS_MEMORY_BASE,
+          () =>
+            emitResourceChange(
+              resource.id,
+              resource.path,
+              resource.owner,
+              writes[index]?.options?.requestSource,
+            ),
+        );
+      } catch (error) {
+        if (!(error instanceof MemoryWriteConflictError)) throw error;
+        conflict ??= error;
+        continue;
+      }
     }
     if (before) {
       await noteJobFrontmatterWrite({
@@ -3211,6 +3254,7 @@ export async function resourcePutSnapshotBatchIfCurrent(
       writes[index]?.options?.requestSource,
     );
   }
+  if (conflict) throw conflict;
   return result;
 }
 

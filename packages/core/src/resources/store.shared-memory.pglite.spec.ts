@@ -670,4 +670,138 @@ describe("personal memory shared across local apps", () => {
       resourceGetByPath(OWNER, "memory/conflict.md"),
     ).resolves.toMatchObject({ content: "external edit" });
   });
+
+  it("does not tombstone a memory whose row reappears around the repair", async () => {
+    const dir = useMemoryDir();
+    const { resourcePutWithDb } = await import("./store.js");
+    const first = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/reborn.md",
+      "first",
+    );
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const rename = vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementationOnce(async (from, to) => {
+        await realRename(from, to);
+        await pglite.exec(
+          `DELETE FROM resources WHERE owner = '${OWNER}' AND path = 'memory/reborn.md'`,
+        );
+      })
+      .mockImplementationOnce(async (from, to) => {
+        await realRename(from, to);
+        await pglite.exec(
+          `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES ('reborn-id', 'memory/reborn.md', '${OWNER}', 'reborn', 'text/markdown', 6, 1, 2)`,
+        );
+      });
+    try {
+      await first.notifyAfterCommit();
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(sharedFile(dir, "reborn.md"), "utf8")).toBe(
+      "reborn",
+    );
+    expect(fs.existsSync(`${sharedFile(dir, "reborn.md")}.deleted`)).toBe(
+      false,
+    );
+  });
+
+  it("reports a mirror that never settles as a typed repair error", async () => {
+    useMemoryDir();
+    const { resourcePutWithDb } = await import("./store.js");
+    const { MemoryMirrorRepairError } = await import("./shared-memory.js");
+    const first = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/churn.md",
+      "v0",
+    );
+    const realRename = fs.promises.rename.bind(fs.promises);
+    let revision = first.value.updatedAt;
+    const rename = vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementation(async (from, to) => {
+        await realRename(from, to);
+        revision += 1;
+        await pglite.exec(
+          `UPDATE resources SET content = 'v${revision}', updated_at = ${revision} WHERE owner = '${OWNER}' AND path = 'memory/churn.md'`,
+        );
+      });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await first.notifyAfterCommit();
+      expect(logged).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(MemoryMirrorRepairError),
+      );
+    } finally {
+      rename.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  it("emits a change event for the adopted state before a write conflict is thrown", async () => {
+    const dir = useMemoryDir();
+    const { resourcePut } = await import("./store.js");
+    const { getResourcesEmitter } = await import("./emitter.js");
+    const base = await resourcePut(OWNER, "memory/conflict-event.md", "v1");
+    const file = sharedFile(dir, "conflict-event.md");
+    fs.writeFileSync(file, "external");
+    const later = new Date(base.updatedAt + 60_000);
+    fs.utimesSync(file, later, later);
+    const events: Array<{ path?: string }> = [];
+    const onEvent = (event: { path?: string }) => events.push(event);
+    getResourcesEmitter().on("resources", onEvent);
+    try {
+      await expect(
+        resourcePut(OWNER, "memory/conflict-event.md", "v2"),
+      ).rejects.toThrow();
+    } finally {
+      getResourcesEmitter().off("resources", onEvent);
+    }
+    expect(events.map((event) => event.path)).toContain(
+      "memory/conflict-event.md",
+    );
+  });
+
+  it("rejects a first write over an existing shared file when SQL has no row", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const { MemoryWriteConflictError } = await import("./shared-memory.js");
+    writeSharedFile(dir, "rowless.md", "from another app");
+
+    await expect(
+      resourcePut(OWNER, "memory/rowless.md", "mine"),
+    ).rejects.toBeInstanceOf(MemoryWriteConflictError);
+    expect(fs.readFileSync(sharedFile(dir, "rowless.md"), "utf8")).toBe(
+      "from another app",
+    );
+    await expect(
+      resourceGetByPath(OWNER, "memory/rowless.md"),
+    ).resolves.toMatchObject({ content: "from another app" });
+  });
+
+  it("applies the newer-edit check to snapshot batch writes", async () => {
+    const dir = useMemoryDir();
+    const { resourcePut, resourcePutSnapshotBatchIfCurrent } =
+      await import("./store.js");
+    const { MemoryWriteConflictError } = await import("./shared-memory.js");
+    const a = await resourcePut(OWNER, "memory/batch-a.md", "a1");
+    const b = await resourcePut(OWNER, "memory/batch-b.md", "b1");
+    const file = sharedFile(dir, "batch-a.md");
+    fs.writeFileSync(file, "a-external");
+    const later = new Date(a.updatedAt + 60_000);
+    fs.utimesSync(file, later, later);
+
+    await expect(
+      resourcePutSnapshotBatchIfCurrent([
+        { previous: a, owner: OWNER, path: a.path, content: "a2" },
+        { previous: b, owner: OWNER, path: b.path, content: "b2" },
+      ]),
+    ).rejects.toBeInstanceOf(MemoryWriteConflictError);
+    expect(fs.readFileSync(file, "utf8")).toBe("a-external");
+    expect(fs.readFileSync(sharedFile(dir, "batch-b.md"), "utf8")).toBe("b2");
+  });
 });
