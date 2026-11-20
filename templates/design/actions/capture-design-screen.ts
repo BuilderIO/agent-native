@@ -54,7 +54,7 @@ export default defineAction({
       });
     }
     const width = args.width ?? screenWidthPx(design.data, screen.id);
-    const png = await renderScreenPng(screen, width, ctx?.signal);
+    const png = await renderScreenPng(screen, width, ctx.signal);
     const size = pngSize(png);
     const { designUrl, screenUrl } = captureLinks(design.id, screen.id);
     const openComments = await openCommentCount(design.id, screen.id);

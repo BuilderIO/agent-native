@@ -97,7 +97,7 @@ export async function loadCaptureDesign(
       statusCode: 401,
     });
   }
-  const access = await resolveAccess("design", designId).catch(() => null);
+  const access = await resolveAccess("design", designId);
   if (!access) {
     fail("Design not found, or you can't open it.", {
       errorCode: "design_not_found",
@@ -145,7 +145,7 @@ export async function loadCaptureScreens(
       .filter((row) => row.fileType === "html")
       .map((row) => [
         row.id,
-        { id: row.id, filename: row.filename, content: row.content ?? "" },
+        { id: row.id, filename: row.filename, content: row.content },
       ]),
   );
 }
@@ -191,11 +191,14 @@ export function screenFingerprint(
   const metadata = isPlainRecord(data.screenMetadata)
     ? (data.screenMetadata[screenId] ?? null)
     : null;
-  const frame = parseCanvasFrameGeometryById(data.canvasFrames)[screenId];
+  const frames = parseCanvasFrameGeometryById(data.canvasFrames);
+  const frameWidth = Object.prototype.hasOwnProperty.call(frames, screenId)
+    ? frames[screenId].width
+    : null;
   return createHash("sha256")
     .update(screen.content)
     .update("\u0000")
-    .update(JSON.stringify({ metadata, width: frame?.width ?? null }))
+    .update(JSON.stringify({ metadata, width: frameWidth }))
     .digest("hex")
     .slice(0, 12);
 }

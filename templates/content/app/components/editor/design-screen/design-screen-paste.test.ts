@@ -97,6 +97,7 @@ function blocks(target: Editor) {
 
 async function settle() {
   for (let i = 0; i < 5; i++) {
+    // fixed-sleep-ok: lets the paste's queued action call settle; no event marks it, and a link left alone has none
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }

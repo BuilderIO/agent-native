@@ -214,7 +214,7 @@ describe("DesignScreen for readers", () => {
     expect(container.textContent).toContain("designScreen.changed");
     expect(container.textContent).not.toContain("designScreen.changedRefresh");
     const comments = [...container.querySelectorAll("a")].find((link) =>
-      link.textContent?.startsWith("designScreen.openComments"),
+      link.textContent.startsWith("designScreen.openComments"),
     );
     expect(comments?.textContent).toBe('designScreen.openComments {"count":3}');
     expect(comments?.getAttribute("href")).toBe(SCREEN_URL);
