@@ -12288,7 +12288,7 @@ export async function runAgentLoop(opts: {
           skipToolCallAfterStop(
             toolCall,
             `Not executed: a private action already completed earlier in this turn, and its details are not available after the run resumed. ` +
-              `Do not repeat it. Tell the user what was done and ask them to send a new request for anything else.`,
+              `Do not repeat it or guess its result. Tell the user that an earlier private step finished, ask them to check what was saved, and to send a new request for anything else.`,
           ),
         );
         continue;
