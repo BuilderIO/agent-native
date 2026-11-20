@@ -32,6 +32,7 @@ vi.mock("./local-export", async (importOriginal) => {
 });
 
 import { requestRecordingContext } from "../lookback/context-api";
+import { PREPARING_AFTER_COUNTDOWN_DELAY_MS } from "./preparing-after-countdown";
 import {
   emitRecorderSession,
   forgetRewindClipOriginIfNoRequest,
@@ -1394,7 +1395,7 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
-  it("permits retry after cancellation while the old begin invoke is still pending", async () => {
+  it("holds a retry until the abandoned start's take is stopped, so its stop cannot end the new recording", async () => {
     const begin = deferred<void>();
     nativeCommands.set(
       "native_fullscreen_recording_begin",
@@ -1409,15 +1410,278 @@ describe("native recording startup", () => {
     await failed;
     await flush();
     expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
+
+    // Stop, then start again at once while the old begin is still pending.
     nativeCommands.delete("native_fullscreen_recording_begin");
     const second = startRecording(params);
-    await vi.advanceTimersByTimeAsync(3_600);
-    const handle = await second;
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
-    expect(mocks.emit).toHaveBeenCalledWith("clips:toolbar-enabled", true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls("show_countdown")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+
+    // The old begin lands: its take is stopped and saved first, and only then
+    // does the new start run.
     begin.resolve();
     await flush();
+    await flush();
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await second;
+    expect(calls("show_countdown")).toHaveLength(2);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+    const order = mocks.invoke.mock.calls
+      .map(([name]) => name as string)
+      .filter(
+        (name) =>
+          name === "native_fullscreen_recording_stop_and_upload" ||
+          name === "native_fullscreen_recording_begin",
+      );
+    expect(order).toEqual([
+      "native_fullscreen_recording_begin",
+      "native_fullscreen_recording_stop_and_upload",
+      "native_fullscreen_recording_begin",
+    ]);
+    expect(mocks.emit).toHaveBeenCalledWith("clips:toolbar-enabled", true);
     await handle.cancel();
+  });
+
+  it("blocks a retry with a visible error while an abandoned take is still not stopped, and saves that take", async () => {
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const controller = new AbortController();
+    const first = startRecording({ ...params, signal: controller.signal });
+    const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(3_600);
+    controller.abort();
+    await failed;
+    nativeCommands.delete("native_fullscreen_recording_begin");
+
+    // The old take's stop stalls before it reaches the native stop command.
+    const chrome = deferred<void>();
+    nativeCommands.set("hide_recording_chrome", () => chrome.promise);
+    const second = startRecording(params);
+    const blocked = expect(second).rejects.toMatchObject({
+      name: "PreviousRecordingStillStoppingError",
+    });
+    begin.resolve();
+    await flush();
+    await vi.advanceTimersByTimeAsync(90_000);
+    await blocked;
+    // No new capture was started over the unsaved take.
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("show_countdown")).toHaveLength(1);
+
+    // The old stop continues and saves the abandoned take.
+    nativeCommands.delete("hide_recording_chrome");
+    chrome.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+
+    // Once it has been stopped, a retry starts normally.
+    const third = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await third;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+    await handle.cancel();
+  });
+
+  it("retries an abandoned take's stop that failed before it was sent, and starts once it is sent", async () => {
+    // Uses a fresh copy of the module so its start barrier cannot leak into
+    // the other tests.
+    vi.resetModules();
+    const { startRecording } = await import("./recorder");
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const controller = new AbortController();
+    const first = startRecording({ ...params, signal: controller.signal });
+    const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(3_600);
+    controller.abort();
+    await failed;
+    nativeCommands.delete("native_fullscreen_recording_begin");
+
+    // The late stop fails before the native stop command is sent.
+    const listen = mocks.listen.getMockImplementation();
+    if (!listen) throw new Error("listen mock has no implementation");
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (name === "clips:native-recording-finalized") {
+        throw new Error("listener registration failed");
+      }
+      return listen(name, callback);
+    });
+    begin.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The session may still be running. The next start retries that stop;
+    // it fails again, so the start fails visibly without a countdown or a
+    // begin over the old session.
+    await expect(startRecording(params)).rejects.toMatchObject({
+      name: "PreviousRecordingStillStoppingError",
+    });
+    expect(calls("show_countdown")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The listener works again: the next start's retry sends the stop, the
+    // abandoned take is saved, and the new recording starts normally.
+    mocks.listen.mockImplementation(listen);
+    const third = startRecording(params);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await third;
+    expect(calls("show_countdown")).toHaveLength(2);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+    await handle.cancel();
+  });
+
+  it("keeps the live-session timer running after a stop that failed before dispatch, so the retry works", async () => {
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const listen = mocks.listen.getMockImplementation();
+    if (!listen) throw new Error("listen mock has no implementation");
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (name === "clips:native-recording-finalized") {
+        throw new Error("listener registration failed");
+      }
+      return listen(name, callback);
+    });
+    const stateEmits = () =>
+      mocks.emit.mock.calls.filter(([name]) => name === "clips:recorder-state")
+        .length;
+
+    await expect(handle.stop()).rejects.toThrow("listener registration failed");
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+    // Capture is still running: its elapsed-time timer was not torn down.
+    const before = stateEmits();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(stateEmits()).toBeGreaterThan(before);
+
+    // The retry sends the stop and only then tears the timer down.
+    mocks.listen.mockImplementation(listen);
+    void handle.stop();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    const afterStop = stateEmits();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(stateEmits()).toBe(afterStop);
+  });
+
+  it("retries an abandoned Rewind take's stop that failed before it was sent", async () => {
+    vi.resetModules();
+    const { startRecording } = await import("./recorder");
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const rewindStart = deferred<void>();
+    nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
+    const controller = new AbortController();
+    const first = startRecording({
+      ...params,
+      source: "full-screen",
+      signal: controller.signal,
+    });
+    const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(3_600);
+    controller.abort();
+    await failed;
+
+    // The Rewind stop command cannot be sent the first time.
+    const invoke = mocks.invoke.getMockImplementation();
+    if (!invoke) throw new Error("invoke mock has no implementation");
+    mocks.invoke.mockImplementation((name, args) => {
+      if (name === "rewind_clip_stop_and_upload") {
+        throw new Error("IPC unavailable");
+      }
+      return invoke(name, args);
+    });
+    rewindStart.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(
+      startRecording({ ...params, source: "full-screen" }),
+    ).rejects.toMatchObject({ name: "PreviousRecordingStillStoppingError" });
+    expect(calls("rewind_clip_start")).toHaveLength(1);
+
+    // The next start retries the same stop, which is now sent.
+    mocks.invoke.mockImplementation(invoke);
+    nativeCommands.delete("rewind_clip_start");
+    const next = startRecording({ ...params, source: "full-screen" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("rewind_clip_stop_and_upload")).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await next;
+    expect(calls("rewind_clip_start")).toHaveLength(2);
+    await handle.cancel();
+  });
+
+  it("retries an ordinary stop that failed before it was sent at the next start, saves the take, then starts", async () => {
+    vi.resetModules();
+    const { startRecording } = await import("./recorder");
+    const handle = await (async () => {
+      const pending = startRecording(params);
+      await vi.advanceTimersByTimeAsync(3_600);
+      return pending;
+    })();
+
+    // The app's stop fails before the native stop command is sent.
+    const listen = mocks.listen.getMockImplementation();
+    if (!listen) throw new Error("listen mock has no implementation");
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (name === "clips:native-recording-finalized") {
+        throw new Error("listener registration failed");
+      }
+      return listen(name, callback);
+    });
+    await expect(handle.stop()).rejects.toThrow("listener registration failed");
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The next start retries that stop first; it is sent, so the take is
+    // saved, and only then does the new recording start.
+    mocks.listen.mockImplementation(listen);
+    const next = startRecording(params);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const nextHandle = await next;
+    const order = mocks.invoke.mock.calls
+      .map(([name]) => name as string)
+      .filter(
+        (name) =>
+          name === "native_fullscreen_recording_stop_and_upload" ||
+          name === "native_fullscreen_recording_begin",
+      );
+    expect(order).toEqual([
+      "native_fullscreen_recording_begin",
+      "native_fullscreen_recording_stop_and_upload",
+      "native_fullscreen_recording_begin",
+    ]);
+    await nextHandle.cancel();
   });
 
   it("keeps microphone-off local capture native and skips transcription", async () => {
@@ -1472,6 +1736,345 @@ describe("native recording startup", () => {
       cancellationCount,
     );
     await handle.cancel();
+  });
+});
+
+describe("Preparing after the countdown", () => {
+  function commandOrder(...names: string[]) {
+    return mocks.invoke.mock.calls
+      .map(([name]) => name as string)
+      .filter((name) => names.includes(name));
+  }
+
+  it("shows nothing when capture goes live right after the countdown", async () => {
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS * 2);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("show_preparing")).toHaveLength(0);
+    expect(calls("hide_preparing")).toHaveLength(0);
+    await handle.cancel();
+  });
+
+  it("keeps Preparing up through a slow warm-up after the server recording exists", async () => {
+    const warm = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    expect(createdRecordingId()).toBeTruthy();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+    expect(calls("show_preparing")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(calls("hide_preparing")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+
+    warm.resolve();
+    const handle = await pending;
+    expect(
+      commandOrder(
+        "show_preparing",
+        "native_fullscreen_recording_begin",
+        "hide_preparing",
+      ),
+    ).toEqual([
+      "show_preparing",
+      "native_fullscreen_recording_begin",
+      "hide_preparing",
+    ]);
+    await handle.cancel();
+  });
+
+  it("keeps Preparing up until a slow native begin returns", async () => {
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("show_preparing")).toHaveLength(1);
+    expect(calls("hide_preparing")).toHaveLength(0);
+
+    begin.resolve();
+    const handle = await pending;
+    expect(calls("hide_preparing")).toHaveLength(1);
+    await handle.cancel();
+  });
+
+  it("covers a local-only take's warm-up too", async () => {
+    const warm = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    const pending = startRecording({
+      ...params,
+      localRecordingMode: "composed",
+    });
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+    warm.resolve();
+    const handle = await pending;
+    expect(calls("hide_preparing")).toHaveLength(1);
+    await handle.cancel();
+  });
+
+  it("hides Preparing when startup is cancelled before native begin", async () => {
+    const warm = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    const controller = new AbortController();
+    const pending = startRecording({ ...params, signal: controller.signal });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+
+    // The warm-up finishes in the same tick as the cancel: the start must
+    // stop before begin and still take Preparing down.
+    warm.resolve();
+    controller.abort();
+    await failed;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("hide_preparing")).toHaveLength(1);
+    expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
+  });
+
+  it("keeps the take when Stop lands right after native begin while Preparing is still closing", async () => {
+    const warm = deferred<void>();
+    const hide = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    nativeCommands.set("hide_preparing", () => hide.promise);
+    const controller = new AbortController();
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartRequested,
+    });
+    const settled = pending.then(
+      () => "started",
+      (err: unknown) => err,
+    );
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+
+    warm.resolve();
+    await flush();
+    const id = createdRecordingId();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("hide_preparing")).toHaveLength(1);
+    // Capture is reported live without waiting for the overlay to close.
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(id, id);
+
+    // Stop in that window: the take is kept, not discarded as a cancelled start.
+    controller.abort();
+    await settled;
+    hide.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes(`/api/uploads/${id}/abort`) &&
+          String(init?.body ?? "").includes("user_cancelled"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a live native take when Stop lands during the post-begin timeline reset", async () => {
+    const reset = deferred<void>();
+    const transcript = capture();
+    transcript.resetTimeline = vi.fn(() => reset.promise);
+    mocks.transcribe.mockResolvedValueOnce(transcript);
+    const controller = new AbortController();
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartRequested,
+    });
+    const settled = pending.then(
+      () => "started",
+      (err: unknown) => err,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const id = createdRecordingId();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(id, id);
+    expect(transcript.resetTimeline).toHaveBeenCalledOnce();
+
+    // Stop while startup still awaits the timeline reset after begin.
+    controller.abort();
+    reset.resolve();
+    await settled;
+    await vi.advanceTimersByTimeAsync(1_000);
+    // The take is stopped and saved, not cancelled.
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toBe(false);
+  });
+
+  it("hides Rewind Preparing once capture is live, without waiting for a slow timeline reset", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const rewindStart = deferred<void>();
+    nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
+    const reset = deferred<void>();
+    const transcript = capture();
+    transcript.resetTimeline = vi.fn(() => reset.promise);
+    mocks.transcribe.mockResolvedValue(transcript);
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      onCaptureStartRequested,
+    });
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("rewind_clip_start")).toHaveLength(1);
+    expect(calls("show_preparing")).toHaveLength(1);
+
+    rewindStart.resolve();
+    await flush();
+    expect(onCaptureStartRequested).toHaveBeenCalled();
+    expect(transcript.resetTimeline).toHaveBeenCalledOnce();
+    // Capture is live while the reset is still pending: Preparing is down.
+    expect(calls("hide_preparing")).toHaveLength(1);
+
+    reset.resolve();
+    const handle = await pending;
+    expect(calls("hide_preparing")).toHaveLength(1);
+    await handle.cancel();
+  });
+
+  it("keeps the take when Stop lands while native begin is still being acknowledged", async () => {
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const controller = new AbortController();
+    const onCaptureStartFailed = vi.fn();
+    const onCaptureStartAttempted = vi.fn();
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartFailed,
+      onCaptureStartAttempted,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const id = createdRecordingId();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    // The app hears that capture may be live before the acknowledgement, so
+    // its Stop takes the normal stop path instead of cancelling the start.
+    expect(onCaptureStartAttempted).toHaveBeenCalledWith(id);
+
+    // Stop before begin is acknowledged: capture may already be live.
+    controller.abort();
+    await failed;
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+
+    begin.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    expect(onCaptureStartFailed).not.toHaveBeenCalled();
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the take when Stop lands while the Rewind start is still being acknowledged", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const rewindStart = deferred<void>();
+    nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
+    const controller = new AbortController();
+    const onCaptureStartFailed = vi.fn();
+    const onCaptureStartAttempted = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartFailed,
+      onCaptureStartAttempted,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const id = createdRecordingId();
+    expect(calls("rewind_clip_start")).toHaveLength(1);
+    // The app hears that capture may be live before the acknowledgement, so
+    // its Stop takes the normal stop path instead of cancelling the start.
+    expect(onCaptureStartAttempted).toHaveBeenCalledWith(id);
+
+    // Stop before the start is acknowledged: Rewind may already be capturing.
+    controller.abort();
+    await failed;
+    expect(calls("rewind_clip_cancel")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+
+    rewindStart.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("rewind_clip_cancel")).toHaveLength(0);
+    expect(calls("rewind_clip_stop_and_upload")).toHaveLength(1);
+    expect(onCaptureStartFailed).not.toHaveBeenCalled();
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toBe(false);
+  });
+
+  it("hides Preparing when the server create fails after it was shown", async () => {
+    const create = deferred<Response>();
+    fetchMock.mockReturnValueOnce(create.promise);
+    const pending = startRecording(params);
+    const failed = expect(pending).rejects.toBeTruthy();
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+    create.resolve(new Response("unavailable", { status: 503 }));
+    await failed;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("hide_preparing")).toHaveLength(1);
   });
 });
 

@@ -31,11 +31,16 @@ import {
   getCameraStreamWithFallback,
   shouldRequestSystemAudio,
 } from "./media-capture-constraints";
+import { submitNativeNotification } from "./native-notification";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import {
   createPauseTransitionQueue,
   type PauseTransitionQueue,
 } from "./pause-transition";
+import {
+  type PreparingOverlay,
+  showPreparingAfterCountdown,
+} from "./preparing-after-countdown";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
   classifyRecordFirstOpenFailure,
@@ -63,6 +68,7 @@ import {
   guardRecordingStart,
   RECORDING_START_TIMEOUT_MS,
   RecordingStartCancelledError,
+  RecordingStartTimeoutError,
 } from "./recording-start-guard";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import { prepareRewindRecordingStart } from "./rewind-recording-start";
@@ -3109,14 +3115,20 @@ export function recorderWithCaptureSuspension(
       await discardPromise;
       throw new Error("Recording was already discarded for a restart");
     }
-    stopPromise = (async () => {
+    const attempt = (async () => {
       try {
         return await stop();
       } finally {
         await release();
       }
     })();
-    return stopPromise;
+    stopPromise = attempt;
+    // Let a failed stop be retried: the wrapped handle decides whether a
+    // retry is possible (it replays the error once its stop was sent).
+    attempt.catch(() => {
+      if (stopPromise === attempt) stopPromise = null;
+    });
+    return attempt;
   };
   handle.cancel = async () => {
     if (cancelPromise) return cancelPromise;
@@ -3199,12 +3211,36 @@ function recorderWithRewindOriginLifecycle(
   return handle;
 }
 
+/** The "Preparing recording" overlay shown after the countdown until capture
+ * is live. If it cannot be closed, a notification says the recording is
+ * running and the screen closes when the recording stops. */
+function preparingOverlay(): PreparingOverlay {
+  return {
+    show: () => invoke("show_preparing"),
+    hide: () => invoke("hide_preparing"),
+    onShowFailed: () => {
+      void submitNativeNotification({
+        title: "Recording is not live yet",
+        body: "The Preparing screen could not be shown. Clips is still setting up; recording starts in a moment.",
+      }).catch(() => {});
+    },
+    onHideFailed: () => {
+      void submitNativeNotification({
+        title: "Clips is recording",
+        body: "The Preparing screen could not be closed. Your recording is running; the screen closes when you stop it.",
+      }).catch(() => {});
+    },
+  };
+}
+
 async function tryStartRewindFullscreenRecording(
   params: StartParams,
   wantsCamera: boolean,
   wantsAudio: boolean,
   audioCue: AudioCue,
 ): Promise<RecorderHandle | null> {
+  // Which capture session this start owns (see claimCaptureSession).
+  let captureGeneration = 0;
   if (
     params.mode === "camera" ||
     (wantsCamera && params.localRecordingMode === "separate") ||
@@ -3349,23 +3385,32 @@ async function tryStartRewindFullscreenRecording(
       cancelCountdown() {
         countdownController.abort();
       },
+      preparing: preparingOverlay(),
       async beforeActivate() {
         await audioCue.playBeforeCapture(params.signal);
       },
-      async activate(preparedRecording) {
+      async activate(preparedRecording, captureLive) {
         throwIfRecordingStartAborted(params.signal);
         const activationStarted = performance.now();
+        captureGeneration = claimCaptureSession();
         params.onCaptureStartAttempted?.(
           localOnly ? null : preparedRecording.id || null,
         );
         const startPromise =
           invoke<RewindClipBackendStatus>("rewind_clip_start");
-        await guardRecordingStart(startPromise, { signal: params.signal });
+        // Not raced against Stop: once the start is sent, Rewind may already
+        // be capturing. A Stop now lets the start finish and then stops and
+        // saves the take (see startRecording); only a failed or timed-out
+        // start cancels.
+        await guardRecordingStart(startPromise);
         if (localOnly) {
           params.onCaptureStartRequested?.(null, preparedRecording.id || null);
         } else {
           params.onCaptureStartRequested?.(preparedRecording.id || null);
         }
+        // Capture is live: take Preparing down now, not after the timeline
+        // reset below.
+        captureLive();
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
@@ -3412,6 +3457,8 @@ async function tryStartRewindFullscreenRecording(
 
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
+  // Set once the Rewind stop command has been sent (see stop()).
+  let stopDispatched = false;
   let cancelPromise: Promise<void> | null = null;
   let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
@@ -3503,11 +3550,10 @@ async function tryStartRewindFullscreenRecording(
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopPromise = (async () => {
         stopped = true;
-        cleanupUi();
         if (!localOnly) showFinalizingFeedback();
         try {
           if (localOnly) {
-            const savePromise = invoke<NativeFullscreenSaveResult>(
+            const savePromise = invokeCaptureStop<NativeFullscreenSaveResult>(
               "rewind_clip_stop_and_save",
               {
                 folderName,
@@ -3515,7 +3561,10 @@ async function tryStartRewindFullscreenRecording(
                 includeMic,
                 includeSystemAudio,
               },
+              captureGeneration,
             );
+            stopDispatched = true;
+            cleanupUi();
             savePromise.catch(() => {});
             await invoke("hide_recording_chrome").catch(() => {});
             if (wantsCamera) await invoke("close_bubble").catch(() => {});
@@ -3531,7 +3580,7 @@ async function tryStartRewindFullscreenRecording(
 
           const viewUrl = `/r/${id}`;
           const stopStarted = performance.now();
-          const uploadPromise = invoke<NativeFullscreenUploadResult>(
+          const uploadPromise = invokeCaptureStop<NativeFullscreenUploadResult>(
             "rewind_clip_stop_and_upload",
             {
               serverUrl: params.serverUrl,
@@ -3543,7 +3592,10 @@ async function tryStartRewindFullscreenRecording(
               includeSystemAudio,
               hasCamera: wantsCamera,
             },
+            captureGeneration,
           );
+          stopDispatched = true;
+          cleanupUi();
           console.log(
             `[rewind-latency] stop command dispatched in ${Math.round(performance.now() - stopStarted)}ms`,
           );
@@ -3613,6 +3665,15 @@ async function tryStartRewindFullscreenRecording(
           await clearRecordingState();
         }
       })();
+      // A stop that failed before its Rewind command was sent left capture
+      // running: let a later stop() try again instead of replaying the error.
+      const attempt = stopPromise;
+      attempt.catch(() => {
+        if (!stopDispatched && stopPromise === attempt) {
+          stopPromise = null;
+          stopped = false;
+        }
+      });
       return stopPromise;
     },
     async cancel() {
@@ -3718,6 +3779,8 @@ async function startNativeFullscreenRecording(
   audioCue: AudioCue,
 ): Promise<RecorderHandle> {
   console.log("[clips-recorder] using native macOS capture");
+  // Which capture session this start owns (see claimCaptureSession).
+  let captureGeneration = 0;
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
   const includeCameraOverlay = wantsCamera && localRecordingMode !== "separate";
@@ -3895,102 +3958,126 @@ async function startNativeFullscreenRecording(
       assertStartupActive();
     };
     const clickStartedAt = Date.now();
-    if (localOnly) {
-      id = localFolderName;
-      const warmPromise = (async () => {
-        const warmStartedAt = Date.now();
-        await warmMic(id);
-        console.log(
-          `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
-        );
-      })();
-      await Promise.all([countdownPromise, warmPromise]);
-    } else {
-      const captureTitlePromise = captureTitleForRecording({
-        mode: params.mode,
-        source: params.source,
-      });
-      const recordingPromise = (async () => {
-        const captureTitle = await captureTitlePromise;
-        assertStartupActive();
-        const createStartedAt = Date.now();
-        try {
-          return await createServerRecording(
-            params.serverUrl,
-            wantsCamera,
-            wantsRecordedAudio,
-            captureTitle,
-            {
-              mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
-              requestStreaming: true,
-              streamingUploadClient: "desktop-native",
-              authToken: params.authToken,
-              announceStorageSetup: true,
-              signal: params.signal,
-            },
-          );
-        } finally {
-          console.log(
-            `[clips-recorder] createServerRecording durationMs=${Date.now() - createStartedAt}`,
-          );
-        }
-      })();
-      const warmAndId = planNativeFullscreenWarmOverlap({
-        createRecording: async () => {
-          const createRes = await recordingPromise;
-          assertStartupActive();
-          return createRes;
-        },
-        startTranscription: async () => {
-          const transcriptionStartedAt = Date.now();
-          try {
-            await startNativeTranscriptionBeforeRecording();
-          } finally {
-            console.log(
-              `[clips-recorder] transcription warm durationMs=${Date.now() - transcriptionStartedAt}`,
-            );
-          }
-        },
-        warmMic: async (recordingId) => {
+    let beginStartedAt = 0;
+    // Everything from here until capture is live sits inside one try/finally,
+    // so Preparing can show for any slow step after the countdown (server
+    // create, start cue, warm-up, native begin) and is hidden on every exit,
+    // including a cancellation between preparation and begin.
+    const preparing = showPreparingAfterCountdown(
+      countdownPromise,
+      preparingOverlay(),
+    );
+    try {
+      if (localOnly) {
+        id = localFolderName;
+        const warmPromise = (async () => {
           const warmStartedAt = Date.now();
+          await warmMic(id);
+          console.log(
+            `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
+          );
+        })();
+        await Promise.all([countdownPromise, warmPromise]);
+      } else {
+        const captureTitlePromise = captureTitleForRecording({
+          mode: params.mode,
+          ...(params.source ? { source: params.source } : {}),
+        });
+        const recordingPromise = (async () => {
+          const captureTitle = await captureTitlePromise;
+          assertStartupActive();
+          const createStartedAt = Date.now();
           try {
-            await warmMic(recordingId);
+            return await createServerRecording(
+              params.serverUrl,
+              wantsCamera,
+              wantsRecordedAudio,
+              captureTitle,
+              {
+                mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
+                requestStreaming: true,
+                streamingUploadClient: "desktop-native",
+                authToken: params.authToken,
+                announceStorageSetup: true,
+                ...(params.signal ? { signal: params.signal } : {}),
+              },
+            );
           } finally {
             console.log(
-              `[clips-recorder] native warm durationMs=${Date.now() - warmStartedAt}`,
+              `[clips-recorder] createServerRecording durationMs=${Date.now() - createStartedAt}`,
             );
           }
-        },
-      });
-      let createRes: Awaited<typeof warmAndId>;
-      try {
-        [, createRes] = await Promise.all([countdownPromise, warmAndId]);
-      } catch (err) {
-        abortCreatedRecordingOnStartFailure(
-          err,
-          recordingPromise,
-          params.serverUrl,
-          params.authToken,
-        );
-        throw err;
+        })();
+        const warmAndId = planNativeFullscreenWarmOverlap({
+          createRecording: async () => {
+            const createRes = await recordingPromise;
+            assertStartupActive();
+            return createRes;
+          },
+          startTranscription: async () => {
+            const transcriptionStartedAt = Date.now();
+            try {
+              await startNativeTranscriptionBeforeRecording();
+            } finally {
+              console.log(
+                `[clips-recorder] transcription warm durationMs=${Date.now() - transcriptionStartedAt}`,
+              );
+            }
+          },
+          warmMic: async (recordingId) => {
+            const warmStartedAt = Date.now();
+            try {
+              await warmMic(recordingId);
+            } finally {
+              console.log(
+                `[clips-recorder] native warm durationMs=${Date.now() - warmStartedAt}`,
+              );
+            }
+          },
+        });
+        let createRes: Awaited<typeof warmAndId>;
+        try {
+          [, createRes] = await Promise.all([countdownPromise, warmAndId]);
+        } catch (err) {
+          abortCreatedRecordingOnStartFailure(
+            err,
+            recordingPromise,
+            params.serverUrl,
+            params.authToken,
+          );
+          throw err;
+        }
+        id = createRes.id;
+        // createServerRecording already maps a missing uploadMode to "buffered".
+        uploadMode = createRes.uploadMode;
       }
-      id = createRes.id;
-      uploadMode = createRes.uploadMode ?? uploadMode;
-    }
 
-    await countdownPromise;
-    assertStartupActive();
-    const beginStartedAt = Date.now();
-    params.onCaptureStartAttempted?.(localOnly ? null : id || null);
-    const beginPromise = invoke("native_fullscreen_recording_begin", {
-      recordingId: id,
-      ...captureParams,
-      localOnly,
-      hasCamera: wantsCamera,
-    });
-    await guardRecordingStart(beginPromise, { signal: params.signal });
-    assertStartupActive();
-    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
+      await countdownPromise;
+      assertStartupActive();
+      beginStartedAt = Date.now();
+      captureGeneration = claimCaptureSession();
+      params.onCaptureStartAttempted?.(localOnly ? null : id || null);
+      const beginPromise = invoke("native_fullscreen_recording_begin", {
+        recordingId: id,
+        ...captureParams,
+        localOnly,
+        hasCamera: wantsCamera,
+      });
+      // Not raced against Stop: once begin is sent, capture may be live. A Stop
+      // now lets begin finish and then stops and saves the take (see
+      // startRecording); only a failed or timed-out begin cancels.
+      await guardRecordingStart(beginPromise);
+      // Report capture as started in the same tick begin succeeds: a stop that
+      // lands while Preparing is still closing must keep the take, not be
+      // treated as a startup cancellation.
+      params.onCaptureStartRequested?.(
+        localOnly ? null : id || null,
+        id || null,
+      );
+    } finally {
+      // Never blocks the start: done() logs and retries a failed hide itself.
+      void preparing.done();
+    }
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );
@@ -4002,7 +4089,9 @@ async function startNativeFullscreenRecording(
           err,
         );
       });
-    assertStartupActive();
+    // No startup-abort check past this point: capture is live and the app was
+    // told so. A Stop that lands now must keep the take; the caller stops the
+    // returned handle instead of this path cancelling native capture.
     startedAt = Date.now();
     emit("clips:toolbar-enabled", true).catch(() => {});
     emitRecorderSession(
@@ -4070,6 +4159,8 @@ async function startNativeFullscreenRecording(
 
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
+  // Set once the native stop command has been sent (see stop()).
+  let stopDispatched = false;
   let cancelPromise: Promise<void> | null = null;
   let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
@@ -4208,6 +4299,16 @@ async function startNativeFullscreenRecording(
     };
   };
 
+  const dispatchNativeStop = <T>(
+    command: string,
+    args: Record<string, unknown>,
+    generation: number,
+  ): Promise<T> => {
+    const promise = invokeCaptureStop<T>(command, args, generation);
+    stopDispatched = true;
+    return promise;
+  };
+
   const handle: RecorderHandle = {
     async stop() {
       if (stopPromise) return stopPromise;
@@ -4230,31 +4331,40 @@ async function startNativeFullscreenRecording(
             ),
           );
         }
-        clearSegmentRotator();
-        pauseQueue?.dispose();
-        if (tickHandle) {
-          clearInterval(tickHandle);
-          tickHandle = null;
-        }
-        stateUnlistens.forEach((u) => u());
-        stateUnlistens = [];
-        if (pausedAt != null) {
-          accumulatedPauseMs += Date.now() - pausedAt;
-          pausedAt = null;
-        }
+        // The live-session machinery (timer, segment rotator, pause queue,
+        // state listeners) is torn down only once the stop command is sent:
+        // a stop that fails before that leaves capture running, and a retry
+        // needs it intact.
+        const teardownLiveSession = () => {
+          clearSegmentRotator();
+          pauseQueue?.dispose();
+          if (tickHandle) {
+            clearInterval(tickHandle);
+            tickHandle = null;
+          }
+          stateUnlistens.forEach((u) => u());
+          stateUnlistens = [];
+          if (pausedAt != null) {
+            accumulatedPauseMs += Date.now() - pausedAt;
+            pausedAt = null;
+          }
+        };
 
         if (localOnly) {
           const durationMs = Math.max(0, Date.now() - startedAt);
           try {
+            const savePromise = dispatchNativeStop<NativeFullscreenSaveResult>(
+              "native_fullscreen_recording_stop_and_save",
+              {
+                folderName: localFolderName,
+                fileRole:
+                  localRecordingMode === "composed" ? "composed" : "desktop",
+              },
+              captureGeneration,
+            );
+            teardownLiveSession();
             const [nativeResult, cameraFiles] = await Promise.all([
-              invoke<NativeFullscreenSaveResult>(
-                "native_fullscreen_recording_stop_and_save",
-                {
-                  folderName: localFolderName,
-                  fileRole:
-                    localRecordingMode === "composed" ? "composed" : "desktop",
-                },
-              ),
+              savePromise,
               localCameraExport
                 ? localCameraExport.stop(durationMs)
                 : Promise.resolve([]),
@@ -4302,7 +4412,7 @@ async function startNativeFullscreenRecording(
           },
         );
 
-        const uploadPromise = invoke<NativeFullscreenUploadResult>(
+        const uploadPromise = dispatchNativeStop<NativeFullscreenUploadResult>(
           "native_fullscreen_recording_stop_and_upload",
           {
             serverUrl: params.serverUrl,
@@ -4313,7 +4423,9 @@ async function startNativeFullscreenRecording(
             hasAudio: wantsRecordedAudio,
             hasCamera: wantsCamera,
           },
+          captureGeneration,
         );
+        teardownLiveSession();
         uploadPromise.catch(() => {});
         try {
           await Promise.race([
@@ -4394,6 +4506,15 @@ async function startNativeFullscreenRecording(
           await clearRecordingState();
         }
       })();
+      // A stop that failed before its native command was sent left capture
+      // running: let a later stop() try again instead of replaying the error.
+      const attempt = stopPromise;
+      attempt.catch(() => {
+        if (!stopDispatched && stopPromise === attempt) {
+          stopPromise = null;
+          stopped = false;
+        }
+      });
       return stopPromise;
     },
 
@@ -4613,6 +4734,203 @@ function bubbleSizeRatioForName(size: string | null | undefined): number {
   return size === "medium" ? 0.24 : 0.18;
 }
 
+/**
+ * A start abandoned after its native begin / Rewind start was sent finishes in
+ * the background and its take is then stopped and saved. The native and
+ * Rewind stop commands finalize whatever session is active, not a specific
+ * recording, so a new start must wait until that take's stop command has been
+ * sent, or the late stop could end the new recording instead.
+ */
+let abandonedCaptureSettling: Promise<void> | null = null;
+const captureStopListeners = new Set<() => void>();
+
+/**
+ * Fences the shared native / Rewind capture session. Each start claims a new
+ * generation the moment it sends its begin / Rewind start command; a stop
+ * whose start has since been superseded is refused, so a late stop from an
+ * abandoned start can never end a newer recording.
+ */
+let captureSessionGeneration = 0;
+
+function claimCaptureSession(): number {
+  captureSessionGeneration += 1;
+  return captureSessionGeneration;
+}
+
+export class CaptureSessionSupersededError extends Error {
+  constructor() {
+    super("A newer recording owns the capture session; not stopping it.");
+    this.name = "CaptureSessionSupersededError";
+  }
+}
+
+/** Sends a native / Rewind stop command for the session `generation` owns,
+ * and tells a waiting start that the active capture session is being
+ * released. */
+function invokeCaptureStop<T>(
+  command: string,
+  args: Record<string, unknown>,
+  generation: number,
+): Promise<T> {
+  if (generation !== captureSessionGeneration) {
+    console.warn(
+      `[clips-recorder] ${command} skipped: a newer recording owns the capture session`,
+    );
+    return Promise.reject(new CaptureSessionSupersededError());
+  }
+  const promise = invoke<T>(command, args);
+  for (const listener of [...captureStopListeners]) listener();
+  return promise;
+}
+
+function nextCaptureStopSent(): { promise: Promise<void>; dispose(): void } {
+  let listener: () => void = () => {};
+  const promise = new Promise<void>((resolve) => {
+    listener = () => resolve();
+    captureStopListeners.add(listener);
+  });
+  return {
+    promise,
+    dispose: () => {
+      captureStopListeners.delete(listener);
+    },
+  };
+}
+
+export class PreviousRecordingStillStoppingError extends Error {
+  constructor() {
+    super(
+      "The previous recording is still being saved. Try again in a moment.",
+    );
+    this.name = "PreviousRecordingStillStoppingError";
+  }
+}
+
+/** Set while an abandoned take's stop failed before it was sent: the next
+ * start tries that stop again (once per start) before giving up. */
+let retryAbandonedStop: (() => Promise<void>) | null = null;
+
+/** Resolves once `stop` has sent its native / Rewind stop command; rejects
+ * with PreviousRecordingStillStoppingError when it fails before that. */
+async function untilStopSent(
+  stopSent: { promise: Promise<void> },
+  stop: Promise<unknown>,
+): Promise<void> {
+  let dispatched = false;
+  void stopSent.promise.then(() => {
+    dispatched = true;
+  });
+  await Promise.race([
+    stopSent.promise,
+    stop.then(
+      () => undefined,
+      () => {
+        if (dispatched) return;
+        throw new PreviousRecordingStillStoppingError();
+      },
+    ),
+  ]);
+}
+
+/**
+ * The one retry path for a native / Rewind stop that failed before its stop
+ * command was sent (capture is still running): new starts are blocked, and
+ * the next start retries that stop once before giving up. Used for an
+ * abandoned start's late stop and for an ordinary stop alike.
+ */
+function blockStartsUntilStopSent(
+  stopTake: () => Promise<unknown>,
+): Promise<void> {
+  const blocked = Promise.reject(new PreviousRecordingStillStoppingError());
+  blocked.catch(() => {});
+  abandonedCaptureSettling = blocked;
+  retryAbandonedStop = async () => {
+    const retrySent = nextCaptureStopSent();
+    try {
+      const stop = stopTake();
+      void stop.catch((stopErr: unknown) =>
+        console.warn("[clips-recorder] stop retry failed:", stopErr),
+      );
+      await untilStopSent(retrySent, stop);
+    } finally {
+      retrySent.dispose();
+    }
+    releaseStartBlock(blocked);
+  };
+  return blocked;
+}
+
+function releaseStartBlock(blocked: Promise<void> | null): void {
+  if (blocked && abandonedCaptureSettling === blocked) {
+    abandonedCaptureSettling = null;
+    retryAbandonedStop = null;
+  }
+}
+
+/** For a native / Rewind recording: if its stop fails before the stop command
+ * is sent, block new starts until a retry sends it (see above). */
+function withStopRetryBarrier(handle: RecorderHandle): RecorderHandle {
+  const stop = handle.stop.bind(handle);
+  let block: Promise<void> | null = null;
+  handle.stop = async () => {
+    const sent = nextCaptureStopSent();
+    let dispatched = false;
+    // Read through a function: the listener below sets `dispatched`.
+    const wasDispatched = () => dispatched;
+    void sent.promise.then(() => {
+      dispatched = true;
+      // Stopped directly after all: lift the block this handle set.
+      releaseStartBlock(block);
+    });
+    try {
+      return await stop();
+    } catch (err) {
+      if (!wasDispatched()) {
+        console.error(
+          "[clips-recorder] stop failed before it was sent; blocking new starts until a retry sends it",
+          err,
+        );
+        block = blockStartsUntilStopSent(stop);
+      }
+      throw err;
+    } finally {
+      sent.dispose();
+    }
+  };
+  return handle;
+}
+
+async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
+  const settling = abandonedCaptureSettling;
+  if (!settling) return;
+  console.log(
+    "[clips-recorder] waiting for an abandoned start's take to be stopped",
+  );
+  try {
+    await guardRecordingStart(settling, {
+      ...(signal ? { signal } : {}),
+      timeoutMs: RECORDING_START_TIMEOUT_MS,
+    });
+  } catch (err) {
+    if (err instanceof PreviousRecordingStillStoppingError) {
+      const retry = retryAbandonedStop;
+      if (!retry) throw err;
+      console.warn("[clips-recorder] retrying the abandoned take's stop");
+      // Throws PreviousRecordingStillStoppingError again if it still fails.
+      await retry();
+      return;
+    }
+    if (!(err instanceof RecordingStartTimeoutError)) throw err;
+    // Never start over a take that has not been stopped: a new begin could
+    // replace that native session before it is saved. Fail visibly instead;
+    // a later retry starts once the old stop has been sent.
+    console.error(
+      "[clips-recorder] abandoned start's take is still not stopped; refusing to start",
+    );
+    throw new PreviousRecordingStillStoppingError();
+  }
+}
+
 export async function startRecording(
   params: StartParams,
   preparedAudioCue?: AudioCue,
@@ -4620,17 +4938,66 @@ export async function startRecording(
   const countdownAttemptId = params.countdownAttemptId ?? crypto.randomUUID();
   const recordingParams = { ...params, countdownAttemptId };
   const audioCue = preparedAudioCue ?? createAudioCue();
+  try {
+    await waitForAbandonedCapture(params.signal);
+  } catch (err) {
+    audioCue.cleanup();
+    throw err;
+  }
   const startController = new AbortController();
   let requestedRecordingId: string | null = null;
   let startupAbortStop: {
     recordingId: string;
     promise: Promise<RecorderStopResult>;
   } | null = null;
+  // "starting": nothing is captured yet, so a Stop cancels the startup.
+  // "capturing": the native begin / Rewind start command has been sent, so
+  // capture may already be live even before it is acknowledged. From then on
+  // a Stop never cancels capture here: the start is left to finish and the
+  // late-resolving handle is stopped and saved (onLateResolve). A start that
+  // then fails cleans up on its own failure path.
+  let startupState: "starting" | "capturing" = "starting";
+  // Read through a function: callbacks change startupState.
+  const captureMayBeLive = () => startupState === "capturing";
+  let lateStop: Promise<unknown> | null = null;
+  let lateHandle: RecorderHandle | null = null;
   const cancelStartup = () => {
     startController.abort();
     void emit("clips:countdown-cancel", {
       attemptId: countdownAttemptId,
     }).catch(() => {});
+    if (captureMayBeLive()) {
+      // Hold the next start until this take's stop command is sent, or the
+      // start itself failed (nothing to stop). If the stop fails before it
+      // was sent, the session may still be running: the barrier stays closed
+      // and the next start retries this stop (see waitForAbandonedCapture).
+      const stopSent = nextCaptureStopSent();
+      const settling: Promise<void> = startPromise
+        .then(
+          () => untilStopSent(stopSent, lateStop ?? Promise.resolve()),
+          () => undefined,
+        )
+        .finally(() => stopSent.dispose());
+      abandonedCaptureSettling = settling;
+      settling.then(
+        () => {
+          if (abandonedCaptureSettling === settling) {
+            abandonedCaptureSettling = null;
+          }
+        },
+        (err: unknown) => {
+          if (abandonedCaptureSettling !== settling) return;
+          console.error(
+            "[clips-recorder] abandoned take's stop failed before it was sent; blocking new starts until a retry sends it",
+            err,
+          );
+          const handle = lateHandle;
+          // Without a handle there is nothing to retry: starts stay blocked.
+          if (handle) void blockStartsUntilStopSent(() => handle.stop());
+        },
+      );
+      return;
+    }
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
     void invoke("hide_recording_chrome").catch(() => {});
   };
@@ -4651,9 +5018,12 @@ export async function startRecording(
       ...recordingParams,
       signal: startController.signal,
       onCaptureStartAttempted: (recordingId) => {
+        startupState = "capturing";
         requestedRecordingId = recordingId;
+        params.onCaptureStartAttempted?.(recordingId);
       },
       onCaptureStartRequested: (recordingId, captureIdentity) => {
+        startupState = "capturing";
         requestedRecordingId = recordingId;
         if (recordingId) rememberRewindClipOriginForStart(recordingId, params);
         if (captureIdentity === undefined) {
@@ -4677,7 +5047,9 @@ export async function startRecording(
       // Capture has already begun when a start resolves this late: keep what
       // it recorded. Only a confirmed discard deletes a recording.
       onLateResolve: (handle) => {
-        void handle.stop().catch((err) => {
+        lateHandle = handle;
+        lateStop = handle.stop();
+        void lateStop.catch((err) => {
           if (requestedRecordingId) {
             cleanupFailedCaptureStart(requestedRecordingId);
           }
@@ -4685,7 +5057,8 @@ export async function startRecording(
         });
       },
     });
-    return recorderWithRewindOriginLifecycle(started, requestedRecordingId);
+    const live = captureMayBeLive() ? withStopRetryBarrier(started) : started;
+    return recorderWithRewindOriginLifecycle(live, requestedRecordingId);
   } catch (err) {
     void startPromise.catch(async () => {
       const recordingId = requestedRecordingId;

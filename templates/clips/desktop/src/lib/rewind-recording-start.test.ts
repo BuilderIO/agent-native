@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { PREPARING_AFTER_COUNTDOWN_DELAY_MS } from "./preparing-after-countdown";
 import { prepareRewindRecordingStart } from "./rewind-recording-start";
 
 function deferred<T = void>() {
@@ -134,5 +135,83 @@ describe("prepareRewindRecordingStart", () => {
     ).rejects.toThrow("sink unavailable");
 
     expect(events).toEqual(["cue", "activate"]);
+  });
+
+  it("keeps Preparing up until a slow activation is live, not just until preparation", async () => {
+    vi.useFakeTimers();
+    try {
+      const activateGate = deferred<string>();
+      const show = vi.fn(async () => {});
+      const hide = vi.fn(async () => {});
+      const startPromise = prepareRewindRecordingStart({
+        prepare: async () => "prepared",
+        countdown: async () => {},
+        cancelCountdown() {},
+        activate: () => activateGate.promise,
+        preparing: { show, hide },
+      });
+
+      await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+      expect(show).toHaveBeenCalledTimes(1);
+      expect(hide).not.toHaveBeenCalled();
+
+      activateGate.resolve("started");
+      await expect(startPromise).resolves.toBe("started");
+      expect(hide).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns the started capture without waiting for Preparing to close", async () => {
+    vi.useFakeTimers();
+    try {
+      const activateGate = deferred<string>();
+      const hideGate = deferred();
+      const hide = vi.fn(() => hideGate.promise);
+      const startPromise = prepareRewindRecordingStart({
+        prepare: async () => "prepared",
+        countdown: async () => {},
+        cancelCountdown() {},
+        activate: () => activateGate.promise,
+        preparing: { show: async () => {}, hide },
+      });
+
+      await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+      activateGate.resolve("started");
+      await expect(startPromise).resolves.toBe("started");
+      expect(hide).toHaveBeenCalledTimes(1);
+      hideGate.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hides Preparing when activate reports capture live, before activate returns", async () => {
+    vi.useFakeTimers();
+    try {
+      const followUp = deferred();
+      const hide = vi.fn(async () => {});
+      const startPromise = prepareRewindRecordingStart({
+        prepare: async () => "prepared",
+        countdown: async () => {},
+        cancelCountdown() {},
+        activate: async (_prepared, captureLive) => {
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+          captureLive();
+          await followUp.promise;
+          return "started";
+        },
+        preparing: { show: async () => {}, hide },
+      });
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(hide).toHaveBeenCalledTimes(1);
+      followUp.resolve();
+      await expect(startPromise).resolves.toBe("started");
+      expect(hide).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
