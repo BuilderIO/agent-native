@@ -324,10 +324,20 @@ function ChatRouteSwitcher({ target }: { target: string }) {
   const navigate = useNavigate();
   return (
     <>
-      <button type="button" onClick={() => navigate(target)}>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(target);
+        }}
+      >
         Switch chat
       </button>
-      <button type="button" onClick={() => navigate(-1)}>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(-1);
+        }}
+      >
         Go back
       </button>
     </>
