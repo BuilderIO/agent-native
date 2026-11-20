@@ -176,6 +176,48 @@ it("keeps coalescing sync activity, which fires on every run-event batch", async
   expect(writes).toHaveLength(1);
 });
 
+it("cancels the pending timer when it flushes, so a later change still waits the full delay", async () => {
+  notify(0, 1);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS / 2);
+  requestActionCacheFlush();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(writes).toHaveLength(1);
+
+  notify(1, 2);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS / 2 + 1);
+  expect(writes).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS);
+  expect(writes).toHaveLength(2);
+});
+
+it("saves the pending write when the document becomes hidden, not when it becomes visible", async () => {
+  let state: DocumentVisibilityState = "visible";
+  vi.spyOn(document, "visibilityState", "get").mockImplementation(() => state);
+  notify(0, NOTIFICATIONS);
+  document.dispatchEvent(new Event("visibilitychange"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(writes).toEqual([]);
+
+  state = "hidden";
+  document.dispatchEvent(new Event("visibilitychange"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(writes).toHaveLength(1);
+});
+
+it("removes its flush listeners when the binding closes", async () => {
+  const windowRemove = vi.spyOn(window, "removeEventListener");
+  const documentRemove = vi.spyOn(document, "removeEventListener");
+
+  await cache.clearActionQueryCache(client);
+
+  const windowEvents = windowRemove.mock.calls.map(([type]) => type);
+  expect(windowEvents).toContain("agentNative:actionCacheFlush");
+  expect(windowEvents).toContain("pagehide");
+  expect(documentRemove.mock.calls.map(([type]) => type)).toContain(
+    "visibilitychange",
+  );
+});
+
 it("saves the pending write when the page is hidden", async () => {
   notify(0, NOTIFICATIONS);
   window.dispatchEvent(new Event("pagehide"));

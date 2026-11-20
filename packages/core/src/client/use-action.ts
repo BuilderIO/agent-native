@@ -2404,10 +2404,10 @@ function usePrivateInputMutation<V>(
           actionQueryInvalidation(opts.resources),
         );
       }
-      requestActionCacheFlush();
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
+      requestActionCacheFlush();
       setState({ status: "success", error: null });
     } catch {
       const isCurrent = valid();
@@ -2681,8 +2681,12 @@ function useNormalActionMutation<
           interactive,
         );
       }
-      requestActionCacheFlush();
-      return (onSuccess as Function)?.(...args);
+      const result = (onSuccess as Function)?.(...args);
+      void Promise.resolve(result).then(
+        requestActionCacheFlush,
+        requestActionCacheFlush,
+      );
+      return result;
     },
   });
 
