@@ -63,6 +63,8 @@ export function resolveSharedMemoryFilePath(
 
 export class MemoryTombstoneError extends Error {}
 
+export class MemoryWriteConflictError extends Error {}
+
 export type MirroredMemory =
   | { state: "absent" }
   | { state: "deleted"; deletedAt: number }

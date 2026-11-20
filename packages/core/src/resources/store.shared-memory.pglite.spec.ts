@@ -629,4 +629,45 @@ describe("personal memory shared across local apps", () => {
       owner: OWNER,
     });
   });
+
+  it("fills a limited list with live memories when earlier rows are tombstoned", async () => {
+    const dir = useMemoryDir();
+    const { resourceList, resourcePut } = await import("./store.js");
+    const { deleteSharedPersonalMemory } = await import("./shared-memory.js");
+    for (const name of ["a", "b", "c", "d"]) {
+      await resourcePut(OWNER, `memory/lim-${name}.md`, name);
+    }
+    await pglite.exec(
+      `UPDATE resources SET updated_at = updated_at - 1000 WHERE owner = '${OWNER}'`,
+    );
+    fs.rmSync(sharedFile(dir, "lim-c.md"));
+    fs.rmSync(sharedFile(dir, "lim-d.md"));
+    await deleteSharedPersonalMemory(OWNER, "memory/lim-a.md");
+    await deleteSharedPersonalMemory(OWNER, "memory/lim-b.md");
+
+    const listed = await resourceList(OWNER, "memory/lim-", { limit: 2 });
+    expect(listed.map((item) => item.path)).toEqual([
+      "memory/lim-c.md",
+      "memory/lim-d.md",
+    ]);
+  });
+
+  it("adopts a newer shared-file edit and rejects the write built on a stale row", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const { MemoryWriteConflictError } = await import("./shared-memory.js");
+    const base = await resourcePut(OWNER, "memory/conflict.md", "v1");
+    const file = sharedFile(dir, "conflict.md");
+    fs.writeFileSync(file, "external edit");
+    const later = new Date(base.updatedAt + 60_000);
+    fs.utimesSync(file, later, later);
+
+    await expect(
+      resourcePut(OWNER, "memory/conflict.md", "v2"),
+    ).rejects.toBeInstanceOf(MemoryWriteConflictError);
+    expect(fs.readFileSync(file, "utf8")).toBe("external edit");
+    await expect(
+      resourceGetByPath(OWNER, "memory/conflict.md"),
+    ).resolves.toMatchObject({ content: "external edit" });
+  });
 });

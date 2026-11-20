@@ -49,6 +49,7 @@ import {
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
   MemoryTombstoneError,
+  MemoryWriteConflictError,
   readMirroredMemory,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
@@ -2066,7 +2067,8 @@ async function adoptSharedMemory(
   return rows[0] ? rowToResource(rows[0]) : null;
 }
 
-function logMirrorFailure(error: unknown): void {
+function handleMirrorFailure(error: unknown): void {
+  if (error instanceof MemoryWriteConflictError) throw error;
   console.error("[resources] Could not mirror personal memory:", error);
 }
 
@@ -2137,9 +2139,43 @@ function deleteMirroredMemory(owner: string, path: string): Promise<void> {
   });
 }
 
-function mirrorMemoryIfCurrent(resource: MirrorTarget): Promise<void> {
-  return serializeMemoryMirror(resource.owner, resource.path, () =>
-    mirrorMemoryUnlocked(resource),
+function mirrorMemoryIfCurrent(
+  resource: MirrorTarget,
+  base?: { content: string; updatedAt: number },
+): Promise<void> {
+  return serializeMemoryMirror(resource.owner, resource.path, async () => {
+    if (base) await assertNoNewerSharedEdit(resource, base);
+    await mirrorMemoryUnlocked(resource);
+  });
+}
+
+async function assertNoNewerSharedEdit(
+  resource: MirrorTarget,
+  base: { content: string; updatedAt: number },
+): Promise<void> {
+  const file = await readMirroredMemory(resource.owner, resource.path);
+  if (
+    file.state !== "present" ||
+    file.content === base.content ||
+    file.content === resource.content ||
+    file.mtimeMs <= base.updatedAt
+  ) {
+    return;
+  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
+    args: [resource.owner, resource.path],
+  });
+  if (rows[0]) {
+    await adoptSharedMemory(
+      resource.owner,
+      resource.path,
+      file,
+      rowToResource(rows[0]),
+    );
+  }
+  throw new MemoryWriteConflictError(
+    `${resource.path} was edited in the shared memory directory after this write's base revision; its content was kept and this write was not applied`,
   );
 }
 
@@ -2175,6 +2211,24 @@ async function dropTombstonedMemoryRow(
     return null;
   }
   return resource;
+}
+
+async function withoutTombstonedMemories(
+  owner: string,
+  workspace: boolean,
+  metas: ResourceMeta[],
+): Promise<ResourceMeta[]> {
+  if (workspace) return metas;
+  const live: ResourceMeta[] = [];
+  for (const meta of metas) {
+    const memory = isPersonalMemoryResourcePath(owner, meta.path)
+      ? await readMirroredMemory(owner, meta.path)
+      : null;
+    if (memory?.state !== "deleted" || meta.updatedAt > memory.deletedAt) {
+      live.push(meta);
+    }
+  }
+  return live;
 }
 
 async function postTombstoneFloor(
@@ -2494,8 +2548,9 @@ export async function resourcePutWithDb(
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
   const isJobFile = path.startsWith("jobs/");
+  // raw-sql-ok: the interpolated fragment is a fixed column name chosen by path kind; every value is a bound ? arg.
   const { rows: existing } = await client.execute({
-    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata${isJobFile ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
+    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata, updated_at${isJobFile || isPersonalMemoryResourcePath(owner, path) ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
   const existingRow = existing[0] as
@@ -2508,6 +2563,7 @@ export async function resourcePutWithDb(
         run_id?: string | null;
         expires_at?: number | null;
         metadata?: string | null;
+        updated_at?: number | null;
         content?: string | null;
       }
     | undefined;
@@ -2585,7 +2641,15 @@ export async function resourcePutWithDb(
     value: resource,
     notifyAfterCommit: async () => {
       if (isPersonalMemoryResourcePath(owner, path)) {
-        await mirrorMemoryIfCurrent(resource).catch(logMirrorFailure);
+        await mirrorMemoryIfCurrent(
+          resource,
+          typeof existingRow?.content === "string"
+            ? {
+                content: existingRow.content,
+                updatedAt: Number(existingRow.updated_at),
+              }
+            : undefined,
+        ).catch(handleMirrorFailure);
       }
       if (typeof existingRow?.content === "string") {
         await noteJobFrontmatterWrite({
@@ -3128,7 +3192,7 @@ export async function resourcePutSnapshotBatchIfCurrent(
 
   for (const [index, { before, resource }] of result.entries()) {
     if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
-      await mirrorMemoryIfCurrent(resource).catch(logMirrorFailure);
+      await mirrorMemoryIfCurrent(resource).catch(handleMirrorFailure);
     }
     if (before) {
       await noteJobFrontmatterWrite({
@@ -3416,16 +3480,22 @@ export async function resourceList(
           ? query
           : sql`${query} ORDER BY path LIMIT ${sql.value(limit)} OFFSET ${sql.value(offset)}`,
       );
+    const visibleMetas = async (rows: Array<Record<string, unknown>>) =>
+      withoutTombstonedMemories(
+        owner,
+        workspace,
+        await filterLegacyDispatchWorkspaceRows(
+          rows
+            .map(rowToMeta)
+            .filter((resource) =>
+              isLegacySharedResourceVisibleToOrganization(resource, orgId),
+            ),
+          orgId,
+        ),
+      );
     if (options?.limit === undefined) {
       const { rows } = await listRows();
-      return filterLegacyDispatchWorkspaceRows(
-        rows
-          .map(rowToMeta)
-          .filter((resource) =>
-            isLegacySharedResourceVisibleToOrganization(resource, orgId),
-          ),
-        orgId,
-      );
+      return visibleMetas(rows);
     }
 
     const limit = Math.max(0, Math.floor(options.limit));
@@ -3433,15 +3503,7 @@ export async function resourceList(
     let offset = 0;
     while (resources.length < limit) {
       const { rows } = await listRows(limit, offset);
-      const visible = await filterLegacyDispatchWorkspaceRows(
-        rows
-          .map(rowToMeta)
-          .filter((resource) =>
-            isLegacySharedResourceVisibleToOrganization(resource, orgId),
-          ),
-        orgId,
-      );
-      resources.push(...visible);
+      resources.push(...(await visibleMetas(rows)));
       offset += rows.length;
       if (rows.length < limit) break;
     }
@@ -3458,19 +3520,6 @@ export async function resourceList(
       pathPrefix.startsWith("memory/")
     ) {
       const sharedMemories = await listSharedPersonalMemories(owner);
-      const live: ResourceMeta[] = [];
-      for (const candidate of resources) {
-        const memory = isPersonalMemoryResourcePath(owner, candidate.path)
-          ? await readMirroredMemory(owner, candidate.path)
-          : null;
-        if (
-          memory?.state !== "deleted" ||
-          candidate.updatedAt > memory.deletedAt
-        ) {
-          live.push(candidate);
-        }
-      }
-      resources.splice(0, resources.length, ...live);
       if (sharedMemories.length > 0) {
         const sharedMetas: ResourceMeta[] = sharedMemories
           .filter((item) => !pathPrefix || item.path.startsWith(pathPrefix))
