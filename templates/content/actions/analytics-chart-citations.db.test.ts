@@ -32,7 +32,9 @@ type CitedPages = {
 };
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
-let syncCitations: Action;
+let syncPrivateBodyReferences: typeof import("../server/lib/private-icon-references.js").syncPrivateBodyReferences;
+let updateDocument: Action;
+let editDocument: Action;
 let listCitations: Action;
 let count = 0;
 
@@ -41,8 +43,10 @@ beforeAll(async () => {
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
-  syncCitations = (await import("./sync-analytics-chart-citations.js"))
-    .default as Action;
+  ({ syncPrivateBodyReferences } =
+    await import("../server/lib/private-icon-references.js"));
+  updateDocument = (await import("./update-document.js")).default as Action;
+  editDocument = (await import("./edit-document.js")).default as Action;
   listCitations = (await import("./list-analytics-chart-citations.js"))
     .default as Action;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -139,13 +143,6 @@ async function share(
     });
 }
 
-async function setBody(documentId: string, content: string) {
-  await getDb()
-    .update(schema.documents)
-    .set({ content })
-    .where(eq(schema.documents.id, documentId));
-}
-
 async function cite(documentId: string, dashboardId: string) {
   await getDb()
     .insert(schema.analyticsChartCitations)
@@ -164,8 +161,15 @@ function as<T>(email: string | undefined, run: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: email, orgId: ORG_ID }, run);
 }
 
-function sync(email: string | undefined, documentId: string) {
-  return as(email, () => syncCitations.run({ documentId }));
+function save(documentId: string, before: string, after: string) {
+  return syncPrivateBodyReferences(getDb(), {
+    documentId,
+    before,
+    after,
+    userEmail: OWNER,
+    ownerEmail: OWNER,
+    orgId: ORG_ID,
+  });
 }
 
 function list(email: string | undefined, dashboardId: string) {
@@ -187,73 +191,58 @@ async function failureOf(promise: Promise<unknown>) {
   throw new Error("expected the action to fail");
 }
 
-describe("sync-analytics-chart-citations", () => {
+describe("recording a page's chart citations as its body saves", () => {
   it("makes a page's citations match the dashboards its saved body holds charts from", async () => {
-    const id = await page({ content: body("growth", "retention", "growth") });
+    const first = body("growth", "retention", "growth");
+    const id = await page({ content: first });
 
-    await expect(sync(OWNER, id)).resolves.toEqual({
-      dashboardIds: ["growth", "retention"],
-      unreadable: 0,
-    });
+    await save(id, "", first);
     expect(await citedDashboards(id)).toEqual(["growth", "retention"]);
 
-    await setBody(id, body("retention", "revenue"));
-    await sync(OWNER, id);
+    const second = body("retention", "revenue");
+    await save(id, first, second);
     expect(await citedDashboards(id)).toEqual(["retention", "revenue"]);
 
-    await setBody(id, "# Report\n\nNo charts now.");
-    await expect(sync(OWNER, id)).resolves.toEqual({
-      dashboardIds: [],
-      unreadable: 0,
-    });
+    await save(id, second, "# Report
+
+No charts now.");
     expect(await citedDashboards(id)).toEqual([]);
   });
 
   it("leaves other pages' citations alone", async () => {
-    const synced = await page({ content: body("growth") });
-    const other = await page({ content: body("growth") });
+    const before = body("growth");
+    const saved = await page({ content: before });
+    const other = await page({ content: before });
     await cite(other, "growth");
 
-    await setBody(synced, "");
-    await sync(OWNER, synced);
+    await save(saved, before, "");
 
     expect(await citedDashboards(other)).toEqual(["growth"]);
   });
 
-  it("lets only the page's editors sync it", async () => {
-    const id = await page({ content: body("growth") });
-    await share(id, VIEWER, "viewer");
-    await cite(id, "stale");
+  it("records the charts update-document saves", async () => {
+    const id = await page({ content: "# Report" });
 
-    await expect(failureOf(sync(VIEWER, id))).resolves.toEqual({
-      errorCode: "analytics_chart_edit_required",
-      statusCode: 403,
-    });
-    await expect(failureOf(sync(STRANGER, id))).resolves.toEqual({
-      errorCode: "document_not_found",
-      statusCode: 404,
-    });
-    await expect(failureOf(sync(undefined, id))).resolves.toEqual({
-      errorCode: "analytics_chart_signed_out",
-      statusCode: 401,
-    });
-    expect(await citedDashboards(id)).toEqual(["stale"]);
-
-    await share(id, STRANGER, "editor");
-    await sync(STRANGER, id);
+    await as(OWNER, () => updateDocument.run({ id, content: body("growth") }));
     expect(await citedDashboards(id)).toEqual(["growth"]);
+
+    await as(OWNER, () =>
+      updateDocument.run({ id, content: "# Report
+
+No charts now." }),
+    );
+    expect(await citedDashboards(id)).toEqual([]);
   });
 
-  it("doesn't sync a page in Trash", async () => {
-    const id = await page({
-      content: body("growth"),
-      trashedAt: new Date().toISOString(),
-    });
-    await expect(failureOf(sync(OWNER, id))).resolves.toEqual({
-      errorCode: "document_not_found",
-      statusCode: 404,
-    });
+  it("records the charts in a page an agent edits with edit-document", async () => {
+    const id = await page({ content: body("retention") });
     expect(await citedDashboards(id)).toEqual([]);
+
+    await as(OWNER, () =>
+      editDocument.run({ id, find: "The end.", replace: "The very end." }),
+    );
+
+    expect(await citedDashboards(id)).toEqual(["retention"]);
   });
 });
 
@@ -324,14 +313,14 @@ describe("list-analytics-chart-citations", () => {
     expect(cited.more).toBe(true);
   });
 
-  it("finds a page once its editor syncs it", async () => {
-    const id = await page({ content: body("fresh") });
+  it("finds a page once it's saved with a chart", async () => {
+    const id = await page({ content: "# Report" });
     await expect(list(OWNER, "fresh")).resolves.toEqual({
       pages: [],
       more: false,
     });
 
-    await sync(OWNER, id);
+    await as(OWNER, () => updateDocument.run({ id, content: body("fresh") }));
 
     const cited = await list(OWNER, "fresh");
     expect(cited.pages.map((entry) => entry.id)).toEqual([id]);

@@ -202,7 +202,6 @@ import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
-import { useAnalyticsChartCitationSync } from "./analytics-chart/use-analytics-chart-citation-sync";
 import { createAuthoredContentBase } from "./authored-content-base";
 import { commentRailThreads } from "./block-field-comment-threads";
 import {
@@ -4324,17 +4323,6 @@ function PageEditorSessionBody({
   collabAwarenessRef.current = awareness;
   collabClientIdRef.current = ydoc?.clientID ?? null;
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
-  useAnalyticsChartCitationSync({
-    documentId,
-    enabled:
-      canEdit &&
-      !mcpDirectoryWidgetReadOnly &&
-      !isLocalFileDocument &&
-      !isGitHubSourceDocument &&
-      !bodyHydrationPending,
-    openedContent: document.content,
-    liveCopyContent: bodyWritesThroughLiveCopy ? localContent : null,
-  });
   const bodyHydrationError =
     document.bodyHydration?.hydration?.status === "error"
       ? document.bodyHydration.hydration

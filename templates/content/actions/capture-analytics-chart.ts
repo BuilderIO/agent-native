@@ -36,9 +36,6 @@ const CAPTURE_TIMEOUT_MS = 58_000;
 // escaped string inside this result it can grow, so allow more room here.
 const CAPTURE_MAX_RESULT_CHARS = 75_000;
 
-const SYNC_CITATIONS_NEXT =
-  "Then call sync-analytics-chart-citations with the page's documentId so the dashboard's Cited in list shows the page.";
-
 /** The editor draws the chart from its numbers; agents place the tag. */
 function isEditorCall(ctx: ActionRunContext | undefined): boolean {
   return ctx?.caller === "frontend" || ctx?.caller === "http";
@@ -243,8 +240,8 @@ export default defineAction({
       analyticsChartTag: analyticsChartBlockRaw(blockId, chart),
       next:
         args.purpose === "refresh"
-          ? `Replace the chart's old AnalyticsChart tag (same id) with analyticsChartTag using edit-document. ${SYNC_CITATIONS_NEXT}`
-          : `Put analyticsChartTag in the page where the chart belongs with edit-document, as its own block, and leave the tag as it is. ${SYNC_CITATIONS_NEXT}`,
+          ? "Replace the chart's old AnalyticsChart tag (same id) with analyticsChartTag using edit-document."
+          : "Put analyticsChartTag in the page where the chart belongs with edit-document, as its own block, and leave the tag as it is.",
     };
     // A cut-off tag can't be placed, so say so rather than hand over half.
     if (

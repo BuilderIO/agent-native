@@ -1,0 +1,42 @@
+import { and, eq, notInArray } from "drizzle-orm";
+
+import { ANALYTICS_CHART_TAG } from "../../shared/analytics-chart-block.js";
+import { analyticsChartsInBody } from "../../shared/analytics-charts-in-body.js";
+import { getDb, schema } from "../db/index.js";
+
+type Database = ReturnType<typeof getDb>;
+
+export async function syncAnalyticsChartCitations(
+  db: Database,
+  input: { documentId: string; before: string; after: string },
+): Promise<void> {
+  const tag = `<${ANALYTICS_CHART_TAG}`;
+  if (!input.before.includes(tag) && !input.after.includes(tag)) return;
+  const { charts } = await analyticsChartsInBody(input.after);
+  const dashboardIds = [
+    ...new Set(
+      charts.map((chart) => chart.dashboard.id).filter((id) => id !== ""),
+    ),
+  ];
+  const citations = schema.analyticsChartCitations;
+  await db
+    .delete(citations)
+    .where(
+      dashboardIds.length
+        ? and(
+            eq(citations.documentId, input.documentId),
+            notInArray(citations.dashboardId, dashboardIds),
+          )
+        : eq(citations.documentId, input.documentId),
+    );
+  if (!dashboardIds.length) return;
+  await db
+    .insert(citations)
+    .values(
+      dashboardIds.map((dashboardId) => ({
+        documentId: input.documentId,
+        dashboardId,
+      })),
+    )
+    .onConflictDoNothing();
+}

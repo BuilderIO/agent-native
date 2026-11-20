@@ -480,21 +480,19 @@ export const parityMatrix: ParityRow[] = [
     uiEntrypoints: [
       "app/components/editor/analytics-chart/analytics-chart-paste.ts",
       "app/components/editor/analytics-chart/AnalyticsChartBlock.tsx",
-      "app/components/editor/analytics-chart/use-analytics-chart-citation-sync.ts",
       "app/components/editor/DocumentToolbar.tsx",
       "app/routes/p.$id.tsx",
     ],
     durableEffect:
       "The page body stores an AnalyticsChart tag holding the panel's numbers as Analytics ran them for the editor who added or refreshed it, plus the dashboard's sharing at that moment. Readers see only those numbers; Content never queries a data source. A citation row per page and dashboard lets the dashboard list the pages that hold its charts.",
     uiImplementation:
-      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. After a save that adds, refreshes or removes a chart, and once when an editor opens a page with charts, the editor calls sync-analytics-chart-citations so the page's citations match its saved body; Analytics' Cited in list reads list-analytics-chart-citations as the signed-in person, which keeps only pages they can open that still hold a chart from the dashboard. Agents call capture-analytics-chart, write the returned tag with edit-document, then call sync-analytics-chart-citations.",
+      "Pasting a panel link reads where Analytics lives through get-analytics-links, then capture-analytics-chart checks edit access and has Analytics run the panel as the editor; the editor confirms first when more people can open the page than the dashboard. Refresh calls capture-analytics-chart again and replaces the block's data. get-analytics-chart-status reads each dashboard's sharing and panel fingerprints for the editor's changed mark. Sharing a page with charts from narrower dashboards asks first; making it public also weighs the charts in the sub-pages that go public with it, read through list-sub-page-analytics-charts. A table never goes wider than its dashboard, in the page or its sub-pages. Every save of a page body records which dashboards its charts come from; Analytics' Cited in list reads list-analytics-chart-citations as the signed-in person, which keeps only pages they can open that still hold a chart from the dashboard. Agents call capture-analytics-chart and write the returned tag with edit-document.",
     status: "action-backed",
     actions: [
       "get-analytics-links",
       "capture-analytics-chart",
       "get-analytics-chart-status",
       "list-sub-page-analytics-charts",
-      "sync-analytics-chart-citations",
       "list-analytics-chart-citations",
     ],
     exception:
@@ -510,7 +508,6 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/analytics-chart/analytics-chart-paste.test.ts",
       "app/components/editor/analytics-chart/analytics-chart-share.test.ts",
       "actions/analytics-chart-citations.db.test.ts",
-      "app/components/editor/analytics-chart/use-analytics-chart-citation-sync.test.tsx",
     ],
   },
   {
