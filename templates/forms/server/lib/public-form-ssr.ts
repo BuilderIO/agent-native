@@ -13,6 +13,7 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
   compileUserRegex,
   withAgentNativeSocialImageCacheBuster,
+  safeJsonForHtml,
 } from "@agent-native/core/shared";
 import { eq } from "drizzle-orm";
 import { getMethod, type H3Event } from "h3";
@@ -494,17 +495,17 @@ function renderFormPage(
 
 <script>
 (function(){
-  var FORM_ID = ${JSON.stringify(form.id)};
-  var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
-  var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
-  var UPLOAD_PATH = ${JSON.stringify(uploadPath)};
-  var COMPLETION_MODE = ${JSON.stringify(completionMode)};
+  var FORM_ID = ${safeJsonForHtml(form.id)};
+  var FORM_VERSION = ${safeJsonForHtml(form.updatedAt || "")};
+  var PUBLIC_FORM_API = ${safeJsonForHtml(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
+  var UPLOAD_PATH = ${safeJsonForHtml(uploadPath)};
+  var COMPLETION_MODE = ${safeJsonForHtml(completionMode)};
   var COMPLETION_REFRESH_MS = ${completionRefreshMilliseconds};
-  var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
-  var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
-  var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: publicValidation(f.validation), label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
-  var PATTERN_MESSAGES = ${JSON.stringify(PUBLIC_FORM_PATTERN_MESSAGES)};
-  var SENSITIVE_QUERY_PARAMS = ${JSON.stringify(SENSITIVE_QUERY_PARAMS)};
+  var REDIRECT = ${safeJsonForHtml(safeRedirectUrl(settings.redirectUrl))};
+  var TURNSTILE_KEY = ${safeJsonForHtml(turnstileSiteKey)};
+  var FIELDS = ${safeJsonForHtml(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: publicValidation(f.validation), label: f.label, conditional: f.conditional, multiple: f.multiple, accept: f.accept, maxSizeBytes: f.maxSizeBytes, maxFiles: f.maxFiles })))};
+  var PATTERN_MESSAGES = ${safeJsonForHtml(PUBLIC_FORM_PATTERN_MESSAGES)};
+  var SENSITIVE_QUERY_PARAMS = ${safeJsonForHtml(SENSITIVE_QUERY_PARAMS)};
 
   function localizedPatternMessage(kind, label) {
     var locales = typeof navigator !== "undefined" && navigator.languages && navigator.languages.length
@@ -859,7 +860,7 @@ function renderFormPage(
     uploadFiles(filesByField).then(function(uploaded) {
       Object.keys(uploaded).forEach(function(fieldId) { data[fieldId] = uploaded[fieldId]; });
       btn.textContent = "Submitting...";
-      return fetch(${JSON.stringify(submitPath)} + FORM_ID, {
+      return fetch(${safeJsonForHtml(submitPath)} + FORM_ID, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: data, captchaToken: captchaToken, _hp: hp, _t: PAGE_LOAD_T, _meta: { pageUrl: pageUrl } }),
@@ -882,7 +883,7 @@ function renderFormPage(
     .catch(function(err) {
       showToast(err.message || "Failed to submit form");
       submitting = false;
-      btn.textContent = ${JSON.stringify(settings.submitText || "Submit")};
+      btn.textContent = ${safeJsonForHtml(settings.submitText || "Submit")};
       btn.disabled = false;
     });
   };

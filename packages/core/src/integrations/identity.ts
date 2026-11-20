@@ -76,7 +76,7 @@ export async function resolveDefaultIntegrationExecutionContext(
       ? await resolveSlackInstallation(incoming)
       : null;
 
-  if (incoming.platform !== "slack" || incoming.conversationType !== "dm") {
+  if (incoming.platform !== "slack") {
     return {
       ownerEmail: serviceOwner(incoming.platform),
       orgId: installation?.orgId ?? null,
@@ -88,7 +88,7 @@ export async function resolveDefaultIntegrationExecutionContext(
   if (incoming.actorTrust?.verified !== true) {
     throw new IntegrationIdentityDeclinedError(
       "unverified",
-      "Slack DM sender identity could not be hydrated; declining instead of guessing a principal.",
+      "Slack sender identity could not be hydrated; declining instead of guessing a principal.",
       "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
     );
   }
@@ -102,6 +102,16 @@ export async function resolveDefaultIntegrationExecutionContext(
       "This assistant is only available to members of this workspace's organization.",
     );
   }
+
+  if (incoming.conversationType !== "dm") {
+    return {
+      ownerEmail: serviceOwner(incoming.platform),
+      orgId: installation?.orgId ?? null,
+      principalType: "service",
+      ...(installation?.id ? { installationId: installation.id } : {}),
+    };
+  }
+
   if (!installation?.orgId) {
     throw new IntegrationIdentityDeclinedError(
       "unlinked-workspace",

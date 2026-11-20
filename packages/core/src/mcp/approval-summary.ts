@@ -541,7 +541,7 @@ export function mcpApprovalPromptText(input: {
   locale: string;
   readerZone: string | undefined;
   mode: "form" | "url";
-  reviewUrl: string;
+  reviewUrl?: string;
 }): string {
   const { summary, priorRun, messages, locale, readerZone } = input;
   // Without the reader's zone the fields show the call's own, so the prior
@@ -606,7 +606,10 @@ export function mcpApprovalPromptText(input: {
     } else if (summary.cut) {
       lines.push(messages.argumentsCut);
     }
-    if (moreRecipients > 0 || moreFields > 0 || shortened) {
+    if (
+      input.reviewUrl &&
+      (moreRecipients > 0 || moreFields > 0 || shortened)
+    ) {
       lines.push(messages.reviewWhole.replace("{url}", input.reviewUrl));
       if (!URL.canParse(input.reviewUrl)) lines.push(messages.relativeLink);
     }

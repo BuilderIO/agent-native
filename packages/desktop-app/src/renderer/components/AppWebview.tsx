@@ -667,8 +667,13 @@ function buildSoftNavigateScript(targetUrl: string): string {
     const current =
       window.location.pathname + window.location.search + window.location.hash;
     if (current !== next) {
-      window.history.pushState(null, "", next);
-      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+      const previous = window.history.state;
+      const nextState =
+        previous && typeof previous.idx === "number"
+          ? { usr: null, key: Math.random().toString(36).slice(2, 10), idx: previous.idx + 1 }
+          : null;
+      window.history.pushState(nextState, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: nextState }));
     }
     return true;
   })()`;
@@ -859,6 +864,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const onWebContentsIdChangeRef = useRef(onWebContentsIdChange);
     const perAppChatOpenRef = useRef(false);
     const authProbeSequenceRef = useRef(0);
+    const navigationGenerationRef = useRef(0);
     const lastGuestChatSidebarSyncRef = useRef<string | null>(null);
     const guestScriptInFlightRef = useRef(new Map<string, Promise<unknown>>());
 
@@ -1283,6 +1289,42 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
     }, [app.placeholder, executeGuestScript, isActive]);
 
+    const throttlingAppliedForPreloadRef = useRef(preload);
+    useEffect(() => {
+      const wv = webviewRef.current;
+      if (
+        !wv ||
+        app.placeholder ||
+        throttlingAppliedForPreloadRef.current === preload
+      ) {
+        return;
+      }
+      const electronAPI = window.electronAPI as
+        | Window["electronAPI"]
+        | undefined;
+      const apply = () => {
+        let webContentsId: number;
+        try {
+          webContentsId = wv.getWebContentsId();
+        } catch (error) {
+          console.debug("[desktop-webview] guest not attached yet", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : error,
+          });
+          return false;
+        }
+        electronAPI?.setWebviewBackgroundThrottling(webContentsId, !preload);
+        throttlingAppliedForPreloadRef.current = preload;
+        return true;
+      };
+      if (apply()) return;
+      const applyOnDomReady = () => {
+        if (apply()) wv.removeEventListener("dom-ready", applyOnDomReady);
+      };
+      wv.addEventListener("dom-ready", applyOnDomReady);
+      return () => wv.removeEventListener("dom-ready", applyOnDomReady);
+    }, [app.id, app.placeholder, preload]);
+
     function reportActiveWebview() {
       const wv = webviewRef.current;
       if (!wv) return;
@@ -1698,6 +1740,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
+      navigationGenerationRef.current += 1;
+      const navigationGeneration = navigationGenerationRef.current;
       optimizeDepRecoveryRef.current = false;
       loadFailureRef.current = false;
       unresponsiveFailureRef.current = false;
@@ -1713,12 +1757,18 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           : `soft-navigate:${url}`;
         void executeGuestScript(scriptKey, script)
           .then((ok) => {
-            if (ok !== false) return;
+            if (ok === true) return;
+            if (navigationGenerationRef.current !== navigationGeneration) {
+              return;
+            }
             setIsLoading(true);
             setSlowLoad(false);
             wv.setAttribute("src", url);
           })
           .catch(() => {
+            if (navigationGenerationRef.current !== navigationGeneration) {
+              return;
+            }
             setIsLoading(true);
             setSlowLoad(false);
             wv.setAttribute("src", url);

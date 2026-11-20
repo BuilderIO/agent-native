@@ -2,6 +2,7 @@ import {
   findLastUsedBrowserTab,
   LAST_USED_BROWSER_TAB_MAX_AGE_MS,
 } from "../application-state/last-used-tab.js";
+import { normalizeBrowserTabId } from "../application-state/script-helpers.js";
 import {
   getRequestUserEmail,
   type BrowserTabTarget,
@@ -12,18 +13,24 @@ import {
  * An MCP tool call comes from no browser tab, so tab-scoped app state
  * (navigation, navigate commands, selection) would otherwise fall back to
  * account-wide rows no tab keeps current. This slot points the call at the
- * tab of this app the user used last. The lookup runs only when the call
+ * caller-requested browser tab (`x-agent-native-browser-tab`), or otherwise
+ * the tab of this app the user used last. The lookup runs only when the call
  * first reads or writes tab-scoped state.
  */
-export function createBrowserTabTargetSlot(): BrowserTabTargetSlot {
+export function createBrowserTabTargetSlot(
+  requestedTabId?: string,
+): BrowserTabTargetSlot {
+  const normalizedRequestedTabId = normalizeBrowserTabId(requestedTabId);
   let pending: Promise<BrowserTabTarget> | undefined;
   const slot: BrowserTabTargetSlot = {
     resolve() {
       pending ??= (async () => {
         const userEmail = getRequestUserEmail();
-        const target: BrowserTabTarget = userEmail
-          ? await findLastUsedBrowserTab(userEmail)
-          : { kind: "unavailable" };
+        const target: BrowserTabTarget = !userEmail
+          ? { kind: "unavailable" }
+          : normalizedRequestedTabId
+            ? { kind: "requested", tabId: normalizedRequestedTabId }
+            : await findLastUsedBrowserTab(userEmail);
         slot.resolved = target;
         return target;
       })();
@@ -48,6 +55,9 @@ export function browserTabTargetNote(
   target: BrowserTabTarget,
   now = Date.now(),
 ): string {
+  if (target.kind === "requested") {
+    return "Browser tab: this call targeted the requested browser tab. A navigate command reaches that tab only while it stays open, and this result doesn't confirm that it moved.";
+  }
   if (target.kind === "last-used") {
     return `Browser tab: this call used the user's most recently used tab of this app (last used ${usedAgo(target.usedAt, now)}). A navigate command reaches that tab only while it stays open, and this result doesn't confirm that it moved.`;
   }

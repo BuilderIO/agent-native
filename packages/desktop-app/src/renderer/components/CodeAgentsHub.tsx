@@ -333,6 +333,16 @@ const DISPATCH_CONTROL_PLANE_PATHS = [
   "/admin/automations",
 ] as const;
 
+export function resolveLaunchPreloadedTabIds(
+  launchTabs: readonly Pick<ChatFirstSurfaceTab, "id">[],
+  userTabs: readonly Pick<ChatFirstSurfaceTab, "id">[],
+): Set<string> {
+  const userTabIds = new Set(userTabs.map((tab) => tab.id));
+  return new Set(
+    launchTabs.filter((tab) => !userTabIds.has(tab.id)).map((tab) => tab.id),
+  );
+}
+
 export function isDispatchControlPlanePath(path?: string): boolean {
   if (!path?.trim()) return false;
   const base = "http://agent-native.invalid";
@@ -2843,6 +2853,21 @@ export default function CodeAgentsHub({
     }
     return [...byId.values()];
   }, [chatFirstSurfaceTabs.tabs, surfaceApps]);
+  const launchPreloadedTabIds = useMemo(() => {
+    const launchTabs: ChatFirstSurfaceTab[] = [];
+    for (const app of surfaceApps) {
+      if (
+        app.enabled &&
+        isDesktopAppVisible(app) &&
+        getDesktopAppLaunchBehavior(app.id).preloadAtLaunch
+      ) {
+        launchTabs.push(
+          chatFirstAppSurfaceTab(app, undefined, undefined, "main"),
+        );
+      }
+    }
+    return resolveLaunchPreloadedTabIds(launchTabs, chatFirstSurfaceTabs.tabs);
+  }, [chatFirstSurfaceTabs.tabs, surfaceApps]);
   const pinnedChatFirstAppTabIds = useMemo(
     () => new Set(pinnedChatFirstAppTabs.map((tab) => tab.id)),
     [pinnedChatFirstAppTabs],
@@ -3460,7 +3485,11 @@ export default function CodeAgentsHub({
               key={tab.id}
               slot={pinnedChatFirstAppSlots[tab.id] ?? null}
             >
-              {renderChatFirstAppWebview(tab, view, true)}
+              {renderChatFirstAppWebview(
+                tab,
+                view,
+                launchPreloadedTabIds.has(tab.id),
+              )}
             </PinnedWebviewFrame>
           );
         })}

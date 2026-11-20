@@ -154,6 +154,7 @@ const requestedScreenSchema = z
   });
 
 export default defineAction({
+  allowsAgentNavigation: true,
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,
