@@ -216,7 +216,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                 }
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   applySearchParam(query);
                   setOpen(false);

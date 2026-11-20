@@ -167,12 +167,13 @@ export function stateFromLocation(
     };
   }
 
-  if (p === "/screenshots") return { view: "screenshots" };
+  const listSearch = searchTerm ? { search: searchTerm } : {};
+  if (p === "/screenshots") return { view: "screenshots", ...listSearch };
   if (p === "/spaces") return { view: "spaces" };
-  if (p === "/shared") return { view: "shared" };
-  if (p === "/from-content") return { view: "from-content" };
-  if (p === "/archive") return { view: "archive" };
-  if (p === "/trash") return { view: "trash" };
+  if (p === "/shared") return { view: "shared", ...listSearch };
+  if (p === "/from-content") return { view: "from-content", ...listSearch };
+  if (p === "/archive") return { view: "archive", ...listSearch };
+  if (p === "/trash") return { view: "trash", ...listSearch };
   if (p === "/record") return { view: "record" };
   if (p === "/bug-report") return { view: "bug-report" };
   if (p === "/bug-report/done") {
@@ -230,14 +231,16 @@ export function pathFromCommand(cmd: NavigateCommand): string {
         : "/spaces";
     case "spaces":
       return "/spaces";
+    case "screenshots":
+      return appendSearchQuery("/screenshots", cmd.search);
     case "shared":
-      return "/shared";
+      return appendSearchQuery("/shared", cmd.search);
     case "from-content":
-      return "/from-content";
+      return appendSearchQuery("/from-content", cmd.search);
     case "archive":
-      return "/archive";
+      return appendSearchQuery("/archive", cmd.search);
     case "trash":
-      return "/trash";
+      return appendSearchQuery("/trash", cmd.search);
     case "record":
       return "/record";
     case "bug-report":

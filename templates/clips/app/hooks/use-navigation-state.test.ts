@@ -186,5 +186,21 @@ describe("Clips shared navigation", () => {
     expect(stateFromLocation("/library", "?q=%20%20")).toEqual({
       view: "library",
     });
+
+    for (const view of [
+      "shared",
+      "from-content",
+      "archive",
+      "trash",
+      "screenshots",
+    ] as const) {
+      expect(pathFromCommand({ view, search: "onboarding" })).toBe(
+        `/${view}?q=onboarding`,
+      );
+      expect(stateFromLocation(`/${view}`, "?q=onboarding")).toEqual({
+        view,
+        search: "onboarding",
+      });
+    }
   });
 });

@@ -333,4 +333,30 @@ describe("SearchBar command-menu handoff", () => {
     ) => URLSearchParams;
     expect(clearUpdater(new URLSearchParams("q=pricing")).has("q")).toBe(false);
   });
+
+  it("ignores Enter while IME composition is active", () => {
+    act(() => root.render(<SearchBar />));
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    const inputValueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      inputValueSetter?.call(input, "nihon");
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const composingEnter = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Enter",
+      isComposing: true,
+    });
+    act(() => {
+      input?.dispatchEvent(composingEnter);
+    });
+
+    expect(composingEnter.defaultPrevented).toBe(false);
+    expect(mocks.setSearchParams).not.toHaveBeenCalled();
+  });
 });

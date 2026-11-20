@@ -264,8 +264,12 @@ async function fetchLibrary({
   const searchTerm = search?.trim();
   if (searchTerm) {
     const pattern = buildCaseInsensitiveSearchPattern(searchTerm);
+    const transcriptMatch = sql`EXISTS (SELECT 1 FROM ${schema.recordingTranscripts} rt WHERE rt.recording_id = ${schema.recordings.id} AND lower(rt.full_text) LIKE ${pattern} ESCAPE '\\')`;
+    const transcriptCondition = shared
+      ? sql`((${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '') AND ${transcriptMatch})`
+      : transcriptMatch;
     conditions.push(
-      sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\' OR EXISTS (SELECT 1 FROM ${schema.recordingTranscripts} rt WHERE rt.recording_id = ${schema.recordings.id} AND lower(rt.full_text) LIKE ${pattern} ESCAPE '\\'))`,
+      sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\' OR ${transcriptCondition})`,
     );
   }
   const rows = await db
@@ -639,9 +643,11 @@ export default defineAction({
       case "shared": {
         const recordings = await fetchLibrary({
           shared: true,
+          search: nav.search,
           organizationId,
         });
         screen.shared = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings,
         };
@@ -650,10 +656,12 @@ export default defineAction({
       case "from-content": {
         const recordings = await fetchLibrary({
           fromContent: true,
+          search: nav.search,
           organizationId,
         });
         const pages = await contentPageUrls(recordings.map((r) => r.id));
         screen.fromContent = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings: recordings.map((recording) => ({
             ...recording,
