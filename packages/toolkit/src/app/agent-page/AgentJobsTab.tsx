@@ -97,12 +97,18 @@ function listRecurringJobs(jobs: RecurringJob[]): ListedAutomation[] {
   }));
 }
 
-function listAutomations(automations: Automation[]): ListedAutomation[] {
-  return automations.map((resource) => ({
-    kind: "automation",
-    resource,
-    triggerType: resource.triggerType,
-  }));
+function listAutomations(
+  automations: Automation[],
+  jobs: RecurringJob[],
+): ListedAutomation[] {
+  const jobIds = new Set(jobs.map((job) => job.id));
+  return automations
+    .filter((resource) => !jobIds.has(resource.resourceId))
+    .map((resource) => ({
+      kind: "automation",
+      resource,
+      triggerType: resource.triggerType,
+    }));
 }
 
 type Translate = ReturnType<typeof useT>;
@@ -351,13 +357,18 @@ export function AgentJobsTab({
     });
   };
 
+  const personalJobs = personalJobsQuery.data ?? [];
+  const organizationJobs = organizationJobsQuery.data ?? [];
   const personalEntries = [
-    ...listRecurringJobs(personalJobsQuery.data ?? []),
-    ...listAutomations(personalAutomationsQuery.data ?? []),
+    ...listRecurringJobs(personalJobs),
+    ...listAutomations(personalAutomationsQuery.data ?? [], personalJobs),
   ];
   const organizationEntries = [
-    ...listRecurringJobs(organizationJobsQuery.data ?? []),
-    ...listAutomations(organizationAutomationsQuery.data ?? []),
+    ...listRecurringJobs(organizationJobs),
+    ...listAutomations(
+      organizationAutomationsQuery.data ?? [],
+      organizationJobs,
+    ),
   ];
   const mutationPending =
     personalJobsMutation.isPending ||

@@ -215,6 +215,133 @@ describe("AgentJobsTab organization automations", () => {
     expect(container.textContent).not.toContain("personal today");
   });
 
+  it.each(["user", "org"] as const)(
+    "deduplicates recurring resources by id within the %s scope",
+    (scope) => {
+      const resourceScope = scope === "org" ? "organization" : "personal";
+      const otherScope = scope === "org" ? "user" : "org";
+      const existingJobs = jobMocks.useRecurringJobs.getMockImplementation();
+      const existingAutomations =
+        jobMocks.useAutomations.getMockImplementation();
+      if (!existingJobs || !existingAutomations) {
+        throw new Error("Job fixtures are not configured");
+      }
+      const job = existingJobs("org").data[0];
+      const automation = existingAutomations("org").data[0];
+      const manageRecurringJob = vi.fn();
+      jobMocks.useManageRecurringJob.mockReturnValue(
+        mutationResult(manageRecurringJob),
+      );
+      jobMocks.useRecurringJobs.mockImplementation(
+        (queryScope: "user" | "org") =>
+          queryResult(
+            queryScope === scope
+              ? [
+                  {
+                    ...job,
+                    id: "overlap",
+                    name: "same-name",
+                    scope: resourceScope,
+                  },
+                ]
+              : [
+                  {
+                    ...job,
+                    id: "other-scope",
+                    name: "other-job",
+                    scope: otherScope === "org" ? "organization" : "personal",
+                  },
+                ],
+          ),
+      );
+      jobMocks.useAutomations.mockImplementation((queryScope: "user" | "org") =>
+        queryResult(
+          queryScope === scope
+            ? [
+                {
+                  ...automation,
+                  id: "overlap",
+                  resourceId: "overlap",
+                  name: "same-name",
+                  scope: resourceScope,
+                  classification: "recurring-job",
+                },
+                {
+                  ...automation,
+                  id: "distinct",
+                  resourceId: "distinct",
+                  name: "same-name",
+                  scope: resourceScope,
+                },
+                {
+                  ...automation,
+                  id: "legacy-only",
+                  resourceId: "legacy-only",
+                  name: "legacy-only",
+                  scope: resourceScope,
+                  classification: "recurring-job",
+                },
+                {
+                  ...automation,
+                  id: "other-scope",
+                  resourceId: "other-scope",
+                  name: "cross-scope",
+                  scope: resourceScope,
+                },
+              ]
+            : [],
+        ),
+      );
+
+      act(() => root.render(<AgentJobsTab scope={scope} canManageOrg />));
+
+      const sections = container.querySelectorAll("section");
+      const section = sections[scope === "user" ? 0 : 1];
+      const names = [...section.querySelectorAll("article h3")].map(
+        (heading) => heading.textContent,
+      );
+      expect(names).toEqual([
+        "same name",
+        "same name",
+        "legacy only",
+        "cross scope",
+      ]);
+      expect(
+        sections[otherScope === "user" ? 0 : 1].querySelectorAll("article"),
+      ).toHaveLength(1);
+
+      const rows = section.querySelectorAll("article");
+      const recurringToggle =
+        rows[0].querySelector<HTMLButtonElement>('[role="switch"]');
+      const legacyOnlyToggle =
+        rows[2].querySelector<HTMLButtonElement>('[role="switch"]');
+      if (!recurringToggle || !legacyOnlyToggle)
+        throw new Error("Missing toggles");
+      act(() => {
+        recurringToggle.click();
+        legacyOnlyToggle.click();
+      });
+      expect(manageRecurringJob).toHaveBeenCalledWith(
+        {
+          operation: "update",
+          name: "same-name",
+          scope: resourceScope,
+          enabled: false,
+        },
+        undefined,
+      );
+      expect(jobMocks.manageAutomation[scope]).toHaveBeenCalledWith(
+        {
+          operation: "update",
+          name: "legacy-only",
+          scope: resourceScope,
+          enabled: false,
+        },
+        undefined,
+      );
+    },
+  );
+
   it("opens the organization editor with its scope fixed", async () => {
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);
