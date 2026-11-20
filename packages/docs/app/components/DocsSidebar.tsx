@@ -9,8 +9,10 @@ import {
   docsNavGroupClipId,
   getActiveDocsNavGroupId,
   getActiveDocsNavSectionId,
+  groupContainsActive,
   isDocsNavGroupItem,
   isDocsNavItemActive,
+  sectionContainsActive,
 } from "./docsNavState";
 
 export default function DocsSidebar() {
@@ -85,6 +87,11 @@ export default function DocsSidebar() {
                 <button
                   type="button"
                   className="docs-sidebar-section-trigger"
+                  data-active-descendant={
+                    sectionContainsActive(section, location.pathname)
+                      ? "true"
+                      : undefined
+                  }
                   aria-expanded={isOpen}
                   aria-controls={sectionId}
                   onClick={() =>
@@ -127,6 +134,11 @@ export default function DocsSidebar() {
                           <button
                             type="button"
                             className="sidebar-link sidebar-group-trigger"
+                            data-active-descendant={
+                              groupContainsActive(item, location.pathname)
+                                ? "true"
+                                : undefined
+                            }
                             aria-expanded={groupOpen}
                             aria-controls={clipId}
                             tabIndex={isOpen ? undefined : -1}
