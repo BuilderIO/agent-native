@@ -123,7 +123,11 @@ async function readDocumentFile(input: Record<string, unknown>) {
   if (response.result.status !== "completed") {
     const code = contentErrorCode(response.result.output);
     const known = code ? CONTENT_ERRORS[code] : undefined;
-    if (!known && input.format === "pdf") {
+    if (
+      !known &&
+      input.format === "pdf" &&
+      response.result.output.includes("Invalid action parameters")
+    ) {
       fail(
         "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
         { statusCode: 409, errorCode: "content_page_pdf_unavailable" },

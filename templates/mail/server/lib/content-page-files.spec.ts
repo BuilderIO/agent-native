@@ -303,6 +303,18 @@ describe("Content page files", () => {
       message: expect.stringContaining("Attach it as Markdown"),
     });
 
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: { status: "failed", output: "Error running it: boom" },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "content_page_unavailable",
+      message: expect.stringContaining("Check your access"),
+    });
+
     invokeAgentAction.mockRejectedValue(new Error("connect ECONNREFUSED"));
     await expect(
       readContentPageFile({ id: "plan-page" }),
