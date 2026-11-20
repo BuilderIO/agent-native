@@ -122,7 +122,9 @@ Count a round as one batch of bot or AI review findings posted after a push
 - Reply to a deferred item in its thread with one line, "Deferred as
   non-critical after round 2; tracked in <follow-up>", resolve the thread, and
   append the item to one follow-up list (a single PR comment or issue).
-  Deferred threads count as answered. Scope this to the existing rules: in
+  A deferral counts as answered only once its thread reply is posted; where a
+  reply isn't permitted (factory rounds, others' PRs), the thread stays
+  unanswered and the existing reply-state merge rule applies. Scope this to the existing rules: in
   factory rounds, don't resolve threads, only record the deferral in the
   follow-up list; on another person's PR, comment only with that PR's
   authorization, otherwise list the deferral in your report; when posting or

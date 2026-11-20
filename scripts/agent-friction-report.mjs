@@ -4267,7 +4267,8 @@ const PATTERNS = [
   },
   {
     key: "review-round-churn",
-    label: "Had to cap bot review rounds to critical-and-high only after round 2",
+    label:
+      "Had to cap bot review rounds to critical-and-high only after round 2",
     fixedBy: ".agents/skills/babysit-pr (Review round cap, 2026-11-20)",
     re: /\b(too many (rounds? of )?(bot |ai |code )?reviews?( rounds?)?|(\d+ )?(review )?rounds? of (bot |ai )?review (is|are) (way )?too much|after a couple (of )?rounds,? (let'?s )?only (worry about|fix) critical)\b/i,
   },
