@@ -2179,18 +2179,17 @@ async function abandonDeleteTombstone(
   path: string,
 ): Promise<void> {
   try {
+    await clearSharedMemoryTombstone(owner, path);
+  } catch (clearError) {
+    throw new MemoryDeleteStateUnknownError(
+      `Could not delete ${path} or clear its deletion marker; whether it is hidden is unknown`,
+      { cause: clearError },
+    );
+  }
+  try {
     const row = await selectMirrorTarget(owner, path);
     if (row) await mirrorMemoryUnlocked(row);
-    else await clearSharedMemoryTombstone(owner, path);
   } catch (repairError) {
-    try {
-      await clearSharedMemoryTombstone(owner, path);
-    } catch (clearError) {
-      throw new MemoryDeleteStateUnknownError(
-        `Could not delete ${path} or restore its shared copy; whether it is hidden is unknown`,
-        { cause: new AggregateError([repairError, clearError]) },
-      );
-    }
     throw new MemoryDeleteStateUnknownError(
       `Could not delete ${path} and its shared copy could not be restored; it is still stored but other apps may not see it`,
       { cause: repairError },
@@ -2285,7 +2284,12 @@ async function mirrorMemoryUnlocked(resource: MirrorTarget): Promise<void> {
       continue;
     }
     if (attempt === 0 && !sameMirrorTarget(row, resource)) return;
-    await writeSharedPersonalMemory(resource.owner, resource.path, row.content);
+    await writeSharedPersonalMemory(
+      resource.owner,
+      resource.path,
+      row.content,
+      row.updatedAt,
+    );
     const after = await selectMirrorTarget(resource.owner, resource.path);
     if (after && sameMirrorTarget(after, row)) return;
   }

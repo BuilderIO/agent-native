@@ -206,19 +206,28 @@ export async function writeSharedPersonalMemory(
   owner: string,
   resourcePath: string,
   content: string,
+  revision: number,
 ): Promise<void> {
   const rootDir = getSharedMemoryDir();
   if (!rootDir) return;
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
-  if (!filePath) return;
+  const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
+  if (!filePath || !tombstonePath) return;
+  const assertNotDeleted = async () => {
+    const deletedAt = await readTombstone(tombstonePath);
+    if (deletedAt !== null && deletedAt >= revision) {
+      throw new MemoryTombstoneError(
+        `${resourcePath} was deleted after this revision; its shared copy was left deleted`,
+      );
+    }
+  };
+  await assertNotDeleted();
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   await writeAtomic(filePath, content);
-  const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
-  if (tombstonePath) {
-    await fs.promises.unlink(tombstonePath).catch((error) => {
-      if (!isMissingPathError(error)) throw error;
-    });
-  }
+  await assertNotDeleted();
+  await fs.promises.unlink(tombstonePath).catch((error) => {
+    if (!isMissingPathError(error)) throw error;
+  });
 }
 
 export async function deleteSharedPersonalMemory(

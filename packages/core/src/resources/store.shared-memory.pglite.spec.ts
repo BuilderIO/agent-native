@@ -692,7 +692,7 @@ describe("personal memory shared across local apps", () => {
       .mockImplementationOnce(async (from, to) => {
         await realRename(from, to);
         await pglite.exec(
-          `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES ('reborn-id', 'memory/reborn.md', '${OWNER}', 'reborn', 'text/markdown', 6, 1, 2)`,
+          `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES ('reborn-id', 'memory/reborn.md', '${OWNER}', 'reborn', 'text/markdown', 6, 1, ${Date.now() + 3_600_000})`,
         );
       });
     try {

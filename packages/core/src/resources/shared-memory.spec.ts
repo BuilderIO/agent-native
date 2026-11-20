@@ -73,11 +73,13 @@ describe("shared-memory", () => {
       "alice@example.com",
       "memory/MEMORY.md",
       "# Memory Index\n- [wife-contact](wife-contact.md) — Wife's email address\n",
+      Date.now(),
     );
     await writeSharedPersonalMemory(
       "alice@example.com",
       "memory/wife-contact.md",
       "Wife's email is wife@example.com.\n",
+      Date.now(),
     );
 
     const listed = await listSharedPersonalMemories("alice@example.com");
@@ -159,7 +161,12 @@ describe("shared-memory", () => {
   it("rejects an empty or non-numeric tombstone instead of reading it as 0", async () => {
     const dir = makeTempDir();
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;
-    await writeSharedPersonalMemory("alice@example.com", "memory/t.md", "x");
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/t.md",
+      "x",
+      Date.now(),
+    );
     const file = resolveSharedMemoryFilePath(
       dir,
       "alice@example.com",
@@ -184,7 +191,12 @@ describe("shared-memory", () => {
   it("publishes a tombstone by renaming a temp file, never in place", async () => {
     const dir = makeTempDir();
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;
-    await writeSharedPersonalMemory("alice@example.com", "memory/n.md", "x");
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/n.md",
+      "x",
+      Date.now(),
+    );
     const rename = vi.spyOn(fs.promises, "rename");
     try {
       await deleteSharedPersonalMemory("alice@example.com", "memory/n.md");
@@ -201,7 +213,12 @@ describe("shared-memory", () => {
   it("writes tombstones atomically and keeps tied files deleted", async () => {
     const dir = makeTempDir();
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;
-    await writeSharedPersonalMemory("alice@example.com", "memory/a.md", "x");
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/a.md",
+      "x",
+      Date.now(),
+    );
     await deleteSharedPersonalMemory("alice@example.com", "memory/a.md");
     const ownerDir = path.join(dir, encodeURIComponent("alice@example.com"));
     expect(fs.readdirSync(ownerDir)).toEqual(["a.md.deleted"]);
@@ -218,7 +235,12 @@ describe("shared-memory", () => {
   it("stamps a tombstone above the surviving file's mtime and the revision floor", async () => {
     const dir = makeTempDir();
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;
-    await writeSharedPersonalMemory("alice@example.com", "memory/f.md", "x");
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/f.md",
+      "x",
+      Date.now(),
+    );
     const file = resolveSharedMemoryFilePath(
       dir,
       "alice@example.com",
@@ -232,7 +254,12 @@ describe("shared-memory", () => {
       mtime,
     );
 
-    await writeSharedPersonalMemory("alice@example.com", "memory/g.md", "x");
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/g.md",
+      "x",
+      Date.now(),
+    );
     const floor = Date.now() + 7_200_000;
     await deleteSharedPersonalMemory("alice@example.com", "memory/g.md", floor);
     const tomb = resolveSharedMemoryFilePath(
@@ -241,6 +268,48 @@ describe("shared-memory", () => {
       "memory/g.md",
     );
     expect(Number(fs.readFileSync(`${tomb}.deleted`, "utf8"))).toBe(floor);
+  });
+
+  it("refuses a delayed mirror older than a delete and keeps the tombstone", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const revision = Date.now();
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/d.md",
+      "x",
+      revision,
+    );
+    await deleteSharedPersonalMemory(
+      "alice@example.com",
+      "memory/d.md",
+      revision + 10,
+    );
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/d.md",
+    ) as string;
+
+    await expect(
+      writeSharedPersonalMemory(
+        "alice@example.com",
+        "memory/d.md",
+        "late",
+        revision,
+      ),
+    ).rejects.toBeInstanceOf(MemoryTombstoneError);
+    expect(fs.existsSync(`${file}.deleted`)).toBe(true);
+    expect(fs.existsSync(file)).toBe(false);
+
+    await writeSharedPersonalMemory(
+      "alice@example.com",
+      "memory/d.md",
+      "newer",
+      Date.now() + 60_000,
+    );
+    expect(fs.existsSync(`${file}.deleted`)).toBe(false);
+    expect(fs.readFileSync(file, "utf8")).toBe("newer");
   });
 
   it("keeps the first stale-mirror error for the end and rethrows anything else at once", () => {

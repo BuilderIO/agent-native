@@ -32,6 +32,7 @@ describe("cross-chat memory recall", () => {
       owner,
       "memory/wife-contact.md",
       "My wife's email is wife@example.test\n",
+      Date.now(),
     );
 
     const read = await readMirroredMemory(owner, "memory/wife-contact.md");
