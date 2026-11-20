@@ -180,8 +180,9 @@
   --design-focus-ring-width: 2px;
   --design-focus-ring-gap: 2px;
   --design-font-medium: 450;
-  /* New chrome icons read these, so the final size/stroke is a one-line change. */
-  --design-ui-icon-size: 16px;
+  /* New chrome icons read these: Radix Icons at their native 15px grid, and
+     Tabler at this stroke only where Radix has no glyph. */
+  --design-ui-icon-size: 15px;
   --design-ui-icon-stroke: 1.25;
   --design-grid-columns: 28;
   --design-inspector-grid-columns: var(--design-grid-columns);
