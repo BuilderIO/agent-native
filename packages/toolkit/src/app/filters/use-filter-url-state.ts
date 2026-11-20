@@ -38,13 +38,18 @@ export function useFilterUrlState({
   );
   const latest = useRef({ fields, search, onSearchChange, prefix, state });
   latest.current = { fields, search, onSearchChange, prefix, state };
-  const requested = useRef<string | null>(null);
+  const pending = useRef<string[]>([]);
 
   const urlKey = filterSearchKey(search, fields, { prefix });
   const stateKey = filterStateKey(state, fields);
 
   useEffect(() => {
-    requested.current = null;
+    const echo = pending.current.indexOf(urlKey);
+    if (echo !== -1) {
+      pending.current = pending.current.slice(echo + 1);
+      return;
+    }
+    pending.current = [];
     const current = latest.current;
     if (filterStateKey(current.state, current.fields) === urlKey) return;
     setLocalState(
@@ -58,10 +63,10 @@ export function useFilterUrlState({
     const current = latest.current;
     const options = { prefix: current.prefix };
     const target =
-      requested.current ??
+      pending.current.at(-1) ??
       filterSearchKey(current.search, current.fields, options);
     if (target === stateKey) return;
-    requested.current = stateKey;
+    pending.current = [...pending.current, stateKey];
     current.onSearchChange(
       writeFilterSearch(current.search, current.state, current.fields, options),
       { replace: false },

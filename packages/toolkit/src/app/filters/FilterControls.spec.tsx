@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FilterBar } from "./FilterBar.js";
-import { FilterValuePicker } from "./FilterEditors.js";
+import { FilterDateEditor, FilterValuePicker } from "./FilterEditors.js";
 import { FilterButton } from "./FilterPanel.js";
 import {
   filterViewNameError,
@@ -22,6 +22,7 @@ import {
   setPinnedFilter,
   type FilterField,
   type FilterRule,
+  type FilterRulePatch,
   type FilterState,
 } from "./model.js";
 import { useFilterText } from "./text.js";
@@ -56,6 +57,14 @@ const tagsField: FilterField = {
 };
 
 const fields = [sourceField, ownerField, tagsField];
+
+const createdField: FilterField = {
+  id: "created",
+  label: "Created",
+  type: "date",
+  dates: "past",
+  alwaysSet: true,
+};
 
 const nouns = {
   items: "clips",
@@ -171,15 +180,17 @@ function combobox() {
 }
 
 function Picker({
+  value = [],
   onChange,
   onDone,
 }: {
+  value?: string[];
   onChange: (value: string[]) => void;
   onDone: () => void;
 }) {
   const text = useFilterText();
   const [rule, setRule] = useState<FilterRule>(() =>
-    createFilterRule(ownerField),
+    createFilterRule(ownerField, value),
   );
   return (
     <FilterValuePicker
@@ -224,12 +235,35 @@ describe("FilterValuePicker", () => {
     if (!option) throw new Error("No Alice option");
     click(option);
     expect(onChange).toHaveBeenLastCalledWith(["alice"]);
-    expect(alice()?.getAttribute("aria-checked")).toBe("true");
+    expect(alice()?.getAttribute("aria-selected")).toBe("true");
     const again = alice();
     if (!again) throw new Error("No Alice option");
     click(again);
     expect(onChange).toHaveBeenLastCalledWith([]);
     expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("removes a selected value on Enter and finishes", () => {
+    const onChange = vi.fn();
+    const onDone = vi.fn();
+    render(<Picker value={["agent"]} onChange={onChange} onDone={onDone} />);
+    typeInto(combobox(), "agent");
+    pressEnter(combobox());
+    expect(onChange).toHaveBeenLastCalledWith([]);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks chosen values as selected, not the highlighted one", () => {
+    render(<Picker value={["agent"]} onChange={vi.fn()} onDone={vi.fn()} />);
+    expect(
+      document
+        .querySelector('[role="listbox"]')
+        ?.getAttribute("aria-multiselectable"),
+    ).toBe("true");
+    const selected = Array.from(
+      document.querySelectorAll('[role="option"][aria-selected="true"]'),
+    ).map((option) => option.textContent);
+    expect(selected).toEqual(["An agent"]);
   });
 
   it("says nothing matches without offering to create a value", () => {
@@ -240,6 +274,45 @@ describe("FilterValuePicker", () => {
       "No person called “zebra”. Filters only use people that already exist.",
     );
     expect(document.querySelectorAll("button")).toHaveLength(0);
+  });
+});
+
+function DateEditor({
+  onChange,
+}: {
+  onChange: (patch: FilterRulePatch) => void;
+}) {
+  const text = useFilterText();
+  return (
+    <FilterDateEditor
+      field={createdField}
+      rule={{
+        kind: "rule",
+        id: "created-rule",
+        field: "created",
+        operator: "before",
+        value: ["2026-11-01"],
+      }}
+      text={text}
+      onChange={onChange}
+      onDone={vi.fn()}
+    />
+  );
+}
+
+describe("FilterDateEditor", () => {
+  it("uses a preset's own operator over the rule's exact-date one", () => {
+    const onChange = vi.fn();
+    render(<DateEditor onChange={onChange} />);
+    const yesterday = Array.from(
+      document.querySelectorAll('[role="option"]'),
+    ).find((option) => option.textContent === "Yesterday");
+    if (!yesterday) throw new Error("No Yesterday option");
+    click(yesterday);
+    expect(onChange).toHaveBeenLastCalledWith({
+      operator: "equals",
+      value: ["yesterday"],
+    });
   });
 });
 

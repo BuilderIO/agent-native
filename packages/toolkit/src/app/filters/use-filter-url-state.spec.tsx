@@ -100,6 +100,17 @@ describe("useFilterUrlState", () => {
     expect(shownKey()).toBe("?r=owner:equals:alice");
   });
 
+  it("keeps a newer change when an earlier navigation lands late", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => filters.setState(owners("bob")));
+    act(() => publish("?r=owner:equals:alice,bob"));
+    expect(shownKey()).toBe("?r=owner:equals:bob");
+    act(() => publish("?r=owner:equals:bob"));
+    expect(shownKey()).toBe("?r=owner:equals:bob");
+    expect(requests).toHaveLength(2);
+  });
+
   it("asks again after the router merges navigations", () => {
     act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
     act(() => filters.setState(owners("alice", "bob")));
