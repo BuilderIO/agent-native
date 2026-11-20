@@ -116,21 +116,22 @@ function CalendarSwitchItem({
     unknown,
     { accountId: string; calendarId: string; enabled: boolean }
   >("set-calendar-enabled");
-  // Holds the switch where it was flipped until the saved list catches up.
-  const [flip, setFlip] = useState<{ from: boolean; to: boolean } | null>(null);
-  const checked =
-    flip && flip.from === calendar.enabled ? flip.to : calendar.enabled;
+  // Holds the switch where it was flipped until the saved list catches up,
+  // then lets the list lead again, so a later change elsewhere shows.
+  const [flipped, setFlipped] = useState<boolean | null>(null);
+  if (flipped !== null && flipped === calendar.enabled) setFlipped(null);
+  const checked = flipped ?? calendar.enabled;
 
   function toggle(enabled: boolean) {
     // Ignored rather than disabled while saving, so the switch keeps focus.
     if (setEnabled.isPending) return;
-    setFlip({ from: calendar.enabled, to: enabled });
+    setFlipped(enabled);
     setEnabled.mutate(
       { accountId, calendarId: calendar.id, enabled },
       {
         onSuccess: () => invalidate(),
         onError: (error) => {
-          setFlip(null);
+          setFlipped(null);
           toast.error(error.message || t("settings.saveFailed"));
         },
       },

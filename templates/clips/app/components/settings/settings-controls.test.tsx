@@ -481,6 +481,15 @@ describe("Meetings › Calendar accounts", () => {
     ],
   });
 
+  const withTeam = (enabled: boolean) => ({
+    accounts: calendars().accounts.map((account) => ({
+      ...account,
+      calendars: account.calendars.map((calendar) =>
+        calendar.id === TEAM ? { ...calendar, enabled } : calendar,
+      ),
+    })),
+  });
+
   function calendarSwitch(name: string): HTMLButtonElement {
     const element = container.querySelector<HTMLButtonElement>(
       `[role="switch"][aria-label='clipsSettings.showCalendar {"calendar":"${name}"}']`,
@@ -607,6 +616,27 @@ describe("Meetings › Calendar accounts", () => {
 
     expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("false");
     expect(mocks.toastError).toHaveBeenCalledWith("settings.saveFailed");
+  });
+
+  it("lets the saved list lead again once a switch has saved", async () => {
+    await renderWithCalendars();
+
+    await click(calendarSwitch("Team"));
+    mocks.queries["list-calendars"] = withTeam(true);
+    await settle(() =>
+      lastMutation("set-calendar-enabled").options.onSuccess?.(undefined),
+    );
+    expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("true");
+
+    // Turned off elsewhere, as another tab or the agent can, and seen when
+    // the next save refreshes the list.
+    mocks.queries["list-calendars"] = withTeam(false);
+    await click(calendarSwitch("ok@example.com"));
+    await settle(() =>
+      lastMutation("set-calendar-enabled").options.onSuccess?.(undefined),
+    );
+
+    expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("false");
   });
 
   it("shows the calendars without switches to flip to someone who can't change them", async () => {

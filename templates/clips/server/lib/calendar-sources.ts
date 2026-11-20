@@ -104,17 +104,23 @@ function isGoneCalendarError(error: unknown): boolean {
   return /failed \((404|410)\)/.test(message);
 }
 
-// The same meeting can sit on several calendars of one account.
+// The same meeting can sit on several calendars of one account, each giving
+// its start in that calendar's own time zone.
 function sameMeetingKey(event: CalendarEvent): string {
-  const start = event.start?.dateTime ?? event.start?.date ?? "";
+  const dateTime = event.start?.dateTime;
+  const startMs = dateTime ? Date.parse(dateTime) : Number.NaN;
+  const start = Number.isNaN(startMs)
+    ? (dateTime ?? event.start?.date ?? "")
+    : String(startMs);
   return `${event.iCalUID ?? event.id}|${start}`;
 }
 
 /**
  * Read the events of every calendar turned on for the account. A meeting on
  * more than one of them is kept once, from the first calendar (the main one
- * when it is on). Throws when every calendar failed; when only some did,
- * returns the others' events and the first failure as `error`.
+ * when it is on), and its cancelled copies are dropped while it is still live
+ * on another. Throws when no calendar read; when only some failed, returns
+ * the others' events and the first failure as `error`.
  */
 export async function listEnabledCalendarEvents(args: {
   account: CalendarSourceSetting;
@@ -148,6 +154,7 @@ export async function listEnabledCalendarEvents(args: {
   let capped = false;
   let error: unknown;
   let failed = 0;
+  let succeeded = 0;
   for (const { calendarId, read } of reads) {
     if (read.status === "rejected") {
       if (
@@ -160,6 +167,7 @@ export async function listEnabledCalendarEvents(args: {
       error ??= read.reason;
       continue;
     }
+    succeeded += 1;
     if (read.value.nextPageToken) capped = true;
     for (const event of read.value.items) {
       const key = sameMeetingKey(event);
@@ -170,6 +178,17 @@ export async function listEnabledCalendarEvents(args: {
     }
   }
 
-  if (failed > 0 && failed === calendarIds.length) throw error;
-  return { items, capped, error };
+  if (failed > 0 && succeeded === 0) throw error;
+
+  // Removed from one calendar's copy (say, as a guest) while another calendar
+  // still holds the meeting: not a cancellation, so the meeting keeps its notes.
+  const live = items.filter(({ event }) => event.status !== "cancelled");
+  const liveKeys = new Set(live.map(({ event }) => sameMeetingKey(event)));
+  const liveIds = new Set(live.map(({ event }) => event.id));
+  const kept = items.filter(
+    ({ event }) =>
+      event.status !== "cancelled" ||
+      !(liveKeys.has(sameMeetingKey(event)) || liveIds.has(event.id)),
+  );
+  return { items: kept, capped, error };
 }

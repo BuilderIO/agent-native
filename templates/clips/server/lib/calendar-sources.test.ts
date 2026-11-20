@@ -171,7 +171,7 @@ describe("reading every enabled calendar", () => {
     expect(result.items).toHaveLength(2);
   });
 
-  it("never lets a cancelled copy hide a live one", async () => {
+  it("drops a cancelled copy while another calendar still has the meeting", async () => {
     mocks.listEvents.mockImplementation(async ({ calendarId }) => ({
       items: [
         event("sync", "2026-11-17T15:00:00Z", {
@@ -187,10 +187,51 @@ describe("reading every enabled calendar", () => {
 
     expect(
       result.items.map(({ calendarId, event }) => [calendarId, event.status]),
+    ).toEqual([[TEAM, "confirmed"]]);
+  });
+
+  it("keeps a cancellation no other calendar contradicts", async () => {
+    mocks.listEvents.mockImplementation(async ({ calendarId }) => ({
+      items:
+        calendarId === "primary"
+          ? [event("sync", "2026-11-17T15:00:00Z", { status: "cancelled" })]
+          : [event("planning", "2026-11-18T15:00:00Z")],
+    }));
+
+    const result = await listEnabledCalendarEvents({
+      ...readArgs(),
+      account: { enabledCalendarIdsJson: JSON.stringify(["primary", TEAM]) },
+    });
+
+    expect(
+      result.items.map(({ calendarId, event }) => [calendarId, event.status]),
     ).toEqual([
       ["primary", "cancelled"],
-      [TEAM, "confirmed"],
+      [TEAM, undefined],
     ]);
+  });
+
+  it("matches a shared meeting whose calendars give its start in different time zones", async () => {
+    mocks.listEvents.mockImplementation(async ({ calendarId }) => ({
+      items: [
+        calendarId === "primary"
+          ? event("standup", "2026-11-17T10:00:00-05:00", {
+              iCalUID: "standup@google.com",
+            })
+          : event("standup-copy", "2026-11-17T15:00:00Z", {
+              iCalUID: "standup@google.com",
+            }),
+      ],
+    }));
+
+    const result = await listEnabledCalendarEvents({
+      ...readArgs(),
+      account: { enabledCalendarIdsJson: JSON.stringify(["primary", TEAM]) },
+    });
+
+    expect(
+      result.items.map(({ calendarId, event }) => [calendarId, event.id]),
+    ).toEqual([["primary", "standup"]]);
   });
 
   it("says when a calendar had more events than one read returns", async () => {
@@ -242,6 +283,23 @@ describe("reading every enabled calendar", () => {
   it("throws when every calendar fails, so the account error is recorded", async () => {
     const failure = new Error("Google calendar list failed (401): expired");
     mocks.listEvents.mockRejectedValue(failure);
+
+    await expect(
+      listEnabledCalendarEvents({
+        ...readArgs(),
+        account: { enabledCalendarIdsJson: JSON.stringify(["primary", TEAM]) },
+      }),
+    ).rejects.toBe(failure);
+  });
+
+  it("throws when no calendar read, even if another was removed", async () => {
+    const failure = new Error("Google calendar list failed (401): expired");
+    mocks.listEvents.mockImplementation(async ({ calendarId }) => {
+      if (calendarId === TEAM) {
+        throw new Error("Google calendar list failed (404): Not Found");
+      }
+      throw failure;
+    });
 
     await expect(
       listEnabledCalendarEvents({
