@@ -11,6 +11,7 @@ import {
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
+import { newlySharedCommentAnchorIds } from "../../shared/comment-block-anchor.js";
 import { commentAnchorTextOf } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { bodyHoldsChanges } from "../../shared/document-intent-merge.js";
@@ -334,7 +335,10 @@ const liveCopyTasks = defineLiveCopyTasks({
       if (isRefusal(blocks)) return blocks;
       const current = deriveBody(doc, field);
       if (isRefusal(current)) return current;
-      const root = buildBody(appendNfmBlocks(current, blocks));
+      const next = appendNfmBlocks(current, blocks);
+      const [sharedId] = newlySharedCommentAnchorIds(current, next);
+      if (sharedId) return refused("video_id_shared", sharedId);
+      const root = buildBody(next);
       if (isRefusal(root)) return root;
       const fragment = doc.getXmlFragment(field);
       const { meta } = initProseMirrorDoc(fragment, schema());

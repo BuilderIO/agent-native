@@ -2584,6 +2584,24 @@ describe("the block menu's Move to, on a switched page", () => {
     });
   });
 
+  it("refuses a video whose id a commit gave the page after the move read it", async () => {
+    const video = `<video src="https://example.com/a.mp4" id="video-shared01"></video>`;
+    await switchedPage("append-video", "Keep");
+    const spy = peerCommitsAfterBuild("append-video", `Keep\n${video}`);
+    try {
+      await expect(append("append-video", video)).rejects.toMatchObject({
+        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+        statusCode: 422,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    await expect(page("append-video")).resolves.toMatchObject({
+      content: `Keep\n${video}`,
+    });
+  });
+
   it("answers false for a page that isn't switched, which takes the legacy path", async () => {
     await insertPage("append-unswitched", "Keep");
 

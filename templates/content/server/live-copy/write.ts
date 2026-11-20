@@ -9,6 +9,7 @@ import type { DbExec } from "@agent-native/core/db";
 import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 
 import { isLiveBodyWriterPage } from "../lib/live-body-writer.js";
+import { videoIdSharedError } from "../lib/video-block-ids.js";
 import { CONTENT_LIVE_COPY_EDITS, contentLiveCopy } from "./binding.js";
 import { persistUnchangedContentBodyEdit } from "./persist.js";
 import {
@@ -249,6 +250,13 @@ export async function appendContentLiveCopyBlocks(
     return true;
   } catch (error) {
     if (liveCopyWriteLeftPath(error)) return false;
+    if (
+      error instanceof LiveCopyError &&
+      error.code === "build_refused" &&
+      error.reason === "video_id_shared"
+    ) {
+      throw videoIdSharedError();
+    }
     throw unrepresentableBodyError(error) ?? error;
   }
 }
