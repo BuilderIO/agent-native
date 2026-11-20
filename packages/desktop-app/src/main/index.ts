@@ -249,6 +249,7 @@ import {
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
 import {
+  ContentFileRestoreError,
   restoreClaimedContentFile,
   waitForContentFileHandlesToClose,
 } from "./content-files/file-handles";
@@ -10300,7 +10301,19 @@ async function writeContentSourceFile(
       await fs.promises.link(temporary, target);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        await restoreClaimedContentFile(backup, target).catch(() => undefined);
+        const restored = await restoreClaimedContentFile(backup, target).catch(
+          (restoreError: unknown) => {
+            throw new ContentFileRestoreError(
+              target,
+              backup,
+              error,
+              restoreError,
+            );
+          },
+        );
+        if (!restored) {
+          throw new ContentFileRestoreError(target, backup, error, undefined);
+        }
         throw error;
       }
       const competingRevision = await contentSourceFileRevision(target);

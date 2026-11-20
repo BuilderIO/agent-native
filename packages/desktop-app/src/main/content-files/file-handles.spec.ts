@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   restoreClaimedContentFile,
@@ -26,6 +26,7 @@ const canSeeOpenHandles =
   spawnSync("lsof", ["-v"], { stdio: "ignore" }).error === undefined;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of directories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -77,6 +78,28 @@ describe("waitForContentFileHandlesToClose", () => {
       process.env.PATH = searchPath;
     }
   });
+
+  it("refuses on Linux when it can't read the process list", async () => {
+    const file = temporaryFile();
+    await expect(
+      waitForContentFileHandlesToClose(
+        file,
+        "linux",
+        path.join(path.dirname(file), "no-proc"),
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it("refuses when the claimed file is gone before the check can read it", async () => {
+    const directory = path.dirname(temporaryFile());
+    await expect(
+      waitForContentFileHandlesToClose(
+        path.join(directory, "gone.md"),
+        "linux",
+        directory,
+      ),
+    ).resolves.toBe(false);
+  });
 });
 
 describe("restoreClaimedContentFile", () => {
@@ -97,6 +120,37 @@ describe("restoreClaimedContentFile", () => {
     const claimed = `${target}.claim`;
     fs.renameSync(target, claimed);
     fs.writeFileSync(target, "# Written meanwhile\n");
+
+    await expect(restoreClaimedContentFile(claimed, target)).resolves.toBe(
+      false,
+    );
+    expect(fs.readFileSync(target, "utf-8")).toBe("# Written meanwhile\n");
+    expect(fs.readFileSync(claimed, "utf-8")).toBe("# Note\n");
+  });
+
+  it("copies a claimed file back without hard links when its path is still free", async () => {
+    const target = temporaryFile();
+    const claimed = `${target}.claim`;
+    fs.renameSync(target, claimed);
+    vi.spyOn(fs.promises, "link").mockRejectedValueOnce(
+      Object.assign(new Error("hard links unsupported"), { code: "EPERM" }),
+    );
+
+    await expect(restoreClaimedContentFile(claimed, target)).resolves.toBe(
+      true,
+    );
+    expect(fs.readFileSync(target, "utf-8")).toBe("# Note\n");
+    expect(fs.existsSync(claimed)).toBe(false);
+  });
+
+  it("never copies over a file written meanwhile when hard links fail", async () => {
+    const target = temporaryFile();
+    const claimed = `${target}.claim`;
+    fs.renameSync(target, claimed);
+    fs.writeFileSync(target, "# Written meanwhile\n");
+    vi.spyOn(fs.promises, "link").mockRejectedValueOnce(
+      Object.assign(new Error("hard links unsupported"), { code: "EPERM" }),
+    );
 
     await expect(restoreClaimedContentFile(claimed, target)).resolves.toBe(
       false,

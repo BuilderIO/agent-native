@@ -20,31 +20,37 @@ async function windowsFileIsOpenElsewhere(filePath: string): Promise<boolean> {
   }
 }
 
-function readableEntries(directory: string): string[] {
+async function readableEntries(directory: string): Promise<string[]> {
   try {
-    return fs.readdirSync(directory);
+    return await fs.promises.readdir(directory);
   } catch {
     // coercion-ok: another user's process, or one that just exited, has no descriptors this user can read
     return [];
   }
 }
 
-function descriptorTarget(descriptor: string): string | null {
+async function descriptorTarget(descriptor: string): Promise<string | null> {
   try {
-    return fs.readlinkSync(descriptor);
+    return await fs.promises.readlink(descriptor);
   } catch {
     // coercion-ok: a descriptor closed while it was being read no longer holds the file
     return null;
   }
 }
 
-function linuxFileIsOpen(filePath: string): boolean {
-  const target = fs.realpathSync(filePath);
-  for (const pid of readableEntries("/proc")) {
+async function linuxFileIsOpen(
+  filePath: string,
+  procRoot = "/proc",
+): Promise<boolean> {
+  const target = await fs.promises.realpath(filePath);
+  const processes = await fs.promises.readdir(procRoot);
+  for (const pid of processes) {
     if (!/^\d+$/.test(pid)) continue;
-    const descriptors = path.join("/proc", pid, "fd");
-    for (const descriptor of readableEntries(descriptors)) {
-      if (descriptorTarget(path.join(descriptors, descriptor)) === target) {
+    const descriptors = path.join(procRoot, pid, "fd");
+    for (const descriptor of await readableEntries(descriptors)) {
+      if (
+        (await descriptorTarget(path.join(descriptors, descriptor))) === target
+      ) {
         return true;
       }
     }
@@ -61,19 +67,37 @@ function lsofReportsOpenHandles(filePath: string): boolean {
   return handles.status === 0 && handles.stdout.trim() !== "";
 }
 
-function openHandleCheck(platform: NodeJS.Platform) {
+function openHandleCheck(
+  platform: NodeJS.Platform,
+  procRoot: string | undefined,
+): (filePath: string) => boolean | Promise<boolean> {
   if (platform === "win32") return windowsFileIsOpenElsewhere;
-  if (platform === "linux") return linuxFileIsOpen;
+  if (platform === "linux") {
+    return (filePath) => linuxFileIsOpen(filePath, procRoot);
+  }
   return lsofReportsOpenHandles;
+}
+
+async function fileIsHeld(
+  isOpen: (filePath: string) => boolean | Promise<boolean>,
+  filePath: string,
+): Promise<boolean> {
+  try {
+    return await isOpen(filePath);
+  } catch {
+    // coercion-ok: a check that can't finish counts as held, so the caller puts the claimed file back
+    return true;
+  }
 }
 
 export async function waitForContentFileHandlesToClose(
   filePath: string,
   platform: NodeJS.Platform = process.platform,
+  procRoot?: string,
 ): Promise<boolean> {
-  const isOpen = openHandleCheck(platform);
+  const isOpen = openHandleCheck(platform, procRoot);
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    if (!(await isOpen(filePath))) return true;
+    if (!(await fileIsHeld(isOpen, filePath))) return true;
     await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
   }
   return false;
@@ -86,13 +110,30 @@ export async function restoreClaimedContentFile(
   try {
     await fs.promises.link(claimed, target);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-      await fs.promises.rename(claimed, target);
-      return true;
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      // coercion-ok: a file written to the original path meanwhile wins, and the claimed copy stays beside it
+      return false;
     }
-    // coercion-ok: a file written to the original path meanwhile wins, and the claimed copy stays beside it
-    return false;
+    try {
+      await fs.promises.copyFile(claimed, target, fs.constants.COPYFILE_EXCL);
+    } catch (copyError) {
+      if ((copyError as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw copyError;
+    }
   }
   await fs.promises.rm(claimed, { force: true });
   return true;
+}
+
+export class ContentFileRestoreError extends Error {
+  constructor(
+    readonly target: string,
+    readonly claimed: string,
+    readonly saveError: unknown,
+    readonly restoreError: unknown,
+  ) {
+    super(
+      `Content couldn't save ${target} or put it back. The original is at ${claimed}.`,
+    );
+  }
 }
