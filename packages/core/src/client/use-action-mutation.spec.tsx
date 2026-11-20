@@ -34,6 +34,10 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
+  ACTION_CACHE_FLUSH_EVENT,
+  readMutationEpoch,
+} from "./action-query-cache-mutation.js";
+import {
   ProviderWriteFailedError,
   ProviderWritePendingError,
   ProviderWriteUncertainError,
@@ -170,6 +174,61 @@ describe("useActionMutation", () => {
       );
       if (kind === "factory") expect(factory).toHaveBeenCalledWith(payload);
       expect(payload).toEqual({ id: "page" });
+    },
+  );
+
+  it.each([
+    { skip: false, settles: true },
+    { skip: true, settles: false },
+  ])(
+    "reports its own epoch on the flush event only when it invalidated (skip: $skip)",
+    async ({ skip, settles }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ok: true }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      const settled: unknown[] = [];
+      const listen = (event: Event) =>
+        settled.push((event as CustomEvent).detail?.settledEpoch);
+      window.addEventListener(ACTION_CACHE_FLUSH_EVENT, listen);
+      let mutation:
+        | ReturnType<typeof useActionMutation<Record<string, boolean>>>
+        | undefined;
+      function Probe() {
+        mutation = useActionMutation<Record<string, boolean>>("save-record", {
+          skipActionQueryInvalidation: skip,
+        });
+        return null;
+      }
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      containers.push(container);
+      const root = createRoot(container);
+      roots.push(root);
+      const queryClient = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <Probe />
+          </QueryClientProvider>,
+        ),
+      );
+      try {
+        await act(async () => {
+          await mutation?.mutateAsync({});
+        });
+        await vi.waitFor(() => expect(settled).toHaveLength(1));
+      } finally {
+        window.removeEventListener(ACTION_CACHE_FLUSH_EVENT, listen);
+      }
+      expect(settled[0]).toBe(settles ? readMutationEpoch() : undefined);
+      expect(settles).toBe(typeof settled[0] === "string");
     },
   );
 
