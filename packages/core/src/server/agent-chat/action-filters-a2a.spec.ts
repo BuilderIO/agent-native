@@ -476,11 +476,13 @@ describe("filterDirectA2AActions", () => {
   it("reads `mcpTool` as catalog membership and as a veto", () => {
     const actions = {
       "list-plans": action({ mcpTool: true }),
+      "find-plans": action({ mcpTool: "search" }),
       "get-plan": action(),
       "open-inspector": action({ mcpTool: false }),
     };
 
-    expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
+    expect(Object.keys(filterDirectA2AActions(actions, {})).sort()).toEqual([
+      "find-plans",
       "list-plans",
     ]);
 
@@ -490,7 +492,7 @@ describe("filterDirectA2AActions", () => {
           connectorCatalog: ["get-plan", "open-inspector"],
         }),
       ).sort(),
-    ).toEqual(["get-plan", "list-plans"]);
+    ).toEqual(["find-plans", "get-plan", "list-plans"]);
   });
 
   it("inherits agentTool when mcpTool is undefined, and lets mcpTool override it", () => {
@@ -517,12 +519,13 @@ describe("filterDirectA2AActions", () => {
       Object.keys(
         filterMcpOnlyActions({
           "mcp-only": action({ agentTool: false, mcpTool: true }),
+          "mcp-only-unlisted": action({ agentTool: false, mcpTool: "search" }),
           "agent-hidden": action({ agentTool: false }),
           "catalog-member": action({ mcpTool: true }),
           normal: action(),
         }),
       ),
-    ).toEqual(["mcp-only"]);
+    ).toEqual(["mcp-only", "mcp-only-unlisted"]);
   });
 
   it("allows a raw query input only with an explicit opt-in", () => {

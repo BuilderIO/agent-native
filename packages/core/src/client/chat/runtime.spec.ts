@@ -4598,7 +4598,7 @@ describe("createAgentNativeChatRuntime", () => {
             },
           ],
         },
-        { type: "done" },
+        { type: "done", durationMs: 5_027 },
       ]),
     );
     const runtime = createAgentNativeChatRuntime({
@@ -4653,6 +4653,7 @@ describe("createAgentNativeChatRuntime", () => {
     expect(events.at(-2)).toMatchObject({
       type: "message-done",
       message: {
+        metadata: { custom: { agentNativeRunDurationMs: 5_027 } },
         content: [
           {
             type: "reasoning",

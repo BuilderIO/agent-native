@@ -3256,6 +3256,7 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
       const [
         {
           AGENT_CHAT_BACKGROUND_RUN_FIELD,
+          backgroundRunInitiatorMarker,
           resolveAgentChatProcessRunDispatchPath,
         },
         { fireInternalDispatch },
@@ -3263,6 +3264,7 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
         import("./durable-background.js"),
         import("../server/self-dispatch.js"),
       ]);
+      const initiator = await getTurnInitiatorByRun(successorRunId);
       await fireInternalDispatch({
         path: resolveAgentChatProcessRunDispatchPath(),
         taskId: successorRunId,
@@ -3271,6 +3273,7 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
           [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
             runId: successorRunId,
             payloadRef: true,
+            ...backgroundRunInitiatorMarker(successorRunId, initiator),
           },
         },
       });
@@ -4759,6 +4762,9 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
       return {
         ...base,
         ...(event.reason ? { reason: event.reason } : {}),
+        ...(typeof event.durationMs === "number"
+          ? { durationMs: event.durationMs }
+          : {}),
       };
     case "error":
       return {

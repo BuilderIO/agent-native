@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { useContentSpaces } from "@/hooks/use-content-spaces";
@@ -17,9 +17,16 @@ import {
  * menu, so both move pages the same way.
  */
 export function useMovePageDialog({
-  onMoved,
+  onMove,
 }: {
-  onMoved?: (page: MovePageTarget, destination: MovePageDestination) => void;
+  /**
+   * Runs as the move starts, while the page already shows in its new place.
+   * Returns what to run once the server answers.
+   */
+  onMove?: (
+    page: MovePageTarget,
+    destination: MovePageDestination,
+  ) => ((succeeded: boolean) => void) | void;
 } = {}) {
   const t = useT();
   const moveDocument = useMoveDocument();
@@ -29,8 +36,6 @@ export function useMovePageDialog({
     [contentSpacesQuery.data],
   );
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
-  const onMovedRef = useRef(onMoved);
-  onMovedRef.current = onMoved;
 
   const moveSpaces = useMemo(
     () =>
@@ -45,11 +50,18 @@ export function useMovePageDialog({
     (page: MovePageTarget, destination: MovePageDestination) => {
       const { spaceId, parentId } = destination;
       const crossSpace = spaceId !== page.spaceId;
-      moveDocument.mutate(
-        { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
-        {
-          onSuccess: () => {
-            onMovedRef.current?.(page, destination);
+      const settle = onMove?.(page, destination);
+      // Each move answers for itself: callbacks given to `mutate` run only for
+      // the latest of several moves still waiting.
+      void moveDocument
+        .mutateAsync({
+          id: page.documentId,
+          parentId,
+          ...(crossSpace ? { spaceId } : {}),
+        })
+        .then(
+          () => {
+            settle?.(true);
             if (crossSpace) {
               const space = contentSpaces.find(
                 (candidate) => candidate.id === spaceId,
@@ -62,7 +74,8 @@ export function useMovePageDialog({
               );
             }
           },
-          onError: (error) => {
+          (error: unknown) => {
+            settle?.(false);
             toast.error(t("sidebar.failedMovePage"), {
               description:
                 error instanceof Error
@@ -70,10 +83,9 @@ export function useMovePageDialog({
                   : t("empty.genericError"),
             });
           },
-        },
-      );
+        );
     },
-    [contentSpaces, moveDocument, t],
+    [contentSpaces, moveDocument, onMove, t],
   );
 
   const dialog = (

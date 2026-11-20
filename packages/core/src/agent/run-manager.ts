@@ -27,6 +27,7 @@ import {
   classifyTerminalErrorCode,
   describeErrorWithCauses,
   isProviderConnectionError,
+  isRejectedRequestErrorCode,
 } from "./engine/error-detail.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
@@ -431,6 +432,13 @@ export function engineRequestShapeTags(
 
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
   if (err.statusCode === 429) return err.message;
+  if (
+    isRejectedRequestErrorCode(err.errorCode) &&
+    err.requestId &&
+    !err.message.includes(err.requestId)
+  ) {
+    return `${err.message}\n\nrequest_id: ${err.requestId}`;
+  }
   return undefined;
 }
 
@@ -625,6 +633,11 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
     !isTerminalRunEvent(event)
   );
 }
+
+const PRIVATE_SAFE_ERROR_CODES: ReadonlySet<string> = new Set([
+  "private_history_unrecoverable",
+  "tool_call_journal_unreadable",
+]);
 
 /**
  * A tool result with no later assistant text is an unfinished turn, not a
@@ -2415,7 +2428,8 @@ export function startRun(
           );
         }
       }
-      const resolveTerminalEventForCompletion = () => {
+      const durationMs = Math.max(0, Date.now() - run.startedAt);
+      const resolveTerminalEventForCompletion = (): RunEvent | null => {
         if (run.status === "aborted" && run.abortReason !== undefined)
           return null;
         if (eventPersistenceFailure) {
@@ -2441,8 +2455,14 @@ export function startRun(
             }
           : null;
         if (continuationTerminalEvent) return continuationTerminalEvent;
-        return pendingTerminalEvent
-          ? { ...pendingTerminalEvent, seq: peekRunEventSeq(run) }
+        const event =
+          pendingTerminalEvent?.event ??
+          (run.status === "completed" ? { type: "done" } : null);
+        return event
+          ? {
+              seq: peekRunEventSeq(run),
+              event: event.type === "done" ? { ...event, durationMs } : event,
+            }
           : null;
       };
       const stoppedByRequest = () =>
@@ -2539,6 +2559,7 @@ export function startRun(
         : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
+        !privateTurn &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
         !(
@@ -2895,7 +2916,14 @@ export function startRun(
           ? [...run.events, pendingTerminalEvent]
           : run.events;
         if (privateRun) {
-          errorCode = "private_content_omitted";
+          const reportedCode = diagnosticEvents
+            .map(({ event }) => event)
+            .reverse()
+            .find((event) => event.type === "error")?.errorCode;
+          errorCode =
+            reportedCode && PRIVATE_SAFE_ERROR_CODES.has(reportedCode)
+              ? reportedCode
+              : "private_content_omitted";
           errorDetail = "Private content omitted";
         }
         for (let i = diagnosticEvents.length - 1; !privateRun && i >= 0; i--) {

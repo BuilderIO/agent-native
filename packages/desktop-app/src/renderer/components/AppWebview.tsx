@@ -43,6 +43,23 @@ import DesktopIdentityGate from "./DesktopIdentityGate.js";
 import { shouldReloadActiveWebview } from "./webview-refresh.js";
 
 const IS_DEV = window.location.protocol !== "file:";
+const LOCAL_SERVER_LOAD_RETRIES = 60;
+const LOCAL_SERVER_LOAD_RETRY_MS = 1_500;
+const LOCAL_SERVER_STARTING_LOAD_ERRORS = new Set([-100, -101, -102, -324]);
+
+export function isLocalServerStartingLoadError(
+  errorCode: number | undefined,
+): boolean {
+  return (
+    errorCode !== undefined && LOCAL_SERVER_STARTING_LOAD_ERRORS.has(errorCode)
+  );
+}
+
+export function isDesktopLocalDevApp(
+  appConfig: Pick<AppConfig, "mode" | "localPath"> | undefined,
+): boolean {
+  return appConfig?.mode === "dev" && Boolean(appConfig.localPath?.trim());
+}
 const DEV_APP_LOAD_TIMEOUT_MS = 60_000;
 const APP_LOAD_TIMEOUT_MS = 15_000;
 const APP_WEBVIEW_BASE_PREFERENCES =
@@ -638,7 +655,23 @@ export function resolveAppWebviewPartition(input: {
 }
 
 function buildSoftOpenScript(path: string): string {
-  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
+  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then((res) => res.type === "opaqueredirect" || res.ok, () => false))()`;
+}
+
+function buildSoftNavigateScript(targetUrl: string): string {
+  const encodedTargetUrl = JSON.stringify(targetUrl);
+  return `(() => {
+    const target = new URL(${encodedTargetUrl}, window.location.href);
+    if (target.origin !== window.location.origin) return false;
+    const next = target.pathname + target.search + target.hash;
+    const current =
+      window.location.pathname + window.location.search + window.location.hash;
+    if (current !== next) {
+      window.history.pushState(null, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    }
+    return true;
+  })()`;
 }
 
 function buildGuestLifecycleScript(
@@ -810,6 +843,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       status: desktopIdentityStatus,
     });
     const optimizeDepRecoveryRef = useRef(false);
+    const localServerRetriesRef = useRef(0);
+    const isLocalDevAppRef = useRef(false);
+    isLocalDevAppRef.current = isDesktopLocalDevApp(appConfig);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
     const prevDesktopWebviewDeferredRef = useRef(deferDesktopWebviewLoad);
@@ -1364,6 +1400,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setError(false);
         setIsLoading(false);
         setSlowLoad(false);
+        localServerRetriesRef.current = 0;
         hasLoadedGuestPageRef.current = true;
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
@@ -1400,6 +1437,25 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         const description = String(details.errorDescription || "");
         if (errorCode === -3) return;
         if (details.isMainFrame === false) return;
+        if (
+          isLocalDevAppRef.current &&
+          isLocalServerStartingLoadError(errorCode) &&
+          localServerRetriesRef.current < LOCAL_SERVER_LOAD_RETRIES
+        ) {
+          localServerRetriesRef.current += 1;
+          loadFailureRef.current = false;
+          setError(false);
+          setIsLoading(true);
+          setTimeout(() => {
+            if (disposed) return;
+            try {
+              wv.reloadIgnoringCache();
+            } catch {
+              wv.reload();
+            }
+          }, LOCAL_SERVER_LOAD_RETRY_MS);
+          return;
+        }
         if (
           IS_DEV &&
           (errorCode === 504 || description.includes("Outdated Optimize Dep"))
@@ -1647,16 +1703,15 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       unresponsiveFailureRef.current = false;
       setError(false);
 
-      if (
-        urlOpenSoft &&
-        openNonceChanged &&
-        isAgentNativeOpenPath(urlPath) &&
-        canSoftOpenWebview(wv, url)
-      ) {
-        void executeGuestScript(
-          `soft-open:${urlPath}`,
-          buildSoftOpenScript(urlPath),
-        )
+      if (urlOpenSoft && canSoftOpenWebview(wv, url)) {
+        const isOpenRoute = isAgentNativeOpenPath(urlPath);
+        const script = isOpenRoute
+          ? buildSoftOpenScript(urlPath)
+          : buildSoftNavigateScript(url);
+        const scriptKey = isOpenRoute
+          ? `soft-open:${urlPath}`
+          : `soft-navigate:${url}`;
+        void executeGuestScript(scriptKey, script)
           .then((ok) => {
             if (ok !== false) return;
             setIsLoading(true);

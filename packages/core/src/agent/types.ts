@@ -12,6 +12,8 @@ import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
+export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
+
 export interface AgentNativeJsonSchema {
   type?: string | string[];
   description?: string;
@@ -447,6 +449,7 @@ type AgentChatEventPayload =
         | "tool_use"
         | "max_tokens"
         | "stop_sequence"
+        | "refusal"
         | "error";
       errorCode?: string;
     }
@@ -592,6 +595,7 @@ type AgentChatEventPayload =
        * after it.
        */
       shownThroughSeq?: number;
+      durationMs?: number;
     }
   | {
       type: "error";

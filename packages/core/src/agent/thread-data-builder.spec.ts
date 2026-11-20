@@ -650,6 +650,20 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("uses the terminal event duration when projecting the saved reply", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Answer." } },
+        { seq: 1, event: { type: "done", durationMs: 5_027 } },
+      ],
+      "run-timed",
+      { runDurationMs: 19_193 },
+    );
+    expect(message?.metadata).toMatchObject({
+      custom: { agentNativeRunDurationMs: 5_027 },
+    });
+  });
+
   it("persists typed artifact receipts with the completed tool part", () => {
     const artifacts = [
       {

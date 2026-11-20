@@ -713,17 +713,19 @@ function firstSourceUrl(proposal: ReviewItem) {
   return null;
 }
 
+const DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 function formatDate(value: string | null | undefined, t?: BrainT) {
   if (!value) return t ? t("review.notRecorded") : "Not recorded";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  return DATE_FORMAT.format(date);
 }
 
 function buildProposalInsight(

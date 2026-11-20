@@ -18,7 +18,11 @@ export function postNavigate(path: string): void {
   if (typeof window === "undefined") return;
   if (typeof path !== "string" || !path.startsWith("/")) return;
   if (!isEmbedded()) {
-    window.location.href = path;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (current !== path) {
+      window.history.pushState(null, "", path);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    }
     return;
   }
   const message: AgentNavigateMessage = {

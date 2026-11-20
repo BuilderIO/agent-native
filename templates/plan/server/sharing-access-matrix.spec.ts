@@ -722,6 +722,26 @@ describe("public review link", () => {
     expect((await rawPlan(planId)).title).toBe("Plan");
   });
 
+  it("serves a stored legacy document to viewers without its handlers", async () => {
+    const planId = await createPlanAs(OWNER, undefined, {
+      html: "<!doctype html><html><body><h1>Legacy</h1></body></html>",
+    });
+    await setVisibility(OWNER, undefined, planId, "public");
+    await db
+      .update(planSchema.plans)
+      .set({
+        html: "<!doctype html><html><body><h1>Legacy</h1><svg/onload=run()></svg></body></html>",
+      })
+      .where(eq(planSchema.plans.id, planId));
+
+    const got = await asUser({ userEmail: OTHER }, () =>
+      getVisualPlan.run({ id: planId }),
+    );
+    const served = [got.html, got.plan.html].join("\n");
+    expect(served).toContain("<h1>Legacy</h1>");
+    expect(served).not.toMatch(/onload/i);
+  });
+
   it("an anonymous public-link VIEWER can read but cannot comment", async () => {
     const planId = await createPlanAs(OWNER, undefined);
     await setVisibility(OWNER, undefined, planId, "public");
