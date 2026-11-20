@@ -14,13 +14,17 @@ import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-que
 
 const MAX_PAGES = 50;
 
-const MAX_CANDIDATES = 200;
+const CANDIDATES_AT_ONCE = 200;
+
+const MAX_CANDIDATES = 1_000;
 
 const BODIES_AT_ONCE = 25;
 
+const MAX_TITLE_CHARS = 500;
+
 const citedPageSchema = z.object({
   id: z.string(),
-  title: z.string(),
+  title: z.string().max(MAX_TITLE_CHARS),
   url: z.string(),
   updatedAt: z.string(),
 });
@@ -37,6 +41,12 @@ async function holdsChartFrom(
   }
   const { charts } = await analyticsChartsInBody(content);
   return charts.some((chart) => chart.dashboard.id === dashboardId);
+}
+
+function shortTitle(title: string): string {
+  return title.length > MAX_TITLE_CHARS
+    ? Array.from(title).slice(0, MAX_TITLE_CHARS).join("")
+    : title;
 }
 
 export default defineAction({
@@ -63,66 +73,78 @@ export default defineAction({
     }
     const db = getDb();
     const citations = schema.analyticsChartCitations;
-    // guard:allow-unscoped — ids only; accessibleDocumentIds below keeps the pages the caller can open before anything about them is read.
-    const candidates = await db
-      .select({ id: schema.documents.id })
-      .from(citations)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, citations.documentId),
-      )
-      .where(
-        and(
-          eq(citations.dashboardId, dashboardId),
-          isNull(schema.documents.trashedAt),
-          ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
-        ),
-      )
-      .orderBy(desc(schema.documents.updatedAt), schema.documents.id)
-      .limit(MAX_CANDIDATES + 1);
-    const weighed = candidates.slice(0, MAX_CANDIDATES).map((row) => row.id);
-    const accessible = await accessibleDocumentIds(weighed);
-    const openable = weighed.filter((id) => accessible.has(id));
-
     const pages: z.infer<typeof citedPageSchema>[] = [];
-    for (
-      let index = 0;
-      index < openable.length && pages.length <= MAX_PAGES;
-      index += BODIES_AT_ONCE
+    const seen = new Set<string>();
+    let scanned = 0;
+    let exhausted = false;
+    while (
+      !exhausted &&
+      pages.length <= MAX_PAGES &&
+      scanned < MAX_CANDIDATES
     ) {
-      const batch = openable.slice(index, index + BODIES_AT_ONCE);
-      // guard:allow-unscoped — every id in the batch passed accessibleDocumentIds above.
-      const rows = await db
-        .select({
-          id: schema.documents.id,
-          title: schema.documents.title,
-          content: schema.documents.content,
-          updatedAt: schema.documents.updatedAt,
-        })
-        .from(schema.documents)
-        .where(inArray(schema.documents.id, batch));
-      const byId = new Map(rows.map((row) => [row.id, row]));
-      const held = await Promise.all(
-        batch.map(async (id) => {
-          const row = byId.get(id);
-          return row && (await holdsChartFrom(row.content, dashboardId))
-            ? row
-            : null;
-        }),
-      );
-      for (const row of held) {
-        if (!row) continue;
-        pages.push({
-          id: row.id,
-          title: row.title,
-          url: createdPageUrl(row.id),
-          updatedAt: row.updatedAt,
-        });
+      // guard:allow-unscoped — ids only; accessibleDocumentIds below keeps the pages the caller can open before anything about them is read.
+      const candidates = await db
+        .select({ id: schema.documents.id })
+        .from(citations)
+        .innerJoin(
+          schema.documents,
+          eq(schema.documents.id, citations.documentId),
+        )
+        .where(
+          and(
+            eq(citations.dashboardId, dashboardId),
+            isNull(schema.documents.trashedAt),
+            ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+          ),
+        )
+        .orderBy(desc(schema.documents.updatedAt), schema.documents.id)
+        .limit(CANDIDATES_AT_ONCE)
+        .offset(scanned);
+      scanned += candidates.length;
+      exhausted = candidates.length < CANDIDATES_AT_ONCE;
+      const ids = candidates.map((row) => row.id);
+      const accessible = await accessibleDocumentIds(ids);
+      const openable = ids.filter((id) => accessible.has(id));
+      for (
+        let index = 0;
+        index < openable.length && pages.length <= MAX_PAGES;
+        index += BODIES_AT_ONCE
+      ) {
+        const batch = openable.slice(index, index + BODIES_AT_ONCE);
+        // guard:allow-unscoped — every id in the batch passed accessibleDocumentIds above.
+        const rows = await db
+          .select({
+            id: schema.documents.id,
+            title: schema.documents.title,
+            content: schema.documents.content,
+            updatedAt: schema.documents.updatedAt,
+          })
+          .from(schema.documents)
+          .where(inArray(schema.documents.id, batch));
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        const held = await Promise.all(
+          batch.map(async (id) => {
+            const row = byId.get(id);
+            return row && (await holdsChartFrom(row.content, dashboardId))
+              ? row
+              : null;
+          }),
+        );
+        for (const row of held) {
+          if (!row || seen.has(row.id)) continue;
+          seen.add(row.id);
+          pages.push({
+            id: row.id,
+            title: shortTitle(row.title),
+            url: createdPageUrl(row.id),
+            updatedAt: row.updatedAt,
+          });
+        }
       }
     }
     return {
       pages: pages.slice(0, MAX_PAGES),
-      more: pages.length > MAX_PAGES || candidates.length > MAX_CANDIDATES,
+      more: pages.length > MAX_PAGES || !exhausted,
     };
   },
 });

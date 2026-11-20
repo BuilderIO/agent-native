@@ -128,7 +128,20 @@ describe("CitedInMenu", () => {
     expect(links[0]?.getAttribute("href")).toBe(PAGE.url);
     expect(links[0]?.getAttribute("target")).toBe("_blank");
     expect(links[0]?.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(menuText()).toContain("Showing the 50 most recently edited pages");
+    expect(menuText()).toContain(
+      "Content checked only the most recently edited pages",
+    );
+  });
+
+  it("doesn't call it empty when Content stopped before checking every page", () => {
+    mocks.result = { status: "ok", pages: [], more: true };
+    render();
+    openMenu();
+
+    expect(menuText()).toContain(
+      "Content checked only the most recently edited pages",
+    );
+    expect(menuText()).not.toContain("No Content pages");
   });
 
   it("shows loading rows, then says when no page cites the dashboard", () => {

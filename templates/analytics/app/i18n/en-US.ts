@@ -2289,7 +2289,8 @@ export default {
     unavailable:
       "Couldn't reach Content to list these pages. Try again in a minute.",
     untitledPage: "Untitled",
-    more: "Showing the 50 most recently edited pages",
+    more:
+      "Content checked only the most recently edited pages, so there may be more.",
   },
   annotations: {
     menu: "Annotations",

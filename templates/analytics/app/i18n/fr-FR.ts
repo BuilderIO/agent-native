@@ -2387,7 +2387,8 @@ export default {
       "Aucune page Content que vous pouvez ouvrir ne contient encore de graphiques de ce tableau de bord",
     unavailable: "Impossible de joindre Content. Réessayez dans une minute.",
     untitledPage: "Sans titre",
-    more: "Affichage des 50 pages modifiées le plus récemment",
+    more:
+      "Content n'a vérifié que les pages modifiées le plus récemment ; il peut y en avoir d'autres.",
   },
   annotations: {
     menu: "Annotations",

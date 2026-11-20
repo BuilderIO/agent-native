@@ -55,7 +55,7 @@ export function CitedInMenu({ dashboardId }: { dashboardId: string }) {
       </Tooltip>
       <DropdownMenuContent
         align="end"
-        className="w-72 max-w-[calc(100vw-2rem)]"
+        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto"
         onCloseAutoFocus={() => {
           returningFocus.current = true;
           queueMicrotask(() => {
@@ -82,7 +82,7 @@ export function CitedInMenu({ dashboardId }: { dashboardId: string }) {
           </div>
         ) : data.pages.length === 0 ? (
           <p className="px-2 py-2 text-xs text-muted-foreground">
-            {t("citedIn.empty")}
+            {data.more ? t("citedIn.more") : t("citedIn.empty")}
           </p>
         ) : (
           <>

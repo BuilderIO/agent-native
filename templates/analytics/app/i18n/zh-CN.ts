@@ -2201,7 +2201,7 @@ export default {
     empty: "还没有你能打开的 Content 页面包含此仪表板的图表",
     unavailable: "无法连接 Content。请一分钟后重试。",
     untitledPage: "未命名",
-    more: "显示最近编辑的 50 个页面",
+    more: "Content 仅检查了最近编辑的页面，因此可能还有更多。",
   },
   annotations: {
     menu: "标注",

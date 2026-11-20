@@ -2294,7 +2294,7 @@ export default {
       "이 대시보드의 차트가 있는, 열 수 있는 Content 페이지가 아직 없습니다",
     unavailable: "Content에 연결할 수 없습니다. 잠시 후 다시 시도하세요.",
     untitledPage: "제목 없음",
-    more: "최근에 편집한 50개 페이지를 표시합니다",
+    more: "Content는 최근에 편집한 페이지만 확인했으므로 더 있을 수 있습니다.",
   },
   annotations: {
     menu: "주석",

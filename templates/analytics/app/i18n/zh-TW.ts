@@ -2198,7 +2198,7 @@ export default {
     empty: "還沒有你能開啟的 Content 頁面包含此儀表板的圖表",
     unavailable: "無法連線到 Content。請一分鐘後再試一次。",
     untitledPage: "未命名",
-    more: "顯示最近編輯的 50 個頁面",
+    more: "Content 只檢查了最近編輯的頁面，因此可能還有更多。",
   },
   annotations: {
     menu: "標註",

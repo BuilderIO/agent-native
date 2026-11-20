@@ -2348,7 +2348,8 @@ export default {
     unavailable:
       "Content に接続できませんでした。1 分後にもう一度お試しください。",
     untitledPage: "無題",
-    more: "最近編集された 50 ページを表示しています",
+    more:
+      "Content は最近編集されたページのみを確認したため、ほかにもある可能性があります。",
   },
   annotations: {
     menu: "注釈",

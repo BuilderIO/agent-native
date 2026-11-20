@@ -2386,7 +2386,8 @@ export default {
     unavailable:
       "Content war nicht erreichbar. Versuchen Sie es in einer Minute erneut.",
     untitledPage: "Ohne Titel",
-    more: "Die 50 zuletzt bearbeiteten Seiten werden angezeigt",
+    more:
+      "Content hat nur die zuletzt bearbeiteten Seiten geprüft, es kann also weitere geben.",
   },
   annotations: {
     menu: "Anmerkungen",

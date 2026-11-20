@@ -8,6 +8,7 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 import {
   analyticsChartBlockRaw,
   type AnalyticsChartData,
@@ -21,10 +22,14 @@ const OWNER = "citations-owner@example.test";
 const VIEWER = "citations-viewer@example.test";
 const STRANGER = "citations-stranger@example.test";
 const ORG_ID = "citations-org";
+const NO_CHARTS = "# Report\n\nNo charts now.";
 
 type Schema = typeof import("../server/db/schema.js");
 type Action = {
-  run: (args: Record<string, unknown>) => Promise<unknown>;
+  run: (
+    args: Record<string, unknown>,
+    ctx?: Record<string, unknown>,
+  ) => Promise<unknown>;
 };
 type CitedPages = {
   pages: Array<{ id: string; title: string; url: string; updatedAt: string }>;
@@ -33,6 +38,7 @@ type CitedPages = {
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
 let syncPrivateBodyReferences: typeof import("../server/lib/private-icon-references.js").syncPrivateBodyReferences;
+let syncAnalyticsChartCitations: typeof import("../server/lib/analytics-chart-citations.js").syncAnalyticsChartCitations;
 let updateDocument: Action;
 let editDocument: Action;
 let listCitations: Action;
@@ -45,6 +51,8 @@ beforeAll(async () => {
   schema = dbModule.schema;
   ({ syncPrivateBodyReferences } =
     await import("../server/lib/private-icon-references.js"));
+  ({ syncAnalyticsChartCitations } =
+    await import("../server/lib/analytics-chart-citations.js"));
   updateDocument = (await import("./update-document.js")).default as Action;
   editDocument = (await import("./edit-document.js")).default as Action;
   listCitations = (await import("./list-analytics-chart-citations.js"))
@@ -203,9 +211,7 @@ describe("recording a page's chart citations as its body saves", () => {
     await save(id, first, second);
     expect(await citedDashboards(id)).toEqual(["retention", "revenue"]);
 
-    await save(id, second, "# Report
-
-No charts now.");
+    await save(id, second, NO_CHARTS);
     expect(await citedDashboards(id)).toEqual([]);
   });
 
@@ -226,15 +232,11 @@ No charts now.");
     await as(OWNER, () => updateDocument.run({ id, content: body("growth") }));
     expect(await citedDashboards(id)).toEqual(["growth"]);
 
-    await as(OWNER, () =>
-      updateDocument.run({ id, content: "# Report
-
-No charts now." }),
-    );
+    await as(OWNER, () => updateDocument.run({ id, content: NO_CHARTS }));
     expect(await citedDashboards(id)).toEqual([]);
   });
 
-  it("records the charts in a page an agent edits with edit-document", async () => {
+  it("records the charts in a page edited without a revision", async () => {
     const id = await page({ content: body("retention") });
     expect(await citedDashboards(id)).toEqual([]);
 
@@ -243,6 +245,42 @@ No charts now." }),
     );
 
     expect(await citedDashboards(id)).toEqual(["retention"]);
+  });
+
+  it("records the charts in a page an agent edits against its revision", async () => {
+    const content = body("revenue");
+    const id = await page({ content });
+
+    await as(OWNER, () =>
+      editDocument.run(
+        {
+          id,
+          baseRevision: documentRevisionToken(0, content),
+          idempotencyKey: `cite-${id}`,
+          find: "The end.",
+          replace: "The very end.",
+        },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+
+    expect(await citedDashboards(id)).toEqual(["revenue"]);
+  });
+
+  it("keeps a page's rows for the list to re-check when a save without its earlier body has no charts", async () => {
+    const id = await page({ content: "# Report" });
+
+    await syncAnalyticsChartCitations(getDb(), {
+      documentId: id,
+      after: body("growth"),
+    });
+    expect(await citedDashboards(id)).toEqual(["growth"]);
+
+    await syncAnalyticsChartCitations(getDb(), {
+      documentId: id,
+      after: NO_CHARTS,
+    });
+    expect(await citedDashboards(id)).toEqual(["growth"]);
   });
 });
 
@@ -311,6 +349,37 @@ describe("list-analytics-chart-citations", () => {
       ids.slice(2).reverse(),
     );
     expect(cited.more).toBe(true);
+  });
+
+  it("finds a page the caller can open behind 200 newer pages they can't", async () => {
+    const at = (minutes: number) =>
+      new Date(Date.UTC(2026, 8, 1, 0, minutes)).toISOString();
+    const own = await page({ content: body("crowded"), updatedAt: at(0) });
+    await cite(own, "crowded");
+    for (let index = 1; index <= 201; index += 1) {
+      const id = await page({
+        content: body("crowded"),
+        ownerEmail: STRANGER,
+        updatedAt: at(index),
+      });
+      await cite(id, "crowded");
+    }
+
+    const cited = await list(OWNER, "crowded");
+    expect(cited.pages.map((entry) => entry.id)).toEqual([own]);
+    expect(cited.more).toBe(false);
+  }, 60_000);
+
+  it("shortens a very long title", async () => {
+    const id = await page({ content: body("titled") });
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "x".repeat(2_001) })
+      .where(eq(schema.documents.id, id));
+    await cite(id, "titled");
+
+    const cited = await list(OWNER, "titled");
+    expect(cited.pages[0]?.title).toHaveLength(500);
   });
 
   it("finds a page once it's saved with a chart", async () => {

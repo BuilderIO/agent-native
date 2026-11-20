@@ -2366,7 +2366,8 @@ export default {
     unavailable:
       "No se pudo conectar con Content. Inténtelo de nuevo en un minuto.",
     untitledPage: "Sin título",
-    more: "Se muestran las 50 páginas editadas más recientemente",
+    more:
+      "Content solo revisó las páginas editadas más recientemente, así que puede haber más.",
   },
   annotations: {
     menu: "Anotaciones",

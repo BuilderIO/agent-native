@@ -5,6 +5,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
@@ -587,6 +588,10 @@ export async function applyMigration(
       documentId: row.documentId,
       after: row.content,
       userEmail: documentAttributionActor(),
+    });
+    await syncAnalyticsChartCitations(tx, {
+      documentId: row.documentId,
+      after: row.content,
     });
   }
   const definitionRows = plan.propertyDefinitions.map((definition, index) => ({

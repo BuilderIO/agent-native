@@ -8,10 +8,10 @@ type Database = ReturnType<typeof getDb>;
 
 export async function syncAnalyticsChartCitations(
   db: Database,
-  input: { documentId: string; before: string; after: string },
+  input: { documentId: string; before?: string; after: string },
 ): Promise<void> {
   const tag = `<${ANALYTICS_CHART_TAG}`;
-  if (!input.before.includes(tag) && !input.after.includes(tag)) return;
+  if (!input.before?.includes(tag) && !input.after.includes(tag)) return;
   const { charts } = await analyticsChartsInBody(input.after);
   const dashboardIds = [
     ...new Set(
