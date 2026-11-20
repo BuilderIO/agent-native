@@ -25,8 +25,9 @@ export async function isReversibleWriteNoApprovalsMode(
   try {
     const { getUserSetting } = await import("../settings/index.js");
     const stored = await getUserSetting(email, NO_APPROVALS_SETTING_KEY);
-    if (stored && typeof stored.enabled === "boolean") return stored.enabled;
-    return true;
+    if (stored == null) return true;
+    if (typeof stored.enabled === "boolean") return stored.enabled;
+    return false;
   } catch {
     // coercion-ok: an unreadable setting fails closed and leaves approval on.
     return false;

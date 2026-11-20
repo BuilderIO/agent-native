@@ -90,9 +90,19 @@ describe("reversible-write approval policy", () => {
     }
   });
 
-  it("fails closed when email is absent or setting read fails", async () => {
+  it("fails closed when email is absent, setting is malformed, or setting read fails", async () => {
     expect(await isReversibleWriteNoApprovalsMode(undefined)).toBe(false);
     expect(await isReversibleWriteNoApprovalsMode("")).toBe(false);
+
+    getUserSetting.mockResolvedValue({});
+    expect(await isReversibleWriteNoApprovalsMode("person@example.test")).toBe(
+      false,
+    );
+
+    getUserSetting.mockResolvedValue({ enabled: "yes" });
+    expect(await isReversibleWriteNoApprovalsMode("person@example.test")).toBe(
+      false,
+    );
 
     getUserSetting.mockRejectedValue(new Error("db unavailable"));
     expect(await isReversibleWriteNoApprovalsMode("person@example.test")).toBe(
