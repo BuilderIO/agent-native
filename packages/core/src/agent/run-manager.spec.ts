@@ -9290,9 +9290,14 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
     await run.finalized;
+    expect(run.status).toBe("completed");
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "truncated", {
       terminalReason: "stream_ended",
     });
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "completed",
+    );
     expect(
       run.events.some(
         ({ event }) =>
@@ -9311,6 +9316,14 @@ describe("run manager soft timeout", () => {
       [
         "tool_call_journal_unreadable",
         "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. Retrying would risk repeating a step that already completed. Please send the request again.",
+      ],
+      [
+        "private_history_provenance_unavailable",
+        "Private turn provenance is unavailable. Please send the request again.",
+      ],
+      [
+        "write_tool_outcome_unknown",
+        "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
       ],
     ] as const) {
       const runId = `run-private-real-error-code-${code}`;

@@ -902,21 +902,20 @@ export function findReplayablePrivateJournalEntry(
       !consumedKeys?.has(candidate.key) &&
       candidate.privateReplayIdentity === privateReplayIdentity,
   );
-  if (candidates.length === 0) return { status: "none" };
-  const first = candidates[0];
-  if (candidates.length === 1) {
-    consumedKeys?.add(first.key);
-    return { status: "replay", entry: first };
+  const first = candidates.at(0);
+  if (first === undefined) return { status: "none" };
+  let latest = first;
+  for (const candidate of candidates) {
+    if (
+      candidate.isError !== first.isError ||
+      candidate.errorCode !== first.errorCode ||
+      candidate.result !== first.result ||
+      candidate.outcomeUnknown !== first.outcomeUnknown
+    ) {
+      return { status: "ambiguous" };
+    }
+    latest = candidate;
   }
-  const sameOutcome = candidates.every(
-    (candidate) =>
-      candidate.isError === first.isError &&
-      candidate.errorCode === first.errorCode &&
-      candidate.result === first.result &&
-      candidate.outcomeUnknown === first.outcomeUnknown,
-  );
-  if (!sameOutcome) return { status: "ambiguous" };
-  const latest = candidates[candidates.length - 1];
   consumedKeys?.add(latest.key);
   return { status: "replay", entry: latest };
 }
