@@ -13,7 +13,6 @@ import {
   AgentRunJournalUnreadableError,
   getCompletedAgentExecutionSteps,
   getCurrentTurnEventsForThread,
-  PRIVATE_REPLAY_IDENTITY_PATTERN,
 } from "../run-store.js";
 import {
   classifyToolCallJournal,
@@ -224,6 +223,9 @@ function durableStepToolDone(
       ? { chatUI, chatUIResult: outcome.chatUIResult }
       : {}),
     ...(fileMutation ? { fileMutation } : {}),
+    ...(event.omitFromPersistedHistory === true
+      ? { omitFromPersistedHistory: true as const }
+      : {}),
   };
 }
 
@@ -247,7 +249,6 @@ export async function overlayCompletedExecutionStepOutcomes(
     }>
   >();
   events.forEach((event, index) => {
-    if (event.omitFromPersistedHistory === true) return;
     if (event.type === "tool_start" && event.id) {
       const stepId = event.executionStepId ?? event.id;
       const starts = startsById.get(stepId) ?? [];
@@ -260,7 +261,16 @@ export async function overlayCompletedExecutionStepOutcomes(
       donesById.set(stepId, dones);
     }
   });
-  const candidateIds = [...startsById.keys()];
+  const candidateIds = [...startsById.entries()]
+    .filter(
+      ([stepId, starts]) =>
+        !(
+          starts.every(
+            ({ event }) => event.omitFromPersistedHistory === true,
+          ) && donesById.has(stepId)
+        ),
+    )
+    .map(([stepId]) => stepId);
   if (candidateIds.length === 0) return events;
 
   const rows = await getCompletedAgentExecutionSteps(
@@ -477,14 +487,14 @@ export async function loadPriorTurnToolCallJournal(
     return { status: "unreadable", error };
   }
   const privateStarts = new Map<string, string>();
-  const privateCompleted = new Set<string>();
+  const privateFinished = new Set<string>();
   for (const event of priorEvents) {
     if (event.omitFromPersistedHistory !== true) continue;
     if (event.type === "tool_start") {
       if (
         !event.id ||
         privateStarts.has(event.id) ||
-        privateCompleted.has(event.id)
+        privateFinished.has(event.id)
       ) {
         return {
           status: "unreadable",
@@ -494,16 +504,14 @@ export async function loadPriorTurnToolCallJournal(
       }
       privateStarts.set(event.id, event.tool);
     } else if (event.type === "tool_done") {
-      const missingPrivateWriteIdentity =
-        event.completedSideEffect === true &&
-        (typeof event.privateReplayIdentity !== "string" ||
-          !PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity));
       if (
         !event.id ||
         privateStarts.get(event.id) !== event.tool ||
-        privateCompleted.has(event.id) ||
+        privateFinished.has(event.id) ||
         event.outcomeUnknown === true ||
-        missingPrivateWriteIdentity
+        (event.isError === true &&
+          typeof event.completedSideEffect !== "boolean") ||
+        (event.approvalPause === true && event.completedSideEffect !== false)
       ) {
         return {
           status: "unreadable",
@@ -512,8 +520,8 @@ export async function loadPriorTurnToolCallJournal(
         };
       }
       privateStarts.delete(event.id);
-      if (event.approvalPause !== true || event.completedSideEffect !== false) {
-        privateCompleted.add(event.id);
+      if (event.approvalPause !== true) {
+        privateFinished.add(event.id);
       }
     }
   }

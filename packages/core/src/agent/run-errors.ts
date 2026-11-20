@@ -42,7 +42,7 @@ export const TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE =
 export const PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE =
   "private_history_unrecoverable";
 export const PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE =
-  "This turn could not be safely resumed because an earlier private step did not finish. Please send the request again.";
+  "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.";
 
 export const PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_ERROR_CODE =
   "private_history_provenance_unavailable";

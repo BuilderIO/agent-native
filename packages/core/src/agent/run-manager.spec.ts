@@ -303,6 +303,7 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  readAbortStateBeforeDeadline,
   replayCompletedTurn,
   nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
@@ -9302,9 +9303,15 @@ describe("run manager soft timeout", () => {
   });
 
   it("keeps a real framework error code and safe user message on a private run instead of Private content omitted", async () => {
-    for (const [code, expectedFragment] of [
-      ["private_history_unrecoverable", "earlier private step did not finish"],
-      ["tool_call_journal_unreadable", "could not read this turn's run ledger"],
+    for (const [code, expectedMessage] of [
+      [
+        "private_history_unrecoverable",
+        "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      ],
+      [
+        "tool_call_journal_unreadable",
+        "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. Retrying would risk repeating a step that already completed. Please send the request again.",
+      ],
     ] as const) {
       const runId = `run-private-real-error-code-${code}`;
       const run = startRun(
@@ -9328,17 +9335,10 @@ describe("run manager soft timeout", () => {
       );
       await run.finalized;
       expect(setRunTerminalReason).toHaveBeenCalledWith(runId, `error:${code}`);
-      expect(setRunError).toHaveBeenCalledWith(
-        runId,
-        code,
-        expect.stringContaining(expectedFragment),
+      expect(setRunError).toHaveBeenCalledWith(runId, code, expectedMessage);
+      expect(JSON.stringify(setRunError.mock.calls)).not.toContain(
+        "private sentinel text",
       );
-      const call = vi
-        .mocked(setRunError)
-        .mock.calls.find(([id]) => id === runId);
-      expect(call?.[2]).not.toBe("Private content omitted");
-      expect(call?.[2]).not.toContain("private sentinel text");
-      expect(call?.[2]).toContain("send the request again");
     }
   });
 
@@ -11316,5 +11316,68 @@ describe("engineRequestShapeTags", () => {
 
   it("emits nothing when the failure happened before a request was built", () => {
     expect(engineRequestShapeTags(undefined)).toEqual({});
+  });
+});
+
+describe("readAbortStateBeforeDeadline", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries a failed read until one succeeds", async () => {
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(new Error("connection reset"))
+      .mockResolvedValueOnce({ aborted: true });
+
+    await expect(readAbortStateBeforeDeadline(read, 2_000)).resolves.toEqual({
+      aborted: true,
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up on a read still pending at the deadline", async () => {
+    vi.useFakeTimers();
+    const result = readAbortStateBeforeDeadline(
+      () => new Promise<{ aborted: boolean }>(() => {}),
+      2_000,
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it("gives up when every read fails until the deadline", async () => {
+    vi.useFakeTimers();
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValue(new Error("database unavailable"));
+    const result = readAbortStateBeforeDeadline(read, 1_000);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(read.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("hands each failed read's error to the caller", async () => {
+    vi.useFakeTimers();
+    const first = new Error("connection reset");
+    const last = new Error("database unavailable");
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(first)
+      .mockRejectedValue(last);
+    const failures: unknown[] = [];
+    const result = readAbortStateBeforeDeadline(read, 1_000, (error) =>
+      failures.push(error),
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(failures[0]).toBe(first);
+    expect(failures.at(-1)).toBe(last);
   });
 });

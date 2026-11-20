@@ -6,6 +6,7 @@ import {
   RECOVERED_TOOL_REPLAY_PREFIX,
   loadedSkillPagesContext,
   loadPriorTurnToolCallJournal,
+  overlayCompletedExecutionStepOutcomes,
   seedRepeatedToolErrorCountsFromJournal,
   seedRepeatedToolCallCountsFromJournal,
   type PriorTurnToolCallSequenceEntry,
@@ -688,7 +689,7 @@ describe("private prior-turn recovery", () => {
     }
   });
 
-  it("refuses to resume a completed private write whose replay identity is missing", async () => {
+  it("resumes a completed private tool pair from its redacted ledger entry", async () => {
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue([
@@ -709,6 +710,127 @@ describe("private prior-turn recovery", () => {
           omitFromPersistedHistory: true,
         },
       ]);
+    try {
+      expect(
+        await loadPriorTurnToolCallJournal("thread", "turn"),
+      ).toMatchObject({
+        status: "read",
+        priorToolResults: [
+          {
+            name: "write",
+            content: "[Private content omitted]",
+            isError: false,
+          },
+        ],
+      });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("keeps a recovered private step private", async () => {
+    const steps = vi
+      .spyOn(runStore, "getCompletedAgentExecutionSteps")
+      .mockResolvedValue([
+        {
+          stepId: "private-call",
+          operationId: "private-call",
+          toolName: "write",
+          inputJson: JSON.stringify({
+            argumentsHash: "a".repeat(64),
+            input: {},
+          }),
+          resultJson: JSON.stringify({
+            result: "[Private content omitted]",
+            isError: false,
+            completedSideEffect: true,
+          }),
+        },
+      ]);
+    try {
+      const events = await overlayCompletedExecutionStepOutcomes(
+        "thread",
+        "turn",
+        [
+          {
+            type: "tool_start",
+            id: "private-call",
+            tool: "write",
+            input: {},
+            omitFromPersistedHistory: true,
+          },
+        ],
+      );
+      expect(events.at(-1)).toMatchObject({
+        type: "tool_done",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      });
+    } finally {
+      steps.mockRestore();
+    }
+  });
+
+  it.each([
+    [
+      "an unfinished private call",
+      [
+        {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+    ],
+    [
+      "a private call whose outcome is unknown",
+      [
+        {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+        {
+          type: "tool_done" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          isError: true,
+          outcomeUnknown: true as const,
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+    ],
+    [
+      "a failed private call with no side-effect status",
+      [
+        {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+        {
+          type: "tool_done" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          isError: true,
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+    ],
+  ])("refuses to resume %s", async (_label, events) => {
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue(events);
     try {
       expect(
         await loadPriorTurnToolCallJournal("thread", "turn"),
@@ -877,7 +999,7 @@ it("continues to read a public prior tool journal", async () => {
   }
 });
 
-it("does not dispatch another call in the same turn after an interrupted private tool", async () => {
+it("finishes a resumed private turn without repeating its write", async () => {
   const read = vi
     .spyOn(runStore, "getCurrentTurnEventsForThread")
     .mockResolvedValue([
@@ -886,6 +1008,15 @@ it("does not dispatch another call in the same turn after an interrupted private
         id: "earlier-call",
         tool: "write",
         input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "earlier-call",
+        tool: "write",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
         omitFromPersistedHistory: true,
       },
     ]);
@@ -906,6 +1037,16 @@ it("does not dispatch another call in the same turn after an interrupted private
       parallelToolCalls: false,
     },
     async *stream() {
+      streams += 1;
+      if (streams > 1) {
+        yield { type: "text-delta" as const, text: "Saved your draft." };
+        yield {
+          type: "assistant-content" as const,
+          parts: [{ type: "text" as const, text: "Saved your draft." }],
+        };
+        yield { type: "stop" as const, reason: "end_turn" as const };
+        return;
+      }
       yield {
         type: "assistant-content" as const,
         parts: [
@@ -920,6 +1061,7 @@ it("does not dispatch another call in the same turn after an interrupted private
       yield { type: "stop" as const, reason: "tool_use" as const };
     },
   };
+  let streams = 0;
   try {
     await runAgentLoop({
       engine,
@@ -947,6 +1089,7 @@ it("does not dispatch another call in the same turn after an interrupted private
       },
       threadId: "thread",
       turnId: "same-turn",
+      historyPrivacyState: { private: true, recorded: true },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
     });
@@ -954,11 +1097,15 @@ it("does not dispatch another call in the same turn after an interrupted private
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          type: "error",
-          errorCode: "tool_call_journal_unreadable",
+          type: "tool_done",
+          id: "new-call",
+          notExecuted: true,
+          completedSideEffect: false,
         }),
+        expect.objectContaining({ type: "text", text: "Saved your draft." }),
       ]),
     );
+    expect(events.some((event) => event.type === "error")).toBe(false);
   } finally {
     read.mockRestore();
   }
