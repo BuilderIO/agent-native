@@ -58,6 +58,7 @@ export default defineAction({
       itemId: string;
       documentId: string;
       success: boolean;
+      generation?: number;
       error?: string;
     }> = [];
 
@@ -68,7 +69,7 @@ export default defineAction({
         try {
           // Passing the caller on keeps set-document-property's Blocks
           // revision guard: a bulk write has no per-row revision to name.
-          await setDocumentProperty.run(
+          const saved = await setDocumentProperty.run(
             {
               documentId: row.document.id,
               databaseId: database.id,
@@ -81,6 +82,7 @@ export default defineAction({
             itemId: row.item.id,
             documentId: row.document.id,
             success: true,
+            ...("generation" in saved ? { generation: saved.generation } : {}),
           };
         } catch (error) {
           results[index] = {

@@ -12342,7 +12342,6 @@ export default function SlideEditor({
         key={slideId || slide.id}
         active={!!pinMode}
         canComment={canComment}
-        canEdit={!readOnly}
         comments={comments}
         deckId={deckId ?? null}
         slideId={slideId || slide.id}

@@ -79,6 +79,9 @@ export function connectTarget(
     return { kind: "settings", page: "integrations", sub: "builder" };
   }
   if (provider === "email") return { kind: "settings", page: "api-keys" };
+  if (provider === "content") {
+    return { kind: "settings", page: "integrations" };
+  }
   const catalogued = getWorkspaceConnectionProvider(provider);
   if (where.workspace) {
     return where.signIn && catalogued?.oauth
