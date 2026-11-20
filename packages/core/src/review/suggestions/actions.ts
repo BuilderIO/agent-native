@@ -465,7 +465,6 @@ export const updateResourceSuggestion = defineAction({
       observedRevision: args.observedRevision,
       operations: args.operations,
       summary: args.summary ?? null,
-      // Only when given, so a retry recorded before the field existed matches.
       ...(args.baseRevision === undefined
         ? {}
         : { baseRevision: args.baseRevision }),
@@ -510,8 +509,6 @@ export const updateResourceSuggestion = defineAction({
       const adapter = getSuggestionAdapter(current.adapterKind);
       if (!adapter || adapter.version !== current.adapterVersion)
         throw new Error("Suggestion adapter version is unavailable");
-      // The adapter checks a newer basis as it checks a new suggestion's, so
-      // an author moves a suggestion only onto a revision it would accept.
       const baseRevision = args.baseRevision ?? current.baseRevision;
       const operations =
         (await adapter.validateProposal({

@@ -80,20 +80,6 @@ export function suggestionPageFollow(args: {
   return { kind: "restart" };
 }
 
-/**
- * The draft for a newer Page, still holding this tab's saved suggestions.
- * Starting the draft over from the newer Page alone turned them into marks
- * drawn just after their place, so words typed right after one went in front
- * of it. Here they stay in the draft as the text this tab typed, so the next
- * words read on from them, and their entries are re-keyed to the new draft's
- * operations so nothing is saved again.
- *
- * Null when the draft should start over from the Page alone, as before: when
- * one of those suggestions is no longer pending or was amended elsewhere
- * since this tab saved it, when someone else's change
- * touches a paragraph one of them changes (`rebaseBodyEdit`), or when the
- * merged draft doesn't read as exactly the same edits.
- */
 export function carryOwnSuggestions(args: {
   session: SuggestionDraftSession;
   draft: string;
@@ -130,11 +116,11 @@ export function carryOwnSuggestions(args: {
     const after = suggestionDraftOperations(next, content);
     if (after.length !== before.length) return null;
     const carried = new Map<string, SuggestionPersistenceEntry>();
-    for (const [index, operation] of after.entries()) {
-      const previous = before[index];
-      const entry = previous && entries.get(suggestionOperationKey(previous));
+    for (const [index, previous] of before.entries()) {
+      const operation = after.at(index);
+      const entry = entries.get(suggestionOperationKey(previous));
       if (
-        !previous ||
+        !operation ||
         !entry ||
         operation.kind !== previous.kind ||
         operation.before.changedText !== previous.before.changedText ||
@@ -145,8 +131,6 @@ export function carryOwnSuggestions(args: {
     }
     return { content, entries: carried };
   } catch (error) {
-    // Formatting the diff can't place reads as no edits it can carry; the
-    // draft starts over from the Page, as it did before it carried any.
     if (error instanceof SuggestionFormattingMappingError) return null;
     throw error;
   }

@@ -246,7 +246,6 @@ describe("carryOwnSuggestions", () => {
     status: ResourceSuggestion["status"] = "pending",
     revision = 1,
   ) => ({ id: "first", status, revision }) as ResourceSuggestion;
-  // This tab's saved suggestions, as a save records them.
   const entriesFor = (content: string, suggestion = saved()) => {
     const operations = suggestionDraftOperations(
       session(base, "body:4"),
@@ -270,10 +269,15 @@ describe("carryOwnSuggestions", () => {
       latest: () => saved(),
       ...overrides,
     });
+  const carried = () => {
+    const result = carry();
+    if (!result) throw new Error("The draft didn't carry its saved suggestion");
+    return result;
+  };
 
   it("keeps this tab's saved suggestion in the draft for the newer Page", () => {
-    const carried = carry();
-    expect(carried?.content).toBe(
+    const { content, entries } = carried();
+    expect(content).toBe(
       page(
         "Opening paragraph of the page. First.",
         "Middle paragraph of the page.",
@@ -282,10 +286,9 @@ describe("carryOwnSuggestions", () => {
     );
     const next = session(newer, "body:5");
     const plan = planSuggestionDraftPersistence(
-      suggestionDraftOperations(next, carried!.content),
-      carried!.entries,
+      suggestionDraftOperations(next, content),
+      entries,
     );
-    // Nothing is saved again: the suggestion reads as already saved.
     expect(plan.create).toEqual([]);
     expect(plan.amend).toEqual([]);
     expect(plan.withdraw).toEqual([]);
@@ -293,11 +296,11 @@ describe("carryOwnSuggestions", () => {
   });
 
   it("reads words typed right after it on from it", () => {
-    const carried = carry()!;
-    const typed = carried.content.replace("First.", "First. Second.");
+    const { content, entries } = carried();
+    const typed = content.replace("First.", "First. Second.");
     const plan = planSuggestionDraftPersistence(
       suggestionDraftOperations(session(newer, "body:5"), typed),
-      carried.entries,
+      entries,
     );
     expect(plan.create).toEqual([]);
     expect(plan.amend).toHaveLength(1);
@@ -313,7 +316,6 @@ describe("carryOwnSuggestions", () => {
   });
 
   it("starts over when another tab amended one of them since", () => {
-    // Carrying it would keep this tab's older text over the newer amendment.
     expect(carry({ latest: () => saved("pending", 2) })).toBeNull();
   });
 

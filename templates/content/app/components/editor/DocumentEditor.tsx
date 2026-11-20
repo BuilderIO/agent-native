@@ -7316,10 +7316,6 @@ function PageEditorSessionBody({
           const amended = await saveUnlessSuggestionChanged(
             target,
             async () => {
-              // A suggestion saved on an earlier Page, carried over or kept
-              // through a revision with the same text, moves onto the Page
-              // this draft was written on. The server fingerprints that Page
-              // too, so it is part of the key.
               const baseRevision =
                 target.baseRevision === base.baseRevision
                   ? undefined
