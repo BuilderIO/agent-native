@@ -95,6 +95,9 @@ describe("get-design-snapshot", () => {
     expect(result.nextRequiredAction).toContain("none of its edits were saved");
     expect(result.nextRequiredAction).toContain("re-read the current file");
     expect(result.nextRequiredAction).toContain(
+      "retry all intended edits in the rejected batch",
+    );
+    expect(result.nextRequiredAction).toContain(
       "Do not call delete-file unless",
     );
   });

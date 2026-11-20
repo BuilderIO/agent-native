@@ -120,9 +120,11 @@ function applyOneEditWithStableIdFallback(
     return applyOneEdit(content, edit, index);
   } catch (error) {
     if (!(error instanceof ApplyEditConflictError)) throw error;
-    const span = findUniqueStableIdAgnosticSpan(content, edit.search);
-    if (span) {
-      return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+    if (error.kind === "not_found") {
+      const span = findUniqueStableIdAgnosticSpan(content, edit.search);
+      if (span) {
+        return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
+      }
     }
     throw new DesignEditSearchConflictError(
       error instanceof Error ? error.message : String(error),
@@ -153,7 +155,7 @@ export function applySearchReplaceEdits(
   } catch (error) {
     if (!(error instanceof DesignEditSearchConflictError)) throw error;
     throw new NoWriteError(
-      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry the remaining changes in smaller sequential batches with enough context to uniquely identify each match.`,
+      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry all intended edits in the rejected batch in smaller sequential batches with enough context to uniquely identify each match.`,
       designEditConflictOptions(),
     );
   }

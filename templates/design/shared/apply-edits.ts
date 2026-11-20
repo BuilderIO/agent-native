@@ -9,7 +9,10 @@ export interface ApplyEditsResult {
 }
 
 export class ApplyEditConflictError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly kind: "ambiguous" | "not_found",
+  ) {
     super(message);
     this.name = "ApplyEditConflictError";
   }
@@ -48,23 +51,25 @@ export function applyOneEdit(
 
   const pattern = escapeRegExp(search).replace(/\s+/g, "\\s+");
   const re = new RegExp(pattern, "g");
-  const matches = content.match(re);
+  const matches = content.match(new RegExp(`(?=${pattern})`, "g"));
   const flexible = matches ? matches.length : 0;
-  if (flexible === 1) {
-    return content.replace(re, () => replace);
-  }
-  if (flexible > 1) {
+  if (exact > 1 || flexible > 1) {
     const detail =
       exact > 1
         ? `${exact} places (exact) and ${flexible} places (whitespace-insensitive)`
         : `${flexible} places (whitespace-insensitive)`;
     throw new ApplyEditConflictError(
       `Edit ${index + 1}: "search" matched ${detail} — add more surrounding context so it matches exactly one location.`,
+      "ambiguous",
     );
+  }
+  if (flexible === 1) {
+    return content.replace(re, () => replace);
   }
 
   throw new ApplyEditConflictError(
     `Edit ${index + 1}: search text was not found in the file. Read the current file (get-design-snapshot) and copy the exact text you want to change.`,
+    "not_found",
   );
 }
 

@@ -83,7 +83,7 @@ function projectChatGptDirectoryResult(
     }
     if (projected.nextRequiredAction) {
       projected.nextRequiredAction =
-        "Use edit-design on the returned editTarget, with smaller sequential batches when appropriate. If a batch conflicts, none of its edits were saved; re-read with get-design-snapshot and retry the remaining changes with unique context.";
+        "Use edit-design on the returned editTarget, with smaller sequential batches when appropriate. If a batch conflicts, none of its edits were saved; re-read with get-design-snapshot and retry all intended edits in the rejected batch with unique context.";
     }
   }
   if (toolName === "present-design-variants") {

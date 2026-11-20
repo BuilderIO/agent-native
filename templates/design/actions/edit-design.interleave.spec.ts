@@ -300,6 +300,18 @@ describe("edit-design conflict retry", () => {
   it.each([
     ["missing text", "<main>Hello base</main>", "Not present"],
     ["ambiguous text", "<p>Hello</p><p>Hello</p>", "Hello"],
+    ["overlapping exact text", "<p>aaa</p>", "aa"],
+    ["overlapping whitespace-flexible text", "<p>a a a</p>", "a  a"],
+    [
+      "ambiguous flexible match with a unique stripped fallback",
+      '<p>\t\tdata-agent-native-node-id="live"b</p>',
+      ' data-agent-native-node-id="live"b',
+    ],
+    [
+      "overlapping stable-id fallback",
+      '<p>a data-agent-native-node-id="live"aa</p>',
+      'a data-agent-native-node-id="snapshot"a',
+    ],
   ])("reports %s as a no-write rejection", async (_label, content, search) => {
     mocks.readLiveSourceFile.mockResolvedValueOnce({
       content,
@@ -362,6 +374,9 @@ describe("edit-design conflict retry", () => {
       );
       await expect(failure).rejects.toThrow("get-design-snapshot");
       await expect(failure).rejects.toThrow("smaller");
+      await expect(failure).rejects.toThrow(
+        "all intended edits in the rejected batch",
+      );
       await expect(failure).rejects.not.toThrow(search);
       expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
       expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();

@@ -75,9 +75,13 @@ describe("applyEdits", () => {
     );
   });
 
-  it("resolves self-overlapping exact matches via whitespace-flexible fallback", () => {
-    const { content } = applyEdits(`aaa`, [{ search: `aa`, replace: `b` }]);
-    expect(content).toBe(`ba`);
+  it.each([
+    ["exact", "aaa", "aa"],
+    ["whitespace-flexible", "a a a", "a  a"],
+  ])("rejects overlapping %s matches", (_kind, content, search) => {
+    expect(() => applyEdits(content, [{ search, replace: "b" }])).toThrow(
+      /matched 2 places/,
+    );
   });
 
   it("throws ambiguous when both strategies find multiple matches", () => {
