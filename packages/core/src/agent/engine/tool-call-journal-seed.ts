@@ -219,6 +219,9 @@ function durableStepToolDone(
       ? { chatUI, chatUIResult: outcome.chatUIResult }
       : {}),
     ...(fileMutation ? { fileMutation } : {}),
+    ...(event.omitFromPersistedHistory === true
+      ? { omitFromPersistedHistory: true as const }
+      : {}),
   };
 }
 
@@ -471,14 +474,14 @@ export async function loadPriorTurnToolCallJournal(
     return { status: "unreadable", error };
   }
   const privateStarts = new Map<string, string>();
-  const privatePauses = new Set<string>();
+  const privateFinished = new Set<string>();
   for (const event of priorEvents) {
     if (event.omitFromPersistedHistory !== true) continue;
     if (event.type === "tool_start") {
       if (
         !event.id ||
         privateStarts.has(event.id) ||
-        privatePauses.has(event.id)
+        privateFinished.has(event.id)
       ) {
         return {
           status: "unreadable",
@@ -492,9 +495,11 @@ export async function loadPriorTurnToolCallJournal(
       if (
         !event.id ||
         privateStarts.get(event.id) !== event.tool ||
-        privatePauses.has(event.id) ||
-        event.approvalPause !== true ||
-        event.completedSideEffect !== false
+        privateFinished.has(event.id) ||
+        event.outcomeUnknown === true ||
+        (event.isError === true &&
+          typeof event.completedSideEffect !== "boolean") ||
+        (event.approvalPause === true && event.completedSideEffect !== false)
       ) {
         return {
           status: "unreadable",
@@ -504,7 +509,7 @@ export async function loadPriorTurnToolCallJournal(
         };
       }
       privateStarts.delete(event.id);
-      privatePauses.add(event.id);
+      privateFinished.add(event.id);
     }
   }
   if (privateStarts.size > 0) {

@@ -1461,6 +1461,77 @@ describe("ShareButton", () => {
     expect(openInAgent).toHaveBeenCalledWith("codex");
   });
 
+  describe("agent share handoff", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const renderHandoff = async (
+      props: Partial<React.ComponentProps<typeof ShareButton>>,
+    ) => {
+      sharesData.current = {
+        ...sharesData.current,
+        agentRead: { actions: ["get-thread"], idParam: "id", label: "chat" },
+      };
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="chat_thread"
+              resourceId="thread-2"
+              resourceTitle="Second"
+              shareUrl="https://app.example.test/chat/thread-2"
+              {...props}
+            />
+          </QueryClientProvider>,
+        );
+      });
+      await openSendTo(container);
+    };
+
+    it("hands the localized prompt to the app instead of launching a native app", async () => {
+      const onAgentShareHandoff = vi.fn();
+      const assign = vi.fn();
+      vi.spyOn(window.location, "assign").mockImplementation(assign);
+      await renderHandoff({ onAgentShareHandoff });
+      act(() => menuItem("Open in Claude Code").click());
+      expect(onAgentShareHandoff).toHaveBeenCalledTimes(1);
+      const request = onAgentShareHandoff.mock.calls[0][0];
+      expect(request).toMatchObject({
+        destination: "claude-code",
+        shareUrl: "https://app.example.test/chat/thread-2",
+        resourceType: "chat_thread",
+        resourceId: "thread-2",
+        resourceTitle: "Second",
+      });
+      expect(request.prompt).toContain(
+        "Read this chat: https://app.example.test/chat/thread-2",
+      );
+      expect(request.prompt).toContain('with id "thread-2"');
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("lets an explicit sendTo.openInAgent take precedence", async () => {
+      const onAgentShareHandoff = vi.fn();
+      const openInAgent = vi.fn();
+      await renderHandoff({ onAgentShareHandoff, sendTo: { openInAgent } });
+      act(() => menuItem("Open in Codex").click());
+      expect(openInAgent).toHaveBeenCalledWith("codex");
+      expect(onAgentShareHandoff).not.toHaveBeenCalled();
+    });
+
+    it("keeps the native deep link without the callback", async () => {
+      const assign = vi.fn();
+      vi.spyOn(window.location, "assign").mockImplementation(assign);
+      await renderHandoff({});
+      act(() => menuItem("Open in Claude").click());
+      expect(assign).toHaveBeenCalledTimes(1);
+      const url = new URL(assign.mock.calls[0][0]);
+      expect(url.protocol).toBe("claude:");
+      expect(url.searchParams.get("q")).toContain(
+        "Read this chat: https://app.example.test/chat/thread-2",
+      );
+    });
+  });
+
   it("offers no agent prompt to a session limited to the basic share actions", async () => {
     const withAgentRead = {
       ...sharesData.current,

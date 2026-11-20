@@ -134,6 +134,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { CodeBlockToolbar } from "./CodeBlockToolbar";
 import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
@@ -1927,6 +1928,9 @@ interface VisualEditorProps {
     range?: { from: number; to: number },
     suggestionId?: string,
   ) => void;
+  onSuggestEdit?:
+    | ((selection: VisualEditorSelectionSnapshot | null) => void)
+    | undefined;
   /** Starts a comment on a whole block, such as a video. */
   onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
   commentThreads?: CommentThread[];
@@ -3856,6 +3860,7 @@ export function VisualEditor({
   referenceDepth,
   drawDiagrams = true,
   onComment,
+  onSuggestEdit,
   onBlockComment,
   commentThreads,
   activeThreadId,
@@ -4547,9 +4552,11 @@ export function VisualEditor({
         if (
           view.editable &&
           onImportFilesRef.current &&
-          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+          droppedFiles.some(
+            (file) =>
+              isMarkdownFilePath(file.name) || /[.]zip$/i.test(file.name),
+          )
         ) {
-          // Images dropped beside Markdown belong to the import, not the page.
           event.preventDefault();
           setIsDraggingMedia(false);
           onImportFilesRef.current(droppedFiles);
@@ -6081,6 +6088,21 @@ export function VisualEditor({
     );
   }
 
+  const suggestEditFromSelection =
+    onSuggestEdit && !suggesting
+      ? () => {
+          const { doc, selection } = editor.state;
+          onSuggestEdit(
+            captureVisualEditorSelection(
+              doc,
+              selection instanceof TextSelection
+                ? selection
+                : TextSelection.between(selection.$anchor, selection.$head),
+            ),
+          );
+        }
+      : undefined;
+
   return (
     <div
       ref={wrapperRef}
@@ -6093,9 +6115,17 @@ export function VisualEditor({
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
       {editable ? (
-        <BubbleToolbar editor={editor} onComment={onComment} />
-      ) : onComment ? (
-        <ReadOnlyCommentBubble editor={editor} onComment={onComment} />
+        <BubbleToolbar
+          editor={editor}
+          onComment={onComment}
+          onSuggestEdit={suggestEditFromSelection}
+        />
+      ) : onComment || suggestEditFromSelection ? (
+        <ReadOnlyCommentBubble
+          editor={editor}
+          onComment={onComment}
+          onSuggestEdit={suggestEditFromSelection}
+        />
       ) : null}
       {editable ? (
         <SlashCommandMenu
@@ -6127,6 +6157,7 @@ export function VisualEditor({
       {editable && !suggesting ? (
         <ColumnResizeControls editor={editor} />
       ) : null}
+      <CodeBlockToolbar editor={editor} canEdit={editable && !suggesting} />
       {editable ? (
         <BlockActionsMenu
           documentId={documentId}

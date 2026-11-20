@@ -268,6 +268,7 @@ function hasUnsupportedJsxProps(raw: string): boolean {
 // own attribute, so `data-markdown="1"` isn't it.
 const TOGGLE_MARKDOWN_TITLE_ATTR = 'markdown="1"';
 const TOGGLE_MARKDOWN_TITLE_PATTERN = /(?:^|\s)markdown\s*=\s*"1"/;
+const CODE_BLOCK_WRAP_ATTR = 'wrap="true"';
 
 function toggleTitleNode(inline: PMNode[]): PMNode {
   return inline.length
@@ -1474,6 +1475,7 @@ export interface NfmSerializeContext {
    * page has no place for.
    */
   omitMediaIds?: boolean;
+  omitCodeBlockWrap?: boolean;
 }
 
 /**
@@ -1632,8 +1634,12 @@ function serializeBlock(node: PMNode, indent: number): string[] {
         Math.max(3, longestRun(text, marker === "`" ? /`+/g : /~+/g) + 1),
       );
       const gap = lang.startsWith(marker) ? " " : "";
+      const wrap =
+        node.attrs?.wrap === true && !activeSerializeContext?.omitCodeBlockWrap
+          ? ` {${CODE_BLOCK_WRAP_ATTR}}`
+          : "";
       return [
-        indentStr(ind) + fence + gap + lang,
+        indentStr(ind) + fence + gap + lang + wrap,
         ...body,
         indentStr(ind) + fence,
       ];
@@ -2014,6 +2020,19 @@ function leadingTabs(line: string): number {
 // least as many of the same character.
 const FENCE_OPEN = /^(`{3,}|~{3,})(.*)$/;
 const FENCE_CLOSE = /^(`{3,}|~{3,})\s*$/;
+
+function splitCodeFenceInfo(info: string | undefined): {
+  lang: string;
+  wrap: boolean;
+} {
+  const trimmed = info?.trim() ?? "";
+  const m = matchBlockAttrSuffix(trimmed);
+  return m &&
+    (m.text === "" || trimmed[m.text.length] !== "{") &&
+    /^\s*wrap\s*=\s*"true"\s*$/.test(m.body)
+    ? { lang: m.text, wrap: true }
+    : { lang: trimmed, wrap: false };
+}
 
 // A backtick fence's language holds no backtick, so a line that starts with
 // a long code span, as the editor writes ``` `` ```, stays a paragraph.
@@ -2809,7 +2828,7 @@ function parseSingleBlock(
   const fenceOpenMatch = matchFenceOpen(dedent);
   if (fenceOpenMatch) {
     const marker = fenceOpenMatch[1];
-    const lang = fenceOpenMatch[2].trim();
+    const { lang, wrap } = splitCodeFenceInfo(fenceOpenMatch[2]);
     const body: string[] = [];
     let i = start + 1;
     for (; i < lines.length; i++) {
@@ -2825,7 +2844,7 @@ function parseSingleBlock(
     const code = body.join("\n");
     const node: PMNode = {
       type: "codeBlock",
-      attrs: { language: lang || null },
+      attrs: { language: lang || null, ...(wrap ? { wrap: true } : {}) },
       content: code ? [{ type: "text", text: code }] : [],
     };
     return { nodes: [withIndentAttr(node)], end: i + 1 };
@@ -3983,7 +4002,45 @@ export function notionMarkdownToNfm(markdown: string): string {
 }
 
 function notionNfmFromDoc(doc: PMDoc): string {
-  return docToNfm(doc, { keepTrailingEmptyBlock: true, omitMediaIds: true });
+  return docToNfm(doc, {
+    keepTrailingEmptyBlock: true,
+    omitMediaIds: true,
+    omitCodeBlockWrap: true,
+  });
+}
+
+export function keepCodeBlockWrap(
+  local: string | null | undefined,
+  incoming: string,
+): string {
+  const codeOf = (node: PMNode) =>
+    (node.content ?? []).map((text) => text.text ?? "").join("");
+  const codeBlocksIn = (root: PMNode) => {
+    const blocks: PMNode[] = [];
+    const walk = (node: PMNode) => {
+      if (node.type === "codeBlock") blocks.push(node);
+      else node.content?.forEach(walk);
+    };
+    walk(root);
+    return blocks;
+  };
+  const localWraps = new Map<string, boolean[]>();
+  for (const block of codeBlocksIn(nfmToDoc(local ?? ""))) {
+    const wraps = localWraps.get(codeOf(block)) ?? [];
+    wraps.push(block.attrs?.wrap === true);
+    localWraps.set(codeOf(block), wraps);
+  }
+  if (![...localWraps.values()].some((wraps) => wraps.includes(true)))
+    return incoming;
+  const doc = nfmToDoc(incoming);
+  let kept = false;
+  for (const block of codeBlocksIn(doc)) {
+    if (!localWraps.get(codeOf(block))?.shift() || block.attrs?.wrap === true)
+      continue;
+    block.attrs = { ...block.attrs, wrap: true };
+    kept = true;
+  }
+  return kept ? docToNfm(doc, { keepTrailingEmptyBlock: true }) : incoming;
 }
 
 /**

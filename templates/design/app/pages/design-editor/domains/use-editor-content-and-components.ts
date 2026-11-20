@@ -10,7 +10,6 @@ import {
   isComponentInstanceForInstanceActions,
   propNameToDataAttribute,
 } from "@shared/component-model";
-import type { A11yFinding } from "@shared/design-review";
 import { readLiteralJsxPropsAtAnchor } from "@shared/local-jsx-visual-edit";
 import { sourcePositionPrecision } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -22,7 +21,6 @@ import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspec
 import { type InspectCodeData } from "@/components/design/EditPanel";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
-import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import {
   waitForShaderWriteToSettle,
   type ShaderSourceTransform,
@@ -58,10 +56,7 @@ import { resolveLinkedComponentSelection } from "../commands/linked-component-st
 import { runOverviewPrimitiveReparent } from "../commands/overview-primitive-reparent";
 import { runShaderSourceEdit } from "../commands/shader-source-edit";
 import { runtimeMultiplicityForElementProvenance } from "../editor-helpers";
-import {
-  createPersistedContentHostSyncHandler,
-  getPersistedContentHostSyncOptions,
-} from "../editor-state";
+import { createPersistedContentHostSyncHandler } from "../editor-state";
 import {
   type ContentHistorySelectionAfterMap,
   reserveLinkedComponentContentHistory,
@@ -121,7 +116,6 @@ export function useEditorContentAndComponents({
     t,
     id,
     queryClient,
-    shellMode,
     setMode,
     viewModeRef,
     selectedElement,
@@ -179,18 +173,8 @@ export function useEditorContentAndComponents({
     boardFileId,
     overviewScreens,
   } = editorFilesAndSaving;
-  const {
-    reviewFileId,
-    reviewFindings,
-    setReviewFindings,
-    reviewAuditLoading,
-    reviewAuditedAt,
-    reviewAuditError,
-    activeFile,
-    activeOverviewScreen,
-    handleRunDesignAudit,
-    activeCanvasSourceType,
-  } = editorActiveScreenAndGeometry;
+  const { activeFile, activeOverviewScreen, activeCanvasSourceType } =
+    editorActiveScreenAndGeometry;
   const {
     localhostConnectionRootPathByIdRef,
     ydoc,
@@ -202,7 +186,6 @@ export function useEditorContentAndComponents({
     setCollabContentFileId,
     lastLocalContentRef,
     latestActiveContentRef,
-    handleReviewFindingClick,
     activeContent,
     getUnprojectedScreenContent,
     getScreenContent,
@@ -215,7 +198,6 @@ export function useEditorContentAndComponents({
     selectedCodeLayerNode,
     selectedElementLayerId,
     selectedCanvasSelector,
-    designReviewPanelEnabled,
     replacePreviewContent,
   } = editorLiveEditsAndPresence;
   const requestLocalhostWriteRef = useRef<RequestLocalhostWrite | null>(null);
@@ -1201,68 +1183,6 @@ export function useEditorContentAndComponents({
     setComponentSwapPickerRequest((request) => request + 1);
   }, [id, selectedInstanceActionNodeId]);
 
-  const handleReviewFixApplied = useCallback(
-    (
-      _finding: A11yFinding,
-      result?: { fileId?: string; patchedContent?: string },
-    ) => {
-      setReviewFindings((prev) =>
-        prev.filter((finding) => finding.id !== _finding.id),
-      );
-      if (
-        typeof result?.fileId === "string" &&
-        typeof result.patchedContent === "string"
-      ) {
-        applyFileContentUpdate(
-          result.fileId,
-          result.patchedContent,
-          getPersistedContentHostSyncOptions({
-            fileId: result.fileId,
-            activeFileId: activeFile?.id ?? null,
-          }),
-        );
-      }
-      void handleRunDesignAudit();
-    },
-    [activeFile?.id, applyFileContentUpdate, handleRunDesignAudit],
-  );
-
-  const resolvedReviewPanelProps = useMemo<
-    Omit<ReviewPanelProps, "className"> | undefined
-  >(() => {
-    if (!designReviewPanelEnabled || !id || !activeFile || shellMode) {
-      return undefined;
-    }
-    const reviewMatchesActiveFile = reviewFileId === activeFile.id;
-    return {
-      findings: reviewMatchesActiveFile ? reviewFindings : [],
-      auditLoading: reviewMatchesActiveFile ? reviewAuditLoading : false,
-      auditedAt: reviewMatchesActiveFile ? reviewAuditedAt : null,
-      auditError: reviewMatchesActiveFile ? reviewAuditError : null,
-      onRunAudit: handleRunDesignAudit,
-      onFindingClick: handleReviewFindingClick,
-      fixSource: {
-        designId: id,
-        fileId: activeFile.id,
-        filename: activeFile.filename,
-      },
-      onFixApplied: handleReviewFixApplied,
-    };
-  }, [
-    activeFile,
-    designReviewPanelEnabled,
-    handleReviewFindingClick,
-    handleReviewFixApplied,
-    handleRunDesignAudit,
-    id,
-    reviewAuditError,
-    reviewAuditLoading,
-    reviewAuditedAt,
-    reviewFileId,
-    reviewFindings,
-    shellMode,
-  ]);
-
   const handleToggleMinimalUi = useCallback(() => {
     setMinimalUi((current) => !current);
     setUiHidden(false);
@@ -1347,7 +1267,6 @@ export function useEditorContentAndComponents({
     handleGoToMainComponentMenuAction,
     handleDetachInstanceMenuAction,
     handleSwapInstanceMenuAction,
-    resolvedReviewPanelProps,
     handleToggleMinimalUi,
     handleOverviewPrimitiveReparent,
     handleShowAssetsPanel,

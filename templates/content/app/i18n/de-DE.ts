@@ -1018,6 +1018,8 @@ const editor = {
     noFilesOrMedia: "Keine Dateien oder Medien",
     noMatchingOptions: "Keine passenden Optionen",
     noMatchingPropertyTypes: "Keine passenden Immobilientypen",
+    typeChangeUnavailable:
+      "Der Eigenschaftstyp kann zum Schutz bestehender Werte nicht geändert werden.",
     notMappedToBuilder: "Nicht dem Builder zugeordnet.",
     onlyBlocksPropertyWarning:
       "Dies ist die einzige Blockeigenschaft, die in diesem Objekttyp vorhanden ist. Dadurch wird der Hauptinhalt (Body) für alle Objekte dieses Typs gelöscht.",
@@ -1909,10 +1911,17 @@ const overrides = {
     heading6: "Überschrift 6",
     link: "Link",
     comment: "Kommentar",
+    suggestEdit: "Änderung vorschlagen",
     pasteLink: "Link einfügen...",
     apply: "Anwenden",
     plainText: "Nur Text",
     searchLanguages: "Sprachen suchen...",
+    codeLanguageAuto: "Automatisch",
+    codeLanguage: "Codesprache",
+    noLanguagesFound: "Keine Sprachen gefunden",
+    copyCode: "Code kopieren",
+    codeCopied: "Kopiert",
+    wrapCodeLines: "Zeilen umbrechen",
     noBlocksFields:
       "Keine Blocks-Felder. Füge eines über das Eigenschaftenmenü hinzu.",
     addBlockField: "Feld hinzufügen",
@@ -1983,6 +1992,19 @@ const overrides = {
     agentBadge: "Agent",
     addEmoji: "Emoji hinzufügen",
     mentionSomeone: "Jemanden erwähnen",
+    attachImage: "Bild hinzufügen",
+    removeImage: "Bild entfernen",
+    uploadingImage: "Bild wird hochgeladen…",
+    imageUploadFailed:
+      "Das Bild konnte nicht hochgeladen werden. Versuche es erneut.",
+    imageTypeUnsupported:
+      "Ein Kommentar nimmt PNG-, JPEG-, GIF- oder WebP-Bilder an.",
+    imageTooLarge: "Jedes Bild darf bis zu 10 MB groß sein.",
+    imageLimit: "Ein Kommentar fasst bis zu {{count}} Bilder.",
+    imagesNeedStorage:
+      "Bilder brauchen privaten Dateispeicher, den dieser Workspace nicht verbunden hat.",
+    commentImages: "Bilder",
+    openImage: "Bild öffnen: {{name}}",
     mentionPeople: "Personen",
     mentionPeopleLoadFailed: "Personen konnten nicht geladen werden.",
     mentionAgents: "Agenten",

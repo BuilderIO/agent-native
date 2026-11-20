@@ -1,7 +1,7 @@
 ===================================================================
 --- a/actions/navigate.ts
 +++ b/actions/navigate.ts
-@@ -1,25 +1,39 @@
+@@ -1,29 +1,43 @@
 -import { defineAction } from "@agent-native/core/action";
 +/**
 + * Navigate the UI to a view.
@@ -18,7 +18,10 @@
 + */
 +
 +import { defineAction, fail } from "@agent-native/core/action";
- import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+ import {
+   navigationIntentSchema,
+   writeAppStateForCurrentTab,
+ } from "@agent-native/core/application-state";
  import { z } from "zod";
  
  export default defineAction({
@@ -29,6 +32,7 @@
      view: z.string().optional().describe("View name to navigate to"),
      path: z.string().optional().describe("URL path to navigate to"),
 -    threadId: z.string().optional().describe("Chat thread ID to open"),
+     intent: navigationIntentSchema,
    }),
    http: false,
    run: async (args) => {

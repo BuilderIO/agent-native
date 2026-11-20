@@ -999,6 +999,8 @@ const editor = {
     noFilesOrMedia: "ファイルやメディアがありません",
     noMatchingOptions: "一致するオプションはありません",
     noMatchingPropertyTypes: "一致するプロパティ タイプがありません",
+    typeChangeUnavailable:
+      "既存の値を保護するため、プロパティの種類は変更できません。",
     notMappedToBuilder: "ビルダーにマッピングされていません。",
     onlyBlocksPropertyWarning:
       "これは、このオブジェクト タイプに存在する唯一のブロック プロパティです。これにより、このタイプのすべてのオブジェクトのメイン コンテンツ (本文) が削除されます。",
@@ -1868,10 +1870,17 @@ const overrides = {
     heading6: "見出し 6",
     link: "リンク",
     comment: "コメント",
+    suggestEdit: "編集を提案",
     pasteLink: "リンクを貼り付け...",
     apply: "適用",
     plainText: "プレーンテキスト",
     searchLanguages: "言語を検索...",
+    codeLanguageAuto: "自動",
+    codeLanguage: "コードの言語",
+    noLanguagesFound: "言語が見つかりません",
+    copyCode: "コードをコピー",
+    codeCopied: "コピーしました",
+    wrapCodeLines: "行を折り返す",
     noBlocksFields:
       "Blocks フィールドがありません。プロパティメニューから追加してください。",
     addBlockField: "フィールドを追加",
@@ -1941,6 +1950,19 @@ const overrides = {
     agentBadge: "エージェント",
     addEmoji: "絵文字を追加",
     mentionSomeone: "メンションする",
+    attachImage: "画像を追加",
+    removeImage: "画像を削除",
+    uploadingImage: "画像をアップロード中…",
+    imageUploadFailed:
+      "画像をアップロードできませんでした。もう一度お試しください。",
+    imageTypeUnsupported:
+      "コメントに添付できるのは PNG、JPEG、GIF、WebP の画像です。",
+    imageTooLarge: "画像は 1 枚あたり 10 MB までです。",
+    imageLimit: "1 つのコメントに添付できる画像は {{count}} 枚までです。",
+    imagesNeedStorage:
+      "画像にはプライベートなファイルストレージが必要ですが、このワークスペースでは接続されていません。",
+    commentImages: "画像",
+    openImage: "画像を開く: {{name}}",
     mentionPeople: "メンバー",
     mentionPeopleLoadFailed: "メンバーを読み込めませんでした。",
     mentionAgents: "エージェント",

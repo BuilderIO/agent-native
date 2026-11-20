@@ -1,6 +1,6 @@
 ---
 title: "Design: Funcionalidades"
-description: "Todas as funcionalidades essenciais do Design, organizadas da mesma forma que o aplicativo: Designs, Editar um Design, Templates e Sistemas de Design, com o que cada tela, aba e menu realmente faz."
+description: "Todas as funcionalidades essenciais do Design, organizadas da mesma forma que o aplicativo: Designs, Editar um Design e Templates, com o que cada tela, aba e menu realmente faz."
 ---
 
 # Funcionalidades
@@ -9,8 +9,7 @@ Todas as funcionalidades essenciais do Design: como funcionam e como
 configurá-las. Veja [Design](/docs/template-design) para a visão geral e
 [Conversar com o Agent](/docs/template-design-agent) para a lista completa
 de prompts. As funcionalidades são agrupadas pelas telas reais do
-aplicativo: **Designs**, **Editar um Design**, **Templates** e **Sistemas
-de Design**.
+aplicativo: **Designs**, **Editar um Design** e **Templates**.
 
 ## Designs {#designs}
 
@@ -28,7 +27,7 @@ título e a data da última atualização. Alternar para o filtro **Todos**
   primeiro.
 - Selecione um ou mais cards (passe o mouse para revelar uma caixa de
   seleção) para obter uma barra de ferramentas em massa: selecionar/limpar
-  todos os visíveis, adicionar a um contexto criativo ou excluir a
+  todos os visíveis, excluir a
   seleção.
 - Uma conta vazia mostra quatro prompts iniciais para clicar em vez de uma
   grade em branco (uma página SaaS, um dashboard, um app mobile, uma
@@ -38,8 +37,7 @@ título e a data da última atualização. Alternar para o filtro **Todos**
 
 Os dois pontos de entrada para "Novo design", o botão do cabeçalho e o
 card tracejado da grade, abrem o mesmo popover. Você pode digitar um
-prompt e escolher um template inicial, um sistema de design e um contexto
-criativo, tudo antes mesmo de o editor abrir. Clique em **Pular** para
+prompt e escolher um template inicial, tudo antes mesmo de o editor abrir. Clique em **Pular** para
 obter um design em branco (ou uma cópia sem prompt do template escolhido)
 sem nenhuma geração por IA envolvida.
 
@@ -49,11 +47,10 @@ segundo plano.
 
 ### Gerenciar um design {#manage-a-design}
 
-O menu "⋯" em um card de design tem quatro itens:
+O menu "⋯" em um card de design tem três itens:
 
 - **Renomear**: uma pequena caixa de diálogo com um campo de texto.
 - **Duplicar**: cria uma cópia imediatamente e a abre, sem confirmação.
-- **Adicionar ao contexto**: anexa o design a um contexto criativo.
 - **Excluir**: pede confirmação antes.
 
 ## Editar um Design {#edit-a-design}
@@ -77,9 +74,9 @@ entrada de nível superior, com as camadas dessa tela aninhadas embaixo.
 O mesmo chat do agente que todo aplicativo Agent-Native tem também está
 presente no editor, não é uma superfície de chat específica do Design.
 Peça a ele para gerar uma tela, comparar variantes, ajustar detalhes ou
-verificar qualidade e acessibilidade, da mesma forma que você pediria
-qualquer outra mudança. Ele também executa uma verificação automática de
-qualidade e acessibilidade por conta própria antes de considerar um design
+verificar a qualidade, da mesma forma que você pediria
+qualquer outra mudança. Ele também tira por conta própria, quando possível, uma captura de tela e corrige
+problemas visíveis antes de considerar um design
 pronto, sem nenhuma ação necessária da sua parte. Veja [Conversar com o
 Agent](/docs/template-design-agent) para prompts por tarefa.
 
@@ -101,7 +98,7 @@ Quatro formas de trazer conteúdo externo:
     ],
     [
       "Arquivo → Importar…",
-      "Escolha um arquivo .fig ou .html. O Design importa o arquivo inteiro para o canvas e mostra o progresso em uma notificação. Um .fig acima dos limites do navegador é recusado na hora; use um link do Figma. Isso é separado de importar um .fig para um design system.",
+      "Escolha um arquivo .fig ou .html. O Design importa o arquivo inteiro para o canvas e mostra o progresso em uma notificação. Um .fig acima dos limites do navegador é recusado na hora; use um link do Figma.",
     ],
     [
       "App local",
@@ -291,9 +288,7 @@ próprios templates (não os integrados) recebem um menu "⋯" com
 
 ### Usar um template {#use-a-template}
 
-Clicar em **Usar template** abre uma pequena caixa de diálogo: um prompt
-opcional, um sistema de design para aplicar (ou um link para criar um) e
-um botão **Usar como está** para pular direto para uma cópia sem prompt.
+Clicar em **Usar template** abre uma pequena caixa de diálogo: um prompt opcional e um botão **Usar como está** para pular direto para uma cópia sem prompt.
 De qualquer forma, um novo design é criado e você é levado direto para o
 editor dele.
 
@@ -319,54 +314,10 @@ Não existe uma etapa separada de "abrir". Usar um template, assim como
 gerar um novo design a partir de um prompt, sempre termina abrindo
 automaticamente o editor daquele design.
 
-## Sistemas de Design {#design-systems}
-
-Um sistema de design é a identidade da marca — suas cores, fontes,
-espaçamento e logotipos — que o Design aplica a todo protótipo vinculado
-a ele.
-
-### Ver e compartilhar sistemas de design {#view-and-share}
-
-A página Sistemas de Design é uma grade: primeiro um card "Novo sistema
-de design", depois um card por sistema com uma pré-visualização de
-amostras de cor, um selo **Padrão** em qual for o seu padrão, e um selo
-de visibilidade (privado, organização ou público). Todo card tem um
-botão real de **Compartilhar** com funções de visualizador, editor ou
-administrador, o mesmo modelo de compartilhamento que os templates usam.
-Um alternador **Selecionar** no cabeçalho ativa a seleção múltipla com
-exclusão em massa.
-
-### Novo sistema de design {#new-design-system}
-
-Criar um começa com um seletor de origem:
-
-- **Figma**: envie um arquivo `.fig`.
-- **Empresa/marca**: a URL de um site.
-- **Código**: um repositório do GitHub conectado.
-- **Design.md**: um documento escrito com diretrizes de design.
-- **Arquivos de design**: envie arquivos diretamente.
-- **Importar existente**: reutilize um sistema de design ou projeto que
-  você já tem.
-- **Notas**: descreva sua marca do zero, ou comece a partir de um sistema
-  público real e mantido, como Material 3, Carbon ou Primer, em vez de
-  recriar um de memória.
-
-<Callout tone="info">
-
-Cada sistema público vem com tokens semânticos reais, uma escala
-tipográfica, espaçamento e atribuição. O Design não deixa um prompt
-transformar silenciosamente um deles em uma imitação com dados diferentes
-por baixo. Todo sistema de design também carrega um conjunto opcional de
-instruções personalizadas e um estilo de imagem descrito, para que a
-fotografia e a ilustração geradas permaneçam na mesma linguagem visual do
-restante da marca.
-
-</Callout>
-
 ## Próximos passos
 
 - [**Design**](/docs/template-design) — a visão geral e os passos iniciais
 - [**Conversar com o Agent**](/docs/template-design-agent) — todos os prompts por tarefa e como o agente vê sua tela
 - [**Uso entre apps**](/docs/template-design-integrations) — conectando ao Dispatch e chamando o Design via MCP
 - [**Guia do desenvolvedor**](/docs/template-design-developers) — início rápido, actions, modelo de dados e rotas
-- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento que templates e sistemas de design usam
+- [**Compartilhamento**](/docs/sharing) — o modelo de concessão de compartilhamento que templates usam

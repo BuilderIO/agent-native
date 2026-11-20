@@ -1,6 +1,7 @@
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
+import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   getFrameworkRoutePrefix,
@@ -66,6 +67,7 @@ export function resolvePublicAppOriginConfig(): {
   appUrl?: string;
   workspaceGatewayUrl?: string;
   workspaceOAuthOrigin?: string;
+  frameHostOrigins?: string[];
   workspaceRuntime?: boolean;
   workspaceAppMountPaths?: string[];
   frameworkRoutePrefix?: string;
@@ -91,6 +93,7 @@ export function resolvePublicAppOriginConfig(): {
     (typeof config.app.basePath === "string" &&
       config.app.basePath.trim().length > 0 &&
       normalizeAppBasePath(config.app.basePath) === "");
+  const frameHostOrigins = readCorsAllowedOrigins();
   const resolved = {
     ...(config.app.id ? { appId: config.app.id } : {}),
     ...(config.app.workspaceId
@@ -105,6 +108,7 @@ export function resolvePublicAppOriginConfig(): {
     ...(config.workspace.oauthOrigin
       ? { workspaceOAuthOrigin: config.workspace.oauthOrigin }
       : {}),
+    ...(frameHostOrigins.length ? { frameHostOrigins } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
     ...(workspaceAppMountConfig?.paths
       ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }

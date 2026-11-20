@@ -11,6 +11,7 @@ import {
 
 /** Mail's own areas: tabs on Mail › General at `/settings/app/<id>`. */
 export const MAIL_SETTINGS_AREA_IDS = [
+  "reading",
   "drafting",
   "snippets",
   "rules",
@@ -37,6 +38,7 @@ export type MailSettingsSection = (typeof MAIL_SETTINGS_SECTIONS)[number];
 // the agent's scheduled automations, a different thing.
 const SECTION_BY_ALIAS: Readonly<Record<string, MailSettingsSection>> = {
   general: "general",
+  reading: "reading",
   drafting: "drafting",
   snippets: "snippets",
   rules: "rules",

@@ -10,6 +10,7 @@ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
+import { assertNavigateWriteAllowed } from "./navigate-write-guard.js";
 
 const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
 
@@ -157,6 +158,7 @@ export async function appStatePut(
   value: Record<string, unknown>,
   options?: AppStateWriteOptions,
 ): Promise<void> {
+  assertNavigateWriteAllowed(key, value);
   const serialized = serializeAppStateValue(key, value);
   await ensureTable();
   const client = getDbExec();
@@ -213,6 +215,7 @@ export async function appStateCompareAndSet(
   nextValue: Record<string, unknown> | null,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
+  if (nextValue) assertNavigateWriteAllowed(key, nextValue);
   if (nextValue !== null) serializeAppStateValue(key, nextValue);
   await ensureTable();
   const client = getDbExec();
@@ -314,6 +317,9 @@ export async function appStateCompareAndSetMany(
   operations: readonly AppStateCompareAndSetOperation[],
   options?: StoreWriteOptions,
 ): Promise<boolean> {
+  for (const { key, nextValue } of operations) {
+    if (nextValue) assertNavigateWriteAllowed(key, nextValue);
+  }
   if (operations.length === 0) return true;
   const keys = new Set(operations.map(({ key }) => key));
   if (keys.size !== operations.length) {

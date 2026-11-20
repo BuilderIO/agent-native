@@ -81,9 +81,9 @@ export default defineAction({
   description:
     "Queue multiple raw Brain captures for distillation without failing the whole batch when individual captures are inaccessible or already terminal.",
   schema: z.object({
-    captureIds: stringArrayCliSchema({ min: 1, max: 100 }).describe(
-      "Capture IDs selected for distillation.",
-    ),
+    captureIds: stringArrayCliSchema({ min: 1, max: 100 })
+      .describe("Capture IDs selected for distillation.")
+      .nonoptional(),
     priority: z.coerce.number().int().min(0).max(100).default(50),
     instructions: z.string().optional(),
     payload: optionalJsonRecordSchema,
