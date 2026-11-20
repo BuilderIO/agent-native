@@ -37,7 +37,10 @@ import {
   stripInlineBytes,
   stripInlineBytesFromJson,
 } from "../shared/inline-bytes.js";
-import { isRequestedStopAbortReason } from "./abort-reasons.js";
+import {
+  EXECUTION_LEASE_LOST_ABORT_REASON,
+  isRequestedStopAbortReason,
+} from "./abort-reasons.js";
 import {
   approvalKeyForHistory,
   approvalKeyForPrivateHistory,
@@ -4067,6 +4070,15 @@ export function terminalEventForAbortReason(
       ...(stop?.shownThroughSeq !== undefined
         ? { shownThroughSeq: stop.shownThroughSeq }
         : {}),
+    };
+  }
+  if (normalized === EXECUTION_LEASE_LOST_ABORT_REASON) {
+    return {
+      type: "error",
+      error:
+        "The agent run was stopped before it finished because the server lost track of it. Everything it produced so far is kept.",
+      errorCode: `aborted_${normalized}`,
+      recoverable: RECOVERABLE_ABORT_REASONS.has(normalized),
     };
   }
   return {

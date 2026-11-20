@@ -646,6 +646,13 @@ describe("run store", () => {
       errorCode: "aborted_background_worker_died",
       recoverable: true,
     });
+    expect(terminalEventForAbortReason("execution_lease_lost")).toEqual({
+      type: "error",
+      error:
+        "The agent run was stopped before it finished because the server lost track of it. Everything it produced so far is kept.",
+      errorCode: "aborted_execution_lease_lost",
+      recoverable: false,
+    });
     expect(terminalEventForAbortReason("slack_cancel")).toEqual({
       type: "error",
       error: "The agent run was stopped before it finished.",

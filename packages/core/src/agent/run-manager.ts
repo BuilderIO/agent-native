@@ -221,6 +221,8 @@ export async function readAbortStateBeforeDeadline<TState>(
 
 const MAX_PENDING_HEARTBEATS = 2;
 
+const MAX_UNSETTLED_HEARTBEATS = 4;
+
 export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
 
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
@@ -1907,15 +1909,25 @@ export function startRun(
   let livenessResolved = false;
   let heartbeatAttempt = 0;
   let pendingHeartbeats = 0;
+  let unsettledHeartbeats = 0;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
-    if (!heartbeatInFlight && pendingHeartbeats < MAX_PENDING_HEARTBEATS) {
+    if (
+      !heartbeatInFlight &&
+      pendingHeartbeats < MAX_PENDING_HEARTBEATS &&
+      unsettledHeartbeats < MAX_UNSETTLED_HEARTBEATS
+    ) {
       heartbeatInFlight = true;
       pendingHeartbeats += 1;
+      unsettledHeartbeats += 1;
       const attempt = ++heartbeatAttempt;
-      // One renewal stuck acquiring a connection must not hold the slot until
-      // the lease lapses, so a later tick retries while it settles. Only one
-      // retry may overlap it, or a stalled pool would fill with renewals.
+      let slotHeld = true;
+      const releaseSlot = () => {
+        if (!slotHeld) return;
+        slotHeld = false;
+        pendingHeartbeats -= 1;
+      };
       const releaseStuckHeartbeat = setTimeout(() => {
+        releaseSlot();
         if (heartbeatAttempt === attempt) heartbeatInFlight = false;
       }, HEARTBEAT_ATTEMPT_DEADLINE_MS);
       (options?.executionLease
@@ -1954,7 +1966,8 @@ export function startRun(
         })
         .finally(() => {
           clearTimeout(releaseStuckHeartbeat);
-          pendingHeartbeats -= 1;
+          unsettledHeartbeats -= 1;
+          releaseSlot();
           if (heartbeatAttempt === attempt) heartbeatInFlight = false;
         });
     }
