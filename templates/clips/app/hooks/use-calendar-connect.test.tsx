@@ -159,6 +159,27 @@ describe("useCalendarConnect", () => {
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
   });
 
+  it("re-checks on its own soon after the popup ends without reporting", async () => {
+    vi.useFakeTimers();
+    mocks.startCalendarOAuth.mockResolvedValue(null);
+    mocks.callAction.mockResolvedValue({ accounts: [stale] });
+
+    act(() => connect("cal-1"));
+    await flush();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    mocks.callAction.mockResolvedValue({ accounts: [reconnected] });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await flush();
+
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      "meetingsRoute.calendarConnected",
+    );
+  });
+
   it("stops watching for a late reconnect after five minutes", async () => {
     vi.useFakeTimers();
     mocks.startCalendarOAuth.mockResolvedValue(null);
@@ -169,12 +190,16 @@ describe("useCalendarConnect", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
     });
+    const reads = mocks.callAction.mock.calls.length;
+    expect(reads).toBeGreaterThan(1);
 
     act(() => {
       window.dispatchEvent(new Event("focus"));
     });
-    await flush();
-    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(reads);
   });
 
   it("waits for a reported account to read as connected", async () => {

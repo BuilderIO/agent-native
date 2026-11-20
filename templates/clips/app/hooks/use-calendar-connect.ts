@@ -19,6 +19,9 @@ import { PopupBlockedError } from "@/lib/popup-blocked";
 const REPORTED_CONNECTION_CHECKS = 10;
 const REPORTED_CONNECTION_CHECK_INTERVAL_MS = 500;
 const LATE_CONNECTION_WATCH_MS = 5 * 60 * 1000;
+const LATE_CONNECTION_RECHECKS_MS = [
+  2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 240_000,
+];
 const CALENDAR_ACCOUNTS_QUERY_KEY = ["action", "list-calendar-accounts"];
 const MEETINGS_QUERY_KEY = ["action", "list-meetings"];
 
@@ -141,8 +144,12 @@ function watchForLateConnection(
   };
   const stopListening = addSurfaceVisibilityListener(checkWhenVisible);
   window.addEventListener("focus", checkWhenVisible);
+  const rechecks = LATE_CONNECTION_RECHECKS_MS.map((delay) =>
+    window.setTimeout(checkWhenVisible, delay),
+  );
   const deadline = window.setTimeout(() => stop(), LATE_CONNECTION_WATCH_MS);
   const stop = () => {
+    rechecks.forEach((recheck) => window.clearTimeout(recheck));
     window.clearTimeout(deadline);
     window.removeEventListener("focus", checkWhenVisible);
     stopListening();
