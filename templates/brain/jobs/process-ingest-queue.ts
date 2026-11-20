@@ -307,15 +307,41 @@ export function buildDistillationMessage(
     .join("\n");
 }
 
+export const DISTILLATION_ACTION_ALLOWLIST: readonly string[] = [
+  "get-capture",
+  "list-intelligence",
+  "write-intelligence",
+  "write-knowledge",
+  "mark-capture-distilled",
+  "search-knowledge",
+  "get-knowledge",
+  "list-knowledge",
+];
+
+export function pickDistillationActions<T>(
+  actions: Record<string, T>,
+): Record<string, T> {
+  const picked: Record<string, T> = {};
+  for (const name of DISTILLATION_ACTION_ALLOWLIST) {
+    if (Object.prototype.hasOwnProperty.call(actions, name)) {
+      const action = actions[name];
+      if (action !== undefined) picked[name] = action;
+    }
+  }
+  return picked;
+}
+
 async function defaultDistillationRunner(context: DistillationAgentContext) {
   const { guidance } = await readBrainAgentGuidance();
   const core = await import("@agent-native/core/server");
   const registry = await import("../.generated/actions-registry.js");
-  const actions = core.loadActionsFromStaticRegistry(
-    ((registry as { default?: unknown }).default ?? registry) as Record<
-      string,
-      unknown
-    >,
+  const actions = pickDistillationActions(
+    core.loadActionsFromStaticRegistry(
+      ((registry as { default?: unknown }).default ?? registry) as Record<
+        string,
+        unknown
+      >,
+    ),
   );
   const tools = core.actionsToEngineTools(actions);
   const userApiKey = await core.getOwnerActiveApiKey(context.source.ownerEmail);

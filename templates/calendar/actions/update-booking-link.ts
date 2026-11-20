@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -34,6 +35,13 @@ const hostsSchema = z
   .optional();
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description:
     "Update an existing booking link/event type, including required co-hosts.",
   schema: z.object({

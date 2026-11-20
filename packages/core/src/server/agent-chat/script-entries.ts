@@ -373,16 +373,30 @@ export function shouldDefaultResourceWriteToShared(path: string): boolean {
   return path.replace(/^\/+/, "") === "LEARNINGS.md";
 }
 
+function isJobsResourcePath(path: unknown): boolean {
+  if (typeof path !== "string") return false;
+  const segments: string[] = [];
+  for (const segment of path.trim().replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") segments.pop();
+    else segments.push(segment);
+  }
+  return segments.length > 1 && segments[0] === "jobs";
+}
+
 function requiresSharedResourceApproval(
   args: Record<string, unknown>,
 ): boolean {
+  const action = String(args.action);
   return (
-    ["write", "promote", "delete"].includes(String(args.action)) &&
-    (args.scope === "shared" ||
-      (args.action === "write" &&
-        args.scope == null &&
-        typeof args.path === "string" &&
-        shouldDefaultResourceWriteToShared(args.path)))
+    (["write", "promote", "delete"].includes(action) &&
+      (args.scope === "shared" ||
+        (action === "write" &&
+          args.scope == null &&
+          typeof args.path === "string" &&
+          shouldDefaultResourceWriteToShared(args.path)))) ||
+    ((action === "write" || action === "delete") &&
+      isJobsResourcePath(args.path))
   );
 }
 
