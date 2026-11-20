@@ -269,7 +269,12 @@ describe("useActionQuery model observers", () => {
       status?: number;
     };
     expect(error.status).toBe(403);
-    expect(error.message).toContain("Forbidden");
+    // oracle-change: the observer preserves the diagnostic cause and catalog copy.
+    expect(error).toHaveProperty(
+      "cause.message",
+      expect.stringContaining("Forbidden"),
+    );
+    expect(error.message).toBe("Something went wrong. Try again.");
     expect(error).not.toBe(observerFailure);
     expect(warn).toHaveBeenCalledWith("Action read error observer failed");
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("secret"));

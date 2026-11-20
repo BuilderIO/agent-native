@@ -257,6 +257,7 @@
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
+    "./client/action-query-boundary": "./dist/client/action-query-boundary.js",
     "./client/i18n": "./dist/client/i18n.js",
     "./client/write-failure": "./dist/client/write-failure.js",
     "./embedding": "./dist/embedding/index.js",
