@@ -188,16 +188,25 @@ export function currentActionNavigationIntent(): string | undefined {
   return found;
 }
 
-/** Whether the running action (or an ancestor) explicitly declared `allowsAgentNavigation`. */
+/**
+ * Whether the active action chain is authorized to navigate by an action's
+ * declared `allowsAgentNavigation: true`. Only the outermost write action can
+ * grant this: a nested action with `allowsAgentNavigation: true` (such as an
+ * app's own `navigate` action) cannot bypass a parent write action that did
+ * not declare it.
+ */
 export function currentActionAllowsAgentNavigation(): boolean {
+  let outermostWrite: ActionExecutionFrame | undefined;
   for (
     let frame = actionExecutionStorage?.getStore()?.frame;
     frame;
     frame = frame.parent
   ) {
-    if (frame.allowsAgentNavigation === true) return true;
+    if (frame.writes === true) {
+      outermostWrite = frame;
+    }
   }
-  return false;
+  return outermostWrite?.allowsAgentNavigation === true;
 }
 
 /** Whether any write has already been observed in the active action chain. */
