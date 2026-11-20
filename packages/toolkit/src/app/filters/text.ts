@@ -74,7 +74,9 @@ function operatorKey(
 
 function utcDay(day: string) {
   const [year = 1970, month = 1, date = 1] = day.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, date));
+  const result = new Date(0);
+  result.setUTCFullYear(year, month - 1, date);
+  return result;
 }
 
 export type FilterText = ReturnType<typeof useFilterText>;

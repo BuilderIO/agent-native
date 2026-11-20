@@ -243,17 +243,17 @@ describe("filter URL params", () => {
     expect(shape(read(state).items)).toEqual(shape(state.items));
   });
 
-  it("drops missing options, impossible dates and unknown group modes", () => {
+  it("keeps unknown options but drops impossible dates and group modes", () => {
     const people: FilterField = {
       ...ownerField,
       options: [{ id: "alice", label: "Alice" }],
     };
     const read = readFilterParams(
-      "?r=owner:equals:deleted&r=owner:equals:alice,deleted&r=created:equals:2026-02-30&g=1:typo&r=1/tags:contains:a",
+      "?r=owner:equals:deleted&r=created:equals:2026-02-30&g=1:typo&r=1/tags:contains:a",
       [people, tagsField, createdField],
     );
     expect(shape(read.items)).toEqual([
-      { field: "owner", operator: "equals", value: ["alice"] },
+      { field: "owner", operator: "equals", value: ["deleted"] },
     ]);
   });
 

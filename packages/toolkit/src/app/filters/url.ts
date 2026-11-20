@@ -2,7 +2,6 @@ import {
   completeFilterRules,
   createFilterGroup,
   createFilterState,
-  FILTER_NOBODY,
   filterItemId,
   findFilterField,
   isFilterOperator,
@@ -57,21 +56,6 @@ function encodePinnedValue(value: readonly string[]) {
   return value
     .map((id) => (id === ALL_PINNED ? ALL_OPTION_ID : encodeURIComponent(id)))
     .join(",");
-}
-
-function knownFilterValues(field: FilterField<never>, value: string[]) {
-  if (
-    (field.type !== "choice" &&
-      field.type !== "person" &&
-      field.type !== "multi") ||
-    !field.options ||
-    field.options.length === 0
-  ) {
-    return value;
-  }
-  const known = new Set(field.options.map((option) => option.id));
-  if (field.type === "person") known.add(FILTER_NOBODY);
-  return value.filter((entry) => known.has(entry));
 }
 
 function modeParam(mode: FilterMode) {
@@ -147,7 +131,7 @@ function decodeRule(
     id: filterItemId("r"),
     field: field.id,
     operator,
-    value: knownFilterValues(field, value),
+    value,
   };
   return isFilterRuleComplete(rule, field) ? { group, rule } : null;
 }

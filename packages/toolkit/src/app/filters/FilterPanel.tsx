@@ -13,10 +13,10 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@agent-native/toolkit/ui/sheet";
+import { cn } from "@agent-native/toolkit/utils";
 import { IconFilter, IconPlus } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
-import { cn } from "../../utils.js";
 import {
   FilterAddPopover,
   FilterGroupBlock,
@@ -289,9 +289,9 @@ export function FilterButton({
       <PopoverContent
         align="start"
         collisionPadding={8}
-        className="flex w-[min(34rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(34rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"
       >
-        <div className="max-h-[min(32rem,70vh)] overflow-y-auto overflow-x-hidden p-3">
+        <div className="max-h-[min(32rem,70vh)] min-h-0 overflow-y-auto overflow-x-hidden p-3">
           {body}
         </div>
         <div className="flex min-w-0 items-center gap-2 border-t px-3 py-2">

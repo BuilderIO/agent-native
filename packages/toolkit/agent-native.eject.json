@@ -1092,13 +1092,7 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app/filters"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": [
-        "@agent-native/core",
-        "@tabler/icons-react",
-        "clsx",
-        "react",
-        "tailwind-merge"
-      ],
+      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
       "verification": ["pnpm typecheck"],
       "protectedImports": ["@agent-native/core/client/i18n"]
     },

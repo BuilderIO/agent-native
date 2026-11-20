@@ -15,6 +15,7 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "@agent-native/toolkit/ui/popover";
+import { cn } from "@agent-native/toolkit/utils";
 import {
   IconChevronDown,
   IconDots,
@@ -22,7 +23,6 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { cn } from "../../utils.js";
 import { useFilterText, type FilterText } from "./text.js";
 
 export interface FilterSavedView {
@@ -59,16 +59,20 @@ export function filterViewNameError(
   views: readonly FilterSavedView[],
   exceptId?: string,
 ): "required" | "taken" | null {
-  const key = viewNameKey(name);
-  if (key === "") return "required";
+  if (name.trim() === "") return "required";
   const taken = views.some(
-    (view) => view.id !== exceptId && viewNameKey(view.name) === key,
+    (view) => view.id !== exceptId && sameViewName(view.name, name),
   );
   return taken ? "taken" : null;
 }
 
-function viewNameKey(name: string) {
-  return name.trim().normalize("NFC").toUpperCase().toLowerCase();
+function sameViewName(a: string, b: string) {
+  const left = a.trim().normalize("NFC");
+  const right = b.trim().normalize("NFC");
+  return (
+    left.toLowerCase() === right.toLowerCase() ||
+    left.toUpperCase() === right.toUpperCase()
+  );
 }
 
 function ViewNameForm({

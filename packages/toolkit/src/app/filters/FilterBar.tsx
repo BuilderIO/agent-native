@@ -5,10 +5,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
+import { cn } from "@agent-native/toolkit/utils";
 import { IconCheck, IconLink, IconPlus, IconX } from "@tabler/icons-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { cn } from "../../utils.js";
 import { FilterRuleEditor } from "./FilterEditors.js";
 import {
   FILTER_POPOVER_CLASS,

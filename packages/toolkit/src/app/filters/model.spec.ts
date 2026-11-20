@@ -569,6 +569,7 @@ describe("dates", () => {
     expect(resolveFilterDay("2026-11-02", today)).toBe("2026-11-02");
     expect(resolveFilterDay("11/02/2026", today)).toBeNull();
     expect(resolveFilterDay("2026-02-30", today)).toBeNull();
+    expect(resolveFilterDay("0099-12-31", today)).toBe("0099-12-31");
   });
 
   it("reads a timestamp without an offset as UTC", () => {
@@ -596,6 +597,8 @@ describe("dates", () => {
     expect(filterToday("America/New_York", now)).toBe("2026-11-20");
     expect(filterToday("UTC", now)).toBe("2026-11-21");
     expect(() => filterToday("Not/A_Zone", now)).toThrow(RangeError);
+    expect(filterToday(undefined, now)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(() => filterToday("", now)).toThrow(RangeError);
   });
 
   it("offers presets that fit the field", () => {

@@ -87,17 +87,36 @@ describe("useFilterUrlState", () => {
     expect(requests).toEqual([]);
   });
 
-  it("keeps a newer change when an older navigation lands late", () => {
+  it("ends on the newest change when navigations land late", () => {
     act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
     act(() => filters.setState(owners("alice", "bob")));
     act(() => filters.setState(owners("alice")));
+    expect(requests.map((request) => request.search)).toEqual([
+      "?r=owner:equals:alice,bob",
+      "?r=owner:equals:alice",
+    ]);
     act(() => publish("?r=owner:equals:alice,bob"));
-    expect(shownKey()).toBe("?r=owner:equals:alice");
-    expect(requests.at(-1)).toEqual({
-      search: "?r=owner:equals:alice",
-      replace: true,
-    });
     act(() => publish("?r=owner:equals:alice"));
     expect(shownKey()).toBe("?r=owner:equals:alice");
+  });
+
+  it("asks again after the router merges navigations", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => filters.setState(owners("alice")));
+    act(() => filters.setState(owners("alice", "bob")));
+    expect(requests.at(-1)).toEqual({
+      search: "?r=owner:equals:alice,bob",
+      replace: false,
+    });
+  });
+
+  it("follows Back after merged navigations without rewriting history", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => filters.setState(owners("alice")));
+    act(() => publish("?r=owner:equals:bob"));
+    expect(shownKey()).toBe("?r=owner:equals:bob");
+    expect(requests).toHaveLength(2);
   });
 });

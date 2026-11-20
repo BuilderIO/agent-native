@@ -539,9 +539,15 @@ export function filterDateRangeToken(range: FilterDateRange) {
   return `${range.direction}_${range.count}_${unit}`;
 }
 
+function utcDate(year: number, monthIndex: number, day: number) {
+  const date = new Date(0);
+  date.setUTCFullYear(year, monthIndex, day);
+  return date;
+}
+
 function dayDate(day: string) {
   const [year = 1970, month = 1, date = 1] = day.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, date));
+  return utcDate(year, month - 1, date);
 }
 
 function addDays(day: string, days: number) {
@@ -552,9 +558,11 @@ function addDays(day: string, days: number) {
 
 function addMonths(day: string, months: number) {
   const [year = 1970, month = 1, date = 1] = day.split("-").map(Number);
-  const target = new Date(Date.UTC(year, month - 1 + months, 1));
-  const lastDay = new Date(
-    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  const target = utcDate(year, month - 1 + months, 1);
+  const lastDay = utcDate(
+    target.getUTCFullYear(),
+    target.getUTCMonth() + 1,
+    0,
   ).getUTCDate();
   target.setUTCDate(Math.min(date, lastDay));
   return target.toISOString().slice(0, 10);
@@ -603,11 +611,10 @@ export function filterDateRangeDays(
   }
 }
 
-const dayFormatters = new Map<string, Intl.DateTimeFormat>();
+const dayFormatters = new Map<string | undefined, Intl.DateTimeFormat>();
 
 function dayFormatter(timeZone: string | undefined) {
-  const key = timeZone ?? "";
-  const cached = dayFormatters.get(key);
+  const cached = dayFormatters.get(timeZone);
   if (cached) return cached;
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -615,7 +622,7 @@ function dayFormatter(timeZone: string | undefined) {
     month: "2-digit",
     day: "2-digit",
   });
-  dayFormatters.set(key, formatter);
+  dayFormatters.set(timeZone, formatter);
   return formatter;
 }
 

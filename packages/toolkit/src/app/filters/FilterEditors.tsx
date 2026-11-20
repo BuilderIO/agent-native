@@ -7,10 +7,10 @@ import {
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
 import { Input } from "@agent-native/toolkit/ui/input";
+import { cn } from "@agent-native/toolkit/utils";
 import { IconChevronDown } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { cn } from "../../utils.js";
 import { FilterListbox, type FilterListboxItem } from "./FilterListbox.js";
 import {
   FILTER_NOBODY,
@@ -281,7 +281,14 @@ export function FilterDateEditor({
           (entry) => `${entry.operator}:${entry.value.join(",")}` === item.key,
         );
         if (!candidate) return;
-        onChange({ operator: candidate.operator, value: candidate.value });
+        onChange({
+          operator:
+            candidate.operator === "equals" &&
+            EXACT_DATE_OPERATORS.includes(rule.operator)
+              ? rule.operator
+              : candidate.operator,
+          value: candidate.value,
+        });
         onDone();
       }}
       footer={

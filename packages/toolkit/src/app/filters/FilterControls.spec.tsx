@@ -481,6 +481,11 @@ describe("filterViewNameError", () => {
         { id: "greek", name: "ΟΣ", shared: false, mine: true },
       ]),
     ).toBe("taken");
+    expect(
+      filterViewNameError("STRAẞE", [
+        { id: "german", name: "Straße", shared: false, mine: true },
+      ]),
+    ).toBe("taken");
   });
 });
 

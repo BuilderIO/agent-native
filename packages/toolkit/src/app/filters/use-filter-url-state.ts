@@ -38,42 +38,30 @@ export function useFilterUrlState({
   );
   const latest = useRef({ fields, search, onSearchChange, prefix, state });
   latest.current = { fields, search, onSearchChange, prefix, state };
-  const requested = useRef<string[]>([]);
+  const requested = useRef<string | null>(null);
 
   const urlKey = filterSearchKey(search, fields, { prefix });
   const stateKey = filterStateKey(state, fields);
 
   useEffect(() => {
+    requested.current = null;
     const current = latest.current;
-    const options = { prefix: current.prefix };
-    const currentKey = filterStateKey(current.state, current.fields);
-    const own = requested.current.indexOf(urlKey);
-    if (own !== -1) {
-      requested.current = requested.current.slice(own + 1);
-      if (requested.current.length > 0 || currentKey === urlKey) return;
-      requested.current = [currentKey];
-      current.onSearchChange(
-        writeFilterSearch(
-          current.search,
-          current.state,
-          current.fields,
-          options,
-        ),
-        { replace: true },
-      );
-      return;
-    }
-    requested.current = [];
-    if (currentKey === urlKey) return;
-    setLocalState(readFilterParams(current.search, current.fields, options));
+    if (filterStateKey(current.state, current.fields) === urlKey) return;
+    setLocalState(
+      readFilterParams(current.search, current.fields, {
+        prefix: current.prefix,
+      }),
+    );
   }, [urlKey]);
 
   useEffect(() => {
     const current = latest.current;
     const options = { prefix: current.prefix };
-    const shownKey = filterSearchKey(current.search, current.fields, options);
-    if ((requested.current.at(-1) ?? shownKey) === stateKey) return;
-    if (stateKey !== shownKey) requested.current.push(stateKey);
+    const target =
+      requested.current ??
+      filterSearchKey(current.search, current.fields, options);
+    if (target === stateKey) return;
+    requested.current = stateKey;
     current.onSearchChange(
       writeFilterSearch(current.search, current.state, current.fields, options),
       { replace: false },

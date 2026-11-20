@@ -1,7 +1,6 @@
+import { cn } from "@agent-native/toolkit/utils";
 import { IconCheck, IconSearch } from "@tabler/icons-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-
-import { cn } from "../../utils.js";
 
 export interface FilterListboxItem {
   key: string;
@@ -76,7 +75,12 @@ export function FilterListbox({
           placeholder={placeholder}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
+            if (
+              event.nativeEvent.isComposing ||
+              event.nativeEvent.keyCode === 229
+            ) {
+              return;
+            }
             if (event.key === "ArrowDown") {
               event.preventDefault();
               move(1);
