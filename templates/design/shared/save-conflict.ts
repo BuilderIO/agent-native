@@ -26,5 +26,34 @@ export function saveErrorCode(error: unknown): string | undefined {
       ? (candidate.data as Record<string, unknown>)
       : undefined;
   const code = candidate.errorCode ?? candidate.code ?? data?.errorCode;
-  return typeof code === "string" ? code : undefined;
+  // The shared client stamps its own transport codes on every failure it wraps;
+  // they say how the request failed, not which typed refusal the server sent.
+  if (typeof code !== "string" || TRANSPORT_ERROR_CODES.has(code))
+    return undefined;
+  return code;
+}
+
+const TRANSPORT_ERROR_CODES = new Set([
+  "request_failed",
+  "network_error",
+  "timeout",
+]);
+
+/**
+ * The raw failure wording for matching, never for display. The shared client
+ * replaces a failed action's message with generic copy and keeps the original
+ * diagnostic as its cause. Only that wrapper is unwrapped: any other error
+ * that quotes a cause is a different failure.
+ */
+export function saveErrorDiagnostic(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+  const { name, message, cause } = error as {
+    name?: unknown;
+    message?: unknown;
+    cause?: unknown;
+  };
+  const own = typeof message === "string" ? message : "";
+  if (name !== "ActionError" || !cause || typeof cause !== "object") return own;
+  const raw = (cause as { message?: unknown }).message;
+  return typeof raw === "string" && raw ? `${own}\n${raw}` : own;
 }

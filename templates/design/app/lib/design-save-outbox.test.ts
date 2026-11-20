@@ -1083,6 +1083,27 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
+  it("reads a conflict from the shared client's wrapped failure", () => {
+    const wrapped = Object.assign(
+      new Error("Something went wrong. Try again.", {
+        cause: new Error(
+          "Action update-file failed: File changed since it was read. Re-read the file and retry.",
+        ),
+      }),
+      { name: "ActionError", code: "request_failed", status: 409 },
+    );
+    expect(isConflictSaveError(wrapped)).toBe(true);
+    expect(
+      isConflictSaveError(
+        Object.assign(new Error("Something went wrong. Try again."), {
+          name: "ActionError",
+          code: "request_failed",
+          status: 500,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("never reads a typed non-conflict error by its wording", () => {
     for (const errorCode of [
       "design_data_conflict",

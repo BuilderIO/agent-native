@@ -271,7 +271,7 @@ test("a save the server keeps refusing shows Not saved and recovers", async ({
     "the refused save is logged by Chromium",
   );
   app.allowFailure(
-    /^error toast Action update-file failed: Internal server error$/,
+    /^error toast Something went wrong\. Try again\.$/,
     "the refused save is reported in the editor",
   );
   const designId = await app.seed(ORIGINAL_HTML);
