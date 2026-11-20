@@ -38,43 +38,47 @@ export function useFilterUrlState({
   );
   const latest = useRef({ fields, search, onSearchChange, prefix, state });
   latest.current = { fields, search, onSearchChange, prefix, state };
-  const pending = useRef<string[]>([]);
+  const pending = useRef<string | null>(null);
 
   const urlKey = filterSearchKey(search, fields, { prefix });
   const stateKey = filterStateKey(state, fields);
 
+  const write = useCallback(() => {
+    const current = latest.current;
+    pending.current = filterStateKey(current.state, current.fields);
+    current.onSearchChange(
+      writeFilterSearch(current.search, current.state, current.fields, {
+        prefix: current.prefix,
+      }),
+      { replace: false },
+    );
+  }, []);
+
   useEffect(() => {
-    const echo =
-      pending.current.at(-1) === urlKey
-        ? pending.current.length - 1
-        : pending.current.indexOf(urlKey);
-    if (echo !== -1) {
-      pending.current = pending.current.slice(echo + 1);
+    const current = latest.current;
+    const currentKey = filterStateKey(current.state, current.fields);
+    if (pending.current === urlKey) {
+      pending.current = null;
+      if (currentKey !== urlKey) write();
       return;
     }
-    pending.current = [];
-    const current = latest.current;
-    if (filterStateKey(current.state, current.fields) === urlKey) return;
+    pending.current = null;
+    if (currentKey === urlKey) return;
     setLocalState(
       readFilterParams(current.search, current.fields, {
         prefix: current.prefix,
       }),
     );
-  }, [urlKey]);
+  }, [urlKey, write]);
 
   useEffect(() => {
+    if (pending.current !== null) return;
     const current = latest.current;
-    const options = { prefix: current.prefix };
-    const target =
-      pending.current.at(-1) ??
-      filterSearchKey(current.search, current.fields, options);
-    if (target === stateKey) return;
-    pending.current = [...pending.current, stateKey];
-    current.onSearchChange(
-      writeFilterSearch(current.search, current.state, current.fields, options),
-      { replace: false },
-    );
-  }, [stateKey]);
+    const shown = filterSearchKey(current.search, current.fields, {
+      prefix: current.prefix,
+    });
+    if (shown !== stateKey) write();
+  }, [stateKey, write]);
 
   const setState = useCallback(
     (next: FilterState | ((current: FilterState) => FilterState)) => {

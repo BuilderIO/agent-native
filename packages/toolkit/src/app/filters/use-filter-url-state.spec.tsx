@@ -87,17 +87,21 @@ describe("useFilterUrlState", () => {
     expect(requests).toEqual([]);
   });
 
-  it("ends on the newest change when navigations land late", () => {
+  it("waits for a navigation to land before writing the next change", () => {
     act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
     act(() => filters.setState(owners("alice", "bob")));
-    act(() => filters.setState(owners("alice")));
+    act(() => filters.setState(owners("bob")));
     expect(requests.map((request) => request.search)).toEqual([
       "?r=owner:equals:alice,bob",
-      "?r=owner:equals:alice",
     ]);
     act(() => publish("?r=owner:equals:alice,bob"));
-    act(() => publish("?r=owner:equals:alice"));
-    expect(shownKey()).toBe("?r=owner:equals:alice");
+    expect(requests.map((request) => request.search)).toEqual([
+      "?r=owner:equals:alice,bob",
+      "?r=owner:equals:bob",
+    ]);
+    act(() => publish("?r=owner:equals:bob"));
+    expect(shownKey()).toBe("?r=owner:equals:bob");
+    expect(requests).toHaveLength(2);
   });
 
   it("keeps a newer change when an earlier navigation lands late", () => {
@@ -111,32 +115,54 @@ describe("useFilterUrlState", () => {
     expect(requests).toHaveLength(2);
   });
 
-  it("asks again after the router merges navigations", () => {
-    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
-    act(() => filters.setState(owners("alice", "bob")));
-    act(() => filters.setState(owners("alice")));
-    act(() => filters.setState(owners("alice", "bob")));
-    expect(requests.at(-1)).toEqual({
-      search: "?r=owner:equals:alice,bob",
-      replace: false,
-    });
-  });
-
-  it("follows Back after merged navigations without rewriting history", () => {
-    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
-    act(() => filters.setState(owners("alice", "bob")));
-    act(() => filters.setState(owners("alice")));
-    act(() => publish("?r=owner:equals:bob"));
-    expect(shownKey()).toBe("?r=owner:equals:bob");
-    expect(requests).toHaveLength(2);
-  });
-
-  it("follows Back after a repeated change lands as one navigation", () => {
+  it("writes nothing more when changes return to the one in flight", () => {
     act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
     act(() => filters.setState(owners("alice", "bob")));
     act(() => filters.setState(owners("alice")));
     act(() => filters.setState(owners("alice", "bob")));
     act(() => publish("?r=owner:equals:alice,bob"));
+    expect(shownKey()).toBe("?r=owner:equals:alice,bob");
+    expect(requests).toEqual([
+      { search: "?r=owner:equals:alice,bob", replace: false },
+    ]);
+  });
+
+  it("follows an outside navigation that lands before its own write", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => filters.setState(owners("alice")));
+    act(() => publish("?r=owner:equals:bob"));
+    expect(shownKey()).toBe("?r=owner:equals:bob");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("follows Back after a repeated change", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => filters.setState(owners("alice")));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => publish("?r=owner:equals:alice,bob"));
+    act(() => publish("?r=owner:equals:alice"));
+    expect(shownKey()).toBe("?r=owner:equals:alice");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("keeps the newest change when repeated writes land one by one", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => filters.setState(owners("alice")));
+    act(() => publish("?r=owner:equals:alice,bob"));
+    expect(shownKey()).toBe("?r=owner:equals:alice");
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => publish("?r=owner:equals:alice"));
+    expect(shownKey()).toBe("?r=owner:equals:alice,bob");
+    act(() => publish("?r=owner:equals:alice,bob"));
+    expect(shownKey()).toBe("?r=owner:equals:alice,bob");
+    expect(requests.map((request) => request.search)).toEqual([
+      "?r=owner:equals:alice,bob",
+      "?r=owner:equals:alice",
+      "?r=owner:equals:alice,bob",
+    ]);
     act(() => publish("?r=owner:equals:alice"));
     expect(shownKey()).toBe("?r=owner:equals:alice");
     expect(requests).toHaveLength(3);
