@@ -29,6 +29,7 @@ import {
   ASK_SHEET_DISMISS_AT,
   clampAskSheetHeight,
   isSheetGripTap,
+  measureAskSheetPanel,
 } from "../lib/ask-sheet-layout";
 import {
   buildMeetingAskContext,
@@ -132,7 +133,8 @@ export function MeetingPill() {
     "unknown" | "eligible" | "missing" | "unavailable"
   >(pillDemoMode ? "eligible" : "unknown");
   const providerStatusAbortRef = useRef<AbortController | null>(null);
-  // The flex column the transcript and the answer sheet divide between them.
+  // The pill's outer column: header, error, then the expanded body the
+  // transcript and the answer sheet divide between them.
   const pillInnerRef = useRef<HTMLDivElement | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
   /** Held open for the exit animation. A drawer that vanishes on close reads
@@ -845,19 +847,29 @@ export function MeetingPill() {
   };
 
   // A split that leaves the transcript room on a tall window can starve it on a
-  // short one, so the ratio is re-clamped against the panel's real height
-  // whenever that height changes.
+  // short one, so the ratio is re-clamped against the sheet's own panel
+  // whenever that panel resizes or the finished banner joins it.
   useEffect(() => {
-    const host = pillInnerRef.current;
-    if (!host || !askSheetOpen || typeof ResizeObserver === "undefined") return;
+    const sheet = askChatContainerRef.current;
+    const panel = sheet?.parentElement;
+    if (
+      !sheet ||
+      !panel ||
+      !askSheetOpen ||
+      typeof ResizeObserver === "undefined"
+    ) {
+      return;
+    }
     const observer = new ResizeObserver(() => {
-      const total = host.clientHeight;
-      if (total <= 0) return;
-      setAskSheetHeight((current) => clampAskSheetHeight(current, total));
+      const measured = measureAskSheetPanel(sheet);
+      if (!measured || measured.height <= 0) return;
+      setAskSheetHeight((current) =>
+        clampAskSheetHeight(current, measured.height, measured.reservedPx),
+      );
     });
-    observer.observe(host);
+    observer.observe(panel);
     return () => observer.disconnect();
-  }, [askSheetOpen]);
+  }, [askSheetOpen, finished]);
 
   // The sheet's grab handle: drag to resize, pull down far enough to dismiss.
   const handleSheetHandlePointerDown = (e: React.PointerEvent) => {
@@ -872,9 +884,12 @@ export function MeetingPill() {
     if (!isSheetGripTap(e.clientY - drag.startY)) {
       sheetDragMovedRef.current = true;
     }
-    const total = pillInnerRef.current?.clientHeight ?? 340;
+    const measured = measureAskSheetPanel(askChatContainerRef.current);
+    const total = measured && measured.height > 0 ? measured.height : 340;
     const next = drag.startHeight + (drag.startY - e.clientY) / total;
-    setAskSheetHeight(clampAskSheetHeight(next, total));
+    setAskSheetHeight(
+      clampAskSheetHeight(next, total, measured?.reservedPx ?? 0),
+    );
   };
   const handleSheetHandlePointerUp = () => {
     if (!sheetDragRef.current) return;

@@ -24,13 +24,50 @@ export function isPinnedToBottom(metrics: {
   );
 }
 
+/**
+ * The sheet's height is a share of the panel it sits in, the expanded body
+ * below the header, and that panel also holds fixed rows: the divider and,
+ * once the meeting ends, the finished banner. Clamping against the whole pill,
+ * or ignoring those rows, lets the sheet take the transcript's floor.
+ */
+export interface AskSheetPanel {
+  /** The panel's height, which the sheet's percentage is taken from. */
+  height: number;
+  /** Space in the panel taken by rows that are neither transcript nor sheet. */
+  reservedPx: number;
+}
+
+export function measureAskSheetPanel(
+  sheet: HTMLElement | null,
+): AskSheetPanel | null {
+  const panel = sheet?.parentElement;
+  if (!sheet || !panel) return null;
+  let reservedPx = 0;
+  for (const child of Array.from(panel.children)) {
+    if (
+      child === sheet ||
+      !(child instanceof HTMLElement) ||
+      child.classList.contains("pill-transcript-area")
+    ) {
+      continue;
+    }
+    const style = getComputedStyle(child);
+    reservedPx +=
+      child.offsetHeight +
+      (parseFloat(style.marginTop) || 0) +
+      (parseFloat(style.marginBottom) || 0);
+  }
+  return { height: panel.clientHeight, reservedPx };
+}
+
 export function clampAskSheetHeight(
   fraction: number,
   panelHeight: number,
+  reservedPx = 0,
 ): number {
   const roomForTranscript =
     panelHeight > 0
-      ? (panelHeight - TRANSCRIPT_MIN_PX) / panelHeight
+      ? (panelHeight - reservedPx - TRANSCRIPT_MIN_PX) / panelHeight
       : ASK_SHEET_MAX;
   const max = Math.max(
     ASK_SHEET_MIN,
