@@ -88,7 +88,8 @@ export function suggestionPageFollow(args: {
  * operations so nothing is saved again.
  *
  * Null when the draft should start over from the Page alone, as before: when
- * one of those suggestions is no longer pending, when someone else's change
+ * one of those suggestions is no longer pending or was amended elsewhere
+ * since this tab saved it, when someone else's change
  * touches a paragraph one of them changes (`rebaseBodyEdit`), or when the
  * merged draft doesn't read as exactly the same edits.
  */
@@ -97,12 +98,20 @@ export function carryOwnSuggestions(args: {
   draft: string;
   next: SuggestionDraftSession;
   entries: ReadonlyMap<string, SuggestionPersistenceEntry>;
-  latest: (id: string) => Pick<ResourceSuggestion, "status"> | undefined;
+  latest: (
+    id: string,
+  ) => Pick<ResourceSuggestion, "status" | "revision"> | undefined;
 }): { content: string; entries: Map<string, SuggestionPersistenceEntry> } | null {
   const { session, draft, next, entries } = args;
   if (entries.size === 0 || session.existingSuggestion) return null;
-  for (const entry of entries.values())
-    if (args.latest(entry.suggestion.id)?.status !== "pending") return null;
+  for (const { suggestion } of entries.values()) {
+    const latest = args.latest(suggestion.id);
+    if (
+      latest?.status !== "pending" ||
+      latest.revision !== suggestion.revision
+    )
+      return null;
+  }
   try {
     const before = suggestionDraftOperations(session, draft);
     const plan = planSuggestionDraftPersistence(before, entries);

@@ -510,8 +510,8 @@ export const updateResourceSuggestion = defineAction({
       const adapter = getSuggestionAdapter(current.adapterKind);
       if (!adapter || adapter.version !== current.adapterVersion)
         throw new Error("Suggestion adapter version is unavailable");
-      // The adapter checks the basis against the resource, so an author can
-      // move a suggestion only onto the resource's current revision.
+      // The adapter checks a newer basis as it checks a new suggestion's, so
+      // an author moves a suggestion only onto a revision it would accept.
       const baseRevision = args.baseRevision ?? current.baseRevision;
       const operations =
         (await adapter.validateProposal({

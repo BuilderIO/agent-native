@@ -218,9 +218,7 @@ describe("readPageOnLiveCopyChange", () => {
 
 describe("carryOwnSuggestions", () => {
   const page = (...paragraphs: string[]) =>
-    canonicalizeNfm(paragraphs.join("
-
-"));
+    canonicalizeNfm(paragraphs.join("\n\n"));
   const base = page(
     "Opening paragraph of the page.",
     "Middle paragraph of the page.",
@@ -244,8 +242,10 @@ describe("carryOwnSuggestions", () => {
       startedAt: "2026-11-20T23:00:00.000Z",
       initialContent: content,
     });
-  const saved = (status: ResourceSuggestion["status"] = "pending") =>
-    ({ id: "first", status }) as ResourceSuggestion;
+  const saved = (
+    status: ResourceSuggestion["status"] = "pending",
+    revision = 1,
+  ) => ({ id: "first", status, revision }) as ResourceSuggestion;
   // This tab's saved suggestions, as a save records them.
   const entriesFor = (content: string, suggestion = saved()) => {
     const operations = suggestionDraftOperations(
@@ -310,6 +310,11 @@ describe("carryOwnSuggestions", () => {
   it("starts over when one of them was decided elsewhere", () => {
     expect(carry({ latest: () => saved("rejected") })).toBeNull();
     expect(carry({ latest: () => undefined })).toBeNull();
+  });
+
+  it("starts over when another tab amended one of them since", () => {
+    // Carrying it would keep this tab's older text over the newer amendment.
+    expect(carry({ latest: () => saved("pending", 2) })).toBeNull();
   });
 
   it("starts over when someone else changed the same paragraph", () => {
