@@ -10281,20 +10281,26 @@ async function writeContentSourceFile(
     await fs.promises.chmod(temporary, existingStat.mode);
     await fs.promises.rename(target, backup);
     if (!(await waitForContentFileHandlesToClose(backup))) {
-      await restoreClaimedContentFile(backup, target);
+      const keptPreviousAt = (await restoreClaimedContentFile(backup, target))
+        ? undefined
+        : backup;
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
         await contentSourceFileRevision(target),
+        keptPreviousAt,
       );
     }
     const claimedRevision = await contentSourceFileRevision(backup);
     if (claimedRevision !== expectedRevision) {
-      await restoreClaimedContentFile(backup, target);
+      const keptPreviousAt = (await restoreClaimedContentFile(backup, target))
+        ? undefined
+        : backup;
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
         claimedRevision,
+        keptPreviousAt,
       );
     }
     try {
@@ -10336,8 +10342,13 @@ class ContentFilesRevisionConflict extends Error {
     readonly filePath: string,
     readonly expectedRevision: string | null,
     readonly actualRevision?: string,
+    readonly keptPreviousAt?: string,
   ) {
-    super("The local file changed before Content could save it.");
+    super(
+      keptPreviousAt
+        ? `The local file changed before Content could save it. Its previous version is at ${keptPreviousAt}.`
+        : "The local file changed before Content could save it.",
+    );
   }
 }
 
@@ -10361,20 +10372,26 @@ async function deleteContentSourceFile(
   const claimed = `${target}.${randomUUID()}.delete-claim`;
   await fs.promises.rename(target, claimed);
   if (!(await waitForContentFileHandlesToClose(claimed))) {
-    await restoreClaimedContentFile(claimed, target);
+    const keptPreviousAt = (await restoreClaimedContentFile(claimed, target))
+      ? undefined
+      : claimed;
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
       await contentSourceFileRevision(target),
+      keptPreviousAt,
     );
   }
   const claimedRevision = await contentSourceFileRevision(claimed);
   if (claimedRevision !== expectedRevision) {
-    await restoreClaimedContentFile(claimed, target);
+    const keptPreviousAt = (await restoreClaimedContentFile(claimed, target))
+      ? undefined
+      : claimed;
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
       claimedRevision,
+      keptPreviousAt,
     );
   }
   const competingRevision = await contentSourceFileRevision(target);
