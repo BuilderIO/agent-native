@@ -50,15 +50,19 @@ const attachment = {
 
 function renderButton() {
   const onAttach = vi.fn();
+  const onPendingChange = vi.fn();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <AttachFromContentButton onAttach={onAttach} />
+      <AttachFromContentButton
+        onAttach={onAttach}
+        onPendingChange={onPendingChange}
+      />
     </QueryClientProvider>,
   );
-  return { onAttach };
+  return { onAttach, onPendingChange };
 }
 
 async function choosePlan() {
@@ -93,10 +97,11 @@ afterEach(() => {
 
 describe("AttachFromContentButton", () => {
   it("attaches a page as a PDF first, and as Markdown once chosen", async () => {
-    const { onAttach } = renderButton();
+    const { onAttach, onPendingChange } = renderButton();
 
     await choosePlan();
     await waitFor(() => expect(onAttach).toHaveBeenCalledWith(attachment));
+    expect(onPendingChange.mock.calls).toEqual([[true], [false]]);
 
     fireEvent.click(
       screen.getByRole("button", { name: "mail.compose.attachFromContent" }),
@@ -134,10 +139,13 @@ describe("AttachFromContentButton", () => {
           actionMessage: "Content's own words",
         });
       });
-      const { onAttach } = renderButton();
+      const { onAttach, onPendingChange } = renderButton();
 
       await choosePlan();
       await waitFor(() => expect(mocks.toastUploadFailure).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(onPendingChange.mock.calls).toEqual([[true], [false]]),
+      );
 
       expect(mocks.toastUploadFailure).toHaveBeenCalledWith(
         expect.objectContaining({ message: shown }),
