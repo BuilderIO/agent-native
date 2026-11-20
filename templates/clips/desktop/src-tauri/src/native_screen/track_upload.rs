@@ -267,6 +267,17 @@ pub(super) fn classify_chunk_reply(status: u16, body: &str) -> ChunkReply {
     }
 }
 
+/// An answer whose body couldn't be read doesn't say whether the chunk was
+/// stored, so the chunk goes again: the server acknowledges one it holds.
+fn chunk_reply_from(status: u16, body: Result<String, String>) -> ChunkReply {
+    match body {
+        Ok(body) => classify_chunk_reply(status, &body),
+        Err(error) => {
+            ChunkReply::Transient(format!("{status}: the answer couldn't be read: {error}"))
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum NextSend {
     Chunk {
@@ -553,8 +564,8 @@ async fn send_track_chunk(
     match response {
         Ok(response) => {
             let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_default();
-            classify_chunk_reply(status, &body)
+            let body = response.text().await.map_err(|error| error.to_string());
+            chunk_reply_from(status, body)
         }
         Err(error) => ChunkReply::Transient(format!("track upload failed: {error}")),
     }
@@ -590,6 +601,17 @@ pub(super) fn classify_finalize_reply(status: u16, body: &str) -> FinalizeReply 
     }
 }
 
+/// As with a chunk, an unread answer is tried again: a finalize that already
+/// went through answers `alreadyFinalized`.
+fn finalize_reply_from(status: u16, body: Result<String, String>) -> FinalizeReply {
+    match body {
+        Ok(body) => classify_finalize_reply(status, &body),
+        Err(error) => {
+            FinalizeReply::Retryable(format!("{status}: the answer couldn't be read: {error}"))
+        }
+    }
+}
+
 /// `POST /api/uploads/:id/tracks/finalize`, retrying a retryable answer a few
 /// times with backoff.
 pub(super) async fn post_tracks_finalize(
@@ -607,8 +629,8 @@ pub(super) async fn post_tracks_finalize(
         let reply = match target.post(&client, url.clone()).json(body).send().await {
             Ok(response) => {
                 let status = response.status().as_u16();
-                let text = response.text().await.unwrap_or_default();
-                classify_finalize_reply(status, &text)
+                let text = response.text().await.map_err(|error| error.to_string());
+                finalize_reply_from(status, text)
             }
             Err(error) => FinalizeReply::Retryable(format!("tracks finalize failed: {error}")),
         };
@@ -949,6 +971,26 @@ mod tests {
                 &ctrl,
             ));
         assert_eq!(outcome, TrackUploadOutcome::Cancelled);
+    }
+
+    #[test]
+    fn an_answer_that_cannot_be_read_is_tried_again() {
+        assert!(matches!(
+            chunk_reply_from(200, Err("connection reset".into())),
+            ChunkReply::Transient(_)
+        ));
+        assert_eq!(
+            chunk_reply_from(200, Ok(r#"{"ok":true,"duplicate":true}"#.into())),
+            ChunkReply::Stored
+        );
+        assert!(matches!(
+            finalize_reply_from(200, Err("connection reset".into())),
+            FinalizeReply::Retryable(_)
+        ));
+        assert_eq!(
+            finalize_reply_from(200, Ok(r#"{"ok":true,"alreadyFinalized":true}"#.into())),
+            FinalizeReply::Done
+        );
     }
 
     #[test]
