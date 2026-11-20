@@ -238,6 +238,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpScript: "read",
   run: async (args): Promise<SearchDocumentsResult> => {
     const db = getDb();
     const userEmail = getRequestUserEmail();

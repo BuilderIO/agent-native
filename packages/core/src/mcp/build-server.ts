@@ -188,6 +188,7 @@ import {
   recordMcpScriptDenial,
   runMcpScript,
   searchMcpScriptActions,
+  withMcpScriptCatalogPointer,
 } from "./script-tools.js";
 import {
   createScriptWriteGate,
@@ -3557,14 +3558,14 @@ export async function createMCPServerForRequest(
         orgId: orgId ?? null,
       }),
   );
-  // A connection that asks for the script catalog, on an app that turned the
-  // script tools on, is offered only `search-actions` and `run-script`, and
+  // A connection that asks for the script catalog, from an organization the
+  // app offers it to, is offered only `search-actions` and `run-script`, and
   // every other tool name is unknown to it. Directory mode keeps its own
   // closed catalog.
+  const scriptCatalogOffered =
+    !directoryCatalog && mcpScriptCatalogOfferedToOrg(orgId);
   const scriptCatalog =
-    requestMeta.scriptCatalog === true &&
-    !directoryCatalog &&
-    getAppConfig().mcp.scriptTools === true;
+    requestMeta.scriptCatalog === true && scriptCatalogOffered;
   const scriptWrites =
     scriptCatalog && getAppConfig().mcp.scriptWrites === true;
   // The compact catalog is the default for every caller. Directory mode is a
@@ -3830,11 +3831,15 @@ export async function createMCPServerForRequest(
       ? config.directoryProfile?.instructions
       : scriptCatalog
         ? mcpScriptInstructions({ writes: scriptWrites })
-        : agentNativeMcpInstructions(
-            config.instructions,
-            servedKeyToolNames,
-            TOOL_SEARCH_TOOL_NAME in advertisedActions &&
-              isAdvertisable(TOOL_SEARCH_TOOL_NAME),
+        : withMcpScriptCatalogPointer(
+            agentNativeMcpInstructions(
+              config.instructions,
+              servedKeyToolNames,
+              TOOL_SEARCH_TOOL_NAME in advertisedActions &&
+                isAdvertisable(TOOL_SEARCH_TOOL_NAME),
+            ),
+            scriptCatalogOffered ? visibleActions : undefined,
+            { writes: getAppConfig().mcp.scriptWrites === true },
           ),
     capabilities: {
       tools: {},
@@ -5903,6 +5908,25 @@ export async function resolveOrgIdFromDomain(
     throw new McpIdentityVerificationRefusedError();
   }
   return result.status === "found" ? result.org.orgId : undefined;
+}
+
+/**
+ * Whether this request's caller may use the script catalog: the app turned
+ * the script tools on and lists the caller's organization in
+ * `mcp.scriptOrgs`. Read per request from the organization resolved for the
+ * caller, which every listing and call of the request shares, so a caller
+ * with no organization, or no identity, never gets it.
+ */
+export function mcpScriptCatalogOfferedToOrg(
+  orgId: string | null | undefined,
+): boolean {
+  const { scriptTools, scriptOrgs } = getAppConfig().mcp;
+  return (
+    scriptTools === true &&
+    typeof orgId === "string" &&
+    orgId.length > 0 &&
+    scriptOrgs.includes(orgId)
+  );
 }
 
 export async function resolveMcpIdentityOrgId(

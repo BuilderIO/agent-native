@@ -198,6 +198,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   runs.length = 0;
   vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+  vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", "org_1");
   evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
 });
 
@@ -242,6 +243,72 @@ describe("the MCP script catalog", () => {
       (tool) => tool.name,
     );
     expect(flagOff).toEqual(usual);
+  });
+
+  it("offers the catalog only to an organization on the list, at listing and at a call", async () => {
+    const usual = (await (await clientFor(user, {})).listTools()).tools.map(
+      (tool) => tool.name,
+    );
+    const callers: MCPCallerIdentity[] = [
+      // Another organization.
+      { ...user, userEmail: "bob@other.example", orgId: "org_2" },
+      // No organization, as a personal account.
+      { ...user, userEmail: "carol@example.com", orgId: null },
+    ];
+    for (const caller of callers) {
+      const client = await clientFor(caller);
+      const listed = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(listed).toEqual(usual);
+      expect(client.getInstructions()).not.toContain("catalog=script");
+      // Calling the tool directly, without listing it, is refused too.
+      const result: any = await client.callTool({
+        name: "run-script",
+        arguments: { code: "return await api.listDocuments();" },
+      });
+      expect(result.isError).toBe(true);
+    }
+    expect(runs).toEqual([]);
+  });
+
+  it("refuses new runs once the organization or the flag is removed", async () => {
+    const before = await runScript(
+      await clientFor(user),
+      "return await api.listDocuments();",
+    );
+    expect(before.payload.result).toEqual([{ id: "doc_1" }, { id: "doc_2" }]);
+    runs.length = 0;
+
+    for (const [name, value] of [
+      ["AGENT_NATIVE_MCP_SCRIPT_ORGS", "org_2"],
+      ["AGENT_NATIVE_MCP_SCRIPT_ORGS", ""],
+      ["AGENT_NATIVE_MCP_SCRIPT_TOOLS", "false"],
+    ] as const) {
+      vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", "org_1");
+      vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+      vi.stubEnv(name, value);
+      const client = await clientFor(user);
+      expect((await client.listTools()).tools.map((t) => t.name)).not.toContain(
+        "run-script",
+      );
+      const result: any = await client.callTool({
+        name: "run-script",
+        arguments: { code: "return await api.listDocuments();" },
+      });
+      expect(result.isError).toBe(true);
+    }
+    expect(runs).toEqual([]);
+  });
+
+  it("points an organization on the list at the script catalog from the usual one", async () => {
+    const offered = await clientFor(user, {});
+    expect(offered.getInstructions()).toContain("`?catalog=script`");
+    expect(offered.getInstructions()).toContain("reading many items");
+    expect(offered.getInstructions()).not.toContain("changing many items");
+
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "false");
+    expect((await clientFor(user, {})).getInstructions()).not.toContain(
+      "catalog=script",
+    );
   });
 
   it("leaves a directory catalog closed when a connection asks for scripts", async () => {
