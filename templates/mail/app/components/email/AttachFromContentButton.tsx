@@ -108,8 +108,12 @@ export function AttachFromContentButton({
       close();
     } catch (error) {
       const reason = storageSetupReasonOf(error);
+      const { errorCode } = (error ?? {}) as { errorCode?: unknown };
       const message =
-        actionErrorMessage(error) ?? t("mail.toasts.failedToAttachContentPage");
+        errorCode === "document_file_pdf_text_unsupported"
+          ? t("mail.toasts.contentPagePdfTextUnsupported")
+          : (actionErrorMessage(error) ??
+            t("mail.toasts.failedToAttachContentPage"));
       toastUploadFailure(
         reason ? new UploadError(message, reason) : new Error(message),
         t("mail.toasts.failedToAttachContentPage"),

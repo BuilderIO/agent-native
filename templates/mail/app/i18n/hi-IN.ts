@@ -473,6 +473,8 @@ const messages = {
       scheduledCancelFailed: "शेड्यूल ईमेल रद्द करने में विफल",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content पेज संलग्न नहीं हो सका",
+      contentPagePdfTextUnsupported:
+        "इस पेज में ऐसा टेक्स्ट है जिसे PDF अभी नहीं दिखा सकता, जैसे चीनी, जापानी, कोरियाई, अरबी, हिब्रू या हिंदी। इसके बजाय इसे Markdown के रूप में संलग्न करें।",
       failedToUploadImage: "छवि अपलोड करने में विफल",
       storageBuilderRefused:
         "Builder.io ने Mail के फ़ाइल स्टोरेज कनेक्शन को अस्वीकार कर दिया, इसलिए फ़ाइल अटैच नहीं हुई। Builder.io फिर से कनेक्ट करें या अपना स्टोरेज इस्तेमाल करें, फिर दोबारा कोशिश करें।",

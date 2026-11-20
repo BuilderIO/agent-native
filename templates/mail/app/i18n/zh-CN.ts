@@ -463,6 +463,8 @@ const messages = {
       scheduledCancelFailed: "取消定时邮件失败",
       failedToAttachFile: "附加文件失败",
       failedToAttachContentPage: "附加 Content 页面失败",
+      contentPagePdfTextUnsupported:
+        "此页面包含 PDF 暂时无法显示的文字，例如中文、日文、韩文、阿拉伯文、希伯来文或印地文。请改为以 Markdown 格式附加。",
       failedToUploadImage: "上传图片失败",
       storageBuilderRefused:
         "Builder.io 拒绝了 Mail 的文件存储连接，因此未能附加文件。请重新连接 Builder.io 或使用自己的存储，然后重试。",

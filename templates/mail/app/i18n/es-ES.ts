@@ -488,6 +488,8 @@ const messages = {
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "No se pudo adjuntar la página de Content",
+      contentPagePdfTextUnsupported:
+        "Esta página tiene texto que un PDF aún no puede mostrar, como chino, japonés, coreano, árabe, hebreo o hindi. Adjúntala como Markdown.",
       failedToUploadImage: "No se pudo subir la imagen",
       storageBuilderRefused:
         "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",

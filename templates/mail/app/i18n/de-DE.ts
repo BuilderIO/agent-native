@@ -494,6 +494,8 @@ const messages = {
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content-Seite konnte nicht angehängt werden",
+      contentPagePdfTextUnsupported:
+        "Diese Seite enthält Text, den ein PDF noch nicht darstellen kann, etwa Chinesisch, Japanisch, Koreanisch, Arabisch, Hebräisch oder Hindi. Hänge sie stattdessen als Markdown an.",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       storageBuilderRefused:
         "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder nutze deinen eigenen Speicher und versuche es dann erneut.",

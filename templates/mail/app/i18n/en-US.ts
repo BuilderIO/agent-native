@@ -473,6 +473,8 @@ const messages = {
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToAttachContentPage: "Failed to attach Content page",
+      contentPagePdfTextUnsupported:
+        "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:
         "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io or use your own storage, then try again.",
