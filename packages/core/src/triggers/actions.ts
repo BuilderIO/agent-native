@@ -23,7 +23,6 @@ import { describeCron, effectiveTimezone } from "../jobs/cron.js";
 import { queueAutomationRunNow } from "../jobs/run-now.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { frameworkMcpTools } from "../mcp/framework-tools.js";
-import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   getIntegrationRequestContext,
   getRequestOrgId,
@@ -324,12 +323,10 @@ async function handleDefine(
   await refreshEventSubscriptions();
   const query = new URLSearchParams({ automationId: definition.resourceId });
   const appLocalPath = `/settings/automations?${query}`;
-  const urlPath = `${getConfiguredAppBasePath()}${appLocalPath}`;
   return JSON.stringify({
     created: true,
     resourceId: definition.resourceId,
     name: definition.name,
-    urlPath,
     replyGuidance: `Include a markdown link in your reply using [label](${appLocalPath}${APP_LOCAL_MARKDOWN_LINK_HASH}); localize the label to the reply's language. Do not invent a hostname.`,
     change: {
       verb: "created",

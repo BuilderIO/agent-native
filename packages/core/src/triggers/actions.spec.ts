@@ -176,10 +176,9 @@ describe("manage-automations tool", () => {
         body: "Build it.",
       };
       const result = await entry.run(args);
-      const url = "/workspace/settings/automations?automationId=resource-1";
+      expect(JSON.parse(result)).not.toHaveProperty("urlPath");
       expect(JSON.parse(result)).toMatchObject({
         resourceId: "resource-1",
-        urlPath: url,
         change: {
           verb: "created",
           title: "digest",
@@ -219,9 +218,7 @@ describe("manage-automations tool", () => {
       "[label](/settings/automations?automationId=resource-1#agent-native-app-local)",
     );
     expect(output.replyGuidance).toMatch(/reply/i);
-    expect(output.urlPath).toBe(
-      "/server-mount/settings/automations?automationId=resource-1",
-    );
+    expect(output).not.toHaveProperty("urlPath");
     expect(output.change.url).toBe(
       "/settings/automations?automationId=resource-1",
     );
@@ -241,7 +238,7 @@ describe("manage-automations tool", () => {
         body: "Build it.",
       }),
     );
-    const url = new URL(result.urlPath, "https://app.example");
+    const url = new URL(result.change.url, "https://app.example");
     expect(url.origin).toBe("https://app.example");
     expect(url.searchParams.get("automationId")).toBe(
       "id&next=//evil.example/path",
