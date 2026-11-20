@@ -1472,8 +1472,6 @@ export function useEditorSourceAndSync({
       currentSearch: location.search,
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
-      // Design's own tab, not Interact's chat: a reload back into Design
-      // must not land on Agent because Interact was up when it was written.
       leftPanel: designLeftPanel,
       selectionId:
         selectedUrlSelectionId ??

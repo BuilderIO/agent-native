@@ -21,6 +21,8 @@ export interface StartSidebarResizeArgs {
   rightSidebarWidth: number;
   setLeftSidebarWidth: Dispatch<SetStateAction<number>>;
   setRightSidebarWidth: Dispatch<SetStateAction<number>>;
+  commitLeftSidebarWidth: (width: number) => void;
+  commitRightSidebarWidth: (width: number) => void;
 }
 
 export function runStartSidebarResize(
@@ -31,6 +33,8 @@ export function runStartSidebarResize(
     rightSidebarWidth,
     setLeftSidebarWidth,
     setRightSidebarWidth,
+    commitLeftSidebarWidth,
+    commitRightSidebarWidth,
   }: StartSidebarResizeArgs,
   side: "left" | "right",
   event: ReactPointerEvent<HTMLDivElement>,
@@ -44,6 +48,8 @@ export function runStartSidebarResize(
       ? resolveLeftSidebarWidth(leftSidebarWidth)
       : resolveInspectorWidth(rightSidebarWidth);
   const setWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
+  const commitWidth =
+    side === "left" ? commitLeftSidebarWidth : commitRightSidebarWidth;
   const target =
     side === "left"
       ? leftSidebarContentRef.current
@@ -99,7 +105,7 @@ export function runStartSidebarResize(
     document.body.style.cursor = previousCursor;
     document.body.style.userSelect = previousUserSelect;
     if (target) target.style.transition = previousTransition;
-    setWidth(latestWidth);
+    commitWidth(latestWidth);
   };
 
   dragShield.addEventListener("pointermove", handleMove);

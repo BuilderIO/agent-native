@@ -148,6 +148,31 @@ describe("right column head", () => {
     await withFeedback.unmount();
   });
 
+  it("names unread comments on the icon-only Comments button", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightSidebarActions(
+          actionsArgs({
+            reviewUnreadCount: 2,
+            editorHistory: {
+              rightSidebarWidth: 240,
+              commentsPanelOpen: false,
+              setCommentsPanelOpen: vi.fn(),
+            } as unknown as EditorHistory,
+          }),
+        )}
+      </>,
+    );
+    expect(
+      must(host.querySelector("[data-design-comments-toggle]")).getAttribute(
+        "aria-label",
+      ),
+    ).toBe(
+      "designEditor.columnHead.comments, designEditor.columnHead.unreadComments",
+    );
+    await unmount();
+  });
+
   it("keeps the waitlist CTA in the head while signed out", async () => {
     const { host, unmount } = await mount(
       <>

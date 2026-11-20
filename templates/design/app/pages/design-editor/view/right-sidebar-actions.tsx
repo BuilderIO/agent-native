@@ -12,16 +12,6 @@ import { cn } from "@/lib/utils";
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
 
-/**
- * The right column head: Comments (and Apply feedback when there is any) at
- * its start, presence, publish and Share at its end. Minimal UI floats the same
- * row as an island when nothing is selected.
- *
- * Everything has to fit the inspector's width, down to its 240px minimum, so
- * narrow heads drop labels into tooltips: Comments goes icon-only below 280px
- * or beside Apply feedback, and Apply feedback shows only its count below
- * 360px.
- */
 export function renderRightSidebarActions({
   editorCore,
   editorHistory,
@@ -57,6 +47,10 @@ export function renderRightSidebarActions({
   const commentsLabelVisible =
     rightSidebarWidth >= 280 && reviewFeedbackControl === null;
   const commentsLabel = t("designEditor.columnHead.comments");
+  const unreadCommentsLabel = t("designEditor.columnHead.unreadComments");
+  const commentsAccessibleName = hasUnreadComments
+    ? `${commentsLabel}, ${unreadCommentsLabel}`
+    : commentsLabel;
 
   const commentsToggle = showCommentsToggle ? (
     <Button
@@ -65,7 +59,7 @@ export function renderRightSidebarActions({
       size="sm"
       data-design-comments-toggle
       aria-pressed={commentsPanelOpen}
-      aria-label={commentsLabelVisible ? undefined : commentsLabel}
+      aria-label={commentsLabelVisible ? undefined : commentsAccessibleName}
       onClick={() => setCommentsPanelOpen((open) => !open)}
       className={cn(
         "design-focus-ring design-font-medium relative h-[var(--design-control-height)] min-w-0 gap-[var(--design-baseline-half)] rounded-md text-xs",
@@ -87,9 +81,7 @@ export function renderRightSidebarActions({
             data-design-comments-unread-dot
             className="absolute end-0.5 top-0.5 size-1.5 rounded-full bg-[var(--design-brand)]"
           />
-          <span className="sr-only">
-            {t("designEditor.columnHead.unreadComments")}
-          </span>
+          <span className="sr-only">{unreadCommentsLabel}</span>
         </>
       ) : null}
     </Button>
@@ -114,8 +106,6 @@ export function renderRightSidebarActions({
         )}
         {reviewFeedbackControl}
 
-        {/* Not shrink-0: the signed-out CTA ("Sign up") is a nowrap label
-            wide enough to push this row past the column's edge on its own. */}
         <div className="ms-auto flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
           {renderPendingNodeRewriteControl(rightToolbarCompact)}
           {hostEmbeddedEditor ? null : presenceControl}

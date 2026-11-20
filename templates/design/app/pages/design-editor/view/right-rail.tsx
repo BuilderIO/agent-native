@@ -25,6 +25,8 @@ export function renderRightRail({
   interactFloatingBar,
   rightSidebarVisible,
   floatingHeadAllowed,
+  leftDrawerCoversCanvas,
+  leftInset,
   commentsPanel,
   editPanelProps,
 }: {
@@ -33,13 +35,12 @@ export function renderRightRail({
   editorContentAndComponents: EditorContentAndComponents;
   projectTitleControl: ReactElement;
   minimalUiToggle: ReactElement | null;
-  /** The right column head; it also floats as an island where the column is absent. */
   rightSidebarActions: ReactElement;
   interactFloatingBar: ReactElement | null;
   rightSidebarVisible: boolean;
-  /** Whether the head may float while the column is absent (not during first generation). */
   floatingHeadAllowed: boolean;
-  /** Shown in place of the inspector while Comments is open. */
+  leftDrawerCoversCanvas: boolean;
+  leftInset: number;
   commentsPanel: ReactElement | null;
   editPanelProps: Omit<
     import("react").ComponentProps<typeof EditPanel>,
@@ -53,23 +54,18 @@ export function renderRightRail({
     rightSidebarWidth,
     setRightSidebarWidth,
     startSidebarResize,
-    commentsPanelOpen,
-    isMobileViewport,
-    activeLeftPanel,
   } = editorHistory;
   const { uiHidden } = editorContentAndComponents;
-  const showComments = commentsPanelOpen && commentsPanel !== null;
-  // Interact has no inspector, but its head (Share, presence) must stay
-  // reachable, so it floats top right like minimal UI's island.
-  // A phone's open left drawer covers the canvas, and the bottom toolbar with
-  // it; the head stays out of the way too, or it sits on the drawer's own head.
+  const showComments = commentsPanel !== null;
   const floatingHeadVisible =
     floatingHeadAllowed &&
     !minimalUi &&
     !rightSidebarVisible &&
     !hostOwnsChrome &&
     !uiHidden &&
-    !(isMobileViewport && activeLeftPanel);
+    !leftDrawerCoversCanvas;
+  const floatingBarVisible =
+    interactFloatingBar !== null && !minimalUi && !leftDrawerCoversCanvas;
 
   return (
     <>
@@ -116,21 +112,33 @@ export function renderRightRail({
         </div>
       ) : null}
 
-      {interactFloatingBar && !minimalUi ? (
+      {floatingBarVisible || floatingHeadVisible ? (
         <div
-          data-design-interact-floating
-          className="pointer-events-none absolute inset-x-0 top-0 z-[90] flex justify-center px-3 pt-3"
+          data-design-floating-top
+          className="pointer-events-none absolute top-0 z-[90] flex items-start gap-3 px-3 pt-3"
+          style={{
+            left: leftInset,
+            right: rightSidebarVisible ? rightSidebarWidth : 0,
+          }}
         >
-          {interactFloatingBar}
-        </div>
-      ) : null}
-
-      {floatingHeadVisible ? (
-        <div
-          data-design-floating-right-head
-          className="pointer-events-auto absolute right-3 top-3 z-[90] min-w-0 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
-        >
-          {rightSidebarActions}
+          {floatingBarVisible ? (
+            <div
+              data-design-interact-floating
+              className="pointer-events-none flex min-w-0 flex-1 justify-center"
+            >
+              {interactFloatingBar}
+            </div>
+          ) : (
+            <div aria-hidden="true" className="flex-1" />
+          )}
+          {floatingHeadVisible ? (
+            <div
+              data-design-floating-right-head
+              className="pointer-events-auto min-w-0 max-w-[680px] shrink overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl"
+            >
+              {rightSidebarActions}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -139,8 +147,6 @@ export function renderRightRail({
           data-design-minimal-ui
           className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
         >
-          {/* Below md there is no room for Interact's bar between the two
-              islands, so it takes a row of its own under them. */}
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3 md:grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]">
             <div
               data-design-minimal-bar="left"

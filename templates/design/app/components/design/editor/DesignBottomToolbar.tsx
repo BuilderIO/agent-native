@@ -176,12 +176,7 @@ export function DesignBottomToolbar({
   /** Comments need a signed-in commenter; a widget's write ticket does not cover them. */
   canComment: boolean;
   onModeChange: (mode: EditorMode) => void;
-  /**
-   * The Interact / Design switch sits at the toolbar's end. In Interact no
-   * tool applies, so the switch and zoom are all it shows.
-   */
   showModeTabs: boolean;
-  /** The canvas zoom (Design) or the fit zoom (Interact), after the mode switch. */
   zoomControl?: ReactNode;
 }) {
   const t = useT();
@@ -511,7 +506,6 @@ export function DesignBottomToolbar({
       ) : null}
 
       {zoomControl ? (
-        // The dock is dark in both themes, so the zoom trigger reads the dark tokens.
         <div
           data-design-toolbar-zoom
           className="dark ms-1 flex shrink-0 items-center text-foreground"

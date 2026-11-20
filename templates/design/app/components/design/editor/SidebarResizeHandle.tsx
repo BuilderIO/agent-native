@@ -8,12 +8,6 @@ import { cn } from "@/lib/utils";
 const KEY_STEP_PX = 8;
 const KEY_SHIFT_STEP_PX = 40;
 
-/**
- * The resize handle on a column's inner edge. A focusable separator: arrows
- * move it 8px (Shift 40px), Home/End jump to the limits, double-click resets.
- * `edge` is the column edge it sits on, so the arrow that grows the column is
- * the one pointing away from it.
- */
 export function SidebarResizeHandle({
   edge,
   label,
@@ -30,7 +24,6 @@ export function SidebarResizeHandle({
   minWidth: number;
   maxWidth: number;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  /** Receives the unclamped target; the caller snaps and clamps it. */
   onWidthChange: (width: number) => void;
   onReset: () => void;
 }) {

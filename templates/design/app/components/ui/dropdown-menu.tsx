@@ -15,10 +15,6 @@ import {
   type DesignMenuItemVariant,
 } from "./menu-classes";
 
-// Design's menus follow its own spec over the toolkit primitives. The toolkit
-// components keep their behavior, portal and layering; only their classes are
-// replaced here, so menus rendered inside toolkit components stay stock.
-
 export {
   DropdownMenu,
   DropdownMenuGroup,
@@ -103,7 +99,6 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 DropdownMenuCheckboxItem.displayName =
   Toolkit.DropdownMenuCheckboxItem.displayName;
 
-/** The current value carries a check, not the toolkit's dot. */
 const DropdownMenuRadioItem = React.forwardRef<
   React.ElementRef<typeof Toolkit.DropdownMenuRadioItem>,
   React.ComponentPropsWithoutRef<typeof Toolkit.DropdownMenuRadioItem>

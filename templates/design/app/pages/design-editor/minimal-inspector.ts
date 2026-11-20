@@ -16,36 +16,50 @@ export function hasMinimalInspectorSelection({
   );
 }
 
-/**
- * Whether the right column is on screen. Its head carries Comments and Share,
- * so it keeps its place in every mode and for every role; only Interact,
- * which floats that head instead, and the shells below drop it.
- */
-export function isRightInspectorVisible({
-  hostOwnsChrome,
-  isMobileViewport,
-  uiHidden,
-  initialGenerationChromeLimited,
-  responsiveInteractActive,
-  minimalUi,
-  minimalInspectorHasSelection,
-}: {
+interface RightColumnShell {
   hostOwnsChrome: boolean;
   /** Below md the docked panel is display:none and a sheet carries the inspector. */
   isMobileViewport: boolean;
   uiHidden: boolean;
   initialGenerationChromeLimited: boolean;
-  responsiveInteractActive: boolean;
   minimalUi: boolean;
+}
+
+function rightColumnFits(shell: RightColumnShell): boolean {
+  return (
+    !shell.hostOwnsChrome &&
+    inspectorFitsViewport(shell) &&
+    !shell.uiHidden &&
+    !shell.initialGenerationChromeLimited
+  );
+}
+
+export function isCommentsPanelShown({
+  commentsPanelOpen,
+  commentsAvailable,
+  ...shell
+}: RightColumnShell & {
+  commentsPanelOpen: boolean;
+  commentsAvailable: boolean;
+}): boolean {
+  return commentsPanelOpen && commentsAvailable && rightColumnFits(shell);
+}
+
+export function isRightInspectorVisible({
+  commentsPanelShown,
+  responsiveInteractActive,
+  minimalInspectorHasSelection,
+  ...shell
+}: RightColumnShell & {
+  commentsPanelShown: boolean;
+  responsiveInteractActive: boolean;
   minimalInspectorHasSelection: boolean;
 }): boolean {
+  if (commentsPanelShown) return true;
   return (
-    !hostOwnsChrome &&
-    inspectorFitsViewport({ minimalUi, isMobileViewport }) &&
-    !uiHidden &&
-    !initialGenerationChromeLimited &&
+    rightColumnFits(shell) &&
     !responsiveInteractActive &&
-    (!minimalUi || minimalInspectorHasSelection)
+    (!shell.minimalUi || minimalInspectorHasSelection)
   );
 }
 

@@ -55,7 +55,6 @@ import { cn } from "@/lib/utils";
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
 import { layoutMoveRefusalMessageKey } from "./commands/align-selection";
 import { resolveUrlScreen } from "./derive/url-screen";
-import { pageHasWebMcpHost } from "./design-editor-shared";
 import type { EditorActiveScreenAndGeometry } from "./domains/use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./domains/use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./domains/use-editor-clipboard";
@@ -194,7 +193,6 @@ export function renderDesignEditorView({
   const {
     isBuilderDesignEmbed,
     builderPreviewUrl,
-    activeLeftPanel,
     leftSidebarWidth,
     rightSidebarWidth,
     minimalUi,
@@ -435,7 +433,7 @@ export function renderDesignEditorView({
   } = editorScreenRendering;
   const signInToShareHref = buildSignInHrefForDesignIntent("share");
   const canApplyPendingVisualEditsWithAgent =
-    canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
+    editorToolsAndVectors.canChatWithAgent;
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   const activeNodeRewriteProposal = activeFile
@@ -853,7 +851,7 @@ export function renderDesignEditorView({
     </Tooltip>
   );
 
-  const renderZoomControl = (controlId: "toolbar" | "inspector" | "topbar") =>
+  const renderZoomControl = (controlId: "toolbar" | "inspector") =>
     renderZoomMenu({
       editorCore,
       editorActiveScreenAndGeometry,
@@ -922,8 +920,6 @@ export function renderDesignEditorView({
     />
   );
 
-  // Compact (narrow inspector) keeps the count visible and moves the label
-  // into the accessible name and tooltip so the head never overflows.
   const renderReviewFeedbackControl = (compact: boolean) => {
     if (!canEditDesign || reviewAgentQueueCount <= 0) return null;
     const label = reviewFeedbackApplying
@@ -990,7 +986,6 @@ export function renderDesignEditorView({
       return sessionResolved ? signedOutPersistenceActions : null;
     }
 
-    // The head's controls are 24px; Share and its joined Copy link follow.
     return (
       <div className="flex shrink-0 items-center [&_[data-slot=button-group]>button+button]:size-[var(--design-control-height)] [&_[data-slot=button-group]>button]:h-[var(--design-control-height)]">
         {canEditDesign && activeOverviewScreen?.sourceType === "localhost" ? (
@@ -1110,7 +1105,6 @@ export function renderDesignEditorView({
       </div>
     ) : null;
 
-  // The right column head; minimal UI and Interact float it as an island.
   const rightSidebarActions = renderRightSidebarActions({
     editorCore,
     editorHistory,
@@ -1125,12 +1119,11 @@ export function renderDesignEditorView({
     reviewUnreadCount,
   });
   const commentsPanel =
-    editorHistory.commentsPanelOpen &&
+    editorToolsAndVectors.commentsPanelShown &&
     editorToolsAndVectors.reviewCommentsPanelProps ? (
       <ReviewCommentsPanel
         {...editorToolsAndVectors.reviewCommentsPanelProps}
         onNewThread={() => {
-          // handlePinToolToggle turns comment mode off when it is already on.
           if (!pinMode) handlePinToolToggle();
         }}
       />
@@ -1156,18 +1149,18 @@ export function renderDesignEditorView({
       renderZoomControl("toolbar")
     );
 
-  // Interact's device, theme and screen controls float over the running page
-  // with an Exit; the toolbar's mode switch is the other way back.
   const interactControlArgs = {
     editorActiveScreenAndGeometry,
     editorModes,
     activeScreenId: activeFile?.id ?? null,
   };
-  // A URL screen in Design carries its route, Reload and Open in browser in
-  // the same floating spot, where Interact keeps its screen controls. It is a
-  // reading of the app's URL, not a picker.
   const activeUrlScreen =
-    mode === "edit" && !responsiveInteractActive && !minimalUi
+    mode === "edit" &&
+    !responsiveInteractActive &&
+    !minimalUi &&
+    !uiHidden &&
+    !isVisualEditSurface &&
+    !embedded
       ? resolveUrlScreen({
           screen: overviewScreens.find(
             (screen) => screen.id === activeFile?.id,
@@ -1214,15 +1207,15 @@ export function renderDesignEditorView({
     responsiveInteractActive,
     minimalUi,
     minimalInspectorHasSelection,
+    commentsPanelShown: editorToolsAndVectors.commentsPanelShown,
   });
   const questionFlowInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
     minimalUi,
   });
-  // The left column is always-on chrome whose width is known up front, so the
-  // very first overview camera render already accounts for it.
   const chromeInsetLeft = leftSidebarVisible ? leftContentWidth : 0;
+  const leftDrawerCoversCanvas = isMobileViewport && leftSidebarVisible;
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
   );
@@ -1468,14 +1461,11 @@ export function renderDesignEditorView({
           leftSidebarVisible,
         })}
 
-        {/* Interact shows no tools: the running app owns the surface and
-            nothing in it is selectable, so the toolbar carries only the mode
-            switch and zoom there. */}
         {!hostOwnsChrome &&
           designBottomToolbarMode === "editor" &&
           design &&
           !questionFlowActive &&
-          !(isMobileViewport && leftSidebarVisible && activeLeftPanel) && (
+          !leftDrawerCoversCanvas && (
             <DesignBottomToolbar
               mode={mode}
               pinMode={pinMode}
@@ -1580,6 +1570,8 @@ export function renderDesignEditorView({
           interactFloatingBar,
           rightSidebarVisible,
           floatingHeadAllowed: chromeControlsVisible,
+          leftDrawerCoversCanvas,
+          leftInset: chromeInsetLeft,
           commentsPanel,
           editPanelProps,
         })}

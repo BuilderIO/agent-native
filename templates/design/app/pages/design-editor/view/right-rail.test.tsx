@@ -29,8 +29,8 @@ function railArgs(overrides: {
   minimalUi?: boolean;
   interactFloatingBar?: ReactElement | null;
   commentsPanelOpen?: boolean;
-  isMobileViewport?: boolean;
-  activeLeftPanel?: string | null;
+  leftDrawerCoversCanvas?: boolean;
+  leftInset?: number;
 }): RailArgs {
   return {
     editorCore: {
@@ -46,8 +46,6 @@ function railArgs(overrides: {
       setRightSidebarWidth: vi.fn(),
       startSidebarResize: vi.fn(),
       commentsPanelOpen: overrides.commentsPanelOpen ?? false,
-      isMobileViewport: overrides.isMobileViewport ?? false,
-      activeLeftPanel: overrides.activeLeftPanel ?? null,
     } as unknown as EditorHistory,
     editorContentAndComponents: {
       uiHidden: false,
@@ -58,7 +56,11 @@ function railArgs(overrides: {
     interactFloatingBar: overrides.interactFloatingBar ?? null,
     rightSidebarVisible: overrides.rightSidebarVisible,
     floatingHeadAllowed: true,
-    commentsPanel: <div data-slot="comments-panel" />,
+    leftDrawerCoversCanvas: overrides.leftDrawerCoversCanvas ?? false,
+    leftInset: overrides.leftInset ?? 0,
+    commentsPanel: overrides.commentsPanelOpen ? (
+      <div data-slot="comments-panel" />
+    ) : null,
     editPanelProps: {} as RailArgs["editPanelProps"],
   };
 }
@@ -249,13 +251,63 @@ describe("right column", () => {
             widgetEmbed: false,
             rightSidebarVisible: false,
             minimalUi: false,
-            isMobileViewport: true,
-            activeLeftPanel: "file",
+            leftDrawerCoversCanvas: true,
+            interactFloatingBar: <div data-slot="interact-bar" />,
           }),
         )}
       </>,
     );
     expect(host.querySelector("[data-design-floating-right-head]")).toBeNull();
+    expect(host.querySelector('[data-slot="interact-bar"]')).toBeNull();
+    await unmount();
+  });
+
+  it("centres the floating bar between the left column and the floating head", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: false,
+            minimalUi: false,
+            leftInset: 320,
+            interactFloatingBar: <div data-slot="interact-bar" />,
+          }),
+        )}
+      </>,
+    );
+    const row = must(
+      host.querySelector<HTMLElement>("[data-design-floating-top]"),
+    );
+    expect(row.style.left).toBe("320px");
+    expect(row.style.right).toBe("0px");
+    const bar = must(row.querySelector("[data-design-interact-floating]"));
+    const head = must(row.querySelector("[data-design-floating-right-head]"));
+    expect(
+      Boolean(
+        bar.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    await unmount();
+  });
+
+  it("reserves the docked column's width on the right", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: true,
+            minimalUi: false,
+            interactFloatingBar: <div data-slot="interact-bar" />,
+          }),
+        )}
+      </>,
+    );
+    expect(
+      must(host.querySelector<HTMLElement>("[data-design-floating-top]")).style
+        .right,
+    ).toBe("240px");
     await unmount();
   });
 });

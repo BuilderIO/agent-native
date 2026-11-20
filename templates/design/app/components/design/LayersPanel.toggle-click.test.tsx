@@ -1083,10 +1083,11 @@ describe("LayersPanel row hierarchy", () => {
         "bg-[var(--design-editor-component-selected-subtree-color)]",
       ),
     ).toBe(false);
-    // Rows run edge to edge, so a selected subtree reads as one block.
     expect(rows.some((row) => /\brounded/.test(row.className))).toBe(false);
 
-    const nestedIndents = rows[2].querySelectorAll<HTMLElement>(
+    const nestedRow = rows.find((_, index) => index === 2);
+    if (!nestedRow) throw new Error("nested layer row is missing");
+    const nestedIndents = nestedRow.querySelectorAll<HTMLElement>(
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
@@ -1100,7 +1101,7 @@ describe("LayersPanel row hierarchy", () => {
           indent.classList.contains("min-w-0"),
       ),
     ).toEqual([true, true]);
-    const chevronSlot = rows[2].querySelector<HTMLElement>(
+    const chevronSlot = nestedRow.querySelector<HTMLElement>(
       "[data-tree-row-chevron-slot]",
     );
     expect(chevronSlot?.classList.contains("size-4")).toBe(true);
@@ -1215,7 +1216,6 @@ describe("LayersPanel hide and lock toggles", () => {
         (button) => button.classList.contains("opacity-100"),
       ),
     ).toEqual([true, true]);
-    // An unselected row reveals them on hover or when focus is inside it.
     expect(toggles("b").classList).toContain("w-0");
     expect(toggles("b").classList).toContain("group-focus-within:w-auto");
     expect(
