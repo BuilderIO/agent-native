@@ -76,4 +76,20 @@ describe("setWebviewBackgroundThrottling", () => {
     expect(setBackgroundThrottling).toHaveBeenCalledTimes(1);
     expect(setBackgroundThrottling).toHaveBeenCalledWith(true);
   });
+
+  it("rejects malformed payloads without reading the contents", () => {
+    const getWebContents = vi.fn();
+    for (const payload of [
+      null,
+      undefined,
+      "9",
+      42,
+      { webContentsId: "9", throttle: true },
+      { webContentsId: 9, throttle: "true" },
+      { webContentsId: 9 },
+    ]) {
+      setWebviewBackgroundThrottling(payload, getWebContents);
+    }
+    expect(getWebContents).not.toHaveBeenCalled();
+  });
 });

@@ -20,16 +20,18 @@ export function setMailWebviewBackgroundThrottling(
 }
 
 export function setWebviewBackgroundThrottling(
-  request: { webContentsId?: unknown; throttle?: unknown },
+  request: unknown,
   getWebContents: (id: number) => BackgroundThrottlingContents | undefined,
 ): void {
-  if (
-    typeof request.webContentsId !== "number" ||
-    typeof request.throttle !== "boolean"
-  ) {
+  if (typeof request !== "object" || request === null) return;
+  const { webContentsId, throttle } = request as {
+    webContentsId?: unknown;
+    throttle?: unknown;
+  };
+  if (typeof webContentsId !== "number" || typeof throttle !== "boolean") {
     return;
   }
-  const contents = getWebContents(request.webContentsId);
+  const contents = getWebContents(webContentsId);
   if (contents?.getType() !== "webview") return;
-  contents.setBackgroundThrottling(request.throttle);
+  contents.setBackgroundThrottling(throttle);
 }

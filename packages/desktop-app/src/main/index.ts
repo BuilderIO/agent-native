@@ -2183,10 +2183,7 @@ ipcMain.on(
 
 ipcMain.on(
   IPC.SET_WEBVIEW_BACKGROUND_THROTTLING,
-  (
-    event: IpcMainEvent,
-    request: { webContentsId?: unknown; throttle?: unknown },
-  ) => {
+  (event: IpcMainEvent, request: unknown) => {
     if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
     setWebviewBackgroundThrottling(request, (id) => webContents.fromId(id));
   },
