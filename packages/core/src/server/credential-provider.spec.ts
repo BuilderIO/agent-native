@@ -3653,6 +3653,25 @@ describe("a request that must not read user-scope secrets", () => {
       mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
     ).toBe(false);
   });
+  it("does not fall back to the caller's pre-org workspace copy", async () => {
+    mockGetRequestContext.mockReturnValue({ skipUserScopeSecrets: true });
+    mockGetRequestUserEmail.mockReturnValue("owner@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-owner");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:owner@b.com"
+        ? { value: "solo-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    const resolved = await resolveSecretDetailed("SLACK_SIGNING_SECRET");
+
+    expect(resolved.value).not.toBe("solo-secret");
+    expect(
+      mockReadAppSecret.mock.calls.some(
+        (call) => call[0].scopeId === "solo:owner@b.com",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("Restrict personal API keys", () => {

@@ -995,9 +995,14 @@ export function createIntegrationsPlugin(
       adapters,
       webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
       async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        const recordedOrgId = await assertCanReplaceIntegrationOwner(
+          platform,
+          actorEmail,
+        );
         const ownerOrgId =
-          (await assertCanReplaceIntegrationOwner(platform, actorEmail)) ??
-          (await integrationOwnerOrgId(actorEmail));
+          recordedOrgId === undefined
+            ? await integrationOwnerOrgId(actorEmail)
+            : recordedOrgId;
         if (platform === "google-docs") {
           if (enabled) {
             const ownerEmail = actorEmail?.trim();
@@ -3352,14 +3357,22 @@ export function createIntegrationsPlugin(
               ...integrationRequestContext(requestScope),
             },
             async () => {
-              let installOwnerOrgId = access.orgId ?? null;
+              const installOwnerOrgId = access.orgId ?? null;
               if (!userOnlyInstall) {
                 try {
-                  installOwnerOrgId =
-                    (await assertCanReplaceIntegrationOwner(
-                      "slack",
-                      access.ownerEmail,
-                    )) ?? installOwnerOrgId;
+                  const recordedOrgId = await assertCanReplaceIntegrationOwner(
+                    "slack",
+                    access.ownerEmail,
+                  );
+                  if (
+                    recordedOrgId !== undefined &&
+                    recordedOrgId !== installOwnerOrgId
+                  ) {
+                    setResponseStatus(event, 409);
+                    return oauthErrorPage(
+                      "Switch to the organization that manages Slack, then install again.",
+                    );
+                  }
                 } catch (err) {
                   if (!isError(err) || err.statusCode !== 403) throw err;
                   setResponseStatus(event, 403);

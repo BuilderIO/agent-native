@@ -1380,6 +1380,71 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("keeps a channel recorded without an organization out of the actor's organization", async () => {
+    getSessionMock.mockResolvedValue({ email: "solo-owner@example.test" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: null },
+      owner: "solo-owner@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-later",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "fake",
+      { enabled: false, ownerOrgId: null },
+      "default",
+      "solo-owner@example.test",
+    );
+  });
+
+  it("refuses a Slack workspace install into an organization other than the one recorded on the channel", async () => {
+    getSessionMock.mockResolvedValue({ email: "shared-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-second", role: "owner" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: {
+        enabled: true,
+        managedOAuth: true,
+        ownerOrgId: "org-first",
+      },
+      owner: "first-admin@example.test",
+    } as never);
+    readOrgMemberRoleMock.mockResolvedValue("admin");
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const state = encodeOAuthState({
+      redirectUri:
+        "https://app.test/_agent-native/integrations/slack/oauth/callback",
+      owner: "shared-admin@example.test",
+      orgId: "org-second",
+      app: "agent-native:slack",
+      addAccount: true,
+      returnUrl: "/messaging",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      `/_agent-native/integrations/slack/oauth/callback?code=fake-code&state=${encodeURIComponent(state)}`,
+    );
+
+    expect(result.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
   it("requires a session before mutating integration config", async () => {
     getSessionMock.mockResolvedValueOnce(null);
     const nitroApp = createNitroApp();

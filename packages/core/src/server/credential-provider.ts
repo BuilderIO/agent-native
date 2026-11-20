@@ -2761,13 +2761,14 @@ export async function resolveSecretDetailed(
       // here, and must not become unreachable once that org exists. It stays
       // inside this try so a failed org-scoped read still surfaces as
       // retryable instead of being answered by a stale pre-org row.
-      const soloWorkspaceSecret = personalRestricted
-        ? null
-        : await readAppSecret({
-            key,
-            scope: "workspace",
-            scopeId: `solo:${email}`,
-          });
+      const soloWorkspaceSecret =
+        personalRestricted || skipUserScope
+          ? null
+          : await readAppSecret({
+              key,
+              scope: "workspace",
+              scopeId: `solo:${email}`,
+            });
       if (soloWorkspaceSecret?.value) {
         if (traceLookup) {
           console.log(
