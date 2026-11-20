@@ -193,7 +193,7 @@ describe("useActionMutation", () => {
       );
       try {
         await act(async () => {
-          await mutation!.mutateAsync({});
+          await mutation?.mutateAsync({});
         });
         await vi.waitFor(() => expect(settled).toHaveLength(1));
       } finally {
