@@ -29,6 +29,7 @@ export interface RecurringJob {
   createdBy: string | null;
   mcpTools: string[];
   canUpdate: boolean;
+  capabilities?: AutomationCapabilities;
 }
 
 export type AutomationTriggerType = "event" | "schedule" | "manual" | "webhook";

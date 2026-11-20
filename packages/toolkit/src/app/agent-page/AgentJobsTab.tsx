@@ -82,6 +82,7 @@ type ListedAutomation =
       kind: "recurring";
       resource: RecurringJob;
       triggerType: "schedule";
+      canRunNow?: boolean;
     }
   | {
       kind: "automation";
@@ -104,6 +105,7 @@ function listRecurringJobs(
     const automationRun = Date.parse(automation?.lastRun ?? "");
     const useAutomation =
       automation &&
+      !(job.lastStatus === "paused" && !job.enabled) &&
       ((Number.isFinite(automationRun) && !Number.isFinite(jobRun)) ||
         automationRun > jobRun ||
         ((automationRun === jobRun ||
@@ -120,6 +122,7 @@ function listRecurringJobs(
           }
         : job,
       triggerType: "schedule",
+      canRunNow: job.capabilities?.canOperate ?? job.canUpdate,
     };
   });
 }
@@ -142,6 +145,7 @@ function listAutomations(
                 canUpdate: false,
               },
               triggerType: "schedule",
+              canRunNow: resource.capabilities.canOperate,
             }
           : { kind: "automation", resource, triggerType: resource.triggerType },
     );
@@ -473,6 +477,10 @@ export function AgentJobsTab({
         : entry.resource.instructions;
     const failed =
       resource.lastStatus === "error" || resource.lastStatus === "interrupted";
+    const canRunNow =
+      entry.kind === "recurring"
+        ? (entry.canRunNow ?? resource.canUpdate)
+        : resource.canUpdate && entry.resource.capabilities.canOperate;
 
     return (
       <article
@@ -609,18 +617,17 @@ export function AgentJobsTab({
                   <IconEye aria-hidden="true" />
                   {t("jobs.details", { defaultValue: "Details" })}
                 </DropdownMenuItem>
+                {canRunNow ? (
+                  <DropdownMenuItem
+                    disabled={runAutomationMutation.isPending}
+                    onSelect={() => setRunTarget(entry)}
+                  >
+                    <IconPlayerPlay aria-hidden="true" />
+                    {t("jobs.runNow", { defaultValue: "Run now" })}
+                  </DropdownMenuItem>
+                ) : null}
                 {resource.canUpdate ? (
                   <>
-                    {entry.kind !== "automation" ||
-                    entry.resource.capabilities.canOperate ? (
-                      <DropdownMenuItem
-                        disabled={runAutomationMutation.isPending}
-                        onSelect={() => setRunTarget(entry)}
-                      >
-                        <IconPlayerPlay aria-hidden="true" />
-                        {t("jobs.runNow", { defaultValue: "Run now" })}
-                      </DropdownMenuItem>
-                    ) : null}
                     {entry.kind === "automation" ? (
                       <DropdownMenuItem
                         onSelect={() => openEditor(entry.resource)}

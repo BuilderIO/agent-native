@@ -390,6 +390,154 @@ describe("AgentJobsTab organization automations", () => {
     },
   );
 
+  it.each(["2026-01-03T12:00:00Z", null])(
+    "keeps a framework pause when the automation snapshot has the same last run %s",
+    (lastRun) => {
+      const job =
+        jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+      const automation =
+        jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+      if (!job || !automation)
+        throw new Error("Job fixtures are not configured");
+      let jobResult = {
+        ...queryResult([
+          {
+            ...job,
+            enabled: false,
+            lastRun,
+            lastStatus: "paused",
+            lastError: "Framework pause reason",
+          },
+        ]),
+        dataUpdatedAt: 100,
+      };
+      const automationResult = {
+        ...queryResult([
+          {
+            ...automation,
+            id: job.id,
+            resourceId: job.id,
+            classification: "recurring-job",
+            enabled: true,
+            lastRun,
+            lastStatus: "success",
+            lastError: null,
+          },
+        ]),
+        dataUpdatedAt: 200,
+      };
+      jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") =>
+        scope === "org" ? jobResult : queryResult([]),
+      );
+      jobMocks.useAutomations.mockImplementation((scope: "user" | "org") =>
+        scope === "org" ? automationResult : queryResult([]),
+      );
+      const render = () =>
+        act(() => root.render(<AgentJobsTab scope="org" canManageOrg />));
+      render();
+      expect(container.querySelector("article")?.textContent).toContain(
+        "paused",
+      );
+      expect(container.querySelector("article")?.textContent).toContain(
+        "Framework pause reason",
+      );
+      jobResult = {
+        ...jobResult,
+        dataUpdatedAt: 300,
+        data: [
+          {
+            ...jobResult.data[0],
+            enabled: true,
+            lastStatus: "success",
+            lastError: null,
+          },
+        ],
+      };
+      render();
+      expect(container.querySelector("article")?.textContent).not.toContain(
+        "Framework pause reason",
+      );
+      expect(container.querySelector("article")?.textContent).toContain(
+        "success",
+      );
+    },
+  );
+
+  it.each([
+    { state: "loading", canOperate: true },
+    { state: "failed", canOperate: true },
+    { state: "loading", canOperate: false },
+    { state: "failed", canOperate: false },
+  ])(
+    "gates Run now by operation permission while recurring jobs are $state (allowed: $canOperate)",
+    ({ state, canOperate }) => {
+      const automation =
+        jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+      if (!automation) throw new Error("Automation fixture is not configured");
+      const runNow = vi.fn();
+      jobMocks.useRunAutomationNow.mockReturnValue(mutationResult(runNow));
+      jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") =>
+        scope === "org"
+          ? {
+              data: undefined,
+              isLoading: state === "loading",
+              error: state === "failed" ? new Error("Unavailable") : null,
+            }
+          : queryResult([]),
+      );
+      jobMocks.useAutomations.mockImplementation((scope: "user" | "org") =>
+        queryResult(
+          scope === "org"
+            ? [
+                {
+                  ...automation,
+                  classification: "recurring-job",
+                  triggerType: "schedule",
+                  capabilities: { ...automation.capabilities, canOperate },
+                },
+              ]
+            : [],
+        ),
+      );
+      act(() => root.render(<AgentJobsTab scope="org" canManageOrg />));
+      const row = container.querySelector("article");
+      expect(row?.querySelector('[role="switch"]')).toBeNull();
+      const menu = row?.querySelector<HTMLButtonElement>(
+        'button[aria-haspopup="menu"]',
+      );
+      if (!menu) throw new Error("Missing legacy menu");
+      act(() =>
+        menu.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        ),
+      );
+      const items = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ];
+      expect(items.map((item) => item.textContent?.trim())).toEqual(
+        canOperate ? ["Details", "Run now"] : ["Details"],
+      );
+      if (canOperate) {
+        const runItem = items.find(
+          (item) => item.textContent?.trim() === "Run now",
+        );
+        if (!runItem) throw new Error("Missing run action");
+        act(() => runItem.click());
+        const runButton = [
+          ...document.querySelectorAll<HTMLButtonElement>(
+            '[role="dialog"] button',
+          ),
+        ].find((button) => button.textContent?.trim() === "Run now");
+        if (!runButton) throw new Error("Missing run confirmation");
+        act(() => runButton.click());
+        expect(runNow).toHaveBeenCalledWith(
+          { resourceId: automation.resourceId },
+          expect.any(Object),
+        );
+      }
+    },
+  );
+
   it("enables legacy controls once the app-scoped job is available", () => {
     const job =
       jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
