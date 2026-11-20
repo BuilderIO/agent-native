@@ -8162,8 +8162,6 @@ export async function runAgentLoop(opts: {
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
-  // A private result is redacted from the ledger, so a resumed model cannot
-  // see what the earlier write did and would redo it with new arguments.
   const priorPrivateSideEffect =
     journalRead.status === "read" &&
     journalRead.events.some(
