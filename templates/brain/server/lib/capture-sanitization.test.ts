@@ -7,7 +7,10 @@ import {
   sanitizeCaptureForStorage,
 } from "./capture-sanitization.js";
 import { jevSensitivityDecision } from "./jev-classifier.js";
-import { BRAIN_SENSITIVITY_CATEGORIES } from "./search-index-contracts.js";
+import {
+  BRAIN_SENSITIVITY_CATEGORIES,
+  withheldPassageCount,
+} from "./search-index-contracts.js";
 import {
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
@@ -943,6 +946,26 @@ describe("Zoom restricted-line withholding", () => {
       version: 1,
       withheldPassages: 1,
     });
+    expect(result.metadata.captureSanitization).toMatchObject({
+      method: "jev",
+      confidenceBand: "high",
+      rawContentRetained: false,
+    });
+    const screenedAgain = await sanitizeCaptureForStorage(
+      zoomInput(result.content, {
+        source: { ...baseInput.source, provider: "manual" as const },
+        metadata: result.metadata,
+      }),
+    );
+    expect(screenedAgain.metadata.captureSanitization).toMatchObject({
+      method: "jev",
+      confidenceBand: "high",
+      rawContentRetained: false,
+    });
+    expect(screenedAgain.metadata.passageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
   });
 
   it.each([
@@ -998,10 +1021,55 @@ describe("Zoom restricted-line withholding", () => {
     ).rejects.toBeInstanceOf(BrainClassifierUnavailableError);
   });
 
-  it("still quarantines a whole Clips transcript", async () => {
+  it.each([
+    "clips",
+    "generic",
+    "slack",
+    "github",
+    "gmail",
+    "google_calendar",
+    "google_drive",
+  ] as const)(
+    "withholds restricted passages for %s transcript captures",
+    async (provider) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+          source: { ...baseInput.source, provider },
+          metadata: {
+            originalUrl: "https://example.test/original",
+            nested: { link: "https://example.test/full" },
+          },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).toContain("update 30 -");
+      expect(result.content).not.toContain("MEDICAL_LEAVE");
+      expect(result.metadata.passageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: 1,
+      });
+      expect(
+        withheldPassageCount(result.metadata, provider, "transcript"),
+      ).toBe(1);
+      expect(result.metadata.captureSanitization).toMatchObject({
+        method: "jev",
+        sanitizedBeforeStorage: true,
+        rawContentRetained: false,
+        disposition: "allowed",
+        confidenceBand: "high",
+      });
+      expect(JSON.stringify(result.metadata)).not.toContain("example.test");
+    },
+  );
+
+  it("still quarantines a whole Clips document", async () => {
     mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
     const result = await sanitizeCaptureForStorage(
       zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+        kind: "document",
         source: { ...baseInput.source, provider: "clips" as const },
       }),
     );

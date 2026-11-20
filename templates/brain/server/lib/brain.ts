@@ -85,6 +85,8 @@ import {
 } from "./knowledge-provenance.js";
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
+  parseCaptureMetadata,
+  publicCaptureExternalId,
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
@@ -489,7 +491,11 @@ export function serializeCapture(
   return {
     id: row.id,
     sourceId: row.sourceId,
-    externalId: row.externalId,
+    externalId: publicCaptureExternalId(
+      row.externalId,
+      parseCaptureMetadata(row.metadataJson),
+      row.kind,
+    ),
     title: row.title,
     kind: row.kind as BrainCaptureKind,
     content: row.content,
@@ -1008,6 +1014,7 @@ export async function commitPreparedCaptureWithWarnings(
           .limit(1)
       : [],
   );
+  const existingRevision = existing ? stableJson(existing) : null;
   const upstreamDeletionReceipt = values.externalId
     ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
     : null;
@@ -1173,6 +1180,15 @@ export async function commitPreparedCaptureWithWarnings(
         ],
         scoped,
       );
+      if (existingRevision !== null) {
+        const [current] = await scoped
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, captureId))
+          .limit(1);
+        if (!current || stableJson(current) !== existingRevision)
+          throw new BrainCaptureConcurrentError();
+      }
       const audience = await ensureCaptureAudience(audienceInput);
       const result = (await scoped
         .update(schema.brainRawCaptures)

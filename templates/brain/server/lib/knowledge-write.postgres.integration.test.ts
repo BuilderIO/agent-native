@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -507,6 +507,52 @@ describe.skipIf(!POSTGRES_URL)(
       links: await query(
         "SELECT id, audience_id FROM brain_capture_audiences ORDER BY id",
       ),
+    });
+
+    it("rejects a reimport whose capture changed while it waited for the row lock", async () => {
+      const oldHash = await brain.contentHash(CONTENT_A);
+      const newHash = await brain.contentHash(CONTENT_B);
+      await getDb()
+        .update(schema.brainRawCaptures)
+        .set({
+          contentHash: oldHash,
+          kind: "generic",
+          status: "distilled",
+          distilledAt: STAMP,
+        })
+        .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const writer = track(asQa(() => brain.createCapture(capture())));
+      expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
+      holder.release(async (tx) => {
+        await tx
+          .update(schema.brainRawCaptures)
+          .set({
+            content: CONTENT_B,
+            contentHash: newHash,
+            status: "queued",
+            distilledAt: null,
+          })
+          .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      });
+      await holder.done;
+      const outcome = await writer.outcome;
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("stale write unexpectedly succeeded");
+      expect(outcome.error).toBeInstanceOf(brain.BrainCaptureConcurrentError);
+      expect(
+        only(
+          await getDb()
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, "capture-a")),
+        ),
+      ).toMatchObject({
+        content: CONTENT_B,
+        contentHash: newHash,
+        status: "queued",
+        distilledAt: null,
+      });
     });
 
     it("a changed capture with a null stored hash removes the stale canonical resource and derived knowledge", async () => {

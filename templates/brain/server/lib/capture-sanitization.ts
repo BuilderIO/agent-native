@@ -262,8 +262,7 @@ function deterministicMeetingOutageFallback(
     decision.disposition !== "allowed" ||
     input.kind !== "transcript" ||
     !["granola", "clips"].includes(input.source.provider) ||
-    (input.source.provider === "granola" &&
-      input.content.includes(WITHHELD_MARKER)) ||
+    input.content.includes(WITHHELD_MARKER) ||
     !shouldSanitizeCaptureBeforeStorage(input) ||
     !hasSummarySection(decision.safeContent) ||
     PERSONAL_SIGNAL.test(decision.safeContent) ||
@@ -742,7 +741,6 @@ export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
   const screened =
-    ["zoom", "manual", "granola"].includes(input.source.provider) &&
     input.kind === "transcript"
       ? await withholdRestrictedTranscriptLines(input)
       : undefined;
@@ -775,8 +773,12 @@ export async function sanitizeCaptureForStorage(
     captureSanitization: {
       sanitizedBeforeStorage: true,
       rawContentRetained: false,
+      method: result.decision.classifier,
       disposition: "allowed",
-      policyVersion: BRAIN_SENSITIVITY_POLICY_VERSION,
+      categories: result.decision.categories,
+      confidenceBand: result.decision.confidenceBand,
+      policyVersion: result.decision.policyVersion,
+      sanitizedAt: new Date().toISOString(),
     },
     [input.source.provider === "zoom"
       ? "zoomPassageQuarantine"
@@ -878,7 +880,6 @@ async function sanitizeWholeCapture(
             {
               dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
               preserveGaps:
-                ["zoom", "manual", "granola"].includes(input.source.provider) &&
                 input.kind === "transcript" &&
                 input.content.includes(WITHHELD_MARKER),
             },

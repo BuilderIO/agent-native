@@ -17,6 +17,10 @@ import {
 } from "../server/lib/brain.js";
 import { sanitizeCaptureForStorage } from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureInvalidation } from "../server/lib/ingest-queue.js";
+import {
+  parseCaptureMetadata,
+  publicCaptureExternalId,
+} from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import type { BrainCaptureKind, BrainSourceProvider } from "../shared/types.js";
 import { idSchema, stringArrayCliSchema } from "./_schemas.js";
@@ -187,6 +191,15 @@ export default defineAction({
         ),
         settings,
       });
+      const publicExternalId = publicCaptureExternalId(
+        publicCaptureExternalId(
+          row.capture.externalId,
+          parseCaptureMetadata(row.capture.metadataJson),
+          row.capture.kind,
+        ),
+        sanitized.metadata,
+        row.capture.kind,
+      );
       const sanitizer = sanitized.metadata.captureSanitization as
         | Record<string, unknown>
         | undefined;
@@ -194,7 +207,7 @@ export default defineAction({
         results.push({
           id: row.capture.id,
           sourceId: row.capture.sourceId,
-          externalId: row.capture.externalId,
+          externalId: publicExternalId,
           title: sanitized.title,
           capturedAt: row.capture.capturedAt,
           beforeLength,
@@ -239,7 +252,7 @@ export default defineAction({
         results.push({
           id: row.capture.id,
           sourceId: row.capture.sourceId,
-          externalId: row.capture.externalId,
+          externalId: null,
           title: "Privacy-blocked capture",
           capturedAt: row.capture.capturedAt,
           beforeLength,
@@ -328,7 +341,7 @@ export default defineAction({
       results.push({
         id: row.capture.id,
         sourceId: row.capture.sourceId,
-        externalId: row.capture.externalId,
+        externalId: publicExternalId,
         title: sanitized.title,
         capturedAt: row.capture.capturedAt,
         beforeLength,

@@ -42,14 +42,19 @@ export function withheldPassageCount(
   provider: string,
   kind: string,
 ): number | null {
-  if (
-    provider !== "zoom" &&
-    !(kind === "transcript" && ["manual", "granola"].includes(provider))
-  )
-    return 0;
+  if (provider !== "zoom" && kind !== "transcript") return 0;
   if (metadata === null) return null;
   const withheld = readWithheldPassages(metadata);
   return withheld === undefined ? 0 : withheld;
+}
+
+export function publicCaptureExternalId(
+  externalId: string | null,
+  metadata: Record<string, unknown> | null,
+  kind: string,
+): string | null {
+  if (metadata === null) return kind === "transcript" ? null : externalId;
+  return readWithheldPassages(metadata) === undefined ? externalId : null;
 }
 
 export const BRAIN_SENSITIVITY_POLICY_VERSION = "2";

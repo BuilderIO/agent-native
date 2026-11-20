@@ -11,6 +11,7 @@ import {
 } from "../server/lib/brain.js";
 import {
   parseCaptureMetadata,
+  publicCaptureExternalId,
   withheldPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
@@ -184,7 +185,9 @@ export default defineAction({
               provider: source.provider,
               status: source.status,
             },
-            externalId: redactOptionalText(row.externalId),
+            externalId: redactOptionalText(
+              publicCaptureExternalId(row.externalId, metadata, row.kind),
+            ),
             title: redactSensitiveText(row.title),
             kind: row.kind,
             status: row.status,

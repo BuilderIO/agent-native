@@ -1403,6 +1403,64 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("hides partial capture external IDs on list and raw or redacted reads without changing the stored locator", async () => {
+    seedSource();
+    const externalId = "https://example.test/private-transcript";
+    const stored = seedCapture({
+      kind: "transcript",
+      externalId,
+      metadataJson: JSON.stringify({
+        passageQuarantine: { version: 1, withheldPassages: 1 },
+      }),
+    });
+    const list = await listCapturesAction.run({
+      sourceId: "source-1",
+      includePreview: false,
+      previewLength: 220,
+    });
+    expect(list.captures[0]).toMatchObject({
+      externalId: null,
+      withheldPassages: 1,
+    });
+    for (const includeRawContent of [false, true]) {
+      const result = await getCaptureAction.run({
+        id: "capture-1",
+        includeRawContent,
+      });
+      expect(result.capture).toMatchObject({
+        externalId: null,
+        withheldPassages: 1,
+      });
+    }
+    expect(stored.externalId).toBe(externalId);
+  });
+
+  it("deduplicates partial transcripts using the internal external ID", async () => {
+    seedSource();
+    const input = {
+      sourceId: "source-1",
+      externalId: "https://example.test/private-transcript",
+      title: "Planning",
+      kind: "transcript" as const,
+      privacyClassifier: "deterministic" as const,
+      content:
+        "Roadmap launch is ready.\nProduct planning is on track.\nHer salary increase is approved.\nThe API project is next.\nThe customer launch is Friday.",
+    };
+    const first = await createCapture(input);
+    const second = await createCapture(input);
+    expect(second.id).toBe(first.id);
+    expect(mocks.rows.captures).toHaveLength(1);
+    expect(mocks.rows.captures[0].externalId).toBe(input.externalId);
+    const result = await getCaptureAction.run({
+      id: first.id,
+      includeRawContent: true,
+    });
+    expect(result.capture).toMatchObject({
+      externalId: null,
+      withheldPassages: 1,
+    });
+  });
+
   it("lists the requested capture even when another capture fills the limit", async () => {
     seedSource();
     seedCapture({ id: "other" });
