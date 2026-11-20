@@ -32,7 +32,6 @@ import { bodyHoldsChanges } from "@shared/document-intent-merge";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
-import { linkCardsAsPlainLinks } from "@shared/link-card-block";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -530,7 +529,7 @@ const MarkdownPasteDetection = Extension.create({
             ).markdown;
             return (
               spreadsheetTextForSlice(slice, editor.schema) ??
-              linkCardsAsPlainLinks(serializer.serialize(slice.content))
+              serializer.serialize(slice.content)
             );
           },
           handlePaste(view, event) {
