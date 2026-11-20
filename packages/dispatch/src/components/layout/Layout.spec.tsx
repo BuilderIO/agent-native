@@ -323,9 +323,14 @@ function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
 function ChatRouteSwitcher({ target }: { target: string }) {
   const navigate = useNavigate();
   return (
-    <button type="button" onClick={() => navigate(target)}>
-      Switch chat
-    </button>
+    <>
+      <button type="button" onClick={() => navigate(target)}>
+        Switch chat
+      </button>
+      <button type="button" onClick={() => navigate(-1)}>
+        Go back
+      </button>
+    </>
   );
 }
 
@@ -1076,6 +1081,41 @@ describe("Dispatch NavContent", () => {
       expect(
         container.querySelector("[data-chat-first-app-pane]"),
       ).not.toBeNull();
+    });
+
+    it("clears the provisional scope once the URL catches up, so navigating Back returns to a blank new chat", async () => {
+      await renderChat(
+        "/chat",
+        <ChatRouteSwitcher target="/chat/route-back-thread" />,
+      );
+      const route = routeTo({ status: "ok", app: "mail" });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-back-thread",
+          queued: false,
+        });
+      });
+      await route.answer();
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Switch chat")
+          ?.click();
+      });
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Go back")
+          ?.click();
+      });
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
     });
 
     it("does not flash a previous session's saved pane before routing a new chat", async () => {

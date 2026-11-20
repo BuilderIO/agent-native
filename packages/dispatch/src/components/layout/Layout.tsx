@@ -1482,6 +1482,10 @@ function DispatchLayout({
     });
   }, [newChatLocationKey]);
   useEffect(() => {
+    if (!pathThreadId) return;
+    setSentNewChat((current) => (current ? null : current));
+  }, [pathThreadId]);
+  useEffect(() => {
     if (!electronEmbedded || typeof window === "undefined") return;
     const url = new URL(window.location.href);
     if (isElectronEmbeddedSearch(url.search)) return;
