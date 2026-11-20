@@ -3281,7 +3281,6 @@ export function ComboRenderer({
             }
             itemSorter={(item) => -(Number(item.value) || 0)}
           />
-          {/* Recharts groups bar positions by stack ID across both Y axes. */}
           {yKeys.map((key, i) =>
             barKeySet.has(key) ? (
               <Bar

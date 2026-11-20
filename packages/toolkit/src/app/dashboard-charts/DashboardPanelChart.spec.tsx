@@ -70,7 +70,7 @@ describe("DashboardPanelChart", () => {
     HTMLElement.prototype.getBoundingClientRect = function () {
       if (this.id === "recharts_measurement_span") {
         return {
-          width: (this.textContent?.length ?? 0) * 7,
+          width: this.textContent.length * 7,
           height: 12,
         } as DOMRect;
       }
@@ -151,8 +151,6 @@ describe("DashboardPanelChart", () => {
     const stacked = rectangles();
     expect(stacked).toHaveLength(4);
     const [northFirst, northSecond, southFirst] = stacked;
-    if (!northFirst || !northSecond || !southFirst)
-      throw new Error("Missing bars");
     expect(northFirst.height).toBeGreaterThan(0);
     expect(southFirst.height).toBeGreaterThan(0);
     expect(northFirst.x).toBeCloseTo(southFirst.x);
@@ -169,8 +167,6 @@ describe("DashboardPanelChart", () => {
     ].map((line) => Number(line.getAttribute("y1")));
     expect(grid).toHaveLength(2);
     const [top, bottom] = grid;
-    if (top === undefined || bottom === undefined)
-      throw new Error("Missing chart grid");
     expect(container.querySelectorAll(".recharts-yAxis")).toHaveLength(2);
     expect(x1).toBeCloseTo(northFirst.x + northFirst.width / 2);
     expect(x2).toBeCloseTo(northSecond.x + northSecond.width / 2);
@@ -183,7 +179,6 @@ describe("DashboardPanelChart", () => {
     const grouped = rectangles();
     expect(grouped).toHaveLength(4);
     const [groupNorth, , groupSouth] = grouped;
-    if (!groupNorth || !groupSouth) throw new Error("Missing grouped bars");
     expect(groupNorth.x).not.toBeCloseTo(groupSouth.x);
     expect(groupNorth.y + groupNorth.height).toBeCloseTo(
       groupSouth.y + groupSouth.height,
@@ -229,8 +224,6 @@ describe("DashboardPanelChart", () => {
       />,
     );
     const [positive, negative, morePositive, moreNegative] = bars();
-    if (!positive || !negative || !morePositive || !moreNegative)
-      throw new Error("Missing bars");
     expect(bars()).toHaveLength(4);
     expect(positive.height).toBeGreaterThan(0);
     expect(negative.height).toBeGreaterThan(0);
@@ -245,8 +238,6 @@ describe("DashboardPanelChart", () => {
       <DashboardPanelChart panel={panel("combo", config)} rows={rows} />,
     );
     const [groupedPositive, groupedNegative] = bars();
-    if (!groupedPositive || !groupedNegative)
-      throw new Error("Missing grouped bars");
     expect(groupedPositive.x).not.toBeCloseTo(groupedNegative.x);
     expect(groupedNegative.y).toBeCloseTo(
       groupedPositive.y + groupedPositive.height,
@@ -285,7 +276,6 @@ describe("DashboardPanelChart", () => {
     }));
     expect(bars).toHaveLength(4);
     const [north, south, east, west] = bars;
-    if (!north || !south || !east || !west) throw new Error("Missing bars");
     expect(north.x).toBeCloseTo(south.x);
     expect(south.y + south.height).toBeCloseTo(north.y);
     expect(east.x).toBeCloseTo(west.x);
