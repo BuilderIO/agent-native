@@ -49,6 +49,7 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 "
 `;
 
+// oracle-change: the navigate rule now says agents keep the user's view unless asked to open an item
 exports[`assembled prompt snapshots > full prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
