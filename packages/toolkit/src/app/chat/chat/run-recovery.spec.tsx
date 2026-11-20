@@ -513,7 +513,7 @@ describe("run recovery surfaces", () => {
     expect(resendButton).toBeTruthy();
 
     await act(async () => {
-      resendButton.click();
+      resendButton?.click();
       await Promise.resolve();
     });
 
@@ -524,7 +524,7 @@ describe("run recovery surfaces", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
       "Check your inbox and spam folder.",
     );
-    expect(resendButton.disabled).toBe(true);
+    expect(resendButton?.disabled).toBe(true);
   });
 
   it("shows a retryable error when the verification email request fails", async () => {
