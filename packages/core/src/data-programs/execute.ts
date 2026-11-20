@@ -59,6 +59,7 @@ const LOGS_TAIL_MAX_CHARS = 4096;
 const NOT_SHAREABLE_RETRY_MS = 24 * 60 * 60 * 1000;
 const MIN_RUN_TIMEOUT_MS = 1_000;
 const VIEWER_CHECK_RESERVE_MS = 1_000;
+const VIEWER_CHECK_MAX_MS = 5_000;
 
 /**
  * `program_error` is an error the program's own code threw, and its message is
@@ -526,6 +527,7 @@ export async function runDataProgram(
       program,
       args,
       sharing,
+      timeoutMs,
       deadline,
     );
     if (shared) return shared;
@@ -566,7 +568,16 @@ export async function runDataProgram(
 }
 
 function signalAt(deadline: number): AbortSignal {
-  return AbortSignal.timeout(Math.max(0, deadline - Date.now()));
+  return AbortSignal.timeout(Math.max(0, Math.floor(deadline - Date.now())));
+}
+
+function viewerCheckSignal(deadline: number, timeoutMs: number): AbortSignal {
+  return signalAt(
+    Math.min(
+      deadline,
+      Date.now() + Math.min(VIEWER_CHECK_MAX_MS, timeoutMs / 4),
+    ),
+  );
 }
 
 interface OrgSharing {
@@ -587,6 +598,7 @@ async function resolveSharedCacheHit(
   program: DataProgramRow,
   args: RunDataProgramArgs,
   sharing: OrgSharing,
+  timeoutMs: number,
   deadline: number,
 ): Promise<DataProgramSuccess | null> {
   const latestSuccess = await getLatestSuccessfulRun(
@@ -601,7 +613,7 @@ async function resolveSharedCacheHit(
     uses,
     viewer: sharing.viewer,
     appId: args.appId ?? program.appId,
-    signal: signalAt(deadline),
+    signal: viewerCheckSignal(deadline, timeoutMs),
   });
   return sameCredentials ? hit : null;
 }
@@ -644,7 +656,7 @@ async function shouldRunShared(
     uses,
     viewer: sharing.viewer,
     appId: args.appId ?? program.appId,
-    signal: signalAt(deadline),
+    signal: viewerCheckSignal(deadline, timeoutMs),
   });
 }
 
@@ -666,6 +678,7 @@ async function runSharedProgram(
 
   const ledger = new CredentialUseLedger({
     readsOnly: true,
+    orgCredentialsOnly: true,
     bridgeTools: SHAREABLE_BRIDGE_TOOLS,
   });
   const startedAt = Date.now();

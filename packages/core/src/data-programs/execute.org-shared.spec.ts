@@ -96,6 +96,7 @@ interface SandboxCall {
   context?: { credentialScope?: "org" };
   credentialLedger?: {
     readsOnly: boolean;
+    orgCredentialsOnly: boolean;
     bridgeTools: ReadonlySet<string> | null;
     record: (use: CredentialUse) => void;
   };
@@ -515,6 +516,9 @@ describe("org-shared data program runs", () => {
     expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
     expect(sandbox).toHaveBeenCalledTimes(2);
     expect(sandbox.mock.calls[0]?.[0].credentialLedger?.readsOnly).toBe(true);
+    expect(
+      sandbox.mock.calls[0]?.[0].credentialLedger?.orgCredentialsOnly,
+    ).toBe(true);
     expect(sandbox.mock.calls[1]?.[0].credentialLedger).toBeUndefined();
     expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
       "dpr_first",
@@ -704,6 +708,35 @@ describe("org-shared data program runs", () => {
 
     expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
     expect(sandbox).not.toHaveBeenCalled();
+  });
+
+  it("gives up checking a viewer for the shared cache after a quarter of the time limit and runs their own program", async () => {
+    const execute = await loadExecute();
+    const sharedHash = execute.hashOrgSharedDataProgramParams(undefined, ORG);
+    const shared = makeRun({ credentialUsesJson: JSON.stringify([orgToken]) });
+    storeMocks.getLatestSuccessfulRun.mockImplementation(
+      async (_id: string, hash: string) =>
+        hash === sharedHash ? shared : null,
+    );
+    storeMocks.getLatestRun.mockResolvedValue(shared);
+    credentialMocks.resolveCredentialDetailed.mockReturnValue(
+      new Promise(() => {}),
+    );
+    const sandbox = mockSandbox(() => sandboxOutput([{ own: true }]));
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+      timeoutMs: 2_000,
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBeUndefined();
+    expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBeGreaterThanOrEqual(1_000);
+    expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBeLessThanOrEqual(1_500);
   });
 
   it("keeps a per-viewer cache outside an org and for background programs", async () => {

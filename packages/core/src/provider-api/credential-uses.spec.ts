@@ -300,6 +300,38 @@ describe("provider API requests record the credentials they use", () => {
     expect(shareable(ledger.uses)).toBe(false);
   });
 
+  it("never looks up a person's OAuth account in a run shared with the org", async () => {
+    const { listOAuthAccountsByOwner } =
+      await import("../oauth-tokens/index.js");
+    const options: ProviderApiRuntimeOptions = {
+      ...runtimeOptions(),
+      providerIds: ["gmail"],
+    };
+    const request = { provider: "gmail", path: "/users/me/messages" };
+
+    vi.mocked(listOAuthAccountsByOwner).mockClear();
+    await expect(
+      runWithCredentialUseLedger(new CredentialUseLedger(), () =>
+        createProviderApiRuntime(options).executeRequest(request),
+      ),
+    ).rejects.toThrow();
+    expect(listOAuthAccountsByOwner).toHaveBeenCalled();
+
+    vi.mocked(listOAuthAccountsByOwner).mockClear();
+    const ledger = new CredentialUseLedger({ orgCredentialsOnly: true });
+    await expect(
+      runWithCredentialUseLedger(ledger, () =>
+        createProviderApiRuntime(options).executeRequest(request),
+      ),
+    ).rejects.toThrow("a run shared with the org doesn't use");
+    expect(listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(ledger.uses).toContainEqual({
+      kind: "provider-unresolved",
+      provider: "gmail",
+    });
+    expect(shareable(ledger.uses)).toBe(false);
+  });
+
   it("records a request that turns off the provider's own auth", async () => {
     const uses = await recordedUses(runtimeOptions(), {
       provider: "stripe",

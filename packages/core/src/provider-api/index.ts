@@ -18,6 +18,7 @@ import {
 } from "../credentials/index.js";
 import {
   CredentialUseLedger,
+  credentialUseLedgerOrgCredentialsOnly,
   recordCredentialUse,
   runWithCredentialUseLedger,
   type CredentialUse,
@@ -5429,6 +5430,11 @@ async function resolveOAuthBearerToken(options: {
   salesforceLoginUrl?: string | null;
   connectionId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
+  if (credentialUseLedgerOrgCredentialsOnly()) {
+    throw new Error(
+      `${options.auth.tokenLabel} comes from a person's OAuth account, which a run shared with the org doesn't use.`,
+    );
+  }
   const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
   const requestedAccountId = options.accountId?.trim();
   const accounts = await listOAuthAccountsByOwner(

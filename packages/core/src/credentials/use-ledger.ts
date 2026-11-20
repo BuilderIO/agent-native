@@ -32,12 +32,18 @@ export type CredentialUse =
 export class CredentialUseLedger {
   readonly #uses = new Map<string, CredentialUse>();
   readonly readsOnly: boolean;
+  readonly orgCredentialsOnly: boolean;
   readonly bridgeTools: ReadonlySet<string> | null;
 
   constructor(
-    options: { readsOnly?: boolean; bridgeTools?: ReadonlySet<string> } = {},
+    options: {
+      readsOnly?: boolean;
+      orgCredentialsOnly?: boolean;
+      bridgeTools?: ReadonlySet<string>;
+    } = {},
   ) {
     this.readsOnly = options.readsOnly ?? false;
+    this.orgCredentialsOnly = options.orgCredentialsOnly ?? false;
     this.bridgeTools = options.bridgeTools ?? null;
   }
 
@@ -65,6 +71,10 @@ export function runWithoutCredentialUseLedger<T>(work: () => T): T {
 
 export function credentialUseLedgerReadsOnly(): boolean {
   return ledgerStorage.getStore()?.readsOnly ?? false;
+}
+
+export function credentialUseLedgerOrgCredentialsOnly(): boolean {
+  return ledgerStorage.getStore()?.orgCredentialsOnly ?? false;
 }
 
 export function recordCredentialUse(use: CredentialUse): void {
