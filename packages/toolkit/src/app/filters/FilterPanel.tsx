@@ -205,7 +205,9 @@ export function FilterButton({
       className={cn("h-8 shrink-0 gap-1.5", className)}
     >
       <IconFilter />
-      {text.t("agentChat.filters.filter")}
+      <span className={cn(isMobile && "sr-only")}>
+        {text.t("agentChat.filters.filter")}
+      </span>
       {active > 0 ? (
         <>
           <span
@@ -284,7 +286,7 @@ export function FilterButton({
   }
 
   return (
-    <Popover modal={false} open={open} onOpenChange={changeOpen}>
+    <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align="start"

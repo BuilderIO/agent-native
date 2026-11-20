@@ -187,7 +187,6 @@ export function FilterAddPopover({
   const draftField = draft ? findFilterField(fields, draft.field) : undefined;
   return (
     <Popover
-      modal={false}
       open={open}
       onOpenChange={(next) => {
         if (next) setOpen(true);
@@ -351,7 +350,7 @@ function FilterValueButton({
     ? text.valueLabel(field, rule)
     : text.t("agentChat.filters.chooseValue");
   return (
-    <Popover modal={false} open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -411,7 +410,7 @@ function FilterFieldButton({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <Popover modal={false} open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           type="button"
