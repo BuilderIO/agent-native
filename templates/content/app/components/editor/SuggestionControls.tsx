@@ -162,24 +162,29 @@ export function SuggestionStepper({
       <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
         {t("comments.editPosition", { index: index + 1, total })}
       </span>
-      {steps.map((step) => (
-        <Tooltip key={step.direction}>
-          <TooltipTrigger asChild>
-            <CommentIconButton
-              aria-label={step.label}
-              disabled={step.to < 0 || step.to >= total}
-              onClick={(event) => {
-                event.stopPropagation();
-                onStep(step.to);
-              }}
-              data-suggestion-step={step.direction}
-            >
-              <step.icon size={16} />
-            </CommentIconButton>
-          </TooltipTrigger>
-          <TooltipContent>{step.label}</TooltipContent>
-        </Tooltip>
-      ))}
+      {steps.map((step) => {
+        // An end stays focusable, so stepping to it by keyboard keeps focus here.
+        const atEnd = step.to < 0 || step.to >= total;
+        return (
+          <Tooltip key={step.direction}>
+            <TooltipTrigger asChild>
+              <CommentIconButton
+                aria-label={step.label}
+                aria-disabled={atEnd || undefined}
+                className="aria-disabled:pointer-events-none aria-disabled:opacity-40"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!atEnd) onStep(step.to);
+                }}
+                data-suggestion-step={step.direction}
+              >
+                <step.icon size={16} />
+              </CommentIconButton>
+            </TooltipTrigger>
+            <TooltipContent>{step.label}</TooltipContent>
+          </Tooltip>
+        );
+      })}
     </div>
   );
 }

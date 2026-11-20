@@ -197,7 +197,7 @@ describe("ThreadSuggestionBody", () => {
       "comments.previousEdit",
     );
     expect(step("next").getAttribute("aria-label")).toBe("comments.nextEdit");
-    expect(step("previous").disabled).toBe(true);
+    expect(step("previous").getAttribute("aria-disabled")).toBe("true");
     expect(button('comments.acceptEdits:{"count":4}')).toBeDefined();
 
     act(() => step("next").click());
@@ -210,7 +210,11 @@ describe("ThreadSuggestionBody", () => {
     act(() => step("next").click());
     act(() => step("next").click());
     expect(shownEdits()).toEqual(["edit-3"]);
-    expect(step("next").disabled).toBe(true);
+    expect(step("next").getAttribute("aria-disabled")).toBe("true");
+
+    act(() => step("next").click());
+    expect(shownEdits()).toEqual(["edit-3"]);
+    expect(onStep).toHaveBeenCalledTimes(3);
   });
 
   it("keeps focus on Next while the keyboard steps through edits", () => {
@@ -236,6 +240,14 @@ describe("ThreadSuggestionBody", () => {
     expect(shownEdits()).toEqual(["edit-2"]);
     expect(next.isConnected).toBe(true);
     expect(document.activeElement).toBe(next);
+
+    press();
+    press();
+    press();
+
+    expect(shownEdits()).toEqual(["edit-5"]);
+    expect(next.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(next);
   });
 
   it("moves on to the next edit to decide once one is decided", () => {
@@ -250,6 +262,35 @@ describe("ThreadSuggestionBody", () => {
     expect(onDecide).toHaveBeenCalledWith(suggestions[0], "accepted");
     expect(onStep).toHaveBeenCalledWith(suggestions[2]);
     expect(shownEdits()).toEqual(["edit-2"]);
+  });
+
+  it("hands focus to the next edit's Accept once a stepped edit is decided", () => {
+    render(edits(5), { onDecideRemaining: vi.fn(), onStep: vi.fn() });
+    const accept = button("comments.acceptEdit");
+    accept.focus();
+
+    act(() => accept.click());
+
+    expect(shownEdits()).toEqual(["edit-1"]);
+    expect(accept.isConnected).toBe(false);
+    expect(document.activeElement).toBe(
+      requiredElement(
+        '[data-thread-suggestion="edit-1"] [data-suggestion-decision="accepted"]',
+      ),
+    );
+  });
+
+  it("steps through a large group the AI replaced", () => {
+    render(edits(5).map((suggestion) => withStatus(suggestion, "superseded")));
+
+    expect(statuses()).toEqual(["comments.suggestionReplaced"]);
+    expect(shownEdits()).toEqual(["edit-0"]);
+    act(() =>
+      requiredElement<HTMLButtonElement>(
+        '[data-suggestion-step="next"]',
+      ).click(),
+    );
+    expect(shownEdits()).toEqual(["edit-1"]);
   });
 
   it("pins a stepped group's Reject and Accept below its edit, outside the clipped edit box", () => {
@@ -346,7 +387,7 @@ describe("ThreadSuggestionBody", () => {
       host.querySelector("[data-suggestion-stepper]")?.textContent,
     ).toContain('comments.editPosition:{"index":1,"total":6}');
     const reached = [...shownEdits()];
-    while (!next.disabled) {
+    while (next.getAttribute("aria-disabled") !== "true") {
       act(() => next.click());
       reached.push(...shownEdits());
     }

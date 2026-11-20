@@ -9769,6 +9769,8 @@ function PageEditorSessionBody({
   const stepThreadSuggestion = useCallback(
     (threadId: string, suggestionId: string) => {
       setSteppedSuggestion({ threadId, suggestionId });
+      // A step is the latest choice, so a suggestion selected earlier gives way.
+      setSelectedSuggestionId((current) => (current ? suggestionId : current));
       revealSuggestionOnPage(suggestionId);
     },
     [revealSuggestionOnPage],

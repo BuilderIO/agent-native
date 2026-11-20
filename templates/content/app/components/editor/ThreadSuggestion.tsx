@@ -243,17 +243,40 @@ export function ThreadSuggestionBody({
     ({ leader }) => leader.status === "rejected",
   ).length;
   const decided = !pendingUnits.length && acceptedUnits + rejectedUnits > 0;
+  const stepped = !listsEveryEdit && units.length > LISTED_EDITS_MAX;
+  const index = Math.min(step, units.length - 1);
+  const steppedEditId = stepped
+    ? units.find((_, unitIndex) => unitIndex === index)?.leader.id
+    : undefined;
+  const followsDecision = useRef(false);
+  // Focus lost with a removed control, or still in the card, moves with it.
+  const keepsFocus = () => {
+    const focused = document.activeElement;
+    return (
+      !focused ||
+      focused === document.body ||
+      !!groupRef.current?.contains(focused)
+    );
+  };
+  // Deciding a stepped edit swaps in the next one, so focus goes to it.
+  useLayoutEffect(() => {
+    if (!followsDecision.current) return;
+    followsDecision.current = false;
+    if (!keepsFocus()) return;
+    const group = groupRef.current;
+    (
+      group?.querySelector<HTMLElement>(
+        "[data-thread-suggestion] [data-suggestion-decision]:not(:disabled)",
+      ) ?? group?.querySelector<HTMLElement>("[data-suggestion-step]")
+    )?.focus({ preventScroll: true });
+  }, [steppedEditId]);
   useLayoutEffect(() => {
     if (!decided || !decidingHere.current) return;
     decidingHere.current = false;
-    const focused = document.activeElement;
-    const keepsFocus =
-      !focused ||
-      focused === document.body ||
-      !!groupRef.current?.contains(focused);
+    const focusHere = keepsFocus();
     const frame = requestAnimationFrame(() => {
       settledRef.current?.scrollIntoView({ block: "nearest" });
-      if (keepsFocus) showRef.current?.focus({ preventScroll: true });
+      if (focusHere) showRef.current?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [decided]);
@@ -280,8 +303,6 @@ export function ThreadSuggestionBody({
   const staleUnitPieces = piecesOfStaleUnits(suggestions);
   const cantAccept = (suggestion: ResourceSuggestion) =>
     conflict(suggestion) || staleUnitPieces.has(suggestion.id);
-  const stepped = !listsEveryEdit && units.length > LISTED_EDITS_MAX;
-  const index = Math.min(step, units.length - 1);
   const showUnit = (unit: (typeof units)[number]) => {
     setStep(units.indexOf(unit));
     onStep?.(unit.leader);
@@ -291,7 +312,9 @@ export function ThreadSuggestionBody({
       ...units.slice(unitIndex + 1),
       ...units.slice(0, unitIndex),
     ].find(({ leader }) => leader.status === "pending");
-    if (nextPending) showUnit(nextPending);
+    if (!nextPending) return;
+    followsDecision.current = true;
+    showUnit(nextPending);
   };
   const decideUnit = (
     unit: (typeof units)[number],
@@ -458,6 +481,12 @@ export function ThreadSuggestionBody({
             />
           </div>
         </>
+      ) : stepped ? (
+        // Edits that all ended without a decision, as when the AI replaced them.
+        <div className="overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50">
+          {stepper}
+          <div className="grid gap-2 p-2">{edits}</div>
+        </div>
       ) : (
         <div>{edits}</div>
       )}
