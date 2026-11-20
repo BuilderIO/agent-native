@@ -31,6 +31,10 @@ function readerKey(reader: LinkSummaryReader): string {
   return `${reader.email}\n${reader.orgId ?? ""}`;
 }
 
+function sameEmail(answeredAs: string | null | undefined, email: string) {
+  return answeredAs?.trim().toLowerCase() === email.trim().toLowerCase();
+}
+
 async function askChunk(
   reader: LinkSummaryReader,
   links: Map<string, Waiter[]>,
@@ -46,7 +50,7 @@ async function askChunk(
     // The server answers as whoever is signed in when the request arrives.
     // Answers for anyone but the reader who queued these cards are dropped,
     // never cached under this reader.
-    if (result.reader !== reader.email) {
+    if (!sameEmail(result.reader, reader.email)) {
       throw new Error("Link summaries were answered for another reader");
     }
     const answers = result.summaries[Symbol.iterator]();
