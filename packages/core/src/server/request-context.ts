@@ -64,9 +64,11 @@ function processEnv(name: string): string | undefined {
 
 /**
  * The tab a request from no browser tab acts on for tab-scoped app state:
- * the tab of this app the user used last, or none used recently.
+ * a tab explicitly requested by `x-agent-native-browser-tab`, the tab of this
+ * app the user used last, or none used recently.
  */
 export type BrowserTabTarget =
+  | { kind: "requested"; tabId: string }
   | { kind: "last-used"; tabId: string; usedAt: number }
   | { kind: "unavailable" };
 

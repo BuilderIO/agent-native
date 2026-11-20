@@ -14363,3 +14363,92 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
     expect(init.properties.$mcp_source).toBe("http");
   });
 });
+
+describe("handleMcpRequest — x-agent-native-browser-tab header", () => {
+  beforeEach(() => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+
+  afterEach(() => {
+    delete process.env.BETTER_AUTH_SECRET;
+    vi.restoreAllMocks();
+  });
+
+  it("targets the tab named in x-agent-native-browser-tab without setting getCurrentRequestBrowserTabId", async () => {
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const { getCurrentRequestBrowserTabId, resolveCurrentRequestStateTab } =
+      await import("../application-state/script-helpers.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-tab-test",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+
+    const tabConfig = {
+      ...config,
+      actions: {
+        "inspect-tab": defineAction({
+          description: "Inspect the resolved browser tab target.",
+          readOnly: true,
+          mcpTool: true,
+          run: async () => ({
+            ownTabId: getCurrentRequestBrowserTabId(),
+            stateTab: await resolveCurrentRequestStateTab(),
+          }),
+        }),
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "inspect-tab", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-browser-tab": "replay-tab-1",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: tabConfig,
+      },
+    );
+
+    const texts: string[] = (out.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(texts[0])).toEqual({
+      ownTabId: null,
+      stateTab: { tabId: "replay-tab-1", unavailable: false },
+    });
+    expect(texts.at(-1)).toMatch(/targeted the requested browser tab/);
+
+    const bad = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "inspect-tab", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-browser-tab": "bad tab!",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: tabConfig,
+      },
+    );
+
+    const badTexts: string[] = (bad.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(badTexts[0]).stateTab.tabId).not.toBe("bad tab!");
+  });
+});
