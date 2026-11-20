@@ -515,11 +515,11 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  const { rows } = await client.query<{ tablename: string }>(
+  const { rows } = await client.query(
     "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
   );
   await client.exec(
-    `TRUNCATE ${rows.map((row) => `"${row.tablename}"`).join(", ")} CASCADE`,
+    `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
   );
   state.blobs.clear();
   state.notified = [];
