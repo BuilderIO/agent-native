@@ -136,59 +136,147 @@ function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   return true;
 }
 
-async function readsSameCredentials(
-  uses: readonly CredentialUse[],
-  viewer: OrgSharingViewer,
-  appId: string | undefined,
-): Promise<boolean> {
-  const ctx = { userEmail: viewer.userEmail, orgId: viewer.orgId };
-  for (const use of uses) {
+type StoredUse = Extract<CredentialUse, { kind: "stored" }>;
+
+interface ViewerCheck {
+  uses: readonly CredentialUse[];
+  viewer: OrgSharingViewer;
+  appId: string | undefined;
+  signal?: AbortSignal;
+}
+
+function viewerContext(viewer: OrgSharingViewer) {
+  return { userEmail: viewer.userEmail, orgId: viewer.orgId };
+}
+
+async function resolveViewerStoredUses(
+  check: ViewerCheck,
+): Promise<StoredUse[]> {
+  const resolved: StoredUse[] = [];
+  for (const use of check.uses) {
     if (use.kind !== "stored") continue;
-    const resolved = await resolveCredentialDetailed(use.key, ctx);
-    if (
-      (resolved?.scope ?? null) !== use.scope ||
-      (resolved?.scopeId ?? null) !== use.scopeId
-    ) {
-      return false;
-    }
+    const credential = await resolveCredentialDetailed(
+      use.key,
+      viewerContext(check.viewer),
+    );
+    resolved.push({
+      kind: "stored",
+      key: use.key,
+      scope: credential?.scope ?? null,
+      scopeId: credential?.scopeId ?? null,
+    });
   }
+  return resolved;
+}
 
-  const expected = providerUseKeys(uses);
-  if (expected.size === 0) return true;
-
-  if (!appId) return false;
+async function resolveViewerProviderUses(
+  check: ViewerCheck,
+): Promise<CredentialUse[] | null> {
+  const requested = new Set(
+    check.uses.flatMap((use) =>
+      use.kind === "provider-request" ? [use.provider] : [],
+    ),
+  );
+  if (requested.size === 0) return [];
+  if (!check.appId) return null;
   const {
     getRegisteredProviderApiRuntimeOptions,
     resolveProviderApiCredentialUses,
   } = await import("../provider-api/index.js");
-  const runtime = getRegisteredProviderApiRuntimeOptions(appId);
-  if (!runtime) return false;
-  const requested = new Set(
-    uses.flatMap((use) =>
-      use.kind === "provider-request" ? [use.provider] : [],
-    ),
-  );
-  const actual = new Set<string>();
+  const runtime = getRegisteredProviderApiRuntimeOptions(check.appId);
+  if (!runtime) return null;
+  const options = check.signal ? { signal: check.signal } : {};
+  const resolved: CredentialUse[] = [];
   for (const provider of requested) {
-    const viewerUses = await runWithRequestContext(ctx, () =>
-      resolveProviderApiCredentialUses(provider, runtime),
+    resolved.push(
+      ...(await runWithRequestContext(viewerContext(check.viewer), () =>
+        resolveProviderApiCredentialUses(provider, runtime, options),
+      )),
     );
-    for (const key of providerUseKeys(viewerUses)) actual.add(key);
   }
-  return sameMembers(expected, actual);
+  return resolved;
 }
 
-export async function viewerReadsSameCredentials(input: {
-  uses: readonly CredentialUse[];
-  viewer: OrgSharingViewer;
-  appId: string | undefined;
-}): Promise<boolean> {
+async function readsSameCredentials(check: ViewerCheck): Promise<boolean> {
+  const stored = await resolveViewerStoredUses(check);
+  const recorded = check.uses.filter(
+    (use): use is StoredUse => use.kind === "stored",
+  );
+  if (
+    stored.some(
+      (use, index) =>
+        use.scope !== recorded[index]?.scope ||
+        use.scopeId !== recorded[index]?.scopeId,
+    )
+  ) {
+    return false;
+  }
+
+  const expected = providerUseKeys(check.uses);
+  if (expected.size === 0) return true;
+  const provider = await resolveViewerProviderUses(check);
+  return provider !== null && sameMembers(expected, providerUseKeys(provider));
+}
+
+async function resolvesOnlyOrgCredentials(
+  check: ViewerCheck,
+): Promise<boolean> {
+  const stored = await resolveViewerStoredUses(check);
+  const orgId = check.viewer.orgId;
+  if (!isOrgShareableRun({ uses: stored, bridgeToolsUsed: [], orgId })) {
+    return false;
+  }
+  const provider = await resolveViewerProviderUses(check);
+  return (
+    provider !== null &&
+    isOrgShareableRun({
+      uses: [...stored, ...provider],
+      bridgeToolsUsed: [],
+      orgId,
+    })
+  );
+}
+
+function untilAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+    work
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+function checkViewer(
+  check: ViewerCheck,
+  compare: (check: ViewerCheck) => Promise<boolean>,
+): Promise<boolean> {
   return runWithoutCredentialUseLedger(async () => {
     try {
-      return await readsSameCredentials(input.uses, input.viewer, input.appId);
+      return await untilAborted(compare(check), check.signal);
     } catch {
-      // coercion-ok: fail closed; a viewer whose credentials can't be checked gets their own run, which reports the error.
+      // coercion-ok: fail closed; a viewer whose credentials can't be checked in time gets their own run, which reports any error.
       return false;
     }
   });
+}
+
+export function viewerReadsSameCredentials(
+  check: ViewerCheck,
+): Promise<boolean> {
+  return checkViewer(check, readsSameCredentials);
+}
+
+export function viewerResolvesOnlyOrgCredentials(
+  check: ViewerCheck,
+): Promise<boolean> {
+  return checkViewer(check, resolvesOnlyOrgCredentials);
 }

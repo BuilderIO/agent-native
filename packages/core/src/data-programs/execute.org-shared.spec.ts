@@ -569,6 +569,112 @@ describe("org-shared data program runs", () => {
     );
   });
 
+  it("refreshes an expired org run for a viewer whose credentials are all the org's, even after the org set a key it found unset", async () => {
+    const expired = makeRun({
+      id: "dpr_expired",
+      startedAt: Date.now() - 600_000,
+      finishedAt: Date.now() - 600_000,
+      credentialUsesJson: JSON.stringify([
+        { kind: "stored", key: "GITHUB_TOKEN", scope: null, scopeId: null },
+      ]),
+    });
+    storeMocks.getLatestSuccessfulRun.mockResolvedValue(expired);
+    storeMocks.getLatestRun.mockResolvedValue(expired);
+    const sandbox = mockSandbox(() =>
+      sandboxOutput([{ fresh: true }], ["provider-api-request"]),
+    );
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ fresh: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBe("org");
+  });
+
+  it("leaves an expired org run for a viewer with their own key, who gets their own run", async () => {
+    const expired = makeRun({
+      id: "dpr_expired",
+      startedAt: Date.now() - 600_000,
+      finishedAt: Date.now() - 600_000,
+      credentialUsesJson: JSON.stringify([orgToken]),
+    });
+    storeMocks.getLatestSuccessfulRun.mockResolvedValue(expired);
+    storeMocks.getLatestRun.mockResolvedValue(expired);
+    credentialMocks.resolveCredentialDetailed.mockResolvedValue({
+      value: "personal",
+      scope: "user",
+      scopeId: VIEWER,
+    });
+    const sandbox = mockSandbox(() => sandboxOutput([{ own: true }]));
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBeUndefined();
+  });
+
+  it("refreshes a fresh org run when a viewer it serves forces a refresh", async () => {
+    const fresh = makeRun({
+      id: "dpr_fresh",
+      credentialUsesJson: JSON.stringify([orgToken]),
+    });
+    storeMocks.getLatestSuccessfulRun.mockResolvedValue(fresh);
+    storeMocks.getLatestRun.mockResolvedValue(fresh);
+    const sandbox = mockSandbox((options) => {
+      options.credentialLedger?.record(orgToken);
+      return sandboxOutput([{ refreshed: true }], ["provider-api-request"]);
+    });
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+      forceRefresh: true,
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ refreshed: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBe("org");
+  });
+
+  it("stops checking a viewer's credentials for the shared cache when the time limit runs out", async () => {
+    const execute = await loadExecute();
+    const sharedHash = execute.hashOrgSharedDataProgramParams(undefined, ORG);
+    storeMocks.getLatestSuccessfulRun.mockImplementation(
+      async (_id: string, hash: string) =>
+        hash === sharedHash
+          ? makeRun({ credentialUsesJson: JSON.stringify([orgToken]) })
+          : null,
+    );
+    credentialMocks.resolveCredentialDetailed.mockReturnValue(
+      new Promise(() => {}),
+    );
+    const sandbox = mockSandbox(() => sandboxOutput([{ own: true }]));
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+      timeoutMs: 30,
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "timeout" } });
+    expect(sandbox).not.toHaveBeenCalled();
+  });
+
   it("keeps a per-viewer cache outside an org and for background programs", async () => {
     const sandbox = mockSandbox(() => sandboxOutput([{ own: true }]));
     const { runDataProgram } = await loadExecute();

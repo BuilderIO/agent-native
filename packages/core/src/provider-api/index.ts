@@ -2415,12 +2415,17 @@ async function recordingUnresolvedProvider<T>(
 export async function resolveProviderApiCredentialUses(
   provider: string,
   runtime: ProviderApiRuntimeOptions,
+  options: { signal?: AbortSignal } = {},
 ): Promise<CredentialUse[]> {
   if (!isProviderApiId(provider)) {
     throw new Error(`Provider API ${provider} is not a built-in provider.`);
   }
   const config = getProviderApiConfig(provider, runtime.providerOverrides);
-  const args: ProviderApiRequestArgs = { provider, path: "/" };
+  const args: ProviderApiRequestArgs = {
+    provider,
+    path: "/",
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
   const ledger = new CredentialUseLedger();
   await runWithCredentialUseLedger(ledger, async () => {
     recordCredentialUse({ kind: "provider-request", provider: config.id });

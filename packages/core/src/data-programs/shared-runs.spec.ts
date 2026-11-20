@@ -21,6 +21,7 @@ import {
   isOrgShareableRun,
   parseCredentialUses,
   viewerReadsSameCredentials,
+  viewerResolvesOnlyOrgCredentials,
 } from "./shared-runs.js";
 
 const ORG = "org_1";
@@ -255,6 +256,7 @@ describe("viewerReadsSameCredentials", () => {
     expect(mocks.resolveProviderApiCredentialUses).toHaveBeenCalledWith(
       "github",
       { appId: "analytics" },
+      {},
     );
   });
 
@@ -356,9 +358,11 @@ describe("viewerReadsSameCredentials", () => {
       }),
     ).resolves.toBe(true);
     expect(mocks.resolveProviderApiCredentialUses).toHaveBeenCalledTimes(1);
-    expect(mocks.resolveProviderApiCredentialUses).toHaveBeenCalledWith("ga4", {
-      appId: "analytics",
-    });
+    expect(mocks.resolveProviderApiCredentialUses).toHaveBeenCalledWith(
+      "ga4",
+      { appId: "analytics" },
+      {},
+    );
 
     mocks.resolveProviderApiCredentialUses.mockResolvedValue([
       ga4Request,
@@ -371,6 +375,29 @@ describe("viewerReadsSameCredentials", () => {
         appId: "analytics",
       }),
     ).resolves.toBe(false);
+  });
+
+  it("gives up and refuses a viewer whose check outlasts its signal", async () => {
+    orgSecret();
+    providerRuntime();
+    mocks.resolveProviderApiCredentialUses.mockReturnValue(
+      new Promise(() => {}),
+    );
+    const signal = AbortSignal.timeout(20);
+
+    await expect(
+      viewerReadsSameCredentials({
+        uses: [githubRequest, orgToken, orgTokenAuth],
+        viewer: VIEWER,
+        appId: "analytics",
+        signal,
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.resolveProviderApiCredentialUses).toHaveBeenCalledWith(
+      "github",
+      { appId: "analytics" },
+      { signal },
+    );
   });
 
   it("refuses when a credential can't be read or the app has no provider runtime", async () => {
@@ -404,5 +431,80 @@ describe("viewerReadsSameCredentials", () => {
         appId: "analytics",
       }),
     ).resolves.toBe(false);
+  });
+});
+
+describe("viewerResolvesOnlyOrgCredentials", () => {
+  function providerRuntime() {
+    mocks.getRegisteredProviderApiRuntimeOptions.mockReturnValue({
+      appId: "analytics",
+    });
+  }
+
+  it("accepts a viewer whose credentials are all the org's now, even ones the shared run found unset", async () => {
+    mocks.resolveCredentialDetailed.mockResolvedValue({
+      value: "secret",
+      scope: "org",
+      scopeId: ORG,
+    });
+
+    await expect(
+      viewerResolvesOnlyOrgCredentials({
+        uses: [
+          { kind: "stored", key: "GITHUB_TOKEN", scope: null, scopeId: null },
+        ],
+        viewer: VIEWER,
+        appId: "analytics",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("refuses a viewer with their own key", async () => {
+    mocks.resolveCredentialDetailed.mockResolvedValue({
+      value: "personal",
+      scope: "user",
+      scopeId: VIEWER.userEmail,
+    });
+
+    await expect(
+      viewerResolvesOnlyOrgCredentials({
+        uses: [orgToken],
+        viewer: VIEWER,
+        appId: "analytics",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("checks provider lookups against the viewer's own stored credentials", async () => {
+    mocks.resolveCredentialDetailed.mockResolvedValue({
+      value: "secret",
+      scope: "org",
+      scopeId: ORG,
+    });
+    providerRuntime();
+    mocks.resolveProviderApiCredentialUses.mockResolvedValue([
+      githubRequest,
+      orgTokenAuth,
+    ]);
+    const check = {
+      uses: [githubRequest, orgToken, orgTokenAuth],
+      viewer: VIEWER,
+      appId: "analytics",
+    };
+
+    await expect(viewerResolvesOnlyOrgCredentials(check)).resolves.toBe(true);
+
+    mocks.resolveProviderApiCredentialUses.mockResolvedValue([
+      githubRequest,
+      {
+        ...orgTokenAuth,
+        key: "github",
+        source: "workspace_connection",
+        scope: "user",
+        scopeId: VIEWER.userEmail,
+        connectionId: "conn_1",
+      },
+    ]);
+    await expect(viewerResolvesOnlyOrgCredentials(check)).resolves.toBe(false);
   });
 });

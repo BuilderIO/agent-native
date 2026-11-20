@@ -32,6 +32,7 @@ import {
   parseCredentialUses,
   SHAREABLE_BRIDGE_TOOLS,
   viewerReadsSameCredentials,
+  viewerResolvesOnlyOrgCredentials,
   type OrgSharingViewer,
 } from "./shared-runs.js";
 import {
@@ -56,7 +57,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
 const NOT_SHAREABLE_RETRY_MS = 24 * 60 * 60 * 1000;
-const MIN_FALLBACK_TIMEOUT_MS = 1_000;
+const MIN_RUN_TIMEOUT_MS = 1_000;
 
 /**
  * `program_error` is an error the program's own code threw, and its message is
@@ -517,9 +518,15 @@ export async function runDataProgram(
     return runBackgroundProgram(program, args, paramsHash, timeoutMs);
   }
 
+  const deadline = Date.now() + timeoutMs;
   const sharing = orgSharingFor(args);
   if (sharing && !args.forceRefresh) {
-    const shared = await resolveSharedCacheHit(program, args, sharing);
+    const shared = await resolveSharedCacheHit(
+      program,
+      args,
+      sharing,
+      deadline,
+    );
     if (shared) return shared;
   }
 
@@ -528,29 +535,37 @@ export async function runDataProgram(
     if (cached) return cached;
   }
 
-  if (sharing && (await shouldRunShared(program, args, sharing, timeoutMs))) {
-    const deadline = Date.now() + timeoutMs;
-    const shared = await runSharedProgram(program, args, sharing, timeoutMs);
-    if (shared) return shared;
-    const remainingMs = deadline - Date.now();
-    if (remainingMs < MIN_FALLBACK_TIMEOUT_MS) {
-      return failureWithLastGood(
-        program.id,
-        paramsHash,
-        "timeout",
-        `The program did not finish within ${timeoutMs}ms.`,
-      );
-    }
-    return runForegroundProgram(
-      program,
-      args,
-      paramsHash,
-      timeoutMs,
-      remainingMs,
-    );
+  if (!sharing) {
+    return runForegroundProgram(program, args, paramsHash, timeoutMs);
   }
 
-  return runForegroundProgram(program, args, paramsHash, timeoutMs);
+  if (
+    deadline - Date.now() >= MIN_RUN_TIMEOUT_MS &&
+    (await shouldRunShared(program, args, sharing, timeoutMs, deadline))
+  ) {
+    const shared = await runSharedProgram(program, args, sharing, deadline);
+    if (shared) return shared;
+  }
+  const remainingMs = deadline - Date.now();
+  if (remainingMs < MIN_RUN_TIMEOUT_MS) {
+    return failureWithLastGood(
+      program.id,
+      paramsHash,
+      "timeout",
+      `The program did not finish within ${timeoutMs}ms.`,
+    );
+  }
+  return runForegroundProgram(
+    program,
+    args,
+    paramsHash,
+    timeoutMs,
+    remainingMs,
+  );
+}
+
+function signalAt(deadline: number): AbortSignal {
+  return AbortSignal.timeout(Math.max(0, deadline - Date.now()));
 }
 
 interface OrgSharing {
@@ -571,6 +586,7 @@ async function resolveSharedCacheHit(
   program: DataProgramRow,
   args: RunDataProgramArgs,
   sharing: OrgSharing,
+  deadline: number,
 ): Promise<DataProgramSuccess | null> {
   const latestSuccess = await getLatestSuccessfulRun(
     program.id,
@@ -584,6 +600,7 @@ async function resolveSharedCacheHit(
     uses,
     viewer: sharing.viewer,
     appId: args.appId ?? program.appId,
+    signal: signalAt(deadline),
   });
   return sameCredentials ? hit : null;
 }
@@ -593,6 +610,7 @@ async function shouldRunShared(
   args: RunDataProgramArgs,
   sharing: OrgSharing,
   timeoutMs: number,
+  deadline: number,
 ): Promise<boolean> {
   const now = Date.now();
   const savedAt = Date.parse(program.updatedAt);
@@ -620,10 +638,12 @@ async function shouldRunShared(
   }
   const uses = parseCredentialUses(latest.credentialUsesJson);
   if (latest.status !== "succeeded" || !uses) return true;
-  return viewerReadsSameCredentials({
+  if (!args.forceRefresh && isFreshRun(program, latest)) return false;
+  return viewerResolvesOnlyOrgCredentials({
     uses,
     viewer: sharing.viewer,
     appId: args.appId ?? program.appId,
+    signal: signalAt(deadline),
   });
 }
 
@@ -631,7 +651,7 @@ async function runSharedProgram(
   program: DataProgramRow,
   args: RunDataProgramArgs,
   sharing: OrgSharing,
-  timeoutMs: number,
+  deadline: number,
 ): Promise<DataProgramSuccess | null> {
   const running = await recordDataProgramRun({
     programId: program.id,
@@ -648,7 +668,7 @@ async function runSharedProgram(
   const startedAt = Date.now();
   const outcome = await executeProgramCode(
     `${buildDataProgramPrelude(args.params)}\n${program.code}`,
-    timeoutMs,
+    deadline - startedAt,
     { ...args.ctx, credentialScope: "org" },
     args.evaluator,
     ledger,
@@ -702,6 +722,7 @@ async function runSharedProgram(
     uses,
     viewer: sharing.viewer,
     appId: args.appId ?? program.appId,
+    signal: signalAt(deadline),
   });
   if (!sameCredentials) return null;
   return {
@@ -724,20 +745,21 @@ async function resolveCacheHit(
   return latestSuccess ? cacheHitFrom(program, latestSuccess) : null;
 }
 
+function isFreshRun(program: DataProgramRow, run: DataProgramRunRow): boolean {
+  // A save can change the code, so rows from a run started before it aren't
+  // fresh, however young or manual.
+  if (run.startedAt < Date.parse(program.updatedAt)) return false;
+  if (program.refreshMode === "manual") return true;
+  return Date.now() - (run.finishedAt ?? run.startedAt) < program.refreshTtlMs;
+}
+
 function cacheHitFrom(
   program: DataProgramRow,
   latestSuccess: DataProgramRunRow,
 ): DataProgramSuccess | null {
   if (!latestSuccess.rowsJson) return null;
-  // A save can change the code, so rows from a run started before it aren't
-  // fresh, however young or manual.
-  if (latestSuccess.startedAt < Date.parse(program.updatedAt)) return null;
-
-  const now = Date.now();
+  if (!isFreshRun(program, latestSuccess)) return null;
   const asOf = latestSuccess.finishedAt ?? latestSuccess.startedAt;
-  const fresh =
-    program.refreshMode === "manual" ? true : now - asOf < program.refreshTtlMs;
-  if (!fresh) return null;
 
   try {
     return {
