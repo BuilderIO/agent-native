@@ -928,4 +928,264 @@ describe("private turn continuation paths", () => {
       PRIVATE_DRAFT_CANARY,
     );
   });
+
+  it("blocks execution instead of falling through when private replay identity has conflicting outcomes", async () => {
+    const { actions, manageDraft } = createPrivateMailActions();
+    const threadId = "thread-private-ambiguous-replay";
+    const turnId = "turn-private-ambiguous-replay";
+    const run1Ledger = createPersistedLedgerRecorder();
+    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockImplementation(
+      async () => [],
+    );
+    vi.spyOn(runStore, "recordThreadPrivateRun").mockResolvedValue(undefined);
+
+    let seedCalls = 0;
+    const seedEngine: AgentEngine = {
+      name: "synthetic",
+      label: "Synthetic",
+      defaultModel: "synthetic",
+      supportedModels: ["synthetic"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(_options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        seedCalls += 1;
+        if (seedCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "seed-call-1",
+                name: "manage-gmail-draft",
+                input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "ok" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    await runAgentLoop({
+      engine: seedEngine,
+      model: "synthetic",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "draft" }] }],
+      actions,
+      threadId,
+      turnId,
+      runId: "run-ambiguous-seed",
+      send: run1Ledger.record,
+      signal: new AbortController().signal,
+    });
+    expect(manageDraft).toHaveBeenCalledTimes(1);
+    manageDraft.mockClear();
+
+    const persistedDone = run1Ledger.persistedEvents.find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done" && event.tool === "manage-gmail-draft",
+    );
+    expect(persistedDone?.privateReplayIdentity).toMatch(
+      /^hmac-v1:[a-f0-9]{64}$/,
+    );
+    const replayIdentity = persistedDone?.privateReplayIdentity;
+
+    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "prior-ok",
+        tool: "manage-gmail-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "prior-ok",
+        tool: "manage-gmail-draft",
+        input: {},
+        result: "[Private content omitted]",
+        completedSideEffect: true,
+        privateReplayIdentity: replayIdentity,
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_start",
+        id: "prior-err",
+        tool: "manage-gmail-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "tool_done",
+        id: "prior-err",
+        tool: "manage-gmail-draft",
+        input: {},
+        result: "[Private content omitted]",
+        isError: true,
+        completedSideEffect: true,
+        privateReplayIdentity: replayIdentity,
+        omitFromPersistedHistory: true,
+      },
+    ]);
+
+    const resumeLedger = createPersistedLedgerRecorder();
+    let resumeCalls = 0;
+    const resumeEngine: AgentEngine = {
+      name: "synthetic",
+      label: "Synthetic",
+      defaultModel: "synthetic",
+      supportedModels: ["synthetic"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(_options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        resumeCalls += 1;
+        if (resumeCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "reissued-ambiguous",
+                name: "manage-gmail-draft",
+                input: { to: "alice@example.com", body: PRIVATE_DRAFT_CANARY },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "stopped" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine: resumeEngine,
+      model: "synthetic",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "continue draft" }] },
+      ],
+      actions,
+      internalContinuation: true,
+      threadId,
+      turnId,
+      runId: "run-ambiguous-resume",
+      send: resumeLedger.record,
+      signal: new AbortController().signal,
+    });
+
+    expect(manageDraft).not.toHaveBeenCalled();
+    expect(resumeLedger.rawEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "reissued-ambiguous",
+        tool: "manage-gmail-draft",
+        isError: true,
+        omitFromPersistedHistory: true,
+      }),
+    );
+    expect(resumeLedger.rawEvents).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        omitFromPersistedHistory: true,
+      }),
+    );
+  });
+
+  it("marks the resumed run private when an unreadable private journal stops the turn", async () => {
+    const { actions } = createPrivateMailActions();
+    vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue([
+      {
+        type: "tool_start",
+        id: "interrupted-private-call",
+        tool: "manage-gmail-draft",
+        input: {},
+        omitFromPersistedHistory: true,
+      },
+    ]);
+    const recordPrivateSpy = vi
+      .spyOn(runStore, "recordThreadPrivateRun")
+      .mockResolvedValue(undefined);
+    const ledger = createPersistedLedgerRecorder();
+
+    const engine: AgentEngine = {
+      name: "synthetic",
+      label: "Synthetic",
+      defaultModel: "synthetic",
+      supportedModels: ["synthetic"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(_options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "unreachable" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "synthetic",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "continue" }] },
+      ],
+      actions,
+      internalContinuation: true,
+      threadId: "thread-unreadable-private",
+      turnId: "turn-unreadable-private",
+      runId: "run-unreadable-private",
+      send: ledger.record,
+      signal: new AbortController().signal,
+    });
+
+    expect(recordPrivateSpy).toHaveBeenCalledWith(
+      "thread-unreadable-private",
+      "run-unreadable-private",
+    );
+    expect(ledger.rawEvents).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "tool_call_journal_unreadable",
+        omitFromPersistedHistory: true,
+      }),
+    );
+    expect(ledger.persistedEvents).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "tool_call_journal_unreadable",
+        error: expect.stringContaining("send the request again"),
+        omitFromPersistedHistory: true,
+      }),
+    );
+  });
 });

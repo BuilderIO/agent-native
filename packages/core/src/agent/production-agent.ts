@@ -8164,10 +8164,14 @@ export async function runAgentLoop(opts: {
         opts.recoverCompletedExecutionSteps === true,
     },
   );
-  if (
-    journalRead.status === "read" &&
-    journalRead.events.some((event) => event.omitFromPersistedHistory === true)
-  ) {
+  const journalHasPrivateHistory =
+    (journalRead.status === "read" &&
+      journalRead.events.some(
+        (event) => event.omitFromPersistedHistory === true,
+      )) ||
+    (journalRead.status === "unreadable" &&
+      journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE);
+  if (journalHasPrivateHistory) {
     if (opts.runId) await ensurePrivateTurnRecorded();
     else send.markPrivate();
   }
@@ -10967,15 +10971,26 @@ export async function runAgentLoop(opts: {
               argumentsHash,
             })
           : undefined;
-      if (toolCallJournal && !ambiguousLegacyWrite) {
+      const privateReplayLookup =
+        toolCallJournal &&
+        !ambiguousLegacyWrite &&
+        isPrivateCall() &&
+        privateReplayIdentity
+          ? findReplayablePrivateJournalEntry(
+              toolCallJournal,
+              toolCall.name,
+              privateReplayIdentity,
+              consumedJournalKeys,
+            )
+          : { status: "none" as const };
+      const ambiguousPrivateWrite =
+        !actionIsReadOnly &&
+        !actionRetrySafe &&
+        privateReplayLookup.status === "ambiguous";
+      if (toolCallJournal && !ambiguousLegacyWrite && !ambiguousPrivateWrite) {
         const journaled = isPrivateCall()
-          ? privateReplayIdentity
-            ? findReplayablePrivateJournalEntry(
-                toolCallJournal,
-                toolCall.name,
-                privateReplayIdentity,
-                consumedJournalKeys,
-              )
+          ? privateReplayLookup.status === "replay"
+            ? privateReplayLookup.entry
             : undefined
           : findReplayableJournalEntry(
               toolCallJournal,
@@ -11087,14 +11102,15 @@ export async function runAgentLoop(opts: {
         0,
         ...repeated.map(([kind, map]) => map.get(repeatKeys[kind]) ?? 0),
       );
-      const priorInterruptions = ambiguousLegacyWrite
-        ? Math.max(1, priorInterruptionsBeforeStepReplay)
-        : (interruptedCallMatchesStep ||
-              ((actionIsReadOnly || actionRetrySafe) &&
-                retryableInterruptedCallKeys.has(preparedCallKey))) &&
-            priorInterruptionsBeforeStepReplay > 0
-          ? 0
-          : priorInterruptionsBeforeStepReplay;
+      const priorInterruptions =
+        ambiguousLegacyWrite || ambiguousPrivateWrite
+          ? Math.max(1, priorInterruptionsBeforeStepReplay)
+          : (interruptedCallMatchesStep ||
+                ((actionIsReadOnly || actionRetrySafe) &&
+                  retryableInterruptedCallKeys.has(preparedCallKey))) &&
+              priorInterruptionsBeforeStepReplay > 0
+            ? 0
+            : priorInterruptionsBeforeStepReplay;
 
       // Another write of a tool whose earlier call may have applied could
       // apply the same change twice, so it does not run; the turn goes on,

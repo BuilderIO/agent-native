@@ -884,12 +884,17 @@ export function findReplayableJournalEntry(
   return entry;
 }
 
+export type PrivateJournalReplayLookup =
+  | { status: "none" }
+  | { status: "replay"; entry: ToolCallJournalEntry }
+  | { status: "ambiguous" };
+
 export function findReplayablePrivateJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
   privateReplayIdentity: string,
   consumedKeys?: Set<string>,
-): ToolCallJournalEntry | undefined {
+): PrivateJournalReplayLookup {
   const candidates = journal.completed.filter(
     (candidate) =>
       candidate.tool === toolName &&
@@ -897,19 +902,20 @@ export function findReplayablePrivateJournalEntry(
       !consumedKeys?.has(candidate.key) &&
       candidate.privateReplayIdentity === privateReplayIdentity,
   );
-  if (candidates.length === 0) return undefined;
+  if (candidates.length === 0) return { status: "none" };
   const first = candidates[0];
-  const entry =
-    candidates.length === 1
-      ? first
-      : candidates.every(
-            (candidate) =>
-              replayOutcomeIdentity(candidate) === replayOutcomeIdentity(first),
-          )
-        ? candidates.at(-1)
-        : undefined;
-  if (entry) consumedKeys?.add(entry.key);
-  return entry;
+  if (candidates.length === 1) {
+    consumedKeys?.add(first.key);
+    return { status: "replay", entry: first };
+  }
+  const sameOutcome = candidates.every(
+    (candidate) =>
+      replayOutcomeIdentity(candidate) === replayOutcomeIdentity(first),
+  );
+  if (!sameOutcome) return { status: "ambiguous" };
+  const latest = candidates[candidates.length - 1];
+  consumedKeys?.add(latest.key);
+  return { status: "replay", entry: latest };
 }
 
 export function findAmbiguousLegacyJournalEntryForCall(
