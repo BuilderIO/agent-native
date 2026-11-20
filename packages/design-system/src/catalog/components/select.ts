@@ -19,7 +19,7 @@ export const selectTriggerProps = {
   radius: radiusProp,
 } as const;
 
-export const selectContentProps = {
+export const selectPopupProps = {
   variant: variantProp(["solid", "soft"], "soft"),
   color: popupColorProp,
   highContrast: highContrastProp,

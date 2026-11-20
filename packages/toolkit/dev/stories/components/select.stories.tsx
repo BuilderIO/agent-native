@@ -1,7 +1,7 @@
 import {
   COLORS,
   CONTROL_SIZES,
-  selectContentProps,
+  selectPopupProps,
   type SelectRootOwnProps,
   selectRootProps,
   type SelectTriggerOwnProps,
@@ -13,17 +13,17 @@ import * as React from "react";
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
   Dialog,
-  DialogContent,
+  DialogPopup,
   DialogDescription,
   DialogTitle,
 } from "../../../src/ui/base-ui/dialog.js";
 import {
   Select,
-  SelectContent,
-  type SelectContentProps,
+  SelectPopup,
+  type SelectPopupProps,
   SelectGroup,
   SelectItem,
-  SelectLabel,
+  SelectGroupLabel,
   SelectSeparator,
   SelectTrigger,
   SelectValue,
@@ -35,7 +35,7 @@ type Args = SelectRootOwnProps & SelectTriggerOwnProps & { disabled?: boolean };
 const controls = propControls({ ...selectRootProps, ...selectTriggerProps });
 
 const TRIGGER_VARIANTS = selectTriggerProps.variant.values;
-const POPUP_VARIANTS = selectContentProps.variant.values;
+const POPUP_VARIANTS = selectPopupProps.variant.values;
 
 const ITEMS = [
   { value: "todo", label: "To do" },
@@ -49,7 +49,7 @@ function Items() {
   return (
     <>
       <SelectGroup>
-        <SelectLabel>Open</SelectLabel>
+        <SelectGroupLabel>Open</SelectGroupLabel>
         <SelectItem value="todo">To do</SelectItem>
         <SelectItem value="doing">Doing</SelectItem>
       </SelectGroup>
@@ -83,15 +83,15 @@ function Status({
       >
         <SelectValue placeholder="Pick a status" />
       </SelectTrigger>
-      <SelectContent>
+      <SelectPopup>
         <Items />
-      </SelectContent>
+      </SelectPopup>
     </Select>
   );
 }
 
 function OpenList(
-  props: Pick<SelectContentProps, "variant" | "color" | "highContrast"> & {
+  props: Pick<SelectPopupProps, "variant" | "color" | "highContrast"> & {
     label: string;
   },
 ) {
@@ -112,9 +112,9 @@ function OpenList(
           <SelectValue />
         </SelectTrigger>
         {container ? (
-          <SelectContent {...popup} container={container} finalFocus={false}>
+          <SelectPopup {...popup} container={container} finalFocus={false}>
             <Items />
-          </SelectContent>
+          </SelectPopup>
         ) : null}
       </Select>
       <div ref={setContainer} className="h-40" />
@@ -130,7 +130,7 @@ function NestedInDialog() {
         Open dialog
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogPopup>
           <DialogTitle>Edit task</DialogTitle>
           <DialogDescription>
             The list opens above this dialog.
@@ -139,11 +139,11 @@ function NestedInDialog() {
             <SelectTrigger aria-label="Status">
               <SelectValue placeholder="Pick a status" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectPopup>
               <Items />
-            </SelectContent>
+            </SelectPopup>
           </Select>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>
     </div>
   );

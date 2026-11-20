@@ -4,7 +4,7 @@ import * as React from "react";
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
   Tooltip,
-  TooltipContent,
+  TooltipPopup,
   TooltipProvider,
   TooltipTrigger,
 } from "../../../src/ui/base-ui/tooltip.js";
@@ -43,13 +43,13 @@ function TooltipSection() {
                 {testCase.label}
               </TooltipTrigger>
               {container ? (
-                <TooltipContent
+                <TooltipPopup
                   side={testCase.side}
                   className={testCase.className}
                   container={container}
                 >
                   {testCase.text}
-                </TooltipContent>
+                </TooltipPopup>
               ) : null}
             </Tooltip>
           ))}

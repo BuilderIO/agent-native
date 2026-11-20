@@ -8,11 +8,11 @@ import { Switch, type SwitchProps } from "./switch.js";
 afterEach(cleanup);
 
 describe("Switch part", () => {
-  it("renders the part with Base UI's state attributes, size 2 surface by default", () => {
+  it("renders the part with Base UI's state attributes, size 3 surface by default", () => {
     render(<Switch aria-label="Sync" defaultChecked />);
     const control = screen.getByRole("switch", { name: "Sync" });
     expect(control.classList.contains("switch")).toBe(true);
-    expect(control.dataset.size).toBe("2");
+    expect(control.dataset.size).toBe("3");
     expect(control.dataset.variant).toBe("surface");
     expect(control.dataset.color).toBeUndefined();
     expect(control.dataset.radius).toBeUndefined();

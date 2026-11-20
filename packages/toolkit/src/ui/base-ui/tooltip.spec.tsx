@@ -15,7 +15,7 @@ import { Button } from "./button.js";
 import {
   normalizeTooltipText,
   Tooltip,
-  TooltipContent,
+  TooltipPopup,
   TooltipProvider,
   TooltipTrigger,
 } from "./tooltip.js";
@@ -61,7 +61,7 @@ function renderButton() {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger>Rank</TooltipTrigger>
-        <TooltipContent>Rank order</TooltipContent>
+        <TooltipPopup>Rank order</TooltipPopup>
       </Tooltip>
     </TooltipProvider>,
   );
@@ -97,7 +97,7 @@ describe("TooltipTrigger focus", () => {
               </PopoverContent>
             </Popover>
           </TooltipTrigger>
-          <TooltipContent>Look again on</TooltipContent>
+          <TooltipPopup>Look again on</TooltipPopup>
         </Tooltip>
       </TooltipProvider>,
     );
@@ -133,7 +133,7 @@ describe("Tooltip", () => {
           >
             Docs
           </TooltipTrigger>
-          <TooltipContent>Open the docs</TooltipContent>
+          <TooltipPopup>Open the docs</TooltipPopup>
         </Tooltip>
       </TooltipProvider>,
     );
@@ -147,7 +147,7 @@ describe("Tooltip", () => {
       <TooltipProvider>
         <Tooltip open>
           <TooltipTrigger>New</TooltipTrigger>
-          <TooltipContent>{"new chat(\\u2318K)"}</TooltipContent>
+          <TooltipPopup>{"new chat(\\u2318K)"}</TooltipPopup>
         </Tooltip>
       </TooltipProvider>,
     );
@@ -160,9 +160,9 @@ describe("Tooltip", () => {
       <TooltipProvider>
         <Tooltip open>
           <TooltipTrigger>New</TooltipTrigger>
-          <TooltipContent side="right" sideOffset={12}>
+          <TooltipPopup side="right" sideOffset={12}>
             Rank order
-          </TooltipContent>
+          </TooltipPopup>
         </Tooltip>
       </TooltipProvider>,
     );
@@ -174,7 +174,7 @@ describe("Tooltip", () => {
       <TooltipProvider delay={0}>
         <Tooltip>
           <TooltipTrigger>Rank</TooltipTrigger>
-          <TooltipContent>Rank order</TooltipContent>
+          <TooltipPopup>Rank order</TooltipPopup>
         </Tooltip>
       </TooltipProvider>,
     );
@@ -196,7 +196,7 @@ describe("Tooltip", () => {
           }}
         >
           <TooltipTrigger>Rank</TooltipTrigger>
-          <TooltipContent>Rank order</TooltipContent>
+          <TooltipPopup>Rank order</TooltipPopup>
         </Tooltip>
       </TooltipProvider>,
     );
@@ -215,7 +215,7 @@ describe("Tooltip", () => {
       <TooltipProvider>
         <Tooltip open={false} onOpenChange={onOpenChange}>
           <TooltipTrigger>Rank</TooltipTrigger>
-          <TooltipContent>Rank order</TooltipContent>
+          <TooltipPopup>Rank order</TooltipPopup>
         </Tooltip>
       </TooltipProvider>,
     );

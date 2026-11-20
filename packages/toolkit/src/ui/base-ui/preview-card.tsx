@@ -1,6 +1,6 @@
 import {
-  type PreviewCardContentOwnProps,
-  previewCardContentProps,
+  type PreviewCardPopupOwnProps,
+  previewCardPopupProps,
 } from "@agent-native/design-system";
 import { PreviewCard as BasePreviewCard } from "@base-ui/react/preview-card";
 import * as React from "react";
@@ -14,7 +14,7 @@ import { splitProps } from "./props.js";
  * focused, on Base UI's Preview Card, Radix Themes' HoverCard. Root and Trigger
  * are Base UI's own parts.
  *
- * @import import { PreviewCard, PreviewCardTrigger, PreviewCardContent } from "@agent-native/toolkit/ui/base-ui/preview-card";
+ * @import import { PreviewCard, PreviewCardTrigger, PreviewCardPopup } from "@agent-native/toolkit/ui/base-ui/preview-card";
  */
 export const PreviewCard = BasePreviewCard.Root;
 
@@ -46,9 +46,9 @@ type PositionerProps = Pick<
   | "positionMethod"
 >;
 
-type PreviewCardContentProps = PopupProps &
+type PreviewCardPopupProps = PopupProps &
   PositionerProps &
-  PreviewCardContentOwnProps & {
+  PreviewCardPopupOwnProps & {
     container?: BasePreviewCard.Portal.Props["container"];
   };
 
@@ -56,14 +56,14 @@ type PreviewCardContentProps = PopupProps &
  * The preview's card, portaled and positioned beside its trigger. It is Base
  * UI's Preview Card Popup with Radix Themes' HoverCard sizes.
  *
- * @import import { PreviewCardContent } from "@agent-native/toolkit/ui/base-ui/preview-card";
+ * @import import { PreviewCardPopup } from "@agent-native/toolkit/ui/base-ui/preview-card";
  */
-const PreviewCardContent = React.forwardRef<
+const PreviewCardPopup = React.forwardRef<
   HTMLDivElement,
-  PreviewCardContentProps
+  PreviewCardPopupProps
 >((props, ref) => {
   const [attributes, { className, container, ...rest }] = splitProps(
-    previewCardContentProps,
+    previewCardPopupProps,
     props,
   );
   const [positioner, popup] = splitPositionerProps(rest);
@@ -85,7 +85,7 @@ const PreviewCardContent = React.forwardRef<
     </BasePreviewCard.Portal>
   );
 });
-PreviewCardContent.displayName = "PreviewCardContent";
+PreviewCardPopup.displayName = "PreviewCardPopup";
 
 /**
  * An arrow on the card's edge that points at the trigger.
@@ -104,4 +104,4 @@ const PreviewCardArrow = React.forwardRef<
 ));
 PreviewCardArrow.displayName = "PreviewCardArrow";
 
-export { PreviewCardArrow, PreviewCardContent, type PreviewCardContentProps };
+export { PreviewCardArrow, PreviewCardPopup, type PreviewCardPopupProps };

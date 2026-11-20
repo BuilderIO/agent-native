@@ -1,6 +1,6 @@
 import {
-  type ContextMenuContentOwnProps,
-  contextMenuContentProps,
+  type ContextMenuPopupOwnProps,
+  contextMenuPopupProps,
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
@@ -14,24 +14,24 @@ import * as React from "react";
 import {
   ContextMenu,
   ContextMenuCheckboxItem,
-  ContextMenuContent,
+  ContextMenuPopup,
   ContextMenuGroup,
   ContextMenuItem,
-  ContextMenuLabel,
+  ContextMenuGroupLabel,
   ContextMenuRadioGroup,
   ContextMenuRadioItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
+  ContextMenuSubmenuRoot,
+  ContextMenuSubmenuPopup,
+  ContextMenuSubmenuTrigger,
   ContextMenuTrigger,
 } from "../../../src/ui/base-ui/context-menu.js";
 import { propControls } from "../prop-controls.js";
 
-type ContextMenuProps = ContextMenuContentOwnProps;
+type ContextMenuProps = ContextMenuPopupOwnProps;
 
-const controls = propControls(contextMenuContentProps);
+const controls = propControls(contextMenuPopupProps);
 
 function ContextMenuSample(props: ContextMenuProps) {
   const [checked, setChecked] = React.useState(true);
@@ -42,9 +42,9 @@ function ContextMenuSample(props: ContextMenuProps) {
       <ContextMenuTrigger className="flex h-10 w-56 items-center justify-center rounded-md border border-dashed text-xs">
         Right click here
       </ContextMenuTrigger>
-      <ContextMenuContent {...props} className="w-56">
+      <ContextMenuPopup {...props} className="w-56">
         <ContextMenuGroup>
-          <ContextMenuLabel>Document</ContextMenuLabel>
+          <ContextMenuGroupLabel>Document</ContextMenuGroupLabel>
           <ContextMenuItem>Rename</ContextMenuItem>
           <ContextMenuItem
             leading={<IconCopy />}
@@ -77,19 +77,19 @@ function ContextMenuSample(props: ContextMenuProps) {
           </ContextMenuRadioItem>
         </ContextMenuRadioGroup>
         <ContextMenuSeparator />
-        <ContextMenuSub>
-          <ContextMenuSubTrigger leading={<IconDownload />}>
+        <ContextMenuSubmenuRoot>
+          <ContextMenuSubmenuTrigger leading={<IconDownload />}>
             Export
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent>
+          </ContextMenuSubmenuTrigger>
+          <ContextMenuSubmenuPopup>
             <ContextMenuItem>PDF</ContextMenuItem>
             <ContextMenuItem>PNG</ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
+          </ContextMenuSubmenuPopup>
+        </ContextMenuSubmenuRoot>
         <ContextMenuItem color="danger" leading={<IconTrash />}>
           Delete
         </ContextMenuItem>
-      </ContextMenuContent>
+      </ContextMenuPopup>
     </ContextMenu>
   );
 }

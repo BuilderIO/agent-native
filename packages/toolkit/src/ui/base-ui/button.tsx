@@ -3,7 +3,6 @@ import {
   buttonLinkProps,
   type ButtonOwnProps,
   buttonProps,
-  type ControlSize,
 } from "@agent-native/design-system";
 import { Button as BaseButton } from "@base-ui/react/button";
 import { mergeProps } from "@base-ui/react/merge-props";
@@ -38,13 +37,6 @@ export type ButtonLinkProps = AnchorProps &
 
 export type IconButtonLinkProps = ButtonLinkProps;
 
-const SPINNER_SIZE: Record<ControlSize, NonNullable<SpinnerProps["size"]>> = {
-  "1": "1",
-  "2": "1",
-  "3": "2",
-  "4": "3",
-};
-
 function createButton(part: "button" | "icon-button", displayName: string) {
   const component = React.forwardRef<HTMLButtonElement, ButtonProps>(
     (props, ref) => {
@@ -67,7 +59,7 @@ function createButton(part: "button" | "icon-button", displayName: string) {
               </span>
               <VisuallyHidden>{children}</VisuallyHidden>
               <span className="button-spinner">
-                <Spinner size={SPINNER_SIZE[props.size ?? "3"]} />
+                <Spinner size={props.size ?? "3"} />
               </span>
             </>
           ) : (

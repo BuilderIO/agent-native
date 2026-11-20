@@ -50,6 +50,19 @@ export function ListboxRootProvider({
   );
 }
 
+const SLOT_BUTTON_SIZE: Readonly<Record<string, "1" | "2">> = {
+  "1": "1",
+  "2": "1",
+  "3": "1",
+  "4": "2",
+};
+
+/** The Icon Button size that fits the input's slot: 1, or 2 in a size 4 field. */
+export function useSlotButtonSize(): "1" | "2" {
+  const { size } = useListboxRoot();
+  return SLOT_BUTTON_SIZE[size ?? "3"] ?? "1";
+}
+
 /** The input reports its size so the popup's rows can match it. */
 export function useReportInputSize(size: string | undefined) {
   const { setSize } = useListboxRoot();

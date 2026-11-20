@@ -247,48 +247,5 @@
     position: absolute;
     top: var(--space-3);
     inset-inline-end: var(--space-3);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    width: var(--control-height-3);
-    height: var(--control-height-3);
-    padding: 0;
-    border: 0 solid;
-    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
-    corner-shape: var(--corner-shape, round);
-    background-color: transparent;
-    color: var(--fg-muted);
-    outline-style: none;
-    transition-property: color, background-color;
-    transition-duration: var(--duration-2);
-    transition-timing-function: var(--ease-standard);
-  }
-
-  .drawer-close svg {
-    width: var(--control-icon-size-3);
-    height: var(--control-icon-size-3);
-  }
-
-  @media (hover: hover) {
-    .drawer-close:hover {
-      background-color: var(--gray-a3);
-    }
-  }
-
-  .drawer-close:active {
-    background-color: var(--gray-a4);
-  }
-
-  .drawer-close:focus-visible {
-    outline: var(--focus-ring-width) solid var(--line-focus);
-    outline-offset: var(--focus-ring-offset);
-  }
-
-  .drawer-close:disabled,
-  .drawer-close[data-disabled] {
-    pointer-events: none;
-    background-color: transparent;
-    color: var(--fg-disabled);
   }
 }

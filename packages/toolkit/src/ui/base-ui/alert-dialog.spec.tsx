@@ -13,7 +13,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogPopup,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -47,7 +47,7 @@ function Confirm({
       onOpenChange={(open, details) => onOpenChange?.(open, details.reason)}
     >
       <AlertDialogTrigger render={<button type="button">Delete</button>} />
-      <AlertDialogContent data-testid="popup" overlayClassName="extra-overlay">
+      <AlertDialogPopup data-testid="popup" backdropClassName="extra-overlay">
         <AlertDialogHeader data-testid="header">
           <AlertDialogTitle>Delete project</AlertDialogTitle>
           <AlertDialogDescription>
@@ -58,7 +58,7 @@ function Confirm({
           <AlertDialogCancel>Keep</AlertDialogCancel>
           <AlertDialogAction color="danger">Remove</AlertDialogAction>
         </AlertDialogFooter>
-      </AlertDialogContent>
+      </AlertDialogPopup>
     </AlertDialog>
   );
 }
@@ -117,13 +117,13 @@ describe("alert dialog part", () => {
         defaultOpen
         onOpenChange={(open, details) => onOpenChange(open, details.reason)}
       >
-        <AlertDialogContent>
+        <AlertDialogPopup>
           <AlertDialogTitle>Upgrade</AlertDialogTitle>
           <AlertDialogAction
             nativeButton={false}
             render={<a href="#upgrade">Upgrade plan</a>}
           />
-        </AlertDialogContent>
+        </AlertDialogPopup>
       </AlertDialog>,
     );
     const link = await screen.findByRole("button", { name: "Upgrade plan" });

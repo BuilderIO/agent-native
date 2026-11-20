@@ -8,6 +8,7 @@ import { IconArrowsHorizontal, IconMinus, IconPlus } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../../utils.js";
+import { IconButton } from "./button.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
@@ -178,15 +179,18 @@ function createStepper(
     NumberFieldStepperProps
   >(({ className, children, ...props }, ref) => {
     const { size, variant } = useNumberFieldContext(displayName);
-    const color = variant === "surface" ? { "data-color": "gray" } : {};
     return (
       <Base
         ref={ref}
         {...props}
-        data-size={STEPPER_SIZE[size]}
-        data-variant="ghost"
-        {...color}
-        className={partClassName(`icon-button ${part}`, className)}
+        className={partClassName(part, className)}
+        render={
+          <IconButton
+            size={STEPPER_SIZE[size]}
+            variant="ghost"
+            {...(variant === "surface" ? { color: "gray" as const } : {})}
+          />
+        }
       >
         {children ?? icon}
       </Base>

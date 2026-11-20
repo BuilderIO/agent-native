@@ -1,6 +1,6 @@
 import {
-  type AlertDialogContentOwnProps,
-  alertDialogContentProps,
+  type AlertDialogPopupOwnProps,
+  alertDialogPopupProps,
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
@@ -9,7 +9,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogPopup,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -19,9 +19,9 @@ import {
 import { Button } from "../../../src/ui/base-ui/button.js";
 import { propControls } from "../prop-controls.js";
 
-type AlertDialogProps = AlertDialogContentOwnProps;
+type AlertDialogProps = AlertDialogPopupOwnProps;
 
-const controls = propControls(alertDialogContentProps);
+const controls = propControls(alertDialogPopupProps);
 
 function AlertDialogSection(props: AlertDialogProps) {
   const [box, setBox] = React.useState<HTMLDivElement | null>(null);
@@ -32,7 +32,7 @@ function AlertDialogSection(props: AlertDialogProps) {
     >
       {box ? (
         <AlertDialog open>
-          <AlertDialogContent {...props} container={box} initialFocus={false}>
+          <AlertDialogPopup {...props} container={box} initialFocus={false}>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete this project?</AlertDialogTitle>
               <AlertDialogDescription>
@@ -43,7 +43,7 @@ function AlertDialogSection(props: AlertDialogProps) {
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction color="danger">Delete</AlertDialogAction>
             </AlertDialogFooter>
-          </AlertDialogContent>
+          </AlertDialogPopup>
         </AlertDialog>
       ) : null}
     </div>
@@ -75,7 +75,7 @@ export const Sizes: Story = {
   parameters: { a11y: { test: "todo" } },
   render: () => (
     <div className="flex flex-col gap-4 p-4">
-      {alertDialogContentProps.size.values.map((size) => (
+      {alertDialogPopupProps.size.values.map((size) => (
         <AlertDialogSection key={size} size={size} />
       ))}
     </div>
@@ -90,7 +90,7 @@ export const Interactive: Story = {
         <AlertDialogTrigger render={<Button variant="surface" color="gray" />}>
           Delete project
         </AlertDialogTrigger>
-        <AlertDialogContent {...args}>
+        <AlertDialogPopup {...args}>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this project?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -101,7 +101,7 @@ export const Interactive: Story = {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction color="danger">Delete</AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogContent>
+        </AlertDialogPopup>
       </AlertDialog>
     </div>
   ),

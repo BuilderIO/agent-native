@@ -8,12 +8,14 @@ import { IconCheck, IconChevronDown, IconX } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../../utils.js";
+import { IconButton } from "./button.js";
 import {
   createListboxList,
   createListboxPopup,
   ListboxRootProvider,
   type ListboxPopupProps,
   useReportInputSize,
+  useSlotButtonSize,
 } from "./combobox-parts.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
@@ -168,16 +170,20 @@ ComboboxChip.displayName = "ComboboxChip";
 const ComboboxTrigger = React.forwardRef<
   HTMLButtonElement,
   BaseCombobox.Trigger.Props
->(({ className, children, ...props }, ref) => (
-  <BaseCombobox.Trigger
-    ref={ref}
-    aria-label="Show options"
-    {...props}
-    className={partClassName("combobox-trigger", className)}
-  >
-    {children ?? <IconChevronDown aria-hidden />}
-  </BaseCombobox.Trigger>
-));
+>(({ className, children, ...props }, ref) => {
+  const size = useSlotButtonSize();
+  return (
+    <BaseCombobox.Trigger
+      ref={ref}
+      aria-label="Show options"
+      {...props}
+      className={partClassName("combobox-trigger", className)}
+      render={<IconButton size={size} variant="ghost" color="gray" />}
+    >
+      {children ?? <IconChevronDown aria-hidden />}
+    </BaseCombobox.Trigger>
+  );
+});
 ComboboxTrigger.displayName = "ComboboxTrigger";
 
 /**
@@ -188,16 +194,20 @@ ComboboxTrigger.displayName = "ComboboxTrigger";
 const ComboboxClear = React.forwardRef<
   HTMLButtonElement,
   BaseCombobox.Clear.Props
->(({ className, children, ...props }, ref) => (
-  <BaseCombobox.Clear
-    ref={ref}
-    aria-label="Clear"
-    {...props}
-    className={partClassName("combobox-clear", className)}
-  >
-    {children ?? <IconX aria-hidden />}
-  </BaseCombobox.Clear>
-));
+>(({ className, children, ...props }, ref) => {
+  const size = useSlotButtonSize();
+  return (
+    <BaseCombobox.Clear
+      ref={ref}
+      aria-label="Clear"
+      {...props}
+      className={partClassName("combobox-clear", className)}
+      render={<IconButton size={size} variant="ghost" color="gray" />}
+    >
+      {children ?? <IconX aria-hidden />}
+    </BaseCombobox.Clear>
+  );
+});
 ComboboxClear.displayName = "ComboboxClear";
 
 export type ComboboxPopupProps = ListboxPopupProps;

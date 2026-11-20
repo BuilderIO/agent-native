@@ -1,11 +1,8 @@
-import { enumProp } from "../props.js";
+import { CONTROL_SIZES } from "../../tokens/roles.js";
+import { enumProp, sizeProp } from "../props.js";
 
 export const spinnerProps = {
-  size: enumProp(
-    ["1", "2", "3"],
-    "Diameter: 1 is 12px, 2 is 16px, 3 is 20px.",
-    "2",
-  ),
+  size: sizeProp(CONTROL_SIZES, "3"),
   loading: {
     type: "boolean",
     default: true,

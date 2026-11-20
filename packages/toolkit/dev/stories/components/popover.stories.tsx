@@ -1,6 +1,6 @@
 import {
-  type PopoverContentOwnProps,
-  popoverContentProps,
+  type PopoverPopupOwnProps,
+  popoverPopupProps,
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
@@ -8,22 +8,22 @@ import * as React from "react";
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
   Dialog,
-  DialogContent,
+  DialogPopup,
   DialogDescription,
   DialogTitle,
 } from "../../../src/ui/base-ui/dialog.js";
 import {
   Popover,
-  PopoverContent,
+  PopoverPopup,
   PopoverDescription,
   PopoverTitle,
   PopoverTrigger,
 } from "../../../src/ui/base-ui/popover.js";
 import { propControls } from "../prop-controls.js";
 
-type PopoverProps = PopoverContentOwnProps;
+type PopoverProps = PopoverPopupOwnProps;
 
-const controls = propControls(popoverContentProps);
+const controls = propControls(popoverPopupProps);
 
 function PopoverSample({
   container,
@@ -35,7 +35,7 @@ function PopoverSample({
       <PopoverTrigger render={<Button variant="surface" color="gray" />}>
         {label}
       </PopoverTrigger>
-      <PopoverContent {...props} container={container}>
+      <PopoverPopup {...props} container={container}>
         <PopoverTitle>Dimensions</PopoverTitle>
         <PopoverDescription>
           Set the dimensions for the layer.
@@ -45,7 +45,7 @@ function PopoverSample({
           defaultValue="100%"
           className="mt-2 h-control-md w-full rounded-control border border-line bg-fill-field px-2"
         />
-      </PopoverContent>
+      </PopoverPopup>
     </Popover>
   );
 }
@@ -77,13 +77,13 @@ function NestedInDialog() {
         Open dialog
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogPopup>
           <DialogTitle>Edit layer</DialogTitle>
           <DialogDescription>
             The popover opens above this dialog.
           </DialogDescription>
           <PopoverSample />
-        </DialogContent>
+        </DialogPopup>
       </Dialog>
     </div>
   );
@@ -108,7 +108,7 @@ export const Playground: Story = {
 /** Sizes 1 to 4 step the padding and the type together. Open each in turn. */
 export const Sizes: Story = {
   render: () => (
-    <Parts sizes={popoverContentProps.size.values.map((size) => ({ size }))} />
+    <Parts sizes={popoverPopupProps.size.values.map((size) => ({ size }))} />
   ),
 };
 

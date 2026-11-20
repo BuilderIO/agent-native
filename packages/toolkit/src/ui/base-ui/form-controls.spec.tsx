@@ -197,10 +197,10 @@ describe("Field part", () => {
 });
 
 describe("Checkbox part", () => {
-  it("writes its size and variant, size 2 surface by default, inheriting its color", () => {
+  it("writes its size and variant, size 3 surface by default, inheriting its color", () => {
     render(<Checkbox aria-label="Notify me" />);
     const box = screen.getByRole("checkbox", { name: "Notify me" });
-    expect(box.dataset.size).toBe("2");
+    expect(box.dataset.size).toBe("3");
     expect(box.dataset.variant).toBe("surface");
     expect(box.dataset.color).toBeUndefined();
     expect(box.dataset.highContrast).toBeUndefined();
@@ -224,10 +224,10 @@ describe("Checkbox part", () => {
   });
 
   it("refuses a size it doesn't have instead of drawing the default", () => {
-    const props = { size: "4" } as unknown as CheckboxProps;
+    const props = { size: "5" } as unknown as CheckboxProps;
     expect(() =>
       render(<Checkbox aria-label="Notify me" {...props} />),
-    ).toThrow(/size="4" is not one of/);
+    ).toThrow(/size="5" is not one of/);
   });
 
   it("toggles and draws a check while checked", () => {
@@ -310,14 +310,14 @@ describe("Radio part", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Pro" }));
     expect(onValueChange).toHaveBeenCalledWith("pro", expect.anything());
   });
-  it("draws its radios at size 2 surface by default", () => {
+  it("draws its radios at size 3 surface by default", () => {
     render(
       <RadioGroup aria-label="Plan">
         <Radio value="free" aria-label="Free" />
       </RadioGroup>,
     );
     const free = screen.getByRole("radio", { name: "Free" });
-    expect(free.dataset.size).toBe("2");
+    expect(free.dataset.size).toBe("3");
     expect(free.dataset.variant).toBe("surface");
     expect(free.dataset.color).toBeUndefined();
   });

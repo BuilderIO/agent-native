@@ -1,6 +1,6 @@
 import {
-  type MenubarContentOwnProps,
-  menubarContentProps,
+  type MenubarPopupOwnProps,
+  menubarPopupProps,
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
@@ -8,23 +8,23 @@ import * as React from "react";
 import {
   Menubar,
   MenubarCheckboxItem,
-  MenubarContent,
+  MenubarPopup,
   MenubarItem,
   MenubarMenu,
   MenubarRadioGroup,
   MenubarRadioItem,
   MenubarSeparator,
   MenubarShortcut,
-  MenubarSub,
-  MenubarSubContent,
-  MenubarSubTrigger,
+  MenubarSubmenuRoot,
+  MenubarSubmenuPopup,
+  MenubarSubmenuTrigger,
   MenubarTrigger,
 } from "../../../src/ui/base-ui/menubar.js";
 import { propControls } from "../prop-controls.js";
 
-type MenubarMenuProps = MenubarContentOwnProps;
+type MenubarMenuProps = MenubarPopupOwnProps;
 
-const controls = propControls(menubarContentProps);
+const controls = propControls(menubarPopupProps);
 
 function MenubarSample(props: MenubarMenuProps) {
   const [grid, setGrid] = React.useState(true);
@@ -33,7 +33,7 @@ function MenubarSample(props: MenubarMenuProps) {
     <Menubar aria-label="Editor">
       <MenubarMenu>
         <MenubarTrigger>File</MenubarTrigger>
-        <MenubarContent {...props}>
+        <MenubarPopup {...props}>
           <MenubarItem trailing={<MenubarShortcut>⌘N</MenubarShortcut>}>
             New
           </MenubarItem>
@@ -41,18 +41,18 @@ function MenubarSample(props: MenubarMenuProps) {
             Open
           </MenubarItem>
           <MenubarSeparator />
-          <MenubarSub>
-            <MenubarSubTrigger>Export</MenubarSubTrigger>
-            <MenubarSubContent>
+          <MenubarSubmenuRoot>
+            <MenubarSubmenuTrigger>Export</MenubarSubmenuTrigger>
+            <MenubarSubmenuPopup>
               <MenubarItem>PDF</MenubarItem>
               <MenubarItem>PNG</MenubarItem>
-            </MenubarSubContent>
-          </MenubarSub>
-        </MenubarContent>
+            </MenubarSubmenuPopup>
+          </MenubarSubmenuRoot>
+        </MenubarPopup>
       </MenubarMenu>
       <MenubarMenu>
         <MenubarTrigger>View</MenubarTrigger>
-        <MenubarContent {...props}>
+        <MenubarPopup {...props}>
           <MenubarCheckboxItem checked={grid} onCheckedChange={setGrid}>
             Show grid
           </MenubarCheckboxItem>
@@ -61,13 +61,13 @@ function MenubarSample(props: MenubarMenuProps) {
             <MenubarRadioItem value="fit">Fit</MenubarRadioItem>
             <MenubarRadioItem value="100">100%</MenubarRadioItem>
           </MenubarRadioGroup>
-        </MenubarContent>
+        </MenubarPopup>
       </MenubarMenu>
       <MenubarMenu>
         <MenubarTrigger disabled>Help</MenubarTrigger>
-        <MenubarContent {...props}>
+        <MenubarPopup {...props}>
           <MenubarItem>Docs</MenubarItem>
-        </MenubarContent>
+        </MenubarPopup>
       </MenubarMenu>
     </Menubar>
   );

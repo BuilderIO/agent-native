@@ -1,27 +1,27 @@
 import {
-  menubarContentProps,
+  menubarPopupProps,
   menubarItemProps,
 } from "@agent-native/design-system";
-import { Menu } from "@base-ui/react/menu";
+import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { Menubar as BaseMenubar } from "@base-ui/react/menubar";
 import * as React from "react";
 
 import {
-  createMenuContent,
+  createMenuPopup,
   createMenuItem,
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  type DropdownMenuContentProps,
+  Menu,
+  MenuCheckboxItem,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuPortal,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuShortcut,
+  MenuSubmenuRoot,
+  MenuSubmenuPopup,
+  MenuSubmenuTrigger,
+  type MenuPopupProps,
 } from "./menu.js";
 import { partClassName } from "./part-class.js";
 
@@ -30,7 +30,7 @@ import { partClassName } from "./part-class.js";
  * which moves focus between its triggers. Each menu inside it is the menu's
  * own popup, items and submenus.
  *
- * @import import { Menubar, MenubarMenu, MenubarTrigger, MenubarContent, MenubarItem, MenubarSeparator } from "@agent-native/toolkit/ui/base-ui/menubar";
+ * @import import { Menubar, MenubarMenu, MenubarTrigger, MenubarPopup, MenubarItem, MenubarSeparator } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
 const Menubar = React.forwardRef<HTMLDivElement, BaseMenubar.Props>(
   ({ className, ...props }, ref) => (
@@ -48,38 +48,38 @@ Menubar.displayName = "Menubar";
  *
  * @import import { MenubarTrigger } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-const MenubarTrigger = React.forwardRef<HTMLButtonElement, Menu.Trigger.Props>(
-  ({ className, ...props }, ref) => (
-    <Menu.Trigger
-      ref={ref}
-      className={partClassName("menubar-trigger", className)}
-      {...props}
-    />
-  ),
-);
+const MenubarTrigger = React.forwardRef<
+  HTMLButtonElement,
+  BaseMenu.Trigger.Props
+>(({ className, ...props }, ref) => (
+  <BaseMenu.Trigger
+    ref={ref}
+    className={partClassName("menubar-trigger", className)}
+    {...props}
+  />
+));
 MenubarTrigger.displayName = "MenubarTrigger";
 
-const MenuContent = createMenuContent(menubarContentProps, "MenuContent");
+const MenuContent = createMenuPopup(menubarPopupProps, "MenuContent");
 
 /**
  * A menu's popup, opened below its trigger. It holds the items and sets the
  * size, variant and color they inherit.
  *
- * @import import { MenubarContent } from "@agent-native/toolkit/ui/base-ui/menubar";
+ * @import import { MenubarPopup } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-const MenubarContent = React.forwardRef<
-  HTMLDivElement,
-  DropdownMenuContentProps
->(({ align = "start", alignOffset = -4, sideOffset = 8, ...props }, ref) => (
-  <MenuContent
-    ref={ref}
-    align={align}
-    alignOffset={alignOffset}
-    sideOffset={sideOffset}
-    {...props}
-  />
-));
-MenubarContent.displayName = "MenubarContent";
+const MenubarPopup = React.forwardRef<HTMLDivElement, MenuPopupProps>(
+  ({ align = "start", alignOffset = -4, sideOffset = 8, ...props }, ref) => (
+    <MenuContent
+      ref={ref}
+      align={align}
+      alignOffset={alignOffset}
+      sideOffset={sideOffset}
+      {...props}
+    />
+  ),
+);
+MenubarPopup.displayName = "MenubarPopup";
 
 /**
  * A row that runs an action when chosen, with an optional icon before the
@@ -90,27 +90,27 @@ MenubarContent.displayName = "MenubarContent";
 export const MenubarItem = createMenuItem(menubarItemProps, "MenubarItem");
 
 /**
- * One menu in the bar: wraps a MenubarTrigger and the MenubarContent it
+ * One menu in the bar: wraps a MenubarTrigger and the MenubarPopup it
  * opens.
  *
  * @import import { MenubarMenu } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarMenu = DropdownMenu;
+export const MenubarMenu = Menu;
 
 /**
  * A line between groups of items.
  *
  * @import import { MenubarSeparator } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarSeparator = DropdownMenuSeparator;
+export const MenubarSeparator = MenuSeparator;
 
 /**
- * A heading between items. To label a group, use `Menu.GroupLabel` inside
+ * A heading between items. To label a group, use `BaseMenu.GroupLabel` inside
  * it.
  *
- * @import import { MenubarLabel } from "@agent-native/toolkit/ui/base-ui/menubar";
+ * @import import { MenubarGroupLabel } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarLabel = DropdownMenuLabel;
+export const MenubarGroupLabel = MenuGroupLabel;
 
 /**
  * A row that toggles a setting on and off, with its check in the leading
@@ -118,63 +118,63 @@ export const MenubarLabel = DropdownMenuLabel;
  *
  * @import import { MenubarCheckboxItem } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarCheckboxItem = DropdownMenuCheckboxItem;
+export const MenubarCheckboxItem = MenuCheckboxItem;
 
 /**
  * Holds radio items of which only one is chosen, and owns their value.
  *
  * @import import { MenubarRadioGroup } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarRadioGroup = DropdownMenuRadioGroup;
+export const MenubarRadioGroup = MenuRadioGroup;
 
 /**
  * A row in a MenubarRadioGroup, for picking one of several options.
  *
  * @import import { MenubarRadioItem } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarRadioItem = DropdownMenuRadioItem;
+export const MenubarRadioItem = MenuRadioItem;
 
 /**
- * Moves the menu into the body, or into `container`. MenubarContent renders
+ * Moves the menu into the body, or into `container`. MenubarPopup renders
  * one already.
  *
  * @import import { MenubarPortal } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarPortal = DropdownMenuPortal;
+export const MenubarPortal = MenuPortal;
 
 /**
  * The popup a submenu opens, styled like the menu it opens from.
  *
- * @import import { MenubarSubContent } from "@agent-native/toolkit/ui/base-ui/menubar";
+ * @import import { MenubarSubmenuPopup } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarSubContent = DropdownMenuSubContent;
+export const MenubarSubmenuPopup = MenuSubmenuPopup;
 
 /**
  * The row that opens a submenu, with a chevron in the trailing slot.
  *
- * @import import { MenubarSubTrigger } from "@agent-native/toolkit/ui/base-ui/menubar";
+ * @import import { MenubarSubmenuTrigger } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarSubTrigger = DropdownMenuSubTrigger;
+export const MenubarSubmenuTrigger = MenuSubmenuTrigger;
 
 /**
- * Groups related items, labelled by a `Menu.GroupLabel` inside it.
+ * Groups related items, labelled by a `BaseMenu.GroupLabel` inside it.
  *
  * @import import { MenubarGroup } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarGroup = DropdownMenuGroup;
+export const MenubarGroup = MenuGroup;
 
 /**
- * A submenu: wraps a MenubarSubTrigger and the MenubarSubContent it opens.
+ * A submenu: wraps a MenubarSubmenuTrigger and the MenubarSubmenuPopup it opens.
  *
- * @import import { MenubarSub } from "@agent-native/toolkit/ui/base-ui/menubar";
+ * @import import { MenubarSubmenuRoot } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarSub = DropdownMenuSub;
+export const MenubarSubmenuRoot = MenuSubmenuRoot;
 
 /**
  * The keyboard shortcut for an item, set in its `trailing` slot.
  *
  * @import import { MenubarShortcut } from "@agent-native/toolkit/ui/base-ui/menubar";
  */
-export const MenubarShortcut = DropdownMenuShortcut;
+export const MenubarShortcut = MenuShortcut;
 
-export { Menubar, MenubarTrigger, MenubarContent };
+export { Menubar, MenubarTrigger, MenubarPopup };

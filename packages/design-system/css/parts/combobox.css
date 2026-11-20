@@ -11,8 +11,8 @@
  *         <button class="combobox-chip-remove">         Combobox.ChipRemove
  *       <input class="input-control">
  *     <div class="input-slot">
- *       <button class="combobox-clear">                 Combobox.Clear, while there is a value
- *       <button class="combobox-trigger">               Combobox.Trigger [data-popup-open]
+ *       <button class="icon-button combobox-clear"> Combobox.Clear, while there is a value
+ *       <button class="icon-button combobox-trigger"> Combobox.Trigger [data-popup-open]
  *
  *   <div class="combobox-positioner">
  *     <div class="combobox-popup" …>                    as the autocomplete's popup

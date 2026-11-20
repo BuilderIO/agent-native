@@ -1,17 +1,14 @@
+import { CONTROL_SIZES } from "../../tokens/roles.js";
 import {
   colorProp,
-  enumProp,
   highContrastProp,
   radiusProp,
   variantProp,
+  sizeProp,
 } from "../props.js";
 
 export const switchProps = {
-  size: enumProp(
-    ["1", "2", "3"],
-    "Track height: 1 is 12px, 2 is 16px, 3 is 20px.",
-    "2",
-  ),
+  size: sizeProp(CONTROL_SIZES, "3"),
   variant: variantProp(["surface", "soft"], "surface"),
   color: colorProp,
   highContrast: highContrastProp,

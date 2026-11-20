@@ -10,13 +10,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   Select,
-  SelectContent,
+  SelectPopup,
   SelectGroup,
   SelectItem,
-  SelectLabel,
+  SelectGroupLabel,
   SelectSeparator,
   SelectTrigger,
-  type SelectContentProps,
+  type SelectPopupProps,
   type SelectProps,
   type SelectTriggerProps,
   SelectValue,
@@ -46,7 +46,7 @@ function Sample({
   onValueChange?: (value: string | null) => void;
   size?: SelectProps<string>["size"];
   trigger?: Pick<SelectTriggerProps, "variant" | "color" | "radius">;
-  popup?: Pick<SelectContentProps, "variant" | "color" | "highContrast">;
+  popup?: Pick<SelectPopupProps, "variant" | "color" | "highContrast">;
 }) {
   return (
     <Select
@@ -58,9 +58,9 @@ function Sample({
       <SelectTrigger aria-label="Fruit" {...trigger}>
         <SelectValue placeholder="Pick" />
       </SelectTrigger>
-      <SelectContent {...popup}>
+      <SelectPopup {...popup}>
         <SelectGroup>
-          <SelectLabel>Fruits</SelectLabel>
+          <SelectGroupLabel>Fruits</SelectGroupLabel>
           <SelectItem value="apple">Apple</SelectItem>
           <SelectItem value="banana">Banana</SelectItem>
         </SelectGroup>
@@ -68,7 +68,7 @@ function Sample({
         <SelectItem value="other" disabled>
           Other
         </SelectItem>
-      </SelectContent>
+      </SelectPopup>
     </Select>
   );
 }

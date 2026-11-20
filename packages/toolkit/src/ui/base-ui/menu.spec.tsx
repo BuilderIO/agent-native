@@ -11,22 +11,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Button } from "./button.js";
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrailing,
-  DropdownMenuTrigger,
-  type DropdownMenuContentProps,
+  Menu,
+  MenuCheckboxItem,
+  MenuPopup,
+  MenuGroup,
+  MenuItem,
+  MenuGroupLabel,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuShortcut,
+  MenuSubmenuRoot,
+  MenuSubmenuPopup,
+  MenuSubmenuTrigger,
+  MenuTrailing,
+  MenuTrigger,
+  type MenuPopupProps,
 } from "./menu.js";
 
 afterEach(cleanup);
@@ -52,24 +52,24 @@ function BasicMenu(props: {
   ) => void;
 }) {
   return (
-    <DropdownMenu onOpenChange={props.onOpenChange}>
-      <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuLabel>Document</DropdownMenuLabel>
-        <DropdownMenuItem onClick={props.onClick}>
+    <Menu onOpenChange={props.onOpenChange}>
+      <MenuTrigger>Actions</MenuTrigger>
+      <MenuPopup>
+        <MenuGroupLabel>Document</MenuGroupLabel>
+        <MenuItem onClick={props.onClick}>
           Rename
-          <DropdownMenuShortcut>⌘R</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem leading={<svg data-testid="archive-icon" />}>
+          <MenuShortcut>⌘R</MenuShortcut>
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem leading={<svg data-testid="archive-icon" />}>
           Archive
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
-describe("DropdownMenu on Base UI", () => {
+describe("Menu on Base UI", () => {
   it("opens from the trigger and renders the menu part classes", async () => {
     render(<BasicMenu />);
     const trigger = screen.getByRole("button", { name: "Actions" });
@@ -110,14 +110,14 @@ describe("DropdownMenu on Base UI", () => {
   it("stays open for an item with closeOnClick={false}", async () => {
     const onClick = vi.fn();
     render(
-      <DropdownMenu>
-        <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem closeOnClick={false} onClick={onClick}>
+      <Menu>
+        <MenuTrigger>Actions</MenuTrigger>
+        <MenuPopup>
+          <MenuItem closeOnClick={false} onClick={onClick}>
             Refresh
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+          </MenuItem>
+        </MenuPopup>
+      </Menu>,
     );
     await openMenu(screen.getByRole("button", { name: "Actions" }));
     await act(async () =>
@@ -167,16 +167,16 @@ describe("DropdownMenu on Base UI", () => {
 
   it("renders the trigger through render", async () => {
     render(
-      <DropdownMenu>
-        <DropdownMenuTrigger
+      <Menu>
+        <MenuTrigger
           render={<Button variant="outline" data-testid="trigger" />}
         >
           Actions
-        </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem>Rename</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+        </MenuTrigger>
+        <MenuPopup>
+          <MenuItem>Rename</MenuItem>
+        </MenuPopup>
+      </Menu>,
     );
     const trigger = screen.getByTestId("trigger");
     expect(trigger.tagName).toBe("BUTTON");
@@ -188,17 +188,14 @@ describe("DropdownMenu on Base UI", () => {
   it("toggles a checkbox item without closing the menu", async () => {
     const onCheckedChange = vi.fn();
     render(
-      <DropdownMenu>
-        <DropdownMenuTrigger>View</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuCheckboxItem
-            checked={false}
-            onCheckedChange={onCheckedChange}
-          >
+      <Menu>
+        <MenuTrigger>View</MenuTrigger>
+        <MenuPopup>
+          <MenuCheckboxItem checked={false} onCheckedChange={onCheckedChange}>
             Show grid
-          </DropdownMenuCheckboxItem>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+          </MenuCheckboxItem>
+        </MenuPopup>
+      </Menu>,
     );
     await openMenu(screen.getByRole("button", { name: "View" }));
     const item = screen.getByRole("menuitemcheckbox", { name: "Show grid" });
@@ -211,17 +208,17 @@ describe("DropdownMenu on Base UI", () => {
   it("selects a radio item through the group", async () => {
     const onValueChange = vi.fn();
     render(
-      <DropdownMenu>
-        <DropdownMenuTrigger>Sort</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuRadioGroup value="name" onValueChange={onValueChange}>
-            <DropdownMenuRadioItem value="name">Name</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="date" indicator="check">
+      <Menu>
+        <MenuTrigger>Sort</MenuTrigger>
+        <MenuPopup>
+          <MenuRadioGroup value="name" onValueChange={onValueChange}>
+            <MenuRadioItem value="name">Name</MenuRadioItem>
+            <MenuRadioItem value="date" indicator="check">
               Date
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+            </MenuRadioItem>
+          </MenuRadioGroup>
+        </MenuPopup>
+      </Menu>,
     );
     await openMenu(screen.getByRole("button", { name: "Sort" }));
     const name = screen.getByRole("menuitemradio", { name: "Name" });
@@ -235,17 +232,17 @@ describe("DropdownMenu on Base UI", () => {
 
   it("opens a submenu from its trigger", async () => {
     render(
-      <DropdownMenu>
-        <DropdownMenuTrigger>File</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Export</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem>PDF</DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <Menu>
+        <MenuTrigger>File</MenuTrigger>
+        <MenuPopup>
+          <MenuSubmenuRoot>
+            <MenuSubmenuTrigger>Export</MenuSubmenuTrigger>
+            <MenuSubmenuPopup>
+              <MenuItem>PDF</MenuItem>
+            </MenuSubmenuPopup>
+          </MenuSubmenuRoot>
+        </MenuPopup>
+      </Menu>,
     );
     await openMenu(screen.getByRole("button", { name: "File" }));
     const subTrigger = screen.getByRole("menuitem", { name: "Export" });
@@ -262,12 +259,12 @@ describe("DropdownMenu on Base UI", () => {
   it("keeps a controlled menu open until its owner says otherwise", async () => {
     const onOpenChange = vi.fn();
     render(
-      <DropdownMenu open onOpenChange={onOpenChange}>
-        <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem>Rename</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <Menu open onOpenChange={onOpenChange}>
+        <MenuTrigger>Actions</MenuTrigger>
+        <MenuPopup>
+          <MenuItem>Rename</MenuItem>
+        </MenuPopup>
+      </Menu>,
     );
     const menu = await screen.findByRole("menu");
     await act(async () => {
@@ -279,15 +276,15 @@ describe("DropdownMenu on Base UI", () => {
 
   it("labels a group with Base UI's group label", async () => {
     render(
-      <DropdownMenu defaultOpen>
-        <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>Danger zone</DropdownMenuLabel>
-            <DropdownMenuItem>Delete</DropdownMenuItem>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <Menu defaultOpen>
+        <MenuTrigger>Actions</MenuTrigger>
+        <MenuPopup>
+          <MenuGroup>
+            <MenuGroupLabel>Danger zone</MenuGroupLabel>
+            <MenuItem>Delete</MenuItem>
+          </MenuGroup>
+        </MenuPopup>
+      </Menu>,
     );
     expect(await screen.findByRole("menu")).toBeTruthy();
     expect(screen.getByRole("group")).toBeTruthy();
@@ -297,18 +294,18 @@ describe("DropdownMenu on Base UI", () => {
 describe("menu item slots", () => {
   it("renders leading, label and trailing in order, each in its slot", async () => {
     render(
-      <DropdownMenu defaultOpen>
-        <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem
+      <Menu defaultOpen>
+        <MenuTrigger>Actions</MenuTrigger>
+        <MenuPopup>
+          <MenuItem
             leading={<svg data-testid="icon" />}
-            trailing={<DropdownMenuShortcut>⌘D</DropdownMenuShortcut>}
+            trailing={<MenuShortcut>⌘D</MenuShortcut>}
           >
             Duplicate
-          </DropdownMenuItem>
-          <DropdownMenuItem>Rename</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+          </MenuItem>
+          <MenuItem>Rename</MenuItem>
+        </MenuPopup>
+      </Menu>,
     );
     const duplicate = await screen.findByRole("menuitem", {
       name: /Duplicate/,
@@ -331,18 +328,16 @@ describe("menu item slots", () => {
 
   it("puts the checkbox check and radio dot in the leading slot", async () => {
     render(
-      <DropdownMenu defaultOpen>
-        <DropdownMenuTrigger>View</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuCheckboxItem checked={false}>
-            Grid
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuRadioGroup value="a">
-            <DropdownMenuRadioItem value="a">A</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="b">B</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <Menu defaultOpen>
+        <MenuTrigger>View</MenuTrigger>
+        <MenuPopup>
+          <MenuCheckboxItem checked={false}>Grid</MenuCheckboxItem>
+          <MenuRadioGroup value="a">
+            <MenuRadioItem value="a">A</MenuRadioItem>
+            <MenuRadioItem value="b">B</MenuRadioItem>
+          </MenuRadioGroup>
+        </MenuPopup>
+      </Menu>,
     );
     for (const name of ["Grid", "A", "B"]) {
       const row = await screen.findByRole(
@@ -355,19 +350,19 @@ describe("menu item slots", () => {
 
   it("gives the submenu trigger the item anatomy with a chevron trailing", async () => {
     render(
-      <DropdownMenu defaultOpen>
-        <DropdownMenuTrigger>File</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger leading={<svg data-testid="icon" />}>
+      <Menu defaultOpen>
+        <MenuTrigger>File</MenuTrigger>
+        <MenuPopup>
+          <MenuSubmenuRoot>
+            <MenuSubmenuTrigger leading={<svg data-testid="icon" />}>
               Export
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem>PDF</DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+            </MenuSubmenuTrigger>
+            <MenuSubmenuPopup>
+              <MenuItem>PDF</MenuItem>
+            </MenuSubmenuPopup>
+          </MenuSubmenuRoot>
+        </MenuPopup>
+      </Menu>,
     );
     const trigger = await screen.findByRole("menuitem", { name: "Export" });
     const [leading, , trailing] = Array.from(trigger.childNodes);
@@ -379,13 +374,13 @@ describe("menu item slots", () => {
 });
 
 describe("menu trailing slot", () => {
-  it("gives DropdownMenuShortcut the shortcut part class", () => {
-    render(<DropdownMenuShortcut>⌘D</DropdownMenuShortcut>);
+  it("gives MenuShortcut the shortcut part class", () => {
+    render(<MenuShortcut>⌘D</MenuShortcut>);
     expect(screen.getByText("⌘D").classList).toContain("menu-shortcut");
   });
 
-  it("gives DropdownMenuTrailing the trailing slot class", () => {
-    render(<DropdownMenuTrailing>x</DropdownMenuTrailing>);
+  it("gives MenuTrailing the trailing slot class", () => {
+    render(<MenuTrailing>x</MenuTrailing>);
     expect(screen.getByText("x").classList).toContain("menu-item-trailing");
   });
 });
@@ -404,17 +399,12 @@ describe("menu props", () => {
 
   it("writes size, variant, color and high contrast as Radix names them", async () => {
     render(
-      <DropdownMenu defaultOpen>
-        <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-        <DropdownMenuContent
-          size="2"
-          variant="solid"
-          color="accent"
-          highContrast
-        >
-          <DropdownMenuItem>Rename</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <Menu defaultOpen>
+        <MenuTrigger>Actions</MenuTrigger>
+        <MenuPopup size="2" variant="solid" color="accent" highContrast>
+          <MenuItem>Rename</MenuItem>
+        </MenuPopup>
+      </Menu>,
     );
     const menu = await screen.findByRole("menu");
     expect(menu.dataset).toMatchObject({
@@ -427,13 +417,13 @@ describe("menu props", () => {
 
   it("marks a destructive item with its color", async () => {
     render(
-      <DropdownMenu defaultOpen>
-        <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem>Rename</DropdownMenuItem>
-          <DropdownMenuItem color="danger">Delete</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <Menu defaultOpen>
+        <MenuTrigger>Actions</MenuTrigger>
+        <MenuPopup>
+          <MenuItem>Rename</MenuItem>
+          <MenuItem color="danger">Delete</MenuItem>
+        </MenuPopup>
+      </Menu>,
     );
     const remove = await screen.findByRole("menuitem", { name: "Delete" });
     expect(remove.dataset.color).toBe("danger");
@@ -443,32 +433,32 @@ describe("menu props", () => {
   });
 
   it("refuses a variant it doesn't have instead of drawing the default", () => {
-    const props = { variant: "ghost" } as unknown as DropdownMenuContentProps;
+    const props = { variant: "ghost" } as unknown as MenuPopupProps;
     expect(() =>
       render(
-        <DropdownMenu defaultOpen>
-          <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
-          <DropdownMenuContent {...props}>
-            <DropdownMenuItem>Rename</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>,
+        <Menu defaultOpen>
+          <MenuTrigger>Actions</MenuTrigger>
+          <MenuPopup {...props}>
+            <MenuItem>Rename</MenuItem>
+          </MenuPopup>
+        </Menu>,
       ),
     ).toThrow(/variant="ghost" is not one of/);
   });
 
   it("gives a submenu its menu's size, variant and color", async () => {
     render(
-      <DropdownMenu defaultOpen>
-        <DropdownMenuTrigger>File</DropdownMenuTrigger>
-        <DropdownMenuContent size="2" variant="solid" color="danger">
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Export</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent data-testid="submenu">
-              <DropdownMenuItem>PDF</DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <Menu defaultOpen>
+        <MenuTrigger>File</MenuTrigger>
+        <MenuPopup size="2" variant="solid" color="danger">
+          <MenuSubmenuRoot>
+            <MenuSubmenuTrigger>Export</MenuSubmenuTrigger>
+            <MenuSubmenuPopup data-testid="submenu">
+              <MenuItem>PDF</MenuItem>
+            </MenuSubmenuPopup>
+          </MenuSubmenuRoot>
+        </MenuPopup>
+      </Menu>,
     );
     const subTrigger = await screen.findByRole("menuitem", { name: "Export" });
     subTrigger.focus();

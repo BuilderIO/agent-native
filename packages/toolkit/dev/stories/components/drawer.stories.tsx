@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
   Drawer,
-  DrawerContent,
+  DrawerPopup,
   DrawerDescription,
   DrawerFooter,
   DrawerHeader,
@@ -24,7 +24,7 @@ function DrawerExample({ side = "bottom" }: { side?: DrawerSide | undefined }) {
       <DrawerTrigger render={<Button variant="surface" color="gray" />}>
         Open {side} drawer
       </DrawerTrigger>
-      <DrawerContent>
+      <DrawerPopup>
         <DrawerHeader>
           <DrawerTitle>
             {side === "bottom" ? "Move to folder" : "History"}
@@ -40,7 +40,7 @@ function DrawerExample({ side = "bottom" }: { side?: DrawerSide | undefined }) {
             <Button>Move</Button>
           </DrawerFooter>
         ) : null}
-      </DrawerContent>
+      </DrawerPopup>
     </Drawer>
   );
 }

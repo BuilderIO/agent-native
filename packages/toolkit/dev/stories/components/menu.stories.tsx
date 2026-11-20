@@ -1,7 +1,7 @@
 import {
   COLORS,
-  type MenuContentOwnProps,
-  menuContentProps,
+  type MenuPopupOwnProps,
+  menuPopupProps,
   propAttributes,
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
@@ -16,26 +16,26 @@ import * as React from "react";
 
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
+  Menu,
+  MenuCheckboxItem,
+  MenuPopup,
+  MenuGroup,
+  MenuItem,
+  MenuGroupLabel,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuShortcut,
+  MenuSubmenuRoot,
+  MenuSubmenuPopup,
+  MenuSubmenuTrigger,
+  MenuTrigger,
 } from "../../../src/ui/base-ui/menu.js";
 import { propControls } from "../prop-controls.js";
 
-type MenuProps = MenuContentOwnProps;
+type MenuProps = MenuPopupOwnProps;
 
-const controls = propControls(menuContentProps);
+const controls = propControls(menuPopupProps);
 
 const trigger = <Button variant="surface" color="gray" />;
 
@@ -46,126 +46,115 @@ function MenuSample({ pinned, ...props }: MenuProps & { pinned: boolean }) {
   const sub = pinned ? { open: true } : {};
 
   return (
-    <DropdownMenu {...root}>
-      <DropdownMenuTrigger render={trigger}>Open menu</DropdownMenuTrigger>
-      <DropdownMenuContent {...props} align="start" className="w-56">
-        <DropdownMenuLabel>Document</DropdownMenuLabel>
-        <DropdownMenuItem>Rename</DropdownMenuItem>
-        <DropdownMenuItem
+    <Menu {...root}>
+      <MenuTrigger render={trigger}>Open menu</MenuTrigger>
+      <MenuPopup {...props} align="start" className="w-56">
+        <MenuGroupLabel>Document</MenuGroupLabel>
+        <MenuItem>Rename</MenuItem>
+        <MenuItem
           leading={<IconCopy />}
-          trailing={<DropdownMenuShortcut>⌘D</DropdownMenuShortcut>}
+          trailing={<MenuShortcut>⌘D</MenuShortcut>}
         >
           Duplicate
-        </DropdownMenuItem>
-        <DropdownMenuItem disabled leading={<IconPencil />}>
+        </MenuItem>
+        <MenuItem disabled leading={<IconPencil />}>
           Locked
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem
+        </MenuItem>
+        <MenuSeparator />
+        <MenuCheckboxItem
           checked={checked}
           onCheckedChange={setChecked}
           closeOnClick={false}
         >
           Show grid
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuCheckboxItem checked={false} closeOnClick={false}>
+        </MenuCheckboxItem>
+        <MenuCheckboxItem checked={false} closeOnClick={false}>
           Snap to grid
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup value={sort} onValueChange={setSort}>
-          <DropdownMenuRadioItem value="name" closeOnClick={false}>
+        </MenuCheckboxItem>
+        <MenuSeparator />
+        <MenuRadioGroup value={sort} onValueChange={setSort}>
+          <MenuRadioItem value="name" closeOnClick={false}>
             Name
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="date" closeOnClick={false}>
+          </MenuRadioItem>
+          <MenuRadioItem value="date" closeOnClick={false}>
             Date
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem
-            value="size"
-            indicator="check"
-            closeOnClick={false}
-          >
+          </MenuRadioItem>
+          <MenuRadioItem value="size" indicator="check" closeOnClick={false}>
             Size
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuSub {...sub}>
-          <DropdownMenuSubTrigger leading={<IconDownload />}>
+          </MenuRadioItem>
+        </MenuRadioGroup>
+        <MenuSeparator />
+        <MenuSubmenuRoot {...sub}>
+          <MenuSubmenuTrigger leading={<IconDownload />}>
             Export
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <DropdownMenuItem>PDF</DropdownMenuItem>
-            <DropdownMenuItem>PNG</DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuItem color="danger" leading={<IconTrash />}>
+          </MenuSubmenuTrigger>
+          <MenuSubmenuPopup>
+            <MenuItem>PDF</MenuItem>
+            <MenuItem>PNG</MenuItem>
+          </MenuSubmenuPopup>
+        </MenuSubmenuRoot>
+        <MenuItem color="danger" leading={<IconTrash />}>
           Move to trash
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
 function SomeIconsSample() {
   return (
-    <DropdownMenu open modal={false}>
-      <DropdownMenuTrigger render={trigger}>Open menu</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Share</DropdownMenuLabel>
-          <DropdownMenuItem
+    <Menu open modal={false}>
+      <MenuTrigger render={trigger}>Open menu</MenuTrigger>
+      <MenuPopup align="start" className="w-56">
+        <MenuGroup>
+          <MenuGroupLabel>Share</MenuGroupLabel>
+          <MenuItem
             leading={<IconShare />}
-            trailing={<DropdownMenuShortcut>⌘⇧S</DropdownMenuShortcut>}
+            trailing={<MenuShortcut>⌘⇧S</MenuShortcut>}
           >
             Share link
-          </DropdownMenuItem>
-          <DropdownMenuItem>Copy link</DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>Manage</DropdownMenuLabel>
-          <DropdownMenuItem leading={<IconPencil />}>Rename</DropdownMenuItem>
-          <DropdownMenuItem>Archive</DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>More</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem>Move</DropdownMenuItem>
-              <DropdownMenuItem>History</DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuItem color="danger" leading={<IconTrash />}>
+          </MenuItem>
+          <MenuItem>Copy link</MenuItem>
+        </MenuGroup>
+        <MenuSeparator />
+        <MenuGroup>
+          <MenuGroupLabel>Manage</MenuGroupLabel>
+          <MenuItem leading={<IconPencil />}>Rename</MenuItem>
+          <MenuItem>Archive</MenuItem>
+          <MenuSubmenuRoot>
+            <MenuSubmenuTrigger>More</MenuSubmenuTrigger>
+            <MenuSubmenuPopup>
+              <MenuItem>Move</MenuItem>
+              <MenuItem>History</MenuItem>
+            </MenuSubmenuPopup>
+          </MenuSubmenuRoot>
+          <MenuItem color="danger" leading={<IconTrash />}>
             Delete
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          </MenuItem>
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
   );
 }
 
 function TextOnlySample() {
   return (
-    <DropdownMenu open modal={false}>
-      <DropdownMenuTrigger render={trigger}>Open menu</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuLabel>Document</DropdownMenuLabel>
-        <DropdownMenuItem
-          trailing={<DropdownMenuShortcut>⌘R</DropdownMenuShortcut>}
-        >
-          Rename
-        </DropdownMenuItem>
-        <DropdownMenuItem>Archive</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem color="danger">Delete</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Menu open modal={false}>
+      <MenuTrigger render={trigger}>Open menu</MenuTrigger>
+      <MenuPopup align="start" className="w-56">
+        <MenuGroupLabel>Document</MenuGroupLabel>
+        <MenuItem trailing={<MenuShortcut>⌘R</MenuShortcut>}>Rename</MenuItem>
+        <MenuItem>Archive</MenuItem>
+        <MenuSeparator />
+        <MenuItem color="danger">Delete</MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
 function HighlightSample(props: MenuProps) {
   return (
-    <div
-      className="menu-popup w-40"
-      {...propAttributes(menuContentProps, props)}
-    >
+    <div className="menu-popup w-40" {...propAttributes(menuPopupProps, props)}>
       <div className="menu-item">Rename</div>
       <div className="menu-item" data-highlighted="">
         Duplicate
@@ -185,12 +174,12 @@ function HighlightSample(props: MenuProps) {
 
 const meta = {
   title: "Components/Menu",
-  component: DropdownMenu,
+  component: Menu,
   parameters: { layout: "fullscreen" },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Omit<Meta<MenuProps>, "component"> & {
-  component: typeof DropdownMenu;
+  component: typeof Menu;
 };
 
 export default meta;
@@ -210,7 +199,7 @@ export const Playground: Story = {
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex gap-6 p-8">
-      {menuContentProps.size.values.map((size) => (
+      {menuPopupProps.size.values.map((size) => (
         <HighlightSample key={size} {...args} size={size} />
       ))}
     </div>
@@ -222,7 +211,7 @@ export const Variants: Story = {
   render: () => (
     <div className="flex flex-col gap-6 p-8">
       {[false, true].map((highContrast) =>
-        menuContentProps.variant.values.map((variant) => (
+        menuPopupProps.variant.values.map((variant) => (
           <div
             key={`${variant}-${String(highContrast)}`}
             className="flex flex-wrap items-start gap-4"

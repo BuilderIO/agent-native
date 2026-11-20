@@ -7,7 +7,7 @@ import {
 } from "../props.js";
 
 /** The popup: its rows' size and how the highlighted row is filled. */
-export const contextMenuContentProps = {
+export const contextMenuPopupProps = {
   size: sizeProp(["2", "3"], "3", "Row height"),
   variant: variantProp(["solid", "soft"], "soft"),
   color: popupColorProp,

@@ -8,12 +8,14 @@ import { IconChevronDown, IconX } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../../utils.js";
+import { IconButton } from "./button.js";
 import {
   createListboxList,
   createListboxPopup,
   ListboxRootProvider,
   type ListboxPopupProps,
   useReportInputSize,
+  useSlotButtonSize,
 } from "./combobox-parts.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
@@ -93,16 +95,20 @@ AutocompleteInput.displayName = "AutocompleteInput";
 const AutocompleteTrigger = React.forwardRef<
   HTMLButtonElement,
   BaseAutocomplete.Trigger.Props
->(({ className, children, ...props }, ref) => (
-  <BaseAutocomplete.Trigger
-    ref={ref}
-    aria-label="Show suggestions"
-    {...props}
-    className={partClassName("autocomplete-trigger", className)}
-  >
-    {children ?? <IconChevronDown aria-hidden />}
-  </BaseAutocomplete.Trigger>
-));
+>(({ className, children, ...props }, ref) => {
+  const size = useSlotButtonSize();
+  return (
+    <BaseAutocomplete.Trigger
+      ref={ref}
+      aria-label="Show suggestions"
+      {...props}
+      className={partClassName("autocomplete-trigger", className)}
+      render={<IconButton size={size} variant="ghost" color="gray" />}
+    >
+      {children ?? <IconChevronDown aria-hidden />}
+    </BaseAutocomplete.Trigger>
+  );
+});
 AutocompleteTrigger.displayName = "AutocompleteTrigger";
 
 /**
@@ -113,16 +119,20 @@ AutocompleteTrigger.displayName = "AutocompleteTrigger";
 const AutocompleteClear = React.forwardRef<
   HTMLButtonElement,
   BaseAutocomplete.Clear.Props
->(({ className, children, ...props }, ref) => (
-  <BaseAutocomplete.Clear
-    ref={ref}
-    aria-label="Clear"
-    {...props}
-    className={partClassName("autocomplete-clear", className)}
-  >
-    {children ?? <IconX aria-hidden />}
-  </BaseAutocomplete.Clear>
-));
+>(({ className, children, ...props }, ref) => {
+  const size = useSlotButtonSize();
+  return (
+    <BaseAutocomplete.Clear
+      ref={ref}
+      aria-label="Clear"
+      {...props}
+      className={partClassName("autocomplete-clear", className)}
+      render={<IconButton size={size} variant="ghost" color="gray" />}
+    >
+      {children ?? <IconX aria-hidden />}
+    </BaseAutocomplete.Clear>
+  );
+});
 AutocompleteClear.displayName = "AutocompleteClear";
 
 export type AutocompletePopupProps = ListboxPopupProps;

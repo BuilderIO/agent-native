@@ -1,9 +1,9 @@
 import {
-  menuContentProps,
+  menuPopupProps,
   menuItemProps,
   type PropsOf,
 } from "@agent-native/design-system";
-import { Menu } from "@base-ui/react/menu";
+import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { IconCheck, IconChevronRight, IconCircle } from "@tabler/icons-react";
 import * as React from "react";
 
@@ -12,7 +12,7 @@ import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
 type PositionerProps = Pick<
-  Menu.Positioner.Props,
+  BaseMenu.Positioner.Props,
   | "side"
   | "align"
   | "sideOffset"
@@ -27,33 +27,30 @@ type PositionerProps = Pick<
   | "disableAnchorTracking"
 >;
 
-type MenuContentDefs = typeof menuContentProps;
+type MenuPopupDefs = typeof menuPopupProps;
 type MenuItemDefs = typeof menuItemProps;
 
-export interface DropdownMenuContentProps
+export interface MenuPopupProps
   extends
-    Omit<Menu.Popup.Props, "color">,
+    Omit<BaseMenu.Popup.Props, "color">,
     PositionerProps,
-    PropsOf<MenuContentDefs> {
+    PropsOf<MenuPopupDefs> {
   /** Portal target. */
-  container?: Menu.Portal.Props["container"];
+  container?: BaseMenu.Portal.Props["container"];
   /** Keeps the popup mounted while closed. */
-  keepMounted?: Menu.Portal.Props["keepMounted"];
+  keepMounted?: BaseMenu.Portal.Props["keepMounted"];
 }
 
 /** A submenu takes its size, variant and color from the menu it opens from. */
-export type DropdownMenuSubContentProps = Omit<
-  DropdownMenuContentProps,
-  keyof MenuContentDefs
->;
+export type MenuSubmenuPopupProps = Omit<MenuPopupProps, keyof MenuPopupDefs>;
 
 const MenuAttributesContext = React.createContext<
   Record<string, string | undefined>
 >({});
 
-const MenuPopup = React.forwardRef<
+const MenuPopupFrame = React.forwardRef<
   HTMLDivElement,
-  DropdownMenuSubContentProps & {
+  MenuSubmenuPopupProps & {
     attributes: Record<string, string | undefined>;
   }
 >(
@@ -79,8 +76,8 @@ const MenuPopup = React.forwardRef<
     },
     ref,
   ) => (
-    <Menu.Portal container={container} keepMounted={keepMounted}>
-      <Menu.Positioner
+    <BaseMenu.Portal container={container} keepMounted={keepMounted}>
+      <BaseMenu.Positioner
         className="menu-positioner"
         side={side}
         align={align}
@@ -95,26 +92,26 @@ const MenuPopup = React.forwardRef<
         positionMethod={positionMethod}
         disableAnchorTracking={disableAnchorTracking}
       >
-        <Menu.Popup
+        <BaseMenu.Popup
           ref={ref}
           {...props}
           {...attributes}
           className={partClassName("menu-popup", className)}
         />
-      </Menu.Positioner>
-    </Menu.Portal>
+      </BaseMenu.Positioner>
+    </BaseMenu.Portal>
   ),
 );
-MenuPopup.displayName = "MenuPopup";
+MenuPopupFrame.displayName = "MenuPopupFrame";
 
 /** The content of a menu, a context menu or a menubar menu, from its definitions. */
-export function createMenuContent(defs: MenuContentDefs, displayName: string) {
-  const component = React.forwardRef<HTMLDivElement, DropdownMenuContentProps>(
+export function createMenuPopup(defs: MenuPopupDefs, displayName: string) {
+  const component = React.forwardRef<HTMLDivElement, MenuPopupProps>(
     (props, ref) => {
       const [attributes, rest] = splitProps(defs, props);
       return (
         <MenuAttributesContext.Provider value={attributes}>
-          <MenuPopup ref={ref} attributes={attributes} {...rest} />
+          <MenuPopupFrame ref={ref} attributes={attributes} {...rest} />
         </MenuAttributesContext.Provider>
       );
     },
@@ -127,76 +124,73 @@ export function createMenuContent(defs: MenuContentDefs, displayName: string) {
  * The popup a submenu opens. Its size, variant and color come from the menu
  * it opens from.
  *
- * @import import { DropdownMenuSubContent } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuSubmenuPopup } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuSubContent = React.forwardRef<
+const MenuSubmenuPopup = React.forwardRef<
   HTMLDivElement,
-  DropdownMenuSubContentProps
+  MenuSubmenuPopupProps
 >((props, ref) => (
-  <MenuPopup
+  <MenuPopupFrame
     ref={ref}
     attributes={React.useContext(MenuAttributesContext)}
     {...props}
   />
 ));
-DropdownMenuSubContent.displayName = "DropdownMenuSubContent";
+MenuSubmenuPopup.displayName = "MenuSubmenuPopup";
 
 /**
  * A list of actions or options that opens from a button, on Base UI's Menu
- * with Radix Themes' DropdownMenu props. Root, Trigger, Portal, Group and
+ * with Radix Themes' Menu props. Root, Trigger, Portal, Group and
  * Radio Group are Base UI's own parts.
  *
- * @import import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { Menu, MenuTrigger, MenuPopup, MenuItem, MenuSeparator } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const DropdownMenu = Menu.Root;
+export const Menu = BaseMenu.Root;
 
 /**
  * The button that opens the menu. Compose your own button with `render`.
  *
- * @import import { DropdownMenuTrigger } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuTrigger } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const DropdownMenuTrigger = Menu.Trigger;
+export const MenuTrigger = BaseMenu.Trigger;
 
 /**
- * Moves the menu into the body, or into `container`. DropdownMenuContent
+ * Moves the menu into the body, or into `container`. MenuPopup
  * renders one already.
  *
- * @import import { DropdownMenuPortal } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuPortal } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const DropdownMenuPortal = Menu.Portal;
+export const MenuPortal = BaseMenu.Portal;
 
 /**
- * Groups related items, labelled by a `Menu.GroupLabel` inside it.
+ * Groups related items, labelled by a `BaseMenu.GroupLabel` inside it.
  *
- * @import import { DropdownMenuGroup } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuGroup } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const DropdownMenuGroup = Menu.Group;
+export const MenuGroup = BaseMenu.Group;
 
 /**
  * Holds radio items of which only one is chosen, and owns their value.
  *
- * @import import { DropdownMenuRadioGroup } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuRadioGroup } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const DropdownMenuRadioGroup = Menu.RadioGroup;
+export const MenuRadioGroup = BaseMenu.RadioGroup;
 
 /**
- * A submenu: wraps a DropdownMenuSubTrigger and the DropdownMenuSubContent it
+ * A submenu: wraps a MenuSubmenuTrigger and the MenuSubmenuPopup it
  * opens.
  *
- * @import import { DropdownMenuSub } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuSubmenuRoot } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-export const DropdownMenuSub = Menu.SubmenuRoot;
+export const MenuSubmenuRoot = BaseMenu.SubmenuRoot;
 
 /**
  * The menu's popup, positioned beside its trigger. It holds the items and
  * sets the size, variant and color they inherit.
  *
- * @import import { DropdownMenuContent } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuPopup } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuContent = createMenuContent(
-  menuContentProps,
-  "DropdownMenuContent",
-);
+const MenuPopup = createMenuPopup(menuPopupProps, "MenuPopup");
 
 /**
  * Every row has three slots: `leading` (an icon, or the check or dot of a
@@ -222,20 +216,20 @@ function MenuItemSlot({
   return <span className={`menu-item-${slot}`}>{children}</span>;
 }
 
-export interface DropdownMenuItemProps
+export interface MenuItemProps
   extends
-    Omit<Menu.Item.Props, "color">,
+    Omit<BaseMenu.Item.Props, "color">,
     MenuItemSlots,
     PropsOf<MenuItemDefs> {}
 
 /** A menu item from its definitions: `color` marks a destructive or status row. */
 export function createMenuItem(defs: MenuItemDefs, displayName: string) {
-  const component = React.forwardRef<HTMLDivElement, DropdownMenuItemProps>(
+  const component = React.forwardRef<HTMLDivElement, MenuItemProps>(
     (props, ref) => {
       const [attributes, { leading, trailing, className, children, ...rest }] =
         splitProps(defs, props);
       return (
-        <Menu.Item
+        <BaseMenu.Item
           ref={ref}
           {...rest}
           {...attributes}
@@ -244,7 +238,7 @@ export function createMenuItem(defs: MenuItemDefs, displayName: string) {
           <MenuItemSlot slot="leading">{leading}</MenuItemSlot>
           {children}
           <MenuItemSlot slot="trailing">{trailing}</MenuItemSlot>
-        </Menu.Item>
+        </BaseMenu.Item>
       );
     },
   );
@@ -256,142 +250,140 @@ export function createMenuItem(defs: MenuItemDefs, displayName: string) {
  * A row that runs an action when chosen, with an optional icon before the
  * label and a shortcut or other content after it.
  *
- * @import import { DropdownMenuItem } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuItem } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuItem = createMenuItem(menuItemProps, "DropdownMenuItem");
+const MenuItem = createMenuItem(menuItemProps, "MenuItem");
 
-export interface DropdownMenuCheckboxItemProps
-  extends Menu.CheckboxItem.Props, Pick<MenuItemSlots, "trailing"> {}
+export interface MenuCheckboxItemProps
+  extends BaseMenu.CheckboxItem.Props, Pick<MenuItemSlots, "trailing"> {}
 
 /**
  * A row that toggles a setting on and off. Its check sits in the leading slot,
  * which keeps its column when unchecked.
  *
- * @import import { DropdownMenuCheckboxItem } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuCheckboxItem } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuCheckboxItem = React.forwardRef<
+const MenuCheckboxItem = React.forwardRef<
   HTMLDivElement,
-  DropdownMenuCheckboxItemProps
+  MenuCheckboxItemProps
 >(({ className, children, trailing, ...props }, ref) => (
-  <Menu.CheckboxItem
+  <BaseMenu.CheckboxItem
     ref={ref}
     className={partClassName("menu-checkbox-item", className)}
     {...props}
   >
     <span className="menu-item-leading">
-      <Menu.CheckboxItemIndicator>
+      <BaseMenu.CheckboxItemIndicator>
         <IconCheck />
-      </Menu.CheckboxItemIndicator>
+      </BaseMenu.CheckboxItemIndicator>
     </span>
     {children}
     <MenuItemSlot slot="trailing">{trailing}</MenuItemSlot>
-  </Menu.CheckboxItem>
+  </BaseMenu.CheckboxItem>
 ));
-DropdownMenuCheckboxItem.displayName = "DropdownMenuCheckboxItem";
+MenuCheckboxItem.displayName = "MenuCheckboxItem";
 
-export interface DropdownMenuRadioItemProps
-  extends Menu.RadioItem.Props, Pick<MenuItemSlots, "trailing"> {
+export interface MenuRadioItemProps
+  extends BaseMenu.RadioItem.Props, Pick<MenuItemSlots, "trailing"> {
   indicator?: "circle" | "check";
 }
 
 /**
- * A row in a DropdownMenuRadioGroup, for picking one of several options. Its
+ * A row in a MenuRadioGroup, for picking one of several options. Its
  * dot or check sits in the leading slot, like the checkbox item's.
  *
- * @import import { DropdownMenuRadioItem } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuRadioItem } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuRadioItem = React.forwardRef<
-  HTMLDivElement,
-  DropdownMenuRadioItemProps
->(({ className, children, trailing, indicator = "circle", ...props }, ref) => (
-  <Menu.RadioItem
-    ref={ref}
-    data-indicator={indicator}
-    className={partClassName("menu-radio-item", className)}
-    {...props}
-  >
-    <span className="menu-item-leading">
-      <Menu.RadioItemIndicator>
-        {indicator === "check" ? <IconCheck /> : <IconCircle />}
-      </Menu.RadioItemIndicator>
-    </span>
-    {children}
-    <MenuItemSlot slot="trailing">{trailing}</MenuItemSlot>
-  </Menu.RadioItem>
-));
-DropdownMenuRadioItem.displayName = "DropdownMenuRadioItem";
+const MenuRadioItem = React.forwardRef<HTMLDivElement, MenuRadioItemProps>(
+  ({ className, children, trailing, indicator = "circle", ...props }, ref) => (
+    <BaseMenu.RadioItem
+      ref={ref}
+      data-indicator={indicator}
+      className={partClassName("menu-radio-item", className)}
+      {...props}
+    >
+      <span className="menu-item-leading">
+        <BaseMenu.RadioItemIndicator>
+          {indicator === "check" ? <IconCheck /> : <IconCircle />}
+        </BaseMenu.RadioItemIndicator>
+      </span>
+      {children}
+      <MenuItemSlot slot="trailing">{trailing}</MenuItemSlot>
+    </BaseMenu.RadioItem>
+  ),
+);
+MenuRadioItem.displayName = "MenuRadioItem";
 
-export type DropdownMenuLabelProps = React.ComponentPropsWithRef<"div">;
+export type MenuGroupLabelProps = React.ComponentPropsWithRef<"div">;
 
 /**
  * A heading between items. It is a plain element, so it goes anywhere in the
- * menu; to label a group, use `Menu.GroupLabel` inside it.
+ * menu; to label a group, use `BaseMenu.GroupLabel` inside it.
  *
- * @import import { DropdownMenuLabel } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuGroupLabel } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuLabel = React.forwardRef<
-  HTMLDivElement,
-  DropdownMenuLabelProps
->(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("menu-group-label", className)} {...props} />
-));
-DropdownMenuLabel.displayName = "DropdownMenuLabel";
+const MenuGroupLabel = React.forwardRef<HTMLDivElement, MenuGroupLabelProps>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn("menu-group-label", className)} {...props} />
+  ),
+);
+MenuGroupLabel.displayName = "MenuGroupLabel";
 
 /**
  * A line between groups of items.
  *
- * @import import { DropdownMenuSeparator } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuSeparator } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuSeparator = React.forwardRef<
+const MenuSeparator = React.forwardRef<
   HTMLDivElement,
-  Menu.Separator.Props
+  BaseMenu.Separator.Props
 >(({ className, ...props }, ref) => (
-  <Menu.Separator
+  <BaseMenu.Separator
     ref={ref}
     className={partClassName("menu-separator", className)}
     {...props}
   />
 ));
-DropdownMenuSeparator.displayName = "DropdownMenuSeparator";
+MenuSeparator.displayName = "MenuSeparator";
 
 /**
  * The keyboard shortcut for an item, set in its `trailing` slot.
  *
- * @import import { DropdownMenuShortcut } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuShortcut } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuShortcut = ({
+const MenuShortcut = ({
   className,
   ...props
 }: React.ComponentProps<"span">) => (
   <span className={cn("menu-shortcut", className)} {...props} />
 );
-DropdownMenuShortcut.displayName = "DropdownMenuShortcut";
+MenuShortcut.displayName = "MenuShortcut";
 
 /**
  * A check or icon at the end of a row, aligned with shortcuts and chevrons.
  *
- * @import import { DropdownMenuTrailing } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuTrailing } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuTrailing = ({
+const MenuTrailing = ({
   className,
   ...props
 }: React.ComponentProps<"span">) => (
   <span className={cn("menu-item-trailing", className)} {...props} />
 );
-DropdownMenuTrailing.displayName = "DropdownMenuTrailing";
+MenuTrailing.displayName = "MenuTrailing";
 
-export interface DropdownMenuSubTriggerProps
-  extends Menu.SubmenuTrigger.Props, MenuItemSlots {}
+export interface MenuSubmenuTriggerProps
+  extends BaseMenu.SubmenuTrigger.Props, MenuItemSlots {}
 
 /**
  * The row that opens a submenu. It has an item's anatomy, with a chevron in
  * the trailing slot unless replaced.
  *
- * @import import { DropdownMenuSubTrigger } from "@agent-native/toolkit/ui/base-ui/menu";
+ * @import import { MenuSubmenuTrigger } from "@agent-native/toolkit/ui/base-ui/menu";
  */
-const DropdownMenuSubTrigger = React.forwardRef<
+const MenuSubmenuTrigger = React.forwardRef<
   HTMLDivElement,
-  DropdownMenuSubTriggerProps
+  MenuSubmenuTriggerProps
 >(
   (
     {
@@ -403,7 +395,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
     },
     ref,
   ) => (
-    <Menu.SubmenuTrigger
+    <BaseMenu.SubmenuTrigger
       ref={ref}
       className={partClassName("menu-submenu-trigger", className)}
       {...props}
@@ -411,20 +403,20 @@ const DropdownMenuSubTrigger = React.forwardRef<
       <MenuItemSlot slot="leading">{leading}</MenuItemSlot>
       {children}
       <MenuItemSlot slot="trailing">{trailing}</MenuItemSlot>
-    </Menu.SubmenuTrigger>
+    </BaseMenu.SubmenuTrigger>
   ),
 );
-DropdownMenuSubTrigger.displayName = "DropdownMenuSubTrigger";
+MenuSubmenuTrigger.displayName = "MenuSubmenuTrigger";
 
 export {
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuCheckboxItem,
-  DropdownMenuRadioItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuTrailing,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
+  MenuPopup,
+  MenuItem,
+  MenuCheckboxItem,
+  MenuRadioItem,
+  MenuGroupLabel,
+  MenuSeparator,
+  MenuShortcut,
+  MenuTrailing,
+  MenuSubmenuPopup,
+  MenuSubmenuTrigger,
 };

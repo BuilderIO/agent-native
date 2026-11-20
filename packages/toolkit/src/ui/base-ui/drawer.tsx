@@ -5,6 +5,7 @@ import * as React from "react";
 
 import { cn } from "../../utils.js";
 import { ModalLayerProvider, useInModalLayer } from "../modal-layer.js";
+import { IconButton } from "./button.js";
 import { splitProps } from "./props.js";
 
 type WithClassName<Props> = Omit<Props, "className"> & { className?: string };
@@ -30,7 +31,7 @@ type DrawerProps = Omit<BaseDrawer.Root.Props, "swipeDirection"> &
  * UI's Drawer: a bottom sheet with a handle, or a side panel. The side
  * belongs to the root because it decides the swipe direction.
  *
- * @import import { Drawer, DrawerTrigger, DrawerContent, DrawerTitle, DrawerDescription } from "@agent-native/toolkit/ui/base-ui/drawer";
+ * @import import { Drawer, DrawerTrigger, DrawerPopup, DrawerTitle, DrawerDescription } from "@agent-native/toolkit/ui/base-ui/drawer";
  */
 function Drawer(props: DrawerProps) {
   const [attributes, rest] = splitProps(drawerProps, props);
@@ -45,7 +46,7 @@ function Drawer(props: DrawerProps) {
 function useDrawerSide(): DrawerSide {
   const side = React.useContext(DrawerSideContext);
   if (side === undefined) {
-    throw new Error("DrawerContent must be rendered inside a Drawer.");
+    throw new Error("DrawerPopup must be rendered inside a Drawer.");
   }
   return side;
 }
@@ -66,7 +67,7 @@ export const DrawerTrigger = BaseDrawer.Trigger;
 export const DrawerClose = BaseDrawer.Close;
 
 /**
- * Moves the drawer into the body, or into `container`. DrawerContent renders
+ * Moves the drawer into the body, or into `container`. DrawerPopup renders
  * one already, so reach for it only with your own popup.
  *
  * @import import { DrawerPortal } from "@agent-native/toolkit/ui/base-ui/drawer";
@@ -82,12 +83,12 @@ function useOverDialog() {
 }
 
 /**
- * The backdrop that dims the page behind the drawer. DrawerContent renders
+ * The backdrop that dims the page behind the drawer. DrawerPopup renders
  * one already.
  *
- * @import import { DrawerOverlay } from "@agent-native/toolkit/ui/base-ui/drawer";
+ * @import import { DrawerBackdrop } from "@agent-native/toolkit/ui/base-ui/drawer";
  */
-const DrawerOverlay = React.forwardRef<
+const DrawerBackdrop = React.forwardRef<
   HTMLDivElement,
   WithClassName<BaseDrawer.Backdrop.Props>
 >(({ className, ...props }, ref) => {
@@ -102,14 +103,14 @@ const DrawerOverlay = React.forwardRef<
     />
   );
 });
-DrawerOverlay.displayName = "DrawerOverlay";
+DrawerBackdrop.displayName = "DrawerBackdrop";
 
-type DrawerContentProps = WithClassName<BaseDrawer.Popup.Props> & {
+type DrawerPopupProps = WithClassName<BaseDrawer.Popup.Props> & {
   container?: BaseDrawer.Portal.Props["container"];
   keepMounted?: boolean;
   showOverlay?: boolean;
-  overlayClassName?: string;
-  overlayStyle?: React.CSSProperties;
+  backdropClassName?: string;
+  backdropStyle?: React.CSSProperties;
   /** A close button in the corner. Defaults on for a panel, off for a bottom drawer, which swipes down. */
   showClose?: boolean;
   closeLabel?: string;
@@ -119,9 +120,9 @@ type DrawerContentProps = WithClassName<BaseDrawer.Popup.Props> & {
  * The drawer's panel, with its backdrop, portal, handle and close button,
  * anchored to the side its Drawer sets.
  *
- * @import import { DrawerContent } from "@agent-native/toolkit/ui/base-ui/drawer";
+ * @import import { DrawerPopup } from "@agent-native/toolkit/ui/base-ui/drawer";
  */
-const DrawerContent = React.forwardRef<HTMLDivElement, DrawerContentProps>(
+const DrawerPopup = React.forwardRef<HTMLDivElement, DrawerPopupProps>(
   (
     {
       className,
@@ -129,8 +130,8 @@ const DrawerContent = React.forwardRef<HTMLDivElement, DrawerContentProps>(
       container,
       keepMounted,
       showOverlay = true,
-      overlayClassName,
-      overlayStyle,
+      backdropClassName,
+      backdropStyle,
       showClose,
       closeLabel = "Close",
       ...props
@@ -143,8 +144,8 @@ const DrawerContent = React.forwardRef<HTMLDivElement, DrawerContentProps>(
       <DrawerPortal container={container} keepMounted={keepMounted}>
         {showOverlay ? (
           <BaseDrawer.Backdrop
-            className={cn("drawer-backdrop", overlayClassName)}
-            style={overlayStyle}
+            className={cn("drawer-backdrop", backdropClassName)}
+            style={backdropStyle}
             forceRender={forceBackdrop}
             {...attributes}
           />
@@ -165,7 +166,13 @@ const DrawerContent = React.forwardRef<HTMLDivElement, DrawerContentProps>(
             </BaseDrawer.Content>
             {(showClose ?? side !== "bottom") ? (
               <BaseDrawer.Close
-                className="drawer-close"
+                render={
+                  <IconButton
+                    className="drawer-close"
+                    variant="ghost"
+                    color="gray"
+                  />
+                }
                 aria-label={closeLabel}
               >
                 <IconX aria-hidden />
@@ -177,7 +184,7 @@ const DrawerContent = React.forwardRef<HTMLDivElement, DrawerContentProps>(
     );
   },
 );
-DrawerContent.displayName = "DrawerContent";
+DrawerPopup.displayName = "DrawerPopup";
 
 /**
  * Stacks the title and description at the top of the drawer.
@@ -239,11 +246,11 @@ const DrawerDescription = React.forwardRef<
 ));
 DrawerDescription.displayName = "DrawerDescription";
 
-export type { DrawerContentProps, DrawerProps, DrawerSide };
+export type { DrawerPopupProps, DrawerProps, DrawerSide };
 export {
   Drawer,
-  DrawerOverlay,
-  DrawerContent,
+  DrawerBackdrop,
+  DrawerPopup,
   DrawerHeader,
   DrawerFooter,
   DrawerTitle,

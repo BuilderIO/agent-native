@@ -18,7 +18,7 @@ function isPropDefs(value: unknown): value is PropDefs {
   );
 }
 
-/** `menuContentProps` → `MenuContentOwnProps`. */
+/** `menuPopupProps` → `MenuPopupOwnProps`. */
 export function ownPropsName(exportName: string): string {
   const base = exportName.replace(/Props$/, "");
   return `${base.charAt(0).toUpperCase()}${base.slice(1)}OwnProps`;

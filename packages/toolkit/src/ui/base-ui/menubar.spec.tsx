@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   Menubar,
-  MenubarContent,
+  MenubarPopup,
   MenubarItem,
   MenubarMenu,
   MenubarTrigger,
@@ -32,15 +32,15 @@ function Bar({ onClick }: { onClick?: () => void }) {
     <Menubar aria-label="Editor" data-testid="bar">
       <MenubarMenu>
         <MenubarTrigger>File</MenubarTrigger>
-        <MenubarContent>
+        <MenubarPopup>
           <MenubarItem onClick={onClick}>New</MenubarItem>
-        </MenubarContent>
+        </MenubarPopup>
       </MenubarMenu>
       <MenubarMenu>
         <MenubarTrigger>View</MenubarTrigger>
-        <MenubarContent>
+        <MenubarPopup>
           <MenubarItem>Zoom</MenubarItem>
-        </MenubarContent>
+        </MenubarPopup>
       </MenubarMenu>
     </Menubar>
   );
@@ -75,9 +75,9 @@ describe("Menubar on Base UI", () => {
       <Menubar aria-label="Editor">
         <MenubarMenu>
           <MenubarTrigger>Edit</MenubarTrigger>
-          <MenubarContent>
+          <MenubarPopup>
             <MenubarItem color="danger">Delete</MenubarItem>
-          </MenubarContent>
+          </MenubarPopup>
         </MenubarMenu>
       </Menubar>,
     );

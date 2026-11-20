@@ -1,6 +1,6 @@
 import {
-  type PreviewCardContentOwnProps,
-  previewCardContentProps,
+  type PreviewCardPopupOwnProps,
+  previewCardPopupProps,
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
@@ -8,14 +8,14 @@ import * as React from "react";
 import {
   PreviewCard,
   PreviewCardArrow,
-  PreviewCardContent,
+  PreviewCardPopup,
   PreviewCardTrigger,
 } from "../../../src/ui/base-ui/preview-card.js";
 import { propControls } from "../prop-controls.js";
 
-type PreviewCardProps = PreviewCardContentOwnProps;
+type PreviewCardProps = PreviewCardPopupOwnProps;
 
-const controls = propControls(previewCardContentProps);
+const controls = propControls(previewCardPopupProps);
 
 function Card({
   container,
@@ -30,13 +30,13 @@ function Card({
       >
         @agent-native
       </PreviewCardTrigger>
-      <PreviewCardContent {...props} container={container}>
+      <PreviewCardPopup {...props} container={container}>
         <PreviewCardArrow />
         <div className="text-sm font-medium">Agent-Native</div>
         <div className="text-sm text-fg-muted">
           Apps where the agent and the UI are equal partners.
         </div>
-      </PreviewCardContent>
+      </PreviewCardPopup>
     </PreviewCard>
   );
 }

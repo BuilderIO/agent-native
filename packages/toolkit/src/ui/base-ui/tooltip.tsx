@@ -29,7 +29,7 @@ export const TooltipProvider = BaseTooltip.Provider;
  * dismisses, so a tooltip on a menu trigger never costs a second Escape to
  * close the card or dialog that trigger sits in.
  *
- * @import import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@agent-native/toolkit/ui/base-ui/tooltip";
+ * @import import { Tooltip, TooltipTrigger, TooltipPopup, TooltipProvider } from "@agent-native/toolkit/ui/base-ui/tooltip";
  */
 function Tooltip<Payload = unknown>({
   onOpenChange,
@@ -92,7 +92,7 @@ type PositionerProps = Pick<
   | "disableAnchorTracking"
 >;
 
-export interface TooltipContentProps
+export interface TooltipPopupProps
   extends BaseTooltip.Popup.Props, PositionerProps {
   /** Portal target. */
   container?: BaseTooltip.Portal.Props["container"];
@@ -103,9 +103,9 @@ export interface TooltipContentProps
 /**
  * The tooltip's label, portaled and positioned above its trigger.
  *
- * @import import { TooltipContent } from "@agent-native/toolkit/ui/base-ui/tooltip";
+ * @import import { TooltipPopup } from "@agent-native/toolkit/ui/base-ui/tooltip";
  */
-const TooltipContent = React.forwardRef<HTMLDivElement, TooltipContentProps>(
+const TooltipPopup = React.forwardRef<HTMLDivElement, TooltipPopupProps>(
   (
     {
       container,
@@ -158,6 +158,6 @@ const TooltipContent = React.forwardRef<HTMLDivElement, TooltipContentProps>(
     </BaseTooltip.Portal>
   ),
 );
-TooltipContent.displayName = "TooltipContent";
+TooltipPopup.displayName = "TooltipPopup";
 
-export { Tooltip, TooltipTrigger, TooltipContent };
+export { Tooltip, TooltipTrigger, TooltipPopup };

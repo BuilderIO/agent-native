@@ -1,6 +1,6 @@
 import {
-  type SelectContentOwnProps,
-  selectContentProps,
+  type SelectPopupOwnProps,
+  selectPopupProps,
   type SelectRootOwnProps,
   selectRootProps,
   type SelectTriggerOwnProps,
@@ -26,7 +26,7 @@ export type SelectProps<
  * with Radix Themes' props. Pass `items` so SelectValue shows the selected
  * item's label rather than its value.
  *
- * @import import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@agent-native/toolkit/ui/base-ui/select";
+ * @import import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "@agent-native/toolkit/ui/base-ui/select";
  */
 function Select<Value, Multiple extends boolean | undefined = false>(
   props: SelectProps<Value, Multiple>,
@@ -40,7 +40,7 @@ function Select<Value, Multiple extends boolean | undefined = false>(
 }
 
 /**
- * Groups related options, labelled by a SelectLabel inside it. It is Base UI's
+ * Groups related options, labelled by a SelectGroupLabel inside it. It is Base UI's
  * own part.
  *
  * @import import { SelectGroup } from "@agent-native/toolkit/ui/base-ui/select";
@@ -121,12 +121,12 @@ type PositionerProps = Pick<
   | "alignItemWithTrigger"
 >;
 
-export type SelectContentProps = Omit<
+export type SelectPopupProps = Omit<
   BaseSelect.Popup.Props,
   "className" | "color"
 > &
   PositionerProps &
-  SelectContentOwnProps & {
+  SelectPopupOwnProps & {
     className?: string;
     container?: BaseSelect.Portal.Props["container"];
   };
@@ -135,14 +135,14 @@ export type SelectContentProps = Omit<
  * The list's popup, anchored below the trigger; it can overlap the trigger like
  * a native menu instead.
  *
- * @import import { SelectContent } from "@agent-native/toolkit/ui/base-ui/select";
+ * @import import { SelectPopup } from "@agent-native/toolkit/ui/base-ui/select";
  */
-const SelectContent = React.forwardRef<HTMLDivElement, SelectContentProps>(
+const SelectPopup = React.forwardRef<HTMLDivElement, SelectPopupProps>(
   (props, ref) => {
     const [
       attributes,
       { className, children, container, alignItemWithTrigger = false, ...rest },
-    ] = splitProps(selectContentProps, props);
+    ] = splitProps(selectPopupProps, props);
     const [positioner, popup] = splitPositionerProps(rest);
     const size = React.useContext(SelectSizeContext);
     return (
@@ -171,14 +171,14 @@ const SelectContent = React.forwardRef<HTMLDivElement, SelectContentProps>(
     );
   },
 );
-SelectContent.displayName = "SelectContent";
+SelectPopup.displayName = "SelectPopup";
 
 /**
  * The heading of a SelectGroup.
  *
- * @import import { SelectLabel } from "@agent-native/toolkit/ui/base-ui/select";
+ * @import import { SelectGroupLabel } from "@agent-native/toolkit/ui/base-ui/select";
  */
-const SelectLabel = React.forwardRef<
+const SelectGroupLabel = React.forwardRef<
   HTMLDivElement,
   Omit<BaseSelect.GroupLabel.Props, "className"> & { className?: string }
 >(({ className, ...props }, ref) => (
@@ -188,7 +188,7 @@ const SelectLabel = React.forwardRef<
     {...props}
   />
 ));
-SelectLabel.displayName = "SelectLabel";
+SelectGroupLabel.displayName = "SelectGroupLabel";
 
 /**
  * One option in the list, with a check beside it while selected.
@@ -233,9 +233,9 @@ SelectSeparator.displayName = "SelectSeparator";
 
 export {
   Select,
-  SelectContent,
+  SelectPopup,
   SelectItem,
-  SelectLabel,
+  SelectGroupLabel,
   SelectSeparator,
   SelectTrigger,
   SelectValue,

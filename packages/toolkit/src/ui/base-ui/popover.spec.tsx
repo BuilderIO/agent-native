@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button } from "./button.js";
 import {
   Popover,
-  PopoverContent,
+  PopoverPopup,
   PopoverDescription,
   PopoverTitle,
   PopoverTrigger,
@@ -36,10 +36,10 @@ describe("Popover", () => {
         <PopoverTrigger render={<Button variant="outline" />}>
           Open
         </PopoverTrigger>
-        <PopoverContent className="w-auto">
+        <PopoverPopup className="w-auto">
           <PopoverTitle>Dimensions</PopoverTitle>
           <PopoverDescription>Set the size.</PopoverDescription>
-        </PopoverContent>
+        </PopoverPopup>
       </Popover>,
     );
     await act(async () => press(screen.getByRole("button", { name: "Open" })));
@@ -61,13 +61,13 @@ describe("Popover", () => {
       <>
         <Popover defaultOpen>
           <PopoverTrigger>Default</PopoverTrigger>
-          <PopoverContent data-testid="default">Body</PopoverContent>
+          <PopoverPopup data-testid="default">Body</PopoverPopup>
         </Popover>
         <Popover defaultOpen>
           <PopoverTrigger>Large</PopoverTrigger>
-          <PopoverContent data-testid="large" size="4">
+          <PopoverPopup data-testid="large" size="4">
             Body
-          </PopoverContent>
+          </PopoverPopup>
         </Popover>
       </>,
     );
@@ -81,7 +81,7 @@ describe("Popover", () => {
         <PopoverTrigger render={<Button variant="outline" />}>
           Open
         </PopoverTrigger>
-        <PopoverContent>Body</PopoverContent>
+        <PopoverPopup>Body</PopoverPopup>
       </Popover>,
     );
     const trigger = screen.getByRole("button", { name: "Open" });
@@ -102,7 +102,7 @@ describe("Popover", () => {
         }}
       >
         <PopoverTrigger>Open</PopoverTrigger>
-        <PopoverContent>Body</PopoverContent>
+        <PopoverPopup>Body</PopoverPopup>
       </Popover>,
     );
     await screen.findByRole("dialog");
@@ -118,7 +118,7 @@ describe("Popover", () => {
     const spy = vi.spyOn(anchor, "getBoundingClientRect");
     render(
       <Popover open>
-        <PopoverContent anchor={anchor}>Body</PopoverContent>
+        <PopoverPopup anchor={anchor}>Body</PopoverPopup>
       </Popover>,
     );
     await screen.findByRole("dialog");
@@ -132,10 +132,10 @@ describe("Popover", () => {
       return (
         <Popover defaultOpen>
           <PopoverTrigger>Open</PopoverTrigger>
-          <PopoverContent initialFocus={field}>
+          <PopoverPopup initialFocus={field}>
             <button type="button">First</button>
             <input aria-label="Second" ref={field} />
-          </PopoverContent>
+          </PopoverPopup>
         </Popover>
       );
     }

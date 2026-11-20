@@ -1,6 +1,6 @@
 import {
-  type DialogContentOwnProps,
-  dialogContentProps,
+  type DialogPopupOwnProps,
+  dialogPopupProps,
 } from "@agent-native/design-system";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { IconX } from "@tabler/icons-react";
@@ -8,13 +8,14 @@ import * as React from "react";
 
 import { cn } from "../../utils.js";
 import { ModalLayerProvider } from "../modal-layer.js";
+import { IconButton } from "./button.js";
 import { splitProps } from "./props.js";
 
 /**
  * A window over the page for a task the user finishes or dismisses before
  * going back. Root, Trigger, Close and Portal are Base UI's Dialog parts.
  *
- * @import import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from "@agent-native/toolkit/ui/base-ui/dialog";
+ * @import import { Dialog, DialogTrigger, DialogPopup, DialogTitle, DialogDescription } from "@agent-native/toolkit/ui/base-ui/dialog";
  */
 export const Dialog = BaseDialog.Root;
 
@@ -33,7 +34,7 @@ export const DialogTrigger = BaseDialog.Trigger;
 export const DialogClose = BaseDialog.Close;
 
 /**
- * Moves the dialog into the body, or into `container`. DialogContent renders
+ * Moves the dialog into the body, or into `container`. DialogPopup renders
  * one already, so reach for it only with your own popup.
  *
  * @import import { DialogPortal } from "@agent-native/toolkit/ui/base-ui/dialog";
@@ -46,17 +47,17 @@ type WithClassName<Props> = Omit<Props, "className"> & {
   className?: string | undefined;
 };
 
-type DialogOverlayProps = WithClassName<BaseDialog.Backdrop.Props> & {
+type DialogBackdropProps = WithClassName<BaseDialog.Backdrop.Props> & {
   motion?: DialogMotion;
 };
 
 /**
- * The backdrop that dims the page behind the dialog. DialogContent renders
+ * The backdrop that dims the page behind the dialog. DialogPopup renders
  * one already.
  *
- * @import import { DialogOverlay } from "@agent-native/toolkit/ui/base-ui/dialog";
+ * @import import { DialogBackdrop } from "@agent-native/toolkit/ui/base-ui/dialog";
  */
-const DialogOverlay = React.forwardRef<HTMLDivElement, DialogOverlayProps>(
+const DialogBackdrop = React.forwardRef<HTMLDivElement, DialogBackdropProps>(
   ({ className, motion = "default", ...props }, ref) => (
     <BaseDialog.Backdrop
       ref={ref}
@@ -66,50 +67,50 @@ const DialogOverlay = React.forwardRef<HTMLDivElement, DialogOverlayProps>(
     />
   ),
 );
-DialogOverlay.displayName = "DialogOverlay";
+DialogBackdrop.displayName = "DialogBackdrop";
 
-type DialogContentProps = WithClassName<BaseDialog.Popup.Props> &
-  DialogContentOwnProps & {
-    hideClose?: boolean;
+type DialogPopupProps = WithClassName<BaseDialog.Popup.Props> &
+  DialogPopupOwnProps & {
+    showClose?: boolean;
     motion?: DialogMotion;
     container?: BaseDialog.Portal.Props["container"];
     keepMounted?: boolean;
     closeLabel?: string;
     closeDisabled?: boolean;
-    overlayClassName?: string | undefined;
-    overlayStyle?: React.CSSProperties | undefined;
+    backdropClassName?: string | undefined;
+    backdropStyle?: React.CSSProperties | undefined;
   };
 
 /**
  * The dialog's window, with its backdrop, portal and close button. It is
  * Base UI's Dialog Popup with Radix Themes' sizes.
  *
- * @import import { DialogContent } from "@agent-native/toolkit/ui/base-ui/dialog";
+ * @import import { DialogPopup } from "@agent-native/toolkit/ui/base-ui/dialog";
  */
-const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
+const DialogPopup = React.forwardRef<HTMLDivElement, DialogPopupProps>(
   (props, ref) => {
     const [
       attributes,
       {
         className,
         children,
-        hideClose,
+        showClose = true,
         motion = "default",
         container,
         keepMounted,
         closeLabel = "Close",
         closeDisabled,
-        overlayClassName,
-        overlayStyle,
+        backdropClassName,
+        backdropStyle,
         ...rest
       },
-    ] = splitProps(dialogContentProps, props);
+    ] = splitProps(dialogPopupProps, props);
     return (
       <DialogPortal container={container} keepMounted={keepMounted}>
-        <DialogOverlay
+        <DialogBackdrop
           motion={motion}
-          className={overlayClassName}
-          {...(overlayStyle ? { style: overlayStyle } : {})}
+          className={backdropClassName}
+          {...(backdropStyle ? { style: backdropStyle } : {})}
         />
         <BaseDialog.Popup
           ref={ref}
@@ -119,9 +120,15 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
           {...attributes}
         >
           <ModalLayerProvider value>{children}</ModalLayerProvider>
-          {!hideClose && (
+          {showClose && (
             <BaseDialog.Close
-              className="dialog-close"
+              render={
+                <IconButton
+                  className="dialog-close"
+                  variant="ghost"
+                  color="gray"
+                />
+              }
               disabled={closeDisabled}
               aria-label={closeLabel}
             >
@@ -133,7 +140,7 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
     );
   },
 );
-DialogContent.displayName = "DialogContent";
+DialogPopup.displayName = "DialogPopup";
 
 /**
  * Stacks the title and description at the top of the dialog.
@@ -195,10 +202,10 @@ const DialogDescription = React.forwardRef<
 ));
 DialogDescription.displayName = "DialogDescription";
 
-export type { DialogContentProps, DialogMotion, DialogOverlayProps };
+export type { DialogPopupProps, DialogMotion, DialogBackdropProps };
 export {
-  DialogOverlay,
-  DialogContent,
+  DialogBackdrop,
+  DialogPopup,
   DialogHeader,
   DialogFooter,
   DialogTitle,

@@ -2,7 +2,7 @@
  * Part: radio-group
  *
  *   <div class="radio-group" role="radiogroup"      Base UI RadioGroup
- *        data-size="1|2|3" data-variant="surface|soft"
+ *        data-size="1|2|3|4" data-variant="surface|soft"
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast]>
  *     <span class="radio-group-radio" role="radio"  Radio.Root, with the group's
@@ -11,8 +11,8 @@
  *           [data-invalid] [data-disabled]>
  *       <span class="radio-group-indicator">        Radio.Indicator, while checked
  *
- * Radix Themes' radio on the system's scale: sizes 1 to 3 are 12, 16 and
- * 20px circles, each with a hit area 4px wider on every side. Surface is a
+ * Radix Themes' radio on the system's scale, sized to sit in a control of
+ * the same size: 12px circles at sizes 1 and 2, 16px at 3 and 20px at 4, each with a hit area 4px wider on every side. Surface is a
  * field with a gray edge that fills with the nearest color's indicator when
  * checked and shows a dot; soft is a tint with a dot in the color's text
  * step. The unchecked edge is gray step a10, not Radix's a7, so the circle
@@ -62,12 +62,12 @@
 
   /* ---- sizes ---- */
 
-  .radio-group-radio[data-size="1"] {
+  .radio-group-radio:is([data-size="1"], [data-size="2"]) {
     --_size: var(--space-3);
     --_dot: var(--space-1);
   }
 
-  .radio-group-radio[data-size="3"] {
+  .radio-group-radio[data-size="4"] {
     --_size: calc(var(--space-4) * 1.25);
     --_dot: var(--space-2);
   }

@@ -11,14 +11,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ContextMenu,
-  ContextMenuContent,
+  ContextMenuPopup,
   ContextMenuItem,
-  ContextMenuLabel,
+  ContextMenuGroupLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
+  ContextMenuSubmenuRoot,
+  ContextMenuSubmenuPopup,
+  ContextMenuSubmenuTrigger,
   ContextMenuTrigger,
 } from "./context-menu.js";
 
@@ -39,8 +39,8 @@ function Area(props: {
       <ContextMenuTrigger>
         <p>Canvas</p>
       </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuLabel>Layer</ContextMenuLabel>
+      <ContextMenuPopup>
+        <ContextMenuGroupLabel>Layer</ContextMenuGroupLabel>
         <ContextMenuItem onClick={props.onClick}>
           Duplicate
           <ContextMenuShortcut>⌘D</ContextMenuShortcut>
@@ -49,7 +49,7 @@ function Area(props: {
         <ContextMenuItem leading={<svg data-testid="rename-icon" />}>
           Rename
         </ContextMenuItem>
-      </ContextMenuContent>
+      </ContextMenuPopup>
     </ContextMenu>
   );
 }
@@ -86,10 +86,10 @@ describe("ContextMenu on Base UI", () => {
         <ContextMenuTrigger>
           <p>Canvas</p>
         </ContextMenuTrigger>
-        <ContextMenuContent size="2" variant="solid">
+        <ContextMenuPopup size="2" variant="solid">
           <ContextMenuItem>Duplicate</ContextMenuItem>
           <ContextMenuItem color="danger">Delete</ContextMenuItem>
-        </ContextMenuContent>
+        </ContextMenuPopup>
       </ContextMenu>,
     );
     await rightClick(screen.getByText("Canvas").parentElement as HTMLElement);
@@ -124,14 +124,14 @@ describe("ContextMenu on Base UI", () => {
         <ContextMenuTrigger>
           <p>Canvas</p>
         </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>Export</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
+        <ContextMenuPopup>
+          <ContextMenuSubmenuRoot>
+            <ContextMenuSubmenuTrigger>Export</ContextMenuSubmenuTrigger>
+            <ContextMenuSubmenuPopup>
               <ContextMenuItem>PDF</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-        </ContextMenuContent>
+            </ContextMenuSubmenuPopup>
+          </ContextMenuSubmenuRoot>
+        </ContextMenuPopup>
       </ContextMenu>,
     );
     await rightClick(screen.getByText("Canvas").parentElement as HTMLElement);

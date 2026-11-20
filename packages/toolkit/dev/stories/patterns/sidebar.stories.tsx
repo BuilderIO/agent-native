@@ -1,4 +1,4 @@
-import { menuContentProps, propAttributes } from "@agent-native/design-system";
+import { menuPopupProps, propAttributes } from "@agent-native/design-system";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
@@ -197,7 +197,7 @@ function Account() {
         >
           <BaseMenu.Popup
             className="menu-popup"
-            {...propAttributes(menuContentProps, {})}
+            {...propAttributes(menuPopupProps, {})}
           >
             <BaseMenu.Item className="menu-item">Settings</BaseMenu.Item>
             <BaseMenu.Item className="menu-item">Sign out</BaseMenu.Item>

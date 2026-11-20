@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   PreviewCard,
-  PreviewCardContent,
+  PreviewCardPopup,
   PreviewCardTrigger,
 } from "./preview-card.js";
 
@@ -15,9 +15,9 @@ describe("PreviewCard", () => {
     render(
       <PreviewCard defaultOpen>
         <PreviewCardTrigger href="#profile">@agent-native</PreviewCardTrigger>
-        <PreviewCardContent className="w-80" data-testid="card">
+        <PreviewCardPopup className="w-80" data-testid="card">
           Profile
-        </PreviewCardContent>
+        </PreviewCardPopup>
       </PreviewCard>,
     );
 
@@ -32,13 +32,13 @@ describe("PreviewCard", () => {
       <>
         <PreviewCard defaultOpen>
           <PreviewCardTrigger href="#a">a</PreviewCardTrigger>
-          <PreviewCardContent data-testid="default">A</PreviewCardContent>
+          <PreviewCardPopup data-testid="default">A</PreviewCardPopup>
         </PreviewCard>
         <PreviewCard defaultOpen>
           <PreviewCardTrigger href="#b">b</PreviewCardTrigger>
-          <PreviewCardContent data-testid="small" size="1">
+          <PreviewCardPopup data-testid="small" size="1">
             B
-          </PreviewCardContent>
+          </PreviewCardPopup>
         </PreviewCard>
       </>,
     );
@@ -52,7 +52,7 @@ describe("PreviewCard", () => {
         <PreviewCardTrigger delay={0} closeDelay={0} href="#profile">
           @agent-native
         </PreviewCardTrigger>
-        <PreviewCardContent>Profile</PreviewCardContent>
+        <PreviewCardPopup>Profile</PreviewCardPopup>
       </PreviewCard>,
     );
     expect(screen.getByRole("link", { name: "@agent-native" })).not.toBeNull();

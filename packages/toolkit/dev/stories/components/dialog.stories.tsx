@@ -1,6 +1,6 @@
 import {
-  type DialogContentOwnProps,
-  dialogContentProps,
+  type DialogPopupOwnProps,
+  dialogPopupProps,
 } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
@@ -8,7 +8,7 @@ import * as React from "react";
 import { Button } from "../../../src/ui/base-ui/button.js";
 import {
   Dialog,
-  DialogContent,
+  DialogPopup,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -17,9 +17,9 @@ import {
 } from "../../../src/ui/base-ui/dialog.js";
 import { propControls } from "../prop-controls.js";
 
-type DialogProps = DialogContentOwnProps;
+type DialogProps = DialogPopupOwnProps;
 
-const controls = propControls(dialogContentProps);
+const controls = propControls(dialogPopupProps);
 
 function DialogSection({
   motion = "default",
@@ -33,7 +33,7 @@ function DialogSection({
     >
       {box ? (
         <Dialog open modal={false}>
-          <DialogContent
+          <DialogPopup
             {...props}
             container={box}
             motion={motion}
@@ -53,7 +53,7 @@ function DialogSection({
               </Button>
               <Button>Rename</Button>
             </DialogFooter>
-          </DialogContent>
+          </DialogPopup>
         </Dialog>
       ) : null}
     </div>
@@ -69,12 +69,12 @@ function NestedDialogs() {
         Open outer dialog
       </Button>
       <Dialog open={outer} onOpenChange={setOuter}>
-        <DialogContent>
+        <DialogPopup>
           <DialogTitle>Outer</DialogTitle>
           <DialogDescription>Opens a second dialog on top.</DialogDescription>
           <Button onClick={() => setInner(true)}>Open inner dialog</Button>
           <Dialog open={inner} onOpenChange={setInner}>
-            <DialogContent>
+            <DialogPopup>
               <DialogTitle>Inner</DialogTitle>
               <DialogDescription>The field takes focus.</DialogDescription>
               <input
@@ -82,9 +82,9 @@ function NestedDialogs() {
                 autoFocus
                 className="h-control-md rounded-control border border-line bg-fill-field px-2"
               />
-            </DialogContent>
+            </DialogPopup>
           </Dialog>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>
     </div>
   );
@@ -114,7 +114,7 @@ export const Playground: Story = {
 export const Sizes: Story = {
   render: () => (
     <div className="flex flex-col gap-4 p-4">
-      {dialogContentProps.size.values.map((size) => (
+      {dialogPopupProps.size.values.map((size) => (
         <DialogSection key={size} size={size} />
       ))}
     </div>

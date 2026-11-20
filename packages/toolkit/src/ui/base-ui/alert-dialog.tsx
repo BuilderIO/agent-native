@@ -1,6 +1,6 @@
 import {
-  type AlertDialogContentOwnProps,
-  alertDialogContentProps,
+  type AlertDialogPopupOwnProps,
+  alertDialogPopupProps,
 } from "@agent-native/design-system";
 import { AlertDialog as BaseAlertDialog } from "@base-ui/react/alert-dialog";
 import * as React from "react";
@@ -15,7 +15,7 @@ import { splitProps } from "./props.js";
  * Escape is the only implicit way out. Root, Trigger and Portal are Base UI's
  * parts.
  *
- * @import import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
+ * @import import { AlertDialog, AlertDialogTrigger, AlertDialogPopup, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
  */
 export const AlertDialog = BaseAlertDialog.Root;
 
@@ -27,7 +27,7 @@ export const AlertDialog = BaseAlertDialog.Root;
 export const AlertDialogTrigger = BaseAlertDialog.Trigger;
 
 /**
- * Moves the alert dialog into the body, or into `container`. AlertDialogContent
+ * Moves the alert dialog into the body, or into `container`. AlertDialogPopup
  * renders one already.
  *
  * @import import { AlertDialogPortal } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
@@ -37,12 +37,12 @@ export const AlertDialogPortal = BaseAlertDialog.Portal;
 type WithClassName<Props> = Omit<Props, "className"> & { className?: string };
 
 /**
- * The backdrop that dims the page behind the alert dialog. AlertDialogContent
+ * The backdrop that dims the page behind the alert dialog. AlertDialogPopup
  * renders one already.
  *
- * @import import { AlertDialogOverlay } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
+ * @import import { AlertDialogBackdrop } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
  */
-const AlertDialogOverlay = React.forwardRef<
+const AlertDialogBackdrop = React.forwardRef<
   HTMLDivElement,
   WithClassName<BaseAlertDialog.Backdrop.Props>
 >(({ className, ...props }, ref) => (
@@ -52,15 +52,15 @@ const AlertDialogOverlay = React.forwardRef<
     {...props}
   />
 ));
-AlertDialogOverlay.displayName = "AlertDialogOverlay";
+AlertDialogBackdrop.displayName = "AlertDialogBackdrop";
 
-type AlertDialogContentProps = WithClassName<BaseAlertDialog.Popup.Props> &
-  AlertDialogContentOwnProps & {
+type AlertDialogPopupProps = WithClassName<BaseAlertDialog.Popup.Props> &
+  AlertDialogPopupOwnProps & {
     container?: BaseAlertDialog.Portal.Props["container"];
     keepMounted?: boolean;
-    overlayClassName?: string;
-    overlayStyle?: React.CSSProperties;
-    overlayProps?: WithClassName<BaseAlertDialog.Backdrop.Props> & {
+    backdropClassName?: string;
+    backdropStyle?: React.CSSProperties;
+    backdropProps?: WithClassName<BaseAlertDialog.Backdrop.Props> & {
       [dataAttribute: `data-${string}`]: string | undefined;
     };
   };
@@ -69,11 +69,11 @@ type AlertDialogContentProps = WithClassName<BaseAlertDialog.Popup.Props> &
  * The alert dialog's window, with its backdrop and portal. It is Base UI's
  * Alert Dialog Popup with Radix Themes' sizes.
  *
- * @import import { AlertDialogContent } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
+ * @import import { AlertDialogPopup } from "@agent-native/toolkit/ui/base-ui/alert-dialog";
  */
-const AlertDialogContent = React.forwardRef<
+const AlertDialogPopup = React.forwardRef<
   HTMLDivElement,
-  AlertDialogContentProps
+  AlertDialogPopupProps
 >((props, ref) => {
   const [
     attributes,
@@ -81,18 +81,18 @@ const AlertDialogContent = React.forwardRef<
       className,
       container,
       keepMounted,
-      overlayClassName,
-      overlayStyle,
-      overlayProps,
+      backdropClassName,
+      backdropStyle,
+      backdropProps,
       ...rest
     },
-  ] = splitProps(alertDialogContentProps, props);
+  ] = splitProps(alertDialogPopupProps, props);
   return (
     <AlertDialogPortal container={container} keepMounted={keepMounted}>
-      <AlertDialogOverlay
-        {...overlayProps}
-        className={cn(overlayProps?.className, overlayClassName)}
-        style={{ ...overlayProps?.style, ...overlayStyle }}
+      <AlertDialogBackdrop
+        {...backdropProps}
+        className={cn(backdropProps?.className, backdropClassName)}
+        style={{ ...backdropProps?.style, ...backdropStyle }}
       />
       <BaseAlertDialog.Popup
         ref={ref}
@@ -103,7 +103,7 @@ const AlertDialogContent = React.forwardRef<
     </AlertDialogPortal>
   );
 });
-AlertDialogContent.displayName = "AlertDialogContent";
+AlertDialogPopup.displayName = "AlertDialogPopup";
 
 /**
  * Stacks the title and description at the top of the alert dialog.
@@ -207,10 +207,10 @@ const AlertDialogCancel = React.forwardRef<
 ));
 AlertDialogCancel.displayName = "AlertDialogCancel";
 
-export type { AlertDialogButtonProps, AlertDialogContentProps };
+export type { AlertDialogButtonProps, AlertDialogPopupProps };
 export {
-  AlertDialogOverlay,
-  AlertDialogContent,
+  AlertDialogBackdrop,
+  AlertDialogPopup,
   AlertDialogHeader,
   AlertDialogFooter,
   AlertDialogTitle,

@@ -14,15 +14,15 @@ import { useInModalLayer } from "../modal-layer.js";
 import {
   Dialog,
   DialogClose,
-  DialogContent,
+  DialogPopup,
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogOverlay,
+  DialogBackdrop,
   DialogPortal,
   DialogTitle,
   DialogTrigger,
-  type DialogContentProps,
+  type DialogPopupProps,
 } from "./dialog.js";
 
 function press(element: Element) {
@@ -49,13 +49,13 @@ describe("dialog parts", () => {
   it("renders the catalog classes and Base UI's state attributes", async () => {
     render(
       <Dialog open>
-        <DialogContent data-testid="popup" overlayClassName="extra-overlay">
+        <DialogPopup data-testid="popup" backdropClassName="extra-overlay">
           <DialogHeader data-testid="header">
             <DialogTitle>Rename</DialogTitle>
             <DialogDescription>Pick a new name.</DialogDescription>
           </DialogHeader>
           <DialogFooter data-testid="footer" />
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     const popup = await screen.findByTestId("popup");
@@ -82,14 +82,14 @@ describe("dialog parts", () => {
     render(
       <>
         <Dialog open>
-          <DialogContent data-testid="default">
+          <DialogPopup data-testid="default">
             <DialogTitle>Default</DialogTitle>
-          </DialogContent>
+          </DialogPopup>
         </Dialog>
         <Dialog open>
-          <DialogContent data-testid="small" size="1">
+          <DialogPopup data-testid="small" size="1">
             <DialogTitle>Small</DialogTitle>
-          </DialogContent>
+          </DialogPopup>
         </Dialog>
       </>,
     );
@@ -98,13 +98,13 @@ describe("dialog parts", () => {
   });
 
   it("refuses a size it doesn't have", () => {
-    const props = { size: "5" } as unknown as DialogContentProps;
+    const props = { size: "5" } as unknown as DialogPopupProps;
     expect(() =>
       render(
         <Dialog open>
-          <DialogContent {...props}>
+          <DialogPopup {...props}>
             <DialogTitle>Too big</DialogTitle>
-          </DialogContent>
+          </DialogPopup>
         </Dialog>,
       ),
     ).toThrow(/size="5" is not one of/);
@@ -113,13 +113,13 @@ describe("dialog parts", () => {
   it("passes motion to the backdrop and popup", async () => {
     render(
       <Dialog open>
-        <DialogContent
+        <DialogPopup
           data-testid="popup"
           motion="instant"
-          overlayStyle={{ opacity: 0.5 }}
+          backdropStyle={{ opacity: 0.5 }}
         >
           <DialogTitle>Instant</DialogTitle>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     const popup = await screen.findByTestId("popup");
@@ -132,9 +132,9 @@ describe("dialog parts", () => {
   it("names the close button, disables it, or leaves it out", async () => {
     const { rerender } = render(
       <Dialog open>
-        <DialogContent closeLabel="Dismiss">
+        <DialogPopup closeLabel="Dismiss">
           <DialogTitle>Close</DialogTitle>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     const close = await screen.findByRole("button", { name: "Dismiss" });
@@ -142,9 +142,9 @@ describe("dialog parts", () => {
     expect((close as HTMLButtonElement).disabled).toBe(false);
     rerender(
       <Dialog open>
-        <DialogContent closeDisabled>
+        <DialogPopup closeDisabled>
           <DialogTitle>Close</DialogTitle>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     expect(
@@ -153,9 +153,9 @@ describe("dialog parts", () => {
     ).toBe(true);
     rerender(
       <Dialog open>
-        <DialogContent hideClose>
+        <DialogPopup showClose={false}>
           <DialogTitle>Close</DialogTitle>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
@@ -165,7 +165,7 @@ describe("dialog parts", () => {
     render(
       <Dialog open>
         <DialogPortal>
-          <DialogOverlay data-testid="overlay" motion="instant" />
+          <DialogBackdrop data-testid="overlay" motion="instant" />
         </DialogPortal>
       </Dialog>,
     );
@@ -177,9 +177,9 @@ describe("dialog parts", () => {
   it("keeps the popup in the page while closed with keepMounted", async () => {
     render(
       <Dialog open={false}>
-        <DialogContent keepMounted data-testid="popup">
+        <DialogPopup keepMounted data-testid="popup">
           <DialogTitle>Kept</DialogTitle>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     const popup = await screen.findByTestId("popup", undefined, {
@@ -192,9 +192,9 @@ describe("dialog parts", () => {
     const ref = React.createRef<HTMLDivElement>();
     render(
       <Dialog open>
-        <DialogContent ref={ref}>
+        <DialogPopup ref={ref}>
           <DialogTitle>Ref</DialogTitle>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     await screen.findByRole("dialog");
@@ -207,10 +207,10 @@ describe("dialog parts", () => {
     }
     render(
       <Dialog open>
-        <DialogContent>
+        <DialogPopup>
           <DialogTitle>Layer</DialogTitle>
           <Probe />
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     expect(await screen.findByText("modal")).toBeTruthy();
@@ -222,10 +222,10 @@ describe("opening and closing", () => {
     render(
       <Dialog>
         <DialogTrigger render={<button type="button">Open it</button>} />
-        <DialogContent hideClose>
+        <DialogPopup showClose={false}>
           <DialogTitle>Opened</DialogTitle>
           <DialogClose render={<button type="button">Done</button>} />
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     const trigger = screen.getByRole("button", { name: "Open it" });
@@ -252,9 +252,9 @@ describe("opening and closing", () => {
             setOpen(next);
           }}
         >
-          <DialogContent>
+          <DialogPopup>
             <DialogTitle>Guarded</DialogTitle>
-          </DialogContent>
+          </DialogPopup>
         </Dialog>
       );
     }
@@ -279,9 +279,9 @@ describe("opening and closing", () => {
           if (details.reason === "outside-press") details.cancel();
         }}
       >
-        <DialogContent>
+        <DialogPopup>
           <DialogTitle>Pinned</DialogTitle>
-        </DialogContent>
+        </DialogPopup>
       </Dialog>,
     );
     await screen.findByRole("dialog");
@@ -300,11 +300,11 @@ describe("focus", () => {
       const field = React.useRef<HTMLInputElement>(null);
       return (
         <Dialog open>
-          <DialogContent initialFocus={field}>
+          <DialogPopup initialFocus={field}>
             <DialogTitle>Pick</DialogTitle>
             <button type="button">first</button>
             <input ref={field} aria-label="Second" />
-          </DialogContent>
+          </DialogPopup>
         </Dialog>
       );
     }
@@ -322,10 +322,10 @@ describe("focus", () => {
             Invite
           </button>
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent>
+            <DialogPopup>
               <DialogTitle>Invite people</DialogTitle>
               <input aria-label="Email" />
-            </DialogContent>
+            </DialogPopup>
           </Dialog>
         </>
       );
@@ -353,9 +353,9 @@ describe("focus", () => {
             Landing
           </button>
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent finalFocus={target}>
+            <DialogPopup finalFocus={target}>
               <DialogTitle>Elsewhere</DialogTitle>
-            </DialogContent>
+            </DialogPopup>
           </Dialog>
         </>
       );

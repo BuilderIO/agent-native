@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   Drawer,
   DrawerClose,
-  DrawerContent,
+  DrawerPopup,
   DrawerDescription,
   DrawerFooter,
   DrawerHeader,
@@ -42,9 +42,9 @@ describe("drawer side", () => {
   ] as const)("anchors side=%s by swiping %s", async (side, swipeDirection) => {
     render(
       <Drawer open side={side}>
-        <DrawerContent data-testid="drawer" aria-describedby={undefined}>
+        <DrawerPopup data-testid="drawer" aria-describedby={undefined}>
           <DrawerTitle>History</DrawerTitle>
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     const drawer = await screen.findByTestId("drawer");
@@ -66,13 +66,13 @@ describe("drawer side", () => {
     render(
       <Drawer>
         <DrawerTrigger render={<button type="button">Open drawer</button>} />
-        <DrawerContent data-testid="drawer">
+        <DrawerPopup data-testid="drawer">
           <DrawerHeader data-testid="header">
             <DrawerTitle>Move</DrawerTitle>
             <DrawerDescription>Pick a folder.</DrawerDescription>
           </DrawerHeader>
           <DrawerFooter data-testid="footer" />
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     press(screen.getByRole("button", { name: "Open drawer" }));
@@ -88,9 +88,9 @@ describe("drawer side", () => {
   it("is a panel with a close button and no handle on the other sides", async () => {
     render(
       <Drawer open side="right">
-        <DrawerContent data-testid="drawer" aria-describedby={undefined}>
+        <DrawerPopup data-testid="drawer" aria-describedby={undefined}>
           <DrawerTitle>History</DrawerTitle>
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     const drawer = await screen.findByTestId("drawer");
@@ -105,14 +105,14 @@ describe("drawer content", () => {
   it("renders the part's layers, close button and content wrapper", async () => {
     render(
       <Drawer open side="left">
-        <DrawerContent
+        <DrawerPopup
           data-testid="drawer"
-          overlayClassName="extra-overlay"
+          backdropClassName="extra-overlay"
           closeLabel="Dismiss"
         >
           <DrawerTitle>History</DrawerTitle>
           <DrawerDescription>Past edits.</DrawerDescription>
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     const drawer = await screen.findByTestId("drawer");
@@ -132,13 +132,9 @@ describe("drawer content", () => {
   it("leaves the overlay out, and the close button when asked", async () => {
     render(
       <Drawer open side="right">
-        <DrawerContent
-          data-testid="drawer"
-          showOverlay={false}
-          showClose={false}
-        >
+        <DrawerPopup data-testid="drawer" showOverlay={false} showClose={false}>
           <DrawerTitle>Bare</DrawerTitle>
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     await screen.findByTestId("drawer");
@@ -149,9 +145,9 @@ describe("drawer content", () => {
   it("can add a close button to a bottom drawer", async () => {
     render(
       <Drawer open>
-        <DrawerContent data-testid="drawer" showClose>
+        <DrawerPopup data-testid="drawer" showClose>
           <DrawerTitle>Closable</DrawerTitle>
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     await screen.findByTestId("drawer");
@@ -162,10 +158,10 @@ describe("drawer content", () => {
     render(
       <Drawer side="right">
         <DrawerTrigger render={<button type="button">Open it</button>} />
-        <DrawerContent showClose={false} aria-describedby={undefined}>
+        <DrawerPopup showClose={false} aria-describedby={undefined}>
           <DrawerTitle>Opened</DrawerTitle>
           <DrawerClose render={<button type="button">Done</button>} />
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     press(screen.getByRole("button", { name: "Open it" }));
@@ -184,9 +180,9 @@ describe("drawer content", () => {
           reasons.push(details.reason);
         }}
       >
-        <DrawerContent aria-describedby={undefined}>
+        <DrawerPopup aria-describedby={undefined}>
           <DrawerTitle>Reasons</DrawerTitle>
-        </DrawerContent>
+        </DrawerPopup>
       </Drawer>,
     );
     press(await screen.findByRole("button", { name: "Close" }));

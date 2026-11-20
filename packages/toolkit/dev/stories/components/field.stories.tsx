@@ -10,7 +10,7 @@ import {
 import { Input, InputSlot } from "../../../src/ui/base-ui/input.js";
 import {
   Select,
-  SelectContent,
+  SelectPopup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -79,13 +79,13 @@ export const Controls: StoryObj = {
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectPopup>
             {ROLES.map((role) => (
               <SelectItem key={role.value} value={role.value}>
                 {role.label}
               </SelectItem>
             ))}
-          </SelectContent>
+          </SelectPopup>
         </Select>
       </Field>
     </div>

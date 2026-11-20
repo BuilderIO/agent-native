@@ -6,8 +6,8 @@
  *        [data-color] [data-radius] [data-popup-open] [data-disabled]>
  *     <input class="input-control">                     Autocomplete.Input
  *     <div class="input-slot">                          an icon, or the buttons below
- *       <button class="autocomplete-clear">             Autocomplete.Clear, while there is text
- *       <button class="autocomplete-trigger">           Autocomplete.Trigger [data-popup-open]
+ *       <button class="icon-button autocomplete-clear"> Autocomplete.Clear, while there is text
+ *       <button class="icon-button autocomplete-trigger"> Autocomplete.Trigger [data-popup-open]
  *
  *   <div class="autocomplete-positioner">               Autocomplete.Positioner
  *     <div class="autocomplete-popup"                   Autocomplete.Popup
@@ -41,94 +41,6 @@
  */
 
 @layer components {
-  /* ---- trigger and clear ---- */
-
-  /* Only in the field's slots: a trigger outside the field (an input inside
-     the popup) is a button the caller renders, and keeps that button's look. */
-  .input-slot
-    :is(
-      .autocomplete-trigger,
-      .autocomplete-clear,
-      .combobox-trigger,
-      .combobox-clear
-    ) {
-    display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    width: var(--_icon);
-    height: var(--_icon);
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: calc(var(--radius-1) * var(--corner-scale, 1));
-    corner-shape: var(--corner-shape, round);
-    background-color: transparent;
-    color: inherit;
-    cursor: default;
-    transition-property: color;
-    transition-duration: var(--duration-2);
-    transition-timing-function: var(--ease-standard);
-  }
-
-  .input-slot
-    :is(
-      .autocomplete-trigger,
-      .autocomplete-clear,
-      .combobox-trigger,
-      .combobox-clear
-    )
-    svg {
-    width: var(--_icon);
-    height: var(--_icon);
-  }
-
-  @media (hover: hover) {
-    .input[data-variant="surface"]
-      .input-slot
-      :is(
-        .autocomplete-trigger,
-        .autocomplete-clear,
-        .combobox-trigger,
-        .combobox-clear
-      ):not([data-disabled]):hover {
-      color: var(--fg-default);
-    }
-
-    .input[data-variant="soft"]
-      .input-slot
-      :is(
-        .autocomplete-trigger,
-        .autocomplete-clear,
-        .combobox-trigger,
-        .combobox-clear
-      ):not([data-disabled]):hover {
-      color: var(--accent-12);
-    }
-  }
-
-  .input-slot
-    :is(
-      .autocomplete-trigger,
-      .autocomplete-clear,
-      .combobox-trigger,
-      .combobox-clear
-    ):focus-visible {
-    outline: var(--focus-ring-width) solid var(--line-focus);
-    outline-offset: var(--focus-ring-offset);
-  }
-
-  .input-slot
-    :is(
-      .autocomplete-trigger,
-      .autocomplete-clear,
-      .combobox-trigger,
-      .combobox-clear
-    )[data-disabled] {
-    cursor: not-allowed;
-  }
-
   /* ---- popup ---- */
 
   :is(.autocomplete-positioner, .combobox-positioner) {
@@ -181,15 +93,15 @@
     --_slide-y: var(--space-2);
   }
   :is(.autocomplete-popup, .combobox-popup):is(
-      [data-side="left"],
-      [data-side="inline-start"]
-    ) {
+    [data-side="left"],
+    [data-side="inline-start"]
+  ) {
     --_slide-x: var(--space-2);
   }
   :is(.autocomplete-popup, .combobox-popup):is(
-      [data-side="right"],
-      [data-side="inline-end"]
-    ) {
+    [data-side="right"],
+    [data-side="inline-end"]
+  ) {
     --_slide-x: calc(var(--space-2) * -1);
   }
 

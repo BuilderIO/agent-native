@@ -1,6 +1,6 @@
 import {
-  type PopoverContentOwnProps,
-  popoverContentProps,
+  type PopoverPopupOwnProps,
+  popoverPopupProps,
 } from "@agent-native/design-system";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import * as React from "react";
@@ -13,7 +13,7 @@ import { splitProps } from "./props.js";
  * A floating panel that opens from a button for related content or controls, on
  * Base UI's Popover. Root, Trigger and Close are Base UI's own parts.
  *
- * @import import { Popover, PopoverTrigger, PopoverContent, PopoverTitle, PopoverDescription, PopoverClose } from "@agent-native/toolkit/ui/base-ui/popover";
+ * @import import { Popover, PopoverTrigger, PopoverPopup, PopoverTitle, PopoverDescription, PopoverClose } from "@agent-native/toolkit/ui/base-ui/popover";
  */
 export const Popover = BasePopover.Root;
 
@@ -51,9 +51,9 @@ type PositionerProps = Pick<
   | "positionMethod"
 >;
 
-type PopoverContentProps = PopupProps &
+type PopoverPopupProps = PopupProps &
   PositionerProps &
-  PopoverContentOwnProps & {
+  PopoverPopupOwnProps & {
     /** Where the popover mounts; the document body by default. */
     container?: BasePopover.Portal.Props["container"];
     /** Keep the popup in the DOM while closed. */
@@ -64,12 +64,12 @@ type PopoverContentProps = PopupProps &
  * The popover's panel, portaled and positioned beside its trigger or anchor. It
  * is Base UI's Popover Popup with Radix Themes' sizes.
  *
- * @import import { PopoverContent } from "@agent-native/toolkit/ui/base-ui/popover";
+ * @import import { PopoverPopup } from "@agent-native/toolkit/ui/base-ui/popover";
  */
-const PopoverContent = React.forwardRef<HTMLDivElement, PopoverContentProps>(
+const PopoverPopup = React.forwardRef<HTMLDivElement, PopoverPopupProps>(
   (props, ref) => {
     const [attributes, { className, container, keepMounted, ...rest }] =
-      splitProps(popoverContentProps, props);
+      splitProps(popoverPopupProps, props);
     const [positioner, popup] = splitPositionerProps(rest);
     return (
       <BasePopover.Portal container={container} keepMounted={keepMounted}>
@@ -91,7 +91,7 @@ const PopoverContent = React.forwardRef<HTMLDivElement, PopoverContentProps>(
     );
   },
 );
-PopoverContent.displayName = "PopoverContent";
+PopoverPopup.displayName = "PopoverPopup";
 
 /**
  * The popover's heading, which also names it for assistive technology.
@@ -146,8 +146,8 @@ PopoverArrow.displayName = "PopoverArrow";
 
 export {
   PopoverArrow,
-  PopoverContent,
+  PopoverPopup,
   PopoverDescription,
   PopoverTitle,
-  type PopoverContentProps,
+  type PopoverPopupProps,
 };
