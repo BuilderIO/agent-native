@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { ActionContractError } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, sql } from "drizzle-orm";
@@ -366,9 +367,31 @@ describe("Content space provisioning", () => {
         }),
     );
     await runWithRequestContext({ userEmail: WORKSPACE_OWNER }, async () => {
+      const deleteReference = deleteDocumentAction.run({
+        id: first.catalogDocumentId,
+      });
+      await expect(deleteReference).rejects.toMatchObject({
+        message: "Workspace references cannot be deleted as pages",
+        errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        statusCode: 409,
+      });
+      await expect(deleteReference).rejects.toBeInstanceOf(ActionContractError);
+      const [reference] = await getDb()
+        .select({ trashedAt: schema.documents.trashedAt })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, first.catalogDocumentId));
+      expect(reference).toEqual({ trashedAt: null });
       await expect(
-        deleteDocumentAction.run({ id: first.catalogDocumentId }),
-      ).rejects.toThrow("Workspace references cannot be deleted as pages");
+        getDb()
+          .select()
+          .from(schema.contentSpaceCatalogItems)
+          .where(
+            eq(
+              schema.contentSpaceCatalogItems.databaseItemId,
+              first.catalogItemId,
+            ),
+          ),
+      ).resolves.toHaveLength(1);
       await expect(
         removeDatabaseItemsAction.run({
           databaseId: first.catalogDatabaseId,
