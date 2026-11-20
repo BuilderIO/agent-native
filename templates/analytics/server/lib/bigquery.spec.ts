@@ -4,7 +4,11 @@ import {
 } from "@agent-native/core/db/request-pool-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BigQueryJobUsage } from "./bigquery-usage";
+import {
+  type BigQueryJobUsage,
+  type BigQueryUsageAttribution,
+  withBigQueryUsageAttribution,
+} from "./bigquery-usage";
 
 function present<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("Expected fixture observation");
@@ -422,6 +426,97 @@ describe("runQuery cancellation", () => {
     expect(persistUsage).toHaveBeenCalledTimes(1);
     expect(finalizeUsage).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("labels only server-attributed alert submissions across concurrent contexts", async () => {
+    const submissions: Array<{
+      jobReference: { projectId: string; jobId: string };
+      configuration: {
+        labels?: Record<string, string>;
+        query: {
+          query: string;
+          maximumBytesBilled: string;
+          useLegacySql: boolean;
+          useQueryCache: boolean;
+        };
+      };
+    }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(async (input, init) => {
+        if (String(input).endsWith("/jobs")) {
+          const request = JSON.parse(String(init?.body));
+          submissions.push(request);
+          return jsonResponse({ jobReference: request.jobReference });
+        }
+        return jsonResponse({
+          jobComplete: true,
+          schema: { fields: [] },
+          rows: [],
+        });
+      }),
+    );
+    const cases: Array<{
+      sql: string;
+      context?: BigQueryUsageAttribution;
+      labels?: Record<string, string>;
+      workload: string;
+    }> = [
+      {
+        sql: "SELECT 1 AS labelled_alert",
+        context: { workload: "alert" },
+        labels: { agent_native_workload: "alert" },
+        workload: "alert",
+      },
+      {
+        sql: "SELECT 1 AS dashboard_control",
+        context: {
+          workload: "dashboard-panel",
+          dashboardId: "private-dashboard",
+          panelId: "private-panel",
+        },
+        workload: "dashboard-panel",
+      },
+      {
+        sql: "SELECT 1 AS concurrent_alert",
+        context: { workload: "alert", dashboardId: "not-a-provider-label" },
+        labels: { agent_native_workload: "alert" },
+        workload: "alert",
+      },
+      {
+        sql: "SELECT 'analytics_alert_page' AS sql_marker_control",
+        workload: "unattributed",
+      },
+    ];
+    await Promise.all(
+      cases.map(({ sql, context }) => {
+        const run = () =>
+          runQuery(sql, { forceRefresh: true, maxBytesBilled: 123456789 });
+        return context ? withBigQueryUsageAttribution(context, run) : run();
+      }),
+    );
+    expect(submissions).toHaveLength(cases.length);
+    for (const fixture of cases) {
+      const request = present(
+        submissions.find(
+          ({ configuration }) => configuration.query.query === fixture.sql,
+        ),
+      );
+      expect(request.configuration.labels).toEqual(fixture.labels);
+      expect(request.configuration.query).toEqual({
+        query: fixture.sql,
+        useLegacySql: false,
+        maximumBytesBilled: "123456789",
+        useQueryCache: false,
+      });
+      expect(
+        usageWrites.find(({ jobId }) => jobId === request.jobReference.jobId),
+      ).toMatchObject({
+        projectId: "test-project",
+        ownerEmail: "test@example.com",
+        workload: fixture.workload,
+      });
+    }
   });
 
   it("stops an incomplete job's poll wait immediately when the agent run aborts", async () => {
