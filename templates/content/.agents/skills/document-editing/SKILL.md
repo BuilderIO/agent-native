@@ -564,6 +564,44 @@ Who can open the page and who can open the dashboard can differ:
 Analytics refusals (`analytics_refused`, such as a dashboard the person can't
 open) come back with Analytics' own reason; pass it on.
 
+### Design screens
+
+A `<DesignScreen … />` block is a picture of one Design screen at one width,
+as Design rendered it for the editor who pinned or last refreshed it, stamped
+with when and by whom, and linked back to the screen. The picture is one of
+the page's private images, so it loads only for people who can open the page.
+Readers who can open the design also see when the screen changed in Design
+since the picture and how many open comments it has. When people paste a
+screen's copied link (Copy link on the screen in Design) into a page they can
+edit, Content does the same steps below for them.
+
+To add one, call `capture-design-screen` with `documentId` and the screen's
+`link` (or `designId` and `screenId`), and a `width` only when the person asks
+for one. It checks you can edit the page, has Design render the screen as you,
+keeps the picture with the page, and returns `designScreenTag`. Put that tag
+in the page with `edit-document` as its own block, exactly as returned; never
+write or change a `DesignScreen` tag by hand, and never point its picture at
+another image. To refresh a screen, call it again with `purpose: "refresh"`
+and the screen's `id` from `get-document` as `blockId`, then replace the old
+tag with the new one.
+
+- `design_screen_board_link` means the link opens a whole board. Ask for one
+  screen's link (Copy link on that screen).
+- `needs_confirmation` means more people can open the page than the design.
+  Tell the person, and call again with `acknowledgeWiderAudience: true` only
+  if they agree.
+- `design_screen_wider_than_design` means the page is public and the design
+  isn't, so the screen can't be pinned there. Don't work around it; narrow the
+  page's sharing or ask the person to share the design more widely in Design.
+- Sharing a page more widely asks first when it pins screens from narrower
+  designs; it never refuses for them.
+- `design_screen_storage_unavailable` means Content has nowhere private to
+  keep the picture. Pass the message on: the person connects file storage in
+  Settings.
+
+Design refusals (`design_refused`, such as a design the person can't open or
+a screen with live effects) come back with Design's own reason; pass it on.
+
 ## Parent-Child Hierarchy
 
 Documents form a tree via `parent_id`:
@@ -622,6 +660,7 @@ failures stop the run.
 | "Import this Markdown file"  | `import-content --dryRun true`, report losses, then `--dryRun false`                          |
 | "Import my Notion export"    | Pass the zip's files with their paths; dry run, report losses and `databases`, then apply     |
 | "Add this Analytics chart"   | `capture-analytics-chart --documentId ... --link ...`, then `edit-document` with the tag       |
+| "Pin this Design screen"     | `capture-design-screen --documentId ... --link ...`, then `edit-document` with the tag         |
 | "Show me the document tree"  | `list-documents`                                                                              |
 
 Always run `refresh-list` after any create, update, or delete operation.

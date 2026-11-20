@@ -4,6 +4,7 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
+import { designScreenMessagesByLocale } from "./design-screen-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -2309,6 +2310,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  designScreen: designScreenMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2374,6 +2376,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    designScreen: enUS.designScreen,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2896,6 +2899,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    designScreen: designScreenMessagesByLocale[locale],
   };
 }
 

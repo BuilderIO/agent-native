@@ -94,6 +94,24 @@ export {
   type AnalyticsPanelStatusRequest,
 } from "./analytics-panel-capture.js";
 export {
+  DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES,
+  DESIGN_SCREEN_CAPTURE_MAX_WIDTH,
+  DESIGN_SCREEN_CAPTURE_MIN_WIDTH,
+  designScreenCaptureRequestSchema,
+  designScreenCaptureSchema,
+  designScreenSourceSchema,
+  designScreenStatusRequestSchema,
+  designScreenStatusSchema,
+  designScreenUrl,
+  parseDesignScreenLink,
+  type DesignScreenCapture,
+  type DesignScreenCaptureRequest,
+  type DesignScreenLink,
+  type DesignScreenSource,
+  type DesignScreenStatus,
+  type DesignScreenStatusRequest,
+} from "./design-screen-capture.js";
+export {
   checkEmbedAudience,
   isWiderVisibility,
   type EmbedAudienceCheck,
