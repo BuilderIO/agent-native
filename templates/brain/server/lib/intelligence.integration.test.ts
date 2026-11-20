@@ -310,23 +310,48 @@ describe("evidence-backed intelligence", () => {
         .update(schema.brainSources)
         .set({ visibility })
         .where(eq(schema.brainSources.id, "source-a"));
-      const result = await importMarkdownFiles.run({
-        sourceId: "source-a",
-        files: [
-          {
-            path: "meeting.md",
-            content: "Avery: The product launch is approved.",
-            kind: "transcript",
-            capturedAt: "2026-05-20T15:00:00.000Z",
-          },
-        ],
-        enqueueDistillation: false,
-      });
+      const importSchema = (
+        importMarkdownFiles as unknown as {
+          schema: {
+            parse: (
+              value: unknown,
+            ) => Parameters<typeof importMarkdownFiles.run>[0];
+          };
+        }
+      ).schema;
+      const result = await importMarkdownFiles.run(
+        importSchema.parse({
+          sourceId: "source-a",
+          files: [
+            {
+              path: "meeting.md",
+              content: "The product launch is approved.",
+              kind: "transcript",
+              capturedAt: "2026-05-20T15:00:00.000Z",
+              participants: ["Avery", "Jordan"],
+            },
+            {
+              path: "other-meeting.md",
+              content: "The product launch is approved.",
+              kind: "transcript",
+              participants: ["Casey"],
+            },
+            {
+              path: "empty-participants.md",
+              content: "The product launch is approved.",
+              participants: [],
+            },
+          ],
+          enqueueDistillation: false,
+        }),
+      );
       expect(result.files).toEqual([
+        expect.objectContaining({ status: "imported" }),
+        expect.objectContaining({ status: "imported" }),
         expect.objectContaining({ status: "imported" }),
       ]);
       expect(result.summary).toMatchObject({
-        imported: 1,
+        imported: 3,
         failed: 0,
         blocked: 0,
       });
@@ -342,10 +367,39 @@ describe("evidence-backed intelligence", () => {
       });
       expect(JSON.parse(capture.metadataJson)).toMatchObject({
         capturedAtSource: "manual-markdown",
+        participantsCount: 2,
       });
       expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
         "participants",
       );
+      expect(JSON.stringify(capture)).not.toContain("Avery");
+      expect(JSON.stringify(capture)).not.toContain("Jordan");
+      const otherCapture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(
+            eq(schema.brainRawCaptures.externalId, "markdown:other-meeting.md"),
+          ),
+      );
+      const emptyCapture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(
+            eq(
+              schema.brainRawCaptures.externalId,
+              "markdown:empty-participants.md",
+            ),
+          ),
+      );
+      expect(JSON.parse(otherCapture.metadataJson)).toMatchObject({
+        participantsCount: 1,
+      });
+      expect(JSON.stringify(otherCapture)).not.toContain("Casey");
+      expect(JSON.parse(emptyCapture.metadataJson)).toMatchObject({
+        participantsCount: 0,
+      });
       const audience = first(
         await database
           .select()

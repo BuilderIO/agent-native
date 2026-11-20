@@ -57,6 +57,13 @@ const markdownFileSchema = z
       .describe(
         "Capture time as an ISO 8601 datetime with timezone, when known.",
       ),
+    participants: z
+      .array(z.string().trim().min(1).max(200))
+      .max(100)
+      .optional()
+      .describe(
+        "Optional participant labels. Privacy screening discards the labels and stores only their count; they do not grant access or change the audience.",
+      ),
   })
   .strict();
 
@@ -89,7 +96,7 @@ function normalizeMarkdownPath(value: string) {
 
 export default defineAction({
   description:
-    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default. Participant labels are not retained or used as access grants.",
+    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default. Participant labels are screened to a count, not retained or used as access grants.",
   schema: z.object({
     sourceId: z.string().min(1).optional(),
     sourceTitle: z
@@ -200,6 +207,9 @@ export default defineAction({
             metadata: {
               path: normalizedPath,
               sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+              ...(file.input.participants !== undefined
+                ? { participants: file.input.participants }
+                : {}),
             },
           },
         );

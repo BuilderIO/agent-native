@@ -105,7 +105,14 @@ describe("import-markdown-files", () => {
     });
   });
 
-  it("rejects participant labels rather than implying they are retained", () => {
+  // oracle-change: participant labels are now accepted and screened to a count.
+  it.each([
+    { participants: [""] },
+    { participants: ["   "] },
+    { participants: ["x".repeat(201)] },
+    { participants: [42] },
+    { participants: Array(101).fill("Avery") },
+  ])("rejects invalid participant labels %j", ({ participants }) => {
     const schema = (
       action as unknown as {
         schema: { safeParse: (value: unknown) => { success: boolean } };
@@ -113,9 +120,7 @@ describe("import-markdown-files", () => {
     ).schema;
     expect(
       schema.safeParse({
-        files: [
-          { path: "meeting.md", content: "Meeting", participants: ["Avery"] },
-        ],
+        files: [{ path: "meeting.md", content: "Meeting", participants }],
       }).success,
     ).toBe(false);
   });
