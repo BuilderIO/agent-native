@@ -864,6 +864,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const onWebContentsIdChangeRef = useRef(onWebContentsIdChange);
     const perAppChatOpenRef = useRef(false);
     const authProbeSequenceRef = useRef(0);
+    const navigationGenerationRef = useRef(0);
     const lastGuestChatSidebarSyncRef = useRef<string | null>(null);
     const guestScriptInFlightRef = useRef(new Map<string, Promise<unknown>>());
 
@@ -1703,6 +1704,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
+      navigationGenerationRef.current += 1;
+      const navigationGeneration = navigationGenerationRef.current;
       optimizeDepRecoveryRef.current = false;
       loadFailureRef.current = false;
       unresponsiveFailureRef.current = false;
@@ -1719,11 +1722,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         void executeGuestScript(scriptKey, script)
           .then((ok) => {
             if (ok === true) return;
+            if (navigationGenerationRef.current !== navigationGeneration) {
+              return;
+            }
             setIsLoading(true);
             setSlowLoad(false);
             wv.setAttribute("src", url);
           })
           .catch(() => {
+            if (navigationGenerationRef.current !== navigationGeneration) {
+              return;
+            }
             setIsLoading(true);
             setSlowLoad(false);
             wv.setAttribute("src", url);

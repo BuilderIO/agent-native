@@ -2008,4 +2008,92 @@ describe("AppWebview soft client-side navigation", () => {
       container.remove();
     }
   });
+
+  it("ignores a stale soft-navigation fallback that resolves after a newer navigation", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "Mail",
+      description: "Mail",
+      devPort: 3003,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      enabled: true,
+      mode: "prod" as const,
+      isBuiltIn: true,
+    };
+    const resolvers: Array<(value: boolean | undefined) => void> = [];
+    const executeJavaScript = vi.fn(
+      (code: string): Promise<boolean | undefined> =>
+        code.includes("/drafts")
+          ? new Promise((resolve) => resolvers.push(resolve))
+          : Promise.resolve(true),
+    );
+    const setAttributeCalls: string[] = [];
+    const render = (urlPath: string, urlOpenNonce: number) =>
+      React.createElement(AppWebview, {
+        app,
+        appConfig,
+        isActive: true,
+        theme: "dark" as const,
+        urlPath,
+        urlOpenSoft: true,
+        urlOpenNonce,
+      });
+
+    try {
+      act(() => {
+        root.render(render("/home", 0));
+      });
+      const webview = container.querySelector("webview") as
+        | (HTMLElement & { getURL?: () => string })
+        | null;
+      if (!webview) throw new Error("webview not rendered");
+      const originalSetAttribute = webview.setAttribute.bind(webview);
+      webview.setAttribute = (name: string, value: string) => {
+        if (name === "src") setAttributeCalls.push(value);
+        originalSetAttribute(name, value);
+      };
+      Object.defineProperty(webview, "getURL", {
+        configurable: true,
+        value: () => "https://mail.agent-native.com/home",
+      });
+      Object.defineProperty(webview, "executeJavaScript", {
+        configurable: true,
+        value: executeJavaScript,
+      });
+      Object.defineProperty(webview, "getWebContentsId", {
+        configurable: true,
+        value: () => 1,
+      });
+      act(() => {
+        webview.dispatchEvent(new Event("did-finish-load"));
+      });
+
+      await act(async () => {
+        root.render(render("/drafts", 1));
+      });
+      expect(resolvers.length).toBe(1);
+
+      await act(async () => {
+        root.render(render("/sent", 2));
+      });
+
+      await act(async () => {
+        resolvers[0]?.(undefined);
+        await Promise.resolve();
+      });
+      expect(setAttributeCalls).toEqual([]);
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
 });
