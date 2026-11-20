@@ -491,7 +491,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "Esta página tiene texto que un PDF aún no puede mostrar, como chino, japonés, coreano, árabe, hebreo o hindi. Adjúntala como Markdown.",
       contentPagePdfTooLong:
-        "Esta página es demasiado larga para adjuntarla como PDF (más de 200 páginas o una tabla demasiado ancha). Adjúntala como Markdown.",
+        "Esta página es demasiado larga o ancha para adjuntarla como PDF. Adjúntala como Markdown.",
       contentPagePdfUnavailable:
         "Content no pudo crear un PDF de esta página. Adjúntala como Markdown.",
       failedToUploadImage: "No se pudo subir la imagen",

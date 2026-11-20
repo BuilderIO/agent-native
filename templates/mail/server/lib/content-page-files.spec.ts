@@ -261,7 +261,7 @@ describe("Content page files", () => {
       result: {
         status: "failed",
         output:
-          "Error running read-document-file: This page is too long to attach as a PDF (over 200 pages). (errorCode: document_file_pdf_too_long)",
+          "Error running read-document-file: This page can't be attached as a PDF because it has over 200 pages. Attach it as Markdown instead. (errorCode: document_file_pdf_too_long)",
       },
     });
     await expect(
@@ -269,7 +269,7 @@ describe("Content page files", () => {
     ).rejects.toMatchObject({
       statusCode: 413,
       errorCode: "document_file_pdf_too_long",
-      message: expect.stringContaining("over 200 pages"),
+      message: expect.stringContaining("too long or too wide"),
     });
   });
 

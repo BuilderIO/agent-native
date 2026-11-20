@@ -483,7 +483,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "このページには、中国語、日本語、韓国語、アラビア語、ヘブライ語、ヒンディー語など、PDF でまだ表示できない文字が含まれています。代わりに Markdown として添付してください。",
       contentPagePdfTooLong:
-        "このページは長すぎるため PDF として添付できません（200 ページ超、または幅が広すぎる表）。代わりに Markdown として添付してください。",
+        "このページは長すぎるか幅が広すぎるため、PDF として添付できません。代わりに Markdown として添付してください。",
       contentPagePdfUnavailable:
         "Content でこのページの PDF を作成できませんでした。代わりに Markdown として添付してください。",
       failedToUploadImage: "画像のアップロードに失敗しました",

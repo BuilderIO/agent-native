@@ -478,7 +478,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "تحتوي هذه الصفحة على نص لا يمكن لملف PDF عرضه بعد، مثل الصينية أو اليابانية أو الكورية أو العربية أو العبرية أو الهندية. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       contentPagePdfTooLong:
-        "هذه الصفحة أطول من أن تُرفق كملف PDF (أكثر من 200 صفحة، أو بها جدول أعرض من أن يتسع). أرفقها بتنسيق Markdown بدلاً من ذلك.",
+        "هذه الصفحة أطول أو أعرض من أن تُرفق كملف PDF. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       contentPagePdfUnavailable:
         "تعذّر على Content إنشاء ملف PDF لهذه الصفحة. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       failedToUploadImage: "فشل تحميل الصورة",

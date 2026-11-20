@@ -25,6 +25,16 @@ type Op =
   | { kind: "fill"; page: number; y: number; height: number; color: Rgb }
   | { kind: "link"; page: number; url: string };
 
+function tooLongReason(run: () => unknown) {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof PdfTooLongError) return error.reason;
+    throw error;
+  }
+  return undefined;
+}
+
 function recordLayout(title: string, content: string) {
   const ops: Op[] = [];
   let page = 1;
@@ -407,8 +417,8 @@ describe("document PDF layout", () => {
 
     expect(pageCount).toBeGreaterThan(PDF_MAX_PAGES / 2);
     expect(pageCount).toBeLessThan(PDF_MAX_PAGES);
-    expect(() => recordLayout("Long", paragraphs(20_000))).toThrow(
-      PdfTooLongError,
+    expect(tooLongReason(() => recordLayout("Long", paragraphs(20_000)))).toBe(
+      "pages",
     );
   });
 
@@ -423,8 +433,8 @@ describe("document PDF layout", () => {
       ].join("\n");
 
     expect(() => recordLayout("Wide", table(22))).not.toThrow();
-    expect(() => recordLayout("Wide", table(23))).toThrow(PdfTooLongError);
-    expect(() => recordLayout("Wide", table(400))).toThrow(PdfTooLongError);
+    expect(tooLongReason(() => recordLayout("Wide", table(23)))).toBe("table");
+    expect(tooLongReason(() => recordLayout("Wide", table(400)))).toBe("table");
   });
 });
 
@@ -489,8 +499,10 @@ describe("renderDocumentPdf", () => {
     const { pageCount } = recordLayout("Narrow", table);
 
     expect(pageCount).toBeLessThan(PDF_MAX_PAGES);
-    expect(() =>
-      renderDocumentPdf({ title: "Narrow", content: table }),
-    ).toThrow(PdfTooLongError);
+    expect(
+      tooLongReason(() =>
+        renderDocumentPdf({ title: "Narrow", content: table }),
+      ),
+    ).toBe("text");
   });
 });

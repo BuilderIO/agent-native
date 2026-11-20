@@ -464,7 +464,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "此頁面包含 PDF 暫時無法顯示的文字，例如中文、日文、韓文、阿拉伯文、希伯來文或印地文。請改以 Markdown 格式附加。",
       contentPagePdfTooLong:
-        "此頁面太長，無法以 PDF 格式附加（超過 200 頁，或表格過寬）。請改以 Markdown 格式附加。",
+        "此頁面太長或太寬，無法以 PDF 格式附加。請改以 Markdown 格式附加。",
       contentPagePdfUnavailable:
         "Content 無法為此頁面產生 PDF。請改以 Markdown 格式附加。",
       failedToUploadImage: "上傳圖片失敗",

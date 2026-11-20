@@ -476,7 +476,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
       contentPagePdfTooLong:
-        "This page is too long to attach as a PDF (over 200 pages, or a table too wide to fit). Attach it as Markdown instead.",
+        "This page is too long or too wide to attach as a PDF. Attach it as Markdown instead.",
       contentPagePdfUnavailable:
         "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
       failedToUploadImage: "Failed to upload image",

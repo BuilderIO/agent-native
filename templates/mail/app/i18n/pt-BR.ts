@@ -489,7 +489,7 @@ const messages = {
       contentPagePdfTextUnsupported:
         "Esta página tem texto que um PDF ainda não consegue mostrar, como chinês, japonês, coreano, árabe, hebraico ou hindi. Anexe-a como Markdown.",
       contentPagePdfTooLong:
-        "Esta página é longa demais para anexar como PDF (mais de 200 páginas ou uma tabela larga demais). Anexe-a como Markdown.",
+        "Esta página é longa ou larga demais para anexar como PDF. Anexe-a como Markdown.",
       contentPagePdfUnavailable:
         "O Content não conseguiu criar um PDF desta página. Anexe-a como Markdown.",
       failedToUploadImage: "Falha ao enviar imagem",

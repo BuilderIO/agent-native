@@ -311,8 +311,13 @@ export default defineAction({
           pdf = renderDocumentPdf({ title, content: doc.content });
         } catch (error) {
           if (error instanceof PdfTooLongError) {
+            const detail = {
+              pages: `over ${PDF_MAX_PAGES} pages`,
+              table: "a table with too many columns to fit",
+              text: "more text than a PDF attachment can draw, usually from a long table of narrow cells",
+            }[error.reason];
             fail(
-              `This page is too long to attach as a PDF (over ${PDF_MAX_PAGES} pages, or a table too wide to fit). Attach it as Markdown instead.`,
+              `This page can't be attached as a PDF because it has ${detail}. Attach it as Markdown instead.`,
               { statusCode: 413, errorCode: "document_file_pdf_too_long" },
             );
           }

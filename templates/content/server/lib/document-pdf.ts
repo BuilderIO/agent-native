@@ -44,12 +44,21 @@ export interface PdfCanvas {
 
 export const PDF_MAX_PAGES = 200;
 
+export type PdfTooLongReason = "pages" | "table" | "text";
+
+const TOO_LONG_DETAILS: Record<PdfTooLongReason, string> = {
+  pages: `The page runs past ${PDF_MAX_PAGES} PDF pages.`,
+  table: "The page has a table with too many columns to draw.",
+  text: "The page has more text to draw than a PDF attachment allows.",
+};
+
 export class PdfTooLongError extends Error {
-  constructor() {
-    super(
-      `The page runs past ${PDF_MAX_PAGES} PDF pages or has a table too wide to draw.`,
-    );
+  readonly reason: PdfTooLongReason;
+
+  constructor(reason: PdfTooLongReason) {
+    super(TOO_LONG_DETAILS[reason]);
     this.name = "PdfTooLongError";
+    this.reason = reason;
   }
 }
 
@@ -327,7 +336,9 @@ class PdfLayout {
   }
 
   private newPage() {
-    if (this.canvas.pageCount >= PDF_MAX_PAGES) throw new PdfTooLongError();
+    if (this.canvas.pageCount >= PDF_MAX_PAGES) {
+      throw new PdfTooLongError("pages");
+    }
     this.canvas.addPage();
     this.y = MARGIN;
   }
@@ -696,7 +707,7 @@ class PdfLayout {
     const lineHeight = TABLE_SIZE * 1.4;
     const padding = 4;
     if (columnWidth - padding * 2 < MIN_CELL_TEXT_WIDTH) {
-      throw new PdfTooLongError();
+      throw new PdfTooLongError("table");
     }
     rows.forEach((row, rowIndex) => {
       const cells = row.content ?? [];
@@ -1150,7 +1161,7 @@ export function renderDocumentPdf(input: {
     measure,
     text: (text, x, baseline, font, color) => {
       textRuns += 1;
-      if (textRuns > MAX_TEXT_RUNS) throw new PdfTooLongError();
+      if (textRuns > MAX_TEXT_RUNS) throw new PdfTooLongError("text");
       doc.setTextColor(color[0], color[1], color[2]);
       let cursor = x;
       for (const segment of segments(text, font)) {

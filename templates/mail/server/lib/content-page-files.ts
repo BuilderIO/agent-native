@@ -75,7 +75,7 @@ const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
     },
     document_file_pdf_too_long: {
       message:
-        "This page is too long to attach as a PDF (over 200 pages, or a table too wide to fit). Attach it as Markdown instead.",
+        "This page is too long or too wide to attach as a PDF. Attach it as Markdown instead.",
       statusCode: 413,
     },
     collection_export_limit_exceeded: {
