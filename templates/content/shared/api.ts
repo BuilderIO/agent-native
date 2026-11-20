@@ -2,6 +2,7 @@ import type { IconValue } from "@agent-native/core/icons";
 
 import type { AgentLevel } from "./agent-level";
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { BuilderBodyDiff } from "./builder-body-diff";
 import type { GitHubPullRequestsProblemCode } from "./github-pull-requests";
 import type {
   GitHubSourceProblemCode,
@@ -1043,6 +1044,7 @@ export interface ContentDatabaseSourceBodyChange {
   proposedBlocksJson?: string | null;
   sidecarsJson?: string | null;
   warnings?: string[];
+  textOnly?: boolean;
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -1973,6 +1975,7 @@ export interface ContentDatabaseSourceReviewRowSummary {
   targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
+  bodyDiff?: BuilderBodyDiff | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
@@ -2013,6 +2016,8 @@ export interface PreviewBuilderSourceReviewRequest {
   sourceId?: string;
   scope?: "selected" | "all";
   documentIds?: string[];
+  bodyComparison?: "text" | "blocks";
+  batchSize?: number;
 }
 
 export interface PreviewBuilderSourceReviewResponse {
@@ -2020,6 +2025,10 @@ export interface PreviewBuilderSourceReviewResponse {
   sourceTable: string;
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
+  bodyComparison?: "text" | "blocks";
+  documentIds?: string[];
+  remainingDocumentIds?: string[];
+  blocksCheckDocumentIds?: string[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
@@ -2028,6 +2037,7 @@ export interface PrepareBuilderSourceReviewResponse {
     requestedChangeSetId: string;
     preparedChangeSetId: string;
   }>;
+  unchangedChangeSetIds?: string[];
   timings?: BuilderActionTiming[];
 }
 

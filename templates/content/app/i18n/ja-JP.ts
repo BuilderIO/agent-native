@@ -1697,6 +1697,25 @@ const overrides = {
     builderReviewShowMore: "さらに表示",
     builderReviewRemainingBatches:
       "残りの Builder 変更を準備するには、このバッチの後で再度レビューしてください。",
+    builderReviewLoadingMorePagesOne: "残り 1 ページの変更を読み込んでいます…",
+    builderReviewLoadingMorePages:
+      "残り {{count}} ページの変更を読み込んでいます…",
+    builderReviewConfirmingBodiesOne:
+      "本文の変更 1 件を Builder と照合しています…",
+    builderReviewConfirmingBodies:
+      "本文の変更 {{count}} 件を Builder と照合しています…",
+    builderReviewFindingPages: "変更のあるページを探しています…",
+    builderReviewRowsMatchBuilderOne:
+      "1 ページは本文を変換すると Builder と一致するため、含めていません。",
+    builderReviewRowsMatchBuilder:
+      "{{count}} ページは本文を変換すると Builder と一致するため、含めていません。",
+    builderReviewLoadFailed: "一部の変更を読み込めませんでした: {{message}}",
+    bodyDiffAdded: "追加:",
+    bodyDiffRemoved: "削除:",
+    bodyDiffMoreLinesOne: "ほかに変更された行が 1 行",
+    bodyDiffMoreLines: "ほかに変更された行が {{count}} 行",
+    bodyDiffMoreChangesOne: "表示されていない変更があと 1 件",
+    bodyDiffMoreChanges: "表示されていない変更があと {{count}} 件",
     builderBodiesSyncingProgress:
       "{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
     builderBodiesSyncFinishedWithFailures:

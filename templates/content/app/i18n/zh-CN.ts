@@ -1729,6 +1729,22 @@ const overrides = {
     builderReviewShowMore: "显示更多",
     builderReviewRemainingBatches:
       "此批次完成后请再次审查，以准备其余 Builder 更改。",
+    builderReviewLoadingMorePagesOne: "正在加载另外 1 个页面的更改…",
+    builderReviewLoadingMorePages: "正在加载另外 {{count}} 个页面的更改…",
+    builderReviewConfirmingBodiesOne: "正在与 Builder 核对 1 处正文更改…",
+    builderReviewConfirmingBodies: "正在与 Builder 核对 {{count}} 处正文更改…",
+    builderReviewFindingPages: "正在查找有更改的页面…",
+    builderReviewRowsMatchBuilderOne:
+      "1 个页面的正文转换后已与 Builder 一致，因此未列入。",
+    builderReviewRowsMatchBuilder:
+      "{{count}} 个页面的正文转换后已与 Builder 一致，因此未列入。",
+    builderReviewLoadFailed: "部分更改未能加载：{{message}}",
+    bodyDiffAdded: "新增：",
+    bodyDiffRemoved: "删除：",
+    bodyDiffMoreLinesOne: "另有 1 行更改",
+    bodyDiffMoreLines: "另有 {{count}} 行更改",
+    bodyDiffMoreChangesOne: "另有 1 处更改未显示",
+    bodyDiffMoreChanges: "另有 {{count}} 处更改未显示",
     builderBodiesSyncingProgress:
       "正在同步 {{total}} 个正文中的 {{hydrated}} 个。",
     builderBodiesSyncFinishedWithFailures:
