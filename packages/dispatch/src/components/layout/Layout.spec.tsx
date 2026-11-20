@@ -1038,6 +1038,46 @@ describe("Dispatch NavContent", () => {
       expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
     });
 
+    it("clears a provisional new-chat thread when its send is withdrawn, without clearing a newer send", async () => {
+      await renderChat("/chat");
+      const firstRoute = routeTo({ status: "ok", app: "mail" });
+      let firstSubmitId: string | null = null;
+      await act(async () => {
+        firstSubmitId = reportAgentChatComposerSubmit({
+          text: "show my inbox",
+          threadId: "route-withdrawn-thread",
+          queued: false,
+        });
+      });
+      await act(async () => {
+        withdrawAgentChatComposerSubmit(firstSubmitId);
+      });
+      await firstRoute.answer();
+
+      expect(appTabs("route-withdrawn-thread")).toEqual([]);
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+      const secondRoute = routeTo({ status: "ok", app: "mail" });
+      await act(async () => {
+        reportAgentChatComposerSubmit({
+          text: "show my inbox again",
+          threadId: "route-kept-thread",
+          queued: false,
+        });
+      });
+      await act(async () => {
+        withdrawAgentChatComposerSubmit(firstSubmitId);
+      });
+      await secondRoute.answer();
+
+      expect(appTabs("route-kept-thread").map((tab) => tab.appId)).toEqual([
+        "mail",
+      ]);
+      expect(
+        container.querySelector("[data-chat-first-app-pane]"),
+      ).not.toBeNull();
+    });
+
     it("does not flash a previous session's saved pane before routing a new chat", async () => {
       clientState.connectedApps = [
         {

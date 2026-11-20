@@ -1427,6 +1427,7 @@ function DispatchLayout({
   const [sentNewChat, setSentNewChat] = useState<{
     locationKey: string;
     threadId: string;
+    submitId: string;
   } | null>(null);
   const pathThreadId = threadIdFromPath(localPathname);
   const chatFirstSurfaceScope =
@@ -1460,13 +1461,23 @@ function DispatchLayout({
   useEffect(() => {
     if (newChatLocationKey === null) return;
     return subscribeAgentChatComposerSubmit((detail) => {
-      const threadId = detail.withdrawn ? null : detail.threadId;
+      if (detail.withdrawn) {
+        setSentNewChat((current) =>
+          current?.locationKey === newChatLocationKey &&
+          current.submitId === detail.id
+            ? null
+            : current,
+        );
+        return;
+      }
+      const threadId = detail.threadId;
       if (!threadId) return;
       setSentNewChat((current) =>
         current?.locationKey === newChatLocationKey &&
-        current.threadId === threadId
+        current.threadId === threadId &&
+        current.submitId === detail.id
           ? current
-          : { locationKey: newChatLocationKey, threadId },
+          : { locationKey: newChatLocationKey, threadId, submitId: detail.id },
       );
     });
   }, [newChatLocationKey]);
