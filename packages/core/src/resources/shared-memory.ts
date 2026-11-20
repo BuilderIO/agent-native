@@ -60,6 +60,35 @@ export function resolveSharedMemoryFilePath(
   return resolved;
 }
 
+function resolveTombstonePath(
+  rootDir: string,
+  owner: string,
+  resourcePath: string,
+): string | null {
+  const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
+  return filePath ? `${filePath}.deleted` : null;
+}
+
+export async function readSharedMemoryTombstone(
+  owner: string,
+  resourcePath: string,
+): Promise<number | null> {
+  const rootDir = getSharedMemoryDir();
+  if (!rootDir) return null;
+  const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
+  if (!tombstonePath) return null;
+  try {
+    const deletedAt = Number(await fs.promises.readFile(tombstonePath, "utf8"));
+    if (!Number.isFinite(deletedAt)) {
+      throw new Error(`Unreadable memory tombstone: ${tombstonePath}`);
+    }
+    return deletedAt;
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  }
+}
+
 export async function readSharedPersonalMemory(
   owner: string,
   resourcePath: string,
@@ -76,7 +105,7 @@ export async function readSharedPersonalMemory(
     if (!stat.isFile()) return null;
     return {
       content,
-      mtimeMs: stat.mtimeMs,
+      mtimeMs: Math.floor(stat.mtimeMs),
       size: Buffer.byteLength(content, "utf8"),
     };
   } catch (error) {
@@ -96,6 +125,12 @@ export async function writeSharedPersonalMemory(
   if (!filePath) return;
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   await fs.promises.writeFile(filePath, content, "utf8");
+  const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
+  if (tombstonePath) {
+    await fs.promises.unlink(tombstonePath).catch((error) => {
+      if (!isMissingPathError(error)) throw error;
+    });
+  }
 }
 
 export async function deleteSharedPersonalMemory(
@@ -106,6 +141,12 @@ export async function deleteSharedPersonalMemory(
   if (!rootDir) return;
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   if (!filePath) return;
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.promises.writeFile(
+    `${filePath}.deleted`,
+    String(Date.now()),
+    "utf8",
+  );
   try {
     await fs.promises.unlink(filePath);
   } catch (error) {
@@ -134,7 +175,7 @@ export async function listSharedPersonalMemories(
       const stat = await fs.promises.stat(path.join(ownerDir, entry.name));
       results.push({
         path: `${MEMORY_PREFIX}${entry.name}`,
-        mtimeMs: stat.mtimeMs,
+        mtimeMs: Math.floor(stat.mtimeMs),
         size: stat.size,
       });
     }

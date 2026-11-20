@@ -1242,12 +1242,15 @@ describe("Builder relay owner handling", () => {
 });
 
 describe("desktop Pi extension memory prompt", () => {
-  async function promptFor(owner: string | undefined, dir: string) {
+  async function startSession(owner: string | undefined, dir: string) {
     const file = path.join(dir, "ext.mjs");
     writeFileSync(file, PI_TERMINAL_EXTENSION_SOURCE);
     vi.stubEnv("AGENT_NATIVE_MEMORY_DIR", dir);
     vi.stubEnv("AGENT_NATIVE_TERMINAL_MCP_SERVERS", "{}");
-    vi.stubEnv("AGENT_NATIVE_MEMORY_OWNER", owner ?? "");
+    const ownerFile = path.join(dir, "owner-file");
+    vi.stubEnv("AGENT_NATIVE_MEMORY_OWNER_FILE", ownerFile);
+    if (owner === undefined) rmSync(ownerFile, { force: true });
+    else writeFileSync(ownerFile, owner);
     type Handler = (event: unknown) => { systemPrompt: string };
     const handlers = new Map<string, Handler>();
     const pi = new Proxy(
@@ -1257,7 +1260,11 @@ describe("desktop Pi extension memory prompt", () => {
     const mod = await import(/* @vite-ignore */ file + "?t=" + Math.random());
     mod.default(pi);
     const handler = handlers.get("before_agent_start");
-    return handler ? handler({ systemPrompt: "" }).systemPrompt : "";
+    return () => (handler ? handler({ systemPrompt: "" }).systemPrompt : "");
+  }
+
+  async function promptFor(owner: string | undefined, dir: string) {
+    return (await startSession(owner, dir))();
   }
 
   it("loads only the signed-in account's memory", async () => {
@@ -1278,5 +1285,25 @@ describe("desktop Pi extension memory prompt", () => {
     expect(prompt).not.toContain("BOB-SECRET");
     const none = await promptFor(undefined, dir);
     expect(none).not.toContain("SECRET");
+  });
+
+  it("follows an account switch inside a running session", async () => {
+    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
+    const accounts: Array<{ owner: string; text: string }> = [
+      { owner: "a@example.test", text: "ALICE-SECRET" },
+      { owner: "b@example.test", text: "BOB-SECRET" },
+    ];
+    for (const { owner, text } of accounts) {
+      mkdirSync(path.join(dir, encodeURIComponent(owner)), { recursive: true });
+      writeFileSync(
+        path.join(dir, encodeURIComponent(owner), "MEMORY.md"),
+        text,
+      );
+    }
+    const prompt = await startSession("a@example.test", dir);
+    expect(prompt()).toContain("ALICE-SECRET");
+    writeFileSync(path.join(dir, "owner-file"), "b@example.test");
+    expect(prompt()).toContain("BOB-SECRET");
+    expect(prompt()).not.toContain("ALICE-SECRET");
   });
 });

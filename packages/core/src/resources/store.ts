@@ -48,6 +48,7 @@ import {
   deleteSharedPersonalMemory,
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
+  readSharedMemoryTombstone,
   readSharedPersonalMemory,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
@@ -1994,6 +1995,11 @@ export async function resourceGet(
   if (isLocalWorkspaceResourceId(id)) {
     return localWorkspaceResourceById(id);
   }
+  const mirrored = parseSharedMemoryId(id);
+  if (mirrored) {
+    if (!isRequestingOwner(mirrored.owner, options)) return null;
+    return resourceGetByPath(mirrored.owner, mirrored.path, options);
+  }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
   const { rows } = await client.execute({
@@ -2013,6 +2019,77 @@ export async function resourceGet(
   }
   const [visible] = await filterLegacyDispatchWorkspaceRows([resource], orgId);
   return visible ?? null;
+}
+
+async function adoptSharedMemory(
+  owner: string,
+  path: string,
+  shared: { content: string; mtimeMs: number; size: number },
+  dbResource: Resource | undefined,
+): Promise<Resource | null> {
+  const client = getDbExec();
+  if (dbResource) {
+    await client.execute({
+      sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE id = ? AND content = ? AND updated_at = ?`,
+      args: [
+        shared.content,
+        shared.size,
+        shared.mtimeMs,
+        dbResource.id,
+        dbResource.content,
+        dbResource.updatedAt,
+      ],
+    });
+  } else {
+    await client.execute({
+      sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`,
+      args: [
+        crypto.randomUUID(),
+        path,
+        owner,
+        shared.content,
+        "text/markdown",
+        shared.size,
+        shared.mtimeMs,
+        shared.mtimeMs,
+      ],
+    });
+  }
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  return rows[0] ? rowToResource(rows[0]) : null;
+}
+
+async function deleteMirroredRow(resource: Resource): Promise<void> {
+  const result = await getDbExec().execute({
+    sql: `DELETE FROM resources WHERE id = ? AND updated_at = ?`,
+    args: [resource.id, resource.updatedAt],
+  });
+  if (result.rowsAffected === 1) {
+    emitResourceDelete(resource.id, resource.path, resource.owner);
+  }
+}
+
+const SHARED_MEMORY_ID_PREFIX = "shared-memory:";
+
+function parseSharedMemoryId(
+  id: string,
+): { owner: string; path: string } | null {
+  if (!id.startsWith(SHARED_MEMORY_ID_PREFIX)) return null;
+  const rest = id.slice(SHARED_MEMORY_ID_PREFIX.length);
+  const split = rest.indexOf(":memory/");
+  if (split < 0) return null;
+  return { owner: rest.slice(0, split), path: rest.slice(split + 1) };
+}
+
+function isRequestingOwner(
+  owner: string,
+  options?: ResourceResolutionOptions,
+): boolean {
+  const email = options?.userEmail ?? getRequestUserEmail() ?? null;
+  return email !== null && email.toLowerCase() === owner.toLowerCase();
 }
 
 export async function resourceGetByPath(
@@ -2058,8 +2135,18 @@ export async function resourceGetByPath(
   if (!workspace || isBareWorkspaceResourceOwner(owners[0])) {
     if (!workspace && isPersonalMemoryResourcePath(owner, path)) {
       const shared = await readSharedPersonalMemory(owner, path);
+      const dbResource = resources.at(0);
+      const deletedAt = await readSharedMemoryTombstone(owner, path);
+      if (
+        deletedAt !== null &&
+        dbResource &&
+        dbResource.updatedAt <= deletedAt &&
+        (!shared || shared.mtimeMs <= deletedAt)
+      ) {
+        await deleteMirroredRow(dbResource);
+        return null;
+      }
       if (shared) {
-        const dbResource = resources.at(0);
         const dbIsEmptyIndex =
           path === "memory/MEMORY.md" &&
           dbResource?.content.trim() === "# Memory Index" &&
@@ -2069,7 +2156,7 @@ export async function resourceGetByPath(
           shared.mtimeMs > dbResource.updatedAt ||
           dbIsEmptyIndex
         ) {
-          return resourcePut(owner, path, shared.content, "text/markdown");
+          return adoptSharedMemory(owner, path, shared, dbResource);
         }
       }
     }
@@ -3100,6 +3187,12 @@ export async function resourceDelete(id: string): Promise<boolean> {
     return deleted;
   }
 
+  const mirrored = parseSharedMemoryId(id);
+  if (mirrored) {
+    if (!isRequestingOwner(mirrored.owner)) return false;
+    return resourceDeleteByPath(mirrored.owner, mirrored.path);
+  }
+
   const write = await resourceDeleteWithDb(getDbExec(), id);
   await write.notifyAfterCommit();
   return write.value;
@@ -3232,6 +3325,16 @@ export async function resourceList(
       pathPrefix.startsWith("memory/")
     ) {
       const sharedMemories = await listSharedPersonalMemories(owner);
+      const live: ResourceMeta[] = [];
+      for (const candidate of resources) {
+        const deletedAt = isPersonalMemoryResourcePath(owner, candidate.path)
+          ? await readSharedMemoryTombstone(owner, candidate.path)
+          : null;
+        if (deletedAt === null || candidate.updatedAt > deletedAt) {
+          live.push(candidate);
+        }
+      }
+      resources.splice(0, resources.length, ...live);
       if (sharedMemories.length > 0) {
         const sharedMetas: ResourceMeta[] = sharedMemories
           .filter((item) => !pathPrefix || item.path.startsWith(pathPrefix))

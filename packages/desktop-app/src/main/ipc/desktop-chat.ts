@@ -365,7 +365,9 @@ export default function (pi) {
       const fs = require("node:fs");
       const path = require("node:path");
       if (!fs.existsSync(rootDir)) return "";
-      const owner = (process.env.AGENT_NATIVE_MEMORY_OWNER || "").trim().toLowerCase();
+      const ownerFile = process.env.AGENT_NATIVE_MEMORY_OWNER_FILE;
+      if (!ownerFile || !fs.existsSync(ownerFile)) return "";
+      const owner = fs.readFileSync(ownerFile, "utf8").trim().toLowerCase();
       if (!owner) return "";
       const sections = [];
       const indexPath = path.join(rootDir, encodeURIComponent(owner), "MEMORY.md");
@@ -1002,6 +1004,7 @@ async function createDesktopTerminalSession(
       });
     }
     if (command === "codex") codexHome = createCodexTerminalHome();
+    syncMemoryOwnerFile(builderRelaySession?.account ?? null);
     return {
       commandArgs: desktopTerminalMcpArgs(
         command,
@@ -1012,9 +1015,7 @@ async function createDesktopTerminalSession(
       ),
       environment: {
         AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
-        ...(builderRelaySession
-          ? { AGENT_NATIVE_MEMORY_OWNER: builderRelaySession.account }
-          : {}),
+        AGENT_NATIVE_MEMORY_OWNER_FILE: memoryOwnerFilePath(),
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
@@ -1763,6 +1764,25 @@ async function compareDispatchSession(
 // Hands the current bearer to a session only when it is the session the bearer
 // already serves; any other session first rotates it, so earlier runners are
 // refused rather than carried over.
+export function memoryOwnerFilePath(): string {
+  return path.join(app.getPath("userData"), "memory-owner");
+}
+
+function syncMemoryOwnerFile(account: string | null): void {
+  const file = memoryOwnerFilePath();
+  try {
+    if (account) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, account, { mode: 0o600 });
+    } else {
+      fs.rmSync(file, { force: true });
+    }
+  } catch (error) {
+    console.error("[desktop-chat] Could not update the memory owner:", error);
+    fs.rmSync(file, { force: true });
+  }
+}
+
 function bindBuilderRelaySession(next: BuilderRelaySession): void {
   const current = builderRelaySession;
   if (
@@ -1773,6 +1793,7 @@ function bindBuilderRelaySession(next: BuilderRelaySession): void {
     rotateDesktopBuilderRelayBearer();
   }
   builderRelaySession = next;
+  syncMemoryOwnerFile(next.account);
 }
 
 const SETUP_SESSION_REFUSALS: Record<
@@ -1887,6 +1908,7 @@ export async function getDesktopBuilderGatewayRunnerEnvironment(): Promise<{
 export function rotateDesktopBuilderRelayBearer(): void {
   builderRelayBearer = randomBytes(32).toString("base64url");
   builderRelaySession = null;
+  syncMemoryOwnerFile(null);
 }
 
 // Only a real account replacing a different real account rotates the bearer.

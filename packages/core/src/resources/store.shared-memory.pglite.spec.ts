@@ -14,6 +14,7 @@ import {
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
+import type { Resource } from "./store.js";
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => sharedClient,
@@ -257,5 +258,95 @@ describe("personal memory shared across local apps", () => {
 
     expect(read?.content).toBe("newer from another app");
     expect(row?.content).toBe(read?.content);
+  });
+
+  it("does not write or emit events when a read adopts a newer file", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const { getResourcesEmitter } = await import("./emitter.js");
+    const stored = await resourcePut(OWNER, "memory/quiet.md", "old");
+    const file = sharedFile(dir, "quiet.md");
+    fs.writeFileSync(file, "from file");
+    const future = new Date(stored.updatedAt + 60_000);
+    fs.utimesSync(file, future, future);
+    const events: unknown[] = [];
+    const onEvent = (event: unknown) => events.push(event);
+    getResourcesEmitter().on("resources", onEvent);
+
+    const read = await resourceGetByPath(OWNER, "memory/quiet.md");
+    getResourcesEmitter().off("resources", onEvent);
+
+    expect(read?.content).toBe("from file");
+    expect(read?.updatedAt).toBe(future.getTime());
+    expect(events).toEqual([]);
+    expect(fs.statSync(file).mtimeMs).toBe(future.getTime());
+  });
+
+  it("does not overwrite a SQL write that lands after the row was read", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const stored = await resourcePut(OWNER, "memory/race.md", "old");
+    const file = sharedFile(dir, "race.md");
+    fs.writeFileSync(file, "from file");
+    const future = new Date(stored.updatedAt + 60_000);
+    fs.utimesSync(file, future, future);
+    await pglite.exec(
+      `UPDATE resources SET content = 'newer sql', updated_at = ${stored.updatedAt + 1} WHERE id = '${stored.id}'`,
+    );
+    const read = await resourceGetByPath(OWNER, "memory/race.md");
+    expect(read?.content).toBe("from file");
+    await resourcePut(OWNER, "memory/race.md", "latest sql");
+    const { rows } = await pglite.query(
+      `SELECT content FROM resources WHERE id = '${stored.id}'`,
+    );
+    expect(rows[0]).toMatchObject({ content: "latest sql" });
+  });
+
+  it("honours a delete made through another app's store", async () => {
+    useMemoryDir();
+    const { resourceGetByPath, resourceList, resourcePut } =
+      await import("./store.js");
+    const { deleteSharedPersonalMemory } = await import("./shared-memory.js");
+    await resourcePut(OWNER, "memory/gone.md", "mirrored row");
+    await pglite.exec(
+      `UPDATE resources SET updated_at = updated_at - 1000 WHERE owner = '${OWNER}'`,
+    );
+
+    await deleteSharedPersonalMemory(OWNER, "memory/gone.md");
+
+    expect(await resourceList(OWNER, "memory/")).toEqual([]);
+    await expect(
+      resourceGetByPath(OWNER, "memory/gone.md"),
+    ).resolves.toBeNull();
+    const { rows } = await pglite.query(
+      `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/gone.md'`,
+    );
+    expect(rows).toEqual([]);
+    await resourcePut(OWNER, "memory/gone.md", "written again");
+    await expect(
+      resourceGetByPath(OWNER, "memory/gone.md"),
+    ).resolves.toMatchObject({ content: "written again" });
+  });
+
+  it("fetches and deletes a listed file-only memory by its id", async () => {
+    const dir = useMemoryDir();
+    const file = writeSharedFile(dir, "listed.md", "listed only as a file");
+    const { resourceDeleteIfCurrent, resourceGet, resourceList } =
+      await import("./store.js");
+    const listed = await resourceList(OWNER, "memory/");
+    const id = `shared-memory:${OWNER}:memory/listed.md`;
+    expect(listed.map((item) => item.id)).toEqual([id]);
+
+    await expect(resourceGet(id)).resolves.toBeNull();
+    await expect(
+      resourceGet(id, { userEmail: "mallory@example.test" }),
+    ).resolves.toBeNull();
+    const fetched = await resourceGet(id, { userEmail: OWNER });
+    expect(fetched?.content).toBe("listed only as a file");
+    expect(fetched).not.toBeNull();
+    await expect(resourceDeleteIfCurrent(fetched as Resource)).resolves.toBe(
+      true,
+    );
+    expect(fs.existsSync(file)).toBe(false);
   });
 });
