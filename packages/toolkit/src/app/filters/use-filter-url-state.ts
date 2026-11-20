@@ -44,7 +44,10 @@ export function useFilterUrlState({
   const stateKey = filterStateKey(state, fields);
 
   useEffect(() => {
-    const echo = pending.current.indexOf(urlKey);
+    const echo =
+      pending.current.at(-1) === urlKey
+        ? pending.current.length - 1
+        : pending.current.indexOf(urlKey);
     if (echo !== -1) {
       pending.current = pending.current.slice(echo + 1);
       return;
