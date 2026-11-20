@@ -213,12 +213,22 @@ async function intelligenceRevision(row: KnowledgeRow, detail: DetailRow) {
 
 function verificationFor(row: VerificationRow | null, revision: string) {
   if (!row || row.knowledgeRevision !== revision) {
-    return { state: "unverified" as const, verifiedBy: null, verifiedAt: null };
+    return {
+      state: "unverified" as const,
+      verifiedBy: null,
+      verifiedAt: null,
+      remindAt: null,
+    };
   }
   const state = z
     .enum(["verified", "deprecated", "unverified"])
     .parse(row.state);
-  return { state, verifiedBy: row.actorEmail, verifiedAt: row.actedAt };
+  return {
+    state,
+    verifiedBy: row.actorEmail,
+    verifiedAt: row.actedAt,
+    remindAt: state === "verified" ? (row.remindAt ?? null) : null,
+  };
 }
 
 async function itemFromRows(
@@ -703,6 +713,7 @@ export async function verifyKnowledge(input: {
   state: "verified" | "deprecated" | "unverified";
   attested: true;
   expectedRevision: string;
+  remindInDays?: number | undefined;
 }) {
   requireEmail();
   return getDb().transaction(async () => verifyKnowledgeLocked(input));
@@ -713,6 +724,7 @@ async function verifyKnowledgeLocked(input: {
   state: "verified" | "deprecated" | "unverified";
   attested: true;
   expectedRevision: string;
+  remindInDays?: number | undefined;
 }) {
   const actorEmail = requireEmail();
   await getDb()
@@ -754,12 +766,20 @@ async function verifyKnowledgeLocked(input: {
       "The knowledge changed. Review its current content before verifying.",
       { errorCode: "save_conflict", statusCode: 409 },
     );
+  const actedAt = nowIso();
+  const remindAt =
+    input.state === "verified" && input.remindInDays
+      ? new Date(
+          Date.parse(actedAt) + input.remindInDays * 86_400_000,
+        ).toISOString()
+      : null;
   const verification = {
     knowledgeId: row.id,
     knowledgeRevision: revision,
     state: input.state,
     actorEmail,
-    actedAt: nowIso(),
+    actedAt,
+    remindAt,
   };
   await getDb()
     .insert(schema.brainKnowledgeVerifications)

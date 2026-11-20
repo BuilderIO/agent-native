@@ -1147,4 +1147,33 @@ describe("evidence-backed intelligence", () => {
       expect(await lookupKnowledgeReferences("Atlas")).toEqual([]);
     },
   );
+  it("persists a verification reminder interval and clears it when status is cleared", async () => {
+    const { item } = await writeIntelligence(input());
+    const verified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+      remindInDays: 90,
+    });
+    expect(verified.verification.state).toBe("verified");
+    const { remindAt, verifiedAt } = verified.verification;
+    expect(remindAt).toBeTruthy();
+    expect(verifiedAt).toBeTruthy();
+    if (!remindAt || !verifiedAt)
+      throw new Error("Expected remindAt and verifiedAt timestamps");
+    const deltaDays = Math.round(
+      (Date.parse(remindAt) - Date.parse(verifiedAt)) / 86_400_000,
+    );
+    expect(deltaDays).toBe(90);
+
+    const cleared = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "unverified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(cleared.verification.state).toBe("unverified");
+    expect(cleared.verification.remindAt).toBeNull();
+  });
 });
