@@ -1107,15 +1107,17 @@ async function authorizeApproval(
     return { status: "authorized" };
   }
   const requestEmail = getRequestUserEmail();
-  const mustApprove =
-    pageApprovalOnly ||
-    (await preparedCallNeedsApproval(entry, prepared, {
+  const mustApprove = await preparedCallNeedsApproval(
+    pageApprovalOnly ? { ...entry, needsApproval: true } : entry,
+    prepared,
+    {
       ...(requestEmail ? { userEmail: requestEmail } : {}),
       orgId: getRequestOrgId() ?? null,
       ...(context.appId ? { appId: context.appId } : {}),
       caller: "mcp",
       actionName: name,
-    }));
+    },
+  );
   if (!mustApprove) return { status: "authorized" };
 
   if (!hasVerifiedUserIdentity) {
