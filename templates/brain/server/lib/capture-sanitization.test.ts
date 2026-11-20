@@ -474,6 +474,31 @@ describe("capture sanitization", () => {
     });
   });
 
+  it("does not use the Granola outage fallback when the source title points to the original", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      source: {
+        ...baseInput.source,
+        provider: "granola",
+        title: "https://example.test/full",
+      },
+      sourceConfig: { sanitizeBeforeStorage: true },
+      settings: {
+        ...DEFAULT_BRAIN_SETTINGS,
+        privacyClassifierModel: "classifier-model",
+        privacyClassifierEngine: "classifier-engine",
+      },
+      content: [
+        "Summary",
+        "- Decision: position Agent-Native around enterprise workflow applications.",
+        "Transcript",
+        "[Speaker 1] This raw transcript detail is not retained by the outage fallback.",
+      ].join("\n"),
+    });
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(result.content).not.toContain("position Agent-Native");
+  });
+
   it("does not use the Granola summary fallback after a passage was withheld", async () => {
     const result = await sanitizeCaptureForStorage({
       ...baseInput,
@@ -979,6 +1004,138 @@ describe("Zoom restricted-line withholding", () => {
       expect(result.content).not.toContain("Roadmap");
       expect(result.metadata.passageQuarantine).toBeUndefined();
       expect(result.metadata.zoomPassageQuarantine).toBeUndefined();
+    },
+  );
+
+  it.each([
+    { id: "https://example.test/full", title: "Planning" },
+    { id: "source-1", title: "https://example.test/full" },
+    { id: "source-1", title: "Recording: www.example.test/full" },
+    { id: "source-1", title: "example.test" },
+  ])(
+    "does not create a partial capture when its source identity exposes a locator ($id, $title)",
+    async ({ id, title }) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+          source: { ...baseInput.source, provider: "manual", id, title },
+        }),
+      );
+      expect(result.decision?.disposition).not.toBe("allowed");
+      expect(result.metadata.passageQuarantine).toBeUndefined();
+      expect(result.content).not.toContain("Roadmap");
+    },
+  );
+
+  it("removes an original locator from the title of a partial capture", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+        source: { ...baseInput.source, provider: "manual" },
+        title: "example.test/original",
+        sourceConfig: { sanitizeBeforeStorage: false },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.title).not.toContain("example.test");
+    expect(result.metadata.passageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
+  });
+
+  it.each(["transcript", "document"] as const)(
+    "still screens a complete %s normally under a URL source identity",
+    async (kind) => {
+      mocks.classifyWithJev.mockImplementation(judge(() => false));
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(turns), {
+          kind,
+          source: {
+            ...baseInput.source,
+            provider: "manual",
+            title: "https://example.test/full",
+          },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).toContain("update 30 -");
+      expect(result.metadata.passageQuarantine).toBeUndefined();
+    },
+  );
+
+  it("does not rewrite an existing partial transcript under an unsafe source identity", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(() => false));
+    await expect(
+      sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(4, "[…]")), {
+          source: {
+            ...baseInput.source,
+            provider: "manual",
+            title: "https://example.test/full",
+          },
+          metadata: { passageQuarantine: { version: 1, withheldPassages: 1 } },
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it.each([
+    {
+      pageSize: "6",
+      limit: " 8 ",
+      pagesPerSync: "2",
+      pageBudget: "1",
+      noteCaptureConcurrency: "2",
+      captureConcurrency: "3",
+    },
+    {
+      granola: {
+        pageSize: "6",
+        limit: " 8 ",
+        pagesPerSync: "2",
+        pageBudget: "1",
+        noteCaptureConcurrency: "2",
+        captureConcurrency: "3",
+      },
+    },
+  ])(
+    "withholds Granola passages with connector-supported numeric strings %#",
+    async (sourceConfig) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+          source: { ...baseInput.source, provider: "granola" },
+          sourceConfig,
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).not.toContain("MEDICAL_LEAVE");
+      expect(result.metadata.passageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: 1,
+      });
+    },
+  );
+
+  it.each(["https://example.test/full", "NaN", "Infinity"])(
+    "rejects non-numeric Granola options as unsafe for partial storage (%s)",
+    async (pageSize) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+          source: { ...baseInput.source, provider: "granola" },
+          sourceConfig: { granola: { pageSize } },
+        }),
+      );
+      expect(result.decision?.disposition).not.toBe("allowed");
+      expect(result.metadata.passageQuarantine).toBeUndefined();
     },
   );
 

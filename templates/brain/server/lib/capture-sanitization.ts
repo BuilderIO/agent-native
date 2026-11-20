@@ -262,6 +262,7 @@ function deterministicMeetingOutageFallback(
     decision.disposition !== "allowed" ||
     input.kind !== "transcript" ||
     !["granola", "clips"].includes(input.source.provider) ||
+    !safeSourceIdentity(input.source) ||
     !safeSourceConfig.safeParse(input.sourceConfig ?? {}).success ||
     input.content.includes(WITHHELD_MARKER) ||
     !shouldSanitizeCaptureBeforeStorage(input) ||
@@ -602,13 +603,17 @@ const safeIdentifier = z
   .min(1)
   .max(255)
   .regex(/^[\w.@+-]+$/);
+const safeConfiguredNumber = z.union([
+  z.number().finite(),
+  z.string().refine((value) => Number.isFinite(Number(value))),
+]);
 const safePageOptions = {
-  pageSize: z.number().optional(),
-  limit: z.number().optional(),
-  pagesPerSync: z.number().optional(),
-  pageBudget: z.number().optional(),
-  noteCaptureConcurrency: z.number().optional(),
-  captureConcurrency: z.number().optional(),
+  pageSize: safeConfiguredNumber.optional(),
+  limit: safeConfiguredNumber.optional(),
+  pagesPerSync: safeConfiguredNumber.optional(),
+  pageBudget: safeConfiguredNumber.optional(),
+  noteCaptureConcurrency: safeConfiguredNumber.optional(),
+  captureConcurrency: safeConfiguredNumber.optional(),
   updatedAfter: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}(?:T[\d:.+Z-]+)?$/)
@@ -657,6 +662,21 @@ const safeSourceConfig = z.strictObject({
   granola: z.strictObject(safePageOptions).optional(),
   ...safePageOptions,
 });
+
+const SOURCE_LOCATOR =
+  /[\\/\\\\\r\n]|%[\da-f]{2}|\b(?:https?|ftp|file|data|mailto):|\b(?:[a-z\d-]+\.)+(?:[a-z]{2,}|\d{1,3})\b/i;
+
+function safeSourceIdentity(
+  source: CaptureSanitizationInput["source"],
+): boolean {
+  return (
+    safeIdentifier.safeParse(source.id).success &&
+    source.title.length > 0 &&
+    source.title.length <= 255 &&
+    !SOURCE_LOCATOR.test(source.id) &&
+    !SOURCE_LOCATOR.test(source.title)
+  );
+}
 
 /**
  * Finds restricted transcript lines so one sensitive remark does not
@@ -806,17 +826,6 @@ async function withholdRestrictedTranscriptLines(
 export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
-  const screened =
-    input.kind === "transcript" &&
-    ["manual", "zoom", "granola"].includes(input.source.provider) &&
-    safeSourceConfig.safeParse(input.sourceConfig ?? {}).success
-      ? await withholdRestrictedTranscriptLines(input)
-      : undefined;
-  const result = await sanitizeWholeCapture(
-    screened ? { ...input, content: screened.content } : input,
-    screened?.jev,
-  );
-  const withheldNow = screened?.withheldPassages ?? 0;
   const prior =
     input.kind === "transcript" && input.metadata
       ? readWithheldPassages(input.metadata)
@@ -826,6 +835,28 @@ export async function sanitizeCaptureForStorage(
     input.content
       .split(/\r?\n/)
       .some((line) => line.trim() === WITHHELD_MARKER);
+  const safeIdentity = safeSourceIdentity(input.source);
+  if (
+    input.kind === "transcript" &&
+    !safeIdentity &&
+    (prior !== undefined || hadGap)
+  ) {
+    throw new Error(
+      "Cannot safely process an incomplete transcript while its source identity may expose the original.",
+    );
+  }
+  const screened =
+    input.kind === "transcript" &&
+    ["manual", "zoom", "granola"].includes(input.source.provider) &&
+    safeIdentity &&
+    safeSourceConfig.safeParse(input.sourceConfig ?? {}).success
+      ? await withholdRestrictedTranscriptLines(input)
+      : undefined;
+  const result = await sanitizeWholeCapture(
+    screened ? { ...input, content: screened.content } : input,
+    screened?.jev,
+  );
+  const withheldNow = screened?.withheldPassages ?? 0;
   if (
     result.decision?.disposition !== "allowed" ||
     (!withheldNow && prior === undefined && !hadGap)
@@ -852,7 +883,13 @@ export async function sanitizeCaptureForStorage(
       ? "zoomPassageQuarantine"
       : "passageQuarantine"]: { version: 1, withheldPassages },
   };
-  return { ...result, metadata };
+  return {
+    ...result,
+    title: SOURCE_LOCATOR.test(result.title)
+      ? "Transcript excerpt"
+      : result.title,
+    metadata,
+  };
 }
 
 async function sanitizeWholeCapture(

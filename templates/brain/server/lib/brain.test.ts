@@ -1435,6 +1435,29 @@ describe("Brain knowledge quality gates", () => {
     expect(stored.externalId).toBe(externalId);
   });
 
+  it.each([
+    { id: "https://example.test/original", title: "Planning" },
+    { id: "source-1", title: "https://example.test/original" },
+  ])(
+    "blocks a restricted transcript without changing an unsafe source identity %#",
+    async (identity) => {
+      const source = seedSource(identity);
+      const before = { ...source };
+      await expect(
+        createCapture({
+          sourceId: identity.id,
+          title: "Planning",
+          kind: "transcript",
+          privacyClassifier: "deterministic",
+          content:
+            "Roadmap launch is ready.\nHer salary increase is approved.\nThe customer launch is Friday.",
+        }),
+      ).rejects.toBeInstanceOf(BrainCaptureBlockedError);
+      expect(mocks.rows.captures).toHaveLength(0);
+      expect(source).toEqual(before);
+    },
+  );
+
   it("deduplicates partial transcripts using the internal external ID", async () => {
     seedSource();
     const input = {
