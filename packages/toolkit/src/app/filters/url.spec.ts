@@ -208,6 +208,55 @@ describe("filter URL params", () => {
     expect(shape(read.items)).toEqual(shape(state.items));
   });
 
+  it("round-trips ids that look like the URL's own syntax", () => {
+    const sources: FilterField = {
+      ...sourceField,
+      options: [
+        { id: "clips", label: "Recorded in Clips" },
+        { id: "all", label: "All-hands" },
+        { id: "external,import", label: "Imported" },
+      ],
+    };
+    const nested: FilterField = {
+      id: "meta/title:en",
+      label: "Title",
+      type: "text",
+    };
+    const local = [sources, nested];
+    const read = (state: FilterState) =>
+      readFilterParams(writeFilterSearch("", state, local), local);
+    expect(
+      read(setPinnedFilter(createFilterState(local), "source", ["all"])).pinned
+        .source,
+    ).toEqual(["all"]);
+    expect(
+      read(
+        setPinnedFilter(createFilterState(local), "source", [
+          "external,import",
+        ]),
+      ).pinned.source,
+    ).toEqual(["external,import"]);
+    const state = addFilterRule(
+      createFilterState(local),
+      createFilterRule(nested, ["a"]),
+    );
+    expect(shape(read(state).items)).toEqual(shape(state.items));
+  });
+
+  it("drops missing options, impossible dates and unknown group modes", () => {
+    const people: FilterField = {
+      ...ownerField,
+      options: [{ id: "alice", label: "Alice" }],
+    };
+    const read = readFilterParams(
+      "?r=owner:equals:deleted&r=owner:equals:alice,deleted&r=created:equals:2026-02-30&g=1:typo&r=1/tags:contains:a",
+      [people, tagsField, createdField],
+    );
+    expect(shape(read.items)).toEqual([
+      { field: "owner", operator: "equals", value: ["alice"] },
+    ]);
+  });
+
   it("gives equal states the same key", () => {
     const state = addFilterRule(
       createFilterState(fields),

@@ -199,7 +199,12 @@ function GroupChip({
   onChange,
   counts,
   text,
-}: FilterControlProps & { group: FilterGroup; text: FilterText }) {
+  onOpenChange,
+}: FilterControlProps & {
+  group: FilterGroup;
+  text: FilterText;
+  onOpenChange: (open: boolean) => void;
+}) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const labels = completeFilterRules(group, fields).flatMap((rule) => {
@@ -216,6 +221,7 @@ function GroupChip({
       <Popover
         modal={false}
         onOpenChange={(next) => {
+          onOpenChange(next);
           if (!next) onChange(pruneFilterState(stateRef.current, fields));
         }}
       >
@@ -231,7 +237,7 @@ function GroupChip({
         <PopoverContent
           align="start"
           collisionPadding={8}
-          className="w-[min(32rem,calc(100vw-1rem))] p-2"
+          className="max-h-[var(--radix-popover-content-available-height)] w-[min(32rem,calc(100vw-1rem))] overflow-y-auto p-2"
         >
           <FilterGroupBlock
             group={group}
@@ -318,9 +324,10 @@ export function FilterBar({
   const shownCounts = useHeldWhilePressed(counts);
   const pinnedFields = fields.filter((field) => field.pinned);
   const canClear = clearable === true || !isDefaultFilterState(state, fields);
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const items = state.items.filter((item) =>
     item.kind === "group"
-      ? completeFilterRules(item, fields).length > 0
+      ? item.id === openGroupId || completeFilterRules(item, fields).length > 0
       : findFilterField(fields, item.field) !== undefined,
   );
   return (
@@ -357,6 +364,7 @@ export function FilterBar({
               onChange={onChange}
               counts={shownCounts}
               text={text}
+              onOpenChange={(open) => setOpenGroupId(open ? item.id : null)}
             />
           ) : (
             <RuleChipFor

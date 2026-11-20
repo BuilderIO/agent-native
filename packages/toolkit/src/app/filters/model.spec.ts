@@ -568,12 +568,34 @@ describe("dates", () => {
     expect(resolveFilterDay("tomorrow", "2026-12-31")).toBe("2027-01-01");
     expect(resolveFilterDay("2026-11-02", today)).toBe("2026-11-02");
     expect(resolveFilterDay("11/02/2026", today)).toBeNull();
+    expect(resolveFilterDay("2026-02-30", today)).toBeNull();
+  });
+
+  it("reads a timestamp without an offset as UTC", () => {
+    const atField: FilterField<{ at: string }> = {
+      id: "at",
+      label: "At",
+      type: "date",
+      get: (row) => row.at,
+    };
+    const state = addFilterRule(
+      createFilterState([atField]),
+      createFilterRule(atField, ["today"], "equals"),
+    );
+    const zone = { today, timeZone: "America/New_York" };
+    expect(
+      matchesFilter({ at: "2026-11-20T00:30:00" }, state, [atField], zone),
+    ).toBe(false);
+    expect(
+      matchesFilter({ at: "2026-11-20 12:00:00" }, state, [atField], zone),
+    ).toBe(true);
   });
 
   it("reads today in a time zone", () => {
     const now = new Date("2026-11-21T03:00:00Z");
     expect(filterToday("America/New_York", now)).toBe("2026-11-20");
     expect(filterToday("UTC", now)).toBe("2026-11-21");
+    expect(() => filterToday("Not/A_Zone", now)).toThrow(RangeError);
   });
 
   it("offers presets that fit the field", () => {

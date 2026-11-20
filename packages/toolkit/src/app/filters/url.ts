@@ -2,6 +2,7 @@ import {
   completeFilterRules,
   createFilterGroup,
   createFilterState,
+  FILTER_NOBODY,
   filterItemId,
   findFilterField,
   isFilterOperator,
@@ -21,6 +22,8 @@ export interface FilterParamOptions {
 }
 
 const ALL_PINNED = "all";
+
+const ALL_OPTION_ID = "%61ll";
 
 function paramNames(
   fields: readonly FilterField<never>[],
@@ -45,7 +48,30 @@ function paramNames(
 
 function encodeRule(rule: FilterRule) {
   const values = rule.value.map(encodeURIComponent).join(",");
-  return `${rule.field}:${rule.operator}${values ? `:${values}` : ""}`;
+  return `${encodeURIComponent(rule.field)}:${rule.operator}${
+    values ? `:${values}` : ""
+  }`;
+}
+
+function encodePinnedValue(value: readonly string[]) {
+  return value
+    .map((id) => (id === ALL_PINNED ? ALL_OPTION_ID : encodeURIComponent(id)))
+    .join(",");
+}
+
+function knownFilterValues(field: FilterField<never>, value: string[]) {
+  if (
+    (field.type !== "choice" &&
+      field.type !== "person" &&
+      field.type !== "multi") ||
+    !field.options ||
+    field.options.length === 0
+  ) {
+    return value;
+  }
+  const known = new Set(field.options.map((option) => option.id));
+  if (field.type === "person") known.add(FILTER_NOBODY);
+  return value.filter((entry) => known.has(entry));
 }
 
 function modeParam(mode: FilterMode) {
@@ -64,7 +90,9 @@ export function filterStateToParams(
     const value = pinnedFilterValue(state, field);
     params.push([
       names.pinned(field),
-      pinnedFilterCoversAll(value, field) ? ALL_PINNED : value.join(","),
+      pinnedFilterCoversAll(value, field)
+        ? ALL_PINNED
+        : encodePinnedValue(value),
     ]);
   }
   if (state.mode === "or") params.push([names.match, "any"]);
@@ -103,8 +131,9 @@ function decodeRule(
   const slash = raw.indexOf("/");
   const group = slash !== -1 && slash < colon ? raw.slice(0, slash) : null;
   const body = group === null ? raw : raw.slice(slash + 1);
-  const [fieldId = "", operator = "", ...rest] = body.split(":");
-  const field = findFilterField(fields, fieldId);
+  const [rawFieldId = "", operator = "", ...rest] = body.split(":");
+  const fieldId = decodeParamValue(rawFieldId);
+  const field = fieldId === null ? undefined : findFilterField(fields, fieldId);
   if (!field || !isFilterOperator(operator)) return null;
   const joined = rest.join(":");
   const value: string[] = [];
@@ -118,7 +147,7 @@ function decodeRule(
     id: filterItemId("r"),
     field: field.id,
     operator,
-    value,
+    value: knownFilterValues(field, value),
   };
   return isFilterRuleComplete(rule, field) ? { group, rule } : null;
 }
@@ -141,7 +170,11 @@ export function readFilterParams(
     const value =
       raw === ALL_PINNED
         ? [...known]
-        : raw.split(",").filter((entry) => known.has(entry));
+        : raw
+            .split(",")
+            .map(decodeParamValue)
+            .filter((entry): entry is string => entry !== null)
+            .filter((entry) => known.has(entry));
     if (value.length > 0) state.pinned[field.id] = value;
   }
   if (params.get(names.match) === "any") state.mode = "or";
@@ -149,6 +182,7 @@ export function readFilterParams(
     if (key === names.group) {
       const [number = "", mode = ""] = raw.split(":");
       if (!number || groups.has(number)) continue;
+      if (mode !== "all" && mode !== "any") continue;
       const group = createFilterGroup([], mode === "all" ? "and" : "or");
       groups.set(number, group);
       state.items.push(group);

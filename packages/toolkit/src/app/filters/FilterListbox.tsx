@@ -76,6 +76,7 @@ export function FilterListbox({
           placeholder={placeholder}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
             if (event.key === "ArrowDown") {
               event.preventDefault();
               move(1);

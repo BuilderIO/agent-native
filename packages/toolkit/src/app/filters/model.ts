@@ -493,10 +493,13 @@ export type FilterDateRange =
 const DATE_UNIT_PATTERN = FILTER_DATE_UNITS.join("|");
 
 const DATE_RANGE_TOKEN = new RegExp(
-  `^(?:(past|next)_([1-9]\\d{0,2})_(${DATE_UNIT_PATTERN})s?|this_(${DATE_UNIT_PATTERN}))$`,
+  `^(?:(past|next)_([1-9]\\d*)_(${DATE_UNIT_PATTERN})s?|this_(${DATE_UNIT_PATTERN}))$`,
 );
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const LOCAL_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
 
 const RELATIVE_DAY_OFFSETS: Record<FilterRelativeDay, number> = {
   yesterday: -1,
@@ -522,7 +525,8 @@ export function parseFilterDateRange(token: string): FilterDateRange | null {
   if (
     (direction === "past" || direction === "next") &&
     unit &&
-    isFilterDateUnit(unit)
+    isFilterDateUnit(unit) &&
+    Number(count) <= FILTER_DATE_RANGE_MAX_COUNT
   ) {
     return { direction, count: Number(count), unit };
   }
@@ -605,21 +609,12 @@ function dayFormatter(timeZone: string | undefined) {
   const key = timeZone ?? "";
   const cached = dayFormatters.get(key);
   if (cached) return cached;
-  let formatter: Intl.DateTimeFormat;
-  try {
-    formatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  } catch {
-    formatter = new Intl.DateTimeFormat("en-CA", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  }
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
   dayFormatters.set(key, formatter);
   return formatter;
 }
@@ -641,7 +636,11 @@ export function resolveFilterDay(value: string, today: string): string | null {
     return addDays(today, RELATIVE_DAY_OFFSETS[trimmed]);
   }
   if (!DAY_PATTERN.test(trimmed)) return null;
-  return Number.isNaN(dayDate(trimmed).getTime()) ? null : trimmed;
+  const date = dayDate(trimmed);
+  return !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === trimmed
+    ? trimmed
+    : null;
 }
 
 export interface FilterDatePreset {
@@ -701,7 +700,11 @@ function cellDay(value: FilterCellValue, timeZone: string | undefined) {
   const trimmed = value.trim();
   if (trimmed === "") return null;
   if (DAY_PATTERN.test(trimmed)) return trimmed;
-  const date = new Date(trimmed);
+  const date = new Date(
+    LOCAL_TIMESTAMP_PATTERN.test(trimmed)
+      ? `${trimmed.replace(" ", "T")}Z`
+      : trimmed,
+  );
   return Number.isNaN(date.getTime()) ? null : dayOfDate(date, timeZone);
 }
 

@@ -59,14 +59,16 @@ export function filterViewNameError(
   views: readonly FilterSavedView[],
   exceptId?: string,
 ): "required" | "taken" | null {
-  const trimmed = name.trim();
-  if (trimmed === "") return "required";
+  const key = viewNameKey(name);
+  if (key === "") return "required";
   const taken = views.some(
-    (view) =>
-      view.id !== exceptId &&
-      view.name.trim().toLocaleLowerCase() === trimmed.toLocaleLowerCase(),
+    (view) => view.id !== exceptId && viewNameKey(view.name) === key,
   );
   return taken ? "taken" : null;
+}
+
+function viewNameKey(name: string) {
+  return name.trim().normalize("NFC").toUpperCase().toLowerCase();
 }
 
 function ViewNameForm({

@@ -134,6 +134,14 @@ function buttonStartingWith(text: string) {
   return match;
 }
 
+function optionNamed(name: string) {
+  const match = Array.from(document.querySelectorAll('[role="option"]')).find(
+    (option) => option.textContent.includes(name),
+  );
+  if (!match) throw new Error(`No option named ${name}`);
+  return match;
+}
+
 function hasButtonNamed(name: string) {
   return Array.from(document.querySelectorAll("button")).some(
     (button) =>
@@ -238,14 +246,16 @@ describe("FilterValuePicker", () => {
 function Bar({
   initial,
   onClear,
+  barFields = fields,
 }: {
   initial: FilterState;
   onClear?: () => void;
+  barFields?: FilterField[];
 }) {
   const [state, setState] = useState(initial);
   return (
     <FilterBar
-      fields={fields}
+      fields={barFields}
       state={state}
       onChange={setState}
       onClear={onClear}
@@ -327,6 +337,42 @@ describe("FilterBar", () => {
     expect(texts('[role="option"]')).toEqual(["Made by: Alice"]);
     pressEnter(combobox());
     expect(hasButtonNamed("Made by: Alice")).toBe(true);
+  });
+
+  it("adds a yes-or-no rule only once a value is picked", () => {
+    const starredField: FilterField = {
+      id: "starred",
+      label: "Starred",
+      type: "boolean",
+    };
+    const withStarred = [...fields, starredField];
+    render(
+      <Bar initial={createFilterState(withStarred)} barFields={withStarred} />,
+    );
+    click(buttonNamed("Filter"));
+    click(optionNamed("Starred"));
+    click(buttonNamed("Filter"));
+    expect(hasButtonNamed("Starred: Yes")).toBe(false);
+    click(buttonNamed("Filter"));
+    click(optionNamed("Starred"));
+    click(optionNamed("Yes"));
+    expect(hasButtonNamed("Starred: Yes")).toBe(true);
+  });
+
+  it("keeps a group open while its last rule is being changed", () => {
+    render(
+      <Bar
+        initial={addFilterGroup(
+          createFilterState(fields),
+          createFilterGroup([createFilterRule(ownerField, ["alice"])]),
+        )}
+      />,
+    );
+    click(buttonNamed("(Made by: Alice)"));
+    click(buttonNamed("Alice"));
+    click(optionNamed("Alice"));
+    expect(hasButtonNamed("Remove rule")).toBe(true);
+    expect(hasButtonNamed("Choose a value")).toBe(true);
   });
 });
 
@@ -430,6 +476,11 @@ describe("filterViewNameError", () => {
     expect(filterViewNameError(" MY DEMOS ", views)).toBe("taken");
     expect(filterViewNameError("My demos", views, "mine")).toBeNull();
     expect(filterViewNameError("Fresh", views)).toBeNull();
+    expect(
+      filterViewNameError("οσ", [
+        { id: "greek", name: "ΟΣ", shared: false, mine: true },
+      ]),
+    ).toBe("taken");
   });
 });
 

@@ -34,6 +34,7 @@ import {
   findFilterRule,
   isFilterRuleComplete,
   patchFilterRule,
+  pinnedFilterCoversAll,
   pinnedFilterValue,
   removeFilterItem,
   setFilterMode,
@@ -61,7 +62,7 @@ export interface FilterControlProps {
 }
 
 export const FILTER_POPOVER_CLASS =
-  "w-[min(20rem,calc(100vw-1rem))] overflow-hidden p-0";
+  "max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto overflow-x-hidden p-0";
 
 export function FilterModeSwitch({
   mode,
@@ -166,12 +167,15 @@ export function FilterAddPopover({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterRule | null>(null);
   const draftRef = useRef<FilterRule | null>(null);
-  const updateDraft = (next: FilterRule | null) => {
+  const chosenRef = useRef(false);
+  const updateDraft = (next: FilterRule | null, chosen = false) => {
     draftRef.current = next;
+    chosenRef.current = chosen;
     setDraft(next);
   };
-  const finish = (rule: FilterRule | null) => {
+  const finish = (rule: FilterRule | null, chosen: boolean) => {
     if (
+      chosen &&
       rule &&
       isFilterRuleComplete(rule, findFilterField(fields, rule.field))
     ) {
@@ -187,7 +191,7 @@ export function FilterAddPopover({
       open={open}
       onOpenChange={(next) => {
         if (next) setOpen(true);
-        else finish(draftRef.current);
+        else finish(draftRef.current, chosenRef.current);
       }}
     >
       <PopoverTrigger asChild>{children}</PopoverTrigger>
@@ -228,9 +232,9 @@ export function FilterAddPopover({
               onChange={(patch) => {
                 const current = draftRef.current;
                 if (current)
-                  updateDraft(patchFilterRule(current, patch, fields));
+                  updateDraft(patchFilterRule(current, patch, fields), true);
               }}
-              onDone={() => finish(draftRef.current)}
+              onDone={() => finish(draftRef.current, chosenRef.current)}
             />
           </div>
         ) : (
@@ -241,6 +245,7 @@ export function FilterAddPopover({
             onPickValue={(field, candidate) =>
               finish(
                 createFilterRule(field, candidate.value, candidate.operator),
+                true,
               )
             }
           />
@@ -315,11 +320,7 @@ export function pinnedValueLabel(
   text: FilterText,
 ) {
   const value = pinnedFilterValue(state, field);
-  const options = field.options ?? [];
-  if (
-    field.pinned?.allLabel &&
-    options.every((option) => value.includes(option.id))
-  ) {
+  if (field.pinned?.allLabel && pinnedFilterCoversAll(value, field)) {
     return field.pinned.allLabel;
   }
   return text.optionList(field, value);
