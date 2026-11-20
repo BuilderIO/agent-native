@@ -388,7 +388,7 @@ describe("present-design-variants", () => {
       "must not be a direction board",
     );
     expect(guidedQuestions.submitMessage).toContain(
-      "On conflict, re-read the kept screen and retry without repeating cleanup",
+      "Do not repeat cleanup/read cycles",
     );
     expect(guidedQuestions.submitMessage).not.toContain("delete-file");
     expect(guidedQuestions.submitMessage).toContain(
@@ -399,10 +399,10 @@ describe("present-design-variants", () => {
     expect(firstOption?.value).toContain(
       "Delete each other variant screen at most once",
     );
-    expect(firstOption?.value).toContain("get-design-snapshot with designId");
+    expect(firstOption?.value).toContain("get-design-snapshot exactly once");
     expect(firstOption?.value).toContain("fileId file-a");
     expect(firstOption?.value).toContain("edit-design with fileId file-a");
-    expect(firstOption?.value).toContain("matchEntireFile: true");
+    expect(firstOption?.value).toContain('mode "replace-file"');
     expect(firstOption?.value).toContain(
       "replace the representative direction screen",
     );
@@ -412,7 +412,7 @@ describe("present-design-variants", () => {
     expect(firstOption?.value).toContain("not a direction board");
     expect(firstOption?.value).toContain("bounded single-file pass");
     expect(firstOption?.value).toContain(
-      "re-read the kept screen and retry without repeating deletion",
+      "do not repeat delete/snapshot cycles",
     );
     expect(firstOption?.value).toContain(
       "Do not call generate-design after this variant pick",
@@ -456,35 +456,23 @@ describe("present-design-variants", () => {
         }),
       ]),
     });
-    expect(result.fallbackInstructions).toContain(
-      "retry one full-file search-replace edit with matchEntireFile: true",
-    );
-    expect(result.nextRequiredAction).toContain(
-      "retry one full-file search-replace edit with matchEntireFile: true",
-    );
-    expect(firstOption?.value).toContain(
-      "retry one full-file search-replace edit with matchEntireFile: true",
-    );
-    expect(guidedQuestions.submitMessage).toContain(
-      "retry one full-file search-replace edit with matchEntireFile: true",
-    );
     expect(result.nextRequiredAction).toContain("get-design-snapshot");
     expect(result.nextRequiredAction).toContain(
       "delete each unchosen variant screen with delete-file at most once",
     );
     expect(result.nextRequiredAction).toContain(
-      "call get-design-snapshot with fileId",
+      "call get-design-snapshot exactly once",
     );
     expect(result.nextRequiredAction).toContain("fileId");
     expect(result.nextRequiredAction).toContain("edit-design");
-    expect(result.nextRequiredAction).toContain("matchEntireFile: true");
+    expect(result.nextRequiredAction).toContain('mode "replace-file"');
     expect(result.nextRequiredAction).toContain("complete but compact");
     expect(result.nextRequiredAction).toContain("primary workflow");
     expect(result.nextRequiredAction).toContain(
       "Do not leave a direction board",
     );
     expect(result.nextRequiredAction).toContain(
-      "re-read the kept screen and retry without repeating deletion",
+      "Do not repeat delete/snapshot cycles",
     );
     expect(result.nextRequiredAction).toContain(
       "Do not call generate-design after a variant pick",

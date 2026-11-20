@@ -171,26 +171,16 @@ function designEditConflictOptions() {
 export function applySearchReplaceEdits(
   content: string,
   edits: DesignEdit[],
-  matchEntireFile = false,
 ): ApplyEditsResult {
   let next = content;
   try {
-    if (matchEntireFile) {
-      const edit = edits[0];
-      if (edits.length !== 1 || !edit || edit.search !== content) {
-        throw new DesignEditSearchConflictError(
-          "Edit 1: search text was not found as the entire current file. Read the current file (get-design-snapshot) and retry with its complete content.",
-        );
-      }
-      return { content: edit.replace, applied: 1 };
-    }
     edits.forEach((edit, index) => {
       next = applyOneEditWithStableIdFallback(next, edit, index);
     });
   } catch (error) {
     if (!(error instanceof DesignEditSearchConflictError)) throw error;
     throw new NoWriteError(
-      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry all intended edits in the rejected batch in smaller sequential batches with enough context to uniquely identify each match. For a selected variant expansion, instead retry one full-file search-replace edit with matchEntireFile: true, using the reread file as search and the complete updated file as replace.`,
+      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry all intended edits in the rejected batch with enough context to uniquely identify each match. Use one pass or smaller sequential batches when appropriate.`,
       designEditConflictOptions(),
     );
   }
@@ -227,11 +217,10 @@ export default defineAction({
     "with `replacementContent`: the complete updated file content copied from " +
     "the snapshot with only the requested copy changed. After a variant pick " +
     "or any other selected-screen follow-up, pass the exact `fileId` from " +
-    "`get-design-snapshot`. To expand the representative placeholder, use one " +
-    "full-file search-replace edit with `matchEntireFile: true`: set `search` to " +
-    "the complete snapshot file and `replace` to a complete but compact UI in the chosen " +
+    '`get-design-snapshot` and use `mode: "replace-file"` when replacing ' +
+    "the representative placeholder with a complete but compact UI in the chosen " +
     "direction; prioritize the primary workflow and render secondary details " +
-    "as visible controls, states, or affordances to avoid an oversized payload. For a style change " +
+    "as visible controls, states, or affordances when needed. For a style change " +
     "(colors, fonts, spacing, dark mode), call `index-design-tokens` first and reuse " +
     "the design's existing tokens so the edited screen matches its siblings; " +
     "introduce values the design does not already use only when asked. " +
@@ -255,25 +244,19 @@ export default defineAction({
         .enum(["search-replace", "replace-file"])
         .optional()
         .describe(
-          "Defaults to search-replace. Use matchEntireFile for selected variant expansion; replace-file is for broad copy-only edits after reading get-design-snapshot.",
+          "Defaults to search-replace. Use replace-file for selected variant expansion or broad copy-only edits after reading get-design-snapshot.",
         ),
       edits: editBlocksSchema
         .optional()
         .describe(
           "Search/replace blocks, applied in order. Use for small localized edits.",
         ),
-      matchEntireFile: z
-        .boolean()
-        .optional()
-        .describe(
-          "When true, requires exactly one search-replace block whose search equals the entire current file byte-for-byte. Rejects any difference, including whitespace and stable node ids.",
-        ),
       replacementContent: z
         .string()
         .min(1)
         .optional()
         .describe(
-          "Complete updated file content. Use only with mode=replace-file for broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot.",
+          "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
         ),
     })
     .superRefine((value, ctx) => {
@@ -282,17 +265,6 @@ export default defineAction({
         (value.replacementContent !== undefined
           ? "replace-file"
           : "search-replace");
-
-      if (
-        value.matchEntireFile &&
-        (mode !== "search-replace" || value.edits?.length !== 1)
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "matchEntireFile requires exactly one search-replace edit.",
-          path: ["matchEntireFile"],
-        });
-      }
 
       if (value.edits && value.replacementContent !== undefined) {
         ctx.addIssue({
@@ -334,15 +306,7 @@ export default defineAction({
         ? "replace-file"
         : "search-replace")) === "replace-file",
   run: async (
-    {
-      designId,
-      fileId,
-      filename,
-      edits,
-      mode,
-      replacementContent,
-      matchEntireFile,
-    },
+    { designId, fileId, filename, edits, mode, replacementContent },
     context,
   ) => {
     await assertAccess("design", designId, "editor");
@@ -433,7 +397,6 @@ export default defineAction({
           ({ content: nextContent, applied } = applySearchReplaceEdits(
             base,
             edits ?? [],
-            matchEntireFile === true,
           ));
         } catch (error) {
           if (!checkpointed) {

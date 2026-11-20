@@ -392,11 +392,9 @@ Pass `width`/`height` on every variant to match the form-factor answer (mobile â
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
 from the kept screen by calling `get-design-snapshot` with the selected
-screen's `fileId`, then calling `edit-design` on that same `fileId`. Expand the
-representative placeholder with one search-replace edit using
-`matchEntireFile: true`: set `search` to the complete snapshot content and
-`replace` to the complete chosen direction. If it conflicts, re-read and retry
-against the new snapshot. Do not call `generate-design` after a variant pick. If
+screen's `fileId`, then calling `edit-design` on that same `fileId`. Use
+`mode: "replace-file"` when expanding the representative placeholder into the
+full chosen direction. Do not call `generate-design` after a variant pick. If
 inline chat choice buttons are unavailable in the host, ask the user to tell you
 the preferred screen name. Do not ask them to paste HTML or a generated handoff
 summary; the variants are already real screens on the board.

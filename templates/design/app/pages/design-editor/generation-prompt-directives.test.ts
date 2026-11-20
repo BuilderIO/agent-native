@@ -227,25 +227,6 @@ describe("variant content directives", () => {
   const OMIT = "omit large content HTML";
   const COMPLETE = "Give every variant complete self-contained HTML `content`";
 
-  it("allows rereads and retries before the first successful variant edit", () => {
-    for (const directives of [
-      designVariantGenerationDirectives("design-1", "Show 3 options"),
-      designGenerationDirectives("design-1", 0, "Show 3 options"),
-    ]) {
-      const text = directives.join("\n");
-      expect(text).toContain("re-read");
-      expect(text).toContain("retry");
-      expect(text).toContain(
-        "one full-file search-replace edit with matchEntireFile: true",
-      );
-      expect(text).toContain(
-        "Stop after the first successful `edit-design` save",
-      );
-      expect(text).not.toContain("call `edit-design` exactly once");
-      expect(text).not.toContain("Do not repeat delete/snapshot cycles");
-    }
-  });
-
   it("allows direction-only variants for open-ended app exploration", () => {
     const text = designVariantGenerationDirectives(
       "design-1",
