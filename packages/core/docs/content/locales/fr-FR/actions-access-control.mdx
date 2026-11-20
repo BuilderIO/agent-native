@@ -208,6 +208,8 @@ Sur `approval_required`, l’UI de chat affiche une affordance **Approuver / Ref
 
 `approvedToolCalls` est un champ de la requête de chat (`AgentChatRequest.approvedToolCalls`). Les clés qui n’y figurent pas restent en pause. Approuver un appel n’approuve jamais un autre appel. Parce que la clé est adressée par contenu, une approbation n’autorise que cet appel exact avec ces arguments exacts. Si le modèle propose plus tard un envoi différent, cela devient une nouvelle clé qui exige sa propre approbation.
 
+Le tour réémis porte aussi l’identifiant de la demande en attente de l’appel dans `approvedToolCallAskIds`. Le serveur n’exécute l’appel que tant que cette demande reste en attente pour le même utilisateur et le même fil ; une clé seule n’approuve donc rien, et seules les pages de l’app elle-même peuvent relayer une approbation via `agentNative.submitChat`.
+
 ### De bout en bout {#flow}
 
 <Diagram id="doc-block-2nor1g" title="L’interruption d’approbation" summary={"Un appel gardé met le tour en pause avant que run() ne se déclenche. L’approbation réémet le tour en portant la clé de l’appel. C’est seulement alors que l’effet de bord se produit."}>

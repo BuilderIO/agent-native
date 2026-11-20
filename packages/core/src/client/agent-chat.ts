@@ -1377,7 +1377,10 @@ export function parseSubmitChatMessage(
       ? { submissionExpiresAt: raw.submissionExpiresAt as number }
       : {}),
     usageLabel: nonEmptyString(raw.usageLabel),
-    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
+    approvedToolCalls:
+      typeof window !== "undefined" && event.origin === window.location.origin
+        ? parseSubmitChatApprovedToolCalls(raw.approvedToolCalls)
+        : undefined,
     surface: nonEmptyString(raw.preset),
   };
 }
