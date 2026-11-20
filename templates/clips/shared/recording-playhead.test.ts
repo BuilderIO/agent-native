@@ -267,6 +267,79 @@ describe("the recording playhead has a shared visual source", () => {
     expect(confirmButton?.dataset.intent).toBe("restart");
   });
 
+  it("grows the bar when the meter content widens after it opened", async () => {
+    const observers: Array<{ callback: () => void; targets: Element[] }> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        targets: Element[] = [];
+        constructor(callback: () => void) {
+          observers.push({ callback, targets: this.targets });
+        }
+        observe(target: Element) {
+          this.targets.push(target);
+        }
+        disconnect() {}
+      },
+    );
+    let midContentWidth = 60;
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const width =
+          this.classList.contains("recording-playhead__inline") &&
+          this.parentElement?.classList.contains(
+            "recording-playhead__segment--mid",
+          )
+            ? midContentWidth
+            : 0;
+        return new DOMRect(0, 0, width, 30);
+      });
+    const layouts: Array<{ width: number; height: number }> = [];
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root?.render(
+          createElement(RecordingPlayhead, {
+            elapsedMs: 1_000,
+            paused: false,
+            meter: createElement("span"),
+            labels,
+            onStop: () => {},
+            onTogglePause: () => {},
+            onConfirmAction: () => {},
+            onLayoutChange: (layout) => layouts.push(layout),
+          }),
+        );
+        await Promise.resolve();
+      });
+
+      const mid = container.querySelector<HTMLElement>(
+        ".recording-playhead__segment--mid",
+      );
+      expect(mid?.style.width).toBe("60px");
+
+      // The mic warning replaces the waveform: the content gets wider.
+      midContentWidth = 140;
+      const contentObserver = observers.find((observer) =>
+        observer.targets.includes(mid?.firstElementChild as Element),
+      );
+      expect(contentObserver).toBeDefined();
+      await act(async () => {
+        contentObserver?.callback();
+        await Promise.resolve();
+      });
+
+      expect(mid?.style.width).toBe("140px");
+      expect(layouts[layouts.length - 1]?.width).toBe(140);
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
   it("reveals actions on the first touch or pen interaction", async () => {
     let expanded = false;
     container = document.createElement("div");
