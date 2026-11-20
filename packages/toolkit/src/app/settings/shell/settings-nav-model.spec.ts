@@ -66,7 +66,7 @@ describe("buildSettingsNavModel", () => {
   it("groups pages in group order, skips empty groups, and validates", () => {
     const { model } = buildSettingsNavModel(input());
     expect(validateModel(model)).toEqual([]);
-    const [nav] = model.rows;
+    const nav = model.rows.at(0);
     expect(nav).toMatchObject({
       id: "settings.nav",
       part: "settings.nav",

@@ -561,12 +561,12 @@ describe("AccountSettingsForm name editing", () => {
       Array.from(
         container.querySelectorAll<HTMLButtonElement>("#privacy-data button"),
       )
-        .find((button) => button.textContent?.trim() === "Manage")
+        .find((button) => button.textContent.trim() === "Manage")
         ?.click();
     });
     act(() => {
       Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-        .find((button) => button.textContent?.trim() === "Request a copy")
+        .find((button) => button.textContent.trim() === "Request a copy")
         ?.click();
     });
     expect(container.querySelector("#privacy-data")?.textContent).toContain(

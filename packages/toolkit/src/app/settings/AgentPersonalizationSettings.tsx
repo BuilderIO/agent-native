@@ -322,6 +322,7 @@ export function AgentPersonalizationSettings() {
                 }}
                 placeholder={labels.instructionsPlaceholder}
                 rows={8}
+                // guard:allow-part-geometry kept from main until the toolkit migration sizes this TextArea
                 className="resize-y text-sm"
                 disabled={saving}
               />
@@ -355,6 +356,7 @@ export function AgentPersonalizationSettings() {
                 }}
                 placeholder={labels.memoryPlaceholder}
                 rows={5}
+                // guard:allow-part-geometry kept from main until the toolkit migration sizes this TextArea
                 className="resize-y text-sm"
                 disabled={saving}
               />

@@ -588,7 +588,10 @@ export function OrgProfileGroup({
             onValueChange={(value) => switchOrg.mutate(value)}
             disabled={switchOrg.isPending}
           >
-            <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
+            <SelectTrigger
+              // guard:allow-part-geometry kept from main until the toolkit migration sizes this Select
+              className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

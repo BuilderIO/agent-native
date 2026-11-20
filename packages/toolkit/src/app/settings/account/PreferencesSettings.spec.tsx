@@ -161,8 +161,8 @@ describe("PreferencesSettings", () => {
     ).not.toBeNull();
 
     expect(
-      groups[2]!.querySelector('#voice [data-testid="voice"]'),
-    ).not.toBeNull();
+      groups.at(2)?.querySelector('#voice [data-testid="voice"]'),
+    ).toBeInstanceOf(HTMLElement);
   });
 
   it("leaves out the language row when the app has no locale provider", async () => {
