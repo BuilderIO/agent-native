@@ -28,11 +28,12 @@ function propsFromHtml(html: string): AuthPageProps {
 }
 
 function cookie(name: string): string | null {
-  const part = document.cookie
+  const value = document.cookie
     .split(";")
     .map((item) => item.trim())
-    .find((item) => item.startsWith(`${name}=`));
-  return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
+    .find((item) => item.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+  return value ? decodeURIComponent(value) : null;
 }
 
 function cookieJson(name: string): unknown {

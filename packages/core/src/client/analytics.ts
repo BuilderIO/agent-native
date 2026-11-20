@@ -744,25 +744,22 @@ function scrubReferrerHost(referrer: string | undefined): string {
   }
 }
 
-function searchParams(search: string): URLSearchParams | null {
-  try {
-    return new URLSearchParams(search);
-  } catch {
-    return null;
-  }
-}
-
 function buildFirstTouchAttribution(
   landingPathname: string,
   landingSearch?: string,
 ): FirstTouchAttribution {
   const attribution: FirstTouchAttribution = {};
-  const own = searchParams(window.location.search);
-  const params =
-    landingSearch !== undefined &&
-    !FIRST_TOUCH_QUERY_FIELDS.some((field) => own?.get(field))
-      ? searchParams(landingSearch)
-      : own;
+  let params: URLSearchParams | null = null;
+  try {
+    const own = new URLSearchParams(window.location.search);
+    params =
+      landingSearch !== undefined &&
+      !FIRST_TOUCH_QUERY_FIELDS.some((field) => own.get(field))
+        ? new URLSearchParams(landingSearch)
+        : own;
+  } catch {
+    params = null;
+  }
   if (params) {
     for (const field of FIRST_TOUCH_QUERY_FIELDS) {
       const value = truncateFirstTouchField(params.get(field));
