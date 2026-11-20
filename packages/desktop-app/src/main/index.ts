@@ -8540,7 +8540,13 @@ const localAppServers = new LocalAppServerManager({
     mainWindow.webContents.send(IPC.APP_STATUS, status);
   },
   baseEnv: () =>
-    withResolvedExecutablePaths({ ...process.env }, LOCAL_APP_EXECUTABLES),
+    withResolvedExecutablePaths(
+      {
+        ...process.env,
+        AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
+      },
+      LOCAL_APP_EXECUTABLES,
+    ),
   isQuitting: () => appIsQuitting,
   logDir: () => path.join(app.getPath("userData"), "local-app-logs"),
 });

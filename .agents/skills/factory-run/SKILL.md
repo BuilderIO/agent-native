@@ -58,7 +58,13 @@ Deliberate differences from `review-latest-feedback`, in both modes:
   it, or `<!subteam^S0AD0JBLZST|@design>` instead when it carries a design
   signal (see Confidence and design). Those are the only mentions allowed,
   they override `review-latest-feedback`'s no-mention rule, and GitHub
-  comments never carry them.
+  comments never carry them. A reply that mentions a group says the report's
+  `ask` in plain words: what to do, where (the service, setting, env var,
+  or secret), and what it unblocks, e.g. "Mail's dev database rejects
+  `DATABASE_URL` in the agent-native Builder project; update that secret so
+  the fix can be verified". Never "access is needed" or "logged for
+  oncall" alone. When someone in the thread says they're oncall or asks
+  what you need, answer with that `ask`; don't ping the group again.
 - **Its configured channels.** This overrides `review-latest-feedback`'s
   Slack boundary: the feedback channels are exactly the channels in
   `$FACTORY_SLACK_CHANNELS` (the watcher's run prompt and env carry them),
@@ -172,10 +178,10 @@ it with the factory runner's `deploy/SETUP.md`.
 - **Slack `mention`**: someone asking the factory directly (see Mentions).
 - **Slack `reaction`**: a reaction on a tracked report's root; `reaction` is
   `mag`, `yes-party`, or `upvote`, `user` is the reactor's Slack user id, and
-  `permalink`/`ts` are the report's root. Honor it only from a maintainer as
-  `review-latest-feedback` defines one (check the user id and profile, never
-  a display name). `mag`: a maintainer is investigating, so leave it to
-  them: don't claim, reply, or start a branch, and record a report not yet
+  `permalink`/`ts` are the report's root. Honor it only from a maintainer:
+  `factory-slack member <user>` prints `"member": true` and the user isn't
+  the reporter (never judge by display name). `mag`: a maintainer is
+  investigating, so leave it to them: don't claim, reply, or start a branch, and record a report not yet
   acted on as `not-actionable` "a maintainer is investigating". A branch
   already on it keeps running. `yes-party` or `upvote`: the endorsement a
   build or feature report needs; triage it again as a fix (steps 3 and 4).
@@ -369,7 +375,10 @@ command is cut off or times out, run `factory-branch list` and use the
 branch with this name; only when none is listed, start it again. A launch
 that timed out is never a reason for `needs-person`. Record
 `builderBranchName` and `builderBranchUrl` on each report right away, then
-`factory-digest report "<key>"`. The prompt:
+`factory-digest report "<key>"`. In live mode `factory-branch start` already
+puts 👀 and a "fix branch is working on it" reply on each Slack report (its
+`acks`), so don't post your own; the outcome reply in step 5 is still yours.
+The prompt:
 
 ```text
 Fix this agent-native feedback as a factory fix branch, in <live | dry> mode.
@@ -409,6 +418,13 @@ twice. Open its `url` to see why, then keep the report moving:
 Record `needs-person` only when the second attempt also fails, or the
 reason truly needs a person (access, data, or a product decision), and say
 which in the note.
+
+A branch that stopped `blocked` on access to the reporter's production
+settings, org, or grants for a report asking for missing behavior (a
+feature or parity ask) isn't blocked: `factory-branch message` it to build
+the smallest version of what was asked, per fix-branch.md, with its open
+product choice in `DESIGN`. Never turn that into a `needs-person` ask for
+access to a reporter's data, and never ask @design for access.
 
 For each report the branch covered (the item's `reports`, which include
 attached ones), upsert `gitBranch`, `proof`, `wouldReact`, `wouldReply`, and
@@ -520,10 +536,15 @@ this", "try again", "why did you skip this?", or a question).
   otherwise skip the thread (a claim, a stored outcome, `not-actionable`, the
   one-reply limit: use `--again`). It doesn't override the Never list, the
   daily cap, or the endorsement requirement: a feature or UX change still
-  needs a maintainer's `:yes-party:` or `:upvote:`, or the mentioning
-  message's author must be a maintainer (check the author's Slack user ID and
-  profile, never a display name); otherwise it's 🎫, a reply that it's logged
-  for a product decision, and `needs-person` with that reason.
+  needs a maintainer's `:yes-party:` or `:upvote:`, or a maintainer in the
+  thread saying to build it (the mention item's `user`, or any thread
+  author, checked with `factory-slack member <user id>`: `"member": true`
+  and not the reporter). A maintainer's go-ahead settles the endorsement and
+  any design question; don't route it to design or oncall again. Otherwise
+  it's 🎫, a reply that it's logged for a product decision, and
+  `needs-person` with that reason. If `factory-slack member` itself fails,
+  say so in `note` with its error; never report a missing capability
+  without running it.
 - Record the thread under its root permalink first, so `factory-slack` can
   reply there and the watcher keeps following it. Check it against work in
   flight (step 3) like any report.

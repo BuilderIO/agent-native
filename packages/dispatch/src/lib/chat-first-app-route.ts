@@ -5,6 +5,10 @@ export type ChatFirstAppRouteAnswer =
       cached?: boolean;
       latencyMs?: number;
       model?: string;
+      /** A saved pointer matched: open this object, even in the shown app. */
+      pointer?: boolean;
+      objectId?: string;
+      url?: string;
     }
   | { status: "not_configured" | "failed"; reason: string; latencyMs?: number };
 
@@ -29,7 +33,10 @@ export type ChatFirstAppRoutePlan<Target = { appId: string }> =
  */
 export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   answer: ChatFirstAppRouteAnswer | "timeout";
-  installedApp: (app: string) => Target | null;
+  installedApp: (
+    app: string,
+    object?: { url?: string | undefined; objectId?: string | undefined },
+  ) => Target | null;
   isDispatchApp: (appId: string) => boolean;
   shownAppId: string | null;
   stale: boolean;
@@ -38,12 +45,18 @@ export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   if (answer === "timeout") return { kind: "skip", reason: "timeout" };
   if (answer.status !== "ok") return { kind: "skip", reason: answer.status };
   if (answer.app === "none") return { kind: "skip", reason: "none" };
-  const target = input.installedApp(answer.app);
+  const object = answer.pointer
+    ? { url: answer.url, objectId: answer.objectId }
+    : undefined;
+  const target = input.installedApp(answer.app, object);
   if (!target) return { kind: "skip", reason: "unknown_app" };
   if (input.isDispatchApp(target.appId)) {
     return { kind: "skip", reason: "dispatch" };
   }
-  if (target.appId === input.shownAppId) {
+  if (
+    target.appId === input.shownAppId &&
+    !(answer.pointer && (answer.url || answer.objectId))
+  ) {
     return { kind: "skip", reason: "shown" };
   }
   if (input.stale) return { kind: "skip", reason: "stale" };

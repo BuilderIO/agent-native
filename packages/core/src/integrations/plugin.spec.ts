@@ -2285,13 +2285,15 @@ describe("integrations plugin routes", () => {
     expect(options.systemPrompt).toContain("Base prompt.");
     expect(options.systemPrompt).toContain("Shared Dispatch instruction");
     expect(options.systemPrompt).toContain(
-      "`resources` reads personal memory (memory/MEMORY.md) and organization learnings",
+      "`save-memory` writes personal memory (memory/MEMORY.md) immediately without extra approval",
     );
     expect(options.systemPrompt).toContain("Builder organization instruction");
-    expect(options.systemPrompt).not.toContain("Personal Dispatch memory");
-    expect(resourceGetByPathMock).not.toHaveBeenCalledWith(
+    // oracle-change: compact prompts now carry the owner's personal memory index across chats
+    expect(options.systemPrompt).toContain("Personal Dispatch memory");
+    expect(resourceGetByPathMock).toHaveBeenCalledWith(
       "owner+qa@example.com",
       "memory/MEMORY.md",
+      { orgId: "org-qa" },
     );
     expect(markTaskCompletedMock).toHaveBeenCalledWith("task-with-resources");
     expect(runWithRequestContextMock).toHaveBeenCalledWith(
