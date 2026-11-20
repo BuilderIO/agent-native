@@ -59,7 +59,10 @@ import {
 } from "./action-failure-circuit.js";
 import { fetchActionGet } from "./action-get-batch.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
-import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
+import {
+  advanceMutationEpoch,
+  requestActionCacheFlush,
+} from "./action-query-cache-mutation.js";
 import {
   claimActionQueryForeground,
   finishActionQueryOpening,
@@ -2394,16 +2397,18 @@ function usePrivateInputMutation<V>(
       if (typeof window !== "undefined")
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       if (!valid()) throw privateMutationError(true);
+      let refetched: Promise<void> | undefined;
       if (!opts.skipActionQueryInvalidation || outcome.markerFailed) {
         if (!advanceMutationEpoch())
           revokeActionQueryCacheForClient(queryClient);
-        void queryClient.invalidateQueries(
+        refetched = queryClient.invalidateQueries(
           actionQueryInvalidation(opts.resources),
         );
       }
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
+      void Promise.allSettled([refetched]).then(requestActionCacheFlush);
       setState({ status: "success", error: null });
     } catch {
       const isCurrent = valid();
@@ -2668,16 +2673,21 @@ function useNormalActionMutation<
       } catch {
         console.warn("Action mutation projection observer failed");
       }
+      let refetched: Promise<void> | undefined;
       if (!skipActionQueryInvalidation) {
         if (!advanceMutationEpoch())
           revokeActionQueryCacheForClient(queryClient);
-        void invalidateForegroundActionQueries(
+        refetched = invalidateForegroundActionQueries(
           queryClient,
           actionQueryInvalidation(resources),
           interactive,
         );
       }
-      return (onSuccess as Function)?.(...args);
+      const result = (onSuccess as Function | undefined)?.(...args);
+      void Promise.allSettled([result, refetched]).then(
+        requestActionCacheFlush,
+      );
+      return result;
     },
   });
 

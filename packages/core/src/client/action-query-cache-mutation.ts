@@ -22,3 +22,10 @@ export function advanceMutationEpoch(): boolean {
     return false;
   }
 }
+
+export const ACTION_CACHE_FLUSH_EVENT = "agentNative:actionCacheFlush";
+
+export function requestActionCacheFlush(): void {
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event(ACTION_CACHE_FLUSH_EVENT));
+}

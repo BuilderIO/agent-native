@@ -82,15 +82,19 @@ describe("Tasks navigate keeps the user's view for MCP callers by default", () =
     expect(await appStateGet(USER_EMAIL, `navigate:${TAB_ID}`)).toBeNull();
   });
 
-  it("refuses a standalone detail open without intent, and allows it with intent open", async () => {
-    await expect(
-      inTab(() =>
-        navigate.run(
-          { view: "tasks", taskId: "task-42" },
-          { caller: "mcp", actionName: "navigate" },
-        ),
+  it("keeps the current view and returns a typed result for a standalone detail open without intent, and allows it with intent open", async () => {
+    const kept = await inTab(() =>
+      navigate.run(
+        { view: "tasks", taskId: "task-42" },
+        { caller: "mcp", actionName: "navigate" },
       ),
-    ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+    );
+    expect(kept).toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      message: expect.stringContaining('intent: "open"'),
+    });
     expect(await appStateGet(USER_EMAIL, `navigate:${TAB_ID}`)).toBeNull();
 
     await inTab(() =>
@@ -105,14 +109,18 @@ describe("Tasks navigate keeps the user's view for MCP callers by default", () =
     });
   });
 
-  it("default createNavigateAction() refuses MCP detail opens without intent open", async () => {
+  it("default createNavigateAction() keeps view and returns a typed result for MCP detail opens without intent open", async () => {
     const defaultNavigate = createNavigateAction();
 
-    await expect(
-      inTab(() =>
-        defaultNavigate.run({ path: "/items/123" }, { caller: "mcp" }),
-      ),
-    ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+    const kept = await inTab(() =>
+      defaultNavigate.run({ path: "/items/123" }, { caller: "mcp" }),
+    );
+    expect(kept).toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      message: expect.stringContaining('intent: "open"'),
+    });
     expect(await appStateGet(USER_EMAIL, `navigate:${TAB_ID}`)).toBeNull();
 
     await inTab(() =>

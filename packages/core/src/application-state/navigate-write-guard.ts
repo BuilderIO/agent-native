@@ -19,12 +19,108 @@ import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 export const NAVIGATION_OPEN_INTENT = "open" as const;
 export type NavigationIntent = typeof NAVIGATION_OPEN_INTENT;
 
+export type AgentNavigationKeptReason =
+  | "detail-requires-open-intent"
+  | "write-keeps-view";
+
+export type AgentNavigationRefusalReason =
+  | "read-only-action"
+  | AgentNavigationKeptReason;
+
+export interface AgentNavigationKeptResult {
+  kept: true;
+  navigated: false;
+  reason: AgentNavigationKeptReason;
+  currentView: Record<string, unknown> | null;
+  message: string;
+}
+
+export interface AgentNavigationRefusal {
+  reason: AgentNavigationRefusalReason;
+  message: string;
+}
+
+export type DetailViewPredicate = (
+  navigation: Record<string, unknown>,
+) => boolean;
+
 export class AgentNavigationRefusedError extends Error {
   readonly code = "agent_navigation_refused";
-  constructor(message: string) {
+  readonly reason: AgentNavigationRefusalReason;
+  readonly currentView: Record<string, unknown> | null;
+  constructor(
+    message: string,
+    options?: {
+      reason?: AgentNavigationRefusalReason;
+      currentView?: Record<string, unknown> | null;
+    },
+  ) {
     super(message);
     this.name = "AgentNavigationRefusedError";
+    this.reason = options?.reason ?? "detail-requires-open-intent";
+    this.currentView = options?.currentView ?? null;
   }
+}
+
+export function isAgentNavigationRefusedError(
+  error: unknown,
+): error is AgentNavigationRefusedError {
+  return (
+    error instanceof AgentNavigationRefusedError ||
+    (Boolean(error) &&
+      typeof error === "object" &&
+      (error as { code?: unknown }).code === "agent_navigation_refused" &&
+      typeof (error as { reason?: unknown }).reason === "string")
+  );
+}
+
+export function isAgentNavigationKeptResult(
+  value: unknown,
+): value is AgentNavigationKeptResult {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { kept?: unknown }).kept === true &&
+    (value as { navigated?: unknown }).navigated === false &&
+    typeof (value as { reason?: unknown }).reason === "string" &&
+    typeof (value as { message?: unknown }).message === "string"
+  );
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function describeCurrentView(
+  currentView: Record<string, unknown> | null,
+): string | null {
+  if (!currentView) return null;
+  const mode = nonEmptyString(currentView.calendarViewMode);
+  const view =
+    nonEmptyString(currentView.view) ?? nonEmptyString(currentView.screen);
+  if (view && mode) return `${view} (${mode})`;
+  return mode ?? view ?? nonEmptyString(currentView.path);
+}
+
+export function buildAgentNavigationKeptResult(
+  reason: AgentNavigationKeptReason,
+  currentView: Record<string, unknown> | null = null,
+): AgentNavigationKeptResult {
+  const viewLabel = describeCurrentView(currentView);
+  const keptClause = viewLabel
+    ? `Kept the user on ${viewLabel}`
+    : "Kept the user's current view";
+  const detailClause =
+    reason === "write-keeps-view"
+      ? "after agent writes"
+      : "instead of opening the item";
+  return {
+    kept: true,
+    navigated: false,
+    reason,
+    currentView,
+    message: `${keptClause} (${detailClause}). Pass intent: "open" only if the user asked to open or switch to it.`,
+  };
 }
 
 const AsyncLocalStorageCtor = getAsyncLocalStorageCtor();
@@ -121,51 +217,121 @@ function isSetUrlKey(key: string): boolean {
   return key === "__set_url__" || key.startsWith("__set_url__:");
 }
 
+/** Maps a `navigate` or `__set_url__` command key to its matching `navigation` key. */
+export function navigationKeyForCommandKey(key: string): string | null {
+  if (key === "navigate" || key === "__set_url__") return "navigation";
+  if (key.startsWith("navigate:")) {
+    return `navigation:${key.slice("navigate:".length)}`;
+  }
+  if (key.startsWith("__set_url__:")) {
+    return `navigation:${key.slice("__set_url__:".length)}`;
+  }
+  return null;
+}
+
+const READ_ONLY_REFUSAL: AgentNavigationRefusal = {
+  reason: "read-only-action",
+  message:
+    'Refused: a read-only action cannot move the user\'s view. Read the data and answer; call navigate with intent: "open" only if the user asked to see it.',
+};
+
+const WRITE_KEEPS_VIEW_REFUSAL: AgentNavigationRefusal = {
+  reason: "write-keeps-view",
+  message:
+    'Refused: a write action cannot move the user\'s view unless intent: "open" is set. Keep the user on their current view, or use navigateAfterWrite() so agent writes stay put.',
+};
+
+const DETAIL_REQUIRES_OPEN_REFUSAL: AgentNavigationRefusal = {
+  reason: "detail-requires-open-intent",
+  message:
+    'Refused: opening this item would move the user off their current view. Call again with intent: "open" only if the user asked to open or show it; otherwise answer without navigating.',
+};
+
+/**
+ * Shared keep-view policy for both the application-state store boundary and
+ * `createNavigateAction()`:
+ * - Reads never move the user's view.
+ * - `intent: "open"`, `allowsAgentNavigation: true`, and explicit
+ *   `withAuthorizedAgentNavigation` always allow navigation.
+ * - Non-navigate write actions and nested calls inside a write action never
+ *   move the user's view.
+ * - Standalone `navigate` actions require `intent: "open"` for detail opens
+ *   and after an observed write.
+ */
+export function evaluateAgentNavigationPolicy(
+  navigation: Record<string, unknown> | undefined,
+  options: {
+    caller?: string | undefined;
+    intent?: string | undefined;
+    isDetailView?: DetailViewPredicate | undefined;
+    isNavigateAction?: boolean | undefined;
+    isSetUrl?: boolean | undefined;
+  } = {},
+): AgentNavigationRefusal | null {
+  const originCaller = currentActionOriginCaller() ?? options.caller;
+  if (!isAgentCaller(originCaller)) return null;
+  if (options.isSetUrl && isFrameworkUrlToolAuthorized()) return null;
+  if (insideReadOnlyAction()) {
+    return READ_ONLY_REFUSAL;
+  }
+  const intent = options.intent ?? currentActionNavigationIntent();
+  if (
+    isAgentNavigationAuthorized() ||
+    currentActionAllowsAgentNavigation() ||
+    intent === NAVIGATION_OPEN_INTENT
+  ) {
+    return null;
+  }
+  const standaloneNavigate =
+    !insideParentWriteAction() &&
+    (options.isNavigateAction === true || isStandaloneNavigateAction());
+  if (
+    insideParentWriteAction() ||
+    (insideWriteAction() && !standaloneNavigate)
+  ) {
+    return WRITE_KEEPS_VIEW_REFUSAL;
+  }
+  const detailPayload =
+    options.isSetUrl && navigation && typeof navigation.pathname === "string"
+      ? { path: navigation.pathname }
+      : navigation;
+  const isDetailView = options.isDetailView ?? isDefaultDetailNavigation;
+  if (detailPayload && isDetailView(detailPayload)) {
+    return DETAIL_REQUIRES_OPEN_REFUSAL;
+  }
+  if (hasObservedWriteInActionChain()) {
+    return WRITE_KEEPS_VIEW_REFUSAL;
+  }
+  return null;
+}
+
+/**
+ * Evaluates whether a `navigate` or `__set_url__` command write is allowed at
+ * the application-state store boundary. Returns `null` when allowed or the
+ * typed refusal otherwise.
+ */
+export function evaluateNavigateWrite(
+  key: string,
+  value?: Record<string, unknown>,
+): AgentNavigationRefusal | null {
+  const isSetUrl = isSetUrlKey(key);
+  if (!isNavigateKey(key) && !isSetUrl) return null;
+  return evaluateAgentNavigationPolicy(value, { isSetUrl });
+}
+
 /**
  * Guards every `navigate` and `__set_url__` command write (account-wide or
  * tab-scoped) at the application-state store boundary so no helper or
  * hand-written navigate action can bypass the keep-view contract during an
- * agent call:
- * - Reads never move the user's view.
- * - Edits/writes never move the user's view unless `intent: "open"` is set.
- * - Detail opens require `intent: "open"`.
+ * agent call.
  */
 export function assertNavigateWriteAllowed(
   key: string,
   value?: Record<string, unknown>,
 ): void {
-  const isSetUrl = isSetUrlKey(key);
-  if (!isNavigateKey(key) && !isSetUrl) return;
-  if (!isAgentCaller(currentActionOriginCaller())) return;
-  if (isSetUrl && isFrameworkUrlToolAuthorized()) return;
-  if (insideReadOnlyAction()) {
-    throw new AgentNavigationRefusedError(
-      'Refused: a read-only action cannot move the user\'s view. Read the data and answer; call navigate with intent: "open" only if the user asked to see it.',
-    );
-  }
-  if (
-    isAgentNavigationAuthorized() ||
-    currentActionAllowsAgentNavigation() ||
-    currentActionNavigationIntent() === NAVIGATION_OPEN_INTENT
-  ) {
-    return;
-  }
-  if (
-    insideParentWriteAction() ||
-    hasObservedWriteInActionChain() ||
-    (insideWriteAction() && !isStandaloneNavigateAction())
-  ) {
-    throw new AgentNavigationRefusedError(
-      'Refused: a write action cannot move the user\'s view unless intent: "open" is set. Keep the user on their current view, or use navigateAfterWrite() so agent writes stay put.',
-    );
-  }
-  const detailPayload =
-    isSetUrl && value && typeof value.pathname === "string"
-      ? { path: value.pathname }
-      : value;
-  if (detailPayload && isDefaultDetailNavigation(detailPayload)) {
-    throw new AgentNavigationRefusedError(
-      'Refused: opening this item would move the user off their current view. Call again with intent: "open" only if the user asked to open or show it; otherwise answer without navigating.',
-    );
-  }
+  const refusal = evaluateNavigateWrite(key, value);
+  if (!refusal) return;
+  throw new AgentNavigationRefusedError(refusal.message, {
+    reason: refusal.reason,
+  });
 }
