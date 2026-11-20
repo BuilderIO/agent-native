@@ -328,6 +328,40 @@ export function useAutomationAccountSearch(query: string, enabled: boolean) {
   );
 }
 
+function rollbackRecurringMutation<T extends RecurringJob | Automation>(
+  current: T[] | undefined,
+  previous: T[] | undefined,
+  variables: ManageJobInput,
+): T[] | undefined {
+  if (!current || !previous) return current;
+  if (variables.operation === "delete") {
+    const restored = [...current];
+    previous.forEach((item, index) => {
+      if (
+        matchesLocator(item, variables) &&
+        !restored.some((entry) => entry.id === item.id)
+      ) {
+        restored.splice(Math.min(index, restored.length), 0, item);
+      }
+    });
+    return restored;
+  }
+  const patch = optimisticJobPatch(variables);
+  return current.map((item) => {
+    const original = previous.find(
+      (entry) => entry.id === item.id && matchesLocator(entry, variables),
+    );
+    if (!original) return item;
+    const restored = { ...item };
+    for (const key of ["enabled", "schedule", "timezone"] as const) {
+      if (patch[key] !== undefined && item[key] === patch[key]) {
+        Object.assign(restored, { [key]: original[key] });
+      }
+    }
+    return restored;
+  });
+}
+
 /** Mutates legacy `jobs/*.md` recurring jobs; schedule/enabled/delete only. */
 export function useManageRecurringJob(scope: JobsScope) {
   const queryClient = useQueryClient();
@@ -376,13 +410,21 @@ export function useManageRecurringJob(scope: JobsScope) {
       });
       return { previous, previousAutomations };
     },
-    onError: (_error, _variables, context) => {
+    onError: (_error, variables, context) => {
       const rollback = context as
         | { previous?: RecurringJob[]; previousAutomations?: Automation[] }
         | undefined;
-      if (rollback && "previous" in rollback) {
-        queryClient.setQueryData(queryKey, rollback.previous);
-        queryClient.setQueryData(automationsKey, rollback.previousAutomations);
+      if (rollback) {
+        queryClient.setQueryData<RecurringJob[]>(queryKey, (current) =>
+          rollbackRecurringMutation(current, rollback.previous, variables),
+        );
+        queryClient.setQueryData<Automation[]>(automationsKey, (current) =>
+          rollbackRecurringMutation(
+            current,
+            rollback.previousAutomations,
+            variables,
+          ),
+        );
       }
     },
     onSuccess: () => {
