@@ -2691,6 +2691,10 @@ export function startRun(
             source: "agent-run-manager",
             phase: "terminal-status-persistence",
             errorCode: "run_terminal_status_persistence_failed",
+            terminalErrorKind:
+              error instanceof StaleExecutionFenceError
+                ? "stale_execution_fence"
+                : "unclassified",
           },
           extra: { runId, threadId, turnId: run.turnId },
         });
