@@ -1,6 +1,5 @@
 /*
- * The design system's Tailwind v4 layer. Import after `@import "tailwindcss"`
- * (toolkit's styles.css does this for every app).
+ * The design system's Tailwind v4 layer. Import after `@import "tailwindcss"`.
  *
  * It maps semantic roles and scale steps onto utilities, so app chrome can be
  * written with the same tokens the parts use: `bg-surface-canvas`,

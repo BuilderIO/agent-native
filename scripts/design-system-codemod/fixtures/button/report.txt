@@ -16,9 +16,28 @@ Shims:
 
 Not transformed (0 sites), by reason:
 
-Transformed, needs a look (2 sites), by reason:
+Transformed, needs a look (16 sites), by reason:
+  [button] size "default" was 36px and is now 24px (8)
+    app/actions.tsx:53
+    app/actions.tsx:52
+    app/actions.tsx:41
+    app/actions.tsx:38
+    app/actions.tsx:33
+    app/actions.tsx:20
+    app/actions.tsx:16
+    app/actions.tsx:9
+  [button] size "icon-sm" was 32px and is now 24px (2)
+    app/actions.tsx:46
+    app/actions.tsx:30
+  [button] size "sm" was 32px and is now 24px (2)
+    app/actions.tsx:21
+    app/actions.tsx:10
   [button] IconButton has no aria-label or title; it needs a name (1)
     app/actions.tsx:30
+  [button] size "icon" was 36px and is now 24px (1)
+    app/actions.tsx:24
+  [button] size "lg" was 40px and is now 24px (1)
+    app/actions.tsx:17
   [button] variant="ghost-inset" is now a plain ghost; inset is gone (1)
     app/actions.tsx:21
 

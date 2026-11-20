@@ -90,17 +90,25 @@ const BUTTON_VARIANTS: Readonly<Record<string, string[] | "link">> = {
   link: "link",
 };
 
-const BUTTON_SIZES: Readonly<Record<string, { size: string; icon: boolean }>> =
-  {
-    xs: { size: "md", icon: false },
-    sm: { size: "md", icon: false },
-    default: { size: "md", icon: false },
-    lg: { size: "md", icon: false },
-    icon: { size: "md", icon: true },
-    "icon-xs": { size: "md", icon: true },
-    "icon-sm": { size: "md", icon: true },
-    "icon-lg": { size: "md", icon: true },
-  };
+type ControlSize = "sm" | "md";
+
+const BUTTON_SIZES: Readonly<
+  Record<string, { size: ControlSize; icon: boolean; legacyPx: number }>
+> = {
+  xs: { size: "md", icon: false, legacyPx: 24 },
+  sm: { size: "md", icon: false, legacyPx: 32 },
+  default: { size: "md", icon: false, legacyPx: 36 },
+  lg: { size: "md", icon: false, legacyPx: 40 },
+  icon: { size: "md", icon: true, legacyPx: 36 },
+  "icon-xs": { size: "md", icon: true, legacyPx: 24 },
+  "icon-sm": { size: "md", icon: true, legacyPx: 32 },
+  "icon-lg": { size: "md", icon: true, legacyPx: 40 },
+};
+
+const CONTROL_SIZE_PX: Readonly<Record<ControlSize, number>> = {
+  sm: 20,
+  md: 24,
+};
 
 const DEFAULT_CONTROL_SIZE = "md";
 
@@ -148,6 +156,12 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
   if (sizeProps === undefined) return skip(`unknown size "${sizeName}"`);
 
   const reviews = [...heightReview(tag)];
+  const newPx = CONTROL_SIZE_PX[sizeProps.size];
+  if (newPx !== sizeProps.legacyPx) {
+    reviews.push(
+      `size "${sizeName}" was ${sizeProps.legacyPx}px and is now ${newPx}px`,
+    );
+  }
   if (variantName === "ghost-inset") {
     reviews.push('variant="ghost-inset" is now a plain ghost; inset is gone');
   }

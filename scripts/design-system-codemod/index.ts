@@ -21,6 +21,7 @@ export function formatOxfmt(files: string[]) {
 }
 
 function unifiedDiff(before: string, after: string, name: string): string {
+  fs.mkdirSync(path.join(REPO, ".tmp"), { recursive: true });
   const scratch = fs.mkdtempSync(path.join(REPO, ".tmp", "codemod-diff-"));
   try {
     const a = path.join(scratch, "a");

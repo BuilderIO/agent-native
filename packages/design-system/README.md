@@ -6,11 +6,15 @@ the parts; this package decides how they look.
 
 ## Use it
 
-Apps get everything through toolkit's stylesheet, plus their own theme:
+Import the tokens, the Tailwind layer and the part styles after Tailwind, then
+the app's theme. Toolkit's own stylesheet does not include them yet:
 
 ```css
 @import "tailwindcss";
 @import "@agent-native/toolkit/styles.css";
+@import "@agent-native/design-system/tokens.css";
+@import "@agent-native/design-system/main.css";
+@import "@agent-native/design-system/styles.css";
 @import "@agent-native/design-system/themes/mail.css";
 ```
 

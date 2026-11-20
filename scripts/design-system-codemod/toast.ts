@@ -16,6 +16,9 @@ const STATUS: Readonly<Record<string, string[]>> = {
 
 const KEPT_OPTIONS = new Set(["description", "id"]);
 const DROPPED_OPTIONS = new Set(["closeButton", "richColors", "position"]);
+const DROPPED_BEHAVIOR: Readonly<Record<string, string>> = {
+  position: "dropped position: toasts now sit in the bottom-right viewport",
+};
 
 function skip(reason: string): Analysis {
   return { ok: false, reason };
@@ -251,6 +254,7 @@ function analyzeAdd(
   let idProperty: ts.ObjectLiteralElementLike | undefined;
   let closeHandler: ts.ObjectLiteralElementLike | undefined;
   const unsupported: string[] = [];
+  const reviews: string[] = [];
   for (const property of properties) {
     if (ts.isSpreadAssignment(property)) return skip("options spread");
     const name = propertyName(property);
@@ -263,6 +267,8 @@ function analyzeAdd(
       handled.set(property, "keep");
     } else if (DROPPED_OPTIONS.has(name)) {
       handled.set(property, "drop");
+      const behavior = DROPPED_BEHAVIOR[name];
+      if (behavior) reviews.push(behavior);
     } else if (name === "duration") {
       if (
         ts.isPropertyAssignment(property) &&
@@ -327,7 +333,7 @@ function analyzeAdd(
   return {
     ok: true,
     uses: [{ imported: "toast", local: context.local }],
-    reviews: [],
+    reviews,
     build(edits) {
       let idText = "";
       if (idPlan?.kind === "option") idText = idPlan.text;
@@ -525,8 +531,11 @@ function toasterJsx(tag: JsxTag, context: SiteContext): Analysis {
   for (const property of tag.attributes.properties) {
     if (!ts.isJsxAttribute(property)) continue;
     const name = attrName(property);
-    if (TOASTER_DROPPED.has(name)) removed.push(property);
-    else if (TOASTER_REVIEWED.has(name)) {
+    if (TOASTER_DROPPED.has(name)) {
+      removed.push(property);
+      const behavior = DROPPED_BEHAVIOR[name];
+      if (behavior) reviews.push(behavior);
+    } else if (TOASTER_REVIEWED.has(name)) {
       removed.push(property);
       reviews.push(
         `dropped ${name}: the new viewport's inset is the part's own`,

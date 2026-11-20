@@ -31,8 +31,10 @@ Not transformed (8 sites), by reason:
   [button] variant="link" becomes the Link component by hand (1)
     app/blocked.tsx:8
 
-Transformed, needs a look (1 sites), by reason:
+Transformed, needs a look (2 sites), by reason:
   [button] className sets a height (h-7) that now fights the size prop (1)
+    app/moves.tsx:5
+  [button] size "sm" was 32px and is now 24px (1)
     app/moves.tsx:5
 
 Test mocks of a legacy module (0):
