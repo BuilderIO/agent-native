@@ -595,7 +595,7 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
 }
 
 const PRIVATE_RESUME_FAILED_MESSAGE =
-  "I stopped because this turn's private steps could not be safely resumed. Please send the request again.";
+  "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.";
 
 const PRIVATE_SAFE_ERROR_DETAILS: ReadonlyMap<string, string> = new Map([
   ["private_history_unrecoverable", PRIVATE_RESUME_FAILED_MESSAGE],

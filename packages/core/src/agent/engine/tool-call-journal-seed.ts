@@ -497,6 +497,8 @@ export async function loadPriorTurnToolCallJournal(
         privateStarts.get(event.id) !== event.tool ||
         privateFinished.has(event.id) ||
         event.outcomeUnknown === true ||
+        (event.isError === true &&
+          typeof event.completedSideEffect !== "boolean") ||
         (event.approvalPause === true && event.completedSideEffect !== false)
       ) {
         return {

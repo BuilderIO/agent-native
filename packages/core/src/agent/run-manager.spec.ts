@@ -9326,7 +9326,7 @@ describe("run manager soft timeout", () => {
     expect(setRunError).toHaveBeenCalledWith(
       runId,
       "private_history_unrecoverable",
-      "I stopped because this turn's private steps could not be safely resumed. Please send the request again.",
+      "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
     );
     expect(JSON.stringify(setRunError.mock.calls)).not.toContain(
       "private sentinel text",

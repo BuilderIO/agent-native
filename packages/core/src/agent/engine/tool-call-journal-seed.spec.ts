@@ -760,6 +760,27 @@ describe("private prior-turn recovery", () => {
         },
       ],
     ],
+    [
+      "a failed private call with no side-effect status",
+      [
+        {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+        {
+          type: "tool_done" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          isError: true,
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+    ],
   ])("refuses to resume %s", async (_label, events) => {
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
