@@ -642,7 +642,7 @@ describe("loadedSkillPagesContext", () => {
 });
 
 describe("private prior-turn recovery", () => {
-  it("refuses to resume an executed private tool whose identity was omitted", async () => {
+  it("resumes a completed private tool pair from its redacted ledger entry", async () => {
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue([
@@ -666,7 +666,67 @@ describe("private prior-turn recovery", () => {
     try {
       expect(
         await loadPriorTurnToolCallJournal("thread", "turn"),
-      ).toMatchObject({ status: "unreadable" });
+      ).toMatchObject({
+        status: "read",
+        priorToolResults: [
+          {
+            name: "write",
+            content: "[Private content omitted]",
+            isError: false,
+          },
+        ],
+      });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it.each([
+    [
+      "an unfinished private call",
+      [
+        {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+    ],
+    [
+      "a private call whose outcome is unknown",
+      [
+        {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true as const,
+        },
+        {
+          type: "tool_done" as const,
+          id: "private-call",
+          tool: "write",
+          input: {},
+          result: "[Private content omitted]",
+          isError: true,
+          outcomeUnknown: true as const,
+          omitFromPersistedHistory: true as const,
+        },
+      ],
+    ],
+  ])("refuses to resume %s", async (_label, events) => {
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue(events);
+    try {
+      expect(
+        await loadPriorTurnToolCallJournal("thread", "turn"),
+      ).toMatchObject({
+        status: "unreadable",
+        code: "private_history_unrecoverable",
+      });
     } finally {
       read.mockRestore();
     }
@@ -732,7 +792,7 @@ it("continues to read a public prior tool journal", async () => {
   }
 });
 
-it("does not dispatch another call in the same turn after private execution", async () => {
+it("finishes a resumed private turn without repeating its write", async () => {
   const read = vi
     .spyOn(runStore, "getCurrentTurnEventsForThread")
     .mockResolvedValue([
@@ -770,6 +830,16 @@ it("does not dispatch another call in the same turn after private execution", as
       parallelToolCalls: false,
     },
     async *stream() {
+      streams += 1;
+      if (streams > 1) {
+        yield { type: "text-delta" as const, text: "Saved your draft." };
+        yield {
+          type: "assistant-content" as const,
+          parts: [{ type: "text" as const, text: "Saved your draft." }],
+        };
+        yield { type: "stop" as const, reason: "end_turn" as const };
+        return;
+      }
       yield {
         type: "assistant-content" as const,
         parts: [
@@ -784,6 +854,7 @@ it("does not dispatch another call in the same turn after private execution", as
       yield { type: "stop" as const, reason: "tool_use" as const };
     },
   };
+  let streams = 0;
   try {
     await runAgentLoop({
       engine,
@@ -811,6 +882,7 @@ it("does not dispatch another call in the same turn after private execution", as
       },
       threadId: "thread",
       turnId: "same-turn",
+      historyPrivacyState: { private: true, recorded: true },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
     });
@@ -818,11 +890,15 @@ it("does not dispatch another call in the same turn after private execution", as
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          type: "error",
-          errorCode: "tool_call_journal_unreadable",
+          type: "tool_done",
+          id: "new-call",
+          notExecuted: true,
+          completedSideEffect: false,
         }),
+        expect.objectContaining({ type: "text", text: "Saved your draft." }),
       ]),
     );
+    expect(events.some((event) => event.type === "error")).toBe(false);
   } finally {
     read.mockRestore();
   }
