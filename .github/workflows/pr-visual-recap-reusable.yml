@@ -511,6 +511,9 @@ jobs:
 
       - name: Run agent (Claude Code)
         id: claude
+        # A quota-blocked or hung agent CLI never exits; cap the step so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: needs.gate.outputs.agent == 'claude' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
@@ -552,6 +555,9 @@ jobs:
 
       - name: Run agent (Codex)
         id: codex
+        # A quota-blocked or hung agent CLI never exits; cap the step so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: needs.gate.outputs.agent == 'codex' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
@@ -584,6 +590,9 @@ jobs:
 
       - name: Run agent (OpenAI-compatible)
         id: openai_compatible
+        # A quota-blocked or hung agent CLI never exits; cap the step so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: needs.gate.outputs.agent == 'openai-compatible' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
         continue-on-error: true
         env:
@@ -682,6 +691,9 @@ jobs:
 
       - name: Repair recap source (Claude Code)
         id: claude_repair
+        # A quota-blocked or hung agent CLI never exits; cap the step so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'claude'
         continue-on-error: true
         env:
@@ -709,6 +721,9 @@ jobs:
 
       - name: Repair recap source (Codex)
         id: codex_repair
+        # A quota-blocked or hung agent CLI never exits; cap the step so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'codex'
         continue-on-error: true
         env:
@@ -733,6 +748,9 @@ jobs:
 
       - name: Repair recap source (OpenAI-compatible)
         id: openai_compatible_repair
+        # A quota-blocked or hung agent CLI never exits; cap the step so the job
+        # finishes and the check run is completed as a failure, not cancelled.
+        timeout-minutes: 10
         if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'openai-compatible'
         continue-on-error: true
         env:
