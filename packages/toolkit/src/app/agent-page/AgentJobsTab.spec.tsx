@@ -204,7 +204,7 @@ describe("AgentJobsTab organization automations", () => {
 
   it("shows scheduled and event-triggered organization automations", () => {
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     expect(jobMocks.useAutomations).toHaveBeenCalledWith("org");
@@ -347,40 +347,40 @@ describe("AgentJobsTab organization automations", () => {
         'button[aria-haspopup="menu"]',
       );
       if (!legacyMenu) throw new Error("Missing legacy menu");
-      act(() =>
+      act(() => {
         legacyMenu.dispatchEvent(
           new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-        ),
-      );
+        );
+      });
       const legacyActions = [
         ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ].map((item) => item.textContent?.trim());
+      ].map((item) => item.textContent.trim());
       expect(legacyActions).toEqual(["Details"]);
-      act(() =>
+      act(() => {
         document.dispatchEvent(
           new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        ),
-      );
+        );
+      });
 
       const menu = rows[1].querySelector<HTMLButtonElement>(
         'button[aria-haspopup="menu"]',
       );
       if (!menu) throw new Error("Missing automation menu");
-      act(() =>
+      act(() => {
         menu.dispatchEvent(
           new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-        ),
-      );
+        );
+      });
       const runItem = [
         ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ].find((item) => item.textContent?.trim() === "Run now");
+      ].find((item) => item.textContent.trim() === "Run now");
       if (!runItem) throw new Error("Missing run action");
       act(() => runItem.click());
       const runButton = [
         ...document.querySelectorAll<HTMLButtonElement>(
           '[role="dialog"] button',
         ),
-      ].find((button) => button.textContent?.trim() === "Run now");
+      ].find((button) => button.textContent.trim() === "Run now");
       if (!runButton) throw new Error("Missing run confirmation");
       act(() => runButton.click());
       expect(runNow).toHaveBeenCalledWith(
@@ -411,17 +411,17 @@ describe("AgentJobsTab organization automations", () => {
         ]),
         dataUpdatedAt: 100,
       };
-      const automationResult = {
+      let automationResult = {
         ...queryResult([
           {
             ...automation,
             id: job.id,
             resourceId: job.id,
             classification: "recurring-job",
-            enabled: true,
+            enabled: false,
             lastRun,
-            lastStatus: "success",
-            lastError: null,
+            lastStatus: "paused",
+            lastError: "Framework pause reason",
           },
         ]),
         dataUpdatedAt: 200,
@@ -447,6 +447,17 @@ describe("AgentJobsTab organization automations", () => {
         data: [
           {
             ...jobResult.data[0],
+            enabled: true,
+            lastStatus: "success",
+            lastError: null,
+          },
+        ],
+      };
+      automationResult = {
+        ...automationResult,
+        data: [
+          {
+            ...automationResult.data[0],
             enabled: true,
             lastStatus: "success",
             lastError: null,
@@ -506,20 +517,20 @@ describe("AgentJobsTab organization automations", () => {
         'button[aria-haspopup="menu"]',
       );
       if (!menu) throw new Error("Missing legacy menu");
-      act(() =>
+      act(() => {
         menu.dispatchEvent(
           new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-        ),
-      );
+        );
+      });
       const items = [
         ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ];
-      expect(items.map((item) => item.textContent?.trim())).toEqual(
+      expect(items.map((item) => item.textContent.trim())).toEqual(
         canOperate ? ["Details", "Run now"] : ["Details"],
       );
       if (canOperate) {
         const runItem = items.find(
-          (item) => item.textContent?.trim() === "Run now",
+          (item) => item.textContent.trim() === "Run now",
         );
         if (!runItem) throw new Error("Missing run action");
         act(() => runItem.click());
@@ -527,14 +538,15 @@ describe("AgentJobsTab organization automations", () => {
           ...document.querySelectorAll<HTMLButtonElement>(
             '[role="dialog"] button',
           ),
-        ].find((button) => button.textContent?.trim() === "Run now");
+        ].find((button) => button.textContent.trim() === "Run now");
         if (!runButton) throw new Error("Missing run confirmation");
         act(() => runButton.click());
-        expect(runNow).toHaveBeenCalledWith(
-          { resourceId: automation.resourceId },
-          expect.any(Object),
-        );
       }
+      const expectedRun = [
+        { resourceId: automation.resourceId },
+        expect.any(Object),
+      ];
+      expect(runNow.mock.calls).toEqual(canOperate ? [expectedRun] : []);
     },
   );
 
@@ -570,7 +582,7 @@ describe("AgentJobsTab organization automations", () => {
     expect(container.querySelector("article [role=switch]")).not.toBeNull();
   });
 
-  it("keeps the newest run status as the two lists refresh independently", () => {
+  it("uses the joined status as the two lists refresh independently", () => {
     const job =
       jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
     const automation =
@@ -594,9 +606,9 @@ describe("AgentJobsTab organization automations", () => {
           id: job.id,
           resourceId: job.id,
           classification: "recurring-job",
-          lastRun: "2026-01-01T12:00:00Z",
-          lastStatus: "success",
-          lastError: null,
+          lastRun: "2026-01-02T12:00:00Z",
+          lastStatus: "error",
+          lastError: "New job error",
         },
       ]),
       dataUpdatedAt: 100,
@@ -638,10 +650,8 @@ describe("AgentJobsTab organization automations", () => {
       ],
     };
     render();
-    expect(container.textContent).not.toContain("New history error");
-    expect(container.querySelector("article")?.textContent).toContain(
-      "success",
-    );
+    expect(container.textContent).toContain("New history error");
+    expect(container.querySelector("article")?.textContent).toContain("error");
   });
 
   it("does not reveal a stale automation while deleting a recurring job and restores it on failure", async () => {
@@ -709,19 +719,19 @@ describe("AgentJobsTab organization automations", () => {
       'article button[aria-haspopup="menu"]',
     );
     if (!trigger) throw new Error("Missing menu trigger");
-    act(() =>
+    act(() => {
       trigger.dispatchEvent(
         new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-      ),
-    );
+      );
+    });
     const deleteItem = [
       ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ].find((item) => item.textContent?.trim() === "Delete");
+    ].find((item) => item.textContent.trim() === "Delete");
     if (!deleteItem) throw new Error("Missing delete action");
     act(() => deleteItem.click());
     const deleteButton = [
       ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-    ].find((button) => button.textContent?.trim() === "Delete");
+    ].find((button) => button.textContent.trim() === "Delete");
     if (!deleteButton) throw new Error("Missing delete confirmation");
     await act(async () => deleteButton.click());
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -731,10 +741,18 @@ describe("AgentJobsTab organization automations", () => {
       }),
     );
     expect(container.querySelectorAll("article")).toHaveLength(0);
+    const failWrite = pendingWrites.at(0);
+    if (!failWrite) throw new Error("Delete request did not start");
+    await act(async () => failWrite(new Error("Network failure")));
+    await vi.waitFor(() =>
+      expect(container.querySelectorAll("article")).toHaveLength(1),
+    );
+    expect(container.textContent).toContain("weekly report");
     act(() => {
-      client.setQueryData(
+      client.setQueryData<Array<typeof automation>>(
         ["action", "list-automations", { scope: "organization" }],
-        [
+        (current) => [
+          ...(current ?? []),
           {
             ...automation,
             id: "new-automation",
@@ -747,18 +765,10 @@ describe("AgentJobsTab organization automations", () => {
     await vi.waitFor(() =>
       expect(container.textContent).toContain("new automation"),
     );
-    const failWrite = pendingWrites[0];
-    if (!failWrite) throw new Error("Delete request did not start");
-    await act(async () => failWrite(new Error("Network failure")));
-    await vi.waitFor(() =>
-      expect(container.querySelectorAll("article")).toHaveLength(2),
-    );
-    expect(container.textContent).toContain("weekly report");
-    expect(container.textContent).toContain("new automation");
 
     const cancel = [
       ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
-    ].find((button) => button.textContent?.trim() === "Cancel");
+    ].find((button) => button.textContent.trim() === "Cancel");
     if (!cancel) throw new Error("Missing cancel button");
     act(() => cancel.click());
     const recurringToggle = container.querySelector<HTMLButtonElement>(
@@ -783,7 +793,7 @@ describe("AgentJobsTab organization automations", () => {
           ),
       );
     });
-    const failUpdate = pendingWrites[1];
+    const failUpdate = pendingWrites.at(1);
     if (!failUpdate) throw new Error("Update request did not start");
     await act(async () => failUpdate(new Error("Network failure")));
     await vi.waitFor(() =>
@@ -794,15 +804,179 @@ describe("AgentJobsTab organization automations", () => {
     client.clear();
   });
 
+  it("uses the joined automation status when an older job response arrives later", () => {
+    const job =
+      jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+    const automation =
+      jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+    if (!job || !automation) throw new Error("Job fixtures are not configured");
+    jobMocks.useRecurringJobs.mockImplementation((scope: "user" | "org") => ({
+      ...queryResult(
+        scope === "org"
+          ? [{ ...job, lastRun: "2026-01-03T12:00:00Z", lastStatus: "running" }]
+          : [],
+      ),
+      dataUpdatedAt: 300,
+    }));
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => ({
+      ...queryResult(
+        scope === "org"
+          ? [
+              {
+                ...automation,
+                id: job.id,
+                resourceId: job.id,
+                classification: "recurring-job",
+                lastRun: "2026-01-03T12:00:00Z",
+                lastStatus: "success",
+              },
+            ]
+          : [],
+      ),
+      dataUpdatedAt: 200,
+    }));
+    act(() => root.render(<AgentJobsTab scope="org" canManageOrg />));
+    expect(container.querySelector("article")?.textContent).toContain(
+      "success",
+    );
+    expect(container.querySelector("article")?.textContent).not.toContain(
+      "running",
+    );
+  });
+
+  it.each([
+    { operation: "update", source: "refresh" },
+    { operation: "delete", source: "refresh" },
+    { operation: "update", source: "concurrent update" },
+    { operation: "delete", source: "concurrent update" },
+  ] as const)(
+    "preserves a same-value $source after a failed $operation",
+    async ({ operation, source }) => {
+      const actual =
+        await vi.importActual<typeof import("./use-jobs.js")>("./use-jobs.js");
+      const job =
+        jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+      const automation =
+        jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+      if (!job || !automation)
+        throw new Error("Job fixtures are not configured");
+      const client = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      const jobsKey = [
+        "action",
+        "list-recurring-jobs",
+        { scope: "organization" },
+      ] as const;
+      const automationsKey = [
+        "action",
+        "list-automations",
+        { scope: "organization" },
+      ] as const;
+      const matching = {
+        ...automation,
+        id: job.id,
+        resourceId: job.id,
+        classification: "recurring-job",
+      };
+      const otherJob = { ...job, id: "other", name: "other-job" };
+      const otherAutomation = {
+        ...matching,
+        id: "other",
+        resourceId: "other",
+        name: "other-job",
+      };
+      client.setQueryData(jobsKey, [job, otherJob]);
+      client.setQueryData(automationsKey, [matching, otherAutomation]);
+      let rejectWrite: ((error: Error) => void) | undefined;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((_resolve, reject) => {
+              rejectWrite = reject;
+            }),
+        ),
+      );
+      function MutationControl() {
+        const mutation = actual.useManageRecurringJob("org");
+        return (
+          <button
+            data-status={mutation.status}
+            onClick={() =>
+              mutation.mutate(
+                operation === "delete"
+                  ? { operation, resourceId: job.id }
+                  : { operation, resourceId: job.id, enabled: false },
+              )
+            }
+          >
+            Change
+          </button>
+        );
+      }
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <MutationControl />
+          </QueryClientProvider>,
+        ),
+      );
+      const button = container.querySelector("button");
+      if (!button) throw new Error("Missing mutation control");
+      await act(async () => {
+        button.click();
+        await vi.waitFor(() => expect(rejectWrite).toBeDefined());
+      });
+      const refreshedJobs =
+        operation === "delete"
+          ? [otherJob]
+          : [{ ...job, enabled: false }, otherJob];
+      const refreshedAutomations =
+        operation === "delete"
+          ? [otherAutomation]
+          : [{ ...matching, enabled: false }, otherAutomation];
+      if (source === "refresh") {
+        await client.fetchQuery({
+          queryKey: jobsKey,
+          queryFn: async () => refreshedJobs,
+          staleTime: 0,
+        });
+        await client.fetchQuery({
+          queryKey: automationsKey,
+          queryFn: async () => refreshedAutomations,
+          staleTime: 0,
+        });
+      } else {
+        client.setQueryData(jobsKey, refreshedJobs);
+        client.setQueryData(automationsKey, refreshedAutomations);
+      }
+      const failWrite = rejectWrite;
+      if (!failWrite) throw new Error("Mutation did not start");
+      await act(async () => {
+        failWrite(new Error("Network failure"));
+        await vi.waitFor(() =>
+          expect(client.getMutationCache().getAll().at(-1)?.state.status).toBe(
+            "error",
+          ),
+        );
+      });
+      expect(button.dataset.status).toBe("error");
+      expect(client.getQueryData(jobsKey)).toEqual(refreshedJobs);
+      expect(client.getQueryData(automationsKey)).toEqual(refreshedAutomations);
+      client.clear();
+    },
+  );
+
   it("opens the organization editor with its scope fixed", async () => {
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     const organizationSection = container.querySelectorAll("section")[1];
     const createButton = [
       ...(organizationSection?.querySelectorAll("button") ?? []),
-    ].find((button) => button.textContent?.trim() === "New automation");
+    ].find((button) => button.textContent.trim() === "New automation");
     if (!createButton) throw new Error("No organization create button");
 
     await act(async () => {
@@ -817,7 +991,7 @@ describe("AgentJobsTab organization automations", () => {
 
   it("stays quiet about the scheduler when schedules actually fire", () => {
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     expect(
@@ -832,7 +1006,7 @@ describe("AgentJobsTab organization automations", () => {
     });
 
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     const notice = container.querySelector(
@@ -853,7 +1027,7 @@ describe("AgentJobsTab organization automations", () => {
     });
 
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     const notice = container.querySelector(
@@ -871,7 +1045,7 @@ describe("AgentJobsTab organization automations", () => {
     jobMocks.useScheduledTriggerState.mockReturnValue({ kind: "loading" });
 
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     expect(
@@ -886,7 +1060,7 @@ describe("AgentJobsTab organization automations", () => {
     });
 
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     const notice = container.querySelector(
@@ -913,7 +1087,7 @@ describe("AgentJobsTab organization automations", () => {
     });
 
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
     const row = Array.from(container.querySelectorAll("article")).find(
       (article) => article.textContent?.includes("new lead alert"),
@@ -930,7 +1104,7 @@ describe("AgentJobsTab organization automations", () => {
     });
     const items = Array.from(
       document.querySelectorAll('[role="menuitem"]'),
-    ).map((item) => item.textContent?.trim());
+    ).map((item) => item.textContent.trim());
     expect(items).toContain("Edit");
     expect(items).toContain("Delete");
     expect(items).not.toContain("Run now");
@@ -938,7 +1112,7 @@ describe("AgentJobsTab organization automations", () => {
 
   it("routes organization event updates through the organization mutation", () => {
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     const eventRow = Array.from(container.querySelectorAll("article")).find(
@@ -968,6 +1142,7 @@ describe("AgentJobsTab organization automations", () => {
       act(() => {
         root.render(
           <AgentJobsTab
+            scope="org"
             variant="settings"
             canManageOrg={false}
             organizationId="org-a"
@@ -986,7 +1161,7 @@ describe("AgentJobsTab organization automations", () => {
       );
       const organizationCreateButton = [
         ...(organizationSection?.querySelectorAll("button") ?? []),
-      ].find((button) => button.textContent?.trim() === "New automation");
+      ].find((button) => button.textContent.trim() === "New automation");
       expect(organizationCreateButton).toBeDefined();
       expect(container.textContent).not.toContain(
         "Scheduled, event-triggered, and webhook-triggered automations shared with this organization.",
@@ -1037,7 +1212,9 @@ describe("AgentJobsTab organization automations", () => {
       jobMocks.useRecurringJobs.mockReturnValue(queryResult([]));
 
       act(() => {
-        root.render(<AgentJobsTab variant="settings" canManageOrg={false} />);
+        root.render(
+          <AgentJobsTab scope="org" variant="settings" canManageOrg={false} />,
+        );
       });
 
       const row = [...container.querySelectorAll("article")].find((article) =>
@@ -1051,6 +1228,7 @@ describe("AgentJobsTab organization automations", () => {
       act(() => {
         root.render(
           <AgentJobsTab
+            scope="org"
             variant="settings"
             canManageOrg
             organizationName="Acme"
@@ -1067,7 +1245,7 @@ describe("AgentJobsTab organization automations", () => {
     jobMocks.useAutomations.mockReturnValue(queryResult([]));
     jobMocks.useRecurringJobs.mockReturnValue(queryResult([]));
     act(() => {
-      root.render(<AgentJobsTab canManageOrg />);
+      root.render(<AgentJobsTab scope="org" canManageOrg />);
     });
 
     const orgCreationButton = Array.from(

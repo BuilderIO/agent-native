@@ -93,30 +93,19 @@ type ListedAutomation =
 function listRecurringJobs(
   jobs: RecurringJob[],
   automations: Automation[],
-  jobsUpdatedAt: number,
-  automationsUpdatedAt: number,
 ): ListedAutomation[] {
   const byId = new Map(
     automations.map((automation) => [automation.resourceId, automation]),
   );
   return jobs.map((job) => {
     const automation = byId.get(job.id);
-    const jobRun = Date.parse(job.lastRun ?? "");
-    const automationRun = Date.parse(automation?.lastRun ?? "");
-    const useAutomation =
-      automation &&
-      !(job.lastStatus === "paused" && !job.enabled) &&
-      ((Number.isFinite(automationRun) && !Number.isFinite(jobRun)) ||
-        automationRun > jobRun ||
-        ((automationRun === jobRun ||
-          (!Number.isFinite(automationRun) && !Number.isFinite(jobRun))) &&
-          automationsUpdatedAt >= jobsUpdatedAt));
     return {
       kind: "recurring",
-      resource: useAutomation
+      resource: automation
         ? {
             ...job,
             lastRun: automation.lastRun,
+            lastCheck: automation.lastCheck,
             lastStatus: automation.lastStatus,
             lastError: automation.lastError,
           }
@@ -402,21 +391,11 @@ export function AgentJobsTab({
   const personalAutomations = personalAutomationsQuery.data ?? [];
   const organizationAutomations = organizationAutomationsQuery.data ?? [];
   const personalEntries = [
-    ...listRecurringJobs(
-      personalJobs,
-      personalAutomations,
-      personalJobsQuery.dataUpdatedAt,
-      personalAutomationsQuery.dataUpdatedAt,
-    ),
+    ...listRecurringJobs(personalJobs, personalAutomations),
     ...listAutomations(personalAutomations, personalJobs),
   ];
   const organizationEntries = [
-    ...listRecurringJobs(
-      organizationJobs,
-      organizationAutomations,
-      organizationJobsQuery.dataUpdatedAt,
-      organizationAutomationsQuery.dataUpdatedAt,
-    ),
+    ...listRecurringJobs(organizationJobs, organizationAutomations),
     ...listAutomations(organizationAutomations, organizationJobs),
   ];
   const mutationPending =

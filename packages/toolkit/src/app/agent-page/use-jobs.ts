@@ -2,7 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type Query } from "@tanstack/react-query";
 
 import type {
   ScheduledTriggerState,
@@ -329,40 +329,6 @@ export function useAutomationAccountSearch(query: string, enabled: boolean) {
   );
 }
 
-function rollbackRecurringMutation<T extends RecurringJob | Automation>(
-  current: T[] | undefined,
-  previous: T[] | undefined,
-  variables: ManageJobInput,
-): T[] | undefined {
-  if (!current || !previous) return current;
-  if (variables.operation === "delete") {
-    const restored = [...current];
-    previous.forEach((item, index) => {
-      if (
-        matchesLocator(item, variables) &&
-        !restored.some((entry) => entry.id === item.id)
-      ) {
-        restored.splice(Math.min(index, restored.length), 0, item);
-      }
-    });
-    return restored;
-  }
-  const patch = optimisticJobPatch(variables);
-  return current.map((item) => {
-    const original = previous.find(
-      (entry) => entry.id === item.id && matchesLocator(entry, variables),
-    );
-    if (!original) return item;
-    const restored = { ...item };
-    for (const key of ["enabled", "schedule", "timezone"] as const) {
-      if (patch[key] !== undefined && item[key] === patch[key]) {
-        Object.assign(restored, { [key]: original[key] });
-      }
-    }
-    return restored;
-  });
-}
-
 /** Mutates legacy `jobs/*.md` recurring jobs; schedule/enabled/delete only. */
 export function useManageRecurringJob(scope: JobsScope) {
   const queryClient = useQueryClient();
@@ -409,24 +375,65 @@ export function useManageRecurringJob(scope: JobsScope) {
             : automation,
         );
       });
-      return { previous, previousAutomations };
+      // Query revisions advance even when structural sharing retains equal data.
+      const jobsQuery = queryClient
+        .getQueryCache()
+        .find({ queryKey, exact: true });
+      const automationsQuery = queryClient
+        .getQueryCache()
+        .find({ queryKey: automationsKey, exact: true });
+      return {
+        previous,
+        previousAutomations,
+        jobsQuery,
+        jobsRevision: jobsQuery?.state.dataUpdateCount,
+        automationsQuery,
+        automationsRevision: automationsQuery?.state.dataUpdateCount,
+      };
     },
-    onError: (_error, variables, context) => {
+    onError: (_error, _variables, context) => {
       const rollback = context as
-        | { previous?: RecurringJob[]; previousAutomations?: Automation[] }
+        | {
+            previous?: RecurringJob[];
+            previousAutomations?: Automation[];
+            jobsQuery?: Query;
+            jobsRevision?: number;
+            automationsQuery?: Query;
+            automationsRevision?: number;
+          }
         | undefined;
-      if (rollback) {
-        queryClient.setQueryData<RecurringJob[]>(queryKey, (current) =>
-          rollbackRecurringMutation(current, rollback.previous, variables),
-        );
-        queryClient.setQueryData<Automation[]>(automationsKey, (current) =>
-          rollbackRecurringMutation(
-            current,
-            rollback.previousAutomations,
-            variables,
-          ),
-        );
-      }
+      if (!rollback) return;
+      const restore = (
+        key: typeof queryKey | typeof automationsKey,
+        previous: RecurringJob[] | Automation[] | undefined,
+        query: Query | undefined,
+        revision: number | undefined,
+      ) => {
+        const current = queryClient
+          .getQueryCache()
+          .find({ queryKey: key, exact: true });
+        if (
+          current &&
+          current === query &&
+          current.state.dataUpdateCount === revision
+        ) {
+          if (previous !== undefined) queryClient.setQueryData(key, previous);
+        } else {
+          void queryClient.invalidateQueries({ queryKey: key, exact: true });
+        }
+      };
+      restore(
+        queryKey,
+        rollback.previous,
+        rollback.jobsQuery,
+        rollback.jobsRevision,
+      );
+      restore(
+        automationsKey,
+        rollback.previousAutomations,
+        rollback.automationsQuery,
+        rollback.automationsRevision,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
