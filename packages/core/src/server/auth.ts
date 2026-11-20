@@ -1775,7 +1775,8 @@ async function resolveActiveBetterAuthSessionToken(
 async function emailFromActiveBetterAuthSessionToken(
   token: string,
 ): Promise<string | null> {
-  return (await resolveActiveBetterAuthSessionToken(token))?.email ?? null;
+  const resolved = await resolveActiveBetterAuthSessionToken(token);
+  return resolved ? resolved.email : null;
 }
 
 function isMissingBetterAuthTable(error: unknown, table: string): boolean {
@@ -2578,7 +2579,8 @@ async function resolveLegacySessionEmail(
 }
 
 export async function getSessionEmail(token: string): Promise<string | null> {
-  return (await resolveLegacySessionEmail(token))?.email ?? null;
+  const resolved = await resolveLegacySessionEmail(token);
+  return resolved ? resolved.email : null;
 }
 
 type LegacySessionEmailVerification =

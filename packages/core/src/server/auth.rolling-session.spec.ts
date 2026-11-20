@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const FIXED_NOW = Date.UTC(2026, 10, 20, 12, 0, 0);
 
 function makeEvent(cookie: string): H3Event {
   const path = "/_agent-native/auth/session";
@@ -33,6 +34,7 @@ function makeEvent(cookie: string): H3Event {
 
 describe("rolling framework session cookies", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -40,24 +42,26 @@ describe("rolling framework session cookies", () => {
 
   it("rolls legacy session created_at and re-issues Set-Cookie after 24h", async () => {
     vi.resetModules();
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("ACCESS_TOKEN", undefined);
     vi.stubEnv("ACCESS_TOKENS", undefined);
     vi.stubEnv("AUTH_DISABLED", undefined);
 
     const token = "legacy-roll-token-1";
-    const initialCreatedAt = Date.now() - ONE_DAY_MS - 60_000;
+    const initialCreatedAt = FIXED_NOW - ONE_DAY_MS - 60_000;
     let storedCreatedAt = initialCreatedAt;
-    const updates: Array<{ sql: string; args: unknown[] }> = [];
+    const updates: Array<{ queryText: string; args: unknown[] }> = [];
 
     vi.doMock("../db/client.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../db/client.js")>()),
       getDbExec: () => ({
         execute: async (query: string | { sql: string; args?: unknown[] }) => {
-          const sql = typeof query === "string" ? query : query.sql;
+          const queryText = typeof query === "string" ? query : query.sql;
           const args = typeof query === "string" ? [] : (query.args ?? []);
-          if (sql.includes("CREATE TABLE")) return { rows: [] };
-          if (sql.includes("SELECT email, created_at FROM sessions")) {
+          if (queryText.includes("CREATE TABLE")) return { rows: [] };
+          if (queryText.includes("SELECT email, created_at FROM sessions")) {
             return {
               rows: [
                 {
@@ -67,12 +71,12 @@ describe("rolling framework session cookies", () => {
               ],
             };
           }
-          if (sql.includes("UPDATE sessions SET created_at")) {
-            updates.push({ sql, args });
+          if (queryText.includes("UPDATE sessions SET created_at")) {
+            updates.push({ queryText, args });
             storedCreatedAt = Number(args[0]);
             return { rows: [] };
           }
-          if (sql.includes('FROM "user"')) {
+          if (queryText.includes('FROM "user"')) {
             return { rows: [{ email_verified: 1 }] };
           }
           return { rows: [] };
@@ -94,7 +98,7 @@ describe("rolling framework session cookies", () => {
 
     expect(session?.email).toBe("active@example.test");
     expect(updates).toHaveLength(1);
-    expect(storedCreatedAt).toBeGreaterThan(initialCreatedAt + ONE_DAY_MS);
+    expect(storedCreatedAt).toBe(FIXED_NOW);
     const setCookies = ev.res.headers.getSetCookie?.() ?? [];
     expect(setCookies.some((c) => c.includes(`an_session=${token}`))).toBe(
       true,
@@ -103,23 +107,25 @@ describe("rolling framework session cookies", () => {
 
   it("does not roll or re-issue Set-Cookie when session was refreshed less than 24h ago", async () => {
     vi.resetModules();
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("ACCESS_TOKEN", undefined);
     vi.stubEnv("ACCESS_TOKENS", undefined);
     vi.stubEnv("AUTH_DISABLED", undefined);
 
     const token = "fresh-session-token-1";
-    const freshCreatedAt = Date.now() - 60 * 60 * 1000;
-    const updates: Array<{ sql: string; args: unknown[] }> = [];
+    const freshCreatedAt = FIXED_NOW - 60 * 60 * 1000;
+    const updates: Array<{ queryText: string; args: unknown[] }> = [];
 
     vi.doMock("../db/client.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../db/client.js")>()),
       getDbExec: () => ({
         execute: async (query: string | { sql: string; args?: unknown[] }) => {
-          const sql = typeof query === "string" ? query : query.sql;
+          const queryText = typeof query === "string" ? query : query.sql;
           const args = typeof query === "string" ? [] : (query.args ?? []);
-          if (sql.includes("CREATE TABLE")) return { rows: [] };
-          if (sql.includes("SELECT email, created_at FROM sessions")) {
+          if (queryText.includes("CREATE TABLE")) return { rows: [] };
+          if (queryText.includes("SELECT email, created_at FROM sessions")) {
             return {
               rows: [
                 {
@@ -129,11 +135,11 @@ describe("rolling framework session cookies", () => {
               ],
             };
           }
-          if (sql.includes("UPDATE sessions SET created_at")) {
-            updates.push({ sql, args });
+          if (queryText.includes("UPDATE sessions SET created_at")) {
+            updates.push({ queryText, args });
             return { rows: [] };
           }
-          if (sql.includes('FROM "user"')) {
+          if (queryText.includes('FROM "user"')) {
             return { rows: [{ email_verified: 1 }] };
           }
           return { rows: [] };
@@ -163,26 +169,28 @@ describe("rolling framework session cookies", () => {
 
   it("rolls Better Auth session table expiry and re-issues Set-Cookie after 24h", async () => {
     vi.resetModules();
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("ACCESS_TOKEN", undefined);
     vi.stubEnv("ACCESS_TOKENS", undefined);
     vi.stubEnv("AUTH_DISABLED", undefined);
 
     const token = "ba-mirror-token-1";
-    const oldExpires = new Date(Date.now() + 28 * ONE_DAY_MS).toISOString();
-    const updates: Array<{ sql: string; args: unknown[] }> = [];
+    const oldExpires = new Date(FIXED_NOW + 28 * ONE_DAY_MS).toISOString();
+    const updates: Array<{ queryText: string; args: unknown[] }> = [];
 
     vi.doMock("../db/client.js", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../db/client.js")>()),
       getDbExec: () => ({
         execute: async (query: string | { sql: string; args?: unknown[] }) => {
-          const sql = typeof query === "string" ? query : query.sql;
+          const queryText = typeof query === "string" ? query : query.sql;
           const args = typeof query === "string" ? [] : (query.args ?? []);
-          if (sql.includes("CREATE TABLE")) return { rows: [] };
-          if (sql.includes("SELECT email, created_at FROM sessions")) {
+          if (queryText.includes("CREATE TABLE")) return { rows: [] };
+          if (queryText.includes("SELECT email, created_at FROM sessions")) {
             return { rows: [] };
           }
-          if (sql.includes('FROM "session" s JOIN "user"')) {
+          if (queryText.includes('FROM "session" s JOIN "user"')) {
             return {
               rows: [
                 {
@@ -192,11 +200,11 @@ describe("rolling framework session cookies", () => {
               ],
             };
           }
-          if (sql.includes('UPDATE "session" SET expires_at')) {
-            updates.push({ sql, args });
+          if (queryText.includes('UPDATE "session" SET expires_at')) {
+            updates.push({ queryText, args });
             return { rows: [] };
           }
-          if (sql.includes('FROM "user"')) {
+          if (queryText.includes('FROM "user"')) {
             return { rows: [{ email_verified: 1 }] };
           }
           return { rows: [] };
