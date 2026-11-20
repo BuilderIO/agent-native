@@ -7326,6 +7326,11 @@ function PageEditorSessionBody({
                 observedRevision: target.revision,
                 idempotencyKey,
                 operations: [amendment.operation],
+                // A suggestion carried over from an earlier page moves onto
+                // the page this draft was written on.
+                ...(target.baseRevision === base.baseRevision
+                  ? {}
+                  : { baseRevision: base.baseRevision }),
               });
               return { idempotencyKey, suggestion };
             },

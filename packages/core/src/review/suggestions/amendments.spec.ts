@@ -263,6 +263,30 @@ describe("pending suggestion amendments", () => {
     );
   });
 
+  it("moves the suggestion onto a newer basis the amendment was written against", async () => {
+    const amended = await updateResourceSuggestion.run(
+      { ...request(), baseRevision: "base-2" },
+      author,
+    );
+    expect(validate).toHaveBeenCalledWith(
+      expect.objectContaining({ baseRevision: "base-2" }),
+    );
+    expect(amended).toMatchObject({ baseRevision: "base-2", revision: 2 });
+    expect(await getSuggestion(suggestion.id)).toMatchObject({
+      baseRevision: "base-2",
+      operations: [expect.objectContaining({ after: "better" })],
+    });
+    expect(
+      await updateResourceSuggestion.run(
+        { ...request(), baseRevision: "base-2" },
+        author,
+      ),
+    ).toEqual(amended);
+    await expect(
+      updateResourceSuggestion.run(request(), author),
+    ).rejects.toMatchObject({ errorCode: "idempotency_conflict" });
+  });
+
   it("rejects changed canonical basis through adapter validation without an amendment", async () => {
     validate.mockRejectedValueOnce(new Error("Canonical changed"));
     await expect(

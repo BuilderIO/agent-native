@@ -166,11 +166,15 @@ test.describe("a suggesting tab and another tab's change", () => {
           (await pendingSuggestions(suggester, id)).some(
             (suggestion) =>
               suggestion.baseRevision === revision &&
-              JSON.stringify(suggestion.operations).includes("Second."),
+              JSON.stringify(suggestion.operations).includes("First. Second."),
           ),
-        { message: "the second suggestion, saved", timeout: 30_000 },
+        {
+          message: "the saved suggestion, amended onto the newer page",
+          timeout: 30_000,
+        },
       )
       .toBe(true);
+    expect(await pendingSuggestions(suggester, id)).toHaveLength(1);
     await expect(failedAlert(suggester)).toHaveCount(0);
     await expect(
       paragraphs(suggester).filter({ hasText: "Opening paragraph" }),
