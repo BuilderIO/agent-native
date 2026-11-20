@@ -445,7 +445,10 @@ const messages = {
     manualSync: "手動同步",
     manualImportTitle: "將文件匯入 {{source}}",
     manualImportDescription:
-      "選取 Markdown 或純文字的資料夾或檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
+      "選取 Markdown 或純文字檔案。匯入內容遵循此來源的存取設定。",
+    manualImportKind: "匯入類型",
+    manualImportDocument: "文件",
+    manualImportTranscript: "會議逐字稿",
     chooseMarkdownFolder: "選取資料夾",
     importMarkdownFiles: "匯入文件",
     manualImportScreeningUnavailable:

@@ -23,7 +23,7 @@ import {
 } from "./hybrid-search.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  withheldPassageCount,
 } from "./search-index-contracts.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
 import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
@@ -677,9 +677,10 @@ async function searchCaptureResults(
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
-        withheldPassages: withheldZoomPassageCount(
+        withheldPassages: withheldPassageCount(
           parseCaptureMetadata(row.metadataJson),
           source.provider,
+          row.kind,
         ),
       },
     ];
@@ -749,7 +750,9 @@ async function searchSourceResults(
 async function semanticCaptureDetails(
   artifacts: Array<{ captureId: string; audienceId: string }>,
   accessibleSourceIds: string[],
-): Promise<Map<string, { content: string; metadataJson: string | null }>> {
+): Promise<
+  Map<string, { content: string; metadataJson: string | null; kind: string }>
+> {
   const captureIds = Array.from(
     new Set(artifacts.map((artifact) => artifact.captureId)),
   );
@@ -762,6 +765,7 @@ async function semanticCaptureDetails(
       id: schema.brainRawCaptures.id,
       content: schema.brainRawCaptures.content,
       metadataJson: schema.brainRawCaptures.metadataJson,
+      kind: schema.brainRawCaptures.kind,
     })
     .from(schema.brainRawCaptures)
     .where(
@@ -908,9 +912,10 @@ export async function searchEverythingWithLanes(args: {
                 capturedAt: artifact.capturedAt,
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
-                withheldPassages: withheldZoomPassageCount(
+                withheldPassages: withheldPassageCount(
                   parseCaptureMetadata(detail.metadataJson),
                   source.provider,
+                  detail.kind,
                 ),
               },
             ];

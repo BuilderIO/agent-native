@@ -18,7 +18,7 @@ import {
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   BRAIN_WORKSPACE_RULE_SCORE_KEY,
-  readWithheldZoomPassages,
+  readWithheldPassages,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
 import {
@@ -585,20 +585,20 @@ const deterministicPreScreen = (
   deterministicQuarantineDecision(input.content, capturedAt, scope);
 
 const WITHHELD_MARKER = "[…]";
-const NEUTRAL_EXCERPT_TITLE = "Zoom transcript excerpt";
+const ZOOM_EXCERPT_TITLE = "Zoom transcript excerpt";
 const ZOOM_SCREEN_CALL_LIMIT = 160;
 const ZOOM_SCREEN_CONCURRENCY = 8;
 const ZOOM_SCREEN_DEADLINE_MS = 120_000;
 const ZOOM_SCREEN_ROUNDS = 3;
 
 /**
- * Finds restricted Zoom transcript lines so one sensitive remark does not
+ * Finds restricted transcript lines so one sensitive remark does not
  * discard the meeting. It only proposes a transcript for the unchanged
  * whole-capture pipeline, together with Jev's verdict on exactly that text so
  * the pipeline cannot re-ask and get a different answer. When lines cannot be
  * separated, it returns the last rejected text and verdict.
  */
-async function withholdRestrictedZoomLines(
+async function withholdRestrictedTranscriptLines(
   input: CaptureSanitizationInput,
 ): Promise<{
   content: string;
@@ -695,7 +695,9 @@ async function withholdRestrictedZoomLines(
         return giveUp();
       const isRestricted = async (range: Turn[]) => {
         const outcome = await classify(
-          NEUTRAL_EXCERPT_TITLE,
+          input.source.provider === "zoom"
+            ? ZOOM_EXCERPT_TITLE
+            : "Transcript excerpt",
           range.map((turn) => turn.text).join("\n"),
         );
         return outcome && outcome.decision?.disposition !== "allowed";
@@ -738,8 +740,9 @@ export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
   const screened =
-    input.source.provider === "zoom" && input.kind === "transcript"
-      ? await withholdRestrictedZoomLines(input)
+    ["zoom", "manual"].includes(input.source.provider) &&
+    input.kind === "transcript"
+      ? await withholdRestrictedTranscriptLines(input)
       : undefined;
   const result = await sanitizeWholeCapture(
     screened ? { ...input, content: screened.content } : input,
@@ -747,8 +750,8 @@ export async function sanitizeCaptureForStorage(
   );
   const withheldNow = screened?.withheldPassages ?? 0;
   const prior =
-    input.source.provider === "zoom" && input.metadata
-      ? readWithheldZoomPassages(input.metadata)
+    screened && input.metadata
+      ? readWithheldPassages(input.metadata)
       : undefined;
   if (
     result.decision?.disposition !== "allowed" ||
@@ -758,10 +761,13 @@ export async function sanitizeCaptureForStorage(
   const withheldPassages = prior === null ? null : (prior ?? 0) + withheldNow;
   const metadata: Record<string, unknown> = {
     ...result.metadata,
-    zoomPassageQuarantine: { version: 1, withheldPassages },
+    [input.source.provider === "zoom"
+      ? "zoomPassageQuarantine"
+      : "passageQuarantine"]: { version: 1, withheldPassages },
   };
-  // The full-recording link would expose exactly what the excerpt withholds.
-  delete metadata.sourceUrl;
+  // A link to the original could expose the withheld passages.
+  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"])
+    delete metadata[key];
   return { ...result, metadata };
 }
 
@@ -858,7 +864,8 @@ async function sanitizeWholeCapture(
             {
               dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
               preserveGaps:
-                input.source.provider === "zoom" &&
+                ["zoom", "manual"].includes(input.source.provider) &&
+                input.kind === "transcript" &&
                 input.content.includes(WITHHELD_MARKER),
             },
           )

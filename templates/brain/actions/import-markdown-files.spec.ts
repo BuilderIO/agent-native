@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { z } from "zod";
 
 const mocks = vi.hoisted(() => {
   class MockBrainCaptureBlockedError extends Error {
@@ -39,8 +40,19 @@ vi.mock("../server/lib/distillation-queue.js", () => ({
   enqueueCaptureDistillation: mocks.enqueueCaptureDistillation,
 }));
 
-import { BrainClassifierUnavailableError } from "../server/lib/capture-sanitization.js";
+import {
+  BrainClassifierUnavailableError,
+  sanitizeCaptureForStorage,
+} from "../server/lib/capture-sanitization.js";
+import { withheldPassageCount } from "../server/lib/search-index-contracts.js";
+import { DEFAULT_BRAIN_SETTINGS } from "../shared/types.js";
 import action from "./import-markdown-files.js";
+
+const schema = (
+  action as typeof action & {
+    schema: z.ZodType<Parameters<typeof action.run>[0]>;
+  }
+).schema;
 
 const source = {
   id: "source-1",
@@ -105,6 +117,70 @@ describe("import-markdown-files", () => {
       blocked: 0,
       failed: 0,
     });
+  });
+
+  it("screens explicitly selected manual transcripts and reports only the safe receipt", async () => {
+    const content = [
+      "Roadmap launch is on track.",
+      "The product plan is ready.",
+      "Her salary increase is approved.",
+      "The API project is next.",
+      "The customer launch is Friday.",
+    ].join("\n");
+    let stored:
+      | Awaited<ReturnType<typeof sanitizeCaptureForStorage>>
+      | undefined;
+    mocks.createCapture.mockImplementation(async (input) => {
+      stored = await sanitizeCaptureForStorage({
+        ...input,
+        source: { ...source, ownerEmail: "owner@example.test" },
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifier: "deterministic",
+        },
+      });
+      if (stored.decision?.disposition !== "allowed") {
+        throw new mocks.BrainCaptureBlockedError({
+          disposition: "quarantined",
+        });
+      }
+      return {
+        id: "capture-1",
+        status: "queued",
+        metadataJson: JSON.stringify(stored.metadata),
+      };
+    });
+
+    const args = schema.parse({
+      sourceId: "source-1",
+      files: [{ path: "meeting.txt", content }],
+      kind: "transcript",
+      enqueueDistillation: false,
+    });
+    const result = await action.run(args);
+    expect(result.files[0]).toMatchObject({
+      status: "imported",
+      withheldPassages: 1,
+      passageQuarantine: { version: 1, withheldPassages: 1 },
+    });
+    expect(mocks.createCapture.mock.calls[0][0].kind).toBe("transcript");
+    expect(stored?.content).toContain("Roadmap launch");
+    expect(stored?.content).toContain("customer launch");
+    expect(stored?.content).not.toContain("salary");
+    expect(stored?.content).toContain("[…]");
+    expect(
+      withheldPassageCount(stored?.metadata ?? null, "manual", "transcript"),
+    ).toBe(1);
+    expect(JSON.stringify(result)).not.toContain("salary");
+
+    const documentArgs = schema.parse({
+      sourceId: "source-1",
+      files: [{ path: "document.txt", content }],
+      enqueueDistillation: false,
+    });
+    const document = await action.run(documentArgs);
+    expect(mocks.createCapture.mock.calls[1][0].kind).toBe("document");
+    expect(document.files[0].status).toBe("blocked");
   });
 
   it("imports plain text files and records their format", async () => {

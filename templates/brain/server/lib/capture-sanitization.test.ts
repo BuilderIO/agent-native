@@ -824,6 +824,87 @@ describe("Zoom restricted-line withholding", () => {
     });
   });
 
+  it("withholds manual transcript passages and removes every source link", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+        source: { ...baseInput.source, provider: "manual" as const },
+        metadata: {
+          sourceUrl: "https://example.test/full",
+          url: "https://example.test/full",
+          permalink: "https://example.test/full",
+          webUrl: "https://example.test/full",
+          web_url: "https://example.test/full",
+          sanitizeBeforeStorage: true,
+        },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).toContain("update 30 -");
+    expect(result.content).toContain("[…]");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(JSON.stringify(result.metadata)).not.toContain(
+      "https://example.test/full",
+    );
+    expect(result.metadata.passageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
+  });
+
+  it.each([
+    { stored: { version: 1, withheldPassages: 2 }, expected: 2 },
+    { stored: { version: 1, withheldPassages: "bad" }, expected: null },
+  ])(
+    "preserves manual receipt counts when screening again ($expected)",
+    async ({ stored, expected }) => {
+      mocks.classifyWithJev.mockImplementation(judge(() => false));
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(withLine(4, "[…]")), {
+          source: { ...baseInput.source, provider: "manual" as const },
+          metadata: {
+            passageQuarantine: stored,
+            url: "https://example.test/full",
+          },
+        }),
+      );
+      expect(result.metadata.passageQuarantine).toEqual({
+        version: 1,
+        withheldPassages: expected,
+      });
+      expect(result.metadata.url).toBeUndefined();
+    },
+  );
+
+  it("does not split manual documents, or bypass a manual transcript whole-capture veto", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const content = transcript(withLine(20, "MEDICAL_LEAVE details"));
+    const manual = { ...baseInput.source, provider: "manual" as const };
+    const document = await sanitizeCaptureForStorage(
+      zoomInput(content, { source: manual, kind: "document" }),
+    );
+    expect(document.decision?.disposition).not.toBe("allowed");
+    const vetoed = await sanitizeCaptureForStorage(
+      zoomInput(content, { source: manual, title: "password: fake-example" }),
+    );
+    expect(vetoed.decision?.disposition).not.toBe("allowed");
+    expect(vetoed.content).not.toContain("Roadmap");
+  });
+
+  it("fails closed when manual transcript passage screening is unavailable", async () => {
+    mocks.classifyWithJev.mockResolvedValue({
+      configured: true,
+      failureReason: "jev-timeout",
+    });
+    await expect(
+      sanitizeCaptureForStorage(
+        zoomInput(transcript(turns), {
+          source: { ...baseInput.source, provider: "manual" as const },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BrainClassifierUnavailableError);
+  });
+
   it("still quarantines a whole non-Zoom transcript", async () => {
     mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
     const result = await sanitizeCaptureForStorage(

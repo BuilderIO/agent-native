@@ -11,7 +11,7 @@ import {
 } from "../server/lib/brain.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  withheldPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
@@ -190,9 +190,10 @@ export default defineAction({
             status: row.status,
             capturedAt: row.capturedAt,
             sourceUrl: sourceUrlFromMetadataRecord(metadata ?? {}),
-            withheldPassages: withheldZoomPassageCount(
+            withheldPassages: withheldPassageCount(
               metadata,
               source.provider,
+              row.kind,
             ),
             distillationQueue: redactDistillationQueue(
               queueByCapture.get(row.id) ?? null,

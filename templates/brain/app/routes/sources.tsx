@@ -1808,6 +1808,7 @@ function MarkdownImportDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<MarkdownFileSelection[]>([]);
+  const [kind, setKind] = useState<"document" | "transcript">("document");
   const [skippedFileCount, setSkippedFileCount] = useState(0);
   const [result, setResult] = useState<MarkdownImportResponse | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
@@ -1817,12 +1818,14 @@ function MarkdownImportDialog({
       sourceId: string;
       files: Array<{ path: string; content: string }>;
       enqueueDistillation: boolean;
+      kind: "document" | "transcript";
     }
   >("import-markdown-files" as any);
 
   useEffect(() => {
     if (!open) {
       setFiles([]);
+      setKind("document");
       setSkippedFileCount(0);
       setResult(null);
       setReadError(null);
@@ -1856,6 +1859,7 @@ function MarkdownImportDialog({
       const nextResult = await importMarkdownFiles.mutateAsync({
         sourceId: source.id,
         files: payload,
+        kind,
         enqueueDistillation: true,
       });
       setResult(nextResult);
@@ -1867,6 +1871,12 @@ function MarkdownImportDialog({
 
   const resultIssues =
     result?.files.filter((file) => file.status !== "imported") ?? [];
+  const incompleteFiles =
+    result?.files.filter(
+      (file) =>
+        file.status === "imported" &&
+        (file.withheldPassages === null || (file.withheldPassages ?? 0) > 0),
+    ) ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1882,6 +1892,31 @@ function MarkdownImportDialog({
           </DialogHeader>
 
           <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="manual-import-kind">
+                {t("sources.manualImportKind")}
+              </Label>
+              <Select
+                value={kind}
+                onValueChange={(value) => {
+                  setKind(value as "document" | "transcript");
+                  setResult(null);
+                }}
+                disabled={importMarkdownFiles.isPending}
+              >
+                <SelectTrigger id="manual-import-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="document">
+                    {t("sources.manualImportDocument")}
+                  </SelectItem>
+                  <SelectItem value="transcript">
+                    {t("sources.manualImportTranscript")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <input
               ref={inputRef}
               type="file"
@@ -1969,6 +2004,14 @@ function MarkdownImportDialog({
                     blocked: result.summary.blocked.toLocaleString(),
                   })}
                 </p>
+                {incompleteFiles.map((file) => (
+                  <p key={file.path} className="text-xs text-destructive">
+                    <span className="font-mono">{file.path}</span>:{" "}
+                    {t("common.incompleteTranscript", {
+                      count: file.withheldPassages ?? "?",
+                    })}
+                  </p>
+                ))}
                 {resultIssues.length ? (
                   <div className="grid gap-1 text-xs leading-5 text-muted-foreground">
                     {resultIssues.slice(0, 5).map((file) => (
