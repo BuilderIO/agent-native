@@ -988,6 +988,8 @@ const editor = {
     noFilesOrMedia: "ファイルやメディアがありません",
     noMatchingOptions: "一致するオプションはありません",
     noMatchingPropertyTypes: "一致するプロパティ タイプがありません",
+    typeChangeUnavailable:
+      "既存の値を保護するため、プロパティの種類は変更できません。",
     notMappedToBuilder: "ビルダーにマッピングされていません。",
     onlyBlocksPropertyWarning:
       "これは、このオブジェクト タイプに存在する唯一のブロック プロパティです。これにより、このタイプのすべてのオブジェクトのメイン コンテンツ (本文) が削除されます。",
@@ -1857,6 +1859,7 @@ const overrides = {
     heading6: "見出し 6",
     link: "リンク",
     comment: "コメント",
+    suggestEdit: "編集を提案",
     pasteLink: "リンクを貼り付け...",
     apply: "適用",
     plainText: "プレーンテキスト",

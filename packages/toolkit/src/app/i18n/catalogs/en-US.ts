@@ -711,6 +711,8 @@ const messages = {
   "errorMessages.errorPrefix": "Error: {{message}}",
   "errorMessages.gatewayInternalError":
     "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
+  "errorMessages.modelRefusal":
+    "I can’t help with that request. I can help with a different question.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
   "errorMessages.creditsLimitReached": "You've reached your AI credits limit.",
@@ -746,6 +748,8 @@ const messages = {
   "errorMessages.providerHtml": "The provider returned an HTML error page.",
   "errorMessages.providerNetwork":
     "The model provider could not be reached. Check your connection and retry.",
+  "errorMessages.emailVerificationRequired":
+    "Verify an eligible email address with the connected AI provider account or space, then retry.",
   "errorMessages.providerRateLimit":
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
   "errorMessages.providerTransientRejection":
@@ -1276,7 +1280,7 @@ const messages = {
     "This run can't be continued anymore. Send a message to keep going.",
   "errorMessages.invalidAttachmentNamed":
     "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
-  "recovery.resendVerificationEmail": "Resend verification email",
+  "recovery.resendVerificationEmail": "Resend app account verification email",
   "recovery.sendingVerificationEmail": "Sending...",
   "recovery.verificationEmailRequested":
     "Verification email requested. Check your inbox and spam folder.",

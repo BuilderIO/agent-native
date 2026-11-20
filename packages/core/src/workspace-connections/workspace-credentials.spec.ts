@@ -10,9 +10,11 @@ import { createPersonalCredentialProviderSnapshot } from "./personal-provider-de
 import {
   getWorkspaceConnection,
   getWorkspaceConnectionGrant,
+  markWorkspaceConnectionUsed,
   revokeWorkspaceConnectionGrant,
   upsertWorkspaceConnection,
 } from "./store.js";
+import * as store from "./store.js";
 import {
   createWorkspaceCredentialService,
   readWorkspaceCredential,
@@ -752,4 +754,93 @@ describe("workspace credential drafts", () => {
       code: "forbidden",
     });
   }, 30000);
+});
+
+describe("workspace credential profile snapshot pin", () => {
+  function profile(connectionId: string) {
+    return readWorkspaceCredentialProfile({
+      appId: APP,
+      connectionId,
+      provider: provider.id,
+      requestContext: context(MEMBER),
+    });
+  }
+  async function interleaveAfterFirstGrantRead(change: () => Promise<unknown>) {
+    const actual = store.getWorkspaceConnectionGrant;
+    let reads = 0;
+    vi.spyOn(store, "getWorkspaceConnectionGrant").mockImplementation(
+      async (...args) => {
+        const grant = await actual(...args);
+        if (++reads === 1) await change();
+        return grant;
+      },
+    );
+  }
+
+  it("opens the profile when only usage metadata changes between its two reads", async () => {
+    const created = await as(() => api().create(input()));
+    const before = await profile(created.connectionId);
+    await interleaveAfterFirstGrantRead(() =>
+      as(() =>
+        markWorkspaceConnectionUsed({
+          connectionId: created.connectionId,
+          appId: APP,
+          usedAt: Date.now() + 60_000,
+        }),
+      ),
+    );
+    const opened = await profile(created.connectionId);
+    expect(opened?.revision).toBe(before?.revision);
+    const used = await as(() => getWorkspaceConnection(created.connectionId));
+    expect(used?.lastUsedAt).not.toBeNull();
+  });
+
+  it("still refuses a label change between its two reads", async () => {
+    const created = await as(() => api().create(input()));
+    await interleaveAfterFirstGrantRead(() =>
+      as(() =>
+        upsertWorkspaceConnection({
+          id: created.connectionId,
+          provider: provider.id,
+          label: "Renamed concurrently",
+        }),
+      ),
+    );
+    await expect(profile(created.connectionId)).rejects.toMatchObject({
+      code: "forbidden",
+    });
+  });
+
+  it("still refuses a grant revocation between its two reads", async () => {
+    const created = await as(() => api().create(input()));
+    await interleaveAfterFirstGrantRead(() =>
+      as(() => revokeWorkspaceConnectionGrant(created.connectionId, APP)),
+    );
+    await expect(profile(created.connectionId)).rejects.toMatchObject({
+      code: "forbidden",
+    });
+  });
+
+  it("still refuses a metadata-only updatedAt bump, as a secret rotation causes", async () => {
+    const created = await as(() => api().create(input()));
+    await interleaveAfterFirstGrantRead(async () => {
+      await db.query(
+        "UPDATE workspace_connections SET updated_at = updated_at + 1000 WHERE id = ?",
+        [created.connectionId],
+      );
+    });
+    await expect(profile(created.connectionId)).rejects.toMatchObject({
+      code: "forbidden",
+    });
+  });
+
+  it("keeps a storage failure typed as storage_failed", async () => {
+    const created = await as(() => api().create(input()));
+    vi.spyOn(store, "getWorkspaceConnectionGrant").mockRejectedValue(
+      new Error("db down"),
+    );
+    await expect(profile(created.connectionId)).rejects.toMatchObject({
+      code: "storage_failed",
+    });
+  });
 });

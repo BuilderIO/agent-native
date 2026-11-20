@@ -23,7 +23,7 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
-import type { ActionRunContext } from "../action.js";
+import type { ActionMcpToolAnnotations, ActionRunContext } from "../action.js";
 import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
@@ -502,6 +502,12 @@ export interface MCPRequestMeta {
   turnGrant?: string;
   /** The request runs in agent work, so no turn grant may apply. */
   turnGrantExcluded?: boolean;
+  /**
+   * Optional browser tab ID from `x-agent-native-browser-tab` for tab-scoped
+   * application state reads and writes. Kept on `browserTabTarget` (never
+   * `run.browserTabId`) so the call does not impersonate an open editor tab.
+   */
+  browserTabId?: string;
   /** Origin verified at the HTTP boundary for a page-grant review link. */
   approvalOrigin?: string;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
@@ -565,8 +571,11 @@ function withoutToolSearch(
   );
 }
 
+const CALL_TOOL_NAME = "call-tool";
+
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
+  unlisted: Record<string, ActionEntry>,
   advertisable: (
     actions: Record<string, ActionEntry>,
   ) => Record<string, ActionEntry>,
@@ -620,15 +629,106 @@ function scopeToolSearchToAdvertised(
         } else {
           permitted = await granted();
         }
-        return searchToolRegistryForRequest(
+        const found = await searchToolRegistryForRequest(
           advertisable(permitted),
           args ?? {},
           { taskRank, taskDeadline, taskCandidateProvider },
           context,
         );
+        const marked = <T extends { name: string }>(item: T) =>
+          Object.hasOwn(unlisted, item.name)
+            ? { ...item, callWith: CALL_TOOL_NAME }
+            : item;
+        return {
+          ...found,
+          results: found.results.map(marked),
+          ...(found.recommendations
+            ? {
+                recommendations: found.recommendations.map((item) =>
+                  item.kind === "tool" ? marked(item) : item,
+                ),
+              }
+            : {}),
+        };
       },
     },
   };
+}
+
+function actionToolAnnotations(entry: ActionEntry): ActionMcpToolAnnotations {
+  return (
+    entry.mcpAnnotations ??
+    entry.mcpAnnotationDefaults ?? {
+      readOnlyHint: isMcpReadOnlyTool(entry),
+      destructiveHint:
+        entry.publicAgent?.isConsequential === true ||
+        entry.needsApproval !== undefined,
+      openWorldHint: false,
+    }
+  );
+}
+
+function callToolListing(unlisted: Record<string, ActionEntry>): Tool {
+  const hints = Object.values(unlisted).map(actionToolAnnotations);
+  return {
+    name: CALL_TOOL_NAME,
+    description:
+      "Run a tool this app serves that isn't in your tool list. tool-search finds them and marks each with callWith: call-tool. Pass the tool's exact name and its arguments: the call gets the same checks and approvals as calling the tool directly, and returns the tool's result.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "The tool's exact name, as tool-search returned it.",
+        },
+        arguments: {
+          type: "object",
+          description:
+            "The tool's arguments, matching the parameters tool-search returned for it.",
+          additionalProperties: true,
+        },
+      },
+      required: ["name"],
+    },
+    annotations: {
+      title: agentNativeToolTitle(CALL_TOOL_NAME),
+      readOnlyHint: hints.every((hint) => hint.readOnlyHint),
+      destructiveHint: hints.some((hint) => hint.destructiveHint),
+      openWorldHint: hints.some((hint) => hint.openWorldHint),
+    },
+  };
+}
+
+function callToolTarget(
+  args: unknown,
+  unlisted: Record<string, ActionEntry>,
+):
+  | { name: string; args: Record<string, unknown> }
+  | { errorType: string; error: string; name?: string } {
+  const input = metadataObject(args);
+  const name = typeof input.name === "string" ? input.name.trim() : "";
+  if (!name) {
+    return {
+      errorType: "invalid_arguments",
+      error: "call-tool needs the tool's exact name in `name`.",
+    };
+  }
+  if (!Object.hasOwn(unlisted, name)) {
+    return {
+      errorType: "unknown_tool",
+      error: `call-tool runs only the tools tool-search marks with callWith: call-tool, and ${name} isn't one. Call a tool in your list directly, or search for the right name.`,
+      name,
+    };
+  }
+  const target = input.arguments ?? {};
+  if (typeof target !== "object" || Array.isArray(target)) {
+    return {
+      errorType: "invalid_arguments",
+      error:
+        "call-tool needs the tool's arguments as an object in `arguments`.",
+    };
+  }
+  return { name, args: target as Record<string, unknown> };
 }
 
 // The operator's `denyActions` veto lives here with the action's own opt-out,
@@ -3543,10 +3643,35 @@ export async function createMCPServerForRequest(
             }),
           )
         : honorsAskAppOnly(advertisedActionsBeforeConnector);
+  const searchServedActions = flatCatalog
+    ? {}
+    : Object.fromEntries(
+        Object.entries(visibleActions).filter(
+          ([, entry]) =>
+            entry.mcpTool === "search" &&
+            (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
+        ),
+      );
+  const searchEntry = Object.hasOwn(visibleActions, TOOL_SEARCH_TOOL_NAME)
+    ? visibleActions[TOOL_SEARCH_TOOL_NAME]
+    : undefined;
+  const listsSearchServed =
+    !searchEntry ||
+    !isFrameworkMcpTool(searchEntry) ||
+    deniedToolNames.has(CALL_TOOL_NAME) ||
+    Object.hasOwn(actions, CALL_TOOL_NAME);
+  const unlistedActions = listsSearchServed ? {} : searchServedActions;
   const advertisedActions = scopeToolSearchToAdvertised(
-    advertisedActionsBeforeToolSearchScope,
+    listsSearchServed
+      ? { ...advertisedActionsBeforeToolSearchScope, ...searchServedActions }
+      : Object.fromEntries(
+          Object.entries(advertisedActionsBeforeToolSearchScope).filter(
+            ([name]) => !Object.hasOwn(unlistedActions, name),
+          ),
+        ),
+    unlistedActions,
     advertisable,
-    () => grantedAdvertisedActions(TOOL_SEARCH_TOOL_NAME),
+    () => grantedServedActions(TOOL_SEARCH_TOOL_NAME),
     hasVerifiedMcpUserIdentity(effectiveIdentity)
       ? async (task, candidates, signal) => {
           const startedAt = Date.now();
@@ -3806,7 +3931,7 @@ export async function createMCPServerForRequest(
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
-      ? createBrowserTabTargetSlot()
+      ? createBrowserTabTargetSlot(requestMeta?.browserTabId)
       : undefined;
     const authUserId = await resolveCallerAuthUserId();
     const result = await runWithMcpChatTurnCall(
@@ -3966,14 +4091,15 @@ export async function createMCPServerForRequest(
 
   // MCP App widgets belong to their action: outside the grant, the resource is
   // as invisible as the tool.
-  async function grantedAdvertisedActions(
+  async function grantedServedActions(
     actionName: string,
   ): Promise<typeof advertisedActions> {
     const { allowedActions } = await resolveServiceGrant(actionName);
+    const served = { ...advertisedActions, ...unlistedActions };
     return allowedActions === null
-      ? advertisedActions
+      ? served
       : Object.fromEntries(
-          Object.entries(advertisedActions).filter(([name]) =>
+          Object.entries(served).filter(([name]) =>
             isActionGranted(allowedActions, name),
           ),
         );
@@ -3984,7 +4110,7 @@ export async function createMCPServerForRequest(
   ): Promise<typeof advertisedActions> {
     // Only an action with a widget has a resource, so only those convert.
     return Object.fromEntries(
-      Object.entries(await grantedAdvertisedActions(actionName)).filter(
+      Object.entries(await grantedServedActions(actionName)).filter(
         ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
       ),
     );
@@ -4109,16 +4235,9 @@ export async function createMCPServerForRequest(
             const title = agentNativeToolTitle(name, entry.tool.title);
             const annotations: Record<string, unknown> = {
               title,
-              ...(entry.mcpAnnotations ??
-                (directoryCatalog
-                  ? undefined
-                  : (entry.mcpAnnotationDefaults ?? {
-                      readOnlyHint: isMcpReadOnlyTool(entry),
-                      destructiveHint:
-                        entry.publicAgent?.isConsequential === true ||
-                        entry.needsApproval !== undefined,
-                      openWorldHint: false,
-                    }))),
+              ...(directoryCatalog
+                ? entry.mcpAnnotations
+                : actionToolAnnotations(entry)),
             };
             if (directoryCatalog) {
               delete annotations["agent-native/producesOpenLink"];
@@ -4155,6 +4274,16 @@ export async function createMCPServerForRequest(
         );
         if (index >= 0) tools.splice(index, 1);
         tools.push(widgetSessionTool);
+      }
+
+      const runnableUnlisted = Object.fromEntries(
+        Object.entries(unlistedActions).filter(
+          ([name]) =>
+            isActionGranted(allowedActions, name) && isAdvertisable(name),
+        ),
+      );
+      if (Object.keys(runnableUnlisted).length > 0) {
+        tools.push(callToolListing(runnableUnlisted));
       }
 
       if (
@@ -4213,6 +4342,7 @@ export async function createMCPServerForRequest(
     config,
     actions: fullCatalogActions,
     advertisedActions,
+    unlistedActions,
     isAdvertisable,
     visibleActions,
     fullCatalogRequested,
@@ -4461,13 +4591,16 @@ export async function createMCPServerForRequest(
             : requestMeta?.mcpRetryToken
               ? `stateless:${requestMeta.mcpRetryToken}`
               : undefined;
+      let calledName = request.params?.name;
+      let calledArgs = request.params?.arguments;
       const toolCallContext = {
         mcpRequestId,
         timezone: mcpCallTimezone(ctx.mcpReq._meta),
         toolName: request.params.name,
       };
       const result = await withToolCallContext(async () => {
-        const { name, arguments: args } = request.params;
+        let { name, arguments: args } = request.params;
+        let refusedTarget: { errorType: string; error: string } | undefined;
 
         if (deniedToolNames.has(name)) {
           failure = {
@@ -4492,6 +4625,31 @@ export async function createMCPServerForRequest(
           );
         }
 
+        if (
+          name === CALL_TOOL_NAME &&
+          Object.keys(unlistedActions).length > 0
+        ) {
+          const target = callToolTarget(args, unlistedActions);
+          if ("error" in target) {
+            if (target.name === undefined) {
+              failure = {
+                errorType: target.errorType,
+                errorMessage: target.error,
+              };
+              return {
+                content: [{ type: "text", text: target.error }],
+                isError: true,
+              };
+            }
+            refusedTarget = target;
+            name = target.name;
+          } else {
+            ({ name, args } = target);
+            calledName = name;
+            calledArgs = args;
+          }
+        }
+
         let allowedActions: string[] | null = null;
         try {
           ({ allowedActions } = await resolveServiceGrant());
@@ -4512,6 +4670,17 @@ export async function createMCPServerForRequest(
           });
           return {
             content: [{ type: "text", text: error.message }],
+            isError: true,
+          };
+        }
+
+        if (refusedTarget) {
+          failure = {
+            errorType: refusedTarget.errorType,
+            errorMessage: refusedTarget.error,
+          };
+          return {
+            content: [{ type: "text", text: refusedTarget.error }],
             isError: true,
           };
         }
@@ -4671,7 +4840,7 @@ export async function createMCPServerForRequest(
           : runWithMcpTurnGrantScope(name, userTurn, admission.expiresAt, call);
       }, toolCallContext);
 
-      const toolName = request.params?.name;
+      const toolName = calledName;
       // The script catalog's tools are not actions, and an action reached by
       // name there is not on its catalog, so analytics describe no action.
       const calledEntry = scriptCatalog ? undefined : actions[toolName];
@@ -4688,7 +4857,7 @@ export async function createMCPServerForRequest(
         ...(calledEntry
           ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
           : {}),
-        parameters: analyticsParameters(toolName, request.params?.arguments),
+        parameters: analyticsParameters(toolName, calledArgs),
         durationMs: Date.now() - startedAt,
         isError: (result as { isError?: boolean }).isError === true,
         ...(failure ?? {}),

@@ -46,6 +46,13 @@ function safeDesktopOpenPath(path: string | undefined): string | undefined {
 
 const NO_ONBOARDING_HOSTS: readonly DesktopOnboardingHost[] = [];
 
+function optionalDesktopAppConfig():
+  | Partial<Window["electronAPI"]["appConfig"]>
+  | undefined {
+  return (window as { electronAPI?: Partial<Window["electronAPI"]> })
+    .electronAPI?.appConfig;
+}
+
 export default function App({
   onboardingHosts = NO_ONBOARDING_HOSTS,
 }: {
@@ -463,6 +470,32 @@ export default function App({
       });
     });
   }, [activeChatFirstAppId, chatFirstPreviewRequest?.appId]);
+
+  const buildingAppId = chatFirstPreviewRequest?.appId;
+  useEffect(() => {
+    const load = optionalDesktopAppConfig()?.load;
+    if (!buildingAppId || !load) return;
+    let cancelled = false;
+    let ticks = 0;
+    const refresh = async () => {
+      ticks += 1;
+      try {
+        const next = await load();
+        if (cancelled) return;
+        setApps((current) =>
+          JSON.stringify(current) === JSON.stringify(next) ? current : next,
+        );
+      } catch {
+        // coercion-ok: the next tick retries; the list keeps its last value.
+      }
+      if (ticks >= 180) window.clearInterval(timer);
+    };
+    const timer = window.setInterval(() => void refresh(), 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [buildingAppId]);
 
   if (loading) {
     return (

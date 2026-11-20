@@ -3,13 +3,18 @@ import { z } from "zod";
 
 import {
   BrainCaptureBlockedError,
-  createCapture,
+  createCaptureWithWarnings,
   ensureManualSource,
   getAccessibleSource,
   serializeSource,
 } from "../server/lib/brain.js";
+import { BrainClassifierUnavailableError } from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
 import { documentImportFormat } from "../shared/document-import.js";
+import {
+  SCREENING_UNAVAILABLE_CODE,
+  screeningRefusalMessage,
+} from "./_manual-import-errors.js";
 
 const MAX_MARKDOWN_FILES = 100;
 const MAX_MARKDOWN_FILE_CHARS = 250_000;
@@ -22,6 +27,7 @@ type ImportedMarkdownResult =
       captureId: string;
       distillation: "queued" | "existing" | "skipped" | "failed";
       error?: string;
+      postCommitWarnings?: string[];
     }
   | {
       path: string;
@@ -32,6 +38,7 @@ type ImportedMarkdownResult =
       path: string;
       status: "failed";
       error: string;
+      errorCode?: string;
     };
 
 const markdownFileSchema = z.object({
@@ -163,17 +170,19 @@ export default defineAction({
     for (const file of validFiles) {
       const normalizedPath = file.normalizedPath;
       try {
-        const capture = await createCapture({
-          sourceId: source.id,
-          externalId: `markdown:${normalizedPath}`,
-          title: normalizedPath,
-          kind: "document",
-          content: file.input.content,
-          metadata: {
-            path: normalizedPath,
-            sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+        const { capture, postCommitWarnings } = await createCaptureWithWarnings(
+          {
+            sourceId: source.id,
+            externalId: `markdown:${normalizedPath}`,
+            title: normalizedPath,
+            kind: "document",
+            content: file.input.content,
+            metadata: {
+              path: normalizedPath,
+              sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+            },
           },
-        });
+        );
         let distillation: "queued" | "existing" | "skipped" | "failed" =
           "skipped";
         let distillationError: string | undefined;
@@ -196,6 +205,7 @@ export default defineAction({
           status: "imported",
           captureId: capture.id,
           distillation,
+          ...(postCommitWarnings ? { postCommitWarnings } : {}),
           ...(distillationError
             ? {
                 error: `Capture imported, but distillation failed: ${distillationError}`,
@@ -208,6 +218,13 @@ export default defineAction({
             path: normalizedPath,
             status: "blocked",
             sensitivityReceipt: error.receipt,
+          });
+        } else if (error instanceof BrainClassifierUnavailableError) {
+          importedResults.push({
+            path: normalizedPath,
+            status: "failed",
+            error: screeningRefusalMessage(error),
+            errorCode: SCREENING_UNAVAILABLE_CODE,
           });
         } else {
           importedResults.push({

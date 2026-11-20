@@ -157,6 +157,33 @@ describe("AgentPanel share handoff", () => {
   );
 
   it.each(["header", "page"] as const)(
+    "uses a callback added or replaced after mount on the %s share button",
+    async (surface) => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const clickAll = () => {
+        for (const trigger of triggers()) act(() => trigger.click());
+      };
+
+      await render(surface);
+      expect(triggers()[0]?.dataset.hasHandoff).toBe("false");
+
+      await render(surface, first);
+      expect(triggers()[0]?.dataset.hasHandoff).toBe("true");
+      clickAll();
+      expect(first).toHaveBeenCalledTimes(1);
+
+      await render(surface, second);
+      clickAll();
+      expect(second).toHaveBeenCalledTimes(1);
+      expect(first).toHaveBeenCalledTimes(1);
+
+      await render(surface);
+      expect(triggers()[0]?.dataset.hasHandoff).toBe("false");
+    },
+  );
+
+  it.each(["header", "page"] as const)(
     "leaves the %s share button on native behavior without the callback",
     async (surface) => {
       await render(surface);

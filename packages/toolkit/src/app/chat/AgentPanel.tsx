@@ -22,6 +22,7 @@ import {
   IconTerminal2,
   IconLayoutGrid,
   IconCheck,
+  IconHistory,
   IconPlus,
   IconX,
   IconDotsVertical,
@@ -37,6 +38,7 @@ import React, {
   Suspense,
   startTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 
 import { Skeleton } from "../../ui/skeleton.js";
@@ -103,6 +105,7 @@ import {
   AgentPanelTab,
   AgentPanelTabList,
   AgentPanelThreadNav,
+  AgentPanelThreadSwitcher,
   resolveAgentPanelTabLayout,
   useElementInlineSize,
   type AgentPanelThreadItem,
@@ -378,6 +381,47 @@ function IconTooltip({
   );
 }
 
+const HEADER_HOST_PICKER_CLASS = "h-8 ps-1.5 text-sm font-semibold";
+
+function AgentPanelHistoryToggle({
+  open,
+  onToggle,
+  label,
+  className,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  label: string;
+  className: string;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(open);
+  useEffect(() => {
+    const closed = wasOpenRef.current && !open;
+    wasOpenRef.current = open;
+    if (!closed) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) {
+      buttonRef.current?.focus({ preventScroll: true });
+    }
+  }, [open]);
+  return (
+    <IconTooltip content={label}>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={onToggle}
+        aria-label={label}
+        aria-expanded={open}
+        data-agent-panel-history-toggle=""
+        className={cn(className, open && "bg-accent text-foreground")}
+      >
+        <IconHistory size={16} aria-hidden="true" />
+      </button>
+    </IconTooltip>
+  );
+}
+
 export function getAgentPanelChatTabGroups(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
@@ -625,6 +669,12 @@ export interface AgentPanelProps extends Omit<
   browserTabId?: string | undefined;
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   chatNotice?: React.ReactNode;
+  /**
+   * The host's own panel head. The chat picker, New chat, Chat history and
+   * the options menu render there, in place of the panel's header and chat
+   * tabs.
+   */
+  headerHost?: HTMLElement | null | undefined;
   showTabBar?: boolean;
   showPageNewChatButton?: boolean;
   showPageHeader?: boolean;
@@ -831,6 +881,7 @@ function AgentPanelInner({
   browserTabId,
   threadUrlSync,
   chatNotice,
+  headerHost,
   showTabBar = true,
   showPageNewChatButton = false,
   showPageHeader = false,
@@ -1204,9 +1255,14 @@ function AgentPanelInner({
   const panelRootRef = useRef<HTMLDivElement>(null);
   const panelWidth = useElementInlineSize(panelRootRef);
   // Only the docked sidebar trades its tabs for a switcher; full-page chat keeps them.
-  const sidebarTabLayout = onCollapse
-    ? resolveAgentPanelTabLayout(panelWidth)
-    : "tabs";
+  const sidebarTabLayout = headerHost
+    ? "switcher"
+    : onCollapse
+      ? resolveAgentPanelTabLayout(panelWidth)
+      : "tabs";
+  const headerButtonClass = headerHost
+    ? "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    : "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50";
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
   const pendingHeaderOverlayRef = useRef<(() => void) | null>(null);
@@ -1279,11 +1335,12 @@ function AgentPanelInner({
   // overflow menu drop theirs instead of offering it twice.
   const isThreadSwitcherShown = useCallback(
     (tabs: MultiTabAssistantChatHeaderProps["tabs"]) =>
+      !headerHost &&
       Boolean(onCollapse) &&
       sidebarTabLayout === "switcher" &&
       (Boolean(renderCliTab && showTabBar) ||
         (mode === "chat" && shouldShowAgentPanelSidebarChatTabs(tabs))),
-    [mode, onCollapse, renderCliTab, showTabBar, sidebarTabLayout],
+    [headerHost, mode, onCollapse, renderCliTab, showTabBar, sidebarTabLayout],
   );
 
   const renderHeaderActions = useCallback(
@@ -1377,12 +1434,20 @@ function AgentPanelInner({
                   ? newCliTabLabel
                   : (newUiTabLabel ?? t("agentPanel.newChat"))
               }
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              className={headerButtonClass}
             >
               <IconPlus size={16} />
             </button>
           </IconTooltip>
         )}
+        {headerHost && mode === "chat" && toggleHistory ? (
+          <AgentPanelHistoryToggle
+            open={Boolean(showHistory)}
+            onToggle={toggleHistory}
+            label={t("agentChat.tabs.allChats")}
+            className={headerButtonClass}
+          />
+        ) : null}
         {mode === "cli" &&
           (canUseCodeTools || renderCliTab) &&
           !isThreadSwitcherShown(tabs) && (
@@ -1400,7 +1465,7 @@ function AgentPanelInner({
           <DropdownMenuTrigger asChild>
             <button
               className={cn(
-                "flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                headerButtonClass,
                 headerMenuOpen && "bg-accent text-foreground",
               )}
               aria-label={t("agentPanel.panelOptions")}
@@ -1419,7 +1484,7 @@ function AgentPanelInner({
               );
             }}
           >
-            {onCollapse && (
+            {onCollapse && !headerHost && (
               <>
                 <DropdownMenuItem onSelect={onCollapse}>
                   {t("agentPanel.collapseSidebar")}
@@ -1527,7 +1592,7 @@ function AgentPanelInner({
                   </DropdownMenuItem>
                 );
               })()}
-            {mode === "chat" && toggleHistory && (
+            {mode === "chat" && toggleHistory && !headerHost && (
               <DropdownMenuItem
                 onSelect={(event) =>
                   deferAgentPanelOverlayOpen(
@@ -1665,7 +1730,7 @@ function AgentPanelInner({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {onCollapse && showCollapseButton && (
+        {onCollapse && showCollapseButton && !headerHost && (
           <IconTooltip content={t("agentPanel.collapseSidebar")}>
             <button
               type="button"
@@ -1694,6 +1759,8 @@ function AgentPanelInner({
       feedbackOpen,
       feedbackEnabled,
       getChatThreadShareUrl,
+      headerButtonClass,
+      headerHost,
       headerMenuOpen,
       isWideDrawer,
       mode,
@@ -1722,6 +1789,7 @@ function AgentPanelInner({
       t,
       wideDrawerAction,
       wideDrawerLabel,
+      onAgentShareHandoff,
       widenChatHint,
     ],
   );
@@ -1887,6 +1955,7 @@ function AgentPanelInner({
       getChatThreadShareUrl,
       closeHeaderMenuForOverlay,
       headerMenuOpen,
+      onAgentShareHandoff,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
       pageHeaderShareTriggerContent,
@@ -1968,10 +2037,45 @@ function AgentPanelInner({
           running: tab.status === "running",
         }));
       const newChatLabel = newUiTabLabel ?? t("agentPanel.newChat");
-      const renderUnifiedSurfaceTabs = () =>
+      const renderSubAgentTabs = (bordered: boolean) => (
+        <div
+          className={cn(
+            "flex items-center px-2 py-0.5 gap-0.5 bg-muted/30",
+            bordered && "border-b border-border",
+          )}
+        >
+          <AgentPanelTabList label={t("agentChat.agentPanel.subAgentTabs")}>
+            <AgentPanelTab
+              size="compact"
+              label={t("agentChat.agentPanel.mainThread")}
+              active={activeTabId === focusParentId}
+              tabRef={
+                activeTabId === focusParentId ? activeTabRefCb : undefined
+              }
+              onSelect={() => setActiveTabId(focusParentId)}
+              closeLabel={t("agentPanel.closeTab")}
+            />
+            {childTabs.map((tab) => (
+              <AgentPanelTab
+                key={tab.id}
+                size="compact"
+                label={tab.subAgentName || tab.label}
+                active={tab.id === activeTabId}
+                running={tab.status === "running"}
+                tabRef={tab.id === activeTabId ? activeTabRefCb : undefined}
+                onSelect={() => setActiveTabId(tab.id)}
+                onClose={() => closeTab(tab.id)}
+                closeLabel={t("agentPanel.closeTab")}
+              />
+            ))}
+          </AgentPanelTabList>
+        </div>
+      );
+      const renderUnifiedSurfaceTabs = (triggerClassName?: string) =>
         mode === "cli" ? (
           <AgentPanelThreadNav
             layout={sidebarTabLayout}
+            triggerClassName={triggerClassName}
             tabListLabel={t("agentChat.agentPanel.terminalTabs")}
             items={cliTabs.map((id, index) => ({
               id,
@@ -1993,6 +2097,7 @@ function AgentPanelInner({
         ) : (
           <AgentPanelThreadNav
             layout={sidebarTabLayout}
+            triggerClassName={triggerClassName}
             tabListLabel={t("agentChat.agentPanel.chatTabs")}
             items={chatThreadItems()}
             activeTabRef={activeTabRefCb}
@@ -2006,6 +2111,54 @@ function AgentPanelInner({
             closeLabel={t("agentPanel.closeTab")}
           />
         );
+
+      if (headerHost) {
+        const headerActions = renderHeaderActions({
+          activeChatSessionId: activeTabId,
+          activeTabId,
+          activeTabMessageCount,
+          addTab,
+          clearActiveTab,
+          closeAllTabs,
+          closeOtherTabs,
+          closeTab,
+          showHistory,
+          tabs,
+          toggleHistory,
+        });
+        return (
+          <div className="agent-sidebar-chat-header flex shrink-0 flex-col">
+            {createPortal(
+              <div
+                className="flex min-w-0 flex-1 items-center gap-0.5"
+                data-agent-panel-head=""
+              >
+                <div className="flex min-w-0 flex-1 items-center">
+                  {mode === "chat" ? (
+                    <AgentPanelThreadSwitcher
+                      tabListLabel={t("agentChat.agentPanel.chatTabs")}
+                      items={chatThreadItems()}
+                      onSelect={setActiveTabId}
+                      onClose={closeTab}
+                      newLabel={newChatLabel}
+                      closeLabel={t("agentPanel.closeTab")}
+                      triggerClassName={HEADER_HOST_PICKER_CLASS}
+                    />
+                  ) : (
+                    renderUnifiedSurfaceTabs(HEADER_HOST_PICKER_CLASS)
+                  )}
+                </div>
+                {headerActions}
+              </div>,
+              headerHost,
+            )}
+            {mode === "chat" && chatNotice ? (
+              <div className="border-b border-border">{chatNotice}</div>
+            ) : null}
+            {mode === "chat" && hasSubTabs ? renderSubAgentTabs(true) : null}
+          </div>
+        );
+      }
 
       return (
         <div
@@ -2130,49 +2283,9 @@ function AgentPanelInner({
                       </AgentPanelTabList>
                     </div>
                   )}
-                  {/* Sub-agent tab row — shown when the active context has children */}
-                  {mode === "chat" && hasSubTabs && (
-                    <div
-                      className={cn(
-                        "flex items-center px-2 py-0.5 gap-0.5 bg-muted/30",
-                        !showSidebarChatTabs && "border-b border-border",
-                      )}
-                    >
-                      <AgentPanelTabList
-                        label={t("agentChat.agentPanel.subAgentTabs")}
-                      >
-                        <AgentPanelTab
-                          size="compact"
-                          label={t("agentChat.agentPanel.mainThread")}
-                          active={activeTabId === focusParentId}
-                          tabRef={
-                            activeTabId === focusParentId
-                              ? activeTabRefCb
-                              : undefined
-                          }
-                          onSelect={() => setActiveTabId(focusParentId)}
-                          closeLabel={t("agentPanel.closeTab")}
-                        />
-                        {childTabs.map((tab) => (
-                          <AgentPanelTab
-                            key={tab.id}
-                            size="compact"
-                            label={tab.subAgentName || tab.label}
-                            active={tab.id === activeTabId}
-                            running={tab.status === "running"}
-                            tabRef={
-                              tab.id === activeTabId
-                                ? activeTabRefCb
-                                : undefined
-                            }
-                            onSelect={() => setActiveTabId(tab.id)}
-                            onClose={() => closeTab(tab.id)}
-                            closeLabel={t("agentPanel.closeTab")}
-                          />
-                        ))}
-                      </AgentPanelTabList>
-                    </div>
-                  )}
+                  {mode === "chat" && hasSubTabs
+                    ? renderSubAgentTabs(!showSidebarChatTabs)
+                    : null}
                 </>
               );
             })()}
@@ -2184,6 +2297,7 @@ function AgentPanelInner({
       renderHeaderActions,
       renderModeButtons,
       chatNotice,
+      headerHost,
       canUseCodeTools,
       feedbackOpen,
       headerMenuOpen,

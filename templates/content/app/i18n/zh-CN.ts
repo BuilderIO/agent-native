@@ -933,6 +933,7 @@ const editor = {
     noFilesOrMedia: "没有文件或媒体",
     noMatchingOptions: "没有匹配的选项",
     noMatchingPropertyTypes: "没有匹配的属性类型",
+    typeChangeUnavailable: "为保护现有值，无法更改属性类型。",
     notMappedToBuilder: "未映射到生成器。",
     onlyBlocksPropertyWarning:
       "这是此对象类型中存在的唯一块属性。这将删除该类型的所有对象的主要内容（主体）。",
@@ -1879,6 +1880,7 @@ const overrides = {
     heading6: "标题 6",
     link: "链接",
     comment: "评论",
+    suggestEdit: "建议修改",
     pasteLink: "粘贴链接...",
     apply: "应用",
     plainText: "纯文本",

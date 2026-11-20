@@ -668,6 +668,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "錯誤：{{message}}",
   "errorMessages.gatewayInternalError":
     "模型閘道在代理回答前發生內部錯誤。請稍後重試；若持續發生，請提供下方的錯誤 ID。",
+  "errorMessages.modelRefusal": "我無法協助處理這個請求。你可以問我其他問題。",
   "errorMessages.gatewayNoDetails":
     "模型閘道未傳回錯誤詳細資訊，聊天無法復原。請稍候再試；如果問題持續發生，請開始新聊天。",
   "errorMessages.creditsLimitReached": "你已達到 AI 點數額度上限。",
@@ -702,6 +703,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "供應商傳回了 HTML 錯誤頁面。",
   "errorMessages.providerNetwork":
     "無法連線至模型供應商。請檢查網路連線後重試。",
+  "errorMessages.emailVerificationRequired":
+    "請在已連線的 AI 供應商帳戶或空間中驗證一個符合條件的電子郵件地址，然後重試。",
   "errorMessages.providerRateLimit":
     "模型供應商目前正在限制這個聊天的要求頻率。請稍候再試。",
   "errorMessages.providerTransientRejection":
@@ -1197,7 +1200,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
   "errorMessages.invalidAttachmentNamed":
     "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
-  "recovery.resendVerificationEmail": "重新傳送驗證郵件",
+  "recovery.resendVerificationEmail": "重新傳送應用程式帳戶驗證郵件",
   "recovery.sendingVerificationEmail": "正在傳送...",
   "recovery.verificationEmailRequested":
     "已要求傳送驗證郵件。請檢查收件匣和垃圾郵件資料夾。",

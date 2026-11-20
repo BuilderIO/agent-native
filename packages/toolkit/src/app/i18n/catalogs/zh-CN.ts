@@ -667,6 +667,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "错误：{{message}}",
   "errorMessages.gatewayInternalError":
     "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
+  "errorMessages.modelRefusal": "我无法帮助处理这个请求。你可以问我其他问题。",
   "errorMessages.gatewayNoDetails":
     "模型网关未返回错误详情，聊天无法恢复。请稍等片刻后重试；如果问题持续出现，请开始新聊天。",
   "errorMessages.creditsLimitReached": "你已达到 AI 积分额度上限。",
@@ -700,6 +701,8 @@ const messages: ToolkitAgentChatTranslation = {
     "此模型无法在当前设置下使用工具。请在设置中切换模型，然后重试。",
   "errorMessages.providerHtml": "提供商返回了 HTML 错误页面。",
   "errorMessages.providerNetwork": "无法连接模型提供商。请检查网络连接后重试。",
+  "errorMessages.emailVerificationRequired":
+    "请在已连接的 AI 提供商账户或空间中验证一个符合条件的电子邮箱地址，然后重试。",
   "errorMessages.providerRateLimit":
     "模型提供商目前正在限制此聊天的请求频率。请稍等片刻后重试。",
   "errorMessages.providerTransientRejection":
@@ -1193,7 +1196,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此运行已无法继续。发送消息以继续。",
   "errorMessages.invalidAttachmentNamed":
     "模型提供商拒绝了 {{name}}，因为其格式或大小不受支持。图像请导出为更小的 PNG、JPEG、GIF 或 WebP；文档请使用支持的格式，或粘贴相关文本后重试。",
-  "recovery.resendVerificationEmail": "重新发送验证邮件",
+  "recovery.resendVerificationEmail": "重新发送应用账户验证邮件",
   "recovery.sendingVerificationEmail": "正在发送...",
   "recovery.verificationEmailRequested":
     "已请求发送验证邮件。请检查收件箱和垃圾邮件文件夹。",

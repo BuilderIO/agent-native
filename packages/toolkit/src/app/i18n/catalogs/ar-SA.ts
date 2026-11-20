@@ -708,6 +708,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "خطأ: {{message}}",
   "errorMessages.gatewayInternalError":
     "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
+  "errorMessages.modelRefusal":
+    "لا يمكنني المساعدة في هذا الطلب. يمكنني مساعدتك في سؤال آخر.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
   "errorMessages.creditsLimitReached":
@@ -744,6 +746,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "أرجع المزوّد صفحة خطأ بتنسيق HTML.",
   "errorMessages.providerNetwork":
     "تعذّر الوصول إلى مزوّد النموذج. تحقّق من اتصالك وأعد المحاولة.",
+  "errorMessages.emailVerificationRequired":
+    "تحقّق من عنوان بريد إلكتروني مؤهل لدى حساب أو مساحة مزوّد الذكاء الاصطناعي المتصل، ثم أعد المحاولة.",
   "errorMessages.providerRateLimit":
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
   "errorMessages.providerTransientRejection":
@@ -1282,7 +1286,8 @@ const messages: ToolkitAgentChatTranslation = {
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "errorMessages.invalidAttachmentNamed":
     "رفض موفّر النموذج {{name}} لأن تنسيقه أو حجمه غير مدعوم. صدّر الصور بحجم أصغر بصيغة PNG أو JPEG أو GIF أو WebP. للمستندات، استخدم تنسيقًا مدعومًا أو الصق النص ذي الصلة ثم أعد المحاولة.",
-  "recovery.resendVerificationEmail": "إعادة إرسال رسالة التحقق",
+  "recovery.resendVerificationEmail":
+    "إعادة إرسال رسالة التحقق من حساب التطبيق",
   "recovery.sendingVerificationEmail": "جارٍ الإرسال...",
   "recovery.verificationEmailRequested":
     "تم طلب رسالة التحقق. تحقق من صندوق الوارد ومجلد الرسائل غير المرغوب فيها.",

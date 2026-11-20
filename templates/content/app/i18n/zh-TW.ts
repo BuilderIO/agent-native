@@ -468,6 +468,7 @@ const overrides = {
     heading6: "標題 6",
     link: "連結",
     comment: "評論",
+    suggestEdit: "建議修改",
     pasteLink: "貼上連結...",
     apply: "應用",
     plainText: "純文字",
@@ -856,6 +857,7 @@ const overrides = {
       noFilesOrMedia: "沒有檔案或媒體",
       noMatchingOptions: "沒有匹配的選項",
       noMatchingPropertyTypes: "沒有匹配的屬性型別",
+      typeChangeUnavailable: "為保護現有值，無法變更屬性類型。",
       notMappedToBuilder: "未對應到生成器。",
       onlyBlocksPropertyWarning:
         "這是此物件型別中存在的唯一塊屬性。這將刪除該型別的所有物件的主要內容（主體）。",

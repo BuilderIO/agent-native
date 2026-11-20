@@ -1001,6 +1001,8 @@ const editor = {
     noFilesOrMedia: "Nenhum arquivo ou mídia",
     noMatchingOptions: "Nenhuma opção de correspondência",
     noMatchingPropertyTypes: "Nenhum tipo de propriedade correspondente",
+    typeChangeUnavailable:
+      "Não é possível alterar o tipo da propriedade para proteger os valores existentes.",
     notMappedToBuilder: "Não mapeado para o Builder.",
     onlyBlocksPropertyWarning:
       "Esta é a única propriedade de blocos presente neste tipo de objeto. Isso excluirá o conteúdo principal (corpo) de todos os objetos deste tipo.",
@@ -1890,6 +1892,7 @@ const overrides = {
     heading6: "Título 6",
     link: "Link",
     comment: "Comentário",
+    suggestEdit: "Sugerir alteração",
     pasteLink: "Cole o link...",
     apply: "Aplicar",
     plainText: "Texto sem formatação",

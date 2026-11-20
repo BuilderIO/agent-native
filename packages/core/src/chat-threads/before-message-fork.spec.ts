@@ -74,7 +74,8 @@ vi.mock("../client/use-agent-chat-running-threads.js", () => ({
   dispatchAgentChatRunning: vi.fn(),
 }));
 import { createAgentNativeAgentKitTransport } from "../client/chat/agentkit-agent-native.js";
-import { forkThread } from "./store.js";
+import { ForbiddenError } from "../sharing/errors.js";
+import { forkThread, registerChatThreadSharingPolicy } from "./store.js";
 
 function fixture() {
   const ids = ["user-first", "answer-first", "user-middle", "answer-middle"];
@@ -237,6 +238,22 @@ describe("exclusive message forks", () => {
     expect(edit?.title).toBe("Question");
     expect(edit?.editRootId).toBe("source");
     expect(state.rows.get("edit")?.edit_prefix_count).toBe(2);
+  });
+  it("refuses to edit-fork a conversation its app keeps unshared instead of reporting it missing", async () => {
+    registerChatThreadSharingPolicy("unshared-app", async () => false);
+    state.rows.set("source", {
+      ...state.rows.get("source"),
+      source_app_id: "unshared-app",
+    });
+    await expect(
+      forkThread("source", "qa@example.com", {
+        id: "edit",
+        forkPurpose: "edit",
+        trustedAppId: "unshared-app",
+        source: sourceSnapshot({ beforeMessageId: "user-middle" }),
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect(state.rows.has("edit")).toBe(false);
   });
   it.each([
     ["foreign app", { source_app_id: "another" }, "qa@example.com"],
