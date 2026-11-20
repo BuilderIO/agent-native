@@ -322,7 +322,7 @@ describe("personal memory shared across local apps", () => {
     const { rows } = await pglite.query(
       `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/gone.md'`,
     );
-    expect(rows).toEqual([]);
+    expect(rows).toHaveLength(1);
     await resourcePut(OWNER, "memory/gone.md", "written again");
     await expect(
       resourceGetByPath(OWNER, "memory/gone.md"),
@@ -511,7 +511,7 @@ describe("personal memory shared across local apps", () => {
     const { rows } = await pglite.query(
       `SELECT id FROM resources WHERE id = '${stored.id}'`,
     );
-    expect(rows).toEqual([]);
+    expect(rows).toHaveLength(1);
   });
 
   it("advances the revision past a same-millisecond tombstone so the new write survives", async () => {
@@ -1102,6 +1102,66 @@ describe("personal memory shared across local apps", () => {
       await expect(
         resourceGetByPath(OWNER, "memory/both.md"),
       ).resolves.toMatchObject({ content: "alive" });
+    });
+
+    it("does not adopt a file whose tombstone is published while it is being read", async () => {
+      const dir = useMemoryDir();
+      const { resourceGetByPath } = await import("./store.js");
+      const file = writeSharedFile(dir, "mid-read.md", "late file");
+      const realRead = fs.promises.readFile.bind(fs.promises);
+      const read = vi
+        .spyOn(fs.promises, "readFile")
+        .mockImplementation(async (target, ...rest) => {
+          const content = await (
+            realRead as (...a: unknown[]) => Promise<never>
+          )(target, ...rest);
+          if (String(target) === file) {
+            fs.writeFileSync(`${file}.deleted`, String(Date.now() + 60_000));
+          }
+          return content;
+        });
+      try {
+        await expect(
+          resourceGetByPath(OWNER, "memory/mid-read.md"),
+        ).resolves.toBeNull();
+      } finally {
+        read.mockRestore();
+      }
+      const { rows } = await pglite.query(
+        `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/mid-read.md'`,
+      );
+      expect(rows).toEqual([]);
+    });
+
+    it("reports a delete as done when the shared file cannot be unlinked", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      await resourcePut(OWNER, "memory/unlink.md", "bye");
+      const file = sharedFile(dir, "unlink.md");
+      const realUnlink = fs.promises.unlink.bind(fs.promises);
+      const unlink = vi
+        .spyOn(fs.promises, "unlink")
+        .mockImplementation(async (target) => {
+          if (String(target) === file) throw new Error("EBUSY");
+          return realUnlink(target);
+        });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(
+          resourceDeleteByPath(OWNER, "memory/unlink.md"),
+        ).resolves.toBe(true);
+      } finally {
+        unlink.mockRestore();
+        log.mockRestore();
+      }
+      await expect(
+        resourceGetByPath(OWNER, "memory/unlink.md"),
+      ).resolves.toBeNull();
+      const { rows } = await pglite.query(
+        `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/unlink.md'`,
+      );
+      expect(rows).toEqual([]);
     });
 
     it("keeps a restored memory visible past a newer tombstone when its mirror fails", async () => {

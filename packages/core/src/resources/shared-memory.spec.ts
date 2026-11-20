@@ -226,9 +226,10 @@ describe("shared-memory", () => {
     ) as string;
     const future = Date.now() + 3_600_000;
     fs.utimesSync(file, future / 1000, future / 1000);
+    const mtime = Math.floor(fs.statSync(file).mtimeMs);
     await deleteSharedPersonalMemory("alice@example.com", "memory/f.md");
     expect(Number(fs.readFileSync(`${file}.deleted`, "utf8"))).toBeGreaterThan(
-      future,
+      mtime,
     );
 
     await writeSharedPersonalMemory("alice@example.com", "memory/g.md", "x");

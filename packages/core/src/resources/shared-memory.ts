@@ -177,12 +177,12 @@ export async function readMirroredMemory(
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
   if (!filePath || !tombstonePath) return { state: "absent" };
-  const deletedAt = await readTombstone(tombstonePath);
   try {
     const [stat, content] = await Promise.all([
       fs.promises.stat(filePath),
       fs.promises.readFile(filePath, "utf8"),
     ]);
+    const deletedAt = await readTombstone(tombstonePath);
     if (!stat.isFile()) return { state: "absent" };
     if (deletedAt !== null && stat.mtimeMs <= deletedAt) {
       return { state: "deleted", deletedAt };
@@ -195,6 +195,7 @@ export async function readMirroredMemory(
     };
   } catch (error) {
     if (!isMissingPathError(error)) throw error;
+    const deletedAt = await readTombstone(tombstonePath);
     return deletedAt === null
       ? { state: "absent" }
       : { state: "deleted", deletedAt };
@@ -243,7 +244,12 @@ export async function deleteSharedPersonalMemory(
   try {
     await fs.promises.unlink(filePath);
   } catch (error) {
-    if (!isMissingPathError(error)) throw error;
+    if (!isMissingPathError(error)) {
+      console.error(
+        "[resources] Deleted memory's shared file could not be removed; the tombstone hides it:",
+        error,
+      );
+    }
   }
 }
 

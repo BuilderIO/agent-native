@@ -1401,6 +1401,25 @@ describe("desktop Pi extension memory prompt", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("clears a running session's prompt when the tombstone state is unreadable", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    writeFileSync(`${index}.deleted`, "not-a-number");
+    await vi.waitFor(() => expect(prompt()).not.toContain("ALICE"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
   it("refreshes a running session's memory when the file changes", async () => {
     const dir = seedAccounts();
     const index = path.join(

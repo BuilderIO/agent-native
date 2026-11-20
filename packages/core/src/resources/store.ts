@@ -2031,7 +2031,7 @@ export async function resourceGet(
     return null;
   }
   const [visible] = await filterLegacyDispatchWorkspaceRows([resource], orgId);
-  return dropTombstonedMemoryRow(visible);
+  return hideTombstonedMemoryRow(visible);
 }
 
 async function adoptSharedMemory(
@@ -2337,7 +2337,7 @@ async function mirrorPutOrThrow(
   );
 }
 
-async function dropTombstonedMemoryRow(
+async function hideTombstonedMemoryRow(
   resource: Resource | undefined,
 ): Promise<Resource | null> {
   if (!resource) return null;
@@ -2345,14 +2345,10 @@ async function dropTombstonedMemoryRow(
     return resource;
   }
   const mirrored = await readMirroredMemory(resource.owner, resource.path);
-  if (
-    mirrored.state === "deleted" &&
+  return mirrored.state === "deleted" &&
     resource.updatedAt <= mirrored.deletedAt
-  ) {
-    await deleteMirroredRow(resource);
-    return null;
-  }
-  return resource;
+    ? null
+    : resource;
 }
 
 async function withoutTombstonedMemories(
@@ -2380,16 +2376,6 @@ async function postTombstoneFloor(
   if (!isPersonalMemoryResourcePath(owner, path)) return 0;
   const mirrored = await readMirroredMemory(owner, path);
   return mirrored.state === "deleted" ? mirrored.deletedAt + 1 : 0;
-}
-
-async function deleteMirroredRow(resource: Resource): Promise<void> {
-  const result = await getDbExec().execute({
-    sql: `DELETE FROM resources WHERE id = ? AND updated_at = ?`,
-    args: [resource.id, resource.updatedAt],
-  });
-  if (result.rowsAffected === 1) {
-    emitResourceDelete(resource.id, resource.path, resource.owner);
-  }
 }
 
 const SHARED_MEMORY_ID_PREFIX = "shared-memory:";
@@ -2461,7 +2447,6 @@ export async function resourceGetByPath(
         dbResource &&
         dbResource.updatedAt <= mirrored.deletedAt
       ) {
-        await deleteMirroredRow(dbResource);
         return null;
       }
       const shared = mirrored.state === "present" ? mirrored : null;

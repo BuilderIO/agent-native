@@ -11,7 +11,10 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
-import { readMirroredMemory } from "@agent-native/core/resources/shared-memory";
+import {
+  MemoryTombstoneError,
+  readMirroredMemory,
+} from "@agent-native/core/resources/shared-memory";
 import { createPtyWebSocketServer } from "@agent-native/core/terminal/pty-server";
 import {
   getDesktopVisibleApps,
@@ -1812,6 +1815,11 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     try {
       prompt = await renderMemoryPrompt(bound);
     } catch (error) {
+      if (error instanceof MemoryTombstoneError) {
+        fs.rmSync(file, { force: true });
+        memoryOwnerFiles.delete(file);
+        return;
+      }
       console.error(
         "[desktop-chat] Could not read shared memory; keeping the last prompt:",
         error,
