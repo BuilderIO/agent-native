@@ -20,6 +20,7 @@ import { IconLayoutBoard, IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { ImageLightbox } from "@/components/editor/ImageLightbox";
 import { imageDisplaySrc } from "@/components/editor/private-media-src";
 import { Button } from "@/components/ui/button";
 import { SourceEmbedFrame } from "@/components/ui/source-embed-frame";
@@ -57,10 +58,16 @@ function UnreadableScreen() {
   );
 }
 
-/** The picture at its own proportions, as wide as the page allows. */
+/**
+ * The picture at its own proportions, as wide as the page allows; choosing
+ * it opens it full size.
+ */
 function ScreenPicture({ image }: { image: DesignScreenData["image"] }) {
   const t = useT();
   const [failed, setFailed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const src = imageDisplaySrc(image.src);
   if (failed) {
     return (
       <div
@@ -73,17 +80,38 @@ function ScreenPicture({ image }: { image: DesignScreenData["image"] }) {
     );
   }
   return (
-    <img
-      src={imageDisplaySrc(image.src)}
-      alt={image.alt}
-      width={image.width}
-      height={image.height}
-      loading="lazy"
-      decoding="async"
-      draggable={false}
-      onError={() => setFailed(true)}
-      className="block h-auto w-full rounded-md border border-border/60"
-    />
+    <>
+      {/* The button takes its name from the picture's alt text. */}
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        title={t("editor.media.expandImage")}
+        onClick={(event) => {
+          setOpener(event.currentTarget);
+          setExpanded(true);
+        }}
+        className="block w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <img
+          src={src}
+          alt={image.alt}
+          width={image.width}
+          height={image.height}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onError={() => setFailed(true)}
+          className="block h-auto w-full rounded-md border border-border/60"
+        />
+      </button>
+      <ImageLightbox
+        open={expanded}
+        onOpenChange={setExpanded}
+        src={src}
+        alt={image.alt}
+        returnFocus={opener}
+      />
+    </>
   );
 }
 
