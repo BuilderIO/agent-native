@@ -1,5 +1,12 @@
 import { createRequire } from "node:module";
 
+import {
+  invocationEffect,
+  isNoWriteError,
+  runActionWithExecutionOutcome,
+  type ActionExecutionOutcome,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { createMCPServerForRequest } from "@agent-native/core/mcp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +35,26 @@ import listAppActions from "./list_app_actions.js";
 import readView from "./read_view.js";
 
 const ctx = { caller: "mcp" } as never;
+
+/** What the agent loop concludes about a call that threw: did it write? */
+async function failedEffect(args: Record<string, unknown>) {
+  const outcome: ActionExecutionOutcome = { refused: false };
+  const error = await runActionWithExecutionOutcome(
+    callAppAction.run as (
+      args: never,
+      ctx?: ActionRunContext,
+    ) => Promise<never>,
+    args as never,
+    ctx as ActionRunContext,
+    outcome,
+    callAppAction,
+  ).then(
+    () => undefined,
+    (thrown: unknown) => thrown,
+  );
+  expect(error).toBeDefined();
+  return invocationEffect(callAppAction, outcome, { failed: { error } }).effect;
+}
 
 describe("app action tools", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -133,6 +160,56 @@ describe("app action tools", () => {
     expect((error as Error).message).toMatch(
       /paused for this deployment\. Its write outcome may be unknown; inspect the app before retrying\.$/,
     );
+  });
+
+  it("reports an input-check refusal as a call that wrote nothing", async () => {
+    mocks.callAction.mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "Error: Invalid action parameters" }],
+    });
+    const error = await callAppAction
+      .run(
+        { app: "mail", action: "send-gmail-message", args: {} } as never,
+        ctx,
+      )
+      .catch((caught: Error) => caught);
+    expect(isNoWriteError(error)).toBe(true);
+    expect(
+      await failedEffect({
+        app: "mail",
+        action: "send-gmail-message",
+        args: {},
+      }),
+    ).toBe("none");
+    expect((error as Error).message).toBe(
+      "Error: Invalid action parameters Nothing was changed.",
+    );
+    expect(error).toMatchObject({
+      errorCode: "app_action_invalid_parameters",
+      statusCode: 400,
+    });
+  });
+
+  it("keeps a handler failure's write outcome unknown", async () => {
+    mocks.callAction.mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "Error: Gmail rejected the message" }],
+    });
+    const error = await callAppAction
+      .run(
+        { app: "mail", action: "send-gmail-message", args: {} } as never,
+        ctx,
+      )
+      .catch((caught: Error) => caught);
+    expect(isNoWriteError(error)).toBe(false);
+    expect(
+      await failedEffect({
+        app: "mail",
+        action: "send-gmail-message",
+        args: {},
+      }),
+    ).toBe("unknown");
+    expect((error as Error).message).toMatch(/write outcome may be unknown/);
   });
 
   it("reports an approval wait as approval_required with one errorCode", async () => {
