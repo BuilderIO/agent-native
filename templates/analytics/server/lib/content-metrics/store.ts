@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, gt, inArray, lt, max, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -233,6 +233,7 @@ export async function listContentRunWindows(
   step: ContentCollectionStepId,
 ): Promise<
   Array<{
+    startedAt: string;
     windowStart: string;
     windowEnd: string;
     configFingerprint: string | null;
@@ -241,6 +242,7 @@ export async function listContentRunWindows(
   const db = getDb();
   const rows = await db
     .select({
+      startedAt: schema.analyticsContentCollectionRuns.startedAt,
       windowStart: schema.analyticsContentCollectionRuns.windowStart,
       windowEnd: schema.analyticsContentCollectionRuns.windowEnd,
       configFingerprint:
@@ -259,6 +261,7 @@ export async function listContentRunWindows(
     );
   return rows.flatMap(
     (row: {
+      startedAt: string;
       windowStart: string | null;
       windowEnd: string | null;
       configFingerprint: string | null;
@@ -266,6 +269,7 @@ export async function listContentRunWindows(
       row.windowStart && row.windowEnd
         ? [
             {
+              startedAt: row.startedAt,
               windowStart: row.windowStart,
               windowEnd: row.windowEnd,
               configFingerprint: row.configFingerprint,
@@ -273,28 +277,6 @@ export async function listContentRunWindows(
           ]
         : [],
   );
-}
-
-export async function latestSnapshotDate(
-  collection: ContentCollection,
-  source: ContentCollectionStepId,
-): Promise<string | null> {
-  const db = getDb();
-  const [row = { latest: null }] = await db
-    .select({
-      latest: max(schema.analyticsContentMetricSnapshots.metricDate),
-    })
-    .from(schema.analyticsContentMetricSnapshots)
-    .where(
-      and(
-        eq(
-          schema.analyticsContentMetricSnapshots.tenantKey,
-          collection.tenantKey,
-        ),
-        eq(schema.analyticsContentMetricSnapshots.source, source),
-      ),
-    );
-  return row.latest;
 }
 
 /** The last run of a step that wrote its data, for choosing a backfill window. */

@@ -401,7 +401,8 @@ describe("Content view dashboard", () => {
     await client.exec(`
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
         ('c1', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_clicks', 3, 'search_console', 'r3', '${daysAgo(2)}'),
-        ('c2', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_impressions', 40, 'search_console', 'r3', '${daysAgo(2)}');
+        ('c2', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(4)}', 'search_console_impressions', 40, 'search_console', 'r3', '${daysAgo(2)}'),
+        ('c4', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(5)}', 'search_console_impressions', 60, 'search_console', 'r3', '${daysAgo(2)}');
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
       SELECT 'c3', 'org:org_a', 'alice@example.test', 'org_a', 'a1', metric_date, 'search_console_position_weighted', 132, 'search_console', 'r3', '2026-09-01'
       FROM analytics_content_metric_snapshots WHERE id = 'c1';
@@ -412,7 +413,7 @@ describe("Content view dashboard", () => {
       expect.objectContaining({
         pageviews: 5,
         clicks: 3,
-        impressions: 40,
+        impressions: 100,
         position: 3.3,
       }),
     );
@@ -840,6 +841,15 @@ describe("Content view dashboard", () => {
     `);
     expect(await runPanel("search-months", "7d")).toEqual([
       { month: await monthLabel(13), clicks: 4 },
+      { month: await monthLabel(1), clicks: 10 },
+    ]);
+
+    await client.exec(`
+      DELETE FROM analytics_content_metric_snapshots WHERE id IN ('montha1250', 'montha2130');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT 'partial', 'org:org_a', 'alice@example.test', 'org_a', 'a1', to_char((date_trunc('month', CURRENT_DATE::timestamp) - make_interval(months => 2))::date + 9, 'YYYY-MM-DD'), 'search_console_clicks', 6, 'search_console', 'r3', '2026-09-01';
+    `);
+    expect(await runPanel("search-months", "7d")).toEqual([
       { month: await monthLabel(1), clicks: 10 },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();

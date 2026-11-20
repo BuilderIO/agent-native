@@ -45,12 +45,31 @@ const METRICS = [
 const LOOKBACK_DAYS = 5;
 const MAX_DAYS_PER_RUN = BACKFILL_DAYS + LOOKBACK_DAYS;
 const MAX_ROWS_PER_SITE = 500_000;
+const HISTORY_DAYS_PER_REQUEST = 30;
+
+type DateRange = { startDate: string; endDate: string };
+
+function requestRanges(range: DateRange): DateRange[] {
+  const ranges: DateRange[] = [];
+  for (
+    let startDate = range.startDate;
+    startDate <= range.endDate;
+    startDate = addDays(startDate, HISTORY_DAYS_PER_REQUEST)
+  ) {
+    const endDate = addDays(startDate, HISTORY_DAYS_PER_REQUEST - 1);
+    ranges.push({
+      startDate,
+      endDate: endDate < range.endDate ? endDate : range.endDate,
+    });
+  }
+  return ranges;
+}
 
 async function historyRange(
   collection: ContentStepContext["collection"],
-  window: { startDate: string; endDate: string },
+  window: DateRange,
   configFingerprint: string,
-): Promise<{ startDate: string; endDate: string } | null> {
+): Promise<DateRange | null> {
   const historyStart = monthsEndingOn(
     window.endDate,
     collection.config.searchConsole.historyMonths,
@@ -134,12 +153,14 @@ export const searchConsoleStep: ContentStep = {
       configFingerprint,
     );
     const history = await historyRange(collection, window, configFingerprint);
-    const ranges = history ? [history, window] : [window];
+    const ranges = [...(history ? requestRanges(history) : []), window];
     const firstDay = history?.startDate ?? window.startDate;
     const newPages = new Map<string, ContentItemInput>();
     const snapshots = new Map<string, ContentSnapshotInput>();
+    const dayOwners = new Map<string, number>();
+    let returnedThrough: string | null = null;
 
-    for (const site of sites) {
+    for (const [siteIndex, site] of sites.entries()) {
       const pageRegex = sitePageRegex(site);
       const rows: SearchAnalyticsRow[] = [];
       for (const range of ranges) {
@@ -204,6 +225,13 @@ export const searchConsoleStep: ContentStep = {
           );
         }
       }
+      if (
+        lastReturnedDate &&
+        lastReturnedDate >= window.startDate &&
+        (!returnedThrough || lastReturnedDate > returnedThrough)
+      ) {
+        returnedThrough = lastReturnedDate;
+      }
 
       for (const snapshot of values.snapshots({
         items: [...articles, ...knownPages].filter((item) =>
@@ -216,13 +244,15 @@ export const searchConsoleStep: ContentStep = {
       })) {
         // Overlapping properties measure the same traffic. The first configured
         // property returning a value owns it, rather than double counting.
-        const key = JSON.stringify([
+        const day = JSON.stringify([
           snapshot.itemSource,
           snapshot.itemExternalId,
           snapshot.metricDate,
-          snapshot.metric,
         ]);
-        if (!snapshots.has(key)) snapshots.set(key, snapshot);
+        const owner = dayOwners.get(day) ?? siteIndex;
+        if (owner !== siteIndex) continue;
+        dayOwners.set(day, siteIndex);
+        snapshots.set(JSON.stringify([day, snapshot.metric]), snapshot);
       }
     }
 
@@ -232,7 +262,7 @@ export const searchConsoleStep: ContentStep = {
       outcome: {
         rowCount: snapshots.size,
         windowStart: firstDay,
-        windowEnd: window.endDate,
+        windowEnd: returnedThrough ?? window.endDate,
         configFingerprint,
       },
     };

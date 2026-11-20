@@ -77,8 +77,16 @@ export async function coveredSince(
   configFingerprint: string,
   anchorStart: string,
 ): Promise<string> {
-  const windows = (await listContentRunWindows(collection, step)).filter(
-    (window) => window.configFingerprint === configFingerprint,
+  const runs = await listContentRunWindows(collection, step);
+  const changedAt = runs
+    .filter((run) => run.configFingerprint !== configFingerprint)
+    .reduce(
+      (latest, run) => (run.startedAt > latest ? run.startedAt : latest),
+      "",
+    );
+  const windows = runs.filter(
+    (run) =>
+      run.configFingerprint === configFingerprint && run.startedAt > changedAt,
   );
   let start = anchorStart;
   for (let joined = true; joined; ) {

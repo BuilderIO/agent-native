@@ -1,8 +1,11 @@
 import { querySearchAnalytics } from "../../search-console.js";
-import { searchConsoleQueriesConfigFingerprint } from "../config.js";
+import {
+  searchConsoleConfigFingerprint,
+  searchConsoleQueriesConfigFingerprint,
+} from "../config.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
 import {
-  latestSnapshotDate,
+  lastSucceededContentRun,
   listContentItems,
   type ContentItemInput,
   type ContentSearchQueryInput,
@@ -34,7 +37,6 @@ type QueryTotals = { clicks: number; impressions: number; weighted: number };
 export const searchConsoleQueriesStep: ContentStep = {
   id: "search_console_queries",
   async run({ collection, now, signal }) {
-    const startedAt = Date.now();
     const sites = collection.config.searchConsole.sites;
     const perPage = collection.config.searchConsoleQueries.perPage;
     const configFingerprint = searchConsoleQueriesConfigFingerprint(
@@ -50,18 +52,19 @@ export const searchConsoleQueriesStep: ContentStep = {
     }
 
     const yesterday = utcDate(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-    const pagesThrough = await latestSnapshotDate(collection, "search_console");
-    if (!pagesThrough) {
-      return {
-        outcome: {
-          rowCount: 0,
-          configFingerprint,
-          detail:
-            "Waiting for Search Console's daily page numbers, which say which weeks are final.",
-        },
-      };
+    const pages = await lastSucceededContentRun(collection, "search_console");
+    if (
+      !pages?.windowEnd ||
+      pages.configFingerprint !== searchConsoleConfigFingerprint(sites)
+    ) {
+      throw new ContentStepStop({
+        status: "not_configured",
+        errorCode: "waiting_for_search_console_pages",
+        errorMessage:
+          "Waiting for Search Console's daily page numbers, which say which weeks are final.",
+      });
     }
-    const lastFinal = pagesThrough < yesterday ? pagesThrough : yesterday;
+    const lastFinal = pages.windowEnd < yesterday ? pages.windowEnd : yesterday;
     const newestWeek = addDays(weekStartOf(addDays(lastFinal, 1)), -7);
     const newestSunday = addDays(newestWeek, 6);
     const rereadStart = addDays(newestWeek, -7 * (REREAD_WEEKS - 1));
@@ -114,8 +117,8 @@ export const searchConsoleQueriesStep: ContentStep = {
       >();
       for (let offset = 0; offset < 7; offset += 1) {
         const day = addDays(week, offset);
-        const owned = new Map<string, string>();
-        for (const site of sites) {
+        const owned = new Map<string, number>();
+        for (const [siteIndex, site] of sites.entries()) {
           const pageRegex = sitePageRegex(site);
           const dayRows = await querySearchAnalytics({
             siteUrl: site.siteUrl,
@@ -134,9 +137,9 @@ export const searchConsoleQueriesStep: ContentStep = {
             if (!page || !query) continue;
             const key = pageKey(page);
             if (!key) continue;
-            const owner = owned.get(key);
-            if (owner && owner !== site.siteUrl) continue;
-            owned.set(key, site.siteUrl);
+            const owner = owned.get(key) ?? siteIndex;
+            if (owner !== siteIndex) continue;
+            owned.set(key, siteIndex);
             let item: ItemRef | undefined = byKey.get(key);
             if (!item) {
               const [url = page] = page.split("#");
@@ -207,9 +210,10 @@ export const searchConsoleQueriesStep: ContentStep = {
     }
 
     for (const week of weeks) await readWeek(week);
+    const historyStartedAt = Date.now();
     let oldestRead = rereadStart;
     for (const week of historyWeeks) {
-      if (Date.now() - startedAt > HISTORY_BUDGET_MS) break;
+      if (Date.now() - historyStartedAt > HISTORY_BUDGET_MS) break;
       await readWeek(week);
       oldestRead = week;
     }
