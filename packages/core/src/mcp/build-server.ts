@@ -4037,7 +4037,7 @@ export async function createMCPServerForRequest(
       review,
       ownerEmail: effectiveIdentity?.userEmail,
       mode,
-      reviewUrl,
+      ...(inlineFormOnly ? {} : { reviewUrl }),
     });
     if (mode === "url") {
       const requestState = await codec.mint(

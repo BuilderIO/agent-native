@@ -1083,7 +1083,7 @@ describe("reversible-write policy over MCP", () => {
     try {
       const approved = await client.callTool({
         name: "save-draft",
-        arguments: { title: "Hi" },
+        arguments: { title: "Long draft ".repeat(40) },
       });
       expect(elicitRequests).toHaveLength(1);
       expect(elicitRequests[0]?.mode).not.toBe("url");

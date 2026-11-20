@@ -1069,7 +1069,9 @@ async function authorizeApproval(
     }
 
     // The person may have approved on the review page while the prompt was open.
-    const reviewed = await consumeReviewedMcpApprovalGrant(grant, grant.nonce);
+    const reviewed = inlineFormApproval
+      ? undefined
+      : await consumeReviewedMcpApprovalGrant(grant, grant.nonce);
     if (reviewed) {
       return {
         status: "authorized",
@@ -1148,7 +1150,9 @@ async function authorizeApproval(
     actionName: name,
     argumentsHash,
   };
-  const reviewed = await consumeReviewedMcpApprovalGrant(exactCall);
+  const reviewed = inlineFormApproval
+    ? undefined
+    : await consumeReviewedMcpApprovalGrant(exactCall);
   if (reviewed) {
     return {
       status: "authorized",
