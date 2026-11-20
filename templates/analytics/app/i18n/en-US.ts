@@ -2282,6 +2282,15 @@ export default {
     more: "+{{count}} more",
     flagLabel: "Data notes",
   },
+  citedIn: {
+    menu: "Cited in",
+    menuTooltip: "Content pages with charts from this dashboard",
+    empty: "No Content pages you can open hold charts from this dashboard yet",
+    unavailable:
+      "Couldn't reach Content to list these pages. Try again in a minute.",
+    untitledPage: "Untitled",
+    more: "Showing the 50 most recently edited pages",
+  },
   annotations: {
     menu: "Annotations",
     menuTooltip: "Key dates and data notes",

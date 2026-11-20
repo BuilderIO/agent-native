@@ -2352,6 +2352,16 @@ export default {
     more: "+{{count}} a mais",
     flagLabel: "Notas de dados",
   },
+  citedIn: {
+    menu: "Citado em",
+    menuTooltip: "Páginas do Content com gráficos deste dashboard",
+    empty:
+      "Nenhuma página do Content que você pode abrir tem gráficos deste dashboard ainda",
+    unavailable:
+      "Não foi possível acessar o Content. Tente novamente em um minuto.",
+    untitledPage: "Sem título",
+    more: "Mostrando as 50 páginas editadas mais recentemente",
+  },
   annotations: {
     menu: "Anotações",
     menuTooltip: "Datas importantes e notas de dados",

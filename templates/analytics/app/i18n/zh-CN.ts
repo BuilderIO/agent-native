@@ -2195,6 +2195,14 @@ export default {
     more: "另外 {{count}} 条",
     flagLabel: "数据备注",
   },
+  citedIn: {
+    menu: "引用位置",
+    menuTooltip: "包含此仪表板图表的 Content 页面",
+    empty: "还没有你能打开的 Content 页面包含此仪表板的图表",
+    unavailable: "无法连接 Content。请一分钟后重试。",
+    untitledPage: "未命名",
+    more: "显示最近编辑的 50 个页面",
+  },
   annotations: {
     menu: "标注",
     menuTooltip: "关键日期和数据备注",

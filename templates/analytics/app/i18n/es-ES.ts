@@ -2358,6 +2358,16 @@ export default {
     more: "+{{count}} más",
     flagLabel: "Notas de datos",
   },
+  citedIn: {
+    menu: "Citado en",
+    menuTooltip: "Páginas de Content con gráficos de este panel",
+    empty:
+      "Aún no hay páginas de Content que pueda abrir con gráficos de este panel",
+    unavailable:
+      "No se pudo conectar con Content. Inténtelo de nuevo en un minuto.",
+    untitledPage: "Sin título",
+    more: "Se muestran las 50 páginas editadas más recientemente",
+  },
   annotations: {
     menu: "Anotaciones",
     menuTooltip: "Fechas clave y notas de datos",

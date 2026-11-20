@@ -2340,6 +2340,16 @@ export default {
     more: "他 {{count}} 件",
     flagLabel: "データノート",
   },
+  citedIn: {
+    menu: "引用先",
+    menuTooltip: "このダッシュボードのグラフを含む Content ページ",
+    empty:
+      "このダッシュボードのグラフを含む、開ける Content ページはまだありません",
+    unavailable:
+      "Content に接続できませんでした。1 分後にもう一度お試しください。",
+    untitledPage: "無題",
+    more: "最近編集された 50 ページを表示しています",
+  },
   annotations: {
     menu: "注釈",
     menuTooltip: "重要な日付とデータノート",

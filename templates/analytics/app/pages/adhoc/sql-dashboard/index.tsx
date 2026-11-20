@@ -166,6 +166,7 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import { useAnnotationEditing } from "./annotation-editing";
+import { CitedInMenu } from "./CitedInMenu";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
@@ -2866,6 +2867,7 @@ function SqlDashboardPageContent({
           <ViewsMenu dashboardId={dashboardId} canEdit={canEdit} />
         )}
         {annotationEditing.menu}
+        {dashboardId && <CitedInMenu dashboardId={dashboardId} />}
         {dashboardId && !builtinDashboard ? (
           <ShareButton
             resourceType="dashboard"
