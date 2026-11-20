@@ -893,4 +893,137 @@ describe("personal memory shared across local apps", () => {
     ).rejects.toBeInstanceOf(MemoryWriteConflictError);
     expect(fs.readFileSync(file, "utf8")).toBe("b-external");
   });
+
+  describe("delete protocol: tombstone first, then the row", () => {
+    type Statement = Parameters<DbExec["execute"]>[0];
+
+    function beforeStatement(pattern: RegExp, hook: () => Promise<void>) {
+      const original = sharedClient.execute.bind(sharedClient);
+      let fired = false;
+      // raw-sql-ok: test wrapper only inspects statement text.
+      sharedClient.execute = (async (input: Statement) => {
+        const text = typeof input === "string" ? input : input.sql;
+        if (!fired && pattern.test(text)) {
+          fired = true;
+          await hook();
+        }
+        return original(input);
+      }) as DbExec["execute"];
+      return () => {
+        sharedClient.execute = original;
+      };
+    }
+
+    it("does not let a read resurrect a memory while it is being deleted", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      await resourcePut(OWNER, "memory/gap.md", "keep me dead");
+      const realRename = fs.promises.rename.bind(fs.promises);
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (String(to).endsWith(".deleted")) {
+            await resourceGetByPath(OWNER, "memory/gap.md");
+          }
+          return realRename(from, to);
+        });
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        await resourceGetByPath(OWNER, "memory/gap.md");
+      });
+      try {
+        await resourceDeleteByPath(OWNER, "memory/gap.md");
+      } finally {
+        restore();
+        rename.mockRestore();
+      }
+      await expect(
+        resourceGetByPath(OWNER, "memory/gap.md"),
+      ).resolves.toBeNull();
+      expect(fs.existsSync(sharedFile(dir, "gap.md"))).toBe(false);
+      const { rows } = await pglite.query(
+        `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/gap.md'`,
+      );
+      expect(rows).toEqual([]);
+    });
+
+    it("stamps a tombstone above a revision written between the floor read and the delete", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteByPath, resourcePut } = await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/race.md", "x");
+      const newer = stored.updatedAt + 3_600_000;
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        await pglite.query(
+          `UPDATE resources SET updated_at = $1 WHERE id = $2`,
+          [newer, stored.id],
+        );
+      });
+      try {
+        await resourceDeleteByPath(OWNER, "memory/race.md");
+      } finally {
+        restore();
+      }
+      expect(
+        Number(
+          fs.readFileSync(`${sharedFile(dir, "race.md")}.deleted`, "utf8"),
+        ),
+      ).toBeGreaterThan(newer);
+    });
+
+    it("reports a failed SQL delete with a typed error and leaves the memory visible", async () => {
+      useMemoryDir();
+      const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      const { MemoryDeleteFailedError } = await import("./shared-memory.js");
+      await resourcePut(OWNER, "memory/sqlfail.md", "still here");
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        throw new Error("db down");
+      });
+      try {
+        await expect(
+          resourceDeleteByPath(OWNER, "memory/sqlfail.md"),
+        ).rejects.toBeInstanceOf(MemoryDeleteFailedError);
+      } finally {
+        restore();
+      }
+      await expect(
+        resourceGetByPath(OWNER, "memory/sqlfail.md"),
+      ).resolves.toMatchObject({ content: "still here" });
+    });
+
+    it("keeps a restored memory visible past a newer tombstone when its mirror fails", async () => {
+      const dir = useMemoryDir();
+      const {
+        resourceDeleteByPath,
+        resourceGetByPath,
+        resourcePut,
+        resourceRestoreSnapshotIfCurrent,
+      } = await import("./store.js");
+      const { MemoryMirrorStaleError } = await import("./shared-memory.js");
+      const snapshot = await resourcePut(OWNER, "memory/restore.md", "back");
+      await resourceDeleteByPath(OWNER, "memory/restore.md");
+      const future = Date.now() + 3_600_000;
+      fs.writeFileSync(
+        `${sharedFile(dir, "restore.md")}.deleted`,
+        String(future),
+      );
+      const realRename = fs.promises.rename.bind(fs.promises);
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (!String(to).endsWith(".deleted")) throw new Error("EROFS");
+          return realRename(from, to);
+        });
+      try {
+        await expect(
+          resourceRestoreSnapshotIfCurrent(snapshot, null),
+        ).rejects.toBeInstanceOf(MemoryMirrorStaleError);
+      } finally {
+        rename.mockRestore();
+      }
+      const read = await resourceGetByPath(OWNER, "memory/restore.md");
+      expect(read?.content).toBe("back");
+      expect(read?.updatedAt).toBeGreaterThan(future);
+    });
+  });
 });

@@ -1,4 +1,5 @@
 import {
+  MemoryDeleteFailedError,
   MemoryTombstoneError,
   staleMirrorCollector,
 } from "../../resources/shared-memory.js";
@@ -31,13 +32,16 @@ export default async function deleteMemoryScript(
   const indexPath = "memory/MEMORY.md";
 
   let deleted = false;
-  let tombstoneFailure: MemoryTombstoneError | undefined;
   try {
     deleted = await resourceDeleteByPath(owner, memoryPath);
   } catch (error) {
-    if (!(error instanceof MemoryTombstoneError)) throw error;
-    tombstoneFailure = error;
-    deleted = true;
+    if (
+      error instanceof MemoryTombstoneError ||
+      error instanceof MemoryDeleteFailedError
+    ) {
+      fail(`Memory "${name}" was not deleted: ${error.message}`);
+    }
+    throw error;
   }
 
   const stale = staleMirrorCollector();
@@ -57,11 +61,6 @@ export default async function deleteMemoryScript(
     }
   }
 
-  if (tombstoneFailure) {
-    fail(
-      `Memory "${name}" was removed from the database but its shared copy could not be marked deleted, so it may reappear: ${tombstoneFailure.message}`,
-    );
-  }
   stale.finish();
 
   if (deleted) {

@@ -61,7 +61,14 @@ export function resolveSharedMemoryFilePath(
   return resolved;
 }
 
+/** The tombstone could not be published, so the delete did not start. */
 export class MemoryTombstoneError extends Error {}
+
+/**
+ * The tombstone was published but the SQL delete failed. The row is still
+ * stored; the shared copy was restored from it when that repair succeeded.
+ */
+export class MemoryDeleteFailedError extends Error {}
 
 export class MemoryWriteConflictError extends Error {
   adopted: { content: string; updatedAt: number } | null;

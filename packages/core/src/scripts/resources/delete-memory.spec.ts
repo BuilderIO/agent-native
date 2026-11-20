@@ -36,16 +36,14 @@ describe("delete-memory", () => {
     vi.clearAllMocks();
   });
 
-  it("surfaces a tombstone failure instead of reporting not found, after updating the index", async () => {
+  it("fails a delete that could not start and leaves the index alone", async () => {
     mocks.resourceDeleteByPath.mockRejectedValueOnce(
       new MemoryTombstoneError("disk full"),
     );
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(run()).rejects.toThrow(
-      /could not be marked deleted.*disk full/,
-    );
-    expect(mocks.resourcePut).toHaveBeenCalledTimes(1);
+    await expect(run()).rejects.toThrow(/was not deleted.*disk full/);
+    expect(mocks.resourcePut).not.toHaveBeenCalled();
     expect(log).not.toHaveBeenCalledWith(expect.stringContaining("not found"));
     log.mockRestore();
   });
