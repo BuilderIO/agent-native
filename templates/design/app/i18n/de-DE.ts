@@ -1299,6 +1299,8 @@ export default {
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
+    templateRequiresScreen:
+      "Füge mindestens einen Design-Screen hinzu, bevor du eine Vorlage speicherst.",
     appMenu: {
       file: "Datei",
       preferences: "Einstellungen",
