@@ -188,6 +188,72 @@ describe("shared-memory", () => {
     }
   });
 
+  it("removes its own file when a tombstone lands right after the rename", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/late.md",
+    ) as string;
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const rename = vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementation(async (from, to) => {
+        await realRename(from, to);
+        if (String(to) === file) {
+          fs.writeFileSync(`${file}.deleted`, String(Date.now() + 60_000));
+        }
+      });
+    try {
+      await expect(
+        writeSharedPersonalMemory(
+          "alice@example.com",
+          "memory/late.md",
+          "x",
+          Date.now(),
+        ),
+      ).rejects.toBeInstanceOf(MemoryTombstoneError);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it("keeps a file that a newer writer installed after this write", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/newer.md",
+    ) as string;
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const rename = vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementation(async (from, to) => {
+        await realRename(from, to);
+        if (String(to) === file) {
+          fs.writeFileSync(`${file}.other`, "newer writer");
+          fs.renameSync(`${file}.other`, file);
+          fs.writeFileSync(`${file}.deleted`, String(Date.now() + 60_000));
+        }
+      });
+    try {
+      await expect(
+        writeSharedPersonalMemory(
+          "alice@example.com",
+          "memory/newer.md",
+          "x",
+          Date.now(),
+        ),
+      ).rejects.toBeInstanceOf(MemoryTombstoneError);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(file, "utf8")).toBe("newer writer");
+  });
+
   it("publishes a tombstone by renaming a temp file, never in place", async () => {
     const dir = makeTempDir();
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;

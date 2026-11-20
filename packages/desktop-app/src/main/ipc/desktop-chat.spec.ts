@@ -1500,7 +1500,7 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
-  it("revokes a running terminal's memory root on sign-out and account switch", async () => {
+  it("revokes a running terminal's memory root on sign-out and relinks the next account", async () => {
     seedAccounts();
     noteDesktopBuilderRelayOwner("account:a@example.test");
     const session = await bindDesktopSessionMemoryOwner();
@@ -1513,7 +1513,7 @@ describe("desktop Pi extension memory prompt", () => {
     noteDesktopBuilderRelayOwner("account:a@example.test");
     expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
     noteDesktopBuilderRelayOwner("account:b@example.test");
-    expect(readdirSync(root)).toEqual([]);
+    expect(readdirSync(root)).toEqual([encodeURIComponent("b@example.test")]);
     session.release();
     setDesktopMemoryAccount(null);
   });
@@ -1528,6 +1528,37 @@ describe("desktop Pi extension memory prompt", () => {
     expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
     session.release();
     setDesktopMemoryAccount(null);
+  });
+
+  it("links a running terminal to the next account after a sign-out", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+
+    setDesktopMemoryAccount(null);
+    expect(readdirSync(root)).toEqual([]);
+
+    setDesktopMemoryAccount("b@example.test");
+    expect(readdirSync(root)).toEqual([encodeURIComponent("b@example.test")]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("never lets an inherited memory directory reach a terminal without its own root", () => {
+    const previous = process.env.AGENT_NATIVE_MEMORY_DIR;
+    process.env.AGENT_NATIVE_MEMORY_DIR = "/parent/broad/memory";
+    try {
+      const merged = {
+        ...process.env,
+        ...desktopTerminalMemoryEnvironment("/tmp/prompt.md", undefined),
+      };
+      expect(merged.AGENT_NATIVE_MEMORY_DIR).toBe("");
+    } finally {
+      if (previous === undefined) delete process.env.AGENT_NATIVE_MEMORY_DIR;
+      else process.env.AGENT_NATIVE_MEMORY_DIR = previous;
+    }
   });
 
   it("gives a session started before sign-in access once an account binds", async () => {

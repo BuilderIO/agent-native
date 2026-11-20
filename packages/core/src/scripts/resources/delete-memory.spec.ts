@@ -76,6 +76,24 @@ describe("delete-memory", () => {
     log.mockRestore();
   });
 
+  it("reports both a leftover file and a failed index update", async () => {
+    mocks.resourceDeleteByPath.mockRejectedValueOnce(
+      new MemoryMirrorStaleError("memory/style.md could not be unlinked", {
+        path: "memory/style.md",
+        content: "",
+        updatedAt: 1,
+      }),
+    );
+    mocks.resourcePut.mockRejectedValueOnce(new Error("conflict"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(run()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/leftover shared file.*index.*conflict/),
+    );
+    log.mockRestore();
+  });
+
   it("does not swallow other delete errors", async () => {
     mocks.resourceDeleteByPath.mockRejectedValueOnce(new Error("db down"));
     await expect(run()).rejects.toThrow("db down");

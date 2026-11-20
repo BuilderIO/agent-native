@@ -2997,6 +2997,7 @@ async function requestDreamProposalApproval(proposal: DreamProposalRow) {
 async function applyDreamProposalDirect(
   proposal: DreamProposalRow,
   actor = currentOwnerEmail(),
+  options: { warnOnMirrorError?: boolean } = {},
 ) {
   const db = getDb();
   let result: unknown;
@@ -3044,11 +3045,12 @@ async function applyDreamProposalDirect(
     },
   });
 
-  if (mirrorError) throw mirrorError;
+  if (mirrorError && !options.warnOnMirrorError) throw mirrorError;
 
   return {
     proposal: serializeProposal((await getProposalRow(proposal.id))!),
     result,
+    ...(mirrorError ? { warning: mirrorError.message } : {}),
   };
 }
 
@@ -3062,7 +3064,9 @@ export async function applyApprovedDreamProposal(
   if (!["pending", "approval_requested"].includes(proposal.status)) {
     throw new Error("Only pending dream proposals can be applied");
   }
-  return applyDreamProposalDirect(proposal, actor);
+  return applyDreamProposalDirect(proposal, actor, {
+    warnOnMirrorError: true,
+  });
 }
 
 export async function applyDreamProposal(proposalId: string) {

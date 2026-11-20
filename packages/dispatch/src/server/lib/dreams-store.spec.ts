@@ -1333,6 +1333,28 @@ describe("applyDreamProposal", () => {
     );
   });
 
+  it("reports a mirror error as a warning when an approved proposal is applied", async () => {
+    mocks.getDb.mockReturnValue(
+      createDbMock(pendingProposal({ status: "approval_requested" })),
+    );
+    mocks.resourcePut.mockRejectedValueOnce(
+      new MemoryMirrorStaleError("mirror stale", {
+        path: "memory/custom.md",
+        content: "x",
+        updatedAt: 1,
+      }),
+    );
+
+    const result = await applyApprovedDreamProposal(
+      "proposal-1",
+      "admin@example.test",
+      { ownerEmail: "owner@example.test", orgId: null },
+    );
+
+    expect(result.proposal.status).toBe("applied");
+    expect(result.warning).toBe("mirror stale");
+  });
+
   it("writes personal memory and updates the memory index before auditing", async () => {
     mocks.getDb.mockReturnValue(createDbMock(pendingProposal()));
     mocks.resourceGetByPath.mockImplementation(async (_owner, path) => {

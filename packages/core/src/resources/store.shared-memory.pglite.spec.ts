@@ -138,6 +138,21 @@ describe("personal memory shared across local apps", () => {
     ).resolves.toBeNull();
   });
 
+  it("never writes a revision below an adopted future one", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+
+    const stored = await resourcePut(OWNER, "memory/future.md", "from db");
+    const file = writeSharedFile(dir, "future.md", "from shared");
+    const future = new Date(stored.updatedAt + 600_000);
+    fs.utimesSync(file, future, future);
+    const adopted = await resourceGetByPath(OWNER, "memory/future.md");
+    expect(adopted?.content).toBe("from shared");
+
+    const next = await resourcePut(OWNER, "memory/future.md", "edited");
+    expect(next.updatedAt).toBeGreaterThan(adopted?.updatedAt ?? Infinity);
+  });
+
   it("prefers whichever copy is newer and replaces an empty index", async () => {
     const dir = useMemoryDir();
     const { resourceGetByPath, resourcePut } = await import("./store.js");

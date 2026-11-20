@@ -2703,7 +2703,7 @@ export async function resourcePutWithDb(
   options?: ResourceWriteOptions,
 ): Promise<TransactionScopedResourceWrite<Resource>> {
   assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
-  const now = Math.max(Date.now(), await postTombstoneFloor(owner, path));
+  const tombstoneFloor = await postTombstoneFloor(owner, path);
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
   const isJobFile = path.startsWith("jobs/");
@@ -2727,6 +2727,13 @@ export async function resourcePutWithDb(
       }
     | undefined;
 
+  const now = Math.max(
+    Date.now(),
+    tombstoneFloor,
+    isPersonalMemoryResourcePath(owner, path) && existingRow
+      ? Number(existingRow.updated_at) + 1
+      : 0,
+  );
   const id = existingRow?.id ?? crypto.randomUUID();
   const createdAt = existingRow ? Number(existingRow.created_at) : now;
   const createdBy = normalizeCreatedBy(

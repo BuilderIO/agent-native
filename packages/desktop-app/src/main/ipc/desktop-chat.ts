@@ -1787,11 +1787,11 @@ export function desktopTerminalMemoryEnvironment(
   memoryDir?: string,
 ): {
   AGENT_NATIVE_MEMORY_PROMPT_FILE: string;
-  AGENT_NATIVE_MEMORY_DIR?: string;
+  AGENT_NATIVE_MEMORY_DIR: string;
 } {
   return {
     AGENT_NATIVE_MEMORY_PROMPT_FILE: promptFile,
-    ...(memoryDir ? { AGENT_NATIVE_MEMORY_DIR: memoryDir } : {}),
+    AGENT_NATIVE_MEMORY_DIR: memoryDir ?? "",
   };
 }
 
@@ -1914,7 +1914,14 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
   };
   const rebind = (next: string | null) => {
     if (released) return;
-    if (!next || (account && account !== next)) {
+    if (!next) {
+      revoke();
+      account = null;
+      watcher?.close();
+      watcher = undefined;
+      return;
+    }
+    if (account && account !== next) {
       revoke();
       return;
     }

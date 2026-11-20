@@ -137,10 +137,15 @@ function resolveTombstonePath(
   return filePath ? `${filePath}.deleted` : null;
 }
 
-async function writeAtomic(filePath: string, content: string): Promise<void> {
+async function writeAtomic(
+  filePath: string,
+  content: string,
+): Promise<{ ino: number; mtimeMs: number }> {
   const temp = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   await fs.promises.writeFile(temp, content, "utf8");
+  const { ino, mtimeMs } = await fs.promises.stat(temp);
   await fs.promises.rename(temp, filePath);
+  return { ino, mtimeMs };
 }
 
 async function readTombstone(tombstonePath: string): Promise<number | null> {
@@ -223,8 +228,21 @@ export async function writeSharedPersonalMemory(
   };
   await assertNotDeleted();
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await writeAtomic(filePath, content);
-  await assertNotDeleted();
+  const written = await writeAtomic(filePath, content);
+  try {
+    await assertNotDeleted();
+  } catch (error) {
+    const current = await fs.promises.stat(filePath).catch((statError) => {
+      if (isMissingPathError(statError)) return undefined;
+      throw statError;
+    });
+    if (current?.ino === written.ino && current.mtimeMs === written.mtimeMs) {
+      await fs.promises.unlink(filePath).catch((unlinkError) => {
+        if (!isMissingPathError(unlinkError)) throw unlinkError;
+      });
+    }
+    throw error;
+  }
   await fs.promises.unlink(tombstonePath).catch((error) => {
     if (!isMissingPathError(error)) throw error;
   });

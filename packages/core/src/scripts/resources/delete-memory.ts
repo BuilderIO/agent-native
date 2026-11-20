@@ -49,6 +49,7 @@ export default async function deleteMemoryScript(
   }
 
   const stale = staleMirrorCollector();
+  let indexError: string | undefined;
   try {
     const existing = await resourceGetByPath(owner, indexPath);
     if (existing?.content) {
@@ -66,18 +67,23 @@ export default async function deleteMemoryScript(
       }
     }
   } catch (error) {
-    console.log(
-      `${deleted ? `Deleted memory "${name}"` : `Memory "${name}" not found`}, but the MEMORY.md index could not be updated: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    return;
+    indexError = error instanceof Error ? error.message : String(error);
   }
 
-  stale.finish();
+  if (indexError === undefined) stale.finish();
 
+  const subject = deleted
+    ? `Deleted memory "${name}"`
+    : `Memory "${name}" not found`;
+  const problems: string[] = [];
   if (leftover) {
-    console.log(
-      `Deleted memory "${name}", but a leftover shared file remains: ${leftover.message}`,
-    );
+    problems.push(`a leftover shared file remains: ${leftover.message}`);
+  }
+  if (indexError !== undefined) {
+    problems.push(`the MEMORY.md index could not be updated: ${indexError}`);
+  }
+  if (problems.length > 0) {
+    console.log(`${subject}, but ${problems.join(", and ")}`);
   } else if (deleted) {
     console.log(`Deleted memory "${name}".`);
   } else {
