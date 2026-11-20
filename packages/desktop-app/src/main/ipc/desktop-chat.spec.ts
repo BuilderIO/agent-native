@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
+import { readMirroredMemory } from "@agent-native/core/resources/shared-memory";
 import type { AppConfig } from "@shared/app-registry";
 import { app, net, shell } from "electron";
 import { describe, expect, it, vi } from "vitest";
@@ -21,6 +22,14 @@ vi.mock("@agent-native/core/terminal/pty-server", () => ({
   createPtyWebSocketServer: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/resources/shared-memory", async (importActual) => {
+  const actual =
+    await importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >();
+  return { ...actual, readMirroredMemory: vi.fn(actual.readMirroredMemory) };
+});
+
 vi.mock("../app-store", () => ({
   loadApps: vi.fn(() => []),
 }));
@@ -32,6 +41,7 @@ vi.mock("../cookie-header", () => ({
 import {
   activateDesktopBuilderAccount,
   desktopTerminalMcpArgs,
+  desktopTerminalMemoryEnvironment,
   desktopTerminalInfo,
   desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
@@ -1352,6 +1362,58 @@ describe("desktop Pi extension memory prompt", () => {
 
     writeFileSync(`${index}.deleted`, String(Date.now() + 60_000));
     await vi.waitFor(() => expect(prompt()).not.toContain("ALICE"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("never exposes any account's memory directory to the terminal env", () => {
+    const dir = seedAccounts();
+    const env = desktopTerminalMemoryEnvironment("/tmp/prompt-file");
+    expect(env).toEqual({
+      AGENT_NATIVE_MEMORY_PROMPT_FILE: "/tmp/prompt-file",
+    });
+    for (const value of Object.values(env)) {
+      expect(value).not.toContain(dir);
+      expect(value).not.toContain(encodeURIComponent("b@example.test"));
+    }
+  });
+
+  it("serializes refreshes so a slow stale read cannot restore deleted memory", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >("@agent-native/core/resources/shared-memory");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let slowStarted = false;
+    vi.mocked(readMirroredMemory).mockImplementationOnce(async (...args) => {
+      slowStarted = true;
+      const result = await actual.readMirroredMemory(...args);
+      await gate;
+      return result;
+    });
+    writeFileSync(index, "ALICE-STALE");
+    await vi.waitFor(() => expect(slowStarted).toBe(true));
+    writeFileSync(`${index}.deleted`, String(Date.now() + 60_000));
+    // fixed-sleep-ok: the watcher event has no completion signal to await
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+
+    await vi.waitFor(() => expect(prompt()).not.toContain("ALICE"));
+    // fixed-sleep-ok: proving a stale write never arrives needs a quiet period
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(prompt()).not.toContain("ALICE");
     session.release();
     setDesktopMemoryAccount(null);
   });

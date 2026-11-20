@@ -1002,8 +1002,7 @@ async function createDesktopTerminalSession(
         piExtensionPath,
       ),
       environment: {
-        AGENT_NATIVE_MEMORY_DIR: desktopMemoryDir(),
-        AGENT_NATIVE_MEMORY_PROMPT_FILE: memoryOwner.file,
+        ...desktopTerminalMemoryEnvironment(memoryOwner.file),
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
@@ -1764,6 +1763,12 @@ export function setDesktopMemoryAccount(account: string | null): void {
   }
 }
 
+export function desktopTerminalMemoryEnvironment(promptFile: string): {
+  AGENT_NATIVE_MEMORY_PROMPT_FILE: string;
+} {
+  return { AGENT_NATIVE_MEMORY_PROMPT_FILE: promptFile };
+}
+
 function desktopMemoryDir(): string {
   return path.join(app.getPath("userData"), "memory");
 }
@@ -1809,13 +1814,16 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     memoryOwnerFiles.set(file, account);
   };
   await refresh();
+  let refreshes: Promise<void> = Promise.resolve();
   let watcher: fs.FSWatcher | undefined;
   if (account) {
     try {
       fs.mkdirSync(desktopMemoryDir(), { recursive: true });
       watcher = fs.watch(desktopMemoryDir(), { recursive: true }, () => {
-        void refresh().catch((error) =>
-          console.error("[desktop-chat] Could not refresh memory:", error),
+        refreshes = refreshes.then(() =>
+          refresh().catch((error) =>
+            console.error("[desktop-chat] Could not refresh memory:", error),
+          ),
         );
       });
       watcher.on("error", () => watcher?.close());

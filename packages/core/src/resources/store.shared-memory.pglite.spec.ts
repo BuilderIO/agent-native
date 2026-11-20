@@ -494,4 +494,96 @@ describe("personal memory shared across local apps", () => {
       true,
     );
   });
+
+  it("hides a tombstoned memory from a read by its SQL id", async () => {
+    useMemoryDir();
+    const { resourceGet, resourcePut } = await import("./store.js");
+    const { deleteSharedPersonalMemory } = await import("./shared-memory.js");
+    const stored = await resourcePut(OWNER, "memory/by-id.md", "stale");
+    await pglite.exec(
+      `UPDATE resources SET updated_at = updated_at - 1000 WHERE id = '${stored.id}'`,
+    );
+    await deleteSharedPersonalMemory(OWNER, "memory/by-id.md");
+
+    await expect(
+      resourceGet(stored.id, { userEmail: OWNER }),
+    ).resolves.toBeNull();
+    const { rows } = await pglite.query(
+      `SELECT id FROM resources WHERE id = '${stored.id}'`,
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("advances the revision past a same-millisecond tombstone so the new write survives", async () => {
+    useMemoryDir();
+    const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+      await import("./store.js");
+    vi.spyOn(Date, "now").mockReturnValue(5_000_000_000_000);
+    try {
+      await resourcePut(OWNER, "memory/same-ms.md", "before");
+      await resourceDeleteByPath(OWNER, "memory/same-ms.md");
+      const again = await resourcePut(OWNER, "memory/same-ms.md", "after");
+      expect(again.updatedAt).toBe(5_000_000_000_001);
+      await expect(
+        resourceGetByPath(OWNER, "memory/same-ms.md"),
+      ).resolves.toMatchObject({ content: "after" });
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+    }
+  });
+
+  it("repairs the file when another process changes SQL during a mirror write", async () => {
+    const dir = useMemoryDir();
+    const { resourcePutWithDb } = await import("./store.js");
+    const first = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/xproc.md",
+      "first",
+    );
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const rename = vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementationOnce(async (from, to) => {
+        await realRename(from, to);
+        await pglite.exec(
+          `UPDATE resources SET content = 'second', updated_at = ${first.value.updatedAt + 1} WHERE owner = '${OWNER}' AND path = 'memory/xproc.md'`,
+        );
+      });
+    try {
+      await first.notifyAfterCommit();
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(sharedFile(dir, "xproc.md"), "utf8")).toBe("second");
+  });
+
+  it("leaves a tombstone when another process deletes the row during a mirror write", async () => {
+    const dir = useMemoryDir();
+    const { resourcePutWithDb } = await import("./store.js");
+    const first = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/xproc-del.md",
+      "doomed",
+    );
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const rename = vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementationOnce(async (from, to) => {
+        await realRename(from, to);
+        await pglite.exec(
+          `DELETE FROM resources WHERE owner = '${OWNER}' AND path = 'memory/xproc-del.md'`,
+        );
+      });
+    try {
+      await first.notifyAfterCommit();
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.existsSync(sharedFile(dir, "xproc-del.md"))).toBe(false);
+    expect(fs.existsSync(`${sharedFile(dir, "xproc-del.md")}.deleted`)).toBe(
+      true,
+    );
+  });
 });

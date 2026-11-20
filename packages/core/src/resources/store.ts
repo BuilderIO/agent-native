@@ -2017,7 +2017,7 @@ export async function resourceGet(
     return null;
   }
   const [visible] = await filterLegacyDispatchWorkspaceRows([resource], orgId);
-  return visible ?? null;
+  return dropTombstonedMemoryRow(visible);
 }
 
 async function adoptSharedMemory(
@@ -2089,38 +2089,93 @@ function serializeMemoryMirror<T>(
   return run;
 }
 
-function deleteMirroredMemory(owner: string, path: string): Promise<void> {
-  return serializeMemoryMirror(owner, path, () =>
-    deleteSharedPersonalMemory(owner, path),
-  );
-}
+type MirrorTarget = {
+  owner: string;
+  path: string;
+  content: string;
+  updatedAt: number;
+};
 
-function mirrorMemoryIfCurrent(resource: Resource): Promise<void> {
-  return serializeMemoryMirror(resource.owner, resource.path, () =>
-    mirrorMemoryIfCurrentUnlocked(resource),
-  );
-}
+const MIRROR_REPAIR_ATTEMPTS = 3;
 
-async function mirrorMemoryIfCurrentUnlocked(
-  resource: Resource,
-): Promise<void> {
+async function selectMirrorTarget(
+  owner: string,
+  path: string,
+): Promise<MirrorTarget | null> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT content, updated_at FROM resources WHERE owner = ? AND path = ?`,
-    args: [resource.owner, resource.path],
+    args: [owner, path],
   });
   const row = rows[0];
-  if (
-    !row ||
-    Number(row.updated_at) !== resource.updatedAt ||
-    row.content !== resource.content
-  ) {
-    return;
-  }
-  await writeSharedPersonalMemory(
-    resource.owner,
-    resource.path,
-    resource.content,
+  return row
+    ? {
+        owner,
+        path,
+        content: String(row.content),
+        updatedAt: Number(row.updated_at),
+      }
+    : null;
+}
+
+function sameMirrorTarget(a: MirrorTarget, b: MirrorTarget): boolean {
+  return a.updatedAt === b.updatedAt && a.content === b.content;
+}
+
+function deleteMirroredMemory(owner: string, path: string): Promise<void> {
+  return serializeMemoryMirror(owner, path, async () => {
+    await deleteSharedPersonalMemory(owner, path);
+    const row = await selectMirrorTarget(owner, path);
+    if (row) await mirrorMemoryUnlocked(row);
+  });
+}
+
+function mirrorMemoryIfCurrent(resource: MirrorTarget): Promise<void> {
+  return serializeMemoryMirror(resource.owner, resource.path, () =>
+    mirrorMemoryUnlocked(resource),
   );
+}
+
+async function mirrorMemoryUnlocked(resource: MirrorTarget): Promise<void> {
+  for (let attempt = 0; attempt < MIRROR_REPAIR_ATTEMPTS; attempt++) {
+    const row = await selectMirrorTarget(resource.owner, resource.path);
+    if (!row) {
+      if (attempt > 0) {
+        await deleteSharedPersonalMemory(resource.owner, resource.path);
+      }
+      return;
+    }
+    if (attempt === 0 && !sameMirrorTarget(row, resource)) return;
+    await writeSharedPersonalMemory(resource.owner, resource.path, row.content);
+    const after = await selectMirrorTarget(resource.owner, resource.path);
+    if (after && sameMirrorTarget(after, row)) return;
+  }
+}
+
+async function dropTombstonedMemoryRow(
+  resource: Resource | undefined,
+): Promise<Resource | null> {
+  if (!resource) return null;
+  if (!isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+    return resource;
+  }
+  const mirrored = await readMirroredMemory(resource.owner, resource.path);
+  if (
+    mirrored.state === "deleted" &&
+    resource.updatedAt <= mirrored.deletedAt
+  ) {
+    await deleteMirroredRow(resource);
+    return null;
+  }
+  return resource;
+}
+
+async function postTombstoneFloor(
+  owner: string,
+  path: string,
+): Promise<number> {
+  if (!isPersonalMemoryResourcePath(owner, path)) return 0;
+  const mirrored = await readMirroredMemory(owner, path);
+  return mirrored.state === "deleted" ? mirrored.deletedAt + 1 : 0;
 }
 
 async function deleteMirroredRow(resource: Resource): Promise<void> {
@@ -2427,7 +2482,7 @@ export async function resourcePutWithDb(
   options?: ResourceWriteOptions,
 ): Promise<TransactionScopedResourceWrite<Resource>> {
   assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
-  const now = Date.now();
+  const now = Math.max(Date.now(), await postTombstoneFloor(owner, path));
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
   const isJobFile = path.startsWith("jobs/");
@@ -2618,7 +2673,7 @@ async function resourcePutIfAbsentInternal(
   }
 
   const client = clientOverride ?? getDbExec();
-  const now = Date.now();
+  const now = Math.max(Date.now(), await postTombstoneFloor(owner, path));
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
   const id = crypto.randomUUID();
