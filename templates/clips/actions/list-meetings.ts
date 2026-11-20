@@ -33,6 +33,7 @@ import {
   resolveCalendarAccessToken,
   type CalendarFetchError,
 } from "../server/lib/calendar-event-meetings.js";
+import { syncDispatchCalendarAccounts } from "../server/lib/dispatch-calendar-accounts.js";
 import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
 import {
@@ -274,6 +275,7 @@ export default defineAction({
     const calendarEventIdToExternalId = new Map<string, string>();
 
     if (willMergeLiveCalendar) {
+      await syncDispatchCalendarAccounts(currentUserEmail);
       const accountWhere = [
         accessFilter(schema.calendarAccounts, schema.calendarAccountShares),
         eq(schema.calendarAccounts.status, "connected"),

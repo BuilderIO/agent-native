@@ -1,5 +1,9 @@
 import { getDbExec } from "@agent-native/core/db";
 import {
+  isGoogleAccountHubConfigured,
+  listHubGoogleAccounts,
+} from "@agent-native/core/google-account-hub";
+import {
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccounts,
@@ -54,7 +58,11 @@ type ManagedCalendarClient = {
   accessToken: string;
 };
 
-async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | null> {
+function sameEmail(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+async function resolveWorkspaceCalendarClient(): Promise<ManagedCalendarClient | null> {
   if (!getCredentialContext()) return null;
   const connection = await resolveWorkspaceConnectionForApp({
     appId: "calendar",
@@ -75,6 +83,53 @@ async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | n
 }
 
 /**
+ * The Google accounts Dispatch holds for this person and grants to Calendar,
+ * each with a short-lived token. Empty when no account hub is configured.
+ */
+async function resolveDispatchCalendarClients(
+  ownerEmail: string | undefined,
+): Promise<ManagedCalendarClient[]> {
+  if (!ownerEmail || !isGoogleAccountHubConfigured()) return [];
+  const { accounts } = await listHubGoogleAccounts({
+    appId: "calendar",
+    userEmail: ownerEmail,
+    provider: "google_calendar",
+  });
+  return accounts.map((account) => ({
+    email: account.accountEmail,
+    accessToken: account.accessToken,
+  }));
+}
+
+/**
+ * Accounts Calendar can use without holding their tokens: this app's
+ * workspace connection, then the accounts Dispatch hands out, one per email.
+ * Throws only when neither source answered and one of them failed.
+ */
+async function resolveManagedCalendarClients(
+  ownerEmail: string | undefined,
+): Promise<ManagedCalendarClient[]> {
+  const clients: ManagedCalendarClient[] = [];
+  let failure: unknown = null;
+  try {
+    const workspace = await resolveWorkspaceCalendarClient();
+    if (workspace) clients.push(workspace);
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    for (const client of await resolveDispatchCalendarClients(ownerEmail)) {
+      if (!clients.some((existing) => sameEmail(existing.email, client.email)))
+        clients.push(client);
+    }
+  } catch (error) {
+    failure ??= error;
+  }
+  if (clients.length === 0 && failure) throw failure;
+  return clients;
+}
+
+/**
  * A workspace connection can be registered and marked "connected" while its
  * token still can't be resolved (revoked, mid-authorization, misconfigured
  * credential). Callers that only need a yes/no read of connection status must
@@ -83,14 +138,17 @@ async function resolveManagedCalendarClient(): Promise<ManagedCalendarClient | n
  * included) into a 500 instead of the same not-connected state the UI already
  * shows.
  */
-async function resolveManagedCalendarClientOrNull(): Promise<ManagedCalendarClient | null> {
+async function resolveManagedCalendarClientsOrEmpty(
+  ownerEmail: string | undefined,
+): Promise<ManagedCalendarClient[]> {
   try {
-    return await resolveManagedCalendarClient();
+    return await resolveManagedCalendarClients(ownerEmail);
   } catch {
-    // coercion-ok: null is the same typed "not connected" result callers
-    // already get for "no managed connection configured" - isConnected and
-    // getConnectedAccounts never distinguish it from a genuine read success.
-    return null;
+    // coercion-ok: an empty list is the same typed "not connected" result
+    // callers already get for "no managed connection configured" -
+    // isConnected and getConnectedAccounts never distinguish it from a
+    // genuine read success.
+    return [];
   }
 }
 
@@ -647,7 +705,14 @@ export async function getClient(
   const accounts = (await listOAuthAccountsByOwner("google", email)).filter(
     (account) => hasCalendarScope(account.tokens),
   );
-  if (accounts.length === 0) return resolveManagedCalendarClient();
+  if (accounts.length === 0) {
+    const managed = await resolveManagedCalendarClients(email);
+    return (
+      managed.find((client) => sameEmail(client.email, email)) ??
+      managed[0] ??
+      null
+    );
+  }
 
   const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
 
@@ -803,9 +868,12 @@ export async function getDefaultAccountSelection(
         ownerEmail.trim().toLowerCase(),
     ) ?? accounts[0];
   if (!account) {
-    const managed = await resolveManagedCalendarClient();
-    if (managed) {
-      return { ownerEmail, accountEmail: managed.email };
+    const managed = await resolveManagedCalendarClients(ownerEmail);
+    const selected =
+      managed.find((client) => sameEmail(client.email, ownerEmail)) ??
+      managed[0];
+    if (selected) {
+      return { ownerEmail, accountEmail: selected.email };
     }
     throw new Error(
       "Google Calendar not connected. Connect via Settings first.",
@@ -827,11 +895,10 @@ export async function getClientForAccount({
       candidate.accountId.trim().toLowerCase() === normalizedAccountEmail,
   );
   if (!account) {
-    const managed = await resolveManagedCalendarClient();
-    if (
-      managed &&
-      managed.email.trim().toLowerCase() === normalizedAccountEmail
-    ) {
+    const managed = (await resolveManagedCalendarClients(ownerEmail)).find(
+      (client) => sameEmail(client.email, normalizedAccountEmail),
+    );
+    if (managed) {
       return { accessToken: managed.accessToken };
     }
     throw new Error(
@@ -891,8 +958,12 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
 
   if (clients.length === 0) {
     try {
-      const managed = await resolveManagedCalendarClient();
-      if (managed) clients.push(managed);
+      for (const managed of await resolveManagedCalendarClients(forEmail)) {
+        clients.push({
+          email: managed.email,
+          accessToken: managed.accessToken,
+        });
+      }
     } catch (err: any) {
       errors.push({
         email: "workspace",
@@ -935,15 +1006,15 @@ export async function getClientsForAccountsWithErrors(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length === 0) {
-    let managed: ManagedCalendarClient | null = null;
+    let managed: ManagedCalendarClient[] = [];
     let managedError: string | undefined;
     try {
-      managed = await resolveManagedCalendarClient();
+      managed = await resolveManagedCalendarClients(forEmail);
     } catch (err: any) {
       managedError =
         err?.message || "Workspace Google Calendar connection failed";
     }
-    if (!managed) {
+    if (managed.length === 0) {
       if (accountEmails?.length) {
         throw new Error(
           `Google Calendar account not connected for this user: ${accountEmails.join(", ")}`,
@@ -958,27 +1029,32 @@ export async function getClientsForAccountsWithErrors(
         resolvedAccounts: [],
       };
     }
+    const managedByEmail = new Map(
+      managed.map((client) => [client.email.trim().toLowerCase(), client]),
+    );
     const requestedAccounts = Array.from(
       new Set(
-        (accountEmails ?? [managed.email])
+        (accountEmails ?? managed.map((client) => client.email))
           .map((email) => email.trim().toLowerCase())
           .filter(Boolean),
       ),
     );
-    if (
-      requestedAccounts.some(
-        (email) => email !== managed.email.trim().toLowerCase(),
-      )
-    ) {
+    if (requestedAccounts.some((email) => !managedByEmail.has(email))) {
       throw new Error(
         `Google Calendar account not connected for this user: ${requestedAccounts.join(", ")}`,
       );
     }
+    const selected = requestedAccounts.map(
+      (email) => managedByEmail.get(email)!,
+    );
     return {
-      clients: [managed],
+      clients: selected.map(({ email, accessToken }) => ({
+        email,
+        accessToken,
+      })),
       errors: [],
       requestedAccounts,
-      resolvedAccounts: [managed.email],
+      resolvedAccounts: selected.map((client) => client.email),
     };
   }
   const byNormalized = new Map(
@@ -1188,7 +1264,7 @@ export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasCalendarScope(account.tokens))) return true;
-  return Boolean(await resolveManagedCalendarClientOrNull());
+  return (await resolveManagedCalendarClientsOrEmpty(forEmail)).length > 0;
 }
 
 export async function getConnectedAccounts(
@@ -1199,8 +1275,9 @@ export async function getConnectedAccounts(
     (account) => hasCalendarScope(account.tokens),
   );
   if (accounts.length > 0) return accounts.map((a) => a.accountId);
-  const managed = await resolveManagedCalendarClientOrNull();
-  return managed ? [managed.email] : [];
+  return (await resolveManagedCalendarClientsOrEmpty(forEmail)).map(
+    (client) => client.email,
+  );
 }
 
 export async function getPrimaryAccountPhotoUrl(
@@ -1239,10 +1316,14 @@ export async function getAuthStatus(
   );
 
   if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedCalendarClientOrNull();
-    return managed
-      ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
-      : { connected: false, accounts: [] };
+    const managed = await resolveManagedCalendarClientsOrEmpty(forEmail);
+    return {
+      connected: managed.length > 0,
+      accounts: managed.map((client) => ({
+        email: client.email,
+        shared: true,
+      })),
+    };
   }
 
   const result: Array<{

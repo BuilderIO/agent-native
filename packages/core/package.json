@@ -365,6 +365,7 @@
     "./resources/metadata": "./dist/resources/metadata.js",
     "./resources/shared-memory": "./dist/resources/shared-memory.js",
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
+    "./google-account-hub": "./dist/google-account-hub/index.js",
     "./secrets": "./dist/secrets/index.js",
     "./secrets/crypto": "./dist/secrets/crypto.js",
     "./secrets/actions/preview-secret-removal": "./dist/secrets/actions/preview-secret-removal.js",

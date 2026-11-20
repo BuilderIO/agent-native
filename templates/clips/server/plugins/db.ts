@@ -1442,6 +1442,14 @@ export const migrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS recording_tracks_recording_track_unique_idx
         ON recording_tracks (recording_id, track)`,
     },
+    {
+      version: 104,
+      name: "calendar-account-token-source",
+      // Additive. Mirrors `calendarAccounts.tokenSource` in
+      // server/db/schema.ts: null when Clips holds the account's tokens,
+      // 'dispatch' when Dispatch's Google account hub hands them out.
+      sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS token_source TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );

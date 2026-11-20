@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -28,6 +29,7 @@ import {
   resolveCalendarAccessToken,
   shouldMarkNeedsReauth,
 } from "../server/lib/calendar-event-meetings.js";
+import { syncDispatchCalendarAccounts } from "../server/lib/dispatch-calendar-accounts.js";
 import {
   listEvents,
   pickJoinUrl,
@@ -55,6 +57,11 @@ export default defineAction({
     allAccounts: z.boolean().default(false),
   }),
   run: async (args) => {
+    if (!args.allAccounts) {
+      await syncDispatchCalendarAccounts(getRequestUserEmail(), {
+        force: true,
+      });
+    }
     const db = getDb();
     const where = args.allAccounts
       ? []

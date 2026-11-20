@@ -5,6 +5,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { resolveDispatchCalendarAccessToken } from "./dispatch-calendar-accounts.js";
 import {
   detectPlatform,
   getEvent,
@@ -32,6 +33,8 @@ export interface CalendarAccountForEvents {
   orgId?: string | null;
   accessTokenSecretRef?: string | null;
   refreshTokenSecretRef?: string | null;
+  email?: string | null;
+  tokenSource?: string | null;
 }
 
 export interface CalendarFetchError {
@@ -83,6 +86,10 @@ export function shouldMarkNeedsReauth(message: string): boolean {
 export async function resolveCalendarAccessToken(
   account: CalendarAccountForEvents,
 ): Promise<string | null> {
+  // Dispatch holds this account's tokens; Clips needs no Google client.
+  if (account.tokenSource === "dispatch") {
+    return resolveDispatchCalendarAccessToken(account);
+  }
   const credentialCandidates = await resolveGoogleOAuthCredentialCandidates();
   if (!credentialCandidates.length || !account.ownerEmail) return null;
 

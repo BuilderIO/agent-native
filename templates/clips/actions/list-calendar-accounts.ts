@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncDispatchCalendarAccounts } from "../server/lib/dispatch-calendar-accounts.js";
 
 export default defineAction({
   description:
@@ -13,6 +15,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
+    await syncDispatchCalendarAccounts(getRequestUserEmail());
     const db = getDb();
     const where = [
       accessFilter(schema.calendarAccounts, schema.calendarAccountShares),
@@ -28,6 +31,7 @@ export default defineAction({
         displayName: schema.calendarAccounts.displayName,
         email: schema.calendarAccounts.email,
         status: schema.calendarAccounts.status,
+        tokenSource: schema.calendarAccounts.tokenSource,
         lastSyncedAt: schema.calendarAccounts.lastSyncedAt,
         lastSyncError: schema.calendarAccounts.lastSyncError,
         createdAt: schema.calendarAccounts.createdAt,
