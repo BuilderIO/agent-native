@@ -28,6 +28,17 @@ import { importPlaywright, launchChromium } from "./playwright-runtime.js";
 import { prepareScreenshotPage } from "./screenshot-readiness.js";
 
 const DEFAULT_WIDTH_PX = 1440;
+const MAX_CAPTURE_PIXELS = 40_000_000;
+
+export function fitsCapturePixelBudget(
+  pageAreaCssPx: number,
+  deviceScaleFactor: number,
+): boolean {
+  return (
+    Number.isFinite(pageAreaCssPx) &&
+    pageAreaCssPx * deviceScaleFactor * deviceScaleFactor <= MAX_CAPTURE_PIXELS
+  );
+}
 
 export interface CaptureDesign {
   id: string;
@@ -306,18 +317,32 @@ export async function renderScreenPng(
         await context.routeWebSocket("**/*", () => {});
         const page = await context.newPage();
         await prepareScreenshotPage(page, degradeWideColorsInHtml(html));
-        const png = await page.screenshot({
-          type: "png",
-          fullPage: true,
-          timeout: 30_000,
-        });
+        const pageArea = Number(
+          await page.evaluate(() => {
+            const root = document.documentElement;
+            const body = document.body;
+            return (
+              Math.max(root.scrollWidth, body.scrollWidth) *
+              Math.max(root.scrollHeight, body.scrollHeight)
+            );
+          }),
+        );
+        const png = fitsCapturePixelBudget(pageArea, deviceScaleFactor)
+          ? await page.screenshot({
+              type: "png",
+              fullPage: true,
+              timeout: 30_000,
+            })
+          : null;
         if (requests.blockedNavigations.length > 0) {
           fail(
             "This screen moves the page away from itself while it loads, so it can't be captured.",
             { errorCode: "design_screen_navigated_away", statusCode: 422 },
           );
         }
-        if (png.length <= DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES) return png;
+        if (png && png.length <= DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES) {
+          return png;
+        }
       } finally {
         await context.close().catch(() => {});
       }

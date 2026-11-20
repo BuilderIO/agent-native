@@ -15,11 +15,18 @@ vi.mock("./playwright-runtime.js", () => ({
   importPlaywright: vi.fn(),
   launchChromium: vi.fn(),
 }));
+vi.mock("./design-to-figma-svg.js", () => ({
+  routeAllowedRenderRequests: vi.fn(async () => ({ blockedNavigations: [] })),
+}));
+vi.mock("./screenshot-readiness.js", () => ({
+  prepareScreenshotPage: vi.fn(async () => {}),
+}));
 
 import { getDb } from "../db/index.js";
 import { readLiveSourceFile } from "../source-workspace.js";
-import { importPlaywright } from "./playwright-runtime.js";
+import { importPlaywright, launchChromium } from "./playwright-runtime.js";
 import {
+  fitsCapturePixelBudget,
   loadCaptureScreens,
   loadStatusScreens,
   pngSize,
@@ -227,5 +234,68 @@ describe("renderScreenPng", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "design_screen_live_app" });
     expect(importPlaywright).not.toHaveBeenCalled();
+  });
+
+  function fakeBrowser(pageArea: number) {
+    const scales: number[] = [];
+    const screenshot = vi.fn(async () => Buffer.alloc(100));
+    const browser = {
+      newContext: vi.fn(
+        async ({ deviceScaleFactor }: { deviceScaleFactor: number }) => {
+          scales.push(deviceScaleFactor);
+          return {
+            addInitScript: vi.fn(async () => {}),
+            routeWebSocket: vi.fn(async () => {}),
+            newPage: vi.fn(async () => ({
+              evaluate: vi.fn(async () => pageArea),
+              screenshot,
+            })),
+            close: vi.fn(async () => {}),
+          };
+        },
+      ),
+      close: vi.fn(async () => {}),
+    };
+    vi.mocked(importPlaywright).mockResolvedValue({ chromium: {} } as never);
+    vi.mocked(launchChromium).mockResolvedValue(browser as never);
+    return { scales, screenshot };
+  }
+
+  const tallScreen = {
+    id: "s1",
+    filename: "Tall.html",
+    content: "<main>Tall</main>",
+  };
+
+  it("takes a screen that fits the pixel budget at twice its size", async () => {
+    const { scales, screenshot } = fakeBrowser(1440 * 6000);
+    await expect(renderScreenPng(tallScreen, 1440)).resolves.toHaveLength(100);
+    expect(scales).toEqual([2]);
+    expect(screenshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops to its own size when twice its size is over the pixel budget", async () => {
+    const { scales, screenshot } = fakeBrowser(1440 * 8000);
+    await expect(renderScreenPng(tallScreen, 1440)).resolves.toHaveLength(100);
+    expect(scales).toEqual([2, 1]);
+    expect(screenshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a screen over the pixel budget before taking any screenshot", async () => {
+    const { scales, screenshot } = fakeBrowser(1440 * 30_000);
+    await expect(renderScreenPng(tallScreen, 1440)).rejects.toMatchObject({
+      errorCode: "design_screen_too_large",
+    });
+    expect(scales).toEqual([2, 1]);
+    expect(screenshot).not.toHaveBeenCalled();
+  });
+});
+
+describe("fitsCapturePixelBudget", () => {
+  it("counts device pixels and refuses a size it can't read", () => {
+    expect(fitsCapturePixelBudget(1440 * 6000, 2)).toBe(true);
+    expect(fitsCapturePixelBudget(1440 * 8000, 2)).toBe(false);
+    expect(fitsCapturePixelBudget(1440 * 8000, 1)).toBe(true);
+    expect(fitsCapturePixelBudget(Number.NaN, 1)).toBe(false);
   });
 });
