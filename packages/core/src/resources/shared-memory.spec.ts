@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   deleteSharedPersonalMemory,
+  removeTombstonedSharedFile,
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
   MemoryLockTimeoutError,
@@ -217,6 +218,25 @@ describe("shared-memory", () => {
     } finally {
       unlink.mockRestore();
     }
+  });
+
+  it("removes a tombstoned leftover file on retry and leaves live files alone", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const owner = "alice@example.com";
+    const resourcePath = "memory/leftover.md";
+    const filePath = resolveSharedMemoryFilePath(dir, owner, resourcePath)!;
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, "stale");
+    const mtime = Math.floor(fs.statSync(filePath).mtimeMs);
+    fs.writeFileSync(`${filePath}.deleted`, String(mtime + 1000));
+    expect(await removeTombstonedSharedFile(owner, resourcePath)).toBe(true);
+    expect(fs.existsSync(filePath)).toBe(false);
+    expect(await removeTombstonedSharedFile(owner, resourcePath)).toBe(false);
+    fs.writeFileSync(filePath, "live");
+    fs.writeFileSync(`${filePath}.deleted`, String(mtime - 5000));
+    expect(await removeTombstonedSharedFile(owner, resourcePath)).toBe(false);
+    expect(fs.existsSync(filePath)).toBe(true);
   });
 
   it("stamps a mirrored file with the revision it was written for", async () => {

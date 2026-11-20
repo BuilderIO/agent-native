@@ -47,6 +47,7 @@ import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import { SKILL_TRASH_PREFIX } from "./metadata.js";
 import {
   deleteSharedPersonalMemory,
+  removeTombstonedSharedFile,
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
   MemoryDeleteFailedError,
@@ -3857,6 +3858,12 @@ export async function resourceDeleteByPath(
   const existing = await selectMirrorTarget(owner, path);
   if (!existing) {
     const mirrored = await readMirroredMemory(owner, path);
+    if (mirrored.state === "deleted") {
+      // A retry after a delete left a tombstoned file behind: remove it now.
+      if (!(await removeTombstonedSharedFile(owner, path))) return false;
+      emitResourceDelete(`shared-memory:${owner}:${path}`, path, owner);
+      return true;
+    }
     if (mirrored.state !== "present") return false;
   }
   const { deleted, leftover } = await deleteMirroredMemory(

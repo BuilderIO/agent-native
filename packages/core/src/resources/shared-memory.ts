@@ -438,20 +438,54 @@ export async function deleteSharedPersonalMemory(
         ? JSON.stringify({ deletedAt, state, pid: process.pid })
         : String(deletedAt),
     );
-    try {
-      await fs.promises.unlink(filePath);
-    } catch (error) {
-      if (!isMissingPathError(error)) {
-        await quarantineSharedFile(filePath).catch((quarantineError) => {
-          throw new MemoryMirrorStaleError(
-            `${resourcePath} was deleted but its shared file could not be removed; the leftover file stays readable outside the app`,
-            { path: resourcePath, content: "", updatedAt: deletedAt },
-            { cause: new AggregateError([error, quarantineError]) },
-          );
-        });
-      }
-    }
+    await removeSharedFile(filePath, resourcePath, deletedAt);
     return deletedAt;
+  });
+}
+
+async function removeSharedFile(
+  filePath: string,
+  resourcePath: string,
+  deletedAt: number,
+): Promise<void> {
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (!isMissingPathError(error)) {
+      await quarantineSharedFile(filePath).catch((quarantineError) => {
+        throw new MemoryMirrorStaleError(
+          `${resourcePath} was deleted but its shared file could not be removed; the leftover file stays readable outside the app`,
+          { path: resourcePath, content: "", updatedAt: deletedAt },
+          { cause: new AggregateError([error, quarantineError]) },
+        );
+      });
+    }
+  }
+}
+
+/**
+ * Retry removing a shared file that a delete tombstoned but could not remove.
+ * Returns true when a tombstoned leftover was removed; a file written after
+ * the tombstone is live and is left alone.
+ */
+export async function removeTombstonedSharedFile(
+  owner: string,
+  resourcePath: string,
+): Promise<boolean> {
+  const rootDir = getSharedMemoryDir();
+  if (!rootDir) return false;
+  const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
+  if (!filePath) return false;
+  return lockFile(filePath, async () => {
+    const fileStat = await fs.promises.stat(filePath).catch((error) => {
+      if (!isMissingPathError(error)) throw error;
+      return null;
+    });
+    if (!fileStat?.isFile()) return false;
+    const deletedAt = await readTombstone(`${filePath}.deleted`);
+    if (deletedAt === null || fileStat.mtimeMs > deletedAt) return false;
+    await removeSharedFile(filePath, resourcePath, deletedAt);
+    return true;
   });
 }
 
