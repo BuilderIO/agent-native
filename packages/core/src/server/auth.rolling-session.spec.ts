@@ -177,6 +177,7 @@ describe("rolling framework session cookies", () => {
     vi.stubEnv("AUTH_DISABLED", undefined);
 
     const token = "ba-mirror-token-1";
+    const createdAt = new Date(FIXED_NOW - 2 * ONE_DAY_MS).toISOString();
     const oldExpires = new Date(FIXED_NOW + 28 * ONE_DAY_MS).toISOString();
     const updates: Array<{ queryText: string; args: unknown[] }> = [];
 
@@ -196,6 +197,8 @@ describe("rolling framework session cookies", () => {
                 {
                   email: "oauth@example.test",
                   expires_at: oldExpires,
+                  created_at: createdAt,
+                  updated_at: createdAt,
                 },
               ],
             };

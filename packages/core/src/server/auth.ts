@@ -1717,33 +1717,38 @@ async function emailFromBetterAuthSessionToken(
   }
 }
 
+function parseTimestampMs(raw: unknown): number {
+  if (raw instanceof Date) return raw.getTime();
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string" && raw.trim() !== "") return Date.parse(raw);
+  return Number.NaN;
+}
+
 async function resolveActiveBetterAuthSessionToken(
   token: string,
 ): Promise<{ email: string; rolled: boolean } | null> {
   try {
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: 'SELECT u.email, s.expires_at FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > NOW() LIMIT 1',
+      sql: 'SELECT u.email, s.expires_at, s.created_at, s.updated_at FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > NOW() LIMIT 1',
       args: [token],
     });
     const email = normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
     if (!email) return null;
-    const rawExpires = rows[0]?.expires_at ?? rows[0]?.[1];
-    const expiresMs =
-      rawExpires instanceof Date
-        ? rawExpires.getTime()
-        : typeof rawExpires === "number"
-          ? rawExpires
-          : typeof rawExpires === "string"
-            ? Date.parse(rawExpires)
-            : Number.NaN;
+    const expiresMs = parseTimestampMs(rows[0]?.expires_at ?? rows[0]?.[1]);
+    const createdMs = parseTimestampMs(rows[0]?.created_at ?? rows[0]?.[2]);
+    const updatedMs = parseTimestampMs(rows[0]?.updated_at ?? rows[0]?.[3]);
+    const lastRefreshedMs = Number.isFinite(updatedMs) ? updatedMs : createdMs;
     const now = Date.now();
-    const rollThresholdMs = sessionMaxAge * 1000 - SESSION_ROLL_INTERVAL_MS;
+    const intendedLifetimeMs =
+      Number.isFinite(expiresMs) && Number.isFinite(lastRefreshedMs)
+        ? expiresMs - lastRefreshedMs
+        : Number.NaN;
     let rolled = false;
     if (
-      Number.isFinite(expiresMs) &&
-      rollThresholdMs > 0 &&
-      expiresMs - now <= rollThresholdMs
+      Number.isFinite(intendedLifetimeMs) &&
+      intendedLifetimeMs > SESSION_ROLL_INTERVAL_MS &&
+      now - lastRefreshedMs >= SESSION_ROLL_INTERVAL_MS
     ) {
       const nextExpires = new Date(now + sessionMaxAge * 1000).toISOString();
       const updatedAt = new Date(now).toISOString();
