@@ -934,6 +934,7 @@ function isBuilderOAuthRequest(event: H3Event): boolean {
 }
 
 function builderPreviewReturnOrigin(event: H3Event): string | undefined {
+  if (!isDevEnvironment()) return undefined;
   const referer = getHeader(event, "referer") || "";
   if (!referer) return undefined;
   try {
