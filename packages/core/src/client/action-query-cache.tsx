@@ -28,7 +28,10 @@ import {
 import type { AuthSession } from "../server/auth.js";
 import { actionErrorStatus } from "./action-failure-circuit.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
-import { readMutationEpoch } from "./action-query-cache-mutation.js";
+import {
+  ACTION_CACHE_FLUSH_EVENT,
+  readMutationEpoch,
+} from "./action-query-cache-mutation.js";
 import { clientBuildId } from "./build-compatibility.js";
 import {
   getAccessDeniedActionQueryBinding,
@@ -464,8 +467,6 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     typeof window.addEventListener === "function"
       ? window
       : undefined;
-  // A write that lands inside the save delay, followed by a reload, would
-  // otherwise restore the snapshot from before the write.
   const flushPending = () => {
     if (timer === undefined) return;
     clearTimeout(timer);
@@ -475,16 +476,13 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     if (document.visibilityState === "hidden") flushPending();
   };
   storageEvents?.addEventListener("storage", onStorage);
-  storageEvents?.addEventListener("agentNative:syncActivity", flushPending);
+  storageEvents?.addEventListener(ACTION_CACHE_FLUSH_EVENT, flushPending);
   storageEvents?.addEventListener("pagehide", flushPending);
   if (typeof document !== "undefined")
     document.addEventListener("visibilitychange", flushWhenHidden);
   const stopWatchingStorage = () => {
     storageEvents?.removeEventListener("storage", onStorage);
-    storageEvents?.removeEventListener(
-      "agentNative:syncActivity",
-      flushPending,
-    );
+    storageEvents?.removeEventListener(ACTION_CACHE_FLUSH_EVENT, flushPending);
     storageEvents?.removeEventListener("pagehide", flushPending);
     if (typeof document !== "undefined")
       document.removeEventListener("visibilitychange", flushWhenHidden);

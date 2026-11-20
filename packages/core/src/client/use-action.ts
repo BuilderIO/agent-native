@@ -59,7 +59,10 @@ import {
 } from "./action-failure-circuit.js";
 import { fetchActionGet } from "./action-get-batch.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
-import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
+import {
+  advanceMutationEpoch,
+  requestActionCacheFlush,
+} from "./action-query-cache-mutation.js";
 import {
   claimActionQueryForeground,
   finishActionQueryOpening,
@@ -2401,6 +2404,7 @@ function usePrivateInputMutation<V>(
           actionQueryInvalidation(opts.resources),
         );
       }
+      requestActionCacheFlush();
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
@@ -2677,6 +2681,7 @@ function useNormalActionMutation<
           interactive,
         );
       }
+      requestActionCacheFlush();
       return (onSuccess as Function)?.(...args);
     },
   });

@@ -3,6 +3,8 @@ import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { requestActionCacheFlush } from "./action-query-cache-mutation.js";
+
 const epochKey = "agent-native.action-query-cache.epoch";
 const intentPrefix = "agent-native.action-query-cache.clear-required:";
 const WRITE_DELAY_MS = 1_000;
@@ -155,11 +157,21 @@ it("refuses the pending write when another tab's clear intent comes and goes wit
 
 it("saves the pending write as soon as a mutation succeeds, so a reload right after it restores the written state", async () => {
   notify(0, NOTIFICATIONS);
-  window.dispatchEvent(new Event("agentNative:syncActivity"));
+  requestActionCacheFlush();
   await vi.advanceTimersByTimeAsync(0);
 
   expect(writes).toHaveLength(1);
   expect(writes[0].clientState.queries).toHaveLength(NOTIFICATIONS);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+  expect(writes).toHaveLength(1);
+});
+
+it("keeps coalescing sync activity, which fires on every run-event batch", async () => {
+  notify(0, NOTIFICATIONS);
+  window.dispatchEvent(new Event("agentNative:syncActivity"));
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(writes).toEqual([]);
   await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
   expect(writes).toHaveLength(1);
 });
@@ -173,7 +185,7 @@ it("saves the pending write when the page is hidden", async () => {
 });
 
 it("does not write on a mutation signal with nothing pending", async () => {
-  window.dispatchEvent(new Event("agentNative:syncActivity"));
+  requestActionCacheFlush();
   await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
 
   expect(writes).toEqual([]);
