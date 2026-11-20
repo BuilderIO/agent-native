@@ -44,6 +44,7 @@ async function readCalendarAccounts(): Promise<
 async function waitForReportedConnection(
   completedAccountId: string,
   expectedAccountId: string | undefined,
+  signal: AbortSignal,
 ): Promise<boolean> {
   for (let check = 0; check < REPORTED_CONNECTION_CHECKS; check += 1) {
     if (check > 0) {
@@ -51,6 +52,7 @@ async function waitForReportedConnection(
         window.setTimeout(resolve, REPORTED_CONNECTION_CHECK_INTERVAL_MS),
       );
     }
+    if (signal.aborted) return false;
     const accounts = await readCalendarAccounts();
     if (
       accounts &&
@@ -132,14 +134,24 @@ function watchForLateConnection(
 ) {
   if (signal.aborted) return;
   let checking = false;
+  let checkAgain = false;
+  let stopped = false;
   const checkWhenVisible = () => {
-    if (checking || isSurfaceHidden()) return;
+    if (stopped || isSurfaceHidden()) return;
+    if (checking) {
+      checkAgain = true;
+      return;
+    }
     checking = true;
+    checkAgain = false;
     void check().then((connected) => {
       checking = false;
-      if (!connected) return;
-      stop();
-      onConnected();
+      if (connected) {
+        stop();
+        onConnected();
+      } else if (checkAgain) {
+        checkWhenVisible();
+      }
     });
   };
   const stopListening = addSurfaceVisibilityListener(checkWhenVisible);
@@ -149,6 +161,7 @@ function watchForLateConnection(
   );
   const deadline = window.setTimeout(() => stop(), LATE_CONNECTION_WATCH_MS);
   const stop = () => {
+    stopped = true;
     rechecks.forEach((recheck) => window.clearTimeout(recheck));
     window.clearTimeout(deadline);
     window.removeEventListener("focus", checkWhenVisible);
@@ -204,6 +217,7 @@ export function useCalendarConnect(accounts: CalendarConnectionAccount[]) {
               await waitForReportedConnection(
                 result.accountId,
                 expectedAccountId,
+                signal,
               ),
             );
             return;

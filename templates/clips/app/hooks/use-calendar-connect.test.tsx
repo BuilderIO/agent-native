@@ -159,6 +159,43 @@ describe("useCalendarConnect", () => {
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
   });
 
+  it("checks again when a focus lands during a late-reconnect read", async () => {
+    let finishRead: (value: {
+      accounts: CalendarConnectionAccount[];
+    }) => void = () => {};
+    mocks.startCalendarOAuth.mockResolvedValue(null);
+    mocks.callAction
+      .mockResolvedValueOnce({ accounts: [stale] })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishRead = resolve;
+        }),
+      )
+      .mockResolvedValue({ accounts: [reconnected] });
+
+    act(() => connect("cal-1"));
+    await flush();
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await flush();
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await flush();
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+
+    finishRead({ accounts: [stale] });
+    await flush();
+
+    expect(mocks.callAction).toHaveBeenCalledTimes(3);
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      "meetingsRoute.calendarConnected",
+    );
+  });
+
   it("re-checks on its own soon after the popup ends without reporting", async () => {
     vi.useFakeTimers();
     mocks.startCalendarOAuth.mockResolvedValue(null);
@@ -226,6 +263,25 @@ describe("useCalendarConnect", () => {
     expect(mocks.toast.success).toHaveBeenCalledWith(
       "meetingsRoute.calendarConnected",
     );
+  });
+
+  it("stops reading a reported account once the caller unmounts", async () => {
+    vi.useFakeTimers();
+    mocks.startCalendarOAuth.mockResolvedValue({ accountId: "cal-1" });
+    mocks.callAction.mockResolvedValue({ accounts: [stale] });
+
+    act(() => connect("cal-1"));
+    await flush();
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    act(() => root.render(null));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+    expect(mocks.invalidateQueries).not.toHaveBeenCalled();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
   });
 
   it("holds the refresh until a hidden page is visible again", async () => {
