@@ -2,6 +2,7 @@
 
 import { CONSENT_BANNER_MESSAGES } from "@agent-native/core/localization/privacy-choice-messages";
 import { getOnboardingHtml } from "@agent-native/core/server/onboarding-html";
+import { signInJourney } from "@agent-native/core/shared/sign-in-journey";
 import { act, createElement } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -67,9 +68,18 @@ function stubServer(region: "consent" | "none"): void {
   );
 }
 
-async function openSignInPage(region: "consent" | "none") {
+function sentToSignInFrom(at: string): string {
+  const { signInHref } = signInJourney({ at, basePath: "", homePath: "/" });
+  if (!signInHref) throw new Error(`no sign-in link for ${at}`);
+  return `${ORIGIN}${signInHref}`;
+}
+
+async function openSignInPage(
+  region: "consent" | "none",
+  url: string = SIGN_IN_URL,
+) {
   stubServer(region);
-  window.happyDOM.setURL(SIGN_IN_URL);
+  window.happyDOM.setURL(url);
   vi.resetModules();
   const consent = await import("@agent-native/core/client/consent");
   const { AuthPage } = await import("./AuthPage.js");
@@ -242,6 +252,35 @@ describe("AuthPage cookie banner", () => {
 
     expect(recoverableErrors).toEqual([]);
     expect(banner()).not.toBeNull();
+  });
+
+  it("stores the source of the page a visitor was sent to sign-in from", async () => {
+    pinTimeZone("Europe/Berlin");
+    await openSignInPage(
+      "consent",
+      sentToSignInFrom("/recordings?utm_source=test&utm_medium=cpc"),
+    );
+
+    expect(cookie("an_ft")).toBeNull();
+    await click(bannerButton(english.acceptAll));
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      utm_source: "test",
+      utm_medium: "cpc",
+      landing_path: "/recordings",
+    });
+  });
+
+  it("keeps the sign-in link's own source over the page it was sent from", async () => {
+    pinTimeZone("America/Los_Angeles");
+    await openSignInPage(
+      "none",
+      `${sentToSignInFrom("/recordings?utm_source=ad&utm_campaign=spring")}&utm_source=site`,
+    );
+
+    const stored = cookieJson("an_ft");
+    expect(stored).toMatchObject({ utm_source: "site" });
+    expect(stored).not.toHaveProperty("utm_campaign");
   });
 
   it("shows nothing outside the consent region and captures at once", async () => {

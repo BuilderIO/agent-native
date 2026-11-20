@@ -1120,8 +1120,10 @@ export function AuthPage(props: AuthPageProps) {
         basePath: runtimeAppBasePath,
         homePath,
       }).resumeHref;
+      const landing = new URL(resumeHref, window.location.origin);
       captureAttribution({
-        landingPath: new URL(resumeHref, window.location.origin).pathname,
+        landingPath: landing.pathname,
+        landingSearch: landing.search,
       });
     }
     const identity = normalizeEmail(signupEmail);

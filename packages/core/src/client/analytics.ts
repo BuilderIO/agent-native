@@ -744,16 +744,25 @@ function scrubReferrerHost(referrer: string | undefined): string {
   }
 }
 
+function searchParams(search: string): URLSearchParams | null {
+  try {
+    return new URLSearchParams(search);
+  } catch {
+    return null;
+  }
+}
+
 function buildFirstTouchAttribution(
   landingPathname: string,
+  landingSearch?: string,
 ): FirstTouchAttribution {
   const attribution: FirstTouchAttribution = {};
-  let params: URLSearchParams | null = null;
-  try {
-    params = new URLSearchParams(window.location.search);
-  } catch {
-    params = null;
-  }
+  const own = searchParams(window.location.search);
+  const params =
+    landingSearch !== undefined &&
+    !FIRST_TOUCH_QUERY_FIELDS.some((field) => own?.get(field))
+      ? searchParams(landingSearch)
+      : own;
   if (params) {
     for (const field of FIRST_TOUCH_QUERY_FIELDS) {
       const value = truncateFirstTouchField(params.get(field));
@@ -1037,6 +1046,7 @@ function captureFirstTouchAttribution(
     // Read the visit now: the URL can change before the visitor consents.
     const current = buildFirstTouchAttribution(
       options.landingPath ?? window.location.pathname,
+      options.landingSearch,
     );
     const forwarded = readForwardedLastTouch();
     const forwardedAt = readForwardedLastTouchAt();
@@ -1204,6 +1214,13 @@ export interface CaptureAttributionOptions {
    * must name that path, not the sign-in page.
    */
   landingPath?: string;
+  /**
+   * That path's query string. A visitor sent to the sign-in page brings the
+   * query of the page they asked for, with its `utm_*` fields, only inside
+   * the continuation. It is read only when the page's own query has no source
+   * field, so a link straight to the sign-in page keeps its own.
+   */
+  landingSearch?: string;
 }
 
 /**
