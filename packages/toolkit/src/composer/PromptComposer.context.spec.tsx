@@ -1019,6 +1019,89 @@ describe("controlled composer context", () => {
     );
   });
 
+  it("selects sequential workspace results after the composer re-renders", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: "agent:slides",
+                  label: "Slides",
+                  source: "agent",
+                  refType: "agent",
+                  refId: "slides",
+                },
+                {
+                  id: "agent:plans",
+                  label: "Plans",
+                  source: "agent",
+                  refType: "agent",
+                  refId: "plans",
+                },
+              ],
+            }),
+          ),
+      ),
+    );
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    const render = async () => {
+      await act(async () =>
+        root.render(
+          <PromptComposer
+            composerRef={composerRef}
+            onSubmit={onSubmit}
+            contextMenuItems={[]}
+            showModelSelector={false}
+            modelStatusChecksEnabled={false}
+            includeDefaultSlashSkills={false}
+            voiceEnabled={false}
+          />,
+        ),
+      );
+    };
+    const open = async () => {
+      await act(async () => {
+        container
+          .querySelector<HTMLElement>('button[aria-label="Add context"]')!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          );
+      });
+      await act(async () => {
+        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+          .find((item) => item.textContent === "Search workspace…")!
+          .click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    const select = async (label: string) => {
+      const option = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((item) => item.textContent === label);
+      expect(option).toBeDefined();
+      await act(async () => option!.click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    };
+
+    await render();
+    await open();
+    await select("Slides");
+    await open();
+    await render();
+    await select("Plans");
+    await act(async () => composerRef.current!.submit());
+    expect(onSubmit.mock.calls[0][2]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ refType: "agent", refId: "slides" }),
+        expect.objectContaining({ refType: "agent", refId: "plans" }),
+      ]),
+    );
+  });
+
   it("aborts a workspace picker on identity change before stale results can be selected", async () => {
     let scopeKey = "org:one";
     let finish: (response: Response) => void = () => {
