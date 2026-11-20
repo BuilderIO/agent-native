@@ -287,6 +287,7 @@ export function ComposeModal({
   const focusNewDraftIdRef = useRef<string | null>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+  const pendingAttachesRef = useRef(new Map<string, number>());
 
   const [sidebarRight, setSidebarRight] = useState(16);
   useEffect(() => {
@@ -435,6 +436,10 @@ export function ComposeModal({
   const handleSend = async (explicitlyMarkDone = false) => {
     if (!activeDraft || !activeId || schedulingRef.current) return;
     if (sendingIdsRef.current.has(activeId)) return;
+    if (pendingAttachesRef.current.has(activeId)) {
+      toast.error(t("mail.toasts.waitForAttachments"));
+      return;
+    }
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
       return;
@@ -575,6 +580,10 @@ export function ComposeModal({
 
   const handleSendLater = async (runAt: number) => {
     if (!activeDraft || !activeId || schedulingRef.current || isCard) return;
+    if (pendingAttachesRef.current.has(activeId)) {
+      toast.error(t("mail.toasts.waitForAttachments"));
+      return;
+    }
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
       return;
@@ -808,9 +817,16 @@ export function ComposeModal({
     onUpdate(draftId, { attachments });
   };
 
+  const trackAttach = (draftId: string, change: 1 | -1) => {
+    const count = (pendingAttachesRef.current.get(draftId) ?? 0) + change;
+    if (count > 0) pendingAttachesRef.current.set(draftId, count);
+    else pendingAttachesRef.current.delete(draftId);
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
     const draftId = activeId;
+    trackAttach(draftId, 1);
     try {
       addAttachments(draftId, await uploadFiles(files));
     } catch (error) {
@@ -820,6 +836,8 @@ export function ComposeModal({
         storageSetupLabels,
         canManageStorage,
       );
+    } finally {
+      trackAttach(draftId, -1);
     }
   };
 
@@ -846,6 +864,10 @@ export function ComposeModal({
 
   const handleAttachContentPage = (attachment: ComposeAttachment) => {
     if (activeId) addAttachments(activeId, [attachment]);
+  };
+
+  const handleContentAttachPending = (pending: boolean) => {
+    if (activeId) trackAttach(activeId, pending ? 1 : -1);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -1260,6 +1282,7 @@ export function ComposeModal({
               {!isCard && (
                 <AttachFromContentButton
                   onAttach={handleAttachContentPage}
+                  onPendingChange={handleContentAttachPending}
                   className="text-muted-foreground hover:text-foreground"
                 />
               )}

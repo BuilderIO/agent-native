@@ -489,6 +489,8 @@ const messages = {
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Impossible de joindre la page Content",
+      waitForAttachments:
+        "Attendez la fin de l’ajout des pièces jointes, puis envoyez.",
       failedToUploadImage: "Échec du téléversement de l’image",
       storageBuilderRefused:
         "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou utilisez votre propre stockage, puis réessayez.",

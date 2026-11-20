@@ -469,6 +469,7 @@ const messages = {
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
       failedToAttachContentPage: "Failed to attach Content page",
+      waitForAttachments: "Wait for attachments to finish, then send.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:
         "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io or use your own storage, then try again.",

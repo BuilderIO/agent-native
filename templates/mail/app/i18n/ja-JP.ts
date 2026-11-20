@@ -476,6 +476,7 @@ const messages = {
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content のページを添付できませんでした",
+      waitForAttachments: "添付ファイルの追加が終わってから送信してください。",
       failedToUploadImage: "画像のアップロードに失敗しました",
       storageBuilderRefused:
         "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか独自のストレージを使ってから、もう一度お試しください。",

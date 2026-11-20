@@ -191,6 +191,7 @@ export const InlineReplyComposer = forwardRef<
   appendedSignatureRef.current = appendedSignature;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const pendingAttachesRef = useRef(new Map<string, number>());
   const hasQuote = quotedContent.length > 0;
   const editorContent = appendedSignature
     ? messageContent
@@ -200,6 +201,10 @@ export const InlineReplyComposer = forwardRef<
 
   const handleSend = async (explicitlyMarkDone = false) => {
     if (sendingRef.current) return;
+    if (pendingAttachesRef.current.has(draft.id)) {
+      toast.error(t("mail.toasts.waitForAttachments"));
+      return;
+    }
     if (!draft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
@@ -443,9 +448,16 @@ export const InlineReplyComposer = forwardRef<
     onUpdate(draftId, { attachments });
   };
 
+  const trackAttach = (draftId: string, change: 1 | -1) => {
+    const count = (pendingAttachesRef.current.get(draftId) ?? 0) + change;
+    if (count > 0) pendingAttachesRef.current.set(draftId, count);
+    else pendingAttachesRef.current.delete(draftId);
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (files.length === 0) return;
     const draftId = draft.id;
+    trackAttach(draftId, 1);
     try {
       addAttachments(draftId, await uploadFiles(files));
     } catch (error) {
@@ -455,6 +467,8 @@ export const InlineReplyComposer = forwardRef<
         storageSetupLabels,
         canManageStorage,
       );
+    } finally {
+      trackAttach(draftId, -1);
     }
   };
 
@@ -481,6 +495,10 @@ export const InlineReplyComposer = forwardRef<
 
   const handleAttachContentPage = (attachment: ComposeAttachment) => {
     addAttachments(draft.id, [attachment]);
+  };
+
+  const handleContentAttachPending = (pending: boolean) => {
+    trackAttach(draft.id, pending ? 1 : -1);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -716,7 +734,10 @@ export const InlineReplyComposer = forwardRef<
             </TooltipTrigger>
             <TooltipContent>{t("mail.compose.attachFile")}</TooltipContent>
           </Tooltip>
-          <AttachFromContentButton onAttach={handleAttachContentPage} />
+          <AttachFromContentButton
+            onAttach={handleAttachContentPage}
+            onPendingChange={handleContentAttachPending}
+          />
 
           <div className="mx-1 h-4 w-px bg-border" />
 

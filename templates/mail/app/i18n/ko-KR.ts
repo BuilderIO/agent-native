@@ -470,6 +470,7 @@ const messages = {
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content 페이지를 첨부하지 못했습니다",
+      waitForAttachments: "첨부 파일 추가가 끝난 후 보내세요.",
       failedToUploadImage: "이미지 업로드 실패",
       storageBuilderRefused:
         "Builder.io가 Mail의 파일 저장소 연결을 거부해 파일을 첨부하지 못했습니다. Builder.io를 다시 연결하거나 자체 저장소를 사용한 뒤 다시 시도하세요.",

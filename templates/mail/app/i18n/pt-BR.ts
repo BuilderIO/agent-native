@@ -482,6 +482,7 @@ const messages = {
       scheduledCancelFailed: "Falha ao cancelar email agendado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Falha ao anexar a página do Content",
+      waitForAttachments: "Aguarde os anexos terminarem e depois envie.",
       failedToUploadImage: "Falha ao enviar imagem",
       storageBuilderRefused:
         "O Builder.io recusou a conexão de armazenamento de arquivos do Mail, então o arquivo não foi anexado. Reconecte o Builder.io ou use seu próprio armazenamento e tente novamente.",

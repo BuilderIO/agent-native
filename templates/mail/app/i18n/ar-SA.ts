@@ -471,6 +471,7 @@ const messages = {
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "تعذّر إرفاق صفحة Content",
+      waitForAttachments: "انتظر حتى تكتمل إضافة المرفقات، ثم أرسل.",
       failedToUploadImage: "فشل تحميل الصورة",
       storageBuilderRefused:
         "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو استخدم مساحة التخزين الخاصة بك، ثم حاول مرة أخرى.",

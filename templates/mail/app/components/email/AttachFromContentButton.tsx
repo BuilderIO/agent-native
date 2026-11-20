@@ -49,9 +49,11 @@ const SEARCH_DELAY_MS = 250;
 
 export function AttachFromContentButton({
   onAttach,
+  onPendingChange,
   className,
 }: {
   onAttach: (attachment: ComposeAttachment) => void;
+  onPendingChange?: (pending: boolean) => void;
   className?: string;
 }) {
   const t = useT();
@@ -94,6 +96,7 @@ export function AttachFromContentButton({
   const attach = async (item: ContentPageItem) => {
     if (attachingId) return;
     setAttachingId(item.id);
+    onPendingChange?.(true);
     try {
       const result = (await callAction("attach-content-page", {
         id: item.id,
@@ -114,6 +117,7 @@ export function AttachFromContentButton({
       void pages.refetch();
     } finally {
       setAttachingId(null);
+      onPendingChange?.(false);
     }
   };
 
