@@ -89,7 +89,9 @@ describe("link cards outside the editor", () => {
       expect(linkCardDataFromRaw(tag)).toEqual({ app: "design", url: PLAIN });
     }
     expect(
-      linkCardDataFromRaw(`<LinkCard id="x" app="design" url="${PLAIN}" /> and more`),
+      linkCardDataFromRaw(
+        `<LinkCard id="x" app="design" url="${PLAIN}" /> and more`,
+      ),
     ).toBeNull();
     expect(
       linkCardDataFromRaw(`<LinkCards id="x" app="design" url="${PLAIN}" />`),
