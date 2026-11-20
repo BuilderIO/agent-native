@@ -1,4 +1,9 @@
-import { defineAction, fail, NoWriteError } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  noteExternalWrite,
+  NoWriteError,
+} from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -33,6 +38,10 @@ export default defineAction({
   }),
   mcpApp: { structuredContent: true },
   run: async ({ app, action, args }) => {
+    // The app runs the action in its own process, out of the framework's
+    // sight, so a failure after this point may have left a write behind.
+    // A refusal the gateway raises as a NoWriteError still reports none.
+    noteExternalWrite("app-action");
     const result = await callGrantedDispatchMcpAppAction(
       app,
       action,
