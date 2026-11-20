@@ -2397,17 +2397,18 @@ function usePrivateInputMutation<V>(
       if (typeof window !== "undefined")
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       if (!valid()) throw privateMutationError(true);
+      let refetched: Promise<void> | undefined;
       if (!opts.skipActionQueryInvalidation || outcome.markerFailed) {
         if (!advanceMutationEpoch())
           revokeActionQueryCacheForClient(queryClient);
-        void queryClient.invalidateQueries(
+        refetched = queryClient.invalidateQueries(
           actionQueryInvalidation(opts.resources),
         );
       }
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
-      requestActionCacheFlush();
+      void Promise.allSettled([refetched]).then(requestActionCacheFlush);
       setState({ status: "success", error: null });
     } catch {
       const isCurrent = valid();
@@ -2672,18 +2673,20 @@ function useNormalActionMutation<
       } catch {
         console.warn("Action mutation projection observer failed");
       }
+      let refetched: Promise<void> | undefined;
       if (!skipActionQueryInvalidation) {
         if (!advanceMutationEpoch())
           revokeActionQueryCacheForClient(queryClient);
-        void invalidateForegroundActionQueries(
+        refetched = invalidateForegroundActionQueries(
           queryClient,
           actionQueryInvalidation(resources),
           interactive,
         );
       }
       const result = (onSuccess as Function | undefined)?.(...args);
-      void Promise.resolve(result).then(
-        requestActionCacheFlush,
+      // React Query keeps the old rows while the refetch is pending, so a
+      // flush before it settles would persist the pre-write snapshot.
+      void Promise.allSettled([result, refetched]).then(
         requestActionCacheFlush,
       );
       return result;
