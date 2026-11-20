@@ -81,6 +81,18 @@ export default defineAction({
         )
       ) {
         await assertAccess("brain-source", args.id, "admin");
+        for (const key of ["sourceKey", "ingestTokenHash"] as const) {
+          if (
+            mergedConfig &&
+            Object.prototype.hasOwnProperty.call(mergedConfig, key) &&
+            mergedConfig[key] !== null &&
+            typeof mergedConfig[key] !== "string"
+          ) {
+            fail("Source credentials must be strings or null.", {
+              errorCode: "invalid_source_config",
+            });
+          }
+        }
       }
       let config =
         mergedConfig && Object.keys(mergedConfig).length
@@ -196,6 +208,22 @@ export default defineAction({
         } else {
           delete nextConfig.workspaceConnectionId;
         }
+        if (
+          config &&
+          ["sourceKey", "ingestTokenHash"].some((key) =>
+            Object.prototype.hasOwnProperty.call(config, key),
+          )
+        ) {
+          for (const key of ["sourceKey", "ingestTokenHash"] as const) {
+            const submitted = Object.prototype.hasOwnProperty.call(config, key);
+            const stored =
+              existing[key] ??
+              (typeof nextConfig[key] === "string" ? nextConfig[key] : null);
+            const value = submitted ? config[key] : stored;
+            updates[key] = value;
+            nextConfig[key] = value;
+          }
+        }
         const nextConfigJson = stableJson(nextConfig);
         if (
           isGoogleSourceProvider(existing.provider) &&
@@ -203,12 +231,6 @@ export default defineAction({
         )
           await invalidateGoogleSourceAudiences(existing.id);
         updates.configJson = nextConfigJson;
-        if (typeof config?.sourceKey === "string") {
-          updates.sourceKey = config.sourceKey;
-        }
-        if (typeof config?.ingestTokenHash === "string") {
-          updates.ingestTokenHash = config.ingestTokenHash;
-        }
       }
       if (args.cursor !== undefined) {
         updates.cursorJson = stableJson({

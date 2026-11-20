@@ -2,6 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { and, eq, SQL } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
+import { createApp, toWebHandler } from "h3";
 import {
   afterAll,
   afterEach,
@@ -56,9 +57,14 @@ import listSources from "../../actions/list-sources.js";
 import rotateSourceIngestToken from "../../actions/rotate-source-ingest-token.js";
 import updateSource from "../../actions/update-source.js";
 import { schema } from "../db/index.js";
+import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
 import { readBrainScreen, sha256Hex } from "./brain.js";
 import { searchEverythingWithLanes } from "./search.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
+vi.mock("./brain.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./brain.js")>()),
+  retireUpstreamDeletedCapture: vi.fn(async () => false),
+}));
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: async () => ({}),
 }));
@@ -236,6 +242,8 @@ it("rejects explicitly submitted credentials from editors before saving while al
   for (const patch of [
     { config: { sourceKey: "attacker-key" } },
     { config: { ingestTokenHash: "attacker-hash" } },
+    { config: { sourceKey: null } },
+    { configJson: JSON.stringify({ ingestTokenHash: null }) },
     { configJson: JSON.stringify({ sourceKey: "attacker-key" }) },
     { configJson: JSON.stringify({ ingestTokenHash: "attacker-hash" }) },
     {
@@ -271,6 +279,146 @@ it("rejects explicitly submitted credentials from editors before saving while al
   );
   const adminEdited = await readIngestSource();
   expect(adminEdited.sourceKey).toBe("new-key");
+});
+
+async function sendIngest(sourceKey: string, token: string) {
+  const app = createApp();
+  app.use(ingestHandler);
+  return toWebHandler(app)(
+    new Request("http://localhost/", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sourceKey,
+        externalId: "example-deletion",
+        deleted: true,
+      }),
+    }),
+  );
+}
+
+it.each(["sourceKey", "ingestTokenHash"] as const)(
+  "keeps legacy signed ingest working after an admin edits %s",
+  async (field) => {
+    await seedSharedIngestSource();
+    const oldToken = "example-old-token";
+    const newToken = "example-new-token";
+    const oldHash = await sha256Hex(oldToken);
+    const newHash = await sha256Hex(newToken);
+    await database
+      .update(schema.brainSources)
+      .set({
+        configJson: JSON.stringify({
+          sourceKey: "legacy-key",
+          ingestTokenHash: oldHash,
+        }),
+      })
+      .where(eq(schema.brainSources.id, "legacy-ingest"));
+    const patch =
+      field === "sourceKey"
+        ? { sourceKey: "new-key" }
+        : { ingestTokenHash: newHash };
+    await asUser(qaEmail, () =>
+      updateSource.run(
+        field === "sourceKey"
+          ? { id: "legacy-ingest", config: patch }
+          : { id: "legacy-ingest", configJson: JSON.stringify(patch) },
+      ),
+    );
+    const saved = await readIngestSource();
+    const key = field === "sourceKey" ? "new-key" : "legacy-key";
+    const hash = field === "sourceKey" ? oldHash : newHash;
+    const token = field === "sourceKey" ? oldToken : newToken;
+    expect(saved.sourceKey).toBe(key);
+    expect(saved.ingestTokenHash).toBe(hash);
+    expect(JSON.parse(saved.configJson)).toMatchObject({
+      sourceKey: key,
+      ingestTokenHash: hash,
+    });
+    const response = await sendIngest(key, token);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      sourceId: "legacy-ingest",
+      deleted: true,
+    });
+    expect((await sendIngest("legacy-key", oldToken)).status).toBe(404);
+  },
+);
+
+it.each(["sourceKey", "ingestTokenHash"] as const)(
+  "clears and restores %s without reviving the cleared credential",
+  async (field) => {
+    await seedSharedIngestSource();
+    const token = "example-token";
+    const hash = await sha256Hex(token);
+    await database
+      .update(schema.brainSources)
+      .set({
+        configJson: JSON.stringify({
+          sourceKey: "legacy-key",
+          ingestTokenHash: hash,
+        }),
+      })
+      .where(eq(schema.brainSources.id, "legacy-ingest"));
+    await asUser(qaEmail, () =>
+      updateSource.run({ id: "legacy-ingest", config: { [field]: null } }),
+    );
+    const cleared = await readIngestSource();
+    expect(cleared[field]).toBeNull();
+    expect(JSON.parse(cleared.configJson)[field]).toBeNull();
+    expect((await sendIngest("legacy-key", token)).status).toBe(404);
+    await asUser("recipient@example.test", () =>
+      updateSource.run({ id: "legacy-ingest", config: { pollMinutes: 30 } }),
+    );
+    expect((await readIngestSource())[field]).toBeNull();
+    expect((await sendIngest("legacy-key", token)).status).toBe(404);
+    await asUser(qaEmail, () =>
+      updateSource.run({
+        id: "legacy-ingest",
+        config: { [field]: field === "sourceKey" ? "legacy-key" : hash },
+      }),
+    );
+    expect((await sendIngest("legacy-key", token)).status).toBe(200);
+  },
+);
+
+it.each(["sourceKey", "ingestTokenHash"] as const)(
+  "rejects invalid %s values before writing",
+  async (field) => {
+    await seedSharedIngestSource();
+    const before = await readIngestSource();
+    await expect(
+      asUser(qaEmail, () =>
+        updateSource.run({
+          id: "legacy-ingest",
+          title: "Must not save",
+          config: { [field]: 42 },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_source_config" });
+    expect(await readIngestSource()).toEqual(before);
+  },
+);
+
+it("preserves authoritative indexed credentials when editing the other field", async () => {
+  await seedSharedIngestSource();
+  const token = "example-token";
+  const hash = await sha256Hex(token);
+  await database
+    .update(schema.brainSources)
+    .set({ sourceKey: "current-key", ingestTokenHash: hash })
+    .where(eq(schema.brainSources.id, "legacy-ingest"));
+  await asUser(qaEmail, () =>
+    updateSource.run({ id: "legacy-ingest", config: { sourceKey: "new-key" } }),
+  );
+  const saved = await readIngestSource();
+  expect(saved.ingestTokenHash).toBe(hash);
+  expect(JSON.parse(saved.configJson).ingestTokenHash).toBe(hash);
+  expect((await sendIngest("new-key", token)).status).toBe(200);
 });
 
 it("does not copy stale legacy credentials over authoritative columns during an ordinary edit", async () => {
