@@ -16,7 +16,7 @@ Shims:
 
 Not transformed (0 sites), by reason:
 
-Transformed, needs a look (16 sites), by reason:
+Transformed, needs a look (14 sites), by reason:
   [button] size "default" was 36px and is now 24px (8)
     app/actions.tsx:53
     app/actions.tsx:52

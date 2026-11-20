@@ -41,6 +41,11 @@ function unifiedDiff(before: string, after: string, name: string): string {
   }
 }
 
+function sites(findings: Finding[]): number {
+  return new Set(findings.map((finding) => `${finding.file}:${finding.line}`))
+    .size;
+}
+
 function group(findings: Finding[], dir: string): string[] {
   const byReason = new Map<string, Finding[]>();
   for (const finding of findings) {
@@ -94,7 +99,7 @@ export function formatReport(
     `Not transformed (${result.skipped.length} sites), by reason:`,
     ...group(result.skipped, dir),
     "",
-    `Transformed, needs a look (${result.review.length} sites), by reason:`,
+    `Transformed, needs a look (${sites(result.review)} sites), by reason:`,
     ...group(result.review, dir),
     "",
     `Test mocks of a legacy module (${result.mocks.length}):`,

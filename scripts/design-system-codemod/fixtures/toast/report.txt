@@ -39,7 +39,7 @@ Not transformed (11 sites), by reason:
   [toast] toast[…] picks its method at runtime (1)
     unsupported.tsx:16
 
-Transformed, needs a look (3 sites), by reason:
+Transformed, needs a look (2 sites), by reason:
   [toast] dropped position: toasts now sit in the bottom-right viewport (2)
     root.tsx:7
     save.ts:17
