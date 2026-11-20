@@ -1441,6 +1441,8 @@ const messages: ToolkitAgentChatTranslation = {
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
   "errorMessages.malformedRequest":
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
+  "errorMessages.requestNotRead":
+    "O modelo não conseguiu ler esta solicitação porque ela era grande ou complexa demais, por exemplo por ter ferramentas demais, então ela não foi repetida. Inicie um novo chat ou escolha outro modelo.",
   "errorMessages.requestTooLarge":
     "Esta solicitação excedeu o limite de tamanho do servidor (HTTP 413). Inicie um novo chat ou remova anexos ou referências grandes e tente novamente.",
   "errorMessages.capabilityUnavailable":

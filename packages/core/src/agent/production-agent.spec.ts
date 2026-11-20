@@ -22843,7 +22843,7 @@ describe("runAgentLoop", () => {
   });
 
   describe("a failed guard retry keeps the model's draft", () => {
-    type Turn = string | EngineError | "empty";
+    type Turn = string | EngineError | "empty" | EngineEvent;
     const keptDraftEngine = (turns: Turn[], calls: { count: number }) => {
       const engine: AgentEngine = {
         name: "test",
@@ -22861,6 +22861,10 @@ describe("runAgentLoop", () => {
           const turn = turns[Math.min(calls.count, turns.length - 1)];
           calls.count += 1;
           if (turn instanceof EngineError) throw turn;
+          if (typeof turn === "object") {
+            yield turn;
+            return;
+          }
           if (turn === "empty") {
             yield { type: "stop", reason: "end_turn" };
             return;
@@ -23052,6 +23056,66 @@ describe("runAgentLoop", () => {
       ]);
     });
 
+    const requestNotReadStop: EngineEvent = {
+      type: "stop",
+      reason: "error",
+      error:
+        'Model "gpt-test" did not read the request (the provider reported no input tokens). Retrying the same request will not help; reduce the request size, for example the number or size of tool definitions.',
+      errorCode: "request_not_read",
+      providerRetryable: false,
+    };
+
+    it("shows the draft and records the code when the retry stops with request_not_read", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+
+      await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(
+            ["I cannot read that file.", requestNotReadStop],
+            calls,
+          ),
+          events,
+        ),
+        onOutcome: (outcome) => outcomes.push(outcome),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(calls.count).toBe(2);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: expect.objectContaining({ errorCode: "request_not_read" }),
+          }),
+        }),
+      ]);
+      expect(events.at(-1)).toEqual({ type: "done" });
+      expect(outcomes).toEqual([
+        expect.objectContaining({ state: "failed", code: "request_not_read" }),
+      ]);
+    });
+
+    it("ends the run on a request_not_read stop without sending the request again", async () => {
+      const calls = { count: 0 };
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations(
+          loopOptions(keptDraftEngine([requestNotReadStop], calls), []),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "request_not_read",
+        providerRetryable: false,
+      });
+      expect(calls.count).toBe(1);
+    });
+
     it("still throws a non-resumable engine error when the guard sets no prefix", async () => {
       const calls = { count: 0 };
       const rejected = new EngineError("Provider rejected the request", {
@@ -23075,6 +23139,7 @@ describe("runAgentLoop", () => {
     it.each([
       ["invalid_request", { errorCode: "invalid_request" }, true],
       ["invalid_request_error", { errorCode: "invalid_request_error" }, true],
+      ["request_not_read", { errorCode: "request_not_read" }, true],
       ["credits limit", { errorCode: "credits-limit-daily" }, false],
       ["missing credentials", { errorCode: "missing_credentials" }, false],
       ["throttled provider", { statusCode: 429 }, false],
@@ -23812,7 +23877,8 @@ describe("runAgentLoop", () => {
       expect.objectContaining({
         type: "error",
         errorCode: "empty_final_response",
-        error: expect.stringMatching(/empty response/i),
+        error:
+          "The model returned an empty response, even after retrying. Try again, or pick a different model from the model menu.",
         recoverable: false,
       }),
     );
@@ -26935,6 +27001,17 @@ describe("isRecoverableContinuationError", () => {
         }),
       ).toBe(true);
     }
+  });
+
+  it("keeps a request the provider did not read from continuing on timeout wording", () => {
+    expect(
+      isRecoverableContinuationError({
+        type: "error",
+        error: "Request not read, timed out",
+        errorCode: "request_not_read",
+        recoverable: true,
+      }),
+    ).toBe(false);
   });
 
   it("keeps explicitly terminal invalid requests from continuing on timeout wording", () => {
