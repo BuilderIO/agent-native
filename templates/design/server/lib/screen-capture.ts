@@ -220,17 +220,10 @@ export function screenFingerprint(
   data: Record<string, unknown>,
   screenId: string,
 ): string {
-  const metadata = isPlainRecord(data.screenMetadata)
-    ? (data.screenMetadata[screenId] ?? null)
-    : null;
-  const frames = parseCanvasFrameGeometryById(data.canvasFrames);
-  const frameWidth = Object.prototype.hasOwnProperty.call(frames, screenId)
-    ? (frames[screenId]?.width ?? null)
-    : null;
   return createHash("sha256")
     .update(screen.content)
     .update("\u0000")
-    .update(JSON.stringify({ metadata, width: frameWidth }))
+    .update(String(screenWidthPx(data, screenId)))
     .digest("hex")
     .slice(0, 12);
 }

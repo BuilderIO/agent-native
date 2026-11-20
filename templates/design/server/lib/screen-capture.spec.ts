@@ -114,6 +114,21 @@ describe("screenFingerprint", () => {
     ).not.toBe(one);
   });
 
+  it("ignores bookkeeping that doesn't change the picture", () => {
+    const one = screenFingerprint({ content: "<main>Hi</main>" }, data, "s1");
+    expect(
+      screenFingerprint(
+        { content: "<main>Hi</main>" },
+        {
+          screenMetadata: {
+            s1: { width: 1440, lod: "full", status: "ready", title: "Pay" },
+          },
+        },
+        "s1",
+      ),
+    ).toBe(one);
+  });
+
   it("ignores the design's other screens", () => {
     const one = screenFingerprint({ content: "<main>Hi</main>" }, data, "s1");
     expect(
