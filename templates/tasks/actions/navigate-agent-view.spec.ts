@@ -85,17 +85,18 @@ describe("Tasks navigate keeps the user's view for MCP callers by default", () =
   it("refuses a standalone detail open without intent, and allows it with intent open", async () => {
     await expect(
       inTab(() =>
-        navigate.run({ view: "tasks", taskId: "task-42" }, { caller: "mcp" }),
+        navigate.run(
+          { view: "tasks", taskId: "task-42" },
+          { caller: "mcp", actionName: "navigate" },
+        ),
       ),
     ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
     expect(await appStateGet(USER_EMAIL, `navigate:${TAB_ID}`)).toBeNull();
 
     await inTab(() =>
       navigate.run(
-        { view: "tasks", taskId: "task-42", intent: "open" } as Parameters<
-          typeof navigate.run
-        >[0],
-        { caller: "mcp" },
+        { view: "tasks", taskId: "task-42", intent: "open" },
+        { caller: "mcp", actionName: "navigate" },
       ),
     );
     expect(await appStateGet(USER_EMAIL, `navigate:${TAB_ID}`)).toMatchObject({

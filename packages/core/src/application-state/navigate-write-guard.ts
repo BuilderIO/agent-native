@@ -6,6 +6,8 @@ import {
   hasObservedWriteInActionChain,
   insideParentWriteAction,
   insideReadOnlyAction,
+  insideWriteAction,
+  isStandaloneNavigateAction,
 } from "../action-frame.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 
@@ -73,6 +75,8 @@ function hasNonEmptyIdValue(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+const NON_DETAIL_PATH_ROOTS = new Set(["settings", "admin"]);
+
 function isDetailPath(path: string): boolean {
   const trimmed = path.trim();
   if (!trimmed) return false;
@@ -89,14 +93,16 @@ function isDetailPath(path: string): boolean {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length < 2) return false;
   const [first] = segments;
-  if (!first || first === "settings" || first.startsWith("_")) return false;
+  if (!first || NON_DETAIL_PATH_ROOTS.has(first) || first.startsWith("_")) {
+    return false;
+  }
   return true;
 }
 
 /**
  * Default detail-view detector for navigate payloads: true when the command
  * targets a specific item (`id`, `*Id`, `*_id`, a detail query param, or a
- * nested `/<section>/<item>` path outside `/settings`).
+ * nested `/<section>/<item>` path outside `/settings` and `/admin`).
  */
 export function isDefaultDetailNavigation(
   navigation: Record<string, unknown>,
@@ -144,7 +150,11 @@ export function assertNavigateWriteAllowed(
   ) {
     return;
   }
-  if (insideParentWriteAction() || hasObservedWriteInActionChain()) {
+  if (
+    insideParentWriteAction() ||
+    hasObservedWriteInActionChain() ||
+    (insideWriteAction() && !isStandaloneNavigateAction())
+  ) {
     throw new AgentNavigationRefusedError(
       'Refused: a write action cannot move the user\'s view unless intent: "open" is set. Keep the user on their current view, or use navigateAfterWrite() so agent writes stay put.',
     );

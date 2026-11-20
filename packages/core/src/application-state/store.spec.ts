@@ -519,6 +519,7 @@ describe("agent reads keep the user's view", () => {
     caller: "mcp" | "frontend",
     readOnly: boolean,
     write: () => Promise<T>,
+    actionName?: string,
   ): Promise<T> {
     const { defineAction } = await import("../action.js");
     const { z } = await import("zod");
@@ -528,7 +529,10 @@ describe("agent reads keep the user's view", () => {
       readOnly,
       run: async () => write(),
     });
-    return action.run({}, { caller }) as Promise<T>;
+    return action.run(
+      {},
+      { caller, ...(actionName ? { actionName } : {}) },
+    ) as Promise<T>;
   }
 
   const value = { path: "/tasks/t1" };
@@ -590,8 +594,24 @@ describe("agent reads keep the user's view", () => {
     expect(await appStateGet(SESSION, "navigate")).toBeNull();
 
     const listValue = { path: "/tasks" };
-    await inAction("mcp", false, () =>
-      appStatePut(SESSION, "navigate", listValue),
+    await expect(
+      inAction(
+        "mcp",
+        false,
+        () => appStatePut(SESSION, "navigate", listValue),
+        "edit-task",
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+    });
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+
+    await inAction(
+      "mcp",
+      false,
+      () => appStatePut(SESSION, "navigate", listValue),
+      "navigate",
     );
     expect(await appStateGet(SESSION, "navigate")).toEqual(listValue);
 

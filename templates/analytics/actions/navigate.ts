@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -107,6 +110,7 @@ export default defineAction({
       .describe(
         "Captured error issue id to open (used with view=monitoring; implies the errors subview).",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
   run: async (args) => {

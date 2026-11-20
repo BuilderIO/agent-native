@@ -222,6 +222,33 @@ export function insideParentWriteAction(): boolean {
   return false;
 }
 
+/** Whether the running action itself or any ancestor is classified as a write. */
+export function insideWriteAction(): boolean {
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.writes === true) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the running call is a top-level `navigate` action (no outer write
+ * action and no observed write yet). Lets hand-written `actions/navigate.ts`
+ * switch section/list views while refusing non-navigate write actions that
+ * try to navigate before their first write.
+ */
+export function isStandaloneNavigateAction(): boolean {
+  const current = actionExecutionStorage?.getStore()?.frame;
+  if (!current || current.writes !== true) return false;
+  if (insideParentWriteAction() || hasObservedWriteInActionChain()) {
+    return false;
+  }
+  return current.context?.actionName === "navigate";
+}
+
 /**
  * Run a dispatcher's own work outside the invocation it runs inside. A frame's
  * evidence belongs only to rows about that frame's own call, so a row about

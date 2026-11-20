@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "49ac6f19559096a310db77550dd53f6506258951",
+    "syncCommit": "4c15672819da883449a3a06b9cb73caea4aad054",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -280,7 +280,7 @@
       {
         "file": "packages/core/src/action.ts",
         "name": "actionCallIntent",
-        "sha256": "f0d484133f61dedfd2aa2f518ac29100d50bd4d76933b034d2efb2b0dd6b145e"
+        "sha256": "02c950638cce4ee7c8266d545cc667d8baed0940bfe2fa1d6c69ac8df368dced"
       },
       {
         "file": "packages/core/src/action.ts",

@@ -16,6 +16,7 @@ function inAction<T>(
     readOnly?: boolean;
     allowsAgentNavigation?: boolean;
     intent?: string;
+    actionName?: string;
   },
   fn: () => T | Promise<T>,
 ): Promise<T> {
@@ -27,7 +28,10 @@ function inAction<T>(
     run: async () => fn(),
   });
   const input = options.intent ? { intent: options.intent } : {};
-  return action.run(input as Record<string, never>, { caller }) as Promise<T>;
+  return action.run(input as Record<string, never>, {
+    caller,
+    ...(options.actionName ? { actionName: options.actionName } : {}),
+  }) as Promise<T>;
 }
 
 describe("isDefaultDetailNavigation", () => {
@@ -45,9 +49,12 @@ describe("isDefaultDetailNavigation", () => {
     expect(isDefaultDetailNavigation({ path: "/factory?factoryId=f1" })).toBe(
       true,
     );
+    expect(
+      isDefaultDetailNavigation({ path: "/admin/integrations?itemId=1" }),
+    ).toBe(true);
   });
 
-  it("treats list views, settings paths, and internal _writeId as non-detail", () => {
+  it("treats list views, settings and admin section paths, and internal _writeId as non-detail", () => {
     expect(
       isDefaultDetailNavigation({ view: "tasks", _writeId: "123-abc" }),
     ).toBe(false);
@@ -55,6 +62,16 @@ describe("isDefaultDetailNavigation", () => {
     expect(isDefaultDetailNavigation({ path: "/settings/app/rules" })).toBe(
       false,
     );
+    expect(
+      isDefaultDetailNavigation({ path: "/settings/integrations/slack" }),
+    ).toBe(false);
+    expect(isDefaultDetailNavigation({ path: "/admin/integrations" })).toBe(
+      false,
+    );
+    expect(
+      isDefaultDetailNavigation({ path: "/admin/integrations/notion" }),
+    ).toBe(false);
+    expect(isDefaultDetailNavigation({ path: "/admin/workspace" })).toBe(false);
     expect(isDefaultDetailNavigation({ path: "/tasks?includeDone=true" })).toBe(
       false,
     );
@@ -93,7 +110,7 @@ describe("assertNavigateWriteAllowed", () => {
     ).resolves.toBeUndefined();
 
     await expect(
-      inAction("mcp", { readOnly: false }, () =>
+      inAction("mcp", { readOnly: false, actionName: "navigate" }, () =>
         assertNavigateWriteAllowed("__set_url__:tab-1", {
           pathname: "/tasks/t1",
         }),
@@ -101,7 +118,7 @@ describe("assertNavigateWriteAllowed", () => {
     ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
 
     await expect(
-      inAction("mcp", { readOnly: false }, () =>
+      inAction("mcp", { readOnly: false, actionName: "navigate" }, () =>
         assertNavigateWriteAllowed("__set_url__:tab-1", {
           pathname: "/settings/app/rules",
         }),
@@ -123,7 +140,7 @@ describe("assertNavigateWriteAllowed", () => {
     "refuses a %s detail navigate write without intent open",
     async (caller) => {
       await expect(
-        inAction(caller, { readOnly: false }, () =>
+        inAction(caller, { readOnly: false, actionName: "navigate" }, () =>
           assertNavigateWriteAllowed("navigate:tab-1", {
             view: "tasks",
             taskId: "t1",
@@ -139,18 +156,31 @@ describe("assertNavigateWriteAllowed", () => {
 
   it("allows a detail navigate write when raw input carries intent open even if the schema strips it", async () => {
     await expect(
-      inAction("mcp", { readOnly: false, intent: "open" }, () =>
-        assertNavigateWriteAllowed("navigate:tab-1", {
-          view: "tasks",
-          taskId: "t1",
-        }),
+      inAction(
+        "mcp",
+        { readOnly: false, actionName: "navigate", intent: "open" },
+        () =>
+          assertNavigateWriteAllowed("navigate:tab-1", {
+            view: "tasks",
+            taskId: "t1",
+          }),
       ),
     ).resolves.toBeUndefined();
   });
 
-  it("refuses any navigate write during an edit or after an observed write without intent open", async () => {
+  it("refuses any navigate write from a top-level write action even before its first write, and after writes or in nested calls", async () => {
     await expect(
-      inAction("mcp", { readOnly: false }, () => {
+      inAction("mcp", { readOnly: false, actionName: "edit-task" }, () =>
+        assertNavigateWriteAllowed("navigate", { view: "tasks" }),
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+      message: expect.stringContaining("write action cannot move"),
+    });
+
+    await expect(
+      inAction("mcp", { readOnly: false, actionName: "navigate" }, () => {
         noteObservedWrite("sql");
         assertNavigateWriteAllowed("navigate", { view: "tasks" });
       }),
@@ -161,8 +191,8 @@ describe("assertNavigateWriteAllowed", () => {
     });
 
     await expect(
-      inAction("mcp", { readOnly: false }, () =>
-        inAction("mcp", { readOnly: false }, () =>
+      inAction("mcp", { readOnly: false, actionName: "edit-task" }, () =>
+        inAction("mcp", { readOnly: false, actionName: "navigate" }, () =>
           assertNavigateWriteAllowed("navigate", { view: "tasks" }),
         ),
       ),
@@ -189,6 +219,7 @@ describe("assertNavigateWriteAllowed", () => {
       "an agent's read of another key",
       "mcp",
       true,
+      undefined,
       "navigation",
       { path: "/tasks/t1" },
     ],
@@ -196,6 +227,7 @@ describe("assertNavigateWriteAllowed", () => {
       "an agent's read of a similar key",
       "mcp",
       true,
+      undefined,
       "navigated",
       { path: "/tasks/t1" },
     ],
@@ -204,24 +236,44 @@ describe("assertNavigateWriteAllowed", () => {
       "mcp",
       false,
       "navigate",
+      "navigate",
       { view: "tasks" },
     ],
-    ["a person's read", "frontend", true, "navigate", { path: "/tasks/t1" }],
+    [
+      "an agent's standalone admin section navigate",
+      "mcp",
+      false,
+      "navigate",
+      "navigate",
+      { path: "/admin/integrations" },
+    ],
+    [
+      "a person's read",
+      "frontend",
+      true,
+      undefined,
+      "navigate",
+      { path: "/tasks/t1" },
+    ],
     [
       "a person's detail navigate",
       "frontend",
       false,
       "navigate",
+      "navigate",
       { view: "tasks", taskId: "t1" },
     ],
-    ["a CLI read", "cli", true, "navigate", { path: "/tasks/t1" }],
-  ] as const)("allows %s", async (_label, caller, readOnly, key, value) => {
-    await expect(
-      inAction(caller, { readOnly }, () =>
-        assertNavigateWriteAllowed(key, value),
-      ),
-    ).resolves.toBeUndefined();
-  });
+    ["a CLI read", "cli", true, undefined, "navigate", { path: "/tasks/t1" }],
+  ] as const)(
+    "allows %s",
+    async (_label, caller, readOnly, actionName, key, value) => {
+      await expect(
+        inAction(caller, { readOnly, actionName }, () =>
+          assertNavigateWriteAllowed(key, value),
+        ),
+      ).resolves.toBeUndefined();
+    },
+  );
 
   it("allows a write outside any action", () => {
     expect(() =>
