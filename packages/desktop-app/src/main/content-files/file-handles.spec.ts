@@ -6,6 +6,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ContentFileRestoreError,
+  putClaimedContentFileBack,
   restoreClaimedContentFile,
   waitForContentFileHandlesToClose,
 } from "./file-handles";
@@ -128,9 +130,10 @@ describe("restoreClaimedContentFile", () => {
     expect(fs.readFileSync(claimed, "utf-8")).toBe("# Note\n");
   });
 
-  it("copies a claimed file back without hard links when its path is still free", async () => {
+  it("moves the same file back without hard links when its path is still free, so a program holding it keeps writing to it", async () => {
     const target = temporaryFile();
     const claimed = `${target}.claim`;
+    const { ino } = fs.statSync(target);
     fs.renameSync(target, claimed);
     vi.spyOn(fs.promises, "link").mockRejectedValueOnce(
       Object.assign(new Error("hard links unsupported"), { code: "EPERM" }),
@@ -139,11 +142,12 @@ describe("restoreClaimedContentFile", () => {
     await expect(restoreClaimedContentFile(claimed, target)).resolves.toBe(
       true,
     );
+    expect(fs.statSync(target).ino).toBe(ino);
     expect(fs.readFileSync(target, "utf-8")).toBe("# Note\n");
     expect(fs.existsSync(claimed)).toBe(false);
   });
 
-  it("never copies over a file written meanwhile when hard links fail", async () => {
+  it("never replaces a file written meanwhile when hard links fail", async () => {
     const target = temporaryFile();
     const claimed = `${target}.claim`;
     fs.renameSync(target, claimed);
@@ -156,6 +160,51 @@ describe("restoreClaimedContentFile", () => {
       false,
     );
     expect(fs.readFileSync(target, "utf-8")).toBe("# Written meanwhile\n");
+    expect(fs.readFileSync(claimed, "utf-8")).toBe("# Note\n");
+  });
+});
+
+describe("putClaimedContentFileBack", () => {
+  it("names nothing once the claimed file is back", async () => {
+    const target = temporaryFile();
+    const claimed = `${target}.claim`;
+    fs.renameSync(target, claimed);
+
+    await expect(
+      putClaimedContentFileBack(claimed, target),
+    ).resolves.toBeUndefined();
+    expect(fs.readFileSync(target, "utf-8")).toBe("# Note\n");
+  });
+
+  it("names where the claimed file stays when a file was written meanwhile", async () => {
+    const target = temporaryFile();
+    const claimed = `${target}.claim`;
+    fs.renameSync(target, claimed);
+    fs.writeFileSync(target, "# Written meanwhile\n");
+
+    await expect(putClaimedContentFileBack(claimed, target)).resolves.toBe(
+      claimed,
+    );
+    expect(fs.readFileSync(claimed, "utf-8")).toBe("# Note\n");
+  });
+
+  it("names where the claimed file stays when it can't be put back", async () => {
+    const target = temporaryFile();
+    const claimed = `${target}.claim`;
+    fs.renameSync(target, claimed);
+    vi.spyOn(fs.promises, "link").mockRejectedValueOnce(
+      Object.assign(new Error("hard links unsupported"), { code: "EPERM" }),
+    );
+    vi.spyOn(fs.promises, "rename").mockRejectedValueOnce(
+      Object.assign(new Error("access denied"), { code: "EACCES" }),
+    );
+
+    const failure = await putClaimedContentFileBack(claimed, target).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(ContentFileRestoreError);
+    expect((failure as ContentFileRestoreError).claimed).toBe(claimed);
+    expect((failure as Error).message).toContain(claimed);
     expect(fs.readFileSync(claimed, "utf-8")).toBe("# Note\n");
   });
 });

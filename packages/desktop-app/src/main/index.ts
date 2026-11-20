@@ -249,7 +249,7 @@ import {
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
 import {
   ContentFileRestoreError,
-  restoreClaimedContentFile,
+  putClaimedContentFileBack,
   waitForContentFileHandlesToClose,
 } from "./content-files/file-handles";
 import {
@@ -10261,9 +10261,7 @@ async function writeContentSourceFile(
     await fs.promises.chmod(temporary, existingStat.mode);
     await fs.promises.rename(target, backup);
     if (!(await waitForContentFileHandlesToClose(backup))) {
-      const keptPreviousAt = (await restoreClaimedContentFile(backup, target))
-        ? undefined
-        : backup;
+      const keptPreviousAt = await putClaimedContentFileBack(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
@@ -10273,9 +10271,7 @@ async function writeContentSourceFile(
     }
     const claimedRevision = await contentSourceFileRevision(backup);
     if (claimedRevision !== expectedRevision) {
-      const keptPreviousAt = (await restoreClaimedContentFile(backup, target))
-        ? undefined
-        : backup;
+      const keptPreviousAt = await putClaimedContentFileBack(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
@@ -10287,17 +10283,7 @@ async function writeContentSourceFile(
       await fs.promises.link(temporary, target);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        const restored = await restoreClaimedContentFile(backup, target).catch(
-          (restoreError: unknown) => {
-            throw new ContentFileRestoreError(
-              target,
-              backup,
-              error,
-              restoreError,
-            );
-          },
-        );
-        if (!restored) {
+        if (await putClaimedContentFileBack(backup, target, error)) {
           throw new ContentFileRestoreError(target, backup, error, undefined);
         }
         throw error;
@@ -10352,9 +10338,7 @@ async function deleteContentSourceFile(
   const claimed = `${target}.${randomUUID()}.delete-claim`;
   await fs.promises.rename(target, claimed);
   if (!(await waitForContentFileHandlesToClose(claimed))) {
-    const keptPreviousAt = (await restoreClaimedContentFile(claimed, target))
-      ? undefined
-      : claimed;
+    const keptPreviousAt = await putClaimedContentFileBack(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
@@ -10364,9 +10348,7 @@ async function deleteContentSourceFile(
   }
   const claimedRevision = await contentSourceFileRevision(claimed);
   if (claimedRevision !== expectedRevision) {
-    const keptPreviousAt = (await restoreClaimedContentFile(claimed, target))
-      ? undefined
-      : claimed;
+    const keptPreviousAt = await putClaimedContentFileBack(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,

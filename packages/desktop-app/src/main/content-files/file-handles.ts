@@ -103,6 +103,16 @@ export async function waitForContentFileHandlesToClose(
   return false;
 }
 
+async function pathIsFree(target: string): Promise<boolean> {
+  try {
+    await fs.promises.lstat(target);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw error;
+  }
+}
+
 export async function restoreClaimedContentFile(
   claimed: string,
   target: string,
@@ -114,15 +124,25 @@ export async function restoreClaimedContentFile(
       // coercion-ok: a file written to the original path meanwhile wins, and the claimed copy stays beside it
       return false;
     }
-    try {
-      await fs.promises.copyFile(claimed, target, fs.constants.COPYFILE_EXCL);
-    } catch (copyError) {
-      if ((copyError as NodeJS.ErrnoException).code === "EEXIST") return false;
-      throw copyError;
-    }
+    if (!(await pathIsFree(target))) return false;
+    await fs.promises.rename(claimed, target);
+    return true;
   }
   await fs.promises.rm(claimed, { force: true });
   return true;
+}
+
+export async function putClaimedContentFileBack(
+  claimed: string,
+  target: string,
+  saveError?: unknown,
+): Promise<string | undefined> {
+  try {
+    if (await restoreClaimedContentFile(claimed, target)) return undefined;
+  } catch (restoreError) {
+    throw new ContentFileRestoreError(target, claimed, saveError, restoreError);
+  }
+  return claimed;
 }
 
 export class ContentFileRestoreError extends Error {
