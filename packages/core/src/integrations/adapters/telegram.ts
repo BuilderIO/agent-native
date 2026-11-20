@@ -58,9 +58,17 @@ export function telegramAdapter(): PlatformAdapter {
           label: "Telegram Webhook Secret",
           required: true,
           helpText:
-            "A random secret token. Telegram echoes it on every webhook so the adapter can verify the request came from Telegram.",
+            "A random secret token (letters, digits, '_' and '-' only, 1–256 chars). Generate one with `openssl rand -hex 32`. Telegram echoes it on every webhook so the adapter can verify the request came from Telegram.",
         },
       ];
+    },
+
+    validateCredential(key: string, value: string): string | void {
+      if (key === "TELEGRAM_WEBHOOK_SECRET") {
+        if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) {
+          return "Telegram webhook secret must be 1–256 characters and contain only letters, digits, '_' and '-'. Generate one with 'openssl rand -hex 32'.";
+        }
+      }
     },
 
     async handleVerification(
