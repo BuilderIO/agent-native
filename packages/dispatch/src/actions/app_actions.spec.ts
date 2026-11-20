@@ -36,7 +36,6 @@ import readView from "./read_view.js";
 
 const ctx = { caller: "mcp" } as never;
 
-/** What the agent loop concludes about a call that threw: did it write? */
 async function failedEffect(args: Record<string, unknown>) {
   const outcome: ActionExecutionOutcome = { refused: false };
   const error = await runActionWithExecutionOutcome(
