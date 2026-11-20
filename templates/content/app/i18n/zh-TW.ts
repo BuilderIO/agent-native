@@ -466,6 +466,8 @@ const overrides = {
       movedTo: "已移動到 {{title}}",
       copiedTo:
         "已複製到 {{title}}。區塊在移動時有所變更，因此這裡也保留了一份。",
+      copiedPageClosed:
+        "已複製到 {{title}}。移動完成前原頁面已關閉，因此那裡也保留了這個區塊。",
       moveChanged: "區塊在移動前有所變更，因此沒有移動任何內容。",
       moveFailed: "無法將區塊移動到 {{title}}",
       openPage: "開啟",

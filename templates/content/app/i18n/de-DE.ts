@@ -774,6 +774,8 @@ const editor = {
     movedTo: "Nach {{title}} verschoben",
     copiedTo:
       "Nach {{title}} kopiert. Der Block hat sich beim Verschieben geändert und bleibt deshalb auch hier.",
+    copiedPageClosed:
+      "Nach {{title}} kopiert. Die Ursprungsseite wurde geschlossen, bevor das Verschieben fertig war, daher ist der Block auch dort noch.",
     moveChanged:
       "Der Block hat sich geändert, bevor er verschoben werden konnte. Nichts wurde verschoben.",
     moveFailed: "Der Block konnte nicht nach {{title}} verschoben werden",

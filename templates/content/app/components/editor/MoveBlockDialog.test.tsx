@@ -359,6 +359,23 @@ describe("useMoveBlock", () => {
     );
   });
 
+  it("says the block stayed on its page when that page closed before the move finished", async () => {
+    const target = mount([paragraph("Keep"), paragraph("Move me")]);
+    const sent = deferred<unknown>();
+    mocks.append.mockReturnValue(sent.promise);
+    startMoving(target, 1);
+    pick("Plans");
+
+    act(() => {
+      target.destroy();
+    });
+    await act(async () => sent.resolve({}));
+
+    expect(mocks.toast.success.mock.calls[0]?.[0]).toBe(
+      "editor.blockMenu.copiedPageClosed(Plans)",
+    );
+  });
+
   it("follows the block when typing above it moves it", async () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     const sent = deferred<unknown>();

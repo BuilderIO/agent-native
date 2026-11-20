@@ -282,15 +282,16 @@ function MoveBlockDialog({
             editor.view.dispatch(tr.setMeta(LOCAL_FILE_USER_EDIT_META, true));
           }
           const moved = at !== null && block.find() === null;
-          toast.success(
-            t(
-              moved ? "editor.blockMenu.movedTo" : "editor.blockMenu.copiedTo",
-              {
-                title,
-              },
-            ),
-            { id: toastId, action: open, duration: MOVED_TOAST_MS },
-          );
+          const outcome = moved
+            ? "editor.blockMenu.movedTo"
+            : editor.isDestroyed
+              ? "editor.blockMenu.copiedPageClosed"
+              : "editor.blockMenu.copiedTo";
+          toast.success(t(outcome, { title }), {
+            id: toastId,
+            action: open,
+            duration: MOVED_TOAST_MS,
+          });
         },
         (error: unknown) => {
           toast.error(t("editor.blockMenu.moveFailed", { title }), {

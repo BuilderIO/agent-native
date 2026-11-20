@@ -769,6 +769,8 @@ const editor = {
     movedTo: "Movido a {{title}}",
     copiedTo:
       "Copiado a {{title}}. El bloque cambió mientras se movía, así que también sigue aquí.",
+    copiedPageClosed:
+      "Copiado a {{title}}. La página de origen se cerró antes de terminar el movimiento, así que el bloque también sigue allí.",
     moveChanged:
       "El bloque cambió antes de poder moverse, así que no se movió nada.",
     moveFailed: "No se pudo mover el bloque a {{title}}",

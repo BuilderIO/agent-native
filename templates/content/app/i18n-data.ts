@@ -1647,6 +1647,8 @@ const enUS = {
       movedTo: "Moved to {{title}}",
       copiedTo:
         "Copied to {{title}}. The block changed while it moved, so it’s still here too.",
+      copiedPageClosed:
+        "Copied to {{title}}. The page it came from closed before the move finished, so the block is still there too.",
       moveChanged: "The block changed before it could move, so nothing moved.",
       moveFailed: "Couldn’t move the block to {{title}}",
       openPage: "Open",

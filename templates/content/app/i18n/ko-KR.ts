@@ -753,6 +753,8 @@ const editor = {
     movedTo: "{{title}}(으)로 이동했습니다",
     copiedTo:
       "{{title}}에 복사했습니다. 이동하는 동안 블록이 바뀌어 여기에도 남아 있습니다.",
+    copiedPageClosed:
+      "{{title}}에 복사했습니다. 이동이 끝나기 전에 원래 페이지가 닫혀 블록이 그곳에도 남아 있습니다.",
     moveChanged: "이동하기 전에 블록이 바뀌어 아무것도 이동하지 않았습니다.",
     moveFailed: "블록을 {{title}}(으)로 이동할 수 없습니다",
     openPage: "열기",

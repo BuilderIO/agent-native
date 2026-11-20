@@ -715,6 +715,8 @@ const editor = {
     movedTo: "已移动到 {{title}}",
     copiedTo:
       "已复制到 {{title}}。块在移动时发生了更改，因此这里也保留了一份。",
+    copiedPageClosed:
+      "已复制到 {{title}}。移动完成前原页面已关闭，因此那里也保留了这个块。",
     moveChanged: "块在移动前发生了更改，因此没有移动任何内容。",
     moveFailed: "无法将块移动到 {{title}}",
     openPage: "打开",
