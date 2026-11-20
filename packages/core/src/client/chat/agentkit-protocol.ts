@@ -143,6 +143,11 @@ export interface CreateAgentKitProtocolAdapterOptions {
 }
 
 export interface AgentKitProtocolAdapter extends AgentTransport {
+  replayTerminalRun(input: {
+    threadId: string;
+    runId: string;
+    signal?: AbortSignal;
+  }): Promise<AgentEvent[]>;
   dispose(): Promise<void>;
 }
 
@@ -1540,19 +1545,23 @@ export function createAgentKitProtocolAdapter(
     runId?: string;
     turnId?: string;
     includePendingConnectionRequest?: boolean;
+    signal?: AbortSignal;
   }): Promise<RunAuthorityRead> {
     if (!runAuthority) {
       throw new Error("The runtime does not provide run authority.");
     }
+    const { signal, ...request } = input;
     try {
-      return {
-        kind: "read",
-        state: await runAuthority.readRunState({
-          ...input,
-          abortSignal: readers.signal,
-        }),
-      };
+      const state = await runAuthority.readRunState({
+        ...request,
+        abortSignal: signal
+          ? AbortSignal.any([readers.signal, signal])
+          : readers.signal,
+      });
+      signal?.throwIfAborted();
+      return { kind: "read", state };
     } catch (error) {
+      signal?.throwIfAborted();
       const failure = asRecord(error);
       return failure?.retryable === false
         ? {
@@ -1650,6 +1659,7 @@ export function createAgentKitProtocolAdapter(
     runtimeRunId: string,
     sessionId?: string,
     authorityRead?: RunAuthorityRead,
+    signal?: AbortSignal,
   ): Promise<{ owner?: ProtocolRun; read?: RunAuthorityRead }> {
     if (!runAuthority) return {};
     const candidates = [...runs.values()].filter(
@@ -1667,6 +1677,7 @@ export function createAgentKitProtocolAdapter(
       (await readAuthoritativeRunState({
         sessionId: resolvedSessionId,
         runId: runtimeRunId,
+        signal,
       }));
     if (read.kind !== "read") return { read };
     const { state } = read;
@@ -1969,6 +1980,7 @@ export function createAgentKitProtocolAdapter(
     input: {
       threadId: string;
       runId: string;
+      signal?: AbortSignal;
     },
     restoreOptions: { includePendingConnectionRequest?: boolean } = {},
   ): Promise<ProtocolRun> {
@@ -1983,6 +1995,7 @@ export function createAgentKitProtocolAdapter(
         sessionId,
         runId,
         includePendingConnectionRequest: true,
+        signal: input.signal,
       });
       if (
         read.kind !== "read" ||
@@ -2002,6 +2015,9 @@ export function createAgentKitProtocolAdapter(
     const initialResolution = await resolveRuntimeRunOwner(
       input.threadId,
       input.runId,
+      undefined,
+      undefined,
+      input.signal,
     );
     if (initialResolution.owner) {
       if (restoreOptions.includePendingConnectionRequest && runAuthority) {
@@ -2020,11 +2036,13 @@ export function createAgentKitProtocolAdapter(
       return initialResolution.owner;
     }
     const session = await getSession(input.threadId);
+    input.signal?.throwIfAborted();
     const resolution = await resolveRuntimeRunOwner(
       input.threadId,
       input.runId,
       session.id,
       initialResolution.read,
+      input.signal,
     );
     if (resolution.owner) {
       if (restoreOptions.includePendingConnectionRequest && runAuthority) {
@@ -2052,6 +2070,7 @@ export function createAgentKitProtocolAdapter(
                 ? resolution.read.state.runId
                 : input.runId,
             includePendingConnectionRequest: true,
+            signal: input.signal,
           })
         : resolution.read;
     if (
@@ -2063,12 +2082,15 @@ export function createAgentKitProtocolAdapter(
     ) {
       throw restoredConnectionRequestUnverifiedError();
     }
+    input.signal?.throwIfAborted();
     const state = restoreRead?.kind === "read" ? restoreRead.state : undefined;
     const resumeInput = {
       sessionId: session.id,
       runId: input.runId,
       after: 0,
-      abortSignal: readers.signal,
+      abortSignal: input.signal
+        ? AbortSignal.any([readers.signal, input.signal])
+        : readers.signal,
     };
     // With a run authority, a restored run starts as a closed stream so its
     // first read goes through the same server check as every reconnect.
@@ -2090,6 +2112,10 @@ export function createAgentKitProtocolAdapter(
             runId: input.runId,
             events: await runtime.subscribe!(resumeInput),
           };
+    if (input.signal?.aborted) {
+      await closeDiscardedTurnEvents(turn);
+      input.signal.throwIfAborted();
+    }
     const metadata = mergeTrustedProtocolMetadata(options.metadata, {
       [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
         observability: {
@@ -4139,6 +4165,51 @@ export function createAgentKitProtocolAdapter(
         if (pendingQueuePromotionRuns.get(queuePromotionKey) === pendingRun) {
           pendingQueuePromotionRuns.delete(queuePromotionKey);
         }
+      }
+    },
+    async replayTerminalRun(input) {
+      const signal = input.signal;
+      signal?.throwIfAborted();
+      const collect = async () => {
+        const retained = findRun(input.threadId, input.runId);
+        if (
+          retained &&
+          isRunTerminal(retained) &&
+          retained.firstRetainedSequence > 1 &&
+          retained.activeReaders === 0
+        ) {
+          removeRun(retained);
+        }
+        const events: AgentEvent[] = [];
+        for await (const event of transport.subscribeToRun({
+          ...input,
+          afterSequence: 0,
+        })) {
+          events.push(event);
+        }
+        const run = findRun(input.threadId, input.runId);
+        if (
+          signal?.aborted ||
+          !run ||
+          !isRunTerminal(run) ||
+          run.terminalSource
+        ) {
+          throw new Error(
+            `Could not replay durable events for run ${input.runId}.`,
+          );
+        }
+        return events;
+      };
+      if (!signal) return collect();
+      let onAbort: (() => void) | undefined;
+      const aborted = new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+      try {
+        return await Promise.race([collect(), aborted]);
+      } finally {
+        if (onAbort) signal.removeEventListener("abort", onAbort);
       }
     },
     async *subscribeToRun(input) {

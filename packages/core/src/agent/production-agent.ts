@@ -68,6 +68,7 @@ import {
   resolveToolMaxResultChars,
   type ActionAutomationContext,
   type ActionCallIntent,
+  type ActionMcpTool,
   type PreparedActionCall,
   type ActionCaller,
   type ActionRunContext,
@@ -250,7 +251,9 @@ import {
   stripInlineDataUrls,
 } from "../shared/inline-bytes.js";
 import {
+  isGPTReasoningModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   normalizeReasoningEffortForRequest,
   stepDownReasoningEffort,
   type ReasoningEffort,
@@ -325,6 +328,7 @@ import {
   isProviderConnectionErrorMessage,
   isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
+  MODEL_REFUSAL_MESSAGE,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./engine/error-detail.js";
@@ -1404,7 +1408,7 @@ export interface ActionEntry {
   requiresSignedInBrowser?: boolean;
   opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   /** True when this entry's raw tool schema was authored by an external MCP
    *  server (imported via the MCP client), not a local action. Distinct
    *  from `mcpTool`, which controls whether a *local* action is exposed to
@@ -4900,27 +4904,30 @@ export function appendContinuationCheckpoint(
   });
 }
 
+const CONTINUATION_NOTES = {
+  run_timeout: "The previous run reached an internal execution budget.",
+  loop_limit: "The previous run reached an internal step budget.",
+  max_tokens:
+    "The previous LLM call reached the model output-token cap before the response finished.",
+  stream_ended:
+    "The previous stream ended before the agent sent a final completion signal.",
+  gateway_timeout:
+    "The previous LLM call hit an upstream gateway timeout before the response finished streaming.",
+  rate_limited:
+    "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget.",
+  network_interrupted:
+    "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly).",
+  no_progress:
+    "The previous run stopped producing progress events while the connection stayed open.",
+  empty_response: "The previous LLM call ended without an answer.",
+} satisfies Record<AgentLoopContinuationReason | "empty_response", string>;
+
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: keyof typeof CONTINUATION_NOTES,
   options: { actionPreparationTool?: string; journalNote?: string } = {},
 ) {
-  const note =
-    reason === "loop_limit"
-      ? "The previous run reached an internal step budget."
-      : reason === "max_tokens"
-        ? "The previous LLM call reached the model output-token cap before the response finished."
-        : reason === "stream_ended"
-          ? "The previous stream ended before the agent sent a final completion signal."
-          : reason === "gateway_timeout"
-            ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-            : reason === "rate_limited"
-              ? "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget."
-              : reason === "network_interrupted"
-                ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-                : reason === "no_progress"
-                  ? "The previous run stopped producing progress events while the connection stayed open."
-                  : "The previous run reached an internal execution budget.";
+  const note = CONTINUATION_NOTES[reason];
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
@@ -6338,6 +6345,8 @@ export function buildFirstRequestPayloadDetail(input: {
 
 const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "resources",
+  "save-memory",
+  "delete-memory",
   "framework-search",
   "docs-search",
   "get-framework-context",
@@ -9131,6 +9140,7 @@ export async function runAgentLoop(opts: {
           return usage;
         }
         if (followUpCompletionFailed) break;
+        if (terminalStopReason === "refusal") break;
 
         const hasCompleteToolCall =
           streamedAssistantToolCalls.length > 0 ||
@@ -9246,6 +9256,16 @@ export async function runAgentLoop(opts: {
     }
 
     if (tripwire || followUpCompletionFailed) break;
+    if (terminalStopReason === "refusal") {
+      if (completingFollowUpSuggestions) break;
+      if (streamedAssistantText) await send({ type: "clear" });
+      await send({ type: "text", text: MODEL_REFUSAL_MESSAGE });
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: MODEL_REFUSAL_MESSAGE }],
+      });
+      break;
+    }
 
     if (!assistantContent && toolCallErrors.length > 0) {
       assistantContent = [];
@@ -9559,18 +9579,30 @@ export async function runAgentLoop(opts: {
           );
           effectiveMaxOutputTokens =
             resolveEmptyResponseRetryMaxOutputTokens(model);
-          if (
+          const previousEffort = isUnsetReasoningEffort(
+            effectiveReasoningEffort,
+          )
+            ? getProviderDefaultEffort(model)
+            : effectiveReasoningEffort;
+          const isBuilderGpt =
+            engine.name === "builder" && isGPTReasoningModel(model);
+          if (isBuilderGpt && previousEffort === undefined) {
+            effectiveReasoningEffort = "low";
+          } else if (
             !preserveReasoningEffortForEmptyResponseRetries ||
             effectiveMaxOutputTokens <= previousMaxOutputTokens
           ) {
-            // With no effort chosen the provider ran at its own default, so
-            // step down from that documented level when the catalog knows it.
-            effectiveReasoningEffort = stepDownReasoningEffort(
-              effectiveReasoningEffort ?? getProviderDefaultEffort(model),
-            );
+            const nextEffort = stepDownReasoningEffort(previousEffort);
+            effectiveReasoningEffort =
+              isBuilderGpt && nextEffort === "minimal" ? "low" : nextEffort;
           }
           send({ type: "clear" });
-          appendAgentLoopContinuation(messages, "max_tokens");
+          appendAgentLoopContinuation(
+            messages,
+            terminalStopReason === "max_tokens"
+              ? "max_tokens"
+              : "empty_response",
+          );
           continue;
         }
         send({ type: "clear" });
@@ -18457,6 +18489,7 @@ export function createProductionAgentHandler(
           },
           ownerEmail,
           orgId: getRequestOrgId() ?? null,
+          appId: options.appId,
           ...(options.appId && getRequestOrgId()
             ? { appAuthorization: getRequestRunContext()?.appAuthorization }
             : {}),

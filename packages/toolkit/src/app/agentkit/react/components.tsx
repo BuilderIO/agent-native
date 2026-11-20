@@ -2441,7 +2441,7 @@ function toolToActivity(
   return {
     id: tool.id,
     kind: inferAgentActivityKind(tool.name),
-    label: tool.name,
+    label: labels.resolveToolStepLabel?.(tool) ?? tool.name,
     status:
       tool.status === "completed"
         ? "completed"
@@ -2516,6 +2516,20 @@ function workedSummaryLabel(
     : labels.worked;
 }
 
+function replyDurationMs(
+  message: AgentMessage | undefined,
+): number | undefined {
+  const custom = message?.metadata?.custom as
+    | Record<string, unknown>
+    | undefined;
+  const durationMs = custom?.agentNativeRunDurationMs;
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : undefined;
+}
+
 function isVisibleReasoningPart(part: AgentMessagePart): boolean {
   return (
     part.type === "reasoning" &&
@@ -2526,31 +2540,6 @@ function isVisibleReasoningPart(part: AgentMessagePart): boolean {
 
 function hasVisibleReasoning(message: AgentMessage): boolean {
   return message.parts.some(isVisibleReasoningPart);
-}
-
-/** Reasoning that precedes a reply's first answer content, if any. */
-function leadingReasoningCount(message: AgentMessage): number {
-  let count = 0;
-  for (const part of message.parts) {
-    if (part.type !== "reasoning") break;
-    count += 1;
-  }
-  return message.parts.slice(0, count).some(isVisibleReasoningPart) ? count : 0;
-}
-
-function leadingReasoningMessage(
-  message: AgentMessage | undefined,
-): AgentMessage | undefined {
-  if (message?.role !== "assistant") return undefined;
-  const count = leadingReasoningCount(message);
-  return count
-    ? { ...message, parts: message.parts.slice(0, count) }
-    : undefined;
-}
-
-function withoutLeadingReasoning(message: AgentMessage): AgentMessage {
-  const count = leadingReasoningCount(message);
-  return count ? { ...message, parts: message.parts.slice(count) } : message;
 }
 
 function reasoningMessageId(event: AgentEvent): string | undefined {
@@ -2797,7 +2786,6 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
   isCurrentSegment?: boolean | undefined;
   /** The reply this work segment precedes. */
   messageId?: string | undefined;
-  /** A saved reply whose reasoning before its answer joins this group. */
   foldedReasoningMessageId?: string | undefined;
   /** This segment is its run's whole turn, so it shows a row with no work. */
   summarizesTurn?: boolean | undefined;
@@ -2812,8 +2800,12 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     formatWorkedForDuration,
     loadRunUsage,
   } = useAgentKit();
-  const thread = useAgentThreadSlice((previous, next) =>
-    sameRunWork(previous, next, runId),
+  const thread = useAgentThreadSlice(
+    (previous, next) =>
+      sameRunWork(previous, next, runId) &&
+      (messageId === undefined ||
+        agentMessagesById(previous.messages).get(messageId)?.message ===
+          agentMessagesById(next.messages).get(messageId)?.message),
   );
   const runEvents = agentRunEvents(thread, runId);
   const activityMap = new Map<string, AgentActivity>();
@@ -2955,9 +2947,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     }
   }
   const foldedReasoning = foldedReasoningMessageId
-    ? leadingReasoningMessage(
-        messagesById.get(foldedReasoningMessageId)?.message,
-      )
+    ? messagesById.get(foldedReasoningMessageId)?.message
     : undefined;
   const callIdOf = (event: AgentEvent): string | undefined => {
     if (
@@ -3097,10 +3087,14 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
     : run?.completedAt
       ? Date.parse(run.completedAt)
       : Number.NaN;
+  const savedDurationMs = messageId
+    ? replyDurationMs(messagesById.get(messageId)?.message)
+    : undefined;
   const durationMs =
-    Number.isFinite(startedAt) && Number.isFinite(completedAt)
+    savedDurationMs ??
+    (Number.isFinite(startedAt) && Number.isFinite(completedAt)
       ? Math.max(0, completedAt - startedAt)
-      : undefined;
+      : undefined);
   const hasTerminalRunEvent = runEvents.some(
     (event) =>
       event.runId === runId &&
@@ -7409,6 +7403,8 @@ export interface AgentKitComposerProps extends Omit<
     | "disabled"
     | "isReferenceTarget"
     | "submissionDisabled"
+    | "modelSelectionState"
+    | "submissionScopeKey"
     | "onDisabledClick"
     | "onSetupCardClick"
     | "initialText"
@@ -7433,6 +7429,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
     | "modelTriggerNamesSelectionOnly"
+    | "modelTriggerLabel"
     | "showMissingApiKeySetup"
     | "setupCardVisible"
     | "onModelConnectionRequiredChange"
@@ -7441,6 +7438,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
     | "onTextChange"
+    | "onAttachmentsChange"
     | "contextItems"
     | "onRemoveContextItem"
     | "onInspectContextItem"
@@ -7476,6 +7474,7 @@ export interface AgentKitComposerProps extends Omit<
   /** The host transcript renders its own accessible submission status. */
   announcePendingSubmission?: boolean;
   queueWhileRunning?: boolean;
+  queueReadOnly?: boolean;
   showModelSelector?: boolean;
   /** Hide `/plan`, so every message from this composer acts. */
   planModeDisabled?: boolean;
@@ -7507,6 +7506,7 @@ export function AgentKitComposer({
   className,
   announcePendingSubmission = true,
   queueWhileRunning = true,
+  queueReadOnly = false,
   showModelSelector = true,
   enterSubmitMode,
   slashCommands,
@@ -7531,6 +7531,8 @@ export function AgentKitComposer({
   disabled,
   isReferenceTarget,
   submissionDisabled,
+  modelSelectionState,
+  submissionScopeKey,
   onDisabledClick,
   onSetupCardClick,
   placeholder,
@@ -7554,6 +7556,7 @@ export function AgentKitComposer({
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   modelTriggerNamesSelectionOnly,
+  modelTriggerLabel,
   requireAgentEngine = false,
   showMissingApiKeySetup,
   setupCardVisible,
@@ -7570,6 +7573,7 @@ export function AgentKitComposer({
   onSubmit: onSubmitOverride,
   onSubmissionPendingChange,
   onAttachmentError,
+  onAttachmentsChange,
   interceptBuildRequestsForBuilder,
   planModeDisabled,
   stopButton,
@@ -7836,6 +7840,9 @@ export function AgentKitComposer({
       });
     }
   }, [autoFocus]);
+  useEffect(() => {
+    if (editingMessage) composerRef.current?.focus();
+  }, [editingMessage]);
   const reportAttachmentError = useCallback(
     (message: string) => {
       if (onAttachmentError) onAttachmentError(message);
@@ -8034,53 +8041,62 @@ export function AgentKitComposer({
         forkPurpose: "edit",
       });
       submitFailureDraftScopeRef.current = `agentkit:${forkedThread.id}`;
-      onThreadForked(forkedThread);
-      const uploadedAttachments = uploadFiles.length
-        ? await controller.uploadFiles(forkedThread.id, uploadFiles)
-        : [];
-      const previousAttachments = editingMessage.parts.filter(
-        (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file" && !part.omitted,
-      );
-      const draft = createAgentKitComposerSubmission({
-        threadId: forkedThread.id,
-        intent: "immediate",
-        text,
-        composerModeContext: options.composerModeContext,
-        contextItems: contextItemsForSubmission,
-        references,
-        options: runOptions,
-      });
-      const payload = Object.freeze({
-        ...draft,
-        attachments: snapshotComposerValue([
-          ...previousAttachments,
-          ...uploadedAttachments,
-        ]),
-      });
-      await beforeSend?.(payload);
-      const sendMetadata = {
-        ...payload.options.metadata,
-        ...(payload.references.length
-          ? { references: payload.references }
-          : {}),
-        ...(payload.contextItems === undefined
-          ? {}
-          : { contextItems: payload.contextItems }),
-      };
-      await controller.sendMessage({
-        threadId: forkedThread.id,
-        text: payload.text,
-        attachments: [...payload.attachments],
-        ...(payload.references.length
-          ? { references: [...payload.references] }
-          : {}),
-        options: payload.options,
-        metadata: sendMetadata,
-        onLocalSubmit,
-      });
+      try {
+        const uploadedAttachments = uploadFiles.length
+          ? await controller.uploadFiles(forkedThread.id, uploadFiles)
+          : [];
+        const previousAttachments = editingMessage.parts.filter(
+          (part): part is Extract<AgentMessagePart, { type: "file" }> =>
+            part.type === "file" && !part.omitted,
+        );
+        const draft = createAgentKitComposerSubmission({
+          threadId: forkedThread.id,
+          intent: "immediate",
+          text,
+          ...(options.composerModeContext === undefined
+            ? {}
+            : { composerModeContext: options.composerModeContext }),
+          ...(contextItemsForSubmission === undefined
+            ? {}
+            : { contextItems: contextItemsForSubmission }),
+          references,
+          options: runOptions,
+        });
+        const payload = Object.freeze({
+          ...draft,
+          attachments: snapshotComposerValue([
+            ...previousAttachments,
+            ...uploadedAttachments,
+          ]),
+        });
+        await beforeSend?.(payload);
+        const sendMetadata = {
+          ...payload.options.metadata,
+          ...(payload.references.length
+            ? { references: payload.references }
+            : {}),
+          ...(payload.contextItems === undefined
+            ? {}
+            : { contextItems: payload.contextItems }),
+        };
+        await controller.sendMessage({
+          threadId: forkedThread.id,
+          text: payload.text,
+          attachments: [...payload.attachments],
+          ...(payload.references.length
+            ? { references: [...payload.references] }
+            : {}),
+          options: payload.options,
+          metadata: sendMetadata,
+        });
+      } catch (error) {
+        onThreadForked(forkedThread);
+        throw error;
+      }
       submitFailureDraftScopeRef.current = null;
+      onLocalSubmit();
       editContext?.setMessage(null);
+      onThreadForked(forkedThread);
       return;
     }
     const submissionThread = controller.getThread(threadId);
@@ -8282,7 +8298,21 @@ export function AgentKitComposer({
             {labels.activityBuckets?.thinking ?? labels.reasoning}
           </span>
         ) : null}
-        {queueCapability.visible ? (
+        {queueCapability.visible &&
+        queueReadOnly &&
+        visibleQueuedMessages.length ? (
+          <ol
+            aria-label={labels.queue}
+            className="space-y-1 px-2 py-1 text-sm text-muted-foreground"
+          >
+            {visibleQueuedMessages.map(({ id, text }) => (
+              <li key={id} className="truncate">
+                {splitAgentKitMessageContext(text).message}
+              </li>
+            ))}
+          </ol>
+        ) : null}
+        {queueCapability.visible && !queueReadOnly ? (
           Queue ? (
             <Queue
               items={visibleQueuedMessages.map((message) => {
@@ -8424,6 +8454,8 @@ export function AgentKitComposer({
             inlineTextAttachments,
             disabled,
             isReferenceTarget,
+            modelSelectionState,
+            submissionScopeKey,
             onDisabledClick,
             onSetupCardClick,
             onConnectProvider,
@@ -8446,6 +8478,7 @@ export function AgentKitComposer({
             onModelSelectorOpenChange,
             modelStatusChecksEnabled,
             modelTriggerNamesSelectionOnly,
+            modelTriggerLabel,
             requireAgentEngine,
             showMissingApiKeySetup,
             setupCardVisible,
@@ -8454,6 +8487,7 @@ export function AgentKitComposer({
             layoutVariant,
             toolbarSlot,
             onTextChange,
+            onAttachmentsChange,
             extraActionButton,
             getSubmitFailureDraftScope,
             interceptBuildRequestsForBuilder,
@@ -9812,12 +9846,10 @@ export function AgentKitChat({
       return messageId ? [messageId] : [];
     }),
   );
-  // A saved reply's reasoning before its answer joins the work group above
-  // it, so the turn shows one disclosure; the stream did not place it there.
-  const foldsLeadingReasoning = (message: AgentMessage) =>
+  const foldsSavedReasoning = (message: AgentMessage) =>
     message.status !== "streaming" &&
     !groupedReasoningMessageIds.has(message.id) &&
-    leadingReasoningMessage(message) !== undefined;
+    hasVisibleReasoning(message);
   const hasRunWork = (
     runId: RunId,
     afterSequence?: number,
@@ -9945,7 +9977,7 @@ export function AgentKitChat({
       liveReplies.set(runId, {
         replyId: reply.id,
         start,
-        foldsReasoning: message ? foldsLeadingReasoning(message) : false,
+        foldsReasoning: message ? foldsSavedReasoning(message) : false,
       });
     }
   }
@@ -10298,17 +10330,18 @@ export function AgentKitChat({
     );
     const isLiveReply =
       isAssistantBoundary && liveReplies.get(runId)?.replyId === message.id;
+    const foldsReasoning = isAssistantBoundary && foldsSavedReasoning(message);
     const rendersRunWork = Boolean(
       isAssistantBoundary &&
       runId &&
-      (summarizesTurn ||
+      (foldsReasoning ||
+        summarizesTurn ||
         hasRunWork(
           runId,
           previousAssistant?.sequence,
           isLiveReply ? undefined : sequence,
         )),
     );
-    const foldsReasoning = rendersRunWork && foldsLeadingReasoning(message);
     if (rendersRunWork && runId) {
       transcriptItems.push(
         renderRunWork({
@@ -10324,13 +10357,17 @@ export function AgentKitChat({
       );
     }
     const messageValue = displayMessageFor(message);
-    const standaloneReasoning = foldsReasoning
-      ? withoutLeadingReasoning(message)
-      : message;
+    const standaloneReasoning =
+      !foldsReasoning &&
+      !groupedReasoningMessageIds.has(message.id) &&
+      hasVisibleReasoning(message);
+    const standaloneDuration = rendersRunWork
+      ? undefined
+      : replyDurationMs(message);
     if (
       message.role === "assistant" &&
-      !groupedReasoningMessageIds.has(message.id) &&
-      hasVisibleReasoning(standaloneReasoning)
+      (standaloneReasoning ||
+        (standaloneDuration !== undefined && standaloneDuration >= 1_000))
     ) {
       const active =
         message.status === "streaming" && messageValue.parts.length === 0;
@@ -10341,7 +10378,8 @@ export function AgentKitChat({
             active
               ? labels.reasoning
               : workedSummaryLabel(
-                  reasoningDurationMs(thread.events, new Set([message.id])),
+                  standaloneDuration ??
+                    reasoningDurationMs(thread.events, new Set([message.id])),
                   labels,
                   formatReasoningDuration,
                 )
@@ -10354,14 +10392,17 @@ export function AgentKitChat({
             )
           }
           running={active}
+          expandable={standaloneReasoning}
           runId={runId}
-          messageId={message.id}
+          messageId={rendersRunWork ? undefined : message.id}
         >
-          <AgentReasoningSteps
-            message={standaloneReasoning}
-            threadId={threadId}
-            active={active}
-          />
+          {standaloneReasoning ? (
+            <AgentReasoningSteps
+              message={message}
+              threadId={threadId}
+              active={active}
+            />
+          ) : null}
         </AgentWorkDisclosure>,
       );
     }

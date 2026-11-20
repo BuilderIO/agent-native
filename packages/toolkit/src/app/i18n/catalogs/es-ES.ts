@@ -1443,6 +1443,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "Error: {{message}}",
   "errorMessages.gatewayInternalError":
     "La pasarela del modelo tuvo un error interno antes de que el agente pudiera responder. Vuelve a intentarlo en un momento e indica el id de error de abajo si sigue ocurriendo.",
+  "errorMessages.modelRefusal":
+    "No puedo ayudarte con esa solicitud. Puedo ayudarte con otra pregunta.",
   "errorMessages.gatewayNoDetails":
     "La pasarela del modelo no devolvió detalles del error y el chat no pudo recuperarse. Espera un momento y vuelve a intentarlo. Si el problema continúa, inicia un chat nuevo.",
   "errorMessages.creditsLimitReached":

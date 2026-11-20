@@ -60,6 +60,7 @@ export function useNavigationState() {
         limit: parseLimit(params.get("limit")),
         priority: params.get("priority") || undefined,
         sourceId: params.get("sourceId") || undefined,
+        captureId: params.get("captureId") || undefined,
         selectedKnowledgeId: params.get("knowledgeId") || undefined,
         reviewItemId: params.get("reviewItemId") || undefined,
         settingsSection:

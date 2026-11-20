@@ -3,7 +3,9 @@ import type {
   AgentMessagePart,
   AgentToolCall,
 } from "@agent-native/agentkit/protocol";
+import { MODEL_REFUSAL_MESSAGE } from "@agent-native/core/agent/engine/error-detail";
 import type { ContentPart } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useMemo } from "react";
 
 import {
@@ -21,13 +23,20 @@ export function AgentKitMarkdownText({
   active,
   resetKey,
 }: AgentKitRenderProps<TextPart>) {
+  const t = useT();
+  const text =
+    value.text === MODEL_REFUSAL_MESSAGE
+      ? t("agentChat.errorMessages.modelRefusal", {
+          defaultValue: MODEL_REFUSAL_MESSAGE,
+        })
+      : value.text;
   if (value.format !== "markdown") {
-    return <p className="whitespace-pre-wrap">{value.text}</p>;
+    return <p className="whitespace-pre-wrap">{text}</p>;
   }
 
   return (
     <StreamingText
-      text={value.text}
+      text={text}
       streaming={active === true}
       resetKey={resetKey ?? `${threadId}:markdown`}
     />

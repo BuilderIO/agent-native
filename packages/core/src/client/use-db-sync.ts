@@ -277,6 +277,7 @@ type PollResponse = {
   cursor?: string;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
+  unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
 };
 
 type SyncCursor = {
@@ -487,6 +488,7 @@ type SyncBroadcast =
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
   | { type: "resync" }
+  | { type: "unreadable" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -1107,6 +1109,8 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "unreadable") {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       } else if (frame?.type === "resync") {
         this.cursorRef = { ...INITIAL_SYNC_CURSOR };
         for (const sub of this.subscribers.values()) sub.onResync?.();
@@ -1335,6 +1339,10 @@ class SyncTransport {
       if (this.authFailureUntil > 0) {
         this.authFailureUntil = 0;
         this.connectEvents();
+      }
+      if (data.unreadable?.length) {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
+        this.broadcast({ type: "unreadable" });
       }
       const events = data.events ?? [];
       const responseCursor = decodeSyncCursor(data.cursor);

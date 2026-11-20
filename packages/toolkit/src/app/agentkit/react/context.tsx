@@ -250,6 +250,9 @@ export interface AgentKitLabels {
     other: string;
   };
   working: string;
+  resolveToolStepLabel?:
+    | ((tool: AgentToolCall) => string | undefined)
+    | undefined;
   workingFor: string;
   worked: string;
   workedFor: string;

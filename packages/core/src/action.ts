@@ -1032,6 +1032,15 @@ export type ActionOutputResult<
       | StandardSchemaV1.InferInput<TOutputSchema>
       | (TStrategy extends "fallback" ? undefined : never);
 
+/** An action's MCP decision; `mcpTool` on the action documents each value. */
+export type ActionMcpTool = boolean | "search";
+
+/** Whether `mcpTool` serves the action to external agents, listed or found
+ *  through `tool-search`. */
+export function isMcpToolServed(mcpTool: ActionMcpTool | undefined): boolean {
+  return mcpTool === true || mcpTool === "search";
+}
+
 /**
  * `"direct"` contract: the action must declare `needsApproval` as a function,
  * and it must not set `requiresUserTurn`. Over MCP the call is refused
@@ -1220,6 +1229,10 @@ interface DefineActionWithSchema<
    *    a template delete its hand-maintained `connectorCatalog` name list.
    *    Paired with `agentTool: false` it makes the action MCP-only — external
    *    agents get it, the app's own agent does not.
+   *  - `"search"` — served to external agents but left out of `tools/list`, so
+   *    the list stays short. `tool-search` finds it and the `call-tool` tool
+   *    runs it, with the same checks as a listed tool; it does not activate
+   *    the connector tier. The full catalog lists it like any other.
    *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
    *    whether it is advertised up front or found through `tool-search`.
    *
@@ -1230,7 +1243,7 @@ interface DefineActionWithSchema<
    *  that an action ending the in-app agent's turn is in-app only by default,
    *  because the user's answer flows back through the in-app chat that an
    *  external caller is not on. */
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** Lets an MCP connection on the script catalog call this action from
    *  `run-script`. Nothing is scriptable by default. `defineAction` throws
@@ -1417,7 +1430,7 @@ interface DefineActionWithParams<
    *  for the caller, which the MCP server keeps instead of re-minting. */
   opensAnotherAppEmbed?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** See `mcpScript` on the schema form above. */
   mcpScript?: "read" | "write";
@@ -1503,7 +1516,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly requiresSignedInBrowser?: boolean;
   readonly opensAnotherAppEmbed?: boolean;
   readonly agentTool?: boolean;
-  readonly mcpTool?: boolean;
+  readonly mcpTool?: ActionMcpTool;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly mcpScript?: "read" | "write";
   readonly mcpScriptWrite?: McpScriptWriteContract;
@@ -1962,8 +1975,10 @@ export function defineAction(options: any) {
       : undefined;
   const agentTool: boolean | undefined =
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
-  const mcpTool: boolean | undefined =
-    typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const mcpTool: ActionMcpTool | undefined =
+    typeof options.mcpTool === "boolean" || options.mcpTool === "search"
+      ? options.mcpTool
+      : undefined;
   const mcpAnnotations: ActionMcpToolAnnotations | undefined =
     options.mcpAnnotations === undefined
       ? undefined
@@ -2131,7 +2146,7 @@ export function defineAction(options: any) {
       ? { opensAnotherAppEmbed: true }
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
-    ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(mcpTool !== undefined ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(mcpScript ? { mcpScript } : {}),
     ...(mcpScript === "write"
@@ -2248,27 +2263,27 @@ export function defineAction(options: any) {
 
 export function isActionExposedToExternalAgents(entry: {
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   endsTurn?: boolean;
   uiOnly?: boolean;
 }): boolean {
   if (entry.uiOnly === true) return false;
   if (entry.endsTurn === true) {
-    return entry.mcpTool === true;
+    return isMcpToolServed(entry.mcpTool);
   }
-  return typeof entry.mcpTool === "boolean"
-    ? entry.mcpTool
-    : entry.agentTool !== false;
+  return entry.mcpTool === undefined
+    ? entry.agentTool !== false
+    : isMcpToolServed(entry.mcpTool);
 }
 
 export function isActionHiddenFromEveryAgentSurface(entry: {
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   uiOnly?: boolean;
 }): boolean {
   return (
     entry.uiOnly === true ||
-    (entry.agentTool === false && entry.mcpTool !== true)
+    (entry.agentTool === false && !isMcpToolServed(entry.mcpTool))
   );
 }
 
@@ -3400,7 +3415,10 @@ export async function preparedCallNeedsApproval(
   ctx: ActionRunContext,
 ): Promise<boolean> {
   const gate = entry.needsApproval;
-  if (typeof gate !== "function") return gate === true;
+  if (typeof gate !== "function" && gate !== true) return false;
+  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
+  if (await isNoApprovalsMode(ctx.userEmail)) return false;
+  if (typeof gate !== "function") return true;
   try {
     return Boolean(await gate(preparedCallArguments(call), ctx));
   } catch {

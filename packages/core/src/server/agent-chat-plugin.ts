@@ -294,6 +294,7 @@ import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-sess
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
@@ -9374,6 +9375,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     }),
                 );
               } catch (error) {
+                if (error instanceof ForbiddenError) {
+                  setResponseStatus(event, 403);
+                  return { error: error.message };
+                }
                 if (!(error instanceof ForkThreadBoundaryError)) throw error;
                 throw createError({
                   statusCode: 400,
@@ -10441,6 +10446,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
         return result;
       };
+
+      options?.onQueuedSubmissionDrainReady?.((threadId) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        scheduleQueuedSubmissionInboxDrain({
+          threadId,
+          turnContinues: false,
+          ...(waitUntil ? { waitUntil } : {}),
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) =>
+            console.error(
+              `[agent-chat] queued submission drain failed for ${threadId}:`,
+              error,
+            ),
+        });
+      });
 
       // A Function URL is a separate origin, so the browser cannot send the
       // Amplify session cookie with the stream request. Mint a short-lived,
