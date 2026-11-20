@@ -944,8 +944,6 @@ describe("org handlers", () => {
         return { rows: removed ? [{ 1: 1 }] : [] };
       }
       if (sql.includes("SELECT role, federation_removal_pending_at")) {
-        // The admin's removal commits here: the membership is gone and the
-        // deactivated marker exists.
         removed = true;
         return { rows: [] };
       }
@@ -996,8 +994,6 @@ describe("org handlers", () => {
         return { rows: [{ name: "Example" }] };
       }
       if (sql.includes("UPDATE org_invitations SET status = 'accepted'")) {
-        // The removal committed after the marker read and canceled the
-        // pending invitation, so this claim matches nothing.
         removed = true;
         return { rows: [], rowsAffected: 0 };
       }
