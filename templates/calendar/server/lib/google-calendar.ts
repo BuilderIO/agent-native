@@ -561,6 +561,7 @@ export async function getAuthUrl(
   state?: string,
   owner?: string,
   orgId?: string,
+  { selectAccount = false }: { selectAccount?: boolean } = {},
 ): Promise<string> {
   const { clientId, clientSecret } = await getOAuth2Credentials(owner, orgId);
   const uri =
@@ -571,7 +572,7 @@ export async function getAuthUrl(
   return oauth2.generateAuthUrl({
     access_type: "offline",
     scope: SCOPES,
-    prompt: "consent",
+    prompt: selectAccount ? "consent select_account" : "consent",
     state,
   });
 }

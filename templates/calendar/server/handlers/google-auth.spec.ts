@@ -190,6 +190,7 @@ describe("Calendar Google auth-url handler", () => {
       "encoded-state",
       undefined,
       undefined,
+      { selectAccount: true },
     );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
@@ -288,6 +289,7 @@ describe("Calendar Google auth-url handler", () => {
       "encoded-state",
       "owner@example.com",
       "org-123",
+      { selectAccount: false },
     );
     expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
       expect.anything(),

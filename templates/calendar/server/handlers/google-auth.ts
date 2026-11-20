@@ -346,7 +346,9 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
 
     const url =
       calendarConnect || calendarSignIn
-        ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId)
+        ? await getAuthUrl(undefined, redirectUri, oauthState, owner, orgId, {
+            selectAccount: calendarSignIn,
+          })
         : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
             client_id: credentials.clientId,
             redirect_uri: redirectUri,

@@ -3005,6 +3005,30 @@ describe("calendar Google OAuth exchange", () => {
     });
   });
 
+  it("lets sign-in choose the Google account", async () => {
+    const googleApi =
+      await vi.importActual<typeof import("./google-api.js")>(
+        "./google-api.js",
+      );
+    createOAuth2ClientMock.mockImplementationOnce(googleApi.createOAuth2Client);
+
+    const url = new URL(
+      await getAuthUrl(
+        undefined,
+        "https://app.example.com/_agent-native/google/callback",
+        "signed-state",
+        undefined,
+        undefined,
+        { selectAccount: true },
+      ),
+    );
+
+    expect(url.searchParams.get("prompt")).toBe("consent select_account");
+    expect(url.searchParams.get("scope")).toContain(
+      "https://www.googleapis.com/auth/calendar.events",
+    );
+  });
+
   it("fails closed when no Google OAuth redirect URI is available", async () => {
     await expect(getAuthUrl()).rejects.toThrow(
       "Google OAuth redirect URI is required.",
