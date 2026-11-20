@@ -3027,14 +3027,17 @@ export function startRun(
           const fence = await executionFencePromise;
           if (fence) await releaseTurnExecutionLease(fence);
         } catch (error) {
-          captureError(error, {
+          captureError(safeRunError(error), {
             route: "/_agent-native/agent-chat",
             aiTraceId: runId,
             tags: {
               source: "agent-run-manager",
               phase: "execution-lease-release",
-              errorCode:
-                error instanceof Error && "code" in error
+              errorCode: privateTurn
+                ? error instanceof StaleExecutionFenceError
+                  ? "stale_execution_fence"
+                  : "execution_lease_release_failed"
+                : error instanceof Error && "code" in error
                   ? String((error as Error & { code?: unknown }).code)
                   : "execution_lease_release_failed",
             },

@@ -4766,12 +4766,33 @@ describe("run manager soft timeout", () => {
   });
 
   it.each([
-    { kind: "stale", privateTurn: true, expected: "stale_execution_fence" },
-    { kind: "spoofed", privateTurn: true, expected: "unclassified" },
-    { kind: "spoofed", privateTurn: false, expected: "unclassified" },
+    {
+      kind: "stale",
+      releaseKind: "stale",
+      privateTurn: true,
+      expected: "stale_execution_fence",
+    },
+    {
+      kind: "spoofed",
+      releaseKind: "arbitrary",
+      privateTurn: true,
+      expected: "unclassified",
+    },
+    {
+      kind: "spoofed",
+      releaseKind: "spoofed-stale",
+      privateTurn: true,
+      expected: "unclassified",
+    },
+    {
+      kind: "spoofed",
+      releaseKind: "arbitrary",
+      privateTurn: false,
+      expected: "unclassified",
+    },
   ] as const)(
-    "classifies the direct terminal persistence error ($kind, private: $privateTurn)",
-    async ({ kind, privateTurn, expected }) => {
+    "classifies the direct terminal persistence error ($kind, release: $releaseKind, private: $privateTurn)",
+    async ({ kind, releaseKind, privateTurn, expected }) => {
       const sentinel = "private-terminal-sentinel";
       const fence = {
         runId: "run-terminal-error-kind",
@@ -4800,9 +4821,16 @@ describe("run manager soft timeout", () => {
         .mockImplementation(() => {});
       vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(error);
       vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
-      vi.mocked(releaseTurnExecutionLease).mockRejectedValueOnce(
-        new StaleExecutionFenceError({ ...fence, generation: "2" }),
-      );
+      const releaseError =
+        releaseKind === "stale"
+          ? new StaleExecutionFenceError(fence)
+          : Object.assign(new Error(sentinel), {
+              code:
+                releaseKind === "spoofed-stale"
+                  ? "stale_execution_fence"
+                  : sentinel,
+            });
+      vi.mocked(releaseTurnExecutionLease).mockRejectedValueOnce(releaseError);
 
       try {
         const run = startRun(
@@ -4836,10 +4864,24 @@ describe("run manager soft timeout", () => {
           ([, reportContext]) =>
             reportContext.tags?.phase === "terminal-status-persistence",
         );
-        const releaseReportIndex = provider.mock.calls.findIndex(
+        const releaseReports = provider.mock.calls.filter(
           ([, reportContext]) =>
-            reportContext.tags?.phase === "execution-lease-release" &&
-            reportContext.tags?.errorCode === "stale_execution_fence",
+            reportContext.tags?.phase === "execution-lease-release",
+        );
+        expect(releaseReports).toHaveLength(1);
+        const [reportedReleaseError, releaseContext] = releaseReports[0];
+        expect(releaseContext.tags).toMatchObject({
+          source: "agent-run-manager",
+          phase: "execution-lease-release",
+          errorCode:
+            releaseKind === "stale"
+              ? "stale_execution_fence"
+              : privateTurn
+                ? "execution_lease_release_failed"
+                : sentinel,
+        });
+        const releaseReportIndex = provider.mock.calls.indexOf(
+          releaseReports[0],
         );
         expect(releaseReportIndex).toBeGreaterThan(terminalReportIndex);
         expect(run.status).toBe("completed");
@@ -4852,19 +4894,31 @@ describe("run manager soft timeout", () => {
             name: "Error",
             message: "Private content omitted",
           });
-          expect(
-            JSON.stringify({
-              error: Object.getOwnPropertyDescriptors(reportedError),
-              context,
-              console: consoleError.mock.calls,
-            }),
-          ).not.toContain(sentinel);
+          for (const [capturedError, capturedContext] of [
+            ...terminalReports,
+            ...releaseReports,
+          ]) {
+            expect(capturedError).toMatchObject({
+              name: "Error",
+              message: "Private content omitted",
+            });
+            expect(
+              JSON.stringify({
+                error: Object.getOwnPropertyDescriptors(capturedError),
+                context: capturedContext,
+              }),
+            ).not.toContain(sentinel);
+          }
+          expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+            sentinel,
+          );
           expect(consoleError).toHaveBeenCalledWith(
             "[run-manager] terminal status persistence error:",
             "Private content omitted",
           );
         } else {
           expect(reportedError).toBe(error);
+          expect(reportedReleaseError).toBe(releaseError);
           expect(consoleError).toHaveBeenCalledWith(
             "[run-manager] terminal status persistence error:",
             sentinel,
