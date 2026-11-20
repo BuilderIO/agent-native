@@ -980,10 +980,14 @@ describe("agentWorkSources", () => {
       call("o", "get-latest-post", { query: "news" }),
       call("p", "file-mark-read", { path: "notes/a.md" }),
       call("q", "notification-mark-read", { url: "https://a.dev/n/1" }, failed),
+      call("r", "pin-search-result", { query: "pricing" }),
+      call("s", "favorite-search", { query: "launch plan" }),
+      call("t", "get-bookmark", { query: "tabs" }),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "launch"],
       ["search", "news"],
+      ["search", "tabs"],
     ]);
     expect(failures.map(({ kind, label }) => [kind, label])).toEqual([
       ["web", "web-request"],
