@@ -155,8 +155,7 @@ export function renderLeftSidebar({
     editorLiveEditsAndPresence;
   const { hoveredCodeLayerNode } = editorContentAndComponents;
   const { designExtensionContext } = editorSelectionAndStyles;
-  const { handleSidebarScreenSelect, handleSidebarScreenOverview } =
-    editorModes;
+  const { handleSidebarScreenSelect } = editorModes;
   const { layersPanelRef } = editorExportAndHandoff;
   const {
     designIsEmpty,
@@ -271,7 +270,6 @@ export function renderLeftSidebar({
                   expandedIds={layerPanelExpandedIds}
                   searchQuery={layersSearchQuery}
                   onScreenSelect={handleSidebarScreenSelect}
-                  onScreenOverview={handleSidebarScreenOverview}
                   onAddScreen={
                     canEditDesign ? handleAddScreenAffordance : undefined
                   }
