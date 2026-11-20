@@ -49,6 +49,11 @@ export const PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_ERROR_CODE =
 export const PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_MESSAGE =
   "Private turn provenance is unavailable. Please send the request again.";
 
+export const WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE =
+  "write_tool_outcome_unknown";
+export const PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE =
+  "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.";
+
 export const PRIVATE_SAFE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   [PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE]:
     PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
@@ -56,6 +61,8 @@ export const PRIVATE_SAFE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
   [PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_ERROR_CODE]:
     PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_MESSAGE,
+  [WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE]:
+    PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
 };
 
 const PRIVATE_SAFE_ERROR_MESSAGE_MAP: ReadonlyMap<string, string> = new Map(

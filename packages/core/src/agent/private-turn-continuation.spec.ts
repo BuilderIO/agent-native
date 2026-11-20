@@ -1112,6 +1112,19 @@ describe("private turn continuation paths", () => {
         omitFromPersistedHistory: true,
       }),
     );
+    expect(resumeLedger.persistedEvents).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+        error: expect.stringContaining(
+          "earlier attempt may have already saved",
+        ),
+        omitFromPersistedHistory: true,
+      }),
+    );
+    expect(JSON.stringify(resumeLedger.persistedEvents)).not.toContain(
+      PRIVATE_DRAFT_CANARY,
+    );
   });
 
   it("marks the resumed run private when an unreadable private journal stops the turn", async () => {
