@@ -220,6 +220,18 @@ Quando a execução só da organização não pode ser compartilhada, a própria
 
 Chaves ficam nas configurações: uma chave escrita no código de um programa vai de qualquer forma com a própria execução de cada visualizador, então compartilhar não muda quem pode ver o que ela retorna.
 
+### Manter a execução compartilhada atualizada com um agendamento {#scheduled-refresh}
+
+Quando um programa é salvo com `scheduledRefresh: true`, o servidor o executa de novo com os `defaultParams` dele a cada `refreshTtlMs`, então a execução compartilhada da organização fica pronta antes de alguém abrir o painel. Quem a dispara é a varredura recorrente do framework, o mesmo trabalho de servidor que roda a cada minuto e move as automações, por isso não precisa de navegador aberto nem de chamada ao modelo.
+
+- **É a execução compartilhada da organização, feita com antecedência.** A execução agendada segue todas as regras acima: só credenciais da organização, só leituras, nada que pertença a uma pessoa, e um visualizador só a recebe se a própria execução dele leria as mesmas credenciais. Uma execução agendada que não pode ser compartilhada é salva como recusa e tentada de novo um dia depois. Ela nunca é seguida por uma execução com a chave pessoal de alguém, já que ninguém está esperando por ela.
+- **Ela roda como o dono do programa, verificado a cada vez.** Antes de cada execução, o dono é verificado como as automações verificam o delas. Se ele saiu da organização ou não existe mais, nada roda e a execução é registrada como falha com `schedule_owner_invalid`, e o dono só é verificado de novo depois de `refreshTtlMs`; se a própria verificação falhar, essa passada é pulada.
+- **Ela atualiza um pouco antes.** Uma execução vence três minutos antes de ficar desatualizada, o que cobre o intervalo da varredura e o limite de 120 segundos de uma execução, então os visualizadores continuam lendo a execução compartilhada em vez de rodar o programa eles mesmos. Uma atualização que falha é tentada de novo cinco minutos depois, e uma execução só começa se ainda restarem pelo menos 25 segundos da varredura, o limite de tempo da própria execução de um painel.
+- **Ela cobre um único conjunto de params.** Um painel lê a execução agendada quando os `params` do descritor dele são iguais aos `defaultParams` do programa (ou ambos estão vazios). Um painel com outros params mantém o cache de sempre.
+- **Ela precisa de uma organização, `refreshMode: "ttl"`, um `refreshTtlMs` de pelo menos 15 minutos e um programa em primeiro plano.** Salvar `scheduledRefresh: true` sem isso falha; programas em segundo plano ainda não compartilham execuções. Um salvamento posterior que omite `scheduledRefresh` mantém a configuração, `false` a desliga e arquivar o programa a interrompe.
+
+`get-data-program` retorna `scheduledRefresh` e um resumo `orgSharedRun` (status, erro e hora de término, sem as linhas nem o número delas), para ver se o agendamento está em dia.
+
 ## Modelo de segurança {#security}
 
 <Callout id="doc-block-dp-security" tone="success">

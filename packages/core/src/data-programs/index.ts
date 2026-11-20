@@ -11,6 +11,7 @@ export {
   getDataProgram,
   getDataProgramByName,
   listDataPrograms,
+  listScheduledDataPrograms,
   archiveDataProgram,
   recordDataProgramRun,
   updateDataProgramRun,
@@ -23,6 +24,7 @@ export {
   MAX_PROGRAM_RESULT_BYTES,
   MAX_ACTIVE_PROGRAMS_PER_APP,
   MIN_REFRESH_TTL_MS,
+  MIN_SCHEDULED_REFRESH_MS,
   type DataProgramRow,
   type DataProgramRefreshMode,
   type DataProgramRunRow,
@@ -53,6 +55,9 @@ export {
   canonicalDataProgramParamsJson,
   hashDataProgramParams,
   runDataProgram,
+  runScheduledDataProgram,
+  SCHEDULE_OWNER_INVALID,
+  type ScheduledRefreshOutcome,
   type DataProgramErrorCode,
   type DataProgramSuccess,
   type DataProgramFailure,
@@ -60,6 +65,12 @@ export {
   type DataProgramTriggeredBy,
   type RunDataProgramArgs,
 } from "./execute.js";
+
+export {
+  registerScheduledDataProgramRefresh,
+  runScheduledDataProgramRefreshes,
+  SCHEDULED_REFRESH_SWEEP_ID,
+} from "./scheduled-refresh.js";
 
 export {
   createDataProgramActions,

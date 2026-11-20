@@ -14,6 +14,7 @@ export const dataPrograms = table("data_programs", {
   refreshMode: text("refresh_mode").notNull().default("ttl"), // 'manual' | 'ttl'
   refreshTtlMs: integer("refresh_ttl_ms").notNull().default(300_000), // 5 min default
   background: integer("background").notNull().default(0),
+  scheduledRefresh: integer("scheduled_refresh").notNull().default(0),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   archivedAt: text("archived_at"),
@@ -35,6 +36,7 @@ export const DATA_PROGRAMS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_program
   refresh_mode TEXT NOT NULL DEFAULT 'ttl',
   refresh_ttl_ms INTEGER NOT NULL DEFAULT 300000,
   background INTEGER NOT NULL DEFAULT 0,
+  scheduled_refresh INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now(),
   archived_at TEXT,
@@ -54,6 +56,7 @@ export const DATA_PROGRAM_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS data_p
   notified_at TEXT
 )`;
 
+export const DATA_PROGRAMS_SCHEDULED_REFRESH_COLUMN_SQL = `ALTER TABLE data_programs ADD COLUMN IF NOT EXISTS scheduled_refresh INTEGER NOT NULL DEFAULT 0`;
 export const DATA_PROGRAMS_APP_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_programs_app_owner_idx ON data_programs (app_id, owner_email)`;
 export const DATA_PROGRAMS_APP_NAME_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_programs_app_name_idx ON data_programs (app_id, name)`;
 // data_program_shares tables created before notified_at existed never got it
