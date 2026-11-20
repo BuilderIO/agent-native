@@ -6,6 +6,7 @@ import {
   RECOVERED_TOOL_REPLAY_PREFIX,
   loadedSkillPagesContext,
   loadPriorTurnToolCallJournal,
+  overlayCompletedExecutionStepOutcomes,
   seedRepeatedToolErrorCountsFromJournal,
   seedRepeatedToolCallCountsFromJournal,
   type PriorTurnToolCallSequenceEntry,
@@ -678,6 +679,49 @@ describe("private prior-turn recovery", () => {
       });
     } finally {
       read.mockRestore();
+    }
+  });
+
+  it("keeps a recovered private step private", async () => {
+    const steps = vi
+      .spyOn(runStore, "getCompletedAgentExecutionSteps")
+      .mockResolvedValue([
+        {
+          stepId: "private-call",
+          operationId: "private-call",
+          toolName: "write",
+          inputJson: JSON.stringify({
+            argumentsHash: "a".repeat(64),
+            input: {},
+          }),
+          resultJson: JSON.stringify({
+            result: "[Private content omitted]",
+            isError: false,
+            completedSideEffect: true,
+          }),
+        },
+      ]);
+    try {
+      const events = await overlayCompletedExecutionStepOutcomes(
+        "thread",
+        "turn",
+        [
+          {
+            type: "tool_start",
+            id: "private-call",
+            tool: "write",
+            input: {},
+            omitFromPersistedHistory: true,
+          },
+        ],
+      );
+      expect(events.at(-1)).toMatchObject({
+        type: "tool_done",
+        completedSideEffect: true,
+        omitFromPersistedHistory: true,
+      });
+    } finally {
+      steps.mockRestore();
     }
   });
 

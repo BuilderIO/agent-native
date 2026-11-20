@@ -219,6 +219,9 @@ function durableStepToolDone(
       ? { chatUI, chatUIResult: outcome.chatUIResult }
       : {}),
     ...(fileMutation ? { fileMutation } : {}),
+    ...(event.omitFromPersistedHistory === true
+      ? { omitFromPersistedHistory: true as const }
+      : {}),
   };
 }
 

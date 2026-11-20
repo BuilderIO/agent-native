@@ -12278,11 +12278,10 @@ export async function runAgentLoop(opts: {
         : undefined;
       if (
         priorPrivateSideEffect &&
-        !intentIsReadOnly(
-          privateResumeIntent?.status === "prepared"
-            ? privateResumeIntent.intent
-            : undefined,
-        )
+        (privateResumeIntent === undefined ||
+          (privateResumeIntent.status === "prepared" &&
+            privateResumeIntent.intent.valid &&
+            !intentIsReadOnly(privateResumeIntent.intent)))
       ) {
         await flushParallelBatch();
         toolResultParts.push(
