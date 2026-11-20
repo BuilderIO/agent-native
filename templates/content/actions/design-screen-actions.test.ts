@@ -252,13 +252,13 @@ describe("capture-design-screen", () => {
     expect(forAgent).toHaveProperty("designScreenTag");
   });
 
-  it("stamps the screen with the email's name when the person has no name", async () => {
+  it("leaves the stamp unsigned when the person has no name, rather than showing part of their email", async () => {
     mocks.userName = undefined;
     const result = await captureDesignScreen.run(
       { documentId: "doc_1", link: LINK, purpose: "insert" },
       { caller: "frontend" },
     );
-    expect(result).toMatchObject({ screen: { capturedBy: "editor" } });
+    expect(result).toMatchObject({ screen: { capturedBy: "" } });
   });
 
   it("is offered to outside agents over MCP, who get the tag too", async () => {

@@ -73,9 +73,7 @@ function claimsItsOwnSize(image: {
 }
 
 function capturerName(): string {
-  const name = getRequestUserName()?.trim();
-  if (name) return name.slice(0, 200);
-  return (getRequestUserEmail() ?? "").split("@")[0]?.slice(0, 200) ?? "";
+  return getRequestUserName()?.trim().slice(0, 200) ?? "";
 }
 
 async function storePicture(args: {
