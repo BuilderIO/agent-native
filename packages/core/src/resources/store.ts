@@ -2141,9 +2141,9 @@ async function publishDeleteTombstone(
   owner: string,
   path: string,
   revisionHint: number,
-): Promise<void> {
+): Promise<number> {
   try {
-    await deleteSharedPersonalMemory(owner, path, revisionHint + 1);
+    return await deleteSharedPersonalMemory(owner, path, revisionHint + 1);
   } catch (error) {
     throw new MemoryTombstoneError(
       `Could not record the deletion of ${path}; it was not deleted`,
@@ -2152,40 +2152,21 @@ async function publishDeleteTombstone(
   }
 }
 
-async function raiseDeleteTombstone(
-  owner: string,
-  path: string,
-  deleted: DeletedRow,
-): Promise<void> {
-  const tombstone = await readMirroredMemory(owner, path);
-  if (
-    tombstone.state !== "deleted" ||
-    tombstone.deletedAt > deleted.updatedAt
-  ) {
-    return;
-  }
-  try {
-    await deleteSharedPersonalMemory(owner, path, deleted.updatedAt + 1);
-  } catch (error) {
-    throw new MemoryTombstoneError(
-      `Could not record the deletion of ${path}; the shared copy may reappear`,
-      { cause: error },
-    );
-  }
-}
-
 async function abandonDeleteTombstone(
   owner: string,
   path: string,
+  marker: number,
 ): Promise<void> {
+  let cleared: boolean;
   try {
-    await clearSharedMemoryTombstone(owner, path);
+    cleared = await clearSharedMemoryTombstone(owner, path, marker);
   } catch (clearError) {
     throw new MemoryDeleteStateUnknownError(
       `Could not delete ${path} or clear its deletion marker; whether it is hidden is unknown`,
       { cause: clearError },
     );
   }
+  if (!cleared) return;
   try {
     const row = await selectMirrorTarget(owner, path);
     if (row) await mirrorMemoryUnlocked(row);
@@ -2206,20 +2187,26 @@ function deleteMirroredMemory(
 ): Promise<DeletedRow | null> {
   return serializeMemoryMirror(owner, path, async () => {
     if (precheck && !(await precheck())) return null;
-    await publishDeleteTombstone(owner, path, revisionHint);
+    const marker = await publishDeleteTombstone(owner, path, revisionHint);
     let deleted: DeletedRow | null;
     try {
       deleted = await deleteRow();
     } catch (error) {
-      await abandonDeleteTombstone(owner, path);
+      await abandonDeleteTombstone(owner, path, marker);
       throw new MemoryDeleteFailedError(
         `Could not delete ${path}; it is still stored`,
         { cause: error },
       );
     }
-    if (deleted) await raiseDeleteTombstone(owner, path, deleted);
-    const row = await selectMirrorTarget(owner, path);
-    if (row) await mirrorMemoryUnlocked(row);
+    try {
+      if (deleted) {
+        await deleteSharedPersonalMemory(owner, path, deleted.updatedAt + 1);
+      }
+      const row = await selectMirrorTarget(owner, path);
+      if (row) await mirrorMemoryUnlocked(row);
+    } catch (error) {
+      handleMirrorFailure(error);
+    }
     return deleted;
   });
 }
@@ -2461,8 +2448,8 @@ export async function resourceGetByPath(
           shared.content.trim() !== "# Memory Index";
         if (
           !dbResource ||
-          shared.mtimeMs > dbResource.updatedAt ||
-          dbIsEmptyIndex
+          (shared.content !== dbResource.content &&
+            (shared.mtimeMs > dbResource.updatedAt || dbIsEmptyIndex))
         ) {
           return adoptSharedMemory(owner, path, shared, dbResource);
         }
@@ -3013,7 +3000,11 @@ async function writeResourceIfCurrent(
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
-  const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
+  const now = Math.max(
+    Date.now(),
+    input.expectedUpdatedAt + 1,
+    await postTombstoneFloor(input.owner, input.path),
+  );
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
   const metadata = serializeMetadata(input.metadata);
@@ -3069,8 +3060,13 @@ export async function resourceDeleteWithDb(
   const path = String(rows[0].path);
   const owner = String(rows[0].owner);
   if (isPersonalMemoryResourcePath(owner, path)) {
+    let marker = 0;
     const deleted = await serializeMemoryMirror(owner, path, async () => {
-      await publishDeleteTombstone(owner, path, Number(rows[0].updated_at));
+      marker = await publishDeleteTombstone(
+        owner,
+        path,
+        Number(rows[0].updated_at),
+      );
       let removed: DeletedRow | null;
       try {
         const result = await client.execute({
@@ -3079,29 +3075,32 @@ export async function resourceDeleteWithDb(
         });
         removed = deletedRowFrom(result.rows);
       } catch (error) {
-        await abandonDeleteTombstone(owner, path);
+        await abandonDeleteTombstone(owner, path, marker);
         throw new MemoryDeleteFailedError(
           `Could not delete ${path}; it is still stored`,
           { cause: error },
         );
       }
-      if (removed) await raiseDeleteTombstone(owner, path, removed);
+      if (removed) {
+        marker = await deleteSharedPersonalMemory(
+          owner,
+          path,
+          removed.updatedAt + 1,
+        );
+      }
       return removed;
     });
-    if (!deleted) {
-      await serializeMemoryMirror(owner, path, () =>
-        abandonDeleteTombstone(owner, path),
+    const rollback = () =>
+      serializeMemoryMirror(owner, path, () =>
+        abandonDeleteTombstone(owner, path, marker),
       );
-    }
+    if (!deleted) await rollback();
     return {
       value: deleted !== null,
       notifyAfterCommit: () => {
         if (deleted) emitResourceDelete(id, path, owner);
       },
-      onRollback: () =>
-        serializeMemoryMirror(owner, path, () =>
-          abandonDeleteTombstone(owner, path),
-        ),
+      onRollback: rollback,
     };
   }
   const result = await client.execute({
@@ -3249,7 +3248,11 @@ async function resourcePutIfSnapshotInternal(
       : previous.createdBy,
   );
   const client = clientOverride ?? getDbExec();
-  const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
+  const updatedAt = Math.max(
+    Date.now(),
+    previous.updatedAt + 1,
+    await postTombstoneFloor(input.owner, input.path),
+  );
   let { visibility, threadId, runId, expiresAt } = previous;
   if (
     (["visibility", "threadId", "runId", "expiresAt"] as const).some((key) =>

@@ -1757,7 +1757,7 @@ async function compareDispatchSession(
 const memoryOwnerFiles = new Map<string, string>();
 let currentMemoryAccount: string | null = null;
 
-const unboundMemorySessions = new Set<(account: string) => void>();
+const memorySessions = new Set<(account: string) => void>();
 
 export function setDesktopMemoryAccount(account: string | null): void {
   currentMemoryAccount = account;
@@ -1766,7 +1766,7 @@ export function setDesktopMemoryAccount(account: string | null): void {
     fs.rmSync(file, { force: true });
     memoryOwnerFiles.delete(file);
   }
-  if (account) for (const adopt of [...unboundMemorySessions]) adopt(account);
+  if (account) for (const rebind of [...memorySessions]) rebind(account);
 }
 
 export function sweepStaleMemoryOwnerFiles(): void {
@@ -1857,21 +1857,22 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
       console.error("[desktop-chat] Could not watch shared memory:", error);
     }
   };
-  const adopt = (next: string) => {
-    if (released || account) return;
-    account = next;
-    unboundMemorySessions.delete(adopt);
-    watch();
+  const rebind = (next: string) => {
+    if (released || (account && account !== next)) return;
+    if (!account) {
+      account = next;
+      watch();
+    }
     void scheduleRefresh();
   };
   if (account) watch();
-  else unboundMemorySessions.add(adopt);
+  memorySessions.add(rebind);
   await scheduleRefresh();
   return {
     file,
     release: () => {
       released = true;
-      unboundMemorySessions.delete(adopt);
+      memorySessions.delete(rebind);
       watcher?.close();
       fs.rmSync(file, { force: true });
       memoryOwnerFiles.delete(file);

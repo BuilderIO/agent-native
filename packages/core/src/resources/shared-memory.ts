@@ -234,18 +234,20 @@ export async function deleteSharedPersonalMemory(
   owner: string,
   resourcePath: string,
   revisionFloor = 0,
-): Promise<void> {
+): Promise<number> {
   const rootDir = getSharedMemoryDir();
-  if (!rootDir) return;
+  if (!rootDir) return 0;
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
-  if (!filePath) return;
+  if (!filePath) return 0;
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   const fileStat = await fs.promises.stat(filePath).catch((error) => {
     if (!isMissingPathError(error)) throw error;
     return null;
   });
+  const existing = await readTombstone(`${filePath}.deleted`);
   const deletedAt = Math.max(
     Date.now(),
+    existing ?? 0,
     revisionFloor,
     fileStat ? Math.floor(fileStat.mtimeMs) + 1 : 0,
   );
@@ -260,21 +262,26 @@ export async function deleteSharedPersonalMemory(
       );
     }
   }
+  return deletedAt;
 }
 
+/** Removes the marker only while it still holds the value this caller wrote. */
 export async function clearSharedMemoryTombstone(
   owner: string,
   resourcePath: string,
-): Promise<void> {
+  expectedDeletedAt: number,
+): Promise<boolean> {
   const rootDir = getSharedMemoryDir();
-  if (!rootDir) return;
+  if (!rootDir) return false;
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
-  if (!filePath) return;
-  try {
-    await fs.promises.unlink(`${filePath}.deleted`);
-  } catch (error) {
-    if (!isMissingPathError(error)) throw error;
+  if (!filePath) return false;
+  if ((await readTombstone(`${filePath}.deleted`)) !== expectedDeletedAt) {
+    return false;
   }
+  await fs.promises.unlink(`${filePath}.deleted`).catch((error) => {
+    if (!isMissingPathError(error)) throw error;
+  });
+  return true;
 }
 
 export async function listSharedPersonalMemories(

@@ -1388,6 +1388,21 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
+  it("reloads memory for existing sessions when the same account signs back in", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    noteDesktopBuilderRelayOwner("no-account");
+    expect(prompt()).not.toContain("SECRET");
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    await vi.waitFor(() => expect(prompt()).toContain("ALICE-SECRET"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
   it("removes memory prompt files left by a previous run at startup", async () => {
     const dir = seedAccounts();
     const ownersDir = path.join(dir, "memory-owners");

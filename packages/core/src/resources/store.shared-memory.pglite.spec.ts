@@ -1164,6 +1164,93 @@ describe("personal memory shared across local apps", () => {
       expect(rows).toEqual([]);
     });
 
+    it("keeps the SQL revision when a read finds its own unchanged mirror", async () => {
+      const dir = useMemoryDir();
+      const { resourceGetByPath, resourcePut } = await import("./store.js");
+      const saved = await resourcePut(OWNER, "memory/own.md", "same");
+      const later = new Date(saved.updatedAt + 60_000);
+      fs.utimesSync(sharedFile(dir, "own.md"), later, later);
+      const read = await resourceGetByPath(OWNER, "memory/own.md");
+      expect(read?.updatedAt).toBe(saved.updatedAt);
+    });
+
+    it("floors a conditional write past a newer tombstone", async () => {
+      const dir = useMemoryDir();
+      const { resourceGetByPath, resourcePut, resourcePutIfCurrent } =
+        await import("./store.js");
+      const a = await resourcePut(OWNER, "memory/cond-floor.md", "a1");
+      const future = Date.now() + 3_600_000;
+      fs.writeFileSync(
+        `${sharedFile(dir, "cond-floor.md")}.deleted`,
+        String(future),
+      );
+      const written = await resourcePutIfCurrent({
+        owner: OWNER,
+        path: a.path,
+        content: "a2",
+        expectedId: a.id,
+        expectedUpdatedAt: a.updatedAt,
+        expectedContent: a.content,
+      });
+      expect(written?.updatedAt).toBeGreaterThan(future);
+      await expect(
+        resourceGetByPath(OWNER, "memory/cond-floor.md"),
+      ).resolves.toMatchObject({ content: "a2" });
+    });
+
+    it("rolls back only the tombstone its own transaction published", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteWithDb, resourcePut } = await import("./store.js");
+      const { deleteSharedPersonalMemory } = await import("./shared-memory.js");
+      const stored = await resourcePut(OWNER, "memory/tx-own.md", "keep");
+      const tombstone = `${sharedFile(dir, "tx-own.md")}.deleted`;
+      let write: Awaited<ReturnType<typeof resourceDeleteWithDb>> | undefined;
+      await expect(
+        sharedClient.transaction?.(async (tx) => {
+          write = await resourceDeleteWithDb(tx, stored.id);
+          await deleteSharedPersonalMemory(
+            OWNER,
+            "memory/tx-own.md",
+            Date.now() + 3_600_000,
+          );
+          throw new Error("rollback");
+        }),
+      ).rejects.toThrow("rollback");
+      const newer = fs.readFileSync(tombstone, "utf8");
+      await write?.onRollback?.();
+      expect(fs.readFileSync(tombstone, "utf8")).toBe(newer);
+    });
+
+    it("reports a committed delete as done when the follow-up repair fails", async () => {
+      useMemoryDir();
+      const { resourceDeleteByPath, resourcePut } = await import("./store.js");
+      await resourcePut(OWNER, "memory/after.md", "x");
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        const deleting = sharedClient.execute;
+        // raw-sql-ok: test wrapper only inspects statement text.
+        sharedClient.execute = (async (input: Statement) => {
+          const text = typeof input === "string" ? input : input.sql;
+          if (/^SELECT content, updated_at/.test(text)) {
+            throw new Error("db down");
+          }
+          return deleting(input);
+        }) as DbExec["execute"];
+      });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(
+          resourceDeleteByPath(OWNER, "memory/after.md"),
+        ).resolves.toBe(true);
+      } finally {
+        restore();
+        log.mockRestore();
+      }
+      const { rows } = await pglite.query(
+        `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/after.md'`,
+      );
+      expect(rows).toEqual([]);
+    });
+
     it("keeps a restored memory visible past a newer tombstone when its mirror fails", async () => {
       const dir = useMemoryDir();
       const {

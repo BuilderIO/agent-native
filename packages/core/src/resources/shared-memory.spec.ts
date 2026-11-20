@@ -312,6 +312,24 @@ describe("shared-memory", () => {
     expect(fs.readFileSync(file, "utf8")).toBe("newer");
   });
 
+  it("never lowers an existing tombstone and fails closed on an unreadable one", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const high = Date.now() + 7_200_000;
+    await deleteSharedPersonalMemory("alice@example.com", "memory/m.md", high);
+    expect(
+      await deleteSharedPersonalMemory("alice@example.com", "memory/m.md", 1),
+    ).toBe(high);
+    const marker = `${resolveSharedMemoryFilePath(dir, "alice@example.com", "memory/m.md")}.deleted`;
+    expect(Number(fs.readFileSync(marker, "utf8"))).toBe(high);
+
+    fs.writeFileSync(marker, "garbage");
+    await expect(
+      deleteSharedPersonalMemory("alice@example.com", "memory/m.md", 1),
+    ).rejects.toBeInstanceOf(MemoryTombstoneError);
+    expect(fs.readFileSync(marker, "utf8")).toBe("garbage");
+  });
+
   it("keeps the first stale-mirror error for the end and rethrows anything else at once", () => {
     const collector = staleMirrorCollector();
     const stale = new MemoryMirrorStaleError("stale", {
