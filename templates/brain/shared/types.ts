@@ -52,6 +52,7 @@ export interface BrainEvidenceInput {
 export interface BrainEvidence extends BrainEvidenceInput {
   sourceId: string;
   captureTitle: string;
+  capturedAt?: string | undefined;
 }
 
 export interface BrainSettings {

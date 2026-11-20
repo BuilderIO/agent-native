@@ -48,6 +48,7 @@ export interface UniversalSearchResult {
   citation: {
     captureId?: string | null;
     captureTitle?: string | null;
+    capturedAt?: string | null;
     quote?: string | null;
     sourceUrl?: string | null;
     preview?: string | null;
@@ -576,6 +577,7 @@ async function searchKnowledgeResults(
       citation: citation
         ? {
             captureId: citation.captureId,
+            capturedAt: citation.capturedAt,
             captureTitle: citation.captureTitle
               ? redactSensitiveText(citation.captureTitle)
               : citation.captureTitle,

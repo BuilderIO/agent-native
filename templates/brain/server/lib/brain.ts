@@ -1035,18 +1035,30 @@ export async function commitPreparedCaptureWithWarnings(
     throw new BrainCaptureBlockedError(receipt);
   }
   const nextContentHash = await contentHash(sanitized.content);
-  const nextMetadataJson = stableJson(sanitized.metadata);
+  const previousMetadata = existing
+    ? parseJson<Record<string, unknown>>(existing.metadataJson, {})
+    : {};
+  const nextMetadata = { ...sanitized.metadata };
+  delete nextMetadata.capturedAtExplicit;
+  if (
+    values.capturedAt ||
+    (!values.capturedAt && previousMetadata.capturedAtExplicit === true)
+  ) {
+    nextMetadata.capturedAtExplicit = true;
+  }
+  const nextMetadataJson = stableJson(nextMetadata);
   const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
   const contentChanged = existing?.contentHash !== nextContentHash;
   const metadataChanged = Boolean(
     existing &&
     captureMetadataFingerprint(
       parseJson<Record<string, unknown>>(existing.metadataJson, {}),
-    ) !== captureMetadataFingerprint(sanitized.metadata),
+    ) !== captureMetadataFingerprint(nextMetadata),
   );
   const indexedMetadataChanged = Boolean(
     existing &&
     (existing.title !== sanitized.title ||
+      existing.kind !== values.kind ||
       existing.capturedAt !== nextCapturedAt),
   );
   const derivedInputChanged =
@@ -1891,20 +1903,6 @@ export async function validateEvidenceWithContent(
     if (!access.capture.content.includes(quote)) {
       throw new EvidenceQuoteMismatchError(item.captureId);
     }
-    let evidenceQuote = quote;
-    if (access.capture.kind === "transcript" && !quote.includes("\n")) {
-      const index = access.capture.content.indexOf(quote);
-      const lineStart = access.capture.content.lastIndexOf("\n", index - 1) + 1;
-      const prefix = access.capture.content.slice(lineStart, index);
-      const attributed = `${prefix}${quote}`;
-      if (
-        access.capture.content.indexOf(quote, index + 1) === -1 &&
-        /^[\p{L}][\p{L}\p{M}\p{N} ._'’-]{0,79}:\s+[^\n]*$/u.test(prefix) &&
-        attributed.length <= 2000
-      ) {
-        evidenceQuote = attributed;
-      }
-    }
     content.set(item.captureId, access.capture.content);
     const metadata = parseJson<Record<string, unknown>>(
       access.capture.metadataJson,
@@ -1917,7 +1915,11 @@ export async function validateEvidenceWithContent(
       captureId: item.captureId,
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
-      quote: evidenceQuote,
+      quote,
+      ...(metadata.capturedAtExplicit === true &&
+      !Number.isNaN(Date.parse(access.capture.capturedAt))
+        ? { capturedAt: access.capture.capturedAt }
+        : {}),
       note: item.note,
       timestampMs: item.timestampMs,
     };
@@ -2307,6 +2309,8 @@ function canonicalEvidenceFromUnknown(value: unknown): BrainEvidence[] {
             : captureId,
         quote,
       };
+      if (typeof evidence.capturedAt === "string")
+        result.capturedAt = evidence.capturedAt;
       if (typeof evidence.note === "string") result.note = evidence.note;
       const sourceUrl = safeCitationUrl(evidence.sourceUrl ?? evidence.url);
       if (sourceUrl) result.sourceUrl = sourceUrl;

@@ -1,5 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconBook2,
@@ -536,6 +536,7 @@ function SearchResultDetails({
   query: string;
 }) {
   const t = useT();
+  const format = useFormatters();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const summary = result.summary ?? result.snippet ?? null;
   const sourceProvider =
@@ -607,6 +608,18 @@ function SearchResultDetails({
               <IconQuote className="size-4" />
               {t("searchPage.citationQuote")}
             </h3>
+            {result.citation?.capturedAt &&
+            !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+              <time
+                className="text-xs text-muted-foreground"
+                dateTime={result.citation.capturedAt}
+              >
+                {format.formatDate(result.citation.capturedAt, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </time>
+            ) : null}
             {quote ? (
               <blockquote className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
                 {quote}

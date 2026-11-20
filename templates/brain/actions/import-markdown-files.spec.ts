@@ -107,6 +107,21 @@ describe("import-markdown-files", () => {
     });
   });
 
+  it("rejects participant labels rather than implying they are retained", () => {
+    const schema = (
+      action as unknown as {
+        schema: { safeParse: (value: unknown) => { success: boolean } };
+      }
+    ).schema;
+    expect(
+      schema.safeParse({
+        files: [
+          { path: "meeting.md", content: "Meeting", participants: ["Avery"] },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts per-file transcript provenance without changing the source audience", async () => {
     const schema = (
       action as unknown as {
@@ -121,7 +136,6 @@ describe("import-markdown-files", () => {
           content: "Avery: The launch is approved.",
           kind: "transcript",
           capturedAt: "2026-05-20T15:00:00.000Z",
-          participants: ["Avery", "Jordan"],
         },
         { path: "docs/plan.md", content: "Plan" },
       ],
@@ -134,9 +148,7 @@ describe("import-markdown-files", () => {
       expect.objectContaining({
         kind: "transcript",
         capturedAt: "2026-05-20T15:00:00.000Z",
-        metadata: expect.objectContaining({
-          participants: ["Avery", "Jordan"],
-        }),
+        metadata: { path: "meetings/launch.md", sourceFormat: "markdown" },
       }),
     );
     expect(mocks.createCapture.mock.calls[0]?.[0]).not.toHaveProperty(

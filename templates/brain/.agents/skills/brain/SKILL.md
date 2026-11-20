@@ -85,7 +85,10 @@ Always, regardless of settings:
   strings, and bare URLs are scrubbed (deterministic regex pass).
 - Raw transcript metadata keys (`raw`, `segments`, `transcript`, `messages`,
   `utterances`, `attendees`, `participants`, `speaker(s)`, etc.) are dropped
-  from stored `metadata`, not just the text.
+  from stored `metadata`, not just the text. Markdown imports do not accept
+  participant labels: they neither retain those labels nor change the source's
+  existing audience. Speaker labels that survive screening in the transcript
+  text remain available as evidence.
 
 When opted in, sanitization also strips recruiting (`RECRUITING_SIGNAL`) and
 personal-life (`PERSONAL_SIGNAL`) lines and keeps company-relevant signal

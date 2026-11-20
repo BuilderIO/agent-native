@@ -318,7 +318,6 @@ describe("evidence-backed intelligence", () => {
             content: "Avery: The product launch is approved.",
             kind: "transcript",
             capturedAt: "2026-05-20T15:00:00.000Z",
-            participants: ["Avery", "Jordan"],
           },
         ],
         enqueueDistillation: false,
@@ -342,7 +341,7 @@ describe("evidence-backed intelligence", () => {
         capturedAt: "2026-05-20T15:00:00.000Z",
       });
       expect(JSON.parse(capture.metadataJson)).toMatchObject({
-        participantsCount: 2,
+        capturedAtExplicit: true,
       });
       expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
         "participants",
@@ -377,6 +376,120 @@ describe("evidence-backed intelligence", () => {
       ).toEqual(visibility === "org" ? [["org", "qa-org"]] : [["user", email]]);
     },
   );
+  it("cites supplied meeting time but not an import-time fallback", async () => {
+    const result = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [
+        {
+          path: "dated.md",
+          content: "Avery: Launch approved.",
+          kind: "transcript",
+          capturedAt: "2026-05-20T15:00:00.000Z",
+        },
+        {
+          path: "undated.md",
+          content: "Jordan: Launch approved.",
+          kind: "transcript",
+        },
+      ],
+      enqueueDistillation: false,
+    });
+    const captures = result.files.map((file) => {
+      if (file.status !== "imported") throw new Error("Import failed");
+      return file.captureId;
+    });
+    const { item } = await writeIntelligence({
+      ...input(),
+      owner: null,
+      dueDate: null,
+      ownershipConfidence: "ambiguous",
+      entities: [],
+      evidence: [
+        { captureId: first(captures), quote: "Avery: Launch approved." },
+        {
+          captureId: first(captures.slice(1)),
+          quote: "Jordan: Launch approved.",
+        },
+      ],
+    });
+    expect(item.evidence[0]).toMatchObject({
+      capturedAt: "2026-05-20T15:00:00.000Z",
+    });
+    expect(item.evidence[1]).not.toHaveProperty("capturedAt");
+    expect(
+      first((await listIntelligence({ id: item.id })).records).evidence,
+    ).toEqual(item.evidence);
+    const search = await searchEverythingWithLanes({
+      query: "Ship Atlas",
+      type: "knowledge",
+    });
+    expect(
+      search.rows.find((row) => row.id === item.id)?.citation,
+    ).toMatchObject({ capturedAt: "2026-05-20T15:00:00.000Z" });
+    await database
+      .update(schema.brainAudienceMembers)
+      .set({ status: "revoked" })
+      .where(eq(schema.brainAudienceMembers.audienceId, item.audienceId));
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
+  it("invalidates derived knowledge when only the capture kind changes", async () => {
+    const file = { path: "change.md", content: "Morgan will ship Atlas." };
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: "2026-05-20T15:00:00.000Z" })
+      .where(eq(schema.brainRawCaptures.id, entry.captureId));
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, kind: "transcript" }],
+      enqueueDistillation: false,
+    });
+    const capture = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(capture).toMatchObject({
+      kind: "transcript",
+      status: "queued",
+      distilledAt: null,
+    });
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
+  it("does not authorize an owner by expanding an exact quote", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        kind: "transcript",
+        content: "Alex: not Jordan; I will ship Atlas.",
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    await expect(
+      writeIntelligence({
+        ...input(),
+        owner: "Alex",
+        dueDate: null,
+        entities: [],
+        evidence: [{ captureId: "capture-a", quote: "I will ship Atlas." }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "owner_not_in_evidence" });
+  });
+
   async function seedStaleCandidates(
     count: number,
     dueDate: string | null = "2020-01-01",
@@ -764,7 +877,7 @@ describe("evidence-backed intelligence", () => {
     expect((await readPriorities()).highConfidence).toEqual([]);
   });
 
-  it("keeps an unambiguous transcript speaker with the exact evidence quote", async () => {
+  it("keeps a supplied transcript speaker in the exact evidence quote", async () => {
     const content =
       "Avery: Atlas is approved for launch.\nJordan: Plan the rollout.";
     await database
@@ -778,7 +891,10 @@ describe("evidence-backed intelligence", () => {
       ownershipConfidence: "ambiguous",
       entities: [],
       evidence: [
-        { captureId: "capture-a", quote: "Atlas is approved for launch." },
+        {
+          captureId: "capture-a",
+          quote: "Avery: Atlas is approved for launch.",
+        },
       ],
     });
     expect(first(item.evidence).quote).toBe(
