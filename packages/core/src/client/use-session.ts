@@ -7,7 +7,12 @@ import {
   SESSION_BOOTSTRAP_INVALIDATION_GLOBAL,
   SESSION_INVALIDATION_STORAGE_KEY,
 } from "../shared/ssr-session-bootstrap.js";
-import { setSentryUser, trackEvent, trackSessionStatus } from "./analytics.js";
+import {
+  setSentryUser,
+  trackEvent,
+  trackSessionStatus,
+  type SessionStatusTrigger,
+} from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
   expireClientStatusResult,
@@ -129,6 +134,7 @@ let sessionRequest: Promise<SessionRead> | undefined;
 let sessionRequestTransport: FetchTransport | undefined;
 let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
+let sessionReadTrigger: SessionStatusTrigger = "load";
 // The page load's own session read is the only one sent with the cookies a
 // request made before the session was known also carried. A retry or a reset
 // replaces it for the life of the document.
@@ -310,7 +316,10 @@ function hasFreshSessionCache(): boolean {
   );
 }
 
-function publishSessionIdentity(session: AuthSessionResponse | null): void {
+function publishSessionIdentity(
+  session: AuthSessionResponse | null,
+  trigger: SessionStatusTrigger,
+): void {
   const identity = session?.userId ?? session?.email ?? null;
   const authUserId = session?.authUserId;
   recordSessionIdentity(
@@ -345,7 +354,7 @@ function publishSessionIdentity(session: AuthSessionResponse | null): void {
       setSentryUser(null, null);
     }
   }
-  trackSessionStatus(Boolean(session));
+  trackSessionStatus(Boolean(session), trigger);
 }
 
 function notifyParentAuthState(
@@ -431,7 +440,8 @@ function notifySessionSubscribers(): Promise<void> {
   return resolveSession();
 }
 
-function invalidateSessionCache(): Promise<void> {
+function invalidateSessionCache(trigger: SessionStatusTrigger): Promise<void> {
+  sessionReadTrigger = trigger;
   resetSessionCache();
   invalidateClientStatusRequest(SESSION_STATUS_PATH);
   return notifySessionSubscribers();
@@ -440,7 +450,8 @@ function invalidateSessionCache(): Promise<void> {
 // A routine re-check: its read opens a provisional generation, and what is
 // accepted stays shown while it is out (see "Whom a request was answered
 // for").
-function rereadSession(): void {
+function rereadSession(trigger: SessionStatusTrigger): void {
+  sessionReadTrigger = trigger;
   cachedSessionAt = 0;
   clearTimeout(staleSessionRecheck);
   staleSessionRecheck = undefined;
@@ -461,7 +472,7 @@ function rereadSession(): void {
  */
 function revalidateStaleSession(): void {
   if (!hasFreshSessionCache() || !cachedSession) {
-    rereadSession();
+    rereadSession("focus");
     return;
   }
   if (staleSessionRecheck !== undefined) return;
@@ -474,7 +485,7 @@ function revalidateStaleSession(): void {
       if (document.visibilityState !== "visible" || !document.hasFocus()) {
         return;
       }
-      rereadSession();
+      rereadSession("focus");
     },
     Math.max(0, answeredAt + SESSION_CACHE_TTL_MS - Date.now()),
   );
@@ -498,8 +509,11 @@ function installSessionInvalidationListeners(): void {
   );
   window.addEventListener("storage", (event) => {
     if (event.key === SESSION_INVALIDATION_STORAGE_KEY) {
-      void invalidateSessionCache();
-      setTimeout(() => void invalidateSessionCache(), SESSION_CACHE_TTL_MS);
+      void invalidateSessionCache("auth_change");
+      setTimeout(
+        () => void invalidateSessionCache("auth_change"),
+        SESSION_CACHE_TTL_MS,
+      );
     }
   });
   document.addEventListener("visibilitychange", () => {
@@ -516,7 +530,7 @@ function installSessionInvalidationListeners(): void {
     firstSessionReadAnswer() !== "replaced" &&
     bootstrapInvalidationMissed()
   ) {
-    void invalidateSessionCache();
+    void invalidateSessionCache("auth_change");
   }
 }
 
@@ -533,7 +547,7 @@ export function notifySessionInvalidated(): Promise<void> {
   if (typeof window === "undefined") return Promise.resolve();
   announceSessionInvalidated();
   installSessionInvalidationListeners();
-  const reread = invalidateSessionCache();
+  const reread = invalidateSessionCache("auth_change");
   try {
     window.localStorage.setItem(
       SESSION_INVALIDATION_STORAGE_KEY,
@@ -641,7 +655,7 @@ function sessionTransportChanged(transport: FetchTransport): boolean {
 
 function recheckSessionTransport(): void {
   if (sessionTransportChanged(currentFetchTransport())) {
-    void invalidateSessionCache();
+    void invalidateSessionCache("transport_change");
   }
 }
 
@@ -741,15 +755,15 @@ export function recheckSessionAfterUnauthorized(): void {
   }
   lastUnauthorizedRecheckAt = now;
   installSessionInvalidationListeners();
-  void invalidateSessionCache();
+  void invalidateSessionCache("unauthorized");
 }
 
 export function beginSignOut(): void {
   signingOut = true;
-  publishSessionIdentity(null);
+  publishSessionIdentity(null, "auth_change");
   snapshot = { session: null, status: "signing-out", error: null };
   for (const listener of snapshotListeners) listener();
-  void invalidateSessionCache();
+  void invalidateSessionCache("auth_change");
 }
 
 export function completeSignOut(): void {
@@ -770,7 +784,10 @@ function fetchSharedSession(): Promise<SessionRead> {
   // signs the page's requests with its bearer token they are B's, even while
   // the cookie read said A. Neither that answer nor a read still out on that
   // transport is reused; the session is read again over this one.
-  if (sessionTransportChanged(transport)) resetSessionCache();
+  if (sessionTransportChanged(transport)) {
+    sessionReadTrigger = "transport_change";
+    resetSessionCache();
+  }
   if (hasFreshSessionCache()) {
     return Promise.resolve({
       state: "resolved",
@@ -791,6 +808,7 @@ function fetchSharedSession(): Promise<SessionRead> {
   const requestAttempt = sessionReadAttempt;
   const firstRead = firstSessionReadUnsent;
   firstSessionReadUnsent = false;
+  const trigger = sessionReadTrigger;
   let request: Promise<SessionRead>;
   const requestResult = (async (): Promise<SessionRead> => {
     try {
@@ -853,7 +871,7 @@ function fetchSharedSession(): Promise<SessionRead> {
         : result.state === "unavailable"
           ? "http_401"
           : "signed_out_body";
-      publishSessionIdentity(session);
+      publishSessionIdentity(session, trigger);
       if (firstSessionReadAnswer() !== answerBefore) {
         notifyFirstSessionReadAnswer();
       }
@@ -981,7 +999,7 @@ function subscribeSession(listener: () => void): () => void {
       if (snapshot.status === "loading") void resolveSession();
     } else if (!hasFreshSessionCache()) {
       // The answer outlived its lifetime: keep showing it and re-check.
-      rereadSession();
+      rereadSession("expired");
     }
   }
   return () => {

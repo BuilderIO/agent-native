@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import type { ActionRunContext } from "../action.js";
+import { defineAction, type ActionRunContext } from "../action.js";
 import { wrapRunWithActionTracking } from "./action-lifecycle.js";
 import {
   registerTrackingProvider,
@@ -180,5 +181,121 @@ describe("action lifecycle tracking", () => {
     await navigate({}, { ...context, actionName: "navigate" });
 
     expect(events).toEqual([]);
+  });
+
+  describe("action_kind", () => {
+    const kinds = (events: TrackingEvent[]) =>
+      events.map((event) => event.properties?.action_kind);
+
+    it("labels every event of a write the app makes on its own automatic", async () => {
+      const events = captureEvents();
+      const save = defineAction({
+        description: "Save where playback stopped.",
+        schema: z.object({ positionMs: z.number() }),
+        automatic: true,
+        run: async () => ({ saved: true }),
+      });
+      const failing = defineAction({
+        description: "Record an exposure.",
+        schema: z.object({}),
+        automatic: true,
+        run: async () => {
+          throw new Error("storage unavailable");
+        },
+      });
+
+      await save.run(
+        { positionMs: 1_000 },
+        { ...context, actionName: "save-playback-position" },
+      );
+      await expect(
+        failing.run({}, { ...context, actionName: "record-exposure" }),
+      ).rejects.toThrow("storage unavailable");
+
+      expect(events.map((event) => event.name)).toEqual([
+        "action_started",
+        "action_completed",
+        "action_started",
+        "action_failed",
+      ]);
+      expect(kinds(events)).toEqual([
+        "automatic",
+        "automatic",
+        "automatic",
+        "automatic",
+      ]);
+    });
+
+    it("labels per call when only some calls are automatic", async () => {
+      const events = captureEvents();
+      const sync = defineAction({
+        description: "Sync the inbox.",
+        schema: z.object({ force: z.boolean().optional() }),
+        automatic: (input) => input.force !== true,
+        run: async () => ({ synced: true }),
+      });
+      const ctx = { ...context, actionName: "sync-inbox" };
+
+      await sync.run({}, ctx);
+      await sync.run({ force: true }, ctx);
+
+      expect(
+        events
+          .filter((event) => event.name === "action_completed")
+          .map((event) => event.properties?.action_kind),
+      ).toEqual(["automatic", "write"]);
+    });
+
+    it("labels a call its planMode declares a read as read, whatever else it declares", async () => {
+      const events = captureEvents();
+      const policy = defineAction({
+        description: "Read or change a setting.",
+        schema: z.object({ set: z.boolean().optional() }),
+        planMode: {
+          effect: (args) => (args.set === undefined ? "read" : "write"),
+        },
+        automatic: true,
+        run: async () => ({ restricted: false }),
+      });
+      const ctx = { ...context, actionName: "manage-provider-key-policy" };
+
+      await policy.run({}, ctx);
+      await policy.run({ set: true }, ctx);
+
+      expect(
+        events
+          .filter((event) => event.name === "action_completed")
+          .map((event) => event.properties?.action_kind),
+      ).toEqual(["read", "automatic"]);
+    });
+
+    it("counts a call as a write when its automatic predicate throws", async () => {
+      const events = captureEvents();
+      const write = defineAction({
+        description: "Write something.",
+        schema: z.object({}),
+        automatic: () => {
+          throw new Error("predicate bug");
+        },
+        run: async () => ({ ok: true }),
+      });
+
+      await write.run({}, { ...context, actionName: "write-something" });
+
+      expect(kinds(events)).toEqual(["write", "write"]);
+    });
+
+    it("keeps write for an action that declares nothing", async () => {
+      const events = captureEvents();
+      const create = defineAction({
+        description: "Create a clip.",
+        schema: z.object({}),
+        run: async () => ({ id: "clip-2" }),
+      });
+
+      await create.run({}, context);
+
+      expect(kinds(events)).toEqual(["write", "write"]);
+    });
   });
 });

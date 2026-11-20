@@ -6,6 +6,7 @@ import {
   snapshotActionArguments,
 } from "./action-arguments-identity.js";
 import {
+  actionCallIsAutomatic,
   actionCallIsRetrySafe,
   actionCallReadOnly,
   actionOutputEffect,
@@ -83,6 +84,7 @@ import {
   isProviderInteractiveScope,
   runWithProviderInteractiveScope,
 } from "./provider-api/interactive-scope.js";
+import type { AgentNativeActionKind } from "./shared/analytics-events.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export {
@@ -1348,6 +1350,19 @@ interface DefineActionWithSchema<
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
   /**
+   * Marks a write the app makes on its own, with no user gesture behind it: on
+   * page load, on mount, on a timer, or experiment and usage bookkeeping. Its
+   * `action_started`, `action_completed`, and `action_failed` events carry
+   * `action_kind: "automatic"` instead of `"write"`, so product-use counts
+   * leave it out. Pass a predicate when only some calls are automatic, such
+   * as a background sync whose manual refresh passes `force: true`; it sees
+   * the arguments as sent. It labels analytics only: a write stays a write
+   * everywhere else, so never set `readOnly` to quiet one.
+   */
+  automatic?:
+    | boolean
+    | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
+  /**
    * How the action reads an ISO date-time argument that names no zone, so an
    * approval summary can say so: `"calendar"` means in the calendar's own
    * time zone. Unset, the summary shows such a time as having no zone given.
@@ -1486,6 +1501,8 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `automatic` on the schema form above. */
+  automatic?: boolean | ((input: InferParams<TParams>) => boolean);
   /** See `ActionDefinition.zonelessTimes`. */
   zonelessTimes?: "calendar";
   endsTurn?: boolean;
@@ -1558,6 +1575,8 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  /** See `automatic` on the action options. */
+  readonly automatic?: boolean | ((input: TInput) => boolean);
   readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -1984,10 +2003,23 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(effectiveAuditConfig, readOnly)
     ? wrapRunWithAudit(run, effectiveAuditConfig, actionIsPrivate)
     : run;
+  const automatic =
+    typeof options.automatic === "boolean" ||
+    typeof options.automatic === "function"
+      ? options.automatic
+      : undefined;
+  const actionKind = (args: unknown): AgentNativeActionKind => {
+    if (actionCallReadOnly({ readOnly, planMode: options.planMode }, args)) {
+      return "read";
+    }
+    return actionCallIsAutomatic({ automatic }, args) ? "automatic" : "write";
+  };
+  const trackingOptions = {
+    includeOutputId: options.persistInChatHistory !== false,
+    actionKind,
+  };
   const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly, {
-      includeOutputId: options.persistInChatHistory !== false,
-    }),
+    wrapRunWithActionTracking(finalRun, readOnly, trackingOptions),
   );
   const invalidCallRun = wrapRunWithActionTracking(
     resolveAuditAttach(effectiveAuditConfig, readOnly)
@@ -1998,7 +2030,7 @@ export function defineAction(options: any) {
         )
       : throwInvalidCallError,
     readOnly,
-    { includeOutputId: options.persistInChatHistory !== false },
+    trackingOptions,
   );
 
   const toolCallable: boolean | undefined =
@@ -2232,6 +2264,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(automatic !== undefined ? { automatic } : {}),
     ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),

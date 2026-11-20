@@ -156,6 +156,26 @@ export function actionCallIsRetrySafe(
 }
 
 /**
+ * Whether one call is a write the app made on its own, as the action's
+ * `automatic` declaration says for these arguments. The predicate sees the
+ * arguments as sent. One that throws declares nothing, so the call counts as
+ * one someone asked for.
+ */
+export function actionCallIsAutomatic<TInput>(
+  entry: { automatic?: boolean | ((input: TInput) => boolean) },
+  params: TInput,
+): boolean {
+  const { automatic } = entry;
+  if (typeof automatic !== "function") return automatic === true;
+  try {
+    return automatic(params) === true;
+  } catch {
+    // coercion-ok: an analytics label must not fail the call; unlabeled still counts.
+    return false;
+  }
+}
+
+/**
  * Whether a successful call should publish an `action` change event.
  *
  * Read-only calls never do. An unclassified call does, on purpose: staying
