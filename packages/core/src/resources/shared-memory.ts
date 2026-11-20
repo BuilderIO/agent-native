@@ -70,6 +70,12 @@ export class MemoryTombstoneError extends Error {}
  */
 export class MemoryDeleteFailedError extends Error {}
 
+/**
+ * A delete failed and the tombstone could not be repaired or removed, so
+ * whether the memory is hidden or visible is unknown.
+ */
+export class MemoryDeleteStateUnknownError extends MemoryDeleteFailedError {}
+
 export class MemoryWriteConflictError extends Error {
   adopted: { content: string; updatedAt: number } | null;
 
@@ -236,6 +242,21 @@ export async function deleteSharedPersonalMemory(
   await writeAtomic(`${filePath}.deleted`, String(deletedAt));
   try {
     await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (!isMissingPathError(error)) throw error;
+  }
+}
+
+export async function clearSharedMemoryTombstone(
+  owner: string,
+  resourcePath: string,
+): Promise<void> {
+  const rootDir = getSharedMemoryDir();
+  if (!rootDir) return;
+  const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(`${filePath}.deleted`);
   } catch (error) {
     if (!isMissingPathError(error)) throw error;
   }

@@ -991,6 +991,119 @@ describe("personal memory shared across local apps", () => {
       ).resolves.toMatchObject({ content: "still here" });
     });
 
+    it("writes no tombstone and keeps the row when a conditional delete is stale", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteIfCurrent, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      const stale = await resourcePut(OWNER, "memory/stale-del.md", "v1");
+      await resourcePut(OWNER, "memory/stale-del.md", "v2");
+      const realRename = fs.promises.rename.bind(fs.promises);
+      const tombstones: string[] = [];
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (String(to).endsWith(".deleted")) tombstones.push(String(to));
+          return realRename(from, to);
+        });
+      try {
+        await expect(resourceDeleteIfCurrent(stale)).resolves.toBe(false);
+      } finally {
+        rename.mockRestore();
+      }
+      expect(tombstones).toEqual([]);
+      expect(fs.existsSync(`${sharedFile(dir, "stale-del.md")}.deleted`)).toBe(
+        false,
+      );
+      await expect(
+        resourceGetByPath(OWNER, "memory/stale-del.md"),
+      ).resolves.toMatchObject({ content: "v2" });
+    });
+
+    it("publishes the tombstone inside a transactional delete and keeps it on commit", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteWithDb, resourcePut } = await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/tx-commit.md", "x");
+      const tombstone = `${sharedFile(dir, "tx-commit.md")}.deleted`;
+      let seenBeforeCommit = false;
+      let write: Awaited<ReturnType<typeof resourceDeleteWithDb>> | undefined;
+      await sharedClient.transaction?.(async (tx) => {
+        write = await resourceDeleteWithDb(tx, stored.id);
+        seenBeforeCommit = fs.existsSync(tombstone);
+      });
+      await write?.notifyAfterCommit();
+      expect(seenBeforeCommit).toBe(true);
+      expect(Number(fs.readFileSync(tombstone, "utf8"))).toBeGreaterThan(
+        stored.updatedAt,
+      );
+    });
+
+    it("removes the pre-commit tombstone and restores the file when the transaction rolls back", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteWithDb, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/tx-back.md", "keep");
+      let write: Awaited<ReturnType<typeof resourceDeleteWithDb>> | undefined;
+      let seenBeforeRollback = false;
+      await expect(
+        sharedClient.transaction?.(async (tx) => {
+          write = await resourceDeleteWithDb(tx, stored.id);
+          seenBeforeRollback = fs.existsSync(
+            `${sharedFile(dir, "tx-back.md")}.deleted`,
+          );
+          throw new Error("rollback");
+        }),
+      ).rejects.toThrow("rollback");
+      expect(seenBeforeRollback).toBe(true);
+      await write?.onRollback?.();
+      expect(fs.existsSync(`${sharedFile(dir, "tx-back.md")}.deleted`)).toBe(
+        false,
+      );
+      expect(fs.readFileSync(sharedFile(dir, "tx-back.md"), "utf8")).toBe(
+        "keep",
+      );
+      await expect(
+        resourceGetByPath(OWNER, "memory/tx-back.md"),
+      ).resolves.toMatchObject({ content: "keep" });
+    });
+
+    it("never leaves a tombstone over a live row when the delete and the file restore both fail", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      const { MemoryDeleteStateUnknownError } =
+        await import("./shared-memory.js");
+      await resourcePut(OWNER, "memory/both.md", "alive");
+      const realRename = fs.promises.rename.bind(fs.promises);
+      let tombstoned = false;
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (String(to).endsWith(".deleted")) {
+            tombstoned = true;
+            return realRename(from, to);
+          }
+          if (tombstoned) throw new Error("EROFS");
+          return realRename(from, to);
+        });
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        throw new Error("db down");
+      });
+      try {
+        await expect(
+          resourceDeleteByPath(OWNER, "memory/both.md"),
+        ).rejects.toBeInstanceOf(MemoryDeleteStateUnknownError);
+      } finally {
+        restore();
+        rename.mockRestore();
+      }
+      expect(fs.existsSync(`${sharedFile(dir, "both.md")}.deleted`)).toBe(
+        false,
+      );
+      await expect(
+        resourceGetByPath(OWNER, "memory/both.md"),
+      ).resolves.toMatchObject({ content: "alive" });
+    });
+
     it("keeps a restored memory visible past a newer tombstone when its mirror fails", async () => {
       const dir = useMemoryDir();
       const {

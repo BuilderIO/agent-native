@@ -1754,6 +1754,8 @@ async function compareDispatchSession(
 const memoryOwnerFiles = new Map<string, string>();
 let currentMemoryAccount: string | null = null;
 
+const unboundMemorySessions = new Set<(account: string) => void>();
+
 export function setDesktopMemoryAccount(account: string | null): void {
   currentMemoryAccount = account;
   for (const [file, owner] of memoryOwnerFiles) {
@@ -1761,6 +1763,14 @@ export function setDesktopMemoryAccount(account: string | null): void {
     fs.rmSync(file, { force: true });
     memoryOwnerFiles.delete(file);
   }
+  if (account) for (const adopt of [...unboundMemorySessions]) adopt(account);
+}
+
+export function sweepStaleMemoryOwnerFiles(): void {
+  fs.rmSync(path.join(app.getPath("userData"), "memory-owners"), {
+    recursive: true,
+    force: true,
+  });
 }
 
 export function desktopTerminalMemoryEnvironment(promptFile: string): {
@@ -1793,13 +1803,14 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     "memory-owners",
     randomUUID(),
   );
-  const account = currentMemoryAccount;
+  let account = currentMemoryAccount;
   let released = false;
   const refresh = async () => {
     if (!account) return;
+    const bound = account;
     let prompt: string;
     try {
-      prompt = await renderMemoryPrompt(account);
+      prompt = await renderMemoryPrompt(bound);
     } catch (error) {
       console.error(
         "[desktop-chat] Could not read shared memory; keeping the last prompt:",
@@ -1807,7 +1818,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
       );
       return;
     }
-    if (released || currentMemoryAccount !== account) return;
+    if (released || currentMemoryAccount !== bound) return;
     if (!prompt) {
       fs.rmSync(file, { force: true });
       memoryOwnerFiles.delete(file);
@@ -1815,7 +1826,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, prompt, { mode: 0o600 });
-    memoryOwnerFiles.set(file, account);
+    memoryOwnerFiles.set(file, bound);
   };
   let refreshes: Promise<void> = Promise.resolve();
   const scheduleRefresh = () => {
@@ -1827,7 +1838,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     return refreshes;
   };
   let watcher: fs.FSWatcher | undefined;
-  if (account) {
+  const watch = () => {
     try {
       fs.mkdirSync(desktopMemoryDir(), { recursive: true });
       watcher = fs.watch(desktopMemoryDir(), { recursive: true }, () => {
@@ -1837,12 +1848,22 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     } catch (error) {
       console.error("[desktop-chat] Could not watch shared memory:", error);
     }
-  }
+  };
+  const adopt = (next: string) => {
+    if (released || account) return;
+    account = next;
+    unboundMemorySessions.delete(adopt);
+    watch();
+    void scheduleRefresh();
+  };
+  if (account) watch();
+  else unboundMemorySessions.add(adopt);
   await scheduleRefresh();
   return {
     file,
     release: () => {
       released = true;
+      unboundMemorySessions.delete(adopt);
       watcher?.close();
       fs.rmSync(file, { force: true });
       memoryOwnerFiles.delete(file);
@@ -1983,12 +2004,17 @@ export function rotateDesktopBuilderRelayBearer(): void {
 // same account returning after them keeps its runners. The bound session, not
 // this note, is what decides whether a request is forwarded.
 export function noteDesktopBuilderRelayOwner(owner: string | null): void {
-  if (owner === "no-account") setDesktopMemoryAccount(null);
-  if (owner === null || owner === "no-account") return;
+  if (owner === null || owner === "no-account") {
+    setDesktopMemoryAccount(null);
+    return;
+  }
   const previous = lastBuilderRelayAccountKey;
   lastBuilderRelayAccountKey = owner;
   if (previous !== null && previous !== owner)
     rotateDesktopBuilderRelayBearer();
+  if (owner.startsWith("account:")) {
+    setDesktopMemoryAccount(owner.slice("account:".length));
+  }
 }
 
 export async function closeDesktopChatRelay(): Promise<void> {
@@ -2203,6 +2229,7 @@ export function registerDesktopChatIpc(
   } = {},
 ): void {
   if (ipcRegistered) return;
+  sweepStaleMemoryOwnerFiles();
   captureActiveBrowserScreenshot = options.captureActiveBrowserScreenshot;
   resolveBuilderDispatchApp = options.resolveBuilderDispatchApp;
   ipcRegistered = true;

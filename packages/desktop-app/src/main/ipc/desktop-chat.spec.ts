@@ -1,5 +1,11 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
@@ -1341,6 +1347,58 @@ describe("desktop Pi extension memory prompt", () => {
     expect(freshPrompt()).not.toContain("SECRET");
     running.release();
     fresh.release();
+  });
+
+  it("fails closed when the identity is signed in but unreadable", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const running = await bindDesktopSessionMemoryOwner();
+    const runningPrompt = await startSession(running.file);
+    expect(runningPrompt()).toContain("ALICE-SECRET");
+
+    noteDesktopBuilderRelayOwner(null);
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
+
+    expect(runningPrompt()).not.toContain("SECRET");
+    expect(freshPrompt()).not.toContain("SECRET");
+    running.release();
+    fresh.release();
+  });
+
+  it("binds memory to a verified account and re-renders sessions started before sign-in", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("no-account");
+    const early = await bindDesktopSessionMemoryOwner();
+    const earlyPrompt = await startSession(early.file);
+    expect(earlyPrompt()).not.toContain("SECRET");
+
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    await vi.waitFor(() => expect(earlyPrompt()).toContain("ALICE-SECRET"));
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
+    expect(freshPrompt()).toContain("ALICE-SECRET");
+    expect(freshPrompt()).not.toContain("BOB-SECRET");
+
+    noteDesktopBuilderRelayOwner("account:b@example.test");
+    expect(earlyPrompt()).not.toContain("SECRET");
+    expect(freshPrompt()).not.toContain("SECRET");
+    early.release();
+    fresh.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("removes memory prompt files left by a previous run at startup", async () => {
+    const dir = seedAccounts();
+    const ownersDir = path.join(dir, "memory-owners");
+    mkdirSync(ownersDir, { recursive: true });
+    const stale = path.join(ownersDir, "stale-uuid");
+    writeFileSync(stale, "ALICE-SECRET");
+    vi.resetModules();
+    const fresh = await import("./desktop-chat.js");
+    fresh.registerDesktopChatIpc();
+    expect(existsSync(stale)).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("refreshes a running session's memory when the file changes", async () => {
