@@ -152,7 +152,10 @@ export function applySearchReplaceEdits(
     });
   } catch (error) {
     if (!(error instanceof DesignEditSearchConflictError)) throw error;
-    throw new NoWriteError(error.message, designEditConflictOptions());
+    throw new NoWriteError(
+      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry the remaining changes in smaller sequential batches with enough context to uniquely identify each match.`,
+      designEditConflictOptions(),
+    );
   }
   return { content: next, applied: edits.length };
 }

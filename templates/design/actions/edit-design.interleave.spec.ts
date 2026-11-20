@@ -189,6 +189,9 @@ describe("edit-design conflict retry", () => {
       errorCode: "design_edit_conflict",
     });
     await expect(searchMiss).rejects.toThrow("search text was not found");
+    await expect(searchMiss).rejects.toThrow(
+      "None of the edits in this batch were saved",
+    );
     await expect(searchMiss).rejects.not.toHaveProperty("noWrite");
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
@@ -315,6 +318,55 @@ describe("edit-design conflict retry", () => {
     expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      "missing",
+      "<main><p>First</p><p>Private repeated text</p></main>",
+      "Private absent text",
+      "search text was not found",
+    ],
+    [
+      "ambiguous",
+      "<main><p>First</p><p>Private repeated text</p><p>Private repeated text</p></main>",
+      "Private repeated text",
+      "matched 2 places",
+    ],
+  ])(
+    "reports a later %s edit without saving or disclosing the batch",
+    async (_kind, content, search, classifier) => {
+      mocks.readLiveSourceFile.mockResolvedValue({
+        content,
+        versionHash: "h0",
+        language: "html",
+      });
+
+      const failure = action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [
+          { search: "First", replace: "Updated" },
+          { search, replace: "Replacement" },
+        ],
+      } as never);
+
+      await expect(failure).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        errorCode: "design_edit_conflict",
+        statusCode: 409,
+        message: expect.stringContaining(classifier),
+      });
+      await expect(failure).rejects.toThrow(
+        "None of the edits in this batch were saved",
+      );
+      await expect(failure).rejects.toThrow("get-design-snapshot");
+      await expect(failure).rejects.toThrow("smaller");
+      await expect(failure).rejects.not.toThrow(search);
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    },
+  );
 
   it("classifies a locked-layer rejection as no-write and accepts a corrected call", async () => {
     const lockedContent =
