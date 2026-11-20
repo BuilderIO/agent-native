@@ -29,6 +29,8 @@ function railArgs(overrides: {
   minimalUi?: boolean;
   interactFloatingBar?: ReactElement | null;
   commentsPanelOpen?: boolean;
+  isMobileViewport?: boolean;
+  activeLeftPanel?: string | null;
 }): RailArgs {
   return {
     editorCore: {
@@ -44,6 +46,8 @@ function railArgs(overrides: {
       setRightSidebarWidth: vi.fn(),
       startSidebarResize: vi.fn(),
       commentsPanelOpen: overrides.commentsPanelOpen ?? false,
+      isMobileViewport: overrides.isMobileViewport ?? false,
+      activeLeftPanel: overrides.activeLeftPanel ?? null,
     } as unknown as EditorHistory,
     editorContentAndComponents: {
       uiHidden: false,
@@ -234,6 +238,24 @@ describe("right column", () => {
         '[data-design-floating-right-head] [data-slot="actions"]',
       ),
     ).not.toBeNull();
+    await unmount();
+  });
+
+  it("keeps the floating head off a phone's open left drawer", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: false,
+            minimalUi: false,
+            isMobileViewport: true,
+            activeLeftPanel: "file",
+          }),
+        )}
+      </>,
+    );
+    expect(host.querySelector("[data-design-floating-right-head]")).toBeNull();
     await unmount();
   });
 });

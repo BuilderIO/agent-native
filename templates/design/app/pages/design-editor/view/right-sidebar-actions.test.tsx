@@ -5,6 +5,8 @@ import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
 import { renderRightSidebarActions } from "./right-sidebar-actions";
@@ -32,7 +34,7 @@ function actionsArgs(overrides: Partial<ActionsArgs> = {}): ActionsArgs {
     renderPendingNodeRewriteControl: () => null,
     publishWaitlistControl: null,
     presenceControl: null,
-    reviewFeedbackControl: null,
+    renderReviewFeedbackControl: () => null,
     renderShareControl: () => <button data-slot="share">Share</button>,
     localPreviewRow: null,
     showCommentsToggle: true,
@@ -46,7 +48,7 @@ async function mount(element: ReactElement) {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(element);
+    root.render(<TooltipProvider>{element}</TooltipProvider>);
   });
   return {
     host,
@@ -73,7 +75,9 @@ describe("right column head", () => {
           actionsArgs({
             presenceControl: <span data-slot="presence">AB</span>,
             publishWaitlistControl: <button data-slot="waitlist">Join</button>,
-            reviewFeedbackControl: <button data-slot="feedback">Apply</button>,
+            renderReviewFeedbackControl: () => (
+              <button data-slot="feedback">Apply</button>
+            ),
           }),
         )}
       </>,
@@ -86,6 +90,62 @@ describe("right column head", () => {
     expect(follows(slot(host, "presence"), slot(host, "waitlist"))).toBe(true);
     expect(follows(slot(host, "waitlist"), slot(host, "share"))).toBe(true);
     await unmount();
+  });
+
+  it("drops the Comments label into a tooltip on a narrow inspector or beside Apply feedback", async () => {
+    const renderReviewFeedbackControl = vi.fn((compact: boolean) => (
+      <button data-slot="feedback" data-compact={String(compact)}>
+        Apply
+      </button>
+    ));
+    const wide = await mount(<>{renderRightSidebarActions(actionsArgs())}</>);
+    const wideToggle = must(
+      wide.host.querySelector("[data-design-comments-toggle]"),
+    );
+    expect(wideToggle.textContent).toContain(
+      "designEditor.columnHead.comments",
+    );
+    expect(wideToggle.getAttribute("aria-label")).toBeNull();
+    await wide.unmount();
+
+    const narrow = await mount(
+      <>
+        {renderRightSidebarActions(
+          actionsArgs({
+            editorHistory: {
+              rightSidebarWidth: 240,
+              commentsPanelOpen: false,
+              setCommentsPanelOpen: vi.fn(),
+            } as unknown as EditorHistory,
+          }),
+        )}
+      </>,
+    );
+    const narrowToggle = must(
+      narrow.host.querySelector("[data-design-comments-toggle]"),
+    );
+    expect(narrowToggle.getAttribute("aria-label")).toBe(
+      "designEditor.columnHead.comments",
+    );
+    expect(narrowToggle.textContent).not.toContain(
+      "designEditor.columnHead.comments",
+    );
+    await narrow.unmount();
+
+    const withFeedback = await mount(
+      <>
+        {renderRightSidebarActions(
+          actionsArgs({ renderReviewFeedbackControl }),
+        )}
+      </>,
+    );
+    expect(renderReviewFeedbackControl).toHaveBeenLastCalledWith(true);
+    expect(
+      must(
+        withFeedback.host.querySelector("[data-design-comments-toggle]"),
+      ).getAttribute("aria-label"),
+    ).toBe("designEditor.columnHead.comments");
+    await withFeedback.unmount();
   });
 
   it("keeps the waitlist CTA in the head while signed out", async () => {

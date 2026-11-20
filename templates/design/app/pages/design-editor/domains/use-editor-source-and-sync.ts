@@ -191,7 +191,7 @@ export function useEditorSourceAndSync({
     clearPendingLiveEditState,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
-    activeLeftPanel,
+    designLeftPanel,
     setExpandedLayerIds,
     revealLayerIds,
     selectedLayerIdsState,
@@ -1472,7 +1472,9 @@ export function useEditorSourceAndSync({
       currentSearch: location.search,
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
-      leftPanel: activeLeftPanel,
+      // Design's own tab, not Interact's chat: a reload back into Design
+      // must not land on Agent because Interact was up when it was written.
+      leftPanel: designLeftPanel,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection
@@ -1523,7 +1525,7 @@ export function useEditorSourceAndSync({
   }, [
     activeFile?.id,
     activeFileId,
-    activeLeftPanel,
+    designLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
     fileIdentityKey,

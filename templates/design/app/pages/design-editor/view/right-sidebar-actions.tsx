@@ -2,6 +2,11 @@ import { ChatBubbleIcon } from "@radix-ui/react-icons";
 import type { ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type { EditorCore } from "../domains/use-editor-core";
@@ -11,6 +16,11 @@ import type { EditorHistory } from "../domains/use-editor-history";
  * The right column head: Comments (and Apply feedback when there is any) at
  * its start, presence, publish and Share at its end. Minimal UI floats the same
  * row as an island when nothing is selected.
+ *
+ * Everything has to fit the inspector's width, down to its 240px minimum, so
+ * narrow heads drop labels into tooltips: Comments goes icon-only below 280px
+ * or beside Apply feedback, and Apply feedback shows only its count below
+ * 360px.
  */
 export function renderRightSidebarActions({
   editorCore,
@@ -18,7 +28,7 @@ export function renderRightSidebarActions({
   renderPendingNodeRewriteControl,
   publishWaitlistControl,
   presenceControl,
-  reviewFeedbackControl,
+  renderReviewFeedbackControl,
   renderShareControl,
   localPreviewRow,
   showCommentsToggle,
@@ -29,7 +39,7 @@ export function renderRightSidebarActions({
   renderPendingNodeRewriteControl: (compact: boolean) => ReactElement | null;
   publishWaitlistControl: ReactElement | null;
   presenceControl: ReactElement | null;
-  reviewFeedbackControl: ReactElement | null;
+  renderReviewFeedbackControl: (compact: boolean) => ReactElement | null;
   renderShareControl: (dense: boolean) => ReactElement | null;
   localPreviewRow: ReactElement | null;
   showCommentsToggle: boolean;
@@ -41,6 +51,49 @@ export function renderRightSidebarActions({
 
   const rightToolbarCompact = rightSidebarWidth < 320;
   const hasUnreadComments = reviewUnreadCount > 0;
+  const reviewFeedbackControl = renderReviewFeedbackControl(
+    rightSidebarWidth < 360,
+  );
+  const commentsLabelVisible =
+    rightSidebarWidth >= 280 && reviewFeedbackControl === null;
+  const commentsLabel = t("designEditor.columnHead.comments");
+
+  const commentsToggle = showCommentsToggle ? (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      data-design-comments-toggle
+      aria-pressed={commentsPanelOpen}
+      aria-label={commentsLabelVisible ? undefined : commentsLabel}
+      onClick={() => setCommentsPanelOpen((open) => !open)}
+      className={cn(
+        "design-focus-ring design-font-medium relative h-[var(--design-control-height)] min-w-0 gap-[var(--design-baseline-half)] rounded-md text-xs",
+        commentsLabelVisible
+          ? "shrink px-[var(--design-baseline-unit)]"
+          : "w-[var(--design-control-height)] shrink-0 px-0",
+        commentsPanelOpen &&
+          "bg-[var(--design-editor-active-row-color)] text-[var(--design-brand-ink)]",
+      )}
+    >
+      <ChatBubbleIcon className="design-ui-icon shrink-0" aria-hidden="true" />
+      {commentsLabelVisible ? (
+        <span className="min-w-0 truncate">{commentsLabel}</span>
+      ) : null}
+      {hasUnreadComments ? (
+        <>
+          <span
+            aria-hidden="true"
+            data-design-comments-unread-dot
+            className="absolute end-0.5 top-0.5 size-1.5 rounded-full bg-[var(--design-brand)]"
+          />
+          <span className="sr-only">
+            {t("designEditor.columnHead.unreadComments")}
+          </span>
+        </>
+      ) : null}
+    </Button>
+  ) : null;
 
   return (
     <div
@@ -51,43 +104,19 @@ export function renderRightSidebarActions({
         data-design-chrome-region="right-toolbar-actions"
         className="flex h-[var(--design-column-head-height)] min-w-0 items-center gap-[var(--design-baseline-half)] ps-[var(--design-inspector-section-padding-inline)] pe-[calc(var(--design-baseline-unit)*2)]"
       >
-        {showCommentsToggle ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            data-design-comments-toggle
-            aria-pressed={commentsPanelOpen}
-            onClick={() => setCommentsPanelOpen((open) => !open)}
-            className={cn(
-              "design-focus-ring design-font-medium relative h-[var(--design-control-height)] shrink-0 gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs",
-              commentsPanelOpen &&
-                "bg-[var(--design-editor-active-row-color)] text-[var(--design-brand-ink)]",
-            )}
-          >
-            <ChatBubbleIcon className="design-ui-icon" aria-hidden="true" />
-            {t("designEditor.columnHead.comments")}
-            {hasUnreadComments ? (
-              <>
-                <span
-                  aria-hidden="true"
-                  data-design-comments-unread-dot
-                  className="absolute end-0.5 top-0.5 size-1.5 rounded-full bg-[var(--design-brand)]"
-                />
-                <span className="sr-only">
-                  {t("designEditor.columnHead.unreadComments")}
-                </span>
-              </>
-            ) : null}
-          </Button>
-        ) : null}
+        {commentsToggle && !commentsLabelVisible ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{commentsToggle}</TooltipTrigger>
+            <TooltipContent>{commentsLabel}</TooltipContent>
+          </Tooltip>
+        ) : (
+          commentsToggle
+        )}
         {reviewFeedbackControl}
-
-        <div className="min-w-0 flex-1" />
 
         {/* Not shrink-0: the signed-out CTA ("Sign up") is a nowrap label
             wide enough to push this row past the column's edge on its own. */}
-        <div className="flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
+        <div className="ms-auto flex min-w-0 shrink items-center gap-[var(--design-baseline-half)]">
           {renderPendingNodeRewriteControl(rightToolbarCompact)}
           {hostEmbeddedEditor ? null : presenceControl}
           {!hostEmbeddedEditor || !sessionResolved || isSignedIn
