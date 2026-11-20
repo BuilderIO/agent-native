@@ -3372,7 +3372,8 @@ describe("GitHub folder freshness", () => {
     const { database } = await linkBaseFolder();
     const faq = (await liveRows(database.id)).find(
       (row) => row.sourcePath === "docs/faq.md",
-    )!;
+    );
+    if (!faq) throw new Error("docs/faq.md has no row");
     github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
     await checkedAgo(database.id, 2 * 60_000);
     const file = await as(() =>
