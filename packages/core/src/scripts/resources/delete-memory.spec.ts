@@ -94,12 +94,29 @@ describe("delete-memory", () => {
     log.mockRestore();
   });
 
+  it("prints a plain success line when nothing went wrong", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(run()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith('Deleted memory "style".');
+    log.mockRestore();
+  });
+
+  it("says when there was nothing to delete", async () => {
+    mocks.resourceDeleteByPath.mockResolvedValueOnce(false);
+    mocks.resourceGetByPath.mockResolvedValueOnce(null);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(run()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith('Memory "style" not found.');
+    log.mockRestore();
+  });
+
   it("does not swallow other delete errors", async () => {
     mocks.resourceDeleteByPath.mockRejectedValueOnce(new Error("db down"));
     await expect(run()).rejects.toThrow("db down");
   });
 
-  it("still updates the MEMORY.md index when the memory write is stale, then reports it", async () => {
+  it("reports the committed deletion and the stale index mirror before failing", async () => {
     mocks.resourcePut.mockRejectedValueOnce(
       new MemoryMirrorStaleError("stale", {
         path: "memory/MEMORY.md",
@@ -109,8 +126,13 @@ describe("delete-memory", () => {
     );
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await expect(run()).rejects.toBeInstanceOf(MemoryMirrorStaleError);
+    await expect(run()).rejects.toThrow(/cleanup was incomplete/);
     expect(mocks.resourcePut).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /Deleted memory "style".*index.*shared copy is stale: stale/,
+      ),
+    );
     log.mockRestore();
   });
 });

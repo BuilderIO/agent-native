@@ -56,6 +56,7 @@ import {
   MemoryTombstoneError,
   MemoryWriteConflictError,
   readMemoryTombstoneFloor,
+  withSharedMemoryLock,
   readMirroredMemory,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
@@ -2201,11 +2202,12 @@ function deleteMirroredMemory(
 }> {
   return serializeMemoryMirror(owner, path, async () => {
     if (precheck && !(await precheck())) return { deleted: null };
-    const { marker, leftover } = await publishDeleteTombstone(
+    const { marker, leftover: published } = await publishDeleteTombstone(
       owner,
       path,
       revisionHint,
     );
+    let leftover = published;
     let deleted: DeletedRow | null;
     try {
       deleted = await deleteRow();
@@ -2242,7 +2244,18 @@ function deleteMirroredMemory(
       const row = await selectMirrorTarget(owner, path);
       if (row) await mirrorMemoryUnlocked(row);
     } catch (error) {
-      handleMirrorFailure(error);
+      leftover ??=
+        error instanceof MemoryMirrorStaleError
+          ? error
+          : new MemoryMirrorStaleError(
+              `${path} was deleted but its shared copy could not be brought up to date`,
+              {
+                path,
+                content: "",
+                updatedAt: (deleted?.updatedAt ?? revisionHint) + 1,
+              },
+              { cause: error },
+            );
     }
     return { deleted, leftover };
   });
@@ -2475,16 +2488,18 @@ export async function resourceGetByPath(
           (shared.content !== dbResource.content &&
             (shared.mtimeMs > dbResource.updatedAt || dbIsEmptyIndex))
         ) {
-          return serializeMemoryMirror(owner, path, async () => {
-            const fresh = await readMirroredMemory(owner, path);
-            if (fresh.state === "present") {
-              return adoptSharedMemory(owner, path, fresh, dbResource);
-            }
-            const hidden =
-              fresh.state === "deleted" &&
-              (!dbResource || dbResource.updatedAt <= fresh.deletedAt);
-            return hidden ? null : (dbResource ?? null);
-          });
+          return serializeMemoryMirror(owner, path, () =>
+            withSharedMemoryLock(owner, path, async () => {
+              const fresh = await readMirroredMemory(owner, path);
+              if (fresh.state === "present") {
+                return adoptSharedMemory(owner, path, fresh, dbResource);
+              }
+              const hidden =
+                fresh.state === "deleted" &&
+                (!dbResource || dbResource.updatedAt <= fresh.deletedAt);
+              return hidden ? null : (dbResource ?? null);
+            }),
+          );
         }
       }
     }

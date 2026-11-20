@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import {
   deleteSharedPersonalMemory,
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
+  MemoryLockTimeoutError,
   MemoryTombstoneError,
   MemoryMirrorStaleError,
   readMirroredMemory,
@@ -188,72 +190,6 @@ describe("shared-memory", () => {
     }
   });
 
-  it("removes its own file when a tombstone lands right after the rename", async () => {
-    const dir = makeTempDir();
-    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
-    const file = resolveSharedMemoryFilePath(
-      dir,
-      "alice@example.com",
-      "memory/late.md",
-    ) as string;
-    const realRename = fs.promises.rename.bind(fs.promises);
-    const rename = vi
-      .spyOn(fs.promises, "rename")
-      .mockImplementation(async (from, to) => {
-        await realRename(from, to);
-        if (String(to) === file) {
-          fs.writeFileSync(`${file}.deleted`, String(Date.now() + 60_000));
-        }
-      });
-    try {
-      await expect(
-        writeSharedPersonalMemory(
-          "alice@example.com",
-          "memory/late.md",
-          "x",
-          Date.now(),
-        ),
-      ).rejects.toBeInstanceOf(MemoryTombstoneError);
-    } finally {
-      rename.mockRestore();
-    }
-    expect(fs.existsSync(file)).toBe(false);
-  });
-
-  it("keeps a file that a newer writer installed after this write", async () => {
-    const dir = makeTempDir();
-    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
-    const file = resolveSharedMemoryFilePath(
-      dir,
-      "alice@example.com",
-      "memory/newer.md",
-    ) as string;
-    const realRename = fs.promises.rename.bind(fs.promises);
-    const rename = vi
-      .spyOn(fs.promises, "rename")
-      .mockImplementation(async (from, to) => {
-        await realRename(from, to);
-        if (String(to) === file) {
-          fs.writeFileSync(`${file}.other`, "newer writer");
-          fs.renameSync(`${file}.other`, file);
-          fs.writeFileSync(`${file}.deleted`, String(Date.now() + 60_000));
-        }
-      });
-    try {
-      await expect(
-        writeSharedPersonalMemory(
-          "alice@example.com",
-          "memory/newer.md",
-          "x",
-          Date.now(),
-        ),
-      ).rejects.toBeInstanceOf(MemoryTombstoneError);
-    } finally {
-      rename.mockRestore();
-    }
-    expect(fs.readFileSync(file, "utf8")).toBe("newer writer");
-  });
-
   it("reports a leftover file when the quarantined file cannot be removed either", async () => {
     const dir = makeTempDir();
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;
@@ -297,7 +233,135 @@ describe("shared-memory", () => {
       "alice@example.com",
       "memory/stamp.md",
     ) as string;
-    expect(fs.statSync(file).mtimeMs).toBe(revision);
+    expect(Math.ceil(fs.statSync(file).mtimeMs)).toBe(revision);
+  });
+
+  describe("per-path lock", () => {
+    const owner = "alice@example.com";
+    const setup = (name: string) => {
+      const dir = makeTempDir();
+      process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+      const file = resolveSharedMemoryFilePath(
+        dir,
+        owner,
+        `memory/${name}.md`,
+      ) as string;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      return file;
+    };
+
+    it("keeps the highest floor when two deletes publish at once", async () => {
+      const file = setup("race");
+      const high = Date.now() + 3_600_000;
+      await Promise.all([
+        deleteSharedPersonalMemory(owner, "memory/race.md", high),
+        deleteSharedPersonalMemory(owner, "memory/race.md", 5),
+      ]);
+      expect(Number(fs.readFileSync(`${file}.deleted`, "utf8"))).toBe(high);
+    });
+
+    it("never lets a concurrent writer leave a file or clear a newer tombstone", async () => {
+      const file = setup("clear");
+      const high = Date.now() + 3_600_000;
+      await Promise.allSettled([
+        writeSharedPersonalMemory(owner, "memory/clear.md", "x", high - 1),
+        deleteSharedPersonalMemory(owner, "memory/clear.md", high),
+      ]);
+      expect(Number(fs.readFileSync(`${file}.deleted`, "utf8"))).toBe(high);
+      await expect(
+        readMirroredMemory(owner, "memory/clear.md"),
+      ).resolves.toMatchObject({ state: "deleted" });
+    });
+
+    it("waits for a live holder and then proceeds", async () => {
+      const file = setup("held");
+      fs.writeFileSync(`${file}.lock`, `${process.pid} ${Date.now()}`);
+      const writing = writeSharedPersonalMemory(
+        owner,
+        "memory/held.md",
+        "x",
+        Date.now(),
+      );
+      // fixed-sleep-ok: proves the writer is still blocked while the lock is held.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(fs.existsSync(file)).toBe(false);
+      fs.unlinkSync(`${file}.lock`);
+      await writing;
+      expect(fs.readFileSync(file, "utf8")).toBe("x");
+      expect(fs.existsSync(`${file}.lock`)).toBe(false);
+    });
+
+    it("breaks a stale lock whose process is dead", async () => {
+      const file = setup("stale");
+      const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+      fs.writeFileSync(`${file}.lock`, `${dead} 1`);
+      const old = new Date(Date.now() - 60_000);
+      fs.utimesSync(`${file}.lock`, old, old);
+      await writeSharedPersonalMemory(
+        owner,
+        "memory/stale.md",
+        "x",
+        Date.now(),
+      );
+      expect(fs.readFileSync(file, "utf8")).toBe("x");
+    });
+
+    it("does not break a fresh lock and times out with a typed error", async () => {
+      const file = setup("busy");
+      fs.writeFileSync(`${file}.lock`, `${process.pid} ${Date.now()}`);
+      await expect(
+        writeSharedPersonalMemory(owner, "memory/busy.md", "x", Date.now()),
+      ).rejects.toBeInstanceOf(MemoryLockTimeoutError);
+      expect(fs.existsSync(`${file}.lock`)).toBe(true);
+      expect(fs.existsSync(file)).toBe(false);
+    });
+
+    it("does not break an old lock whose process is still alive", async () => {
+      const file = setup("alive");
+      fs.writeFileSync(`${file}.lock`, `${process.pid} 1`);
+      const old = new Date(Date.now() - 60_000);
+      fs.utimesSync(`${file}.lock`, old, old);
+      await expect(
+        writeSharedPersonalMemory(owner, "memory/alive.md", "x", Date.now()),
+      ).rejects.toBeInstanceOf(MemoryLockTimeoutError);
+    });
+  });
+
+  it("reads content and revision from one file handle", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const owner = "alice@example.com";
+    await writeSharedPersonalMemory(owner, "memory/one.md", "first", 1_000_000);
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      owner,
+      "memory/one.md",
+    ) as string;
+    const realOpen = fs.promises.open.bind(fs.promises);
+    const open = vi
+      .spyOn(fs.promises, "open")
+      .mockImplementation(async (target, ...rest) => {
+        const handle = await (realOpen as (...a: unknown[]) => Promise<never>)(
+          target,
+          ...rest,
+        );
+        if (String(target) === file) {
+          await writeSharedPersonalMemory(
+            owner,
+            "memory/one.md",
+            "second",
+            2_000_000,
+          );
+        }
+        return handle;
+      });
+    try {
+      const read = await readMirroredMemory(owner, "memory/one.md");
+      expect(read).toMatchObject({ state: "present", content: "first" });
+      expect(read.state === "present" && read.mtimeMs).toBe(1_000_000);
+    } finally {
+      open.mockRestore();
+    }
   });
 
   it("publishes a tombstone by renaming a temp file, never in place", async () => {

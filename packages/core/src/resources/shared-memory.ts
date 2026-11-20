@@ -103,6 +103,9 @@ export class MemoryMirrorStaleError extends Error {
 
 export class MemoryMirrorRepairError extends Error {}
 
+/** Another process held a memory file's lock for the whole retry window. */
+export class MemoryLockTimeoutError extends Error {}
+
 /**
  * Lets a caller keep doing follow-up work after a write whose SQL row
  * committed but whose mirror is stale, then report the staleness at the end.
@@ -137,19 +140,97 @@ function resolveTombstonePath(
   return filePath ? `${filePath}.deleted` : null;
 }
 
+const LOCK_TIMEOUT_MS = 2_000;
+const LOCK_STALE_MS = 10_000;
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+async function breakStaleLock(lockPath: string): Promise<void> {
+  try {
+    const [stat, text] = await Promise.all([
+      fs.promises.stat(lockPath),
+      fs.promises.readFile(lockPath, "utf8"),
+    ]);
+    const pid = Number.parseInt(text, 10);
+    const dead = !Number.isInteger(pid) || !isProcessAlive(pid);
+    if (dead && Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+      await fs.promises.unlink(lockPath);
+    }
+  } catch (error) {
+    if (!isMissingPathError(error)) throw error;
+  }
+}
+
+async function lockFile<T>(
+  filePath: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const lockPath = `${filePath}.lock`;
+  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  for (let delay = 5; ; delay = Math.min(delay * 2, 80)) {
+    try {
+      const handle = await fs.promises.open(lockPath, "wx");
+      try {
+        await handle.writeFile(`${process.pid} ${Date.now()}`);
+      } finally {
+        await handle.close();
+      }
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    await breakStaleLock(lockPath);
+    if (Date.now() >= deadline) {
+      throw new MemoryLockTimeoutError(
+        `${path.basename(filePath)} is locked by another process`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+  try {
+    return await work();
+  } finally {
+    await fs.promises.unlink(lockPath).catch((error) => {
+      if (!isMissingPathError(error)) throw error;
+    });
+  }
+}
+
+/**
+ * Runs `work` while holding the cross-process lock for one memory path, so a
+ * check and the write that depends on it cannot interleave with another
+ * process. Without a shared directory there is nothing to lock.
+ */
+export function withSharedMemoryLock<T>(
+  owner: string,
+  resourcePath: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const rootDir = getSharedMemoryDir();
+  const filePath =
+    rootDir && resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
+  return filePath ? lockFile(filePath, work) : work();
+}
+
 async function writeAtomic(
   filePath: string,
   content: string,
   stamp?: number,
-): Promise<{ ino: number; mtimeMs: number }> {
+): Promise<void> {
   const temp = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   await fs.promises.writeFile(temp, content, "utf8");
   if (stamp !== undefined) {
     await fs.promises.utimes(temp, new Date(stamp), new Date(stamp));
   }
-  const { ino, mtimeMs } = await fs.promises.stat(temp);
   await fs.promises.rename(temp, filePath);
-  return { ino, mtimeMs };
 }
 
 async function readTombstone(tombstonePath: string): Promise<number | null> {
@@ -186,13 +267,13 @@ export async function readMirroredMemory(
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
   if (!filePath || !tombstonePath) return { state: "absent" };
+  let handle: fs.promises.FileHandle | undefined;
   try {
-    const [stat, content] = await Promise.all([
-      fs.promises.stat(filePath),
-      fs.promises.readFile(filePath, "utf8"),
-    ]);
-    const deletedAt = await readTombstone(tombstonePath);
+    handle = await fs.promises.open(filePath, "r");
+    const stat = await handle.stat();
     if (!stat.isFile()) return { state: "absent" };
+    const content = await handle.readFile("utf8");
+    const deletedAt = await readTombstone(tombstonePath);
     if (deletedAt !== null && stat.mtimeMs <= deletedAt) {
       return { state: "deleted", deletedAt };
     }
@@ -208,6 +289,8 @@ export async function readMirroredMemory(
     return deletedAt === null
       ? { state: "absent" }
       : { state: "deleted", deletedAt };
+  } finally {
+    await handle?.close();
   }
 }
 
@@ -222,33 +305,15 @@ export async function writeSharedPersonalMemory(
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
   if (!filePath || !tombstonePath) return;
-  const assertNotDeleted = async () => {
+  await lockFile(filePath, async () => {
     const deletedAt = await readTombstone(tombstonePath);
     if (deletedAt !== null && deletedAt >= revision) {
       throw new MemoryTombstoneError(
         `${resourcePath} was deleted after this revision; its shared copy was left deleted`,
       );
     }
-  };
-  await assertNotDeleted();
-  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  const written = await writeAtomic(filePath, content, revision);
-  try {
-    await assertNotDeleted();
-  } catch (error) {
-    const current = await fs.promises.stat(filePath).catch((statError) => {
-      if (isMissingPathError(statError)) return undefined;
-      throw statError;
-    });
-    if (current?.ino === written.ino && current.mtimeMs === written.mtimeMs) {
-      await fs.promises.unlink(filePath).catch((unlinkError) => {
-        if (!isMissingPathError(unlinkError)) throw unlinkError;
-      });
-    }
-    throw error;
-  }
-  await fs.promises.unlink(tombstonePath).catch((error) => {
-    if (!isMissingPathError(error)) throw error;
+    await writeAtomic(filePath, content, revision);
+    if (deletedAt !== null) await fs.promises.unlink(tombstonePath);
   });
 }
 
@@ -261,33 +326,34 @@ export async function deleteSharedPersonalMemory(
   if (!rootDir) return 0;
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   if (!filePath) return 0;
-  await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  const fileStat = await fs.promises.stat(filePath).catch((error) => {
-    if (!isMissingPathError(error)) throw error;
-    return null;
-  });
-  const existing = await readTombstone(`${filePath}.deleted`);
-  const deletedAt = Math.max(
-    Date.now(),
-    existing ?? 0,
-    revisionFloor,
-    fileStat ? Math.floor(fileStat.mtimeMs) + 1 : 0,
-  );
-  await writeAtomic(`${filePath}.deleted`, String(deletedAt));
-  try {
-    await fs.promises.unlink(filePath);
-  } catch (error) {
-    if (!isMissingPathError(error)) {
-      await quarantineSharedFile(filePath).catch((quarantineError) => {
-        throw new MemoryMirrorStaleError(
-          `${resourcePath} was deleted but its shared file could not be removed; the leftover file stays readable outside the app`,
-          { path: resourcePath, content: "", updatedAt: deletedAt },
-          { cause: new AggregateError([error, quarantineError]) },
-        );
-      });
+  return lockFile(filePath, async () => {
+    const fileStat = await fs.promises.stat(filePath).catch((error) => {
+      if (!isMissingPathError(error)) throw error;
+      return null;
+    });
+    const existing = await readTombstone(`${filePath}.deleted`);
+    const deletedAt = Math.max(
+      Date.now(),
+      existing ?? 0,
+      revisionFloor,
+      fileStat ? Math.floor(fileStat.mtimeMs) + 1 : 0,
+    );
+    await writeAtomic(`${filePath}.deleted`, String(deletedAt));
+    try {
+      await fs.promises.unlink(filePath);
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        await quarantineSharedFile(filePath).catch((quarantineError) => {
+          throw new MemoryMirrorStaleError(
+            `${resourcePath} was deleted but its shared file could not be removed; the leftover file stays readable outside the app`,
+            { path: resourcePath, content: "", updatedAt: deletedAt },
+            { cause: new AggregateError([error, quarantineError]) },
+          );
+        });
+      }
     }
-  }
-  return deletedAt;
+    return deletedAt;
+  });
 }
 
 async function quarantineSharedFile(filePath: string): Promise<void> {
@@ -331,13 +397,13 @@ export async function clearSharedMemoryTombstone(
   if (!rootDir) return false;
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   if (!filePath) return false;
-  if ((await readTombstone(`${filePath}.deleted`)) !== expectedDeletedAt) {
-    return false;
-  }
-  await fs.promises.unlink(`${filePath}.deleted`).catch((error) => {
-    if (!isMissingPathError(error)) throw error;
+  return lockFile(filePath, async () => {
+    if ((await readTombstone(`${filePath}.deleted`)) !== expectedDeletedAt) {
+      return false;
+    }
+    await fs.promises.unlink(`${filePath}.deleted`);
+    return true;
   });
-  return true;
 }
 
 export async function listSharedPersonalMemories(

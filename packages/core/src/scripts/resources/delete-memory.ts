@@ -70,7 +70,15 @@ export default async function deleteMemoryScript(
     indexError = error instanceof Error ? error.message : String(error);
   }
 
-  if (indexError === undefined) stale.finish();
+  let indexStale: string | undefined;
+  if (indexError === undefined) {
+    try {
+      stale.finish();
+    } catch (error) {
+      if (!(error instanceof MemoryMirrorStaleError)) throw error;
+      indexStale = error.message;
+    }
+  }
 
   const subject = deleted
     ? `Deleted memory "${name}"`
@@ -81,6 +89,11 @@ export default async function deleteMemoryScript(
   }
   if (indexError !== undefined) {
     problems.push(`the MEMORY.md index could not be updated: ${indexError}`);
+  }
+  if (indexStale !== undefined) {
+    problems.push(
+      `the MEMORY.md index was updated but its shared copy is stale: ${indexStale}`,
+    );
   }
   if (problems.length > 0) {
     console.log(`${subject}, but ${problems.join(", and ")}`);

@@ -78,6 +78,26 @@ afterEach(async () => {
   }
 });
 
+function afterFileRead(file: string, hook: () => void | Promise<void>) {
+  const realOpen = fs.promises.open.bind(fs.promises);
+  return vi
+    .spyOn(fs.promises, "open")
+    .mockImplementation(async (target, ...rest) => {
+      const handle = await (realOpen as (...a: unknown[]) => Promise<never>)(
+        target,
+        ...rest,
+      );
+      if (String(target) !== file) return handle;
+      const realRead = handle.readFile.bind(handle);
+      handle.readFile = (async (...args: Parameters<typeof realRead>) => {
+        const content = await realRead(...args);
+        await hook();
+        return content;
+      }) as typeof handle.readFile;
+      return handle;
+    });
+}
+
 describe("personal memory shared across local apps", () => {
   it("mirrors writes and deletes of personal memory into the shared directory", async () => {
     const dir = useMemoryDir();
@@ -1142,18 +1162,9 @@ describe("personal memory shared across local apps", () => {
       const dir = useMemoryDir();
       const { resourceGetByPath } = await import("./store.js");
       const file = writeSharedFile(dir, "mid-read.md", "late file");
-      const realRead = fs.promises.readFile.bind(fs.promises);
-      const read = vi
-        .spyOn(fs.promises, "readFile")
-        .mockImplementation(async (target, ...rest) => {
-          const content = await (
-            realRead as (...a: unknown[]) => Promise<never>
-          )(target, ...rest);
-          if (String(target) === file) {
-            fs.writeFileSync(`${file}.deleted`, String(Date.now() + 60_000));
-          }
-          return content;
-        });
+      const read = afterFileRead(file, () => {
+        fs.writeFileSync(`${file}.deleted`, String(Date.now() + 60_000));
+      });
       try {
         await expect(
           resourceGetByPath(OWNER, "memory/mid-read.md"),
@@ -1177,7 +1188,9 @@ describe("personal memory shared across local apps", () => {
       const unlink = vi
         .spyOn(fs.promises, "unlink")
         .mockImplementation(async (target) => {
-          if (String(target) === file) throw new Error("EBUSY");
+          if (String(target) === file && fs.existsSync(file)) {
+            throw new Error("EBUSY");
+          }
           return realUnlink(target);
         });
       const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1255,9 +1268,10 @@ describe("personal memory shared across local apps", () => {
       expect(fs.readFileSync(tombstone, "utf8")).toBe(newer);
     });
 
-    it("reports a committed delete as done when the follow-up repair fails", async () => {
+    it("reports a stale mirror when the follow-up repair fails after the delete committed", async () => {
       useMemoryDir();
       const { resourceDeleteByPath, resourcePut } = await import("./store.js");
+      const { MemoryMirrorStaleError } = await import("./shared-memory.js");
       await resourcePut(OWNER, "memory/after.md", "x");
       const restore = beforeStatement(/^DELETE FROM resources/, async () => {
         const deleting = sharedClient.execute;
@@ -1274,7 +1288,7 @@ describe("personal memory shared across local apps", () => {
       try {
         await expect(
           resourceDeleteByPath(OWNER, "memory/after.md"),
-        ).resolves.toBe(true);
+        ).rejects.toBeInstanceOf(MemoryMirrorStaleError);
       } finally {
         restore();
         log.mockRestore();
@@ -1350,11 +1364,12 @@ describe("personal memory shared across local apps", () => {
       ).resolves.toMatchObject({ content: "edited elsewhere" });
     });
 
-    it("reports an autocommit delete as done and emits the event when the restamp fails", async () => {
+    it("emits the event and reports a stale mirror when the autocommit restamp fails", async () => {
       useMemoryDir();
       const { resourceDelete, resourceGetByPath, resourcePut } =
         await import("./store.js");
       const { getResourcesEmitter } = await import("./emitter.js");
+      const { MemoryMirrorStaleError } = await import("./shared-memory.js");
       const stored = await resourcePut(OWNER, "memory/auto.md", "x");
       const realRename = fs.promises.rename.bind(fs.promises);
       let tombstones = 0;
@@ -1371,7 +1386,9 @@ describe("personal memory shared across local apps", () => {
       const onEvent = (event: unknown) => events.push(event);
       getResourcesEmitter().on("resources", onEvent);
       try {
-        await expect(resourceDelete(stored.id)).resolves.toBe(true);
+        await expect(resourceDelete(stored.id)).rejects.toBeInstanceOf(
+          MemoryMirrorStaleError,
+        );
       } finally {
         getResourcesEmitter().off("resources", onEvent);
         rename.mockRestore();
@@ -1428,20 +1445,12 @@ describe("personal memory shared across local apps", () => {
       const { resourceGetByPath } = await import("./store.js");
       const { deleteSharedPersonalMemory } = await import("./shared-memory.js");
       const file = writeSharedFile(dir, "race-adopt.md", "doomed");
-      const realRead = fs.promises.readFile.bind(fs.promises);
       let fired = false;
-      const read = vi
-        .spyOn(fs.promises, "readFile")
-        .mockImplementation(async (target, ...rest) => {
-          const content = await (
-            realRead as (...a: unknown[]) => Promise<never>
-          )(target, ...rest);
-          if (!fired && String(target) === file) {
-            fired = true;
-            await deleteSharedPersonalMemory(OWNER, "memory/race-adopt.md");
-          }
-          return content;
-        });
+      const read = afterFileRead(file, async () => {
+        if (fired) return;
+        fired = true;
+        await deleteSharedPersonalMemory(OWNER, "memory/race-adopt.md");
+      });
       try {
         await expect(
           resourceGetByPath(OWNER, "memory/race-adopt.md"),
