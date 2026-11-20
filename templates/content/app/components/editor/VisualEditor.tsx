@@ -1969,6 +1969,7 @@ interface VisualEditorProps {
   onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
+  emptyDocumentPlaceholder?: string | null;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
@@ -2345,6 +2346,7 @@ interface VisualEditorExtensionOptions {
   referenceDepth?: number;
   drawDiagrams?: boolean;
   emptyBlockPlaceholder?: string;
+  emptyDocumentPlaceholder?: () => string | null;
   onMediaSourceCommitted?: (
     editor: CoreEditor,
     transaction: Transaction,
@@ -3050,18 +3052,20 @@ function getVisualEditorPlaceholder({
 
 const VisualEditorPlaceholder = Extension.create<{
   emptyBlockPlaceholder: string;
+  emptyDocumentPlaceholder?: () => string | null;
 }>({
   name: "visualEditorPlaceholder",
 
   addOptions() {
     return {
       emptyBlockPlaceholder: DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+      emptyDocumentPlaceholder: undefined,
     };
   },
 
   addProseMirrorPlugins() {
     const editor = this.editor;
-    const { emptyBlockPlaceholder } = this.options;
+    const { emptyBlockPlaceholder, emptyDocumentPlaceholder } = this.options;
 
     return [
       new Plugin({
@@ -3069,6 +3073,21 @@ const VisualEditorPlaceholder = Extension.create<{
         props: {
           decorations: ({ doc, selection }) => {
             if (!editor.isEditable) return DecorationSet.empty;
+
+            const documentPlaceholder = emptyDocumentPlaceholder?.();
+            const firstBlock = doc.firstChild;
+            if (
+              documentPlaceholder &&
+              editor.isEmpty &&
+              firstBlock?.type.name === "paragraph"
+            ) {
+              return DecorationSet.create(doc, [
+                Decoration.node(0, firstBlock.nodeSize, {
+                  class: "is-empty is-editor-empty is-new-page-empty",
+                  "data-placeholder": documentPlaceholder,
+                }),
+              ]);
+            }
 
             const { $anchor } = selection;
             let node = $anchor.parent;
@@ -3397,6 +3416,7 @@ export function createVisualEditorExtensions({
   referenceDepth = 0,
   drawDiagrams = true,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+  emptyDocumentPlaceholder,
   onMediaSourceCommitted,
   findCommentQuote,
   analyticsChartPaste,
@@ -3429,6 +3449,7 @@ export function createVisualEditorExtensions({
       drawDiagrams ? DrawingCodeBlock : CodeBlock,
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
+        emptyDocumentPlaceholder,
       }),
       Link.configure({
         openOnClick: false,
@@ -3882,6 +3903,7 @@ export function VisualEditor({
   onInitialSelectionApplied,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
+  emptyDocumentPlaceholder = null,
   onJoinTitle,
   onOpenNotionPageLink,
   resolveNotionPageLink,
@@ -4296,6 +4318,11 @@ export function VisualEditor({
   onEscapeRef.current = onEscape;
   const onImportFilesRef = useRef(onImportFiles);
   onImportFilesRef.current = onImportFiles;
+  const emptyDocumentPlaceholderRef = useRef(emptyDocumentPlaceholder);
+  const getEmptyDocumentPlaceholder = useCallback(
+    () => emptyDocumentPlaceholderRef.current,
+    [],
+  );
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -4318,6 +4345,7 @@ export function VisualEditor({
         referenceDepth,
         drawDiagrams,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
+        emptyDocumentPlaceholder: getEmptyDocumentPlaceholder,
         onMediaSourceCommitted,
         findCommentQuote,
         analyticsChartPaste: getAnalyticsChartPasteContext,
@@ -4400,6 +4428,7 @@ export function VisualEditor({
       referenceDepth,
       drawDiagrams,
       t,
+      getEmptyDocumentPlaceholder,
       onMediaSourceCommitted,
       findCommentQuote,
       getAnalyticsChartPasteContext,
@@ -5027,6 +5056,16 @@ export function VisualEditor({
     );
     return () => onSuggestionPlacementsChange(null);
   }, [editor, onSuggestionPlacementsChange]);
+
+  useEffect(() => {
+    emptyDocumentPlaceholderRef.current = emptyDocumentPlaceholder;
+    if (editor.isDestroyed) return;
+    editor.view.dispatch(
+      editor.state.tr
+        .setMeta("addToHistory", false)
+        .setMeta("visualEditorPlaceholder", emptyDocumentPlaceholder),
+    );
+  }, [editor, emptyDocumentPlaceholder]);
 
   useEffect(() => {
     if (!editor) {
