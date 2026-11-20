@@ -1,5 +1,10 @@
 import { ActionContractError } from "@agent-native/core/action";
 import { getDbExec, type DbExec } from "@agent-native/core/db";
+import type { OrgRole } from "@agent-native/core/org";
+import {
+  canManageOrg,
+  orgRoleAtLeast,
+} from "@agent-native/core/org/permissions";
 import { readOrgMemberRole } from "@agent-native/core/server";
 import {
   getRequestContext,
@@ -47,6 +52,30 @@ type ContentOrganizationMembership = {
   identityAuthority: unknown;
   identityId: unknown;
 };
+
+function asOrgRole(role: string): OrgRole | null {
+  return role === "owner" || role === "admin" || role === "member"
+    ? role
+    : null;
+}
+
+/**
+ * The role an organization member holds in its organization space. Managing
+ * the space (folder sources, imports, Trash purges) is managing the
+ * organization, so it takes the framework's organization-admin check, as the
+ * other apps' organization settings do. Pages in the space stay on framework
+ * sharing: no organization role opens a private page.
+ */
+export function contentSpaceRoleForOrgRole(role: string): ContentSpaceRole {
+  const orgRole = asOrgRole(role);
+  if (orgRole === "owner") return "owner";
+  return canManageOrg(orgRole) ? "editor" : "viewer";
+}
+
+/** Whether an organization member can add pages to its organization space. */
+export function canContributeToOrgSpace(role: string): boolean {
+  return orgRoleAtLeast(asOrgRole(role), "member");
+}
 
 export function normalizeContentSpaceEmail(email: string): string {
   const normalized = email.trim().toLowerCase();
@@ -332,17 +361,10 @@ export async function resolveContentSpaceAccess(
       errorCode: "SPACE_NOT_FOUND",
       statusCode: 404,
     });
-  const role: ContentSpaceRole =
-    membership.role === "owner"
-      ? "owner"
-      : membership.role === "admin"
-        ? "editor"
-        : "viewer";
+  const role = contentSpaceRoleForOrgRole(membership.role);
   if (
     requiredRole === "contributor" &&
-    membership.role !== "owner" &&
-    membership.role !== "admin" &&
-    membership.role !== "member"
+    !canContributeToOrgSpace(membership.role)
   ) {
     throw new ActionContractError(
       "Contributor access is required for this Content space.",

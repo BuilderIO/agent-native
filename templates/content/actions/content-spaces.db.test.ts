@@ -971,6 +971,41 @@ describe("Content space provisioning", () => {
     );
   });
 
+  it("gives organization-space management to organization owners and admins only", async () => {
+    const orgId = "org-space-roles";
+    const people = {
+      owner: "space-roles-owner@example.com",
+      admin: "space-roles-admin@example.com",
+      member: "space-roles-member@example.com",
+    } as const;
+    await addOrganization(orgId, "Space Roles", people.owner);
+    for (const [role, email] of Object.entries(people)) {
+      await addMember(`space-roles-${role}`, orgId, email, role);
+    }
+    await runWithRequestContext({ userEmail: people.owner }, () =>
+      provisionContentSpaces(getDb(), people.owner),
+    );
+    const spaceId = organizationContentSpaceId(orgId);
+
+    for (const [orgRole, spaceRole, canManage] of [
+      ["owner", "owner", true],
+      ["admin", "editor", true],
+      ["member", "viewer", false],
+    ] as const) {
+      await runWithRequestContext({ userEmail: people[orgRole] }, async () => {
+        await expect(
+          resolveContentSpaceAccess(spaceId, "contributor"),
+        ).resolves.toMatchObject({ role: spaceRole });
+        const manage = resolveContentSpaceAccess(spaceId, "editor");
+        if (canManage) {
+          await expect(manage).resolves.toMatchObject({ role: spaceRole });
+        } else {
+          await expect(manage).rejects.toMatchObject({ statusCode: 403 });
+        }
+      });
+    }
+  });
+
   // Favorites tests share a fixture because the database is created once
   // for the whole file.
   let orgFavorites:

@@ -1379,6 +1379,90 @@ describe("Content Files membership reconciliation", () => {
       );
   });
 
+  it("leaves another member's private legacy page for its owner to file, even when an organization admin reconciles", async () => {
+    const orgId = "files-admin-org";
+    const admin = "files-org-admin@example.com";
+    const member = "files-private-member@example.com";
+    const pageId = "member-private-legacy-org";
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [orgId, "Admin Org", admin, Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5), ($6, $2, $7, $8, $5)",
+      args: [
+        "files-admin-org-admin",
+        orgId,
+        admin,
+        "admin",
+        Date.now(),
+        "files-admin-org-member",
+        member,
+        "member",
+      ],
+    });
+    for (const email of [admin, member]) {
+      await runWithRequestContext({ userEmail: email }, () =>
+        provisionContentSpaces(getDb(), email),
+      );
+    }
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: pageId,
+      ownerEmail: member,
+      orgId,
+      spaceId: null,
+      title: "Member's private page",
+      content: "",
+      description: "",
+      position: 0,
+      isFavorite: 0,
+      hideFromSearch: 0,
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const spaceId = organizationContentSpaceId(orgId);
+    const filesDatabase = await getFilesDatabase(spaceId);
+    const readPage = async () => {
+      const [page] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, pageId));
+      return page;
+    };
+    const readFilesItems = () =>
+      getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
+            eq(schema.contentDatabaseItems.documentId, pageId),
+          ),
+        );
+
+    await runWithRequestContext({ userEmail: admin }, () =>
+      reconcileContentFilesMemberships(getDb(), admin),
+    );
+    await expect(readPage()).resolves.toMatchObject({ spaceId: null });
+    await expect(readFilesItems()).resolves.toHaveLength(0);
+
+    await runWithRequestContext({ userEmail: member }, () =>
+      reconcileContentFilesMemberships(getDb(), member),
+    );
+    await expect(readPage()).resolves.toMatchObject({ spaceId });
+    await expect(readFilesItems()).resolves.toHaveLength(1);
+
+    await runWithRequestContext({ userEmail: admin }, () =>
+      reconcileContentFilesMemberships(getDb(), admin),
+    );
+    await expect(readFilesItems()).resolves.toHaveLength(1);
+    await getDb()
+      .delete(schema.documents)
+      .where(eq(schema.documents.id, pageId));
+  });
+
   it("assigns personal and organization legacy pages to their canonical Files databases", async () => {
     await createLegacyDocument({
       id: "legacy-personal",
