@@ -1,9 +1,12 @@
+import type { PartSet } from "./parts.js";
 import type { DesignSystemTheme } from "./theme.js";
 import type { DesignSystemComponents } from "./types.js";
 
 export interface DesignSystemDefinition {
   name?: string;
   components?: Partial<DesignSystemComponents>;
+  /** Markup for model-drawn parts; omitted parts use toolkit's own. */
+  parts?: PartSet;
   theme?: DesignSystemTheme;
 }
 
