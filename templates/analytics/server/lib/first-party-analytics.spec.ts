@@ -2389,6 +2389,7 @@ describe("queryFirstPartyAnalytics", () => {
       analytics_content_items: "postgres",
       analytics_content_metric_snapshots: "postgres",
       analytics_content_collection_runs: "postgres",
+      analytics_content_search_queries: "postgres",
     });
     expect(firstPartyAnalyticsTableBackends("bigquery")).toEqual({
       analytics_events: "bigquery",
@@ -2398,6 +2399,7 @@ describe("queryFirstPartyAnalytics", () => {
       analytics_content_items: "postgres",
       analytics_content_metric_snapshots: "postgres",
       analytics_content_collection_runs: "postgres",
+      analytics_content_search_queries: "postgres",
     });
   });
 
