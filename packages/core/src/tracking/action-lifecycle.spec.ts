@@ -297,5 +297,30 @@ describe("action lifecycle tracking", () => {
 
       expect(kinds(events)).toEqual(["write", "write"]);
     });
+
+    it("labels a call from a copy of its arguments, leaving the handler's own", async () => {
+      const events = captureEvents();
+      const received: number[] = [];
+      const reschedule = defineAction({
+        description: "Reschedule a reminder.",
+        schema: z.object({ at: z.date() }),
+        automatic: (input) => {
+          input.at.setTime(0);
+          return true;
+        },
+        run: async (args) => {
+          received.push(args.at.getTime());
+          return { ok: true };
+        },
+      });
+
+      await reschedule.run(
+        { at: new Date(1_000) },
+        { ...context, actionName: "reschedule-reminder" },
+      );
+
+      expect(received).toEqual([1_000]);
+      expect(kinds(events)).toEqual(["automatic", "automatic"]);
+    });
   });
 });

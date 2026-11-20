@@ -1886,6 +1886,10 @@ export function defineAction(options: any) {
         options.description,
       )
     : undefined;
+  const classificationEntry = {
+    ...(readOnly !== undefined ? { readOnly } : {}),
+    ...(options.planMode !== undefined ? { planMode: options.planMode } : {}),
+  };
   // Runs inside input validation, so a call is classified from the arguments
   // `run` receives, defaults applied, and inside audit and tracking, so an
   // invalid call is still recorded as a failed run.
@@ -1896,7 +1900,7 @@ export function defineAction(options: any) {
     const prepared = takePreparedClassification(ctx, args, executionKey);
     const callReadOnly = prepared
       ? prepared.readOnly
-      : actionCallReadOnly({ readOnly, planMode: options.planMode }, args);
+      : actionCallReadOnly(classificationEntry, args);
     const frame = ownFrame();
     if (frame) {
       frame.writes = callReadOnly !== true;
@@ -2008,11 +2012,32 @@ export function defineAction(options: any) {
     typeof options.automatic === "function"
       ? options.automatic
       : undefined;
-  const actionKind = (args: unknown): AgentNativeActionKind => {
-    if (actionCallReadOnly({ readOnly, planMode: options.planMode }, args)) {
-      return "read";
+  const actionKind = (
+    args: unknown,
+    ctx: ActionRunContext,
+  ): AgentNativeActionKind => {
+    const prepared = preparedRunFor(ctx, args);
+    const intent = prepared?.key === executionKey ? prepared.intent : undefined;
+    const copy = () =>
+      intent
+        ? preparedCallArguments(intent)
+        : copyActionArguments(snapshotActionArguments(args).value);
+    try {
+      const callReadOnly = intent
+        ? intent.readOnly
+        : options.planMode !== undefined &&
+          actionCallReadOnly(classificationEntry, copy());
+      if (callReadOnly === true) return "read";
+      return actionCallIsAutomatic(
+        { automatic },
+        typeof automatic === "function" ? copy() : args,
+      )
+        ? "automatic"
+        : "write";
+    } catch {
+      // coercion-ok: arguments with no exact copy stay counted as a write.
+      return "write";
     }
-    return actionCallIsAutomatic({ automatic }, args) ? "automatic" : "write";
   };
   const trackingOptions = {
     includeOutputId: options.persistInChatHistory !== false,
