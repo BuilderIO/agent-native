@@ -7,7 +7,7 @@ export function Status() {
       <Badge variant="soft" color="gray">
         Draft
       </Badge>
-      <Badge variant="solid" color="danger" size="xs">
+      <Badge variant="solid" color="danger">
         Failed
       </Badge>
       <Badge variant="outline" color="gray" className="font-mono">

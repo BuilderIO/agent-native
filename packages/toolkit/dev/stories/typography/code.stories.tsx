@@ -38,7 +38,6 @@ export const Variants: Story = {
             {COLORS.map((color) => (
               <Code
                 key={color}
-                size="2"
                 variant={variant}
                 color={color}
                 highContrast={highContrast}
@@ -53,19 +52,6 @@ export const Variants: Story = {
           </div>
         )),
       )}
-    </div>
-  ),
-};
-
-/** Steps of the type scale; unset, code follows the text around it. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col items-start gap-2">
-      {codeProps.size.values.map((size) => (
-        <Code key={size} size={size}>
-          size {size}
-        </Code>
-      ))}
     </div>
   ),
 };
@@ -96,9 +82,7 @@ export const TruncateAndWrap: Story = {
   render: () => (
     <div className="flex w-72 flex-col gap-4">
       <div className="flex">
-        <Code size="2" truncate>
-          {LONG_SAMPLE}
-        </Code>
+        <Code truncate>{LONG_SAMPLE}</Code>
       </div>
       {codeProps.wrap.values.map((wrap) => (
         <div key={wrap} className="flex flex-col gap-1">

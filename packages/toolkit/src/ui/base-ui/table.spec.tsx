@@ -38,17 +38,16 @@ function Runs(props: TableProps) {
 }
 
 describe("Table part", () => {
-  it("writes its size, variant and layout, size 2 ghost auto by default", () => {
+  it("writes its variant and layout, ghost auto by default", () => {
     render(<Runs />);
     const root = screen.getByTestId("root");
     expect(root.className).toBe("table-root");
-    expect(root.dataset.size).toBe("2");
     expect(root.dataset.variant).toBe("ghost");
     expect(root.dataset.layout).toBe("auto");
   });
 
   it("holds a native table that scrolls inside its frame", () => {
-    render(<Runs size="1" variant="surface" layout="fixed" />);
+    render(<Runs variant="surface" layout="fixed" />);
     const root = screen.getByTestId("root");
     expect(root.dataset.variant).toBe("surface");
     const table = screen.getByRole("table");

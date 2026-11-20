@@ -37,9 +37,7 @@ function DensityHeader({ density }: { density: string }) {
     <span className="flex items-center gap-1">
       {density}
       {stage?.density === density ? (
-        <Badge size="xs" variant="soft">
-          Current
-        </Badge>
+        <Badge variant="soft">Current</Badge>
       ) : null}
     </span>
   );

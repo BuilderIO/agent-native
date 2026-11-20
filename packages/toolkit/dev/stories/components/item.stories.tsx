@@ -64,24 +64,6 @@ type Story = StoryObj<typeof meta>;
 /** One row with the props from the controls. */
 export const Playground: Story = {};
 
-/** Size 1 is the compact row, 2 the standard one. */
-export const Sizes: Story = {
-  render: () => (
-    <ItemGroup variant="outline">
-      {itemProps.size.values.map((size) => (
-        <Item key={size} size={size}>
-          <ItemMedia framed>
-            <IconKey />
-          </ItemMedia>
-          <ItemContent>
-            <ItemTitle>Size {size}</ItemTitle>
-          </ItemContent>
-        </Item>
-      ))}
-    </ItemGroup>
-  ),
-};
-
 /** A row on its own in each variant, then each group variant. */
 export const Variants: Story = {
   render: () => (
@@ -100,9 +82,9 @@ export const Variants: Story = {
           <ItemGroupLabel>Group, {variant}</ItemGroupLabel>
           <ItemGroup variant={variant} role="list">
             {["Ada Lovelace", "Charles Babbage"].map((name) => (
-              <Item key={name} size="1" role="listitem">
+              <Item key={name} role="listitem">
                 <ItemMedia>
-                  <Avatar size="sm" color="gray">
+                  <Avatar color="gray">
                     <AvatarFallback>
                       {name
                         .split(" ")

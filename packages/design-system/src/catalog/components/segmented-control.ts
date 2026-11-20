@@ -1,10 +1,4 @@
-import {
-  enumProp,
-  radiusProp,
-  CONTROL_SIZES,
-  sizeProp,
-  variantProp,
-} from "../props.js";
+import { radiusProp, CONTROL_SIZES, sizeProp, variantProp } from "../props.js";
 
 /** Radix Themes' segmented control: one choice among a few, in one track. */
 export const segmentedControlProps = {

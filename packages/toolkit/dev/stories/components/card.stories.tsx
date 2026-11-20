@@ -41,19 +41,6 @@ type Story = StoryObj<typeof meta>;
 /** The card with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 5 pad the card 8, 12, 16, 24 and 32px. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-3">
-      {cardProps.size.values.map((size) => (
-        <Card key={size} size={size}>
-          <Summary title={`Size ${size}`} />
-        </Card>
-      ))}
-    </div>
-  ),
-};
-
 /**
  * Surface on the raised surface with a hairline; ghost with no frame, its
  * content lined up with the text around it.
@@ -97,30 +84,23 @@ export const States: Story = {
   ),
 };
 
-/**
- * Media in an Inset runs to the card's edge and takes its corners, at
- * every size.
- */
+/** Media in an Inset runs to the card's edge and takes its corners. */
 export const WithInset: Story = {
   render: () => (
-    <div className="flex flex-col gap-3">
-      {(["1", "3", "5"] as const).map((size) => (
-        <Card key={size} size={size}>
-          <div className="flex flex-col gap-3">
-            <Inset side="top">
-              <div
-                className="h-28"
-                style={{ background: "var(--gradient-brand)" }}
-              />
-            </Inset>
-            <div className="flex items-center justify-between">
-              <Summary title={`Size ${size}`} />
-              <Badge color="success">Done</Badge>
-            </div>
-          </div>
-        </Card>
-      ))}
-    </div>
+    <Card>
+      <div className="flex flex-col gap-3">
+        <Inset side="top">
+          <div
+            className="h-28"
+            style={{ background: "var(--gradient-brand)" }}
+          />
+        </Inset>
+        <div className="flex items-center justify-between">
+          <Summary title="Weekly report" />
+          <Badge color="success">Done</Badge>
+        </div>
+      </div>
+    </Card>
   ),
 };
 

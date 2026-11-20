@@ -1,12 +1,7 @@
-import { booleanProp, enumProp, variantProp } from "../props.js";
+import { booleanProp, variantProp } from "../props.js";
 
 /** Not in Radix Themes: a row in a list, its size the row's padding. */
 export const itemProps = {
-  size: enumProp(
-    ["1", "2"],
-    "Padding: 1 is the compact row, 2 the standard one.",
-    "2",
-  ),
   variant: variantProp(["ghost", "outline", "soft"], "ghost"),
 } as const;
 

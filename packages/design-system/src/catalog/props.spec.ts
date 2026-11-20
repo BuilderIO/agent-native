@@ -14,7 +14,7 @@ import {
   propAttribute,
   propAttributes,
   RADII,
-  SIZES,
+  CONTROL_SIZES,
   sizeProp,
   TEXT_SIZES,
   VARIANTS,
@@ -61,7 +61,7 @@ describe("the catalog's props", () => {
     variant: VARIANTS,
     color: COLORS,
     radius: RADII,
-    size: [...TEXT_SIZES, ...SIZES],
+    size: [...TEXT_SIZES, ...CONTROL_SIZES],
   };
   const defsOf = (part: (typeof PARTS)[number]) => [
     ...(part.props ? [["", part.props] as const] : []),

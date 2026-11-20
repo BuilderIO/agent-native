@@ -8,7 +8,7 @@ import { Switch } from "./switch.js";
 afterEach(cleanup);
 
 describe("Switch part", () => {
-  it("renders the part with Base UI's state attributes, size 3 surface by default", () => {
+  it("renders the part with Base UI's state attributes, surface by default", () => {
     render(<Switch aria-label="Sync" defaultChecked />);
     const control = screen.getByRole("switch", { name: "Sync" });
     expect(control.classList.contains("switch")).toBe(true);

@@ -70,7 +70,7 @@ describe("Menubar on Base UI", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 
-  it("draws its menus as size 3 soft gray by default, and takes item colors", async () => {
+  it("draws its menus as soft gray by default, and takes item colors", async () => {
     render(
       <Menubar aria-label="Editor">
         <MenubarMenu>
@@ -86,7 +86,6 @@ describe("Menubar on Base UI", () => {
     );
     const menu = await screen.findByRole("menu");
     expect(menu.dataset).toMatchObject({
-      size: "md",
       variant: "soft",
       color: "gray",
     });

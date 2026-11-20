@@ -10,7 +10,7 @@ import { Toggle, type ToggleProps } from "./toggle.js";
 afterEach(cleanup);
 
 describe("Toggle part", () => {
-  it("writes its size and variant, size 3 ghost by default, inheriting its color", () => {
+  it("writes its size and variant, size md ghost by default, inheriting its color", () => {
     render(<Toggle aria-label="Bold" />);
     const toggle = screen.getByRole("button", { name: "Bold" });
     expect(toggle.dataset.size).toBe("md");
@@ -100,10 +100,10 @@ describe("Toggle part", () => {
 });
 
 describe("Badge and Spinner parts", () => {
-  it("writes a badge's color, variant and size, and takes render", () => {
+  it("writes a badge's color and variant, and takes render", () => {
     render(
       <>
-        <Badge color="success" variant="solid" size="xs">
+        <Badge color="success" variant="solid">
           Live
         </Badge>
         <Badge render={<a href="/drafts" />}>Draft</Badge>
@@ -113,23 +113,20 @@ describe("Badge and Spinner parts", () => {
     expect(live.className).toBe("badge");
     expect(live.dataset.color).toBe("success");
     expect(live.dataset.variant).toBe("solid");
-    expect(live.dataset.size).toBe("xs");
     const draft = screen.getByText("Draft");
     expect(draft.tagName).toBe("A");
     expect(draft.dataset.variant).toBe("soft");
-    expect(draft.dataset.size).toBe("sm");
   });
 
   it("hides a spinner without a label, and announces one with it", () => {
     const { container } = render(
       <>
         <Spinner />
-        <Spinner label="Saving" size="sm" />
+        <Spinner label="Saving" />
       </>,
     );
     const spinners = container.querySelectorAll(".spinner");
     expect(spinners[0]?.getAttribute("aria-hidden")).toBe("true");
-    const announced = screen.getByRole("status", { name: "Saving" });
-    expect(announced.dataset.size).toBe("sm");
+    expect(screen.getByRole("status", { name: "Saving" })).toBeTruthy();
   });
 });

@@ -28,7 +28,7 @@ function scrub(movementX: number) {
 }
 
 describe("Number Field part", () => {
-  it("draws Input's frame at size 3 surface by default, with the input bare inside it", () => {
+  it("draws Input's frame at surface by default, with the input bare inside it", () => {
     render(<NumberField aria-label="Quantity" defaultValue={2} />);
     const input = screen.getByRole("textbox", { name: "Quantity" });
     expect(input.classList.contains("input-control")).toBe(true);
@@ -40,7 +40,7 @@ describe("Number Field part", () => {
     expect(frame?.dataset.color).toBeUndefined();
   });
 
-  it("writes size, variant, color and radius on the frame, with its class and style", () => {
+  it("writes variant, color and radius on the frame, with its class and style", () => {
     render(
       <NumberField
         aria-label="Width"

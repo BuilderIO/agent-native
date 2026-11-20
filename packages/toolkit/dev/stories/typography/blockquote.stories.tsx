@@ -31,19 +31,6 @@ type Story = StoryObj<typeof meta>;
 /** A blockquote with the props from the controls. */
 export const Playground: Story = {};
 
-/** Steps of the type scale; the rule grows with the text. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-4">
-      {(["1", "2", "3", "5", "7"] as const).map((size) => (
-        <Blockquote key={size} size={size}>
-          {SAMPLE}
-        </Blockquote>
-      ))}
-    </div>
-  ),
-};
-
 /** Each color colors the rule and the text, then in high contrast. */
 export const Colors: Story = {
   render: () => (
@@ -52,7 +39,6 @@ export const Colors: Story = {
         COLORS.map((color) => (
           <Blockquote
             key={`${color}-${String(highContrast)}`}
-            size="2"
             color={color}
             highContrast={highContrast}
           >

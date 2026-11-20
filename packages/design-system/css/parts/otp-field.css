@@ -2,7 +2,7 @@
  * Part: otp-field
  *
  *   <div class="otp-field"                         Base UI OTPField.Root
- *        data-size="sm|md" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        [data-color] [data-radius] [data-complete] [data-disabled]>
  *     <input class="otp-field-input"                OTPField.Input, one per character
  *            [data-filled] [data-invalid] [data-disabled] [aria-invalid]>
@@ -28,15 +28,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .otp-field[data-size="sm"] {
-    --_box: var(--control-height-2);
-    --_font-size: var(--control-font-size-2);
-    --_line-height: var(--control-line-height-2);
-    --_radius: var(--radius-2);
-
-    gap: var(--space-1);
-  }
 
   /* ---- boxes ---- */
 

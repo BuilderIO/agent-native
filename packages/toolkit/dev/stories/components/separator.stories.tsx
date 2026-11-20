@@ -28,17 +28,6 @@ type Story = StoryObj<typeof meta>;
 /** The separator with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4: 16, 32 and 64px, then the full length. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-4">
-      {separatorProps.size.values.map((size) => (
-        <Separator key={size} size={size} />
-      ))}
-    </div>
-  ),
-};
-
 /** Every color; gray is the default. */
 export const Colors: Story = {
   render: () => (
@@ -64,7 +53,7 @@ export const States: Story = {
         <span>Docs</span>
         <Separator orientation="vertical" />
         <span>Changelog</span>
-        <Separator orientation="vertical" size="1" />
+        <Separator orientation="vertical" />
         <span>Status</span>
       </div>
     </div>

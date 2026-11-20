@@ -4,7 +4,7 @@
  *
  *   <div class="menu-positioner">               Base UI Menu.Positioner
  *     <div class="menu-popup" data-side         Menu.Popup
- *          data-size="sm|md" data-variant="soft|solid"
+ *          data-variant="soft|solid"
  *          data-color="gray|accent|danger|warning|success|info"
  *          [data-high-contrast]>
  *       <div class="menu-group-label">
@@ -131,11 +131,6 @@
   .menu-popup {
     --_row-height: var(--control-height-3);
     --_icon-size: var(--control-icon-size-3);
-  }
-
-  .menu-popup[data-size="sm"] {
-    --_row-height: var(--control-height-2);
-    --_icon-size: var(--control-icon-size-2);
   }
 
   /* The leading column: one icon wide, then the row gap. */

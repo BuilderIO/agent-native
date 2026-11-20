@@ -17,16 +17,15 @@ describe("Code part", () => {
     expect(code.dataset.color).toBeUndefined();
   });
 
-  it("writes its variant, size, weight, color and high contrast", () => {
+  it("writes its variant, weight, color and high contrast", () => {
     render(
-      <Code variant="outline" size="2" weight="bold" color="info" highContrast>
+      <Code variant="outline" weight="bold" color="info" highContrast>
         --force
       </Code>,
     );
     const code = screen.getByText("--force");
     expect({ ...code.dataset }).toEqual({
       variant: "outline",
-      size: "2",
       weight: "bold",
       color: "info",
       highContrast: "",

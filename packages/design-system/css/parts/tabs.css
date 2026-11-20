@@ -3,7 +3,7 @@
  *
  *   <div class="tabs" data-orientation>                  Base UI Tabs.Root
  *     <div class="tabs-list" role="tablist"              Tabs.List
- *          data-size="md|lg" data-justify="start|center|end"
+ *          data-justify="start|center|end"
  *          data-wrap="nowrap|wrap|wrap-reverse"
  *          [data-color="accent|gray|danger|warning|success|info"]
  *          [data-high-contrast] data-orientation>
@@ -52,13 +52,6 @@
 
   :is(.tabs-list, .tab-nav-list)::-webkit-scrollbar {
     display: none;
-  }
-
-  :is(.tabs-list, .tab-nav-list)[data-size="md"] {
-    --_tabs-tab-height: var(--control-height-3);
-    --_tabs-tab-tint-height: var(--control-height-2);
-    --_tabs-tab-padding-x: var(--control-padding-x-2);
-    --_tabs-tab-icon-size: var(--control-icon-size-2);
   }
 
   :is(.tabs-list, .tab-nav-list)[data-justify="center"] {

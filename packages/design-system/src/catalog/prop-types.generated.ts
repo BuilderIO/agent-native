@@ -71,20 +71,9 @@ import type {
 } from "./components/index.js";
 import type { PropsOf } from "./props.js";
 
-export interface AlertDialogPopupOwnProps {
-  /**
-   * Padding and type step of the popup, as in Radix Themes.
-   * @default "3"
-   */
-  size?: "1" | "2" | "3" | "4";
-}
+export interface AlertDialogPopupOwnProps {}
 
 export interface AlignmentPickerOwnProps {
-  /**
-   * Matrix cell size, on a 4px gap: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "1"
-   */
-  size?: "1" | "2" | "3" | "4";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -148,11 +137,6 @@ export interface AutocompleteOwnProps {
 
 export interface AvatarOwnProps {
   /**
-   * Diameter: xs is 16px, sm is 20px, md is 24px, lg is 32px.
-   * @default "md"
-   */
-  size?: "xs" | "sm" | "md" | "lg";
-  /**
    * How the component applies its color.
    * @default "soft"
    */
@@ -173,11 +157,6 @@ export interface AvatarOwnProps {
 }
 
 export interface BadgeOwnProps {
-  /**
-   * Control height: xs is 16px, sm is 20px, md is 24px.
-   * @default "sm"
-   */
-  size?: "xs" | "sm" | "md";
   /**
    * How the component applies its color.
    * @default "soft"
@@ -204,10 +183,6 @@ export interface BadgeOwnProps {
 }
 
 export interface BlockquoteOwnProps {
-  /**
-   * A step of the type scale; unset, it inherits.
-   */
-  size?: "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
   /**
    * Font weight, one of the weight tokens.
    */
@@ -291,11 +266,6 @@ export interface ButtonOwnProps {
 
 export interface CalloutOwnProps {
   /**
-   * Padding, gap and type step of the callout: compact, standard, roomy.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
-  /**
    * How the component applies its color.
    * @default "soft"
    */
@@ -313,11 +283,6 @@ export interface CalloutOwnProps {
 
 export interface CardOwnProps {
   /**
-   * Padding: 1 is 8px, 2 12px, 3 16px, 4 24px, 5 32px.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3" | "4" | "5";
-  /**
    * How the component applies its color.
    * @default "surface"
    */
@@ -325,11 +290,6 @@ export interface CardOwnProps {
 }
 
 export interface CheckboxCardsOwnProps {
-  /**
-   * Padding and type step of each card.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -381,10 +341,6 @@ export interface CheckboxOwnProps {
 }
 
 export interface CodeOwnProps {
-  /**
-   * A step of the type scale; unset, it follows the surrounding text.
-   */
-  size?: "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
   /**
    * How the component applies its color.
    * @default "soft"
@@ -462,11 +418,6 @@ export interface ContextMenuItemOwnProps {
 
 export interface ContextMenuPopupOwnProps {
   /**
-   * Row height: sm is 20px, md is 24px.
-   * @default "md"
-   */
-  size?: "sm" | "md";
-  /**
    * How the component applies its color.
    * @default "soft"
    */
@@ -490,23 +441,12 @@ export interface DataListOwnProps {
    */
   orientation?: "horizontal" | "vertical";
   /**
-   * Type step and spacing of the rows.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
-  /**
    * Trims the leading of the first and last rows.
    */
   trim?: "normal" | "start" | "end" | "both";
 }
 
-export interface DialogPopupOwnProps {
-  /**
-   * Padding and type step of the popup, as in Radix Themes.
-   * @default "3"
-   */
-  size?: "1" | "2" | "3" | "4";
-}
+export interface DialogPopupOwnProps {}
 
 export interface DrawerOwnProps {
   /**
@@ -517,11 +457,6 @@ export interface DrawerOwnProps {
 }
 
 export interface GridSizePickerOwnProps {
-  /**
-   * Tile cell size, as in Alignment Picker: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
-   * @default "1"
-   */
-  size?: "1" | "2" | "3" | "4";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -674,11 +609,6 @@ export interface ItemMediaOwnProps {
 
 export interface ItemOwnProps {
   /**
-   * Padding: 1 is the compact row, 2 the standard one.
-   * @default "2"
-   */
-  size?: "1" | "2";
-  /**
    * How the component applies its color.
    * @default "ghost"
    */
@@ -687,10 +617,6 @@ export interface ItemOwnProps {
 
 export interface KbdOwnProps {
   /**
-   * A step of the type scale; unset, it follows the surrounding text.
-   */
-  size?: "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
-  /**
    * How the component applies its color.
    * @default "surface"
    */
@@ -698,10 +624,6 @@ export interface KbdOwnProps {
 }
 
 export interface LinkOwnProps {
-  /**
-   * A step of the type scale; unset, it follows the surrounding text.
-   */
-  size?: "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
   /**
    * When the underline shows; `auto` shows it on hover, and always in high contrast.
    * @default "auto"
@@ -744,11 +666,6 @@ export interface MenubarItemOwnProps {
 
 export interface MenubarPopupOwnProps {
   /**
-   * Row height: sm is 20px, md is 24px.
-   * @default "md"
-   */
-  size?: "sm" | "md";
-  /**
    * How the component applies its color.
    * @default "soft"
    */
@@ -774,11 +691,6 @@ export interface MenuItemOwnProps {
 
 export interface MenuPopupOwnProps {
   /**
-   * Row height: sm is 20px, md is 24px.
-   * @default "md"
-   */
-  size?: "sm" | "md";
-  /**
    * How the component applies its color.
    * @default "soft"
    */
@@ -796,11 +708,6 @@ export interface MenuPopupOwnProps {
 }
 
 export interface MeterOwnProps {
-  /**
-   * Track thickness: 1 is 4px, 2 is 6px, 3 is 8px.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -844,11 +751,6 @@ export interface NumberFieldOwnProps {
 
 export interface OtpFieldOwnProps {
   /**
-   * Control height: sm is 20px, md is 24px.
-   * @default "md"
-   */
-  size?: "sm" | "md";
-  /**
    * How the component applies its color.
    * @default "surface"
    */
@@ -863,28 +765,11 @@ export interface OtpFieldOwnProps {
   radius?: "none" | "small" | "medium" | "large" | "full";
 }
 
-export interface PopoverPopupOwnProps {
-  /**
-   * Padding and type step of the popup, as in Radix Themes.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3" | "4";
-}
+export interface PopoverPopupOwnProps {}
 
-export interface PreviewCardPopupOwnProps {
-  /**
-   * Padding and type step of the popup, as in Radix Themes.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
-}
+export interface PreviewCardPopupOwnProps {}
 
 export interface ProgressOwnProps {
-  /**
-   * Track thickness: 1 is 4px, 2 is 6px, 3 is 8px.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -906,11 +791,6 @@ export interface ProgressOwnProps {
 }
 
 export interface RadioCardsOwnProps {
-  /**
-   * Padding and type step of each card.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -945,11 +825,6 @@ export interface RadioGroupOwnProps {
 }
 
 export interface ScrollAreaOwnProps {
-  /**
-   * Scrollbar thickness: 1 is 4px, 2 is 8px, 3 is 12px.
-   * @default "1"
-   */
-  size?: "1" | "2" | "3";
   /**
    * Overrides the theme's corner radius for this component.
    */
@@ -1022,11 +897,6 @@ export interface SelectTriggerOwnProps {
 
 export interface SeparatorOwnProps {
   /**
-   * Length: 1 is 16px, 2 is 32px, 3 is 64px, 4 is the full length.
-   * @default "4"
-   */
-  size?: "1" | "2" | "3" | "4";
-  /**
    * The scale the line draws from; gray unless set.
    * @default "gray"
    */
@@ -1042,11 +912,6 @@ export interface SkeletonOwnProps {
 }
 
 export interface SliderOwnProps {
-  /**
-   * Track thickness: 1 is 4px, 2 is 6px, 3 is 8px.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
   /**
    * How the component applies its color.
    * @default "surface"
@@ -1068,11 +933,6 @@ export interface SliderOwnProps {
 }
 
 export interface SpinnerOwnProps {
-  /**
-   * Control height: sm is 20px, md is 24px.
-   * @default "md"
-   */
-  size?: "sm" | "md";
   /**
    * While false, renders its children in place of the spinner, as Radix Themes does.
    * @default true
@@ -1111,11 +971,6 @@ export interface TableCellOwnProps {
 
 export interface TableOwnProps {
   /**
-   * Cell padding: compact, standard, roomy.
-   * @default "2"
-   */
-  size?: "1" | "2" | "3";
-  /**
    * How the component applies its color.
    * @default "ghost"
    */
@@ -1136,11 +991,6 @@ export interface TableRowOwnProps {
 }
 
 export interface TabNavOwnProps {
-  /**
-   * Control height: md is 24px, lg is 32px.
-   * @default "lg"
-   */
-  size?: "md" | "lg";
   /**
    * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
    */
@@ -1163,11 +1013,6 @@ export interface TabNavOwnProps {
 }
 
 export interface TabsListOwnProps {
-  /**
-   * Control height: md is 24px, lg is 32px.
-   * @default "lg"
-   */
-  size?: "md" | "lg";
   /**
    * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
    */

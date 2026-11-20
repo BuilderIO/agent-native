@@ -3,12 +3,10 @@ import {
   colorProp,
   highContrastProp,
   radiusProp,
-  sizeProp,
   variantProp,
 } from "../props.js";
 
 export const badgeProps = {
-  size: sizeProp(["xs", "sm", "md"], "sm"),
   variant: variantProp(["solid", "soft", "surface", "outline"], "soft"),
   color: colorProp,
   highContrast: highContrastProp,

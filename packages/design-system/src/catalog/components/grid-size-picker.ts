@@ -1,5 +1,4 @@
-import { CONTROL_SIZES } from "../../tokens/roles.js";
-import { colorProp, radiusProp, sizeProp, variantProp } from "../props.js";
+import { colorProp, radiusProp, variantProp } from "../props.js";
 
 /**
  * A tile that draws a grid's columns and rows and reads "C × R", opening a
@@ -7,7 +6,6 @@ import { colorProp, radiusProp, sizeProp, variantProp } from "../props.js";
  * Picker's footprint, so a layout inspector can swap one for the other.
  */
 export const gridSizePickerProps = {
-  size: sizeProp(CONTROL_SIZES, "1", "Tile cell size, as in Alignment Picker"),
   variant: variantProp(["surface", "soft"], "surface"),
   color: colorProp,
   radius: radiusProp,

@@ -4,7 +4,7 @@ export function Waits() {
   return (
     <div>
       <Spinner />
-      <Spinner size="sm" />
+      <Spinner />
       <Spinner className="mr-2" label="Saving" />
       <Spinner className="text-muted-foreground" label="Loading designs" />
       <Spinner />

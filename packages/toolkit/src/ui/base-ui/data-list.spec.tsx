@@ -24,21 +24,19 @@ function Details(props: DataListProps) {
 }
 
 describe("Data List part", () => {
-  it("is a description list, horizontal size 2 untrimmed by default", () => {
+  it("is a description list, horizontal untrimmed by default", () => {
     render(<Details />);
     const list = screen.getByTestId("list");
     expect(list.tagName).toBe("DL");
     expect(list.className).toBe("data-list");
     expect(list.dataset.orientation).toBe("horizontal");
-    expect(list.dataset.size).toBe("2");
     expect(list.dataset.trim).toBeUndefined();
   });
 
-  it("writes the orientation, size and trim it is given", () => {
-    render(<Details orientation="vertical" size="3" trim="both" />);
+  it("writes the orientation and trim it is given", () => {
+    render(<Details orientation="vertical" trim="both" />);
     const list = screen.getByTestId("list");
     expect(list.dataset.orientation).toBe("vertical");
-    expect(list.dataset.size).toBe("3");
     expect(list.dataset.trim).toBe("both");
   });
 

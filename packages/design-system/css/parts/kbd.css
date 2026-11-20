@@ -1,7 +1,7 @@
 /*
  * Part: kbd
  *
- *   <kbd class="kbd" [data-size="0–9"] data-variant="surface|soft">
+ *   <kbd class="kbd" data-variant="surface|soft">
  *
  * Radix Themes' kbd on the system's scale: a keycap holding a whole
  * shortcut, sized in em so it follows the text around it, or a step of the
@@ -41,46 +41,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .kbd[data-size="0"] {
-    font-size: calc(var(--font-size-0) * 0.85);
-  }
-
-  .kbd[data-size="1"] {
-    font-size: calc(var(--font-size-1) * 0.85);
-  }
-
-  .kbd[data-size="2"] {
-    font-size: calc(var(--font-size-2) * 0.85);
-  }
-
-  .kbd[data-size="3"] {
-    font-size: calc(var(--font-size-3) * 0.85);
-  }
-
-  .kbd[data-size="4"] {
-    font-size: calc(var(--font-size-4) * 0.85);
-  }
-
-  .kbd[data-size="5"] {
-    font-size: calc(var(--font-size-5) * 0.85);
-  }
-
-  .kbd[data-size="6"] {
-    font-size: calc(var(--font-size-6) * 0.85);
-  }
-
-  .kbd[data-size="7"] {
-    font-size: calc(var(--font-size-7) * 0.85);
-  }
-
-  .kbd[data-size="8"] {
-    font-size: calc(var(--font-size-8) * 0.85);
-  }
-
-  .kbd[data-size="9"] {
-    font-size: calc(var(--font-size-9) * 0.85);
-  }
 
   /* ---- variants ---- */
 

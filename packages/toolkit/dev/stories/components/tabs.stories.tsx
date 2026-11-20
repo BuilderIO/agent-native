@@ -56,17 +56,6 @@ export const Playground: Story = {
   render: (args) => <Example {...args} panels />,
 };
 
-/** md and lg: 24 and 32px triggers. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex flex-col gap-6">
-      {tabsListProps.size.values.map((size) => (
-        <Example key={size} {...args} size={size} />
-      ))}
-    </div>
-  ),
-};
-
 /** The indicator in every color, then in high contrast. */
 export const Colors: Story = {
   render: (args) => (

@@ -56,25 +56,6 @@ describe("Popover", () => {
     );
   });
 
-  it("writes size 2 on the popup by default, and the size it is given", async () => {
-    render(
-      <>
-        <Popover defaultOpen>
-          <PopoverTrigger>Default</PopoverTrigger>
-          <PopoverPopup data-testid="default">Body</PopoverPopup>
-        </Popover>
-        <Popover defaultOpen>
-          <PopoverTrigger>Large</PopoverTrigger>
-          <PopoverPopup data-testid="large" size="4">
-            Body
-          </PopoverPopup>
-        </Popover>
-      </>,
-    );
-    expect((await screen.findByTestId("default")).dataset.size).toBe("2");
-    expect(screen.getByTestId("large").dataset.size).toBe("4");
-  });
-
   it("composes the trigger through render, keeping the Button part", () => {
     render(
       <Popover>

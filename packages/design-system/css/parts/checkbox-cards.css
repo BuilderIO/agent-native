@@ -2,16 +2,16 @@
  * Part: checkbox-cards
  *
  *   <div class="checkbox-cards"                         Base UI CheckboxGroup
- *        data-size="1|2|3" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast]
  *        [style="--checkbox-cards-columns: …; --checkbox-cards-gap: …"]>
  *     <span class="checkbox-cards-item" role="checkbox" Checkbox.Root, with the group's
- *           data-size data-variant [data-color]        props written on it, holding
+ *           data-variant [data-color]        props written on it, holding
  *           [data-high-contrast] [data-checked]        the card's content
  *           [data-unchecked] [data-invalid] [data-disabled]>
  *       <span class="checkbox checkbox-cards-checkbox"  Checkbox.Indicator, always mounted:
- *             data-size data-variant="surface"         the checkbox part at the card's
+ *             data-variant="surface"         the checkbox part at the card's
  *             [data-checked] [data-unchecked] ...>     size, drawn for the card
  *         <span class="checkbox-indicator">            a check, while checked
  *
@@ -40,14 +40,6 @@
   .checkbox-cards-item {
     --_box: var(--space-4);
     --_padding-end: calc(var(--_padding-x) * 2 + var(--_box));
-  }
-
-  .checkbox-cards-item[data-size="1"] {
-    --_box: var(--space-3);
-  }
-
-  .checkbox-cards-item[data-size="3"] {
-    --_box: calc(var(--space-4) * 1.25);
   }
 
   .checkbox-cards-item > .checkbox-cards-checkbox {

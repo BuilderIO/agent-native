@@ -6,7 +6,7 @@
  *             [data-popup-open] [data-disabled]>
  *
  * The popups a trigger opens are the menu part's, with the same
- * `data-size`, `data-variant`, `data-color` and `data-high-contrast`;
+ * `data-variant`, `data-color` and `data-high-contrast`;
  * menu.css styles them. A trigger is a gray ghost control: a tint on hover,
  * while its menu is open and under keyboard focus.
  */

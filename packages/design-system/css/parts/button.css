@@ -70,7 +70,7 @@
     padding-inline: var(--space-2);
   }
 
-  :is(.button, .icon-button)[data-size="sm"] svg {
+  :is(.button, .icon-button)[data-size="sm"] :is(svg, .spinner) {
     width: var(--control-icon-size-2);
     height: var(--control-icon-size-2);
   }

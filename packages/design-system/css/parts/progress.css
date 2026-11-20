@@ -2,7 +2,7 @@
  * Part: progress
  *
  *   <div class="progress" role="progressbar"          Base UI Progress.Root
- *        data-size="1|2|3" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast] [data-radius]
  *        [data-progressing] [data-complete] [data-indeterminate]>
@@ -26,14 +26,6 @@
     align-items: baseline;
     gap: var(--space-1) var(--space-2);
     width: 100%;
-  }
-
-  .progress[data-size="1"] {
-    --_progress-height: var(--space-1);
-  }
-
-  .progress[data-size="3"] {
-    --_progress-height: var(--space-2);
   }
 
   .progress-label {

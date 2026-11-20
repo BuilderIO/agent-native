@@ -1,13 +1,12 @@
 /*
  * Part: card
  *
- *   <div class="card" data-size="1|2|3|4|5" data-variant="surface|ghost">
+ *   <div class="card" data-variant="surface|ghost">
  *     ...                                  any content; an Inset runs to its edge
  *   <a href class="card" ...>              a card that is a link
  *   <button class="card" ...>              a card that is a button
  *
- * Radix Themes' card on the system's scale: sizes 1 to 5 pad it 8, 12, 16,
- * 24 and 32px. Surface is the raised surface with a hairline drawn over its
+ * Radix Themes' card on the system's scale: 12px of padding. Surface is the raised surface with a hairline drawn over its
  * content, so media an Inset runs to the edge keeps the edge. Ghost has no
  * frame: its padding hangs outside the box, so its content lines up with
  * the content around it and its hover fill shows around it. A card that
@@ -71,22 +70,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .card[data-size="1"] {
-    --_card-padding: var(--space-2);
-  }
-
-  .card[data-size="3"] {
-    --_card-padding: var(--space-4);
-  }
-
-  .card[data-size="4"] {
-    --_card-padding: var(--space-5);
-  }
-
-  .card[data-size="5"] {
-    --_card-padding: var(--space-6);
-  }
 
   /* ---- variants ---- */
 

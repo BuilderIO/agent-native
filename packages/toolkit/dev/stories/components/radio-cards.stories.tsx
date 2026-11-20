@@ -62,30 +62,6 @@ type Story = StoryObj<typeof meta>;
 /** The cards with the group props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3: cards 32, 40 and 52px tall for one line of text. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex max-w-[480px] flex-col gap-6">
-      {radioCardsProps.size.values.map((size) => (
-        <RadioCards
-          key={size}
-          {...args}
-          size={size}
-          defaultValue="pro"
-          aria-label={`Plan, size ${size}`}
-          style={threeColumns}
-        >
-          {PLANS.map((plan) => (
-            <RadioCardsItem key={plan.value} value={plan.value}>
-              {plan.name}
-            </RadioCardsItem>
-          ))}
-        </RadioCards>
-      ))}
-    </div>
-  ),
-};
-
 /** Each variant in every color, then in high contrast. */
 export const Variants: Story = {
   render: (args) => (

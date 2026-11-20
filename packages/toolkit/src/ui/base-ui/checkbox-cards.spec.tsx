@@ -40,8 +40,8 @@ describe("Checkbox Cards part", () => {
     expect(sms.getAttribute("aria-checked")).toBe("false");
   });
 
-  it("draws a surface checkbox in each card at the card's size, checked with the card", () => {
-    render(<Channels size="3" variant="soft" highContrast />);
+  it("draws a surface checkbox in each card checked with the card", () => {
+    render(<Channels variant="soft" highContrast />);
     const email = screen.getByRole("checkbox", { name: "Email" });
     const box = email.querySelector<HTMLElement>(".checkbox-cards-checkbox");
     expect(box?.classList.contains("checkbox")).toBe(true);
@@ -56,29 +56,20 @@ describe("Checkbox Cards part", () => {
     expect(empty?.querySelector(".checkbox-indicator")).toBeNull();
   });
 
-  it("draws its cards at size 2 surface by default, inheriting their color", () => {
+  it("draws its cards at surface by default, inheriting their color", () => {
     render(<Channels />);
     const email = screen.getByRole("checkbox", { name: "Email" });
-    expect(email.dataset.size).toBe("2");
     expect(email.dataset.variant).toBe("surface");
     expect(email.dataset.color).toBeUndefined();
   });
 
-  it("writes the group's size, variant, color and high contrast on each card", () => {
-    render(<Channels size="1" variant="soft" color="warning" highContrast />);
+  it("writes the group's variant, color and high contrast on each card", () => {
+    render(<Channels variant="soft" color="warning" highContrast />);
     for (const card of screen.getAllByRole("checkbox")) {
-      expect(card.dataset.size).toBe("1");
       expect(card.dataset.variant).toBe("soft");
       expect(card.dataset.color).toBe("warning");
       expect(card.dataset.highContrast).toBe("");
     }
-  });
-
-  it("refuses a size it doesn't have", () => {
-    const props = { size: "4" } as unknown as CheckboxCardsProps;
-    expect(() => render(<Channels {...props} />)).toThrow(
-      /size="4" is not one of/,
-    );
   });
 
   it("toggles a card's value in the group on click and with Space", () => {

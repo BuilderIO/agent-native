@@ -1,7 +1,7 @@
 /*
  * Part: scroll-area
  *
- *   <div class="scroll-area" data-size="1|2|3"                 Base UI ScrollArea.Root
+ *   <div class="scroll-area"                 Base UI ScrollArea.Root
  *        data-scrollbars="vertical|horizontal|both" [data-radius]
  *        [data-scrolling] [data-hovering]>
  *     <div class="scroll-area-viewport">                       ScrollArea.Viewport
@@ -23,14 +23,6 @@
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
-  }
-
-  .scroll-area[data-size="2"] {
-    --_scroll-area-scrollbar-size: var(--space-2);
-  }
-
-  .scroll-area[data-size="3"] {
-    --_scroll-area-scrollbar-size: var(--space-3);
   }
 
   .scroll-area[data-radius]:not([data-radius="full"]) {

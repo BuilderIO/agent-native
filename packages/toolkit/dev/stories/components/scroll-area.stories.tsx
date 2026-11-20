@@ -38,22 +38,6 @@ type Story = StoryObj<typeof meta>;
 /** Content taller and wider than its box, with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3: 4, 8 and 12px scrollbars. */
-export const Sizes: Story = {
-  decorators: [],
-  render: () => (
-    <div className="flex gap-4">
-      {scrollAreaProps.size.values.map((size) => (
-        <div key={size} className="flex h-40 w-48">
-          <ScrollArea size={size} scrollbars="vertical">
-            {rows}
-          </ScrollArea>
-        </div>
-      ))}
-    </div>
-  ),
-};
-
 /** Each choice of scrollbars. */
 export const Scrollbars: Story = {
   decorators: [],
@@ -61,9 +45,7 @@ export const Scrollbars: Story = {
     <div className="flex gap-4">
       {scrollAreaProps.scrollbars.values.map((scrollbars) => (
         <div key={scrollbars} className="flex h-40 w-48">
-          <ScrollArea size="2" scrollbars={scrollbars}>
-            {rows}
-          </ScrollArea>
+          <ScrollArea scrollbars={scrollbars}>{rows}</ScrollArea>
         </div>
       ))}
     </div>

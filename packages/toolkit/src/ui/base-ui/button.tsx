@@ -12,7 +12,7 @@ import * as React from "react";
 import { cn } from "../../utils.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
-import { Spinner, type SpinnerProps } from "./spinner.js";
+import { Spinner } from "./spinner.js";
 import { VisuallyHidden } from "./visually-hidden.js";
 
 export interface ButtonProps
@@ -59,7 +59,7 @@ function createButton(part: "button" | "icon-button", displayName: string) {
               </span>
               <VisuallyHidden>{children}</VisuallyHidden>
               <span className="button-spinner">
-                <Spinner size={props.size ?? "md"} />
+                <Spinner />
               </span>
             </>
           ) : (

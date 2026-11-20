@@ -1,8 +1,4 @@
-import {
-  COLORS,
-  CONTROL_SIZES,
-  otpFieldProps,
-} from "@agent-native/design-system";
+import { COLORS, otpFieldProps } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import {
@@ -46,20 +42,6 @@ export const Playground: Story = {
       <OTPField {...args} />
       <FieldDescription>Enter the 6-digit code we sent you.</FieldDescription>
     </Field>
-  ),
-};
-
-/** md and sm: square boxes at the 24 and 20px control heights. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex flex-col gap-4">
-      {CONTROL_SIZES.map((size) => (
-        <Field key={size}>
-          <FieldLabel>Size {size}</FieldLabel>
-          <OTPField {...args} size={size} defaultValue="123" />
-        </Field>
-      ))}
-    </div>
   ),
 };
 

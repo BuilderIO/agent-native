@@ -39,7 +39,7 @@ type Story = StoryObj<typeof meta>;
 /** The text area with the props from the controls. */
 export const Playground: Story = { args: { "aria-label": "Notes" } };
 
-/** Sizes 1 to 4 share the Input's padding and type at each height. */
+/** md and sm share the Input's padding and type at each height. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex flex-col gap-3">

@@ -2,12 +2,12 @@
  * Part: radio-cards
  *
  *   <div class="radio-cards" role="radiogroup"         Base UI RadioGroup
- *        data-size="1|2|3" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast]
  *        [style="--radio-cards-columns: …; --radio-cards-gap: …"]>
  *     <span class="radio-cards-item" role="radio"      Radio.Root, with the group's
- *           data-size data-variant [data-color]       props written on it, holding
+ *           data-variant [data-color]       props written on it, holding
  *           [data-high-contrast] [data-checked]       the card's content
  *           [data-unchecked] [data-invalid] [data-disabled]>
  *
@@ -16,7 +16,7 @@
  * grid's columns are `--radio-cards-columns` (cards at least 160px wide,
  * as many as fit, by default) and its gap `--radio-cards-gap`; the caller
  * sets either on the group, as Radix's `columns` and `gap` props do.
- * One line of text makes sizes 1 to 3 cards 32, 40 and 52px tall. Surface
+ * One line of text makes a card 40px tall. Surface
  * cards sit on the raised surface inside a gray hairline that darkens on
  * hover; soft cards are a tint of the nearest color. A checked card draws
  * a 2px edge in the color's indicator step, or its step 12 in high
@@ -88,21 +88,6 @@
   }
 
   /* ---- sizes ---- */
-
-  :is(.radio-cards-item, .checkbox-cards-item)[data-size="1"] {
-    --_padding-y: var(--space-2);
-    --_padding-x: var(--space-3);
-    --_radius: var(--radius-3);
-  }
-
-  :is(.radio-cards-item, .checkbox-cards-item)[data-size="3"] {
-    --_padding-y: var(--space-4);
-    --_padding-x: var(--space-5);
-    --_radius: var(--radius-5);
-
-    font-size: var(--font-size-2);
-    line-height: var(--line-height-2);
-  }
 
   /* ---- variants ---- */
 

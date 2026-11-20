@@ -38,7 +38,7 @@ function InsetCard({ side, clip }: Pick<InsetProps, "side" | "clip">) {
   const label =
     side === "all" ? null : <span className="flex-1 text-sm">{side}</span>;
   return (
-    <Card size="3">
+    <Card>
       <div className={row ? "flex min-h-24 gap-3" : "flex flex-col gap-3"}>
         {mediaFirst ? media : label}
         {mediaFirst ? label : media}

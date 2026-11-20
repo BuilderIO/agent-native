@@ -50,22 +50,6 @@ type Story = StoryObj<typeof meta>;
 /** The callout with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-3">
-      {calloutProps.size.values.map((size) => (
-        <Callout key={size} size={size}>
-          <CalloutIcon>
-            <IconInfoCircle />
-          </CalloutIcon>
-          <CalloutText>Size {size}: usage updates every hour.</CalloutText>
-        </Callout>
-      ))}
-    </div>
-  ),
-};
-
 /** Every variant in every color, then in high contrast. */
 export const Variants: Story = {
   render: () => (
@@ -83,7 +67,6 @@ export const Variants: Story = {
             {COLORS.map((color) => (
               <Callout
                 key={color}
-                size="1"
                 variant={variant}
                 color={color}
                 highContrast={highContrast}

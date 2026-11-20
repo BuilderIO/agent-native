@@ -3,7 +3,7 @@
  *
  *   <div class="popover-positioner">                Base UI Popover.Positioner
  *     <div class="popover-popup" role="dialog"      Popover.Popup
- *          data-size="1|2|3|4" [data-open] [data-side] [data-align] [data-instant]
+ *          [data-open] [data-side] [data-align] [data-instant]
  *          [data-starting-style] [data-ending-style]>
  *       <div class="popover-arrow">                 Popover.Arrow
  *       <h2 class="popover-title">                  Popover.Title
@@ -11,9 +11,7 @@
  *
  * The positioner carries the layer, so a popover opened from inside a dialog
  * paints above it (the popup layer is above the dialog layer).
- *
- * `data-size` is Radix Themes' Popover.Content size: 1 to 4 step the popup's
- * padding with its title and description type; 2 is the default.
+
  */
 
 @layer components {
@@ -93,29 +91,6 @@
   }
 
   /* ---- sizes: padding and type step together ---- */
-
-  .popover-popup[data-size="1"] {
-    padding: var(--space-3);
-  }
-
-  .popover-popup[data-size="3"] {
-    padding: var(--space-5);
-  }
-
-  .popover-popup[data-size="4"] {
-    padding: var(--space-6);
-  }
-
-  .popover-popup[data-size="1"] :is(.popover-title, .popover-description) {
-    font-size: var(--font-size-1);
-    line-height: var(--line-height-1);
-  }
-
-  .popover-popup:is([data-size="3"], [data-size="4"])
-    :is(.popover-title, .popover-description) {
-    font-size: var(--font-size-3);
-    line-height: var(--line-height-3);
-  }
 
   .popover-arrow {
     --_size: 10px;

@@ -386,29 +386,27 @@ describe("menu trailing slot", () => {
 });
 
 describe("menu props", () => {
-  it("writes size 3, soft and gray on the popup by default", async () => {
+  it("writes soft and gray on the popup by default", async () => {
     render(<BasicMenu />);
     const menu = await openMenu(
       screen.getByRole("button", { name: "Actions" }),
     );
-    expect(menu.dataset.size).toBe("md");
     expect(menu.dataset.variant).toBe("soft");
     expect(menu.dataset.color).toBe("gray");
     expect(menu.dataset.highContrast).toBeUndefined();
   });
 
-  it("writes size, variant, color and high contrast as Radix names them", async () => {
+  it("writes variant, color and high contrast as Radix names them", async () => {
     render(
       <Menu defaultOpen>
         <MenuTrigger>Actions</MenuTrigger>
-        <MenuPopup size="sm" variant="solid" color="accent" highContrast>
+        <MenuPopup variant="solid" color="accent" highContrast>
           <MenuItem>Rename</MenuItem>
         </MenuPopup>
       </Menu>,
     );
     const menu = await screen.findByRole("menu");
     expect(menu.dataset).toMatchObject({
-      size: "sm",
       variant: "solid",
       color: "accent",
       highContrast: "",
@@ -446,11 +444,11 @@ describe("menu props", () => {
     ).toThrow(/variant="ghost" is not one of/);
   });
 
-  it("gives a submenu its menu's size, variant and color", async () => {
+  it("gives a submenu its menu's variant and color", async () => {
     render(
       <Menu defaultOpen>
         <MenuTrigger>File</MenuTrigger>
-        <MenuPopup size="sm" variant="solid" color="danger">
+        <MenuPopup variant="solid" color="danger">
           <MenuSubmenuRoot>
             <MenuSubmenuTrigger>Export</MenuSubmenuTrigger>
             <MenuSubmenuPopup data-testid="submenu">
@@ -467,7 +465,6 @@ describe("menu props", () => {
     });
     await screen.findByRole("menuitem", { name: "PDF" });
     expect(screen.getByTestId("submenu").dataset).toMatchObject({
-      size: "sm",
       variant: "solid",
       color: "danger",
     });

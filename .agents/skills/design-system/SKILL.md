@@ -91,9 +91,9 @@ Settings) is a pattern under `Patterns/`; it adds layout CSS, never restyles a
 component.
 
 Props are Radix Themes': `variant` (solid, soft, surface, outline, ghost),
-`color` (accent, gray, danger, warning, success, info), `size` (xs, sm, md
-and lg for 16/20/24/32px, where controls take sm and md and md is the
-standard; the type scale's "0"–"9" for text), `radius` and `highContrast`. A component supports a subset of each list and never adds its
+`color` (accent, gray, danger, warning, success, info), `size` (sm or md on
+the controls that need a dense size, md the standard; every other part has
+one size; the type scale's "0"–"9" for text), `radius` and `highContrast`. A component supports a subset of each list and never adds its
 own spelling of one; a spec fails on `intent`, `emphasis` or a value outside
 the shared lists.
 

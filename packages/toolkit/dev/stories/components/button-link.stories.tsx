@@ -32,7 +32,7 @@ type Story = StoryObj<typeof meta>;
 /** The link with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 4, as Button's. */
+/** md and sm, as Button's. */
 export const Sizes: Story = {
   render: (args) => (
     <div className="flex items-center gap-3">

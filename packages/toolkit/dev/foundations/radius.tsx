@@ -194,9 +194,7 @@ function Presets() {
             <span className="text-2 text-fg">{preset}</span>
             <Code>{`factor ${radiusTokens(preset)["--radius-factor"] ?? ""}`}</Code>
             {stage?.radius === preset ? (
-              <Badge size="xs" variant="soft">
-                Current
-              </Badge>
+              <Badge variant="soft">Current</Badge>
             ) : null}
           </span>
           <ShapeSample />

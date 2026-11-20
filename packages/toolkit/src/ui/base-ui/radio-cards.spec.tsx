@@ -42,22 +42,19 @@ describe("Radio Cards part", () => {
     expect(pro.hasAttribute("data-unchecked")).toBe(true);
   });
 
-  it("draws its cards at size 2 surface by default, inheriting their color", () => {
+  it("draws its cards at surface by default, inheriting their color", () => {
     render(<Plans />);
     const free = screen.getByRole("radio", { name: "Free" });
-    expect(free.dataset.size).toBe("2");
     expect(free.dataset.variant).toBe("surface");
     expect(free.dataset.color).toBeUndefined();
     expect(free.dataset.highContrast).toBeUndefined();
   });
 
-  it("writes the group's size, variant, color and high contrast on each card", () => {
-    render(<Plans size="3" variant="soft" color="success" highContrast />);
+  it("writes the group's variant, color and high contrast on each card", () => {
+    render(<Plans variant="soft" color="success" highContrast />);
     const group = screen.getByRole("radiogroup", { name: "Plan" });
-    expect(group.dataset.size).toBe("3");
     expect(group.dataset.color).toBe("success");
     for (const card of screen.getAllByRole("radio")) {
-      expect(card.dataset.size).toBe("3");
       expect(card.dataset.variant).toBe("soft");
       expect(card.dataset.color).toBe("success");
       expect(card.dataset.highContrast).toBe("");

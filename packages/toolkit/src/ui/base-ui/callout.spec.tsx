@@ -13,7 +13,7 @@ import {
 afterEach(cleanup);
 
 describe("Callout part", () => {
-  it("writes its size and variant, size 2 soft by default, inheriting its color", () => {
+  it("writes its variant, soft by default, inheriting its color", () => {
     render(
       <Callout data-testid="callout">
         <CalloutText>Saved.</CalloutText>
@@ -21,7 +21,6 @@ describe("Callout part", () => {
     );
     const callout = screen.getByTestId("callout");
     expect(callout.className).toBe("callout");
-    expect(callout.dataset.size).toBe("2");
     expect(callout.dataset.variant).toBe("soft");
     expect(callout.dataset.color).toBeUndefined();
     expect(callout.dataset.highContrast).toBeUndefined();
@@ -31,7 +30,6 @@ describe("Callout part", () => {
     render(
       <Callout
         data-testid="callout"
-        size="1"
         variant="surface"
         color="warning"
         highContrast
@@ -40,7 +38,6 @@ describe("Callout part", () => {
       </Callout>,
     );
     const callout = screen.getByTestId("callout");
-    expect(callout.dataset.size).toBe("1");
     expect(callout.dataset.variant).toBe("surface");
     expect(callout.dataset.color).toBe("warning");
     expect(callout.dataset.highContrast).toBe("");

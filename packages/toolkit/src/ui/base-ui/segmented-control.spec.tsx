@@ -27,7 +27,7 @@ function Example(props: Partial<SegmentedControlProps>) {
 }
 
 describe("SegmentedControl part", () => {
-  it("writes its size and variant, size 3 surface by default", () => {
+  it("writes its variant, surface by default", () => {
     render(<Example />);
     const group = screen.getByRole("group", { name: "Easing" });
     expect(group.classList.contains("segmented-control")).toBe(true);
@@ -40,7 +40,7 @@ describe("SegmentedControl part", () => {
     expect(curve.hasAttribute("data-pressed")).toBe(true);
   });
 
-  it("writes size, variant and radius as Radix names them", () => {
+  it("writes variant and radius as Radix names them", () => {
     render(<Example size="sm" variant="soft" radius="full" />);
     const group = screen.getByRole("group", { name: "Easing" });
     expect(group.dataset.size).toBe("sm");

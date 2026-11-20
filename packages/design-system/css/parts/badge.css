@@ -1,7 +1,7 @@
 /*
  * Part: badge
  *
- *   <span class="badge" data-size="xs|sm|md"
+ *   <span class="badge"
  *         data-variant="solid|soft|surface|outline"
  *         [data-color="accent|gray|danger|warning|success|info"]
  *         [data-high-contrast] [data-radius] [data-dot]>
@@ -38,26 +38,6 @@
     flex-shrink: 0;
     width: var(--control-icon-size-1);
     height: var(--control-icon-size-1);
-  }
-
-  .badge[data-size="xs"] {
-    --_radius: var(--radius-1);
-    height: var(--control-height-1);
-    padding: 0 var(--space-1);
-    font-size: var(--control-font-size-1);
-    line-height: var(--control-line-height-1);
-  }
-
-  .badge[data-size="md"] {
-    height: var(--control-height-3);
-    padding: 0 var(--space-2);
-    font-size: var(--control-font-size-3);
-    line-height: var(--control-line-height-3);
-  }
-
-  .badge[data-size="md"] svg {
-    width: var(--control-icon-size-2);
-    height: var(--control-icon-size-2);
   }
 
   /* ---- variants ---- */

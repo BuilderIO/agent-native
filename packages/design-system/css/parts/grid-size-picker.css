@@ -3,7 +3,7 @@
  *
  *   <button class="grid-size-picker"                    Base UI Popover.Trigger
  *           style="--_columns; --_rows"                 up to 12 × 8
- *           data-size="1|2|3|4" data-variant="surface|soft"
+ *           data-variant="surface|soft"
  *           [data-color] [data-radius] [data-auto] [data-popup-open] [data-disabled]>
  *     <span class="grid-size-picker-preview">
  *       <span class="grid-size-picker-preview-cell">    columns × rows
@@ -60,11 +60,6 @@
     white-space: nowrap;
     cursor: pointer;
     outline-style: none;
-  }
-
-  .grid-size-picker[data-size="4"] {
-    font-size: var(--control-font-size-4);
-    line-height: var(--control-line-height-4);
   }
 
   .grid-size-picker:focus-visible {

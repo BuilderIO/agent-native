@@ -148,7 +148,7 @@ function Library() {
 function Account() {
   const iconOnly = useIconOnly();
   const avatar = (
-    <Avatar size="lg" color="gray">
+    <Avatar color="gray">
       <AvatarFallback>A</AvatarFallback>
     </Avatar>
   );
@@ -172,9 +172,7 @@ function Account() {
       Ada Lovelace
     </IconOnlyTooltip>
   ) : (
-    <BaseMenu.Trigger
-      render={<Item size="1" render={<button type="button" />} />}
-    >
+    <BaseMenu.Trigger render={<Item render={<button type="button" />} />}>
       <ItemMedia>{avatar}</ItemMedia>
       <ItemContent>
         <ItemTitle>Ada Lovelace</ItemTitle>
@@ -217,11 +215,7 @@ function Frame({ collapsed }: { collapsed?: boolean }) {
             <SidebarBrand
               href="#home"
               logo={<AgentNativeIcon />}
-              badge={
-                <Badge variant="solid" size="xs">
-                  BETA
-                </Badge>
-              }
+              badge={<Badge variant="solid">BETA</Badge>}
             >
               App name
             </SidebarBrand>

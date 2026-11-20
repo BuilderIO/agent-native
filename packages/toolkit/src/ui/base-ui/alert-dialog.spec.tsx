@@ -104,12 +104,6 @@ describe("alert dialog part", () => {
     });
   });
 
-  it("writes size 3 on the popup by default", async () => {
-    render(<Confirm />);
-    press(screen.getByRole("button", { name: "Delete" }));
-    expect((await screen.findByRole("alertdialog")).dataset.size).toBe("3");
-  });
-
   it("renders Action as a link and still closes", async () => {
     const onOpenChange = vi.fn();
     render(

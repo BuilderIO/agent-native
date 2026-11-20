@@ -66,15 +66,9 @@ function ThemeCard({ theme, stage }: { theme: ThemeDefinition; stage: Stage }) {
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-3 font-semibold">{theme.label}</h3>
         <Code>{theme.name}</Code>
-        {theme.isDefault ? (
-          <Badge size="xs" color="gray">
-            Default
-          </Badge>
-        ) : null}
+        {theme.isDefault ? <Badge color="gray">Default</Badge> : null}
         {stage.theme === theme.name ? (
-          <Badge size="xs" variant="soft">
-            Current
-          </Badge>
+          <Badge variant="soft">Current</Badge>
         ) : null}
       </div>
       <dl className="grid grid-cols-2 gap-2">

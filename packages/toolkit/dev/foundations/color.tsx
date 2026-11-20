@@ -238,7 +238,7 @@ function Ratio({ ratio }: { ratio: number | null }) {
   return (
     <span className="flex items-center gap-2">
       <span className="tabular-nums">{ratio.toFixed(2)}:1</span>
-      <Badge color={passes ? "success" : "warning"} size="xs">
+      <Badge color={passes ? "success" : "warning"}>
         {passes ? "AA" : "Under AA"}
       </Badge>
     </span>

@@ -18,13 +18,12 @@ describe("Blockquote part", () => {
 
   it("writes the text props", () => {
     render(
-      <Blockquote size="4" weight="light" color="accent" wrap="balance">
+      <Blockquote weight="light" color="accent" wrap="balance">
         Ship it.
       </Blockquote>,
     );
     const quote = screen.getByText("Ship it.");
     expect({ ...quote.dataset }).toEqual({
-      size: "4",
       weight: "light",
       color: "accent",
       wrap: "balance",

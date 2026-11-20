@@ -1,9 +1,1 @@
-import { enumProp } from "../props.js";
-
-export const alertDialogPopupProps = {
-  size: enumProp(
-    ["1", "2", "3", "4"],
-    "Padding and type step of the popup, as in Radix Themes.",
-    "3",
-  ),
-} as const;
+export const alertDialogPopupProps = {} as const;

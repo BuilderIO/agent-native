@@ -30,11 +30,10 @@ const checkedName = () =>
     ?.getAttribute("aria-label");
 
 describe("AlignmentPicker part", () => {
-  it("writes its props, size 1 surface row by default", () => {
+  it("writes its props, surface row by default", () => {
     render(<Example />);
     const group = screen.getByRole("radiogroup", { name: "Alignment" });
     expect(group.classList.contains("alignment-picker")).toBe(true);
-    expect(group.dataset.size).toBe("1");
     expect(group.dataset.variant).toBe("surface");
     expect(group.dataset.direction).toBe("row");
     expect(group.dataset.justify).toBe("start");

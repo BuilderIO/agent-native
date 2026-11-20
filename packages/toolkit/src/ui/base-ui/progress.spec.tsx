@@ -12,10 +12,9 @@ import {
 afterEach(cleanup);
 
 describe("Progress part", () => {
-  it("writes its size and variant, size 2 surface by default, inheriting its color", () => {
+  it("writes its variant, surface by default, inheriting its color", () => {
     render(<Progress value={40} aria-label="Uploading" />);
     const bar = screen.getByRole("progressbar", { name: "Uploading" });
-    expect(bar.dataset.size).toBe("2");
     expect(bar.dataset.variant).toBe("surface");
     expect(bar.dataset.color).toBeUndefined();
     expect(bar.dataset.radius).toBeUndefined();
@@ -26,7 +25,6 @@ describe("Progress part", () => {
       <Progress
         value={40}
         aria-label="Uploading"
-        size="3"
         variant="soft"
         color="success"
         highContrast
@@ -34,7 +32,6 @@ describe("Progress part", () => {
       />,
     );
     const bar = screen.getByRole("progressbar", { name: "Uploading" });
-    expect(bar.dataset.size).toBe("3");
     expect(bar.dataset.variant).toBe("soft");
     expect(bar.dataset.color).toBe("success");
     expect(bar.dataset.highContrast).toBe("");

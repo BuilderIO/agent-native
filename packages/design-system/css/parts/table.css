@@ -1,7 +1,7 @@
 /*
  * Part: table
  *
- *   <div class="table-root" data-size="1|2|3" data-variant="surface|ghost"
+ *   <div class="table-root" data-variant="surface|ghost"
  *        data-layout="auto|fixed">
  *     <div class="scroll-area">                  ScrollArea, for wide tables
  *       <table class="table">
@@ -15,8 +15,7 @@
  *             <th class="table-cell table-row-header-cell" scope="row">
  *             <td class="table-cell" data-justify>
  *
- * Radix Themes' table on the system's scale. Sizes 1 to 3 pad the cells
- * compact, standard and roomy. Surface frames the table on the raised
+ * Radix Themes' table on the system's scale. Surface frames the table on the raised
  * surface with a tinted header; ghost is bare rows divided by hairlines.
  * A row takes the hover fill only when it is a control (focusable, or a
  * button or link), and a pressed or selected row keeps the fill: a button
@@ -121,20 +120,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .table-root[data-size="1"] {
-    --_table-cell-padding-y: var(--space-1);
-    --_table-cell-padding-x: var(--space-2);
-    --_table-cell-min-height: var(--size-4);
-    --_table-font-size: var(--font-size-1);
-    --_table-line-height: var(--line-height-1);
-  }
-
-  .table-root[data-size="3"] {
-    --_table-cell-padding-y: var(--space-3);
-    --_table-cell-padding-x: var(--space-4);
-    --_table-cell-min-height: var(--size-6);
-  }
 
   /* ---- variants ---- */
 

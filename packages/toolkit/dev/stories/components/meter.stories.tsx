@@ -41,17 +41,6 @@ type Story = StoryObj<typeof meta>;
 /** The meter with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3: 4, 6 and 8px tracks. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-4">
-      {meterProps.size.values.map((size) => (
-        <Meter key={size} size={size} value={60} aria-label={`Size ${size}`} />
-      ))}
-    </div>
-  ),
-};
-
 /** Both variants in every color, then in high contrast. */
 export const Variants: Story = {
   render: () => (
@@ -95,7 +84,7 @@ export const States: Story = {
         <MeterLabel>Storage</MeterLabel>
         <MeterValue />
       </Meter>
-      <Meter value={60} size="3" radius="none" aria-label="Credits" />
+      <Meter value={60} radius="none" aria-label="Credits" />
     </div>
   ),
 };

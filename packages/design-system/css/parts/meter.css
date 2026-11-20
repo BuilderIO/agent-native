@@ -2,7 +2,7 @@
  * Part: meter
  *
  *   <div class="meter" role="meter"            Base UI Meter.Root
- *        data-size="1|2|3" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast] [data-radius]>
  *     <span class="meter-label">               Meter.Label
@@ -24,14 +24,6 @@
     align-items: baseline;
     gap: var(--space-1) var(--space-2);
     width: 100%;
-  }
-
-  .meter[data-size="1"] {
-    --_meter-height: var(--space-1);
-  }
-
-  .meter[data-size="3"] {
-    --_meter-height: var(--space-2);
   }
 
   .meter-label {

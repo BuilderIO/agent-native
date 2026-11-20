@@ -212,7 +212,7 @@ export function MigrationStatusPage({ status }: { status: MigrationStatus }) {
                     <span className="flex items-center gap-2">
                       {row.name}
                       {row.status === "planned" ? (
-                        <Badge size="xs" color="warning" variant="outline">
+                        <Badge color="warning" variant="outline">
                           Planned
                         </Badge>
                       ) : null}

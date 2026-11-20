@@ -22,7 +22,6 @@ import {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
-  type DialogPopupProps,
 } from "./dialog.js";
 
 function press(element: Element) {
@@ -76,38 +75,6 @@ describe("dialog parts", () => {
     expect(popup.getAttribute("aria-labelledby")).toBe(
       screen.getByText("Rename").id,
     );
-  });
-
-  it("writes size 3 on the popup by default, and the size it is given", async () => {
-    render(
-      <>
-        <Dialog open>
-          <DialogPopup data-testid="default">
-            <DialogTitle>Default</DialogTitle>
-          </DialogPopup>
-        </Dialog>
-        <Dialog open>
-          <DialogPopup data-testid="small" size="1">
-            <DialogTitle>Small</DialogTitle>
-          </DialogPopup>
-        </Dialog>
-      </>,
-    );
-    expect((await screen.findByTestId("default")).dataset.size).toBe("3");
-    expect(screen.getByTestId("small").dataset.size).toBe("1");
-  });
-
-  it("refuses a size it doesn't have", () => {
-    const props = { size: "5" } as unknown as DialogPopupProps;
-    expect(() =>
-      render(
-        <Dialog open>
-          <DialogPopup {...props}>
-            <DialogTitle>Too big</DialogTitle>
-          </DialogPopup>
-        </Dialog>,
-      ),
-    ).toThrow(/size="5" is not one of/);
   });
 
   it("passes motion to the backdrop and popup", async () => {

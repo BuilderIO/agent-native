@@ -5,7 +5,7 @@
  *     <h2 class="item-group-label" [data-visually-hidden]> names the list
  *   <p class="item-description">                          optional, under a label: describes the list
  *   <div class="item-group" role="list" data-variant="ghost|outline">
- *     <div class="item" role="listitem" data-size="1|2"
+ *     <div class="item" role="listitem"
  *          data-variant="ghost|outline|soft">
  *       <span class="item-media" [data-framed]>
  *       <div class="item-content">
@@ -13,8 +13,7 @@
  *       <div class="item-actions">                        a Switch, Buttons, a Menu trigger
  *       <div class="item-footer">                         across the row's width
  *
- * A row in a list, not in Radix Themes: size 1 is the compact row, 2 the
- * standard one. An outlined group frames its rows on the raised surface
+ * A row in a list, not in Radix Themes. An outlined group frames its rows on the raised surface
  * and divides them with hairlines; a ghost group is bare rows. On its own
  * an item can draw its edge (outline) or a quiet fill (soft). An item that
  * renders as a link or button takes the hover fill. Framed media sets an
@@ -98,11 +97,6 @@
     text-align: start;
     text-decoration: none;
     outline-style: none;
-  }
-
-  .item[data-size="1"] {
-    min-height: var(--size-4);
-    padding: var(--space-1) var(--space-2);
   }
 
   /* A row that is a control: the whole row is its hit area. */

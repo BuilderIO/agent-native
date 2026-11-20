@@ -1,7 +1,7 @@
 /*
  * Part: avatar
  *
- *   <span class="avatar" data-size="xs|sm|md|lg" data-variant="solid|soft"
+ *   <span class="avatar" data-variant="solid|soft"
  *         [data-color="accent|gray|danger|warning|success|info"]
  *         [data-high-contrast] [data-radius]>     Base UI Avatar.Root
  *     <img class="avatar-image">                  Avatar.Image, once loaded
@@ -29,21 +29,6 @@
     user-select: none;
   }
 
-  .avatar[data-size="xs"] {
-    width: var(--size-1);
-    height: var(--size-1);
-  }
-
-  .avatar[data-size="sm"] {
-    width: var(--size-2);
-    height: var(--size-2);
-  }
-
-  .avatar[data-size="lg"] {
-    width: var(--size-4);
-    height: var(--size-4);
-  }
-
   .avatar[data-radius]:not([data-radius="full"]) {
     border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
   }
@@ -66,15 +51,6 @@
     line-height: 1;
     font-weight: var(--font-weight-medium);
     text-transform: uppercase;
-  }
-
-  .avatar:where([data-size="xs"], [data-size="sm"]) .avatar-fallback {
-    font-size: var(--font-size-0);
-    letter-spacing: var(--letter-spacing-0);
-  }
-
-  .avatar[data-size="lg"] .avatar-fallback {
-    font-size: var(--font-size-2);
   }
 
   .avatar-fallback svg {

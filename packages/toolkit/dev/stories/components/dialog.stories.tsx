@@ -110,17 +110,6 @@ export const Playground: Story = {
   ),
 };
 
-/** Sizes 1 to 4 step the padding, the gap and the type together. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-4 p-4">
-      {dialogPopupProps.size.values.map((size) => (
-        <DialogSection key={size} size={size} />
-      ))}
-    </div>
-  ),
-};
-
 /** The default motion, then the instant one, where only the blur eases in. */
 export const Motion: Story = {
   render: (args) => (

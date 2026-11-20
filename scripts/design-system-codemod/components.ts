@@ -279,7 +279,7 @@ const BADGE_VARIANTS: Readonly<Record<string, string[]>> = {
 
 const BADGE_SIZES: Readonly<Record<string, string[]>> = {
   default: [],
-  sm: ['size="xs"'],
+  sm: [],
 };
 
 function badgeJsx(tag: JsxTag): Analysis {
@@ -485,25 +485,7 @@ function spinnerSizeClasses(
   return { remove, px: null };
 }
 
-const SPINNER_DIAMETERS: readonly [string, number][] = [
-  ["sm", 12],
-  ["md", 16],
-];
-
-function spinnerSize(px: number): { size: string; exact: boolean } | null {
-  if (px < 10 || px > 18) return null;
-  let best = SPINNER_DIAMETERS.at(0);
-  for (const entry of SPINNER_DIAMETERS) {
-    if (
-      best === undefined ||
-      Math.abs(entry[1] - px) <= Math.abs(best[1] - px)
-    ) {
-      best = entry;
-    }
-  }
-  if (!best) return null;
-  return { size: best[0], exact: best[1] === px };
-}
+const SPINNER_DIAMETER = 16;
 
 const CUBE_LOADER_PROPS = [
   "stroke",
@@ -548,12 +530,13 @@ function spinnerJsx(tag: JsxTag, context: SiteContext): Analysis {
     } else return skip("size isn't a pixel literal");
   }
   const diameter = px ?? 16;
-  const mapped = spinnerSize(diameter);
-  if (!mapped) return skip(`${diameter}px is outside the Spinner's 12-16px`);
-  if (!mapped.exact) {
-    reviews.push(
-      `${diameter}px rounded to size "${mapped.size}" (${SPINNER_DIAMETERS.find(([size]) => size === mapped.size)?.[1]}px)`,
+  if (diameter < 10 || diameter > 18) {
+    return skip(
+      `${diameter}px is too far from the Spinner's ${SPINNER_DIAMETER}px`,
     );
+  }
+  if (diameter !== SPINNER_DIAMETER) {
+    reviews.push(`${diameter}px becomes the Spinner's ${SPINNER_DIAMETER}px`);
   }
 
   const label = findAttr(tag, "aria-label") ?? findAttr(tag, "title");
@@ -595,7 +578,7 @@ function spinnerJsx(tag: JsxTag, context: SiteContext): Analysis {
       if (label) edits.add(label.name.getStart(), label.name.end, "label");
       editTag(edits, tag, {
         remove: [findAttr(tag, "size"), hidden],
-        add: mapped.size === "md" ? [] : [`size="${mapped.size}"`],
+        add: [],
       });
     },
   };

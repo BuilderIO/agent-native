@@ -46,12 +46,12 @@ export const States: Story = {
       </p>
       <div className="flex items-center gap-3">
         <Skeleton>
-          <Avatar size="lg">
+          <Avatar>
             <AvatarFallback>AL</AvatarFallback>
           </Avatar>
         </Skeleton>
         <Skeleton loading={false}>
-          <Avatar size="lg">
+          <Avatar>
             <AvatarFallback>AL</AvatarFallback>
           </Avatar>
         </Skeleton>

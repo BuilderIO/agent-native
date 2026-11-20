@@ -57,9 +57,9 @@ function Parts({ sizes }: { sizes: readonly PopoverProps[] }) {
       <div className="flex items-center gap-3">
         {sizes.map((props) => (
           <PopoverSample
-            key={props.size ?? "default"}
+            key="default"
             {...props}
-            label={props.size ? `Size ${props.size}` : "Open popover"}
+            label="Open popover"
             container={container}
           />
         ))}
@@ -103,13 +103,6 @@ type Story = StoryObj<PopoverProps>;
 /** The popover with the props from the controls. */
 export const Playground: Story = {
   render: (args) => <Parts sizes={[args]} />,
-};
-
-/** Sizes 1 to 4 step the padding and the type together. Open each in turn. */
-export const Sizes: Story = {
-  render: () => (
-    <Parts sizes={popoverPopupProps.size.values.map((size) => ({ size }))} />
-  ),
 };
 
 /** Opened from inside a dialog, it paints above it and keeps Escape local. */

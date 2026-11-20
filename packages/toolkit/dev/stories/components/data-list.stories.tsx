@@ -69,19 +69,6 @@ type Story = StoryObj<typeof meta>;
 /** The list with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3 step the type and the space between rows. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-8">
-      {dataListProps.size.values.map((size) => (
-        <DataList key={size} size={size}>
-          <RunDetails />
-        </DataList>
-      ))}
-    </div>
-  ),
-};
-
 /** Labels beside their values, or above them. */
 export const Orientation: Story = {
   render: () => (

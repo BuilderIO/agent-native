@@ -198,7 +198,7 @@ export function UsedBy({
   return (
     <span className="flex flex-wrap gap-1">
       {parts.map((part) => (
-        <Badge key={part} color="gray" variant="soft" size="xs">
+        <Badge key={part} color="gray" variant="soft">
           {part}
         </Badge>
       ))}

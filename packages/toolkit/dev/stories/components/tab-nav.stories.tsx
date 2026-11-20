@@ -55,22 +55,6 @@ type Story = StoryObj<typeof meta>;
 /** The links with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 and 2: 24 and 32px links, as Tabs' triggers. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex flex-col gap-6">
-      {tabNavProps.size.values.map((size) => (
-        <Example
-          key={size}
-          {...args}
-          size={size}
-          aria-label={`Project, size ${size}`}
-        />
-      ))}
-    </div>
-  ),
-};
-
 /** The current page's underline in every color, then in high contrast. */
 export const Colors: Story = {
   render: (args) => (

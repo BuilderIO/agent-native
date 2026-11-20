@@ -62,7 +62,7 @@ export default meta;
 
 type Story = StoryObj<PreviewCardProps>;
 
-/** The card, open, with the props from the controls. Sizes 1 to 3 step its padding. */
+/** The card, open, with the props from the controls. */
 export const Playground: Story = {
   render: (args) => <Parts {...args} />,
 };

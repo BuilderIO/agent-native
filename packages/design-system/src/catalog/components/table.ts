@@ -1,11 +1,6 @@
 import { enumProp, variantProp } from "../props.js";
 
 export const tableProps = {
-  size: enumProp(
-    ["1", "2", "3"],
-    "Cell padding: compact, standard, roomy.",
-    "2",
-  ),
   variant: variantProp(["surface", "ghost"], "ghost"),
   layout: enumProp(
     ["auto", "fixed"],

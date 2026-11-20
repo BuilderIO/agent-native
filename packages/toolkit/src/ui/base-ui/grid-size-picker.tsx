@@ -1,5 +1,4 @@
 import {
-  type ControlSize,
   type GridSizePickerOwnProps,
   gridSizePickerProps,
 } from "@agent-native/design-system";
@@ -67,13 +66,6 @@ const MATRIX_COLUMNS = 12;
 const MATRIX_ROWS = 8;
 const DEFAULT_VALUE: GridSize = { columns: 2, rows: "auto" };
 
-const FIELD_SIZE: Record<ControlSize, ControlSize> = {
-  "1": "3",
-  "2": "3",
-  "3": "3",
-  "4": "4",
-};
-
 interface Corner {
   column: number;
   row: number;
@@ -120,7 +112,6 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
       },
     ] = splitProps(gridSizePickerProps, props);
     const labels = { ...DEFAULT_LABELS, ...labelsProp };
-    const size = FIELD_SIZE[props.size ?? "1"];
     const [value, setValue] = useControlledValue(
       valueProp,
       defaultValue,
@@ -217,7 +208,6 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
               data-auto={value.rows === "auto" ? "" : undefined}
             >
               <NumberField
-                size={size}
                 aria-label={labels.columns}
                 min={1}
                 value={value.columns}
@@ -230,7 +220,6 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
               </span>
               {value.rows === "auto" ? null : (
                 <NumberField
-                  size={size}
                   aria-label={labels.rows}
                   min={1}
                   value={value.rows}
@@ -240,7 +229,6 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
                 />
               )}
               <Select
-                size={size}
                 items={[
                   { value: "auto", label: labels.auto },
                   { value: "fixed", label: labels.fixed },
@@ -329,7 +317,6 @@ const GridSizePicker = React.forwardRef<HTMLButtonElement, GridSizePickerProps>(
               {readout}
             </div>
             <Button
-              size={size}
               variant="soft"
               color="gray"
               onClick={() => {

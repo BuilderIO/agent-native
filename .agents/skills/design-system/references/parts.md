@@ -7,8 +7,8 @@ One root class named after the catalog part, one class per sub-part
 
 - Props are Radix Themes', written as data attributes by `splitProps`:
   `data-variant` (solid, soft, surface, outline, ghost), `data-color`
-  (accent, gray, danger, warning, success, info), `data-size` (sm or md for
-  controls, md the standard), `data-radius`, and booleans as empty attributes
+  (accent, gray, danger, warning, success, info), `data-size` (sm or md, only on
+  controls that need a dense size; md the standard), `data-radius`, and booleans as empty attributes
   (`data-high-contrast`). The attributes come from the catalog definitions;
   never write one by hand.
 - State comes from Base UI's own attributes: `data-open`, `data-highlighted`,

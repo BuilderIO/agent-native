@@ -70,18 +70,6 @@ export const Playground: Story = {
   ),
 };
 
-/** Sizes 1 to 4 step the padding, the gap and the type together. */
-export const Sizes: Story = {
-  parameters: { a11y: { test: "todo" } },
-  render: () => (
-    <div className="flex flex-col gap-4 p-4">
-      {alertDialogPopupProps.size.values.map((size) => (
-        <AlertDialogSection key={size} size={size} />
-      ))}
-    </div>
-  ),
-};
-
 /** Opened from a trigger: an outside press does not dismiss it. */
 export const Interactive: Story = {
   render: (args) => (

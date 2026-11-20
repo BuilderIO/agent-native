@@ -21,27 +21,6 @@ type Story = StoryObj<typeof meta>;
 /** The shortcut with the props from the controls. */
 export const Playground: Story = {};
 
-/** Each step of the type scale, and unset beside 12 and 14px text. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        {kbdProps.size.values.map((size) => (
-          <Kbd key={size} size={size}>
-            ⌘K
-          </Kbd>
-        ))}
-      </div>
-      <p className="m-0 text-xs">
-        Search with <Kbd>⌘K</Kbd>
-      </p>
-      <p className="m-0 text-sm">
-        Search with <Kbd>⌘K</Kbd>
-      </p>
-    </div>
-  ),
-};
-
 /** Surface and soft. */
 export const Variants: Story = {
   render: () => (

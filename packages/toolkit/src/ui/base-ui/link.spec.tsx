@@ -22,7 +22,6 @@ describe("Link part", () => {
       <Link
         href="/docs"
         underline="always"
-        size="2"
         weight="medium"
         color="gray"
         highContrast
@@ -32,7 +31,6 @@ describe("Link part", () => {
     );
     const link = screen.getByRole("link", { name: "Docs" });
     expect(link.dataset.underline).toBe("always");
-    expect(link.dataset.size).toBe("2");
     expect(link.dataset.weight).toBe("medium");
     expect(link.dataset.color).toBe("gray");
     expect(link.dataset.highContrast).toBe("");

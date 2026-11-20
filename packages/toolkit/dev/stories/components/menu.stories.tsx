@@ -195,17 +195,6 @@ export const Playground: Story = {
   ),
 };
 
-/** md and sm: 24 and 20px rows. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex gap-6 p-8">
-      {menuPopupProps.size.values.map((size) => (
-        <HighlightSample key={size} {...args} size={size} />
-      ))}
-    </div>
-  ),
-};
-
 /** The highlighted row in each variant and color, then in high contrast. */
 export const Variants: Story = {
   render: () => (

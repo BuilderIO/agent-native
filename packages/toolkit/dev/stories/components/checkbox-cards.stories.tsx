@@ -62,30 +62,6 @@ type Story = StoryObj<typeof meta>;
 /** The cards with the group props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3, each card's checkbox at the same size. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex max-w-[560px] flex-col gap-6">
-      {checkboxCardsProps.size.values.map((size) => (
-        <CheckboxCards
-          key={size}
-          {...args}
-          size={size}
-          defaultValue={["email"]}
-          aria-label={`Channels, size ${size}`}
-          style={threeColumns}
-        >
-          {CHANNELS.map((channel) => (
-            <CheckboxCardsItem key={channel.value} value={channel.value}>
-              {channel.name}
-            </CheckboxCardsItem>
-          ))}
-        </CheckboxCards>
-      ))}
-    </div>
-  ),
-};
-
 /** Each variant in every color, then in high contrast. */
 export const Variants: Story = {
   render: (args) => (

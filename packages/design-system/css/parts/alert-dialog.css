@@ -2,7 +2,7 @@
  * Part: alert-dialog
  *
  *   <div class="alert-dialog-backdrop" data-open|data-closed>
- *   <div class="alert-dialog-popup" data-size="1|2|3|4" role="alertdialog"
+ *   <div class="alert-dialog-popup" role="alertdialog"
  *        data-open|data-closed [data-starting-style] [data-ending-style]>
  *     <div class="alert-dialog-header">
  *       <h2 class="alert-dialog-title"> <p class="alert-dialog-description">
@@ -11,8 +11,8 @@
  *
  * An alert dialog is the dialog that must be answered, so it stacks above
  * dialogs and drawers on its own layers; a popup opened inside it stacks
- * above it. `data-size` steps the
- * popup's padding, gap and type as the dialog's does; 3 is the default.
+ * above it.
+ * Its padding, gap and type are the dialog's.
  * Action and Cancel are the button part.
  */
 
@@ -119,48 +119,5 @@
     color: var(--fg-muted);
   }
   /* ---- sizes: padding, gap and type step together ---- */
-
-  .alert-dialog-popup[data-size="1"] {
-    padding: var(--space-3);
-    gap: var(--space-3);
-  }
-
-  .alert-dialog-popup[data-size="1"] .alert-dialog-title {
-    font-size: var(--font-size-2);
-    line-height: var(--line-height-2);
-    letter-spacing: var(--letter-spacing-2);
-  }
-
-  .alert-dialog-popup[data-size="1"] .alert-dialog-description {
-    font-size: var(--font-size-1);
-    line-height: var(--line-height-1);
-  }
-
-  .alert-dialog-popup[data-size="2"] {
-    padding: var(--space-4);
-    gap: var(--space-3);
-  }
-
-  .alert-dialog-popup[data-size="2"] .alert-dialog-title {
-    font-size: var(--font-size-3);
-    line-height: var(--line-height-3);
-    letter-spacing: var(--letter-spacing-3);
-  }
-
-  .alert-dialog-popup[data-size="4"] {
-    padding: var(--space-6);
-    gap: var(--space-5);
-  }
-
-  .alert-dialog-popup[data-size="4"] .alert-dialog-title {
-    font-size: var(--font-size-5);
-    line-height: var(--line-height-5);
-    letter-spacing: var(--letter-spacing-5);
-  }
-
-  .alert-dialog-popup[data-size="4"] .alert-dialog-description {
-    font-size: var(--font-size-3);
-    line-height: var(--line-height-3);
-  }
 
 }

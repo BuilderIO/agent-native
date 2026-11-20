@@ -2,15 +2,14 @@
  * Part: data-list
  *
  *   <dl class="data-list" data-orientation="horizontal|vertical"
- *       data-size="1|2|3" [data-trim="normal|start|end|both"]>
+ *       [data-trim="normal|start|end|both"]>
  *     <div class="data-list-item">
  *       <dt class="data-list-label">
  *       <dd class="data-list-value">
  *
  * Radix Themes' data list: label and value pairs. Horizontal sets the
  * labels in one column beside their values, aligned on the first line's
- * baseline; vertical stacks each label over its value. Sizes 1 to 3 step
- * the type (12, 14 and 16px) and the space between rows. A taller value,
+ * baseline; vertical stacks each label over its value. A taller value,
  * such as a Badge or a Button, may hang a little past its row in a
  * horizontal list so the rows keep the type's rhythm; the first and last
  * rows keep it inside the list. `trim` removes the half-leading above the
@@ -52,18 +51,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .data-list[data-size="1"] {
-    --_data-list-gap: var(--space-2);
-    --_data-list-line-height: var(--line-height-1);
-    font-size: var(--font-size-1);
-  }
-
-  .data-list[data-size="3"] {
-    --_data-list-gap: var(--space-4);
-    --_data-list-line-height: var(--line-height-3);
-    font-size: var(--font-size-3);
-  }
 
   /* ---- orientation ---- */
 

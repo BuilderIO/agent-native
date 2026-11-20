@@ -1,7 +1,7 @@
 /*
  * Part: callout
  *
- *   <div class="callout" data-size="1|2|3" data-variant="soft|surface|outline"
+ *   <div class="callout" data-variant="soft|surface|outline"
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast]>
  *     <div class="callout-icon" aria-hidden>    an icon, before the message
@@ -66,26 +66,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .callout[data-size="1"] {
-    --_callout-gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--font-size-1);
-    line-height: var(--line-height-1);
-  }
-
-  .callout[data-size="1"] .callout-icon svg {
-    width: var(--control-icon-size-1);
-    height: var(--control-icon-size-1);
-  }
-
-  .callout[data-size="3"] {
-    --_callout-gap: var(--space-4);
-    row-gap: var(--space-3);
-    padding: var(--space-4) var(--space-5);
-    font-size: var(--font-size-3);
-    line-height: var(--line-height-3);
-  }
 
   /* ---- variants ---- */
 

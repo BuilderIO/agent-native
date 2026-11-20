@@ -3,13 +3,11 @@
  *
  *   <div class="preview-card-positioner">           Base UI PreviewCard.Positioner
  *     <div class="preview-card-popup"               PreviewCard.Popup
- *          data-size="1|2|3" [data-open] [data-side] [data-align] [data-instant]
+ *          [data-open] [data-side] [data-align] [data-instant]
  *          [data-starting-style] [data-ending-style]>
  *       <div class="preview-card-arrow">            PreviewCard.Arrow
  *
- * `data-size` is Radix Themes' HoverCard.Content size: 1 to 3 step the
- * popup's padding; 2 is the default. The card has no type of its own, so its
- * content sets it.
+ * The card has no type of its own, so its content sets it.
  */
 
 @layer components {
@@ -75,14 +73,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .preview-card-popup[data-size="1"] {
-    padding: var(--space-3);
-  }
-
-  .preview-card-popup[data-size="3"] {
-    padding: var(--space-5);
-  }
 
   .preview-card-arrow {
     --_size: 10px;

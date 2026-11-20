@@ -2,7 +2,7 @@
  * Part: code
  *
  *   <code class="code" data-variant="solid|soft|outline|ghost"
- *         [data-size="0–9"] [data-weight="light|regular|medium|semibold|bold"]
+ *         [data-weight="light|regular|medium|semibold|bold"]
  *         [data-truncate] [data-wrap="wrap|nowrap|pretty|balance"]
  *         [data-color="accent|gray|danger|warning|success|info"]
  *         [data-high-contrast]>
@@ -37,66 +37,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .code[data-size="0"] {
-    font-size: calc(var(--font-size-0) * var(--_code-scale));
-    line-height: var(--line-height-0);
-    letter-spacing: calc(var(--letter-spacing-0) - 0.007em);
-  }
-
-  .code[data-size="1"] {
-    font-size: calc(var(--font-size-1) * var(--_code-scale));
-    line-height: var(--line-height-1);
-    letter-spacing: calc(var(--letter-spacing-1) - 0.007em);
-  }
-
-  .code[data-size="2"] {
-    font-size: calc(var(--font-size-2) * var(--_code-scale));
-    line-height: var(--line-height-2);
-    letter-spacing: calc(var(--letter-spacing-2) - 0.007em);
-  }
-
-  .code[data-size="3"] {
-    font-size: calc(var(--font-size-3) * var(--_code-scale));
-    line-height: var(--line-height-3);
-    letter-spacing: calc(var(--letter-spacing-3) - 0.007em);
-  }
-
-  .code[data-size="4"] {
-    font-size: calc(var(--font-size-4) * var(--_code-scale));
-    line-height: var(--line-height-4);
-    letter-spacing: calc(var(--letter-spacing-4) - 0.007em);
-  }
-
-  .code[data-size="5"] {
-    font-size: calc(var(--font-size-5) * var(--_code-scale));
-    line-height: var(--line-height-5);
-    letter-spacing: calc(var(--letter-spacing-5) - 0.007em);
-  }
-
-  .code[data-size="6"] {
-    font-size: calc(var(--font-size-6) * var(--_code-scale));
-    line-height: var(--line-height-6);
-    letter-spacing: calc(var(--letter-spacing-6) - 0.007em);
-  }
-
-  .code[data-size="7"] {
-    font-size: calc(var(--font-size-7) * var(--_code-scale));
-    line-height: var(--line-height-7);
-    letter-spacing: calc(var(--letter-spacing-7) - 0.007em);
-  }
-
-  .code[data-size="8"] {
-    font-size: calc(var(--font-size-8) * var(--_code-scale));
-    line-height: var(--line-height-8);
-    letter-spacing: calc(var(--letter-spacing-8) - 0.007em);
-  }
-
-  .code[data-size="9"] {
-    font-size: calc(var(--font-size-9) * var(--_code-scale));
-    line-height: var(--line-height-9);
-    letter-spacing: calc(var(--letter-spacing-9) - 0.007em);
-  }
 
   /* ---- variants ---- */
 

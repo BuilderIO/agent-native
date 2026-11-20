@@ -58,7 +58,7 @@ left alone because templates depend on their current values.
 
 | Attribute                                          | Effect                                                                                                                                                                                                |
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data-density` compact / default / comfortable     | control paddings, the in-control gap and `--space-1..9`, all multiples of 4. Control heights stay 16/20/24/32 (xs/sm/md/lg) at every density: with a 16px floor a shifted scale would merge two sizes |
+| `data-density` compact / default / comfortable     | control paddings, the in-control gap and `--space-1..9`, all multiples of 4. Control heights stay 20 and 24px (sm and md) at every density |
 | `data-radius` none / small / medium / large / full | `--radius-factor` 0 / .75 / 1 / 1.5; `full` makes controls pills                                                                                                                                      |
 | `data-corners` round / squircle                    | `corner-shape: superellipse(1.3)` with radii × 1.25 where supported                                                                                                                                   |
 

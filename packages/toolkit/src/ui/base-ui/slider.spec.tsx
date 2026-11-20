@@ -13,7 +13,6 @@ describe("Slider part", () => {
     );
     const root = container.querySelector(".slider");
     expect(root?.getAttribute("data-orientation")).toBe("horizontal");
-    expect(root?.getAttribute("data-size")).toBe("2");
     expect(root?.getAttribute("data-variant")).toBe("surface");
     expect(root?.hasAttribute("data-color")).toBe(false);
     expect(root?.querySelector(".slider-control .slider-track")).not.toBeNull();
@@ -35,12 +34,11 @@ describe("Slider part", () => {
     expect(screen.getByRole("slider", { name: "Maximum" })).toBeTruthy();
   });
 
-  it("writes size, variant, color, high contrast and radius as Radix names them", () => {
+  it("writes variant, color, high contrast and radius as Radix names them", () => {
     const { container } = render(
       <Slider
         defaultValue={40}
         thumbLabel="Volume"
-        size="1"
         variant="soft"
         color="info"
         highContrast
@@ -48,7 +46,6 @@ describe("Slider part", () => {
       />,
     );
     const root = container.querySelector(".slider");
-    expect(root?.getAttribute("data-size")).toBe("1");
     expect(root?.getAttribute("data-variant")).toBe("soft");
     expect(root?.getAttribute("data-color")).toBe("info");
     expect(root?.getAttribute("data-high-contrast")).toBe("");

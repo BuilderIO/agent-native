@@ -17,13 +17,8 @@ describe("Kbd part", () => {
   });
 
   it("writes a step of the type scale and its variant", () => {
-    render(
-      <Kbd size="2" variant="soft">
-        ⇧⌘P
-      </Kbd>,
-    );
+    render(<Kbd variant="soft">⇧⌘P</Kbd>);
     const key = screen.getByText("⇧⌘P");
-    expect(key.dataset.size).toBe("2");
     expect(key.dataset.variant).toBe("soft");
   });
 

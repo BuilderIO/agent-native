@@ -6,7 +6,7 @@
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast]>
  *     <span class="radio-group-radio" role="radio"  Radio.Root, with the group's
- *           data-size data-variant [data-color]     props written on it
+ *           data-variant [data-color]     props written on it
  *           [data-high-contrast] [data-checked] [data-unchecked]
  *           [data-invalid] [data-disabled]>
  *       <span class="radio-group-indicator">        Radio.Indicator, while checked

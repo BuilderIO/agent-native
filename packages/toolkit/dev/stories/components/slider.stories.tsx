@@ -33,17 +33,6 @@ type Story = StoryObj<typeof meta>;
 /** The slider with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3: 4, 6 and 8px tracks. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex flex-col gap-4">
-      {sliderProps.size.values.map((size) => (
-        <Slider key={size} {...args} size={size} thumbLabel={`Size ${size}`} />
-      ))}
-    </div>
-  ),
-};
-
 /** Each variant in every color, then in high contrast. */
 export const Variants: Story = {
   render: (args) => (
@@ -83,7 +72,6 @@ export const Radius: Story = {
         <Slider
           key={radius}
           {...args}
-          size="3"
           radius={radius}
           thumbLabel={`Radius ${radius}`}
         />

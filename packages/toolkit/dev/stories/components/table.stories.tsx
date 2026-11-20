@@ -77,19 +77,6 @@ type Story = StoryObj<typeof meta>;
 /** The table with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3: compact, standard and roomy cells. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-6">
-      {tableProps.size.values.map((size) => (
-        <Table key={size} size={size} variant="surface">
-          <RunRows />
-        </Table>
-      ))}
-    </div>
-  ),
-};
-
 /** Surface frames the table with a tinted header; ghost is bare rows. */
 export const Variants: Story = {
   render: () => (
@@ -206,7 +193,7 @@ export const Widths: Story = {
 /** In a Card's Inset, the first and last columns line up with the card's text. */
 export const InCard: Story = {
   render: () => (
-    <Card size="3">
+    <Card>
       <div className="flex flex-col gap-3">
         <span className="text-sm font-medium">Recent runs</span>
         <Inset side="x">

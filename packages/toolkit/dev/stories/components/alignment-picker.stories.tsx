@@ -60,17 +60,6 @@ export const Playground: Story = {
   render: (args) => <Live {...args} />,
 };
 
-/** Sizes 1 to 4: matrix cells of 16, 20, 24 and 32px on a 4px gap. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex items-start gap-6">
-      {alignmentPickerProps.size.values.map((size) => (
-        <Labelled key={size} {...args} size={size} label={`Size ${size}`} />
-      ))}
-    </div>
-  ),
-};
-
 /** Surface and soft, with the selection in each color. */
 export const Variants: Story = {
   render: (args) => (
@@ -100,7 +89,6 @@ export const Directions: Story = {
         <Labelled
           key={direction}
           {...args}
-          size="2"
           direction={direction}
           defaultValue={{ justify: "start", align: "end" }}
           label={direction}
@@ -116,37 +104,32 @@ export const States: Story = {
     <div className="flex flex-wrap items-start gap-6">
       <Labelled
         {...args}
-        size="2"
         defaultValue={{ justify: "space-between", align: "center" }}
         label="Row, space-between"
       />
       <Labelled
         {...args}
-        size="2"
         direction="column"
         defaultValue={{ justify: "space-between", align: "start" }}
         label="Column, space-between"
       />
       <Labelled
         {...args}
-        size="2"
         defaultValue={{ justify: "center", align: "stretch" }}
         label="Row, stretch"
       />
       <Labelled
         {...args}
-        size="2"
         direction="column"
         defaultValue={{ justify: "space-between", align: "stretch" }}
         label="Space-between and stretch"
       />
       <Labelled
         {...args}
-        size="2"
         defaultValue={{ justify: "start", align: "baseline" }}
         label="Baseline"
       />
-      <Labelled {...args} size="2" disabled label="Disabled" />
+      <Labelled {...args} disabled label="Disabled" />
     </div>
   ),
 };

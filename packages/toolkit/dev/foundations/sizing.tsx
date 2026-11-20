@@ -1,12 +1,10 @@
 import {
   CONTROL_SIZES,
-  type ControlSize,
   type EnumPropDef,
   PARTS,
   type PropDefs,
   SIZE_RAMP,
-  SIZE_STEPS,
-  SIZES,
+  CONTROL_SIZE_STEPS,
 } from "@agent-native/design-system";
 import { IconPlus } from "@tabler/icons-react";
 
@@ -28,31 +26,25 @@ const px = (resolved: Resolved | undefined) =>
   resolved?.status === "ok" ? Number.parseFloat(resolved.value) : null;
 
 function ControlSizes() {
-  const tokens = SIZES.flatMap((size) => [
-    `--control-height-${SIZE_STEPS[size]}`,
-    `--control-icon-size-${SIZE_STEPS[size]}`,
-    `--control-padding-x-${SIZE_STEPS[size]}`,
+  const tokens = CONTROL_SIZES.flatMap((size) => [
+    `--control-height-${CONTROL_SIZE_STEPS[size]}`,
+    `--control-icon-size-${CONTROL_SIZE_STEPS[size]}`,
   ]);
   const values = useResolved(tokens, "length");
   return (
     <Table
-      caption="Sizes"
+      caption="Control sizes"
       columns={[
         { label: "size", className: "w-12" },
         { label: "Height" },
         { label: "Icon" },
         { label: "Icon inset" },
-        { label: "Padding" },
         { label: "Sample" },
       ]}
     >
-      {SIZES.map((size) => {
-        const height = `--control-height-${SIZE_STEPS[size]}`;
-        const icon = `--control-icon-size-${SIZE_STEPS[size]}`;
-        const padding = `--control-padding-x-${SIZE_STEPS[size]}`;
-        const control = CONTROL_SIZES.find(
-          (name): name is ControlSize => name === size,
-        );
+      {CONTROL_SIZES.map((size) => {
+        const height = `--control-height-${CONTROL_SIZE_STEPS[size]}`;
+        const icon = `--control-icon-size-${CONTROL_SIZE_STEPS[size]}`;
         const h = px(values.get(height));
         const i = px(values.get(icon));
         return (
@@ -70,19 +62,14 @@ function ControlSizes() {
               {h === null || i === null ? "" : `${(h - i) / 2}px`}
             </Cell>
             <Cell>
-              <TokenValue token={padding} resolved={values.get(padding)} />
-            </Cell>
-            <Cell>
-              {control === undefined ? null : (
-                <span className="flex items-center gap-2">
-                  <Button size={control} variant="soft">
-                    Button
-                  </Button>
-                  <IconButton size={control} variant="soft" aria-label="Add">
-                    <IconPlus />
-                  </IconButton>
-                </span>
-              )}
+              <span className="flex items-center gap-2">
+                <Button size={size} variant="soft">
+                  Button
+                </Button>
+                <IconButton size={size} variant="soft" aria-label="Add">
+                  <IconPlus />
+                </IconButton>
+              </span>
             </Cell>
           </Row>
         );
@@ -159,7 +146,6 @@ function SizeVocabulary() {
               {def.values.map((value) => (
                 <Badge
                   key={value}
-                  size="xs"
                   color={value === def.default ? "accent" : "gray"}
                   variant="soft"
                 >
@@ -180,9 +166,9 @@ export function SizingPage() {
   return (
     <Page
       title="Sizing"
-      intro={`Sizes are named xs, sm, md and lg, for 16, 20, 24 and 32px. Controls come in sm and md, and md is the standard; rows are lg. Each size has its own icon size and padding, and the icon sits centered with an inset of half the difference.`}
+      intro={`Controls come in two sizes: md, 24px and the standard, and sm, 20px, for dense rows and toolbars. Every other part has one size. Each control size has its own icon size, and the icon sits centered with an inset of half the difference.`}
     >
-      <Section title="Sizes">
+      <Section title="Control sizes">
         <ControlSizes />
       </Section>
       <Section title="Box sizes">
@@ -195,9 +181,8 @@ export function SizingPage() {
       </Section>
       <Section title="The size prop">
         <Prose>
-          Every component spells size the same way: a string step, where a
-          control's step is its height. Components that are not controls use the
-          same steps for their own scale.
+          Only the controls below take a size, sm or md. Text and Heading take
+          a step of the type scale.
         </Prose>
         <SizeVocabulary />
       </Section>

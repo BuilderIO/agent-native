@@ -52,10 +52,9 @@ describe("Tab Nav part", () => {
     }
   });
 
-  it("writes size, justify and wrap on the list, size 2 by default, inheriting its color", () => {
+  it("writes justify and wrap on the list, inheriting its color", () => {
     render(<Example />);
     const list = screen.getByRole("navigation").querySelector("ul");
-    expect(list?.dataset.size).toBe("lg");
     expect(list?.dataset.justify).toBe("start");
     expect(list?.dataset.wrap).toBe("nowrap");
     expect(list?.dataset.color).toBeUndefined();
@@ -63,30 +62,14 @@ describe("Tab Nav part", () => {
   });
 
   it("writes color and high contrast on the list as Radix names them", () => {
-    render(
-      <Example
-        size="md"
-        color="gray"
-        highContrast
-        justify="center"
-        wrap="wrap"
-      />,
-    );
+    render(<Example color="gray" highContrast justify="center" wrap="wrap" />);
     const nav = screen.getByRole("navigation");
     expect(nav.dataset.size).toBeUndefined();
     const list = nav.querySelector("ul");
-    expect(list?.dataset.size).toBe("md");
     expect(list?.dataset.color).toBe("gray");
     expect(list?.dataset.highContrast).toBe("");
     expect(list?.dataset.justify).toBe("center");
     expect(list?.dataset.wrap).toBe("wrap");
-  });
-
-  it("refuses a size it doesn't have", () => {
-    const props = { size: "2" } as unknown as TabNavProps;
-    expect(() => render(<Example {...props} />)).toThrow(
-      /size="2" is not one of/,
-    );
   });
 
   it("moves between links with the arrow keys", async () => {

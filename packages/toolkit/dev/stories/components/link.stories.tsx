@@ -49,7 +49,6 @@ export const Colors: Story = {
             <Link
               key={color}
               href="#"
-              size="2"
               color={color}
               highContrast={highContrast}
             >
@@ -60,19 +59,6 @@ export const Colors: Story = {
             {highContrast ? "high contrast" : "default"}
           </span>
         </div>
-      ))}
-    </div>
-  ),
-};
-
-/** Steps of the type scale; unset, a link follows the text around it. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-2">
-      {linkProps.size.values.slice(0, 6).map((size) => (
-        <Link key={size} href="#" size={size}>
-          Size {size}
-        </Link>
       ))}
     </div>
   ),

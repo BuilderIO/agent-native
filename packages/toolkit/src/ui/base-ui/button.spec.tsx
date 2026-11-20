@@ -7,7 +7,7 @@ import { Button, type ButtonProps, IconButton } from "./button.js";
 afterEach(cleanup);
 
 describe("Button part", () => {
-  it("writes its size and variant, size 3 solid by default, inheriting its color", () => {
+  it("writes its variant, solid by default, inheriting its color", () => {
     render(<Button>Save</Button>);
     const button = screen.getByRole("button", { name: "Save" });
     expect(button.classList.contains("button")).toBe(true);

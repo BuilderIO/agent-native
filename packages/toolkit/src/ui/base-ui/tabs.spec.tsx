@@ -9,13 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  Tabs,
-  TabsList,
-  type TabsListProps,
-  TabsPanel,
-  TabsTab,
-} from "./tabs.js";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "./tabs.js";
 
 afterEach(cleanup);
 
@@ -59,10 +53,9 @@ describe("Tabs part", () => {
     expect(panel.textContent).toBe("Source");
   });
 
-  it("writes the list's size, justify and wrap, size 2 by default, inheriting its color", () => {
+  it("writes the list's justify and wrap, inheriting its color", () => {
     render(<Example />);
     const list = screen.getByRole("tablist");
-    expect(list.dataset.size).toBe("lg");
     expect(list.dataset.justify).toBe("start");
     expect(list.dataset.wrap).toBe("nowrap");
     expect(list.dataset.color).toBeUndefined();
@@ -72,36 +65,16 @@ describe("Tabs part", () => {
   it("writes color and high contrast on the list as Radix names them", () => {
     render(
       <Tabs defaultValue="a">
-        <TabsList
-          size="md"
-          color="gray"
-          highContrast
-          justify="center"
-          wrap="wrap"
-        >
+        <TabsList color="gray" highContrast justify="center" wrap="wrap">
           <TabsTab value="a">A</TabsTab>
         </TabsList>
       </Tabs>,
     );
     const list = screen.getByRole("tablist");
-    expect(list.dataset.size).toBe("md");
     expect(list.dataset.color).toBe("gray");
     expect(list.dataset.highContrast).toBe("");
     expect(list.dataset.justify).toBe("center");
     expect(list.dataset.wrap).toBe("wrap");
-  });
-
-  it("refuses a size it doesn't have instead of drawing the default", () => {
-    const props = { size: "2" } as unknown as TabsListProps;
-    expect(() =>
-      render(
-        <Tabs defaultValue="a">
-          <TabsList {...props}>
-            <TabsTab value="a">A</TabsTab>
-          </TabsList>
-        </Tabs>,
-      ),
-    ).toThrow(/size="2" is not one of/);
   });
 
   it("underlines the active tab with Base UI's indicator", () => {

@@ -2,7 +2,6 @@ import { COLORS, gridSizePickerProps } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
 
-import { AlignmentPicker } from "../../../src/ui/base-ui/alignment-picker.js";
 import {
   type GridSize,
   GridSizePicker,
@@ -66,22 +65,6 @@ export const Open: Story = {
   },
 };
 
-/** Sizes 1 to 4: an Alignment Picker's footprint, three cells of 16, 20, 24 or 32px. */
-export const Sizes: Story = {
-  render: (args) => (
-    <div className="flex items-start gap-4">
-      {gridSizePickerProps.size.values.map((size) => (
-        <GridSizePicker
-          key={size}
-          {...args}
-          size={size}
-          defaultValue={{ columns: 4, rows: 3 }}
-        />
-      ))}
-    </div>
-  ),
-};
-
 /** Surface and soft in each color. */
 export const Variants: Story = {
   render: (args) => (
@@ -112,16 +95,6 @@ export const States: Story = {
       <GridSizePicker {...args} defaultValue={{ columns: 12, rows: 8 }} />
       <GridSizePicker {...args} defaultValue={{ columns: 20, rows: 2 }} />
       <GridSizePicker {...args} disabled />
-    </div>
-  ),
-};
-
-/** Beside an Alignment Picker of the same size, as a layout inspector swaps them. */
-export const BesideAlignment: Story = {
-  render: (args) => (
-    <div className="flex items-start gap-3">
-      <AlignmentPicker aria-label="Alignment" size={args.size} />
-      <GridSizePicker {...args} defaultValue={{ columns: 1, rows: "auto" }} />
     </div>
   ),
 };

@@ -2,7 +2,7 @@
  * Part: dialog
  *
  *   <div class="dialog-backdrop" data-motion="default|instant" data-open|data-closed>
- *   <div class="dialog-popup" data-size="1|2|3|4" role="dialog" data-motion="default|instant" data-open|data-closed>
+ *   <div class="dialog-popup" role="dialog" data-motion="default|instant" data-open|data-closed>
  *     <div class="dialog-header">
  *       <h2 class="dialog-title"> <p class="dialog-description">
  *     <div class="dialog-footer">
@@ -13,8 +13,6 @@
  * dialog stacks above it by DOM order, not by layer. With `data-motion="instant"`
  * only the backdrop blur eases in.
  *
- * `data-size` is Radix Themes' Dialog.Content size: 1 to 4 step the popup's
- * padding and gap with the title and description type; 3 is the default.
  * The close button is a gray ghost icon button.
  */
 
@@ -144,59 +142,6 @@
   }
 
   /* ---- sizes: padding, gap and type step together ---- */
-
-  .dialog-popup[data-size="1"] {
-    padding: var(--space-3);
-    gap: var(--space-3);
-  }
-
-  .dialog-popup[data-size="1"] .dialog-title {
-    font-size: var(--font-size-2);
-    line-height: var(--line-height-2);
-    letter-spacing: var(--letter-spacing-2);
-  }
-
-  .dialog-popup[data-size="1"] .dialog-description {
-    font-size: var(--font-size-1);
-    line-height: var(--line-height-1);
-  }
-
-  .dialog-popup[data-size="1"] .dialog-close {
-    top: var(--space-2);
-    inset-inline-end: var(--space-2);
-  }
-
-  .dialog-popup[data-size="2"] {
-    padding: var(--space-4);
-    gap: var(--space-3);
-  }
-
-  .dialog-popup[data-size="2"] .dialog-title {
-    font-size: var(--font-size-3);
-    line-height: var(--line-height-3);
-    letter-spacing: var(--letter-spacing-3);
-  }
-
-  .dialog-popup[data-size="2"] .dialog-close {
-    top: var(--space-2);
-    inset-inline-end: var(--space-2);
-  }
-
-  .dialog-popup[data-size="4"] {
-    padding: var(--space-6);
-    gap: var(--space-5);
-  }
-
-  .dialog-popup[data-size="4"] .dialog-title {
-    font-size: var(--font-size-5);
-    line-height: var(--line-height-5);
-    letter-spacing: var(--letter-spacing-5);
-  }
-
-  .dialog-popup[data-size="4"] .dialog-description {
-    font-size: var(--font-size-3);
-    line-height: var(--line-height-3);
-  }
 
   /* ---- close button: a gray ghost icon button ---- */
 

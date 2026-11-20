@@ -29,19 +29,6 @@ type Story = StoryObj<typeof meta>;
 /** The avatar with the props from the controls, showing its initials. */
 export const Playground: Story = {};
 
-/** xs, sm, md and lg: 16, 20, 24 and 32px. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex items-center gap-3">
-      {avatarProps.size.values.map((size) => (
-        <Avatar key={size} size={size}>
-          <AvatarFallback>AL</AvatarFallback>
-        </Avatar>
-      ))}
-    </div>
-  ),
-};
-
 /** Both variants in every color, then in high contrast. */
 export const Variants: Story = {
   render: () => (
@@ -55,7 +42,6 @@ export const Variants: Story = {
             {COLORS.map((color) => (
               <Avatar
                 key={color}
-                size="lg"
                 variant={variant}
                 color={color}
                 highContrast={highContrast}
@@ -81,17 +67,17 @@ export const Variants: Story = {
 export const States: Story = {
   render: () => (
     <div className="flex items-center gap-3">
-      <Avatar size="lg">
+      <Avatar>
         <AvatarImage src="/missing-avatar.png" alt="Ada Lovelace" />
         <AvatarFallback>AL</AvatarFallback>
       </Avatar>
-      <Avatar size="lg" color="gray">
+      <Avatar color="gray">
         <AvatarFallback>
           <IconUser aria-hidden />
         </AvatarFallback>
       </Avatar>
       {avatarProps.radius.values.map((radius) => (
-        <Avatar key={radius} size="lg" radius={radius}>
+        <Avatar key={radius} radius={radius}>
           <AvatarFallback>{radius.slice(0, 2)}</AvatarFallback>
         </Avatar>
       ))}

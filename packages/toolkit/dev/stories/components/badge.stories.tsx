@@ -54,19 +54,6 @@ export const Variants: Story = {
   ),
 };
 
-/** xs, sm and md: 16, 20 and 24px. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex items-center gap-2">
-      {badgeProps.size.values.map((size) => (
-        <Badge key={size} size={size}>
-          Size {size}
-        </Badge>
-      ))}
-    </div>
-  ),
-};
-
 /** A dot keeps its label for assistive technology. */
 export const Dot: Story = {
   render: () => (

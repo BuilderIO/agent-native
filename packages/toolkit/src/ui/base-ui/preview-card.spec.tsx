@@ -27,25 +27,6 @@ describe("PreviewCard", () => {
     expect(card.parentElement?.className).toContain("preview-card-positioner");
   });
 
-  it("writes size 2 on the popup by default, and the size it is given", async () => {
-    render(
-      <>
-        <PreviewCard defaultOpen>
-          <PreviewCardTrigger href="#a">a</PreviewCardTrigger>
-          <PreviewCardPopup data-testid="default">A</PreviewCardPopup>
-        </PreviewCard>
-        <PreviewCard defaultOpen>
-          <PreviewCardTrigger href="#b">b</PreviewCardTrigger>
-          <PreviewCardPopup data-testid="small" size="1">
-            B
-          </PreviewCardPopup>
-        </PreviewCard>
-      </>,
-    );
-    expect((await screen.findByTestId("default")).dataset.size).toBe("2");
-    expect(screen.getByTestId("small").dataset.size).toBe("1");
-  });
-
   it("takes its delay on the trigger", () => {
     render(
       <PreviewCard>

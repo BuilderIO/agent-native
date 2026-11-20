@@ -41,22 +41,6 @@ type Story = StoryObj<typeof meta>;
 /** The progress with the props from the controls. */
 export const Playground: Story = {};
 
-/** Sizes 1 to 3: 4, 6 and 8px tracks. */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex flex-col gap-4">
-      {progressProps.size.values.map((size) => (
-        <Progress
-          key={size}
-          size={size}
-          value={60}
-          aria-label={`Size ${size}`}
-        />
-      ))}
-    </div>
-  ),
-};
-
 /** Both variants in every color, then in high contrast. */
 export const Variants: Story = {
   render: () => (
@@ -109,7 +93,6 @@ export const States: Story = {
       {progressProps.radius.values.map((radius) => (
         <Progress
           key={radius}
-          size="3"
           value={60}
           radius={radius}
           aria-label={`Radius ${radius}`}

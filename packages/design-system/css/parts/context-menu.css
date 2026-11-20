@@ -4,7 +4,7 @@
  *   <div class="context-menu-trigger">          Base UI ContextMenu.Trigger
  *
  * Everything else a context menu draws is the menu part's: its popup, rows
- * and submenus are `.menu-*`, with the same `data-size`, `data-variant`,
+ * and submenus are `.menu-*`, with the same `data-variant`,
  * `data-color` and `data-high-contrast` on the popup and `data-color` on a
  * row. menu.css is their one stylesheet.
  */

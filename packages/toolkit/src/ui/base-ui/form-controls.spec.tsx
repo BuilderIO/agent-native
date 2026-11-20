@@ -19,7 +19,7 @@ import { TextArea } from "./text-area.js";
 afterEach(cleanup);
 
 describe("Input and Text Area parts", () => {
-  it("draws the input part at size 3 surface by default and reports typed values", () => {
+  it("draws the input part at size md surface by default and reports typed values", () => {
     const onValueChange = vi.fn();
     render(<Input aria-label="Name" onValueChange={onValueChange} />);
     const input = screen.getByRole("textbox", { name: "Name" });
@@ -130,7 +130,7 @@ describe("Input and Text Area parts", () => {
     expect(onValueChange).toHaveBeenCalledWith("Line one", expect.anything());
   });
 
-  it("draws a text area at size 3 surface, resizing vertically, by default", () => {
+  it("draws a text area at size md surface, resizing vertically, by default", () => {
     render(<TextArea aria-label="Notes" />);
     const textarea = screen.getByRole("textbox", { name: "Notes" });
     expect(textarea.dataset.size).toBe("md");
@@ -197,7 +197,7 @@ describe("Field part", () => {
 });
 
 describe("Checkbox part", () => {
-  it("writes its size and variant, size 3 surface by default, inheriting its color", () => {
+  it("writes its variant, surface by default, inheriting its color", () => {
     render(<Checkbox aria-label="Notify me" />);
     const box = screen.getByRole("checkbox", { name: "Notify me" });
     expect(box.dataset.variant).toBe("surface");
@@ -205,7 +205,7 @@ describe("Checkbox part", () => {
     expect(box.dataset.highContrast).toBeUndefined();
   });
 
-  it("writes size, variant, color and high contrast as Radix names them", () => {
+  it("writes variant, color and high contrast as Radix names them", () => {
     render(
       <Checkbox
         aria-label="Notify me"
@@ -295,7 +295,7 @@ describe("Radio part", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Pro" }));
     expect(onValueChange).toHaveBeenCalledWith("pro", expect.anything());
   });
-  it("draws its radios at size 3 surface by default", () => {
+  it("draws its radios as surface by default", () => {
     render(
       <RadioGroup aria-label="Plan">
         <Radio value="free" aria-label="Free" />
@@ -306,13 +306,12 @@ describe("Radio part", () => {
     expect(free.dataset.color).toBeUndefined();
   });
 
-  it("writes the group's size, variant, color and high contrast on each radio", () => {
+  it("writes the group's variant, color and high contrast on each radio", () => {
     render(
       <RadioGroup aria-label="Plan" variant="soft" color="success" highContrast>
         <Radio value="free" aria-label="Free" />
       </RadioGroup>,
     );
-    const group = screen.getByRole("radiogroup", { name: "Plan" });
     const free = screen.getByRole("radio", { name: "Free" });
     expect(free.dataset.variant).toBe("soft");
     expect(free.dataset.color).toBe("success");

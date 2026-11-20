@@ -2,7 +2,7 @@
  * Part: alignment-picker
  *
  *   <div class="alignment-picker" role="radiogroup"
- *        data-size="1|2|3|4" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        data-direction="row|column" data-justify data-align
  *        [data-color] [data-radius] [data-disabled]>
  *     <button class="alignment-picker-cell" role="radio"    one per position
@@ -42,18 +42,6 @@
     transition-property: background-color, box-shadow;
     transition-duration: var(--duration-1);
     transition-timing-function: var(--ease-standard);
-  }
-
-  :is(.alignment-picker, .grid-size-picker)[data-size="2"] {
-    --_cell: var(--control-height-2);
-  }
-
-  :is(.alignment-picker, .grid-size-picker)[data-size="3"] {
-    --_cell: var(--control-height-3);
-  }
-
-  :is(.alignment-picker, .grid-size-picker)[data-size="4"] {
-    --_cell: var(--control-height-4);
   }
 
   :is(.alignment-picker, .grid-size-picker)[data-variant="surface"] {

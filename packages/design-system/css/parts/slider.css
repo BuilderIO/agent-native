@@ -2,7 +2,7 @@
  * Part: slider
  *
  *   <div class="slider" data-orientation                    Base UI Slider.Root
- *        data-size="1|2|3" data-variant="surface|soft"
+ *        data-variant="surface|soft"
  *        [data-color="accent|gray|danger|warning|success|info"]
  *        [data-high-contrast] [data-radius] [data-disabled]>
  *     <div class="slider-control">                          Slider.Control
@@ -10,9 +10,8 @@
  *         <div class="slider-indicator">                    Slider.Indicator
  *         <div class="slider-thumb" [data-dragging]>        Slider.Thumb, one per value
  *
- * Radix Themes' slider on the system's scale: sizes 1 to 3 are 4, 6 and 8px
- * tracks, with thumbs 12px larger, inside a control as tall as a size 3
- * row, so the whole row takes the pointer. The range fills with the nearest
+ * Radix Themes' slider on the system's scale: a 6px track with a thumb
+ * 12px larger, inside a 24px control row, so the whole row takes the pointer. The range fills with the nearest
  * color's track step; the thumb is a raised dot ringed in its indicator
  * step. Surface draws the track as a gray field with an edge, soft as a
  * tint. A pill unless `radius` sets the control shape. Vertical sliders fill
@@ -102,14 +101,6 @@
   }
 
   /* ---- sizes ---- */
-
-  .slider[data-size="1"] {
-    --_track: var(--space-1);
-  }
-
-  .slider[data-size="3"] {
-    --_track: var(--space-2);
-  }
 
   /* ---- variants ---- */
 

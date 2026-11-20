@@ -44,11 +44,10 @@ function focused(): Element {
 const readout = () => screen.getByRole("status").textContent;
 
 describe("GridSizePicker trigger", () => {
-  it("writes its props and reads C × R, size 1 surface by default", () => {
+  it("writes its props and reads C × R, surface by default", () => {
     render(<GridSizePicker defaultValue={{ columns: 4, rows: "auto" }} />);
     const trigger = screen.getByRole("button", { name: "4 × Auto" });
     expect(trigger.classList.contains("grid-size-picker")).toBe(true);
-    expect(trigger.dataset.size).toBe("1");
     expect(trigger.dataset.variant).toBe("surface");
     expect(trigger.hasAttribute("data-auto")).toBe(true);
   });
@@ -79,13 +78,6 @@ describe("GridSizePicker trigger", () => {
     const tile = screen.getByRole("button");
     expect(tile.style.marginTop).toBe("4px");
     expect(tile.style.getPropertyValue("--_columns")).toBe("2");
-  });
-
-  it("refuses a size it doesn't have", () => {
-    const props = { size: "5" } as unknown as GridSizePickerProps;
-    expect(() => render(<GridSizePicker {...props} />)).toThrow(
-      /size="5" is not one of/,
-    );
   });
 });
 
