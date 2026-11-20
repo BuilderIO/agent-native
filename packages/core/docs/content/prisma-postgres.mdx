@@ -1,6 +1,6 @@
 ---
 title: "Prisma Postgres"
-description: "Connect an agent-native app to Prisma Postgres with a standard DATABASE_URL and pick the direct or pooled host for your runtime."
+description: "Connect an agent-native app to Prisma Postgres with a standard DATABASE_URL and choose between its direct and pooled hosts."
 search: "Prisma Postgres database connection string direct pooled host migrations"
 ---
 
@@ -26,29 +26,42 @@ connections, so keep `sslmode=require` in the URL.
 ## Direct and pooled hosts
 
 Prisma Postgres serves the same database on two hosts. `db.prisma.io` is a
-direct connection, and `pooled.db.prisma.io` goes through a transaction-mode
-connection pooler. The rest of the connection string is identical.
+direct connection, and `pooled.db.prisma.io` goes through PgBouncer in
+transaction mode. The rest of the connection string is identical.
 
-On a long-lived Node.js server, both hosts work for application traffic and
-for migrations.
+Use the direct host for migrations and for any code that depends on session
+state. Transaction pooling does not keep session state between transactions.
+Prisma documents that `SET` commands, prepared statements, advisory locks, and
+temporary tables are lost at each transaction boundary.
+
+The pooled host can carry application traffic on a long-lived Node.js server
+when the app does not depend on that state. In testing with version 0.231.0,
+the framework's queries and Drizzle queries in actions kept working across
+pooled transactions. That included Drizzle `.prepare()` statements, which the
+driver sends as protocol-level prepared statements. SQL `PREPARE` and
+`EXECUTE` statements and session-level `SET` did not carry over between
+statements. If you are not sure what your queries rely on, use the direct
+host.
 
 On serverless runtimes such as Vercel, Netlify, and AWS Lambda, use the direct
 host. The framework sets `idle_in_transaction_session_timeout` as a connection
 parameter on those runtimes, and the pooled host refuses connections that
-carry it with `Failed to connect to upstream database`. Each function instance
-then holds its own direct connections, so check the
-[connection budget](/docs/server-database#production) against your database's
-connection limit.
+carry it with `Failed to connect to upstream database`.
+
+Direct connections are limited per plan, and every process or function
+instance holds its own. Check the
+[connection budget](/docs/server-database#production) against your plan's
+direct connection limit.
 
 ## Migrations
 
-Run production migrations in the release or deployment step. Migrations run
-through either host, so one `DATABASE_URL` is enough. Follow the embedded
-migration guidance in the [database guide](/docs/server-database#migrations),
-and never run `drizzle-kit push` against a production database.
+Run production migrations in the release or deployment step, with the direct
+host in that step's `DATABASE_URL`. Follow the embedded migration guidance in
+the [database guide](/docs/server-database#migrations), and never run
+`drizzle-kit push` against a production database.
 
 ## What's next
 
 - [Database](/docs/server-database) - schema, migrations, and connection rules
 - [Deployment](/docs/deployment) - choose a runtime and deployment preset
-- [Prisma Postgres connection pooling docs](https://www.prisma.io/docs/postgres/database/connection-pooling) - direct and pooled connection strings
+- [Prisma Postgres connection pooling docs](https://www.prisma.io/docs/postgres/database/connection-pooling) - pooler behavior, connection limits, and when to use each host
