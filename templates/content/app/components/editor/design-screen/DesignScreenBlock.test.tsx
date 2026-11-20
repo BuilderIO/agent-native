@@ -169,6 +169,19 @@ describe("DesignScreen for readers", () => {
     expect(image.getAttribute("height")).toBe("1688");
   });
 
+  it("opens the picture full size", () => {
+    renderRead(screen());
+    const picture = defined(container.querySelector("img")?.closest("button"));
+    expect(picture.getAttribute("aria-haspopup")).toBe("dialog");
+    act(() => picture.click());
+    const dialog = defined(
+      document.body.querySelector('[role="dialog"].media-lightbox'),
+    );
+    expect(dialog.querySelector("img")?.getAttribute("src")).toContain(
+      `/api/private-media/${MEDIA_ID}`,
+    );
+  });
+
   it("stamps the design, width, day and who pinned it", () => {
     renderRead(screen());
     expect(container.textContent).toContain(
