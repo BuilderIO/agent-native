@@ -103,6 +103,32 @@ describe("readPeerLinkSummaries", () => {
     await expect(pending).resolves.toEqual([{ status: "unavailable" }]);
   });
 
+  it("answers unavailable when finding the reader takes longer than the card waits", async () => {
+    vi.useFakeTimers();
+    mocks.auth.mockReturnValue(new Promise(() => {}));
+    const pending = readPeerLinkSummaries({
+      app: "design",
+      links: [DESIGN],
+      selfAppId: "content",
+      timeoutMs: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(pending).resolves.toEqual([{ status: "unavailable" }]);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("answers unavailable when finding the reader fails", async () => {
+    mocks.auth.mockRejectedValue(new Error("org lookup failed"));
+    await expect(
+      readPeerLinkSummaries({
+        app: "design",
+        links: [DESIGN],
+        selfAppId: "content",
+      }),
+    ).resolves.toEqual([{ status: "unavailable" }]);
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
   it("answers unavailable when the peer refuses", async () => {
     answer("Unknown or unavailable read-only action.", "failed");
     await expect(

@@ -182,6 +182,8 @@ function emphasisToHtml(html: string): string {
     .replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
 }
 
+const BARE_URL = /^https?:\/\/\S+$/;
+
 function inlineMarkdownSegmentToHtml(
   text: string,
   tokens: InlineExportToken[],
@@ -205,7 +207,7 @@ function inlineMarkdownSegmentToHtml(
         )
         .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) =>
           keep(
-            `<a href="${safeExportUrl(href, "link")}">${restore(emphasisToHtml(label))}</a>`,
+            `<a href="${safeExportUrl(href, "link")}">${BARE_URL.test(label) ? label : restore(emphasisToHtml(label))}</a>`,
           ),
         ),
     ),

@@ -36,28 +36,31 @@ export async function readPeerLinkSummaries(options: {
 }): Promise<LinkSummary[]> {
   const { app, links, selfAppId } = options;
   if (links.length === 0) return [];
-  const auth = await resolveA2ACallerAuth();
-  if (!auth.userEmail) return unavailable(links.length);
   const timeoutMs = options.timeoutMs ?? LINK_SUMMARY_TIMEOUT_MS;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => resolve("timeout"), timeoutMs);
   });
-  let response: Awaited<ReturnType<typeof invokeAgentAction>> | "timeout";
+  const askAsReader = async () => {
+    const auth = await resolveA2ACallerAuth();
+    if (!auth.userEmail) return "signed-out" as const;
+    return invokeAgentAction({
+      target: app,
+      selfAppId,
+      action: READ_LINK_SUMMARY_ACTION,
+      input: { links: [...links] },
+      userEmail: auth.userEmail,
+      ...(auth.orgDomain !== undefined ? { orgDomain: auth.orgDomain } : {}),
+      ...(auth.orgSecret !== undefined ? { orgSecret: auth.orgSecret } : {}),
+      requestTimeoutMs: timeoutMs,
+    });
+  };
+  let response:
+    | Awaited<ReturnType<typeof invokeAgentAction>>
+    | "signed-out"
+    | "timeout";
   try {
-    response = await Promise.race([
-      invokeAgentAction({
-        target: app,
-        selfAppId,
-        action: READ_LINK_SUMMARY_ACTION,
-        input: { links: [...links] },
-        userEmail: auth.userEmail,
-        ...(auth.orgDomain !== undefined ? { orgDomain: auth.orgDomain } : {}),
-        ...(auth.orgSecret !== undefined ? { orgSecret: auth.orgSecret } : {}),
-        requestTimeoutMs: timeoutMs,
-      }),
-      timedOut,
-    ]);
+    response = await Promise.race([askAsReader(), timedOut]);
   } catch (error) {
     console.warn("[link-summary] peer request failed", {
       app,
@@ -67,6 +70,7 @@ export async function readPeerLinkSummaries(options: {
   } finally {
     clearTimeout(timer);
   }
+  if (response === "signed-out") return unavailable(links.length);
   if (response === "timeout") {
     console.warn("[link-summary] peer did not answer in time", {
       app,

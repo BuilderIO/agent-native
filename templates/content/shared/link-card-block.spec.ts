@@ -133,4 +133,16 @@ describe("link cards outside the editor", () => {
     }).content;
     expect(html).toContain(`<a href="${PLAIN}">${PLAIN}</a>`);
   });
+
+  it("keeps the underscores in a card's link in HTML exports", () => {
+    const url = "https://design.example.test/design/launch_1_b";
+    const html = buildDocumentExport({
+      id: "doc_1",
+      title: "Launch",
+      content: linkCardBlockRaw("link-card-5", { app: "design", url }),
+      format: "html",
+    }).content;
+    expect(html).toContain(`<a href="${url}">${url}</a>`);
+    expect(html).not.toContain("<em>");
+  });
 });
