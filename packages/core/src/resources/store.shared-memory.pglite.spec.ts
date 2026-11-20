@@ -278,7 +278,7 @@ describe("personal memory shared across local apps", () => {
     getResourcesEmitter().off("resources", onEvent);
 
     expect(read?.content).toBe("from file");
-    expect(read?.updatedAt).toBe(Math.floor(mtimeBefore));
+    expect(read?.updatedAt).toBe(Math.ceil(mtimeBefore));
     expect(events).toEqual([]);
     expect(fs.statSync(file).mtimeMs).toBe(mtimeBefore);
   });
@@ -435,5 +435,63 @@ describe("personal memory shared across local apps", () => {
     );
     const filled = await resourceGetByPath(OWNER, "memory/MEMORY.md");
     expect(filled?.updatedAt).toBeGreaterThanOrEqual(empty.updatedAt);
+  });
+
+  it("treats a row whose updatedAt equals the tombstone as deleted", async () => {
+    useMemoryDir();
+    const { resourceGetByPath, resourceList, resourcePut } =
+      await import("./store.js");
+    const { deleteSharedPersonalMemory } = await import("./shared-memory.js");
+    vi.spyOn(Date, "now").mockReturnValue(5_000_000_000_000);
+    try {
+      await resourcePut(OWNER, "memory/tie.md", "row");
+      await deleteSharedPersonalMemory(OWNER, "memory/tie.md");
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+    }
+    await pglite.exec(
+      `UPDATE resources SET updated_at = 5000000000000 WHERE owner = '${OWNER}'`,
+    );
+    expect(await resourceList(OWNER, "memory/")).toEqual([]);
+    await expect(resourceGetByPath(OWNER, "memory/tie.md")).resolves.toBeNull();
+  });
+
+  it("keeps the newer SQL write when an older in-flight mirror runs last", async () => {
+    const dir = useMemoryDir();
+    const { resourcePutWithDb } = await import("./store.js");
+    const first = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/chain.md",
+      "first",
+    );
+    const second = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/chain.md",
+      "second",
+    );
+    await Promise.all([second.notifyAfterCommit(), first.notifyAfterCommit()]);
+    expect(fs.readFileSync(sharedFile(dir, "chain.md"), "utf8")).toBe("second");
+  });
+
+  it("does not resurrect a memory when a delayed mirror races a delete", async () => {
+    const dir = useMemoryDir();
+    const { resourceDeleteByPath, resourcePutWithDb } =
+      await import("./store.js");
+    const pending = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/race-del.md",
+      "doomed",
+    );
+    await Promise.all([
+      pending.notifyAfterCommit(),
+      resourceDeleteByPath(OWNER, "memory/race-del.md"),
+    ]);
+    expect(fs.existsSync(sharedFile(dir, "race-del.md"))).toBe(false);
+    expect(fs.existsSync(`${sharedFile(dir, "race-del.md")}.deleted`)).toBe(
+      true,
+    );
   });
 });

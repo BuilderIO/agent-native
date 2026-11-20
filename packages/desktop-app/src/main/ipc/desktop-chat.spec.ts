@@ -1333,6 +1333,29 @@ describe("desktop Pi extension memory prompt", () => {
     fresh.release();
   });
 
+  it("refreshes a running session's memory when the file changes", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    writeFileSync(index, "ALICE-UPDATED");
+    await vi.waitFor(() => expect(prompt()).toContain("ALICE-UPDATED"));
+    expect(prompt()).not.toContain("ALICE-SECRET");
+
+    writeFileSync(`${index}.deleted`, String(Date.now() + 60_000));
+    await vi.waitFor(() => expect(prompt()).not.toContain("ALICE"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
   it("injects nothing for a memory whose tombstone is newer than its file", async () => {
     const dir = seedAccounts();
     const index = path.join(

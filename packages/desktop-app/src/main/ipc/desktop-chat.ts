@@ -1794,15 +1794,40 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     randomUUID(),
   );
   const account = currentMemoryAccount;
-  const prompt = account ? await renderMemoryPrompt(account) : "";
-  if (account && prompt && currentMemoryAccount === account) {
+  let released = false;
+  const refresh = async () => {
+    if (!account) return;
+    const prompt = await renderMemoryPrompt(account);
+    if (released || currentMemoryAccount !== account) return;
+    if (!prompt) {
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+      return;
+    }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, prompt, { mode: 0o600 });
     memoryOwnerFiles.set(file, account);
+  };
+  await refresh();
+  let watcher: fs.FSWatcher | undefined;
+  if (account) {
+    try {
+      fs.mkdirSync(desktopMemoryDir(), { recursive: true });
+      watcher = fs.watch(desktopMemoryDir(), { recursive: true }, () => {
+        void refresh().catch((error) =>
+          console.error("[desktop-chat] Could not refresh memory:", error),
+        );
+      });
+      watcher.on("error", () => watcher?.close());
+    } catch (error) {
+      console.error("[desktop-chat] Could not watch shared memory:", error);
+    }
   }
   return {
     file,
     release: () => {
+      released = true;
+      watcher?.close();
       fs.rmSync(file, { force: true });
       memoryOwnerFiles.delete(file);
     },

@@ -2069,7 +2069,41 @@ function logMirrorFailure(error: unknown): void {
   console.error("[resources] Could not mirror personal memory:", error);
 }
 
-async function mirrorMemoryIfCurrent(resource: Resource): Promise<void> {
+const memoryMirrorChains = new Map<string, Promise<unknown>>();
+
+function serializeMemoryMirror<T>(
+  owner: string,
+  path: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const key = `${owner}\0${path}`;
+  const run = (memoryMirrorChains.get(key) ?? Promise.resolve()).then(
+    work,
+    work,
+  );
+  const tail = run.catch(() => {});
+  memoryMirrorChains.set(key, tail);
+  void tail.then(() => {
+    if (memoryMirrorChains.get(key) === tail) memoryMirrorChains.delete(key);
+  });
+  return run;
+}
+
+function deleteMirroredMemory(owner: string, path: string): Promise<void> {
+  return serializeMemoryMirror(owner, path, () =>
+    deleteSharedPersonalMemory(owner, path),
+  );
+}
+
+function mirrorMemoryIfCurrent(resource: Resource): Promise<void> {
+  return serializeMemoryMirror(resource.owner, resource.path, () =>
+    mirrorMemoryIfCurrentUnlocked(resource),
+  );
+}
+
+async function mirrorMemoryIfCurrentUnlocked(
+  resource: Resource,
+): Promise<void> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT content, updated_at FROM resources WHERE owner = ? AND path = ?`,
     args: [resource.owner, resource.path],
@@ -2166,7 +2200,7 @@ export async function resourceGetByPath(
       if (
         mirrored.state === "deleted" &&
         dbResource &&
-        dbResource.updatedAt < mirrored.deletedAt
+        dbResource.updatedAt <= mirrored.deletedAt
       ) {
         await deleteMirroredRow(dbResource);
         return null;
@@ -2763,7 +2797,7 @@ export async function resourceDeleteWithDb(
     notifyAfterCommit: async () => {
       if (deleted) {
         if (isPersonalMemoryResourcePath(owner, path)) {
-          await deleteSharedPersonalMemory(owner, path).catch(() => {});
+          await deleteMirroredMemory(owner, path).catch(() => {});
         }
         emitResourceDelete(id, path, owner);
       }
@@ -3188,9 +3222,7 @@ export async function resourceDeleteIfCurrent(
   const deleted = result.rowsAffected === 1;
   if (deleted) {
     if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
-      await deleteSharedPersonalMemory(resource.owner, resource.path).catch(
-        () => {},
-      );
+      await deleteMirroredMemory(resource.owner, resource.path).catch(() => {});
     }
     emitResourceDelete(resource.id, resource.path, resource.owner);
   }
@@ -3249,7 +3281,7 @@ export async function resourceDeleteByPath(
     if (isPersonalMemoryResourcePath(owner, path)) {
       const mirrored = await readMirroredMemory(owner, path);
       if (mirrored.state !== "present") return false;
-      await deleteSharedPersonalMemory(owner, path);
+      await deleteMirroredMemory(owner, path);
       return true;
     }
     return false;
@@ -3262,7 +3294,7 @@ export async function resourceDeleteByPath(
   const deleted = result.rowsAffected > 0;
   if (deleted) {
     if (isPersonalMemoryResourcePath(owner, path)) {
-      await deleteSharedPersonalMemory(owner, path).catch(() => {});
+      await deleteMirroredMemory(owner, path).catch(() => {});
     }
     emitResourceDelete(rows[0].id as string, path, owner);
   }
@@ -3354,7 +3386,7 @@ export async function resourceList(
           : null;
         if (
           memory?.state !== "deleted" ||
-          candidate.updatedAt >= memory.deletedAt
+          candidate.updatedAt > memory.deletedAt
         ) {
           live.push(candidate);
         }

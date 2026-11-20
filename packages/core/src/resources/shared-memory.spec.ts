@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   deleteSharedPersonalMemory,
@@ -163,11 +163,36 @@ describe("shared-memory", () => {
       "alice@example.com",
       "memory/t.md",
     );
-    for (const text of ["", "  ", "abc", "-5", "1.5"]) {
+    for (const text of [
+      "",
+      "  ",
+      "abc",
+      "-5",
+      "1.5",
+      "9".repeat(400),
+      "9007199254740993",
+    ]) {
       fs.writeFileSync(`${file}.deleted`, text);
       await expect(
         readMirroredMemory("alice@example.com", "memory/t.md"),
       ).rejects.toBeInstanceOf(MemoryTombstoneError);
+    }
+  });
+
+  it("publishes a tombstone by renaming a temp file, never in place", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    await writeSharedPersonalMemory("alice@example.com", "memory/n.md", "x");
+    const rename = vi.spyOn(fs.promises, "rename");
+    try {
+      await deleteSharedPersonalMemory("alice@example.com", "memory/n.md");
+      const tombstone = rename.mock.calls.find(([, to]) =>
+        String(to).endsWith("n.md.deleted"),
+      );
+      expect(tombstone).toBeDefined();
+      expect(String(tombstone?.[0])).toMatch(/n\.md\.deleted\..+\.tmp$/);
+    } finally {
+      rename.mockRestore();
     }
   });
 

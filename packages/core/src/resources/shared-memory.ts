@@ -91,7 +91,13 @@ async function readTombstone(tombstonePath: string): Promise<number | null> {
         `Invalid memory tombstone: ${tombstonePath}`,
       );
     }
-    return Number(text);
+    const deletedAt = Number(text);
+    if (!Number.isSafeInteger(deletedAt)) {
+      throw new MemoryTombstoneError(
+        `Invalid memory tombstone: ${tombstonePath}`,
+      );
+    }
+    return deletedAt;
   } catch (error) {
     if (isMissingPathError(error)) return null;
     throw error;
@@ -163,11 +169,7 @@ export async function deleteSharedPersonalMemory(
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   if (!filePath) return;
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.promises.writeFile(
-    `${filePath}.deleted`,
-    String(Date.now()),
-    "utf8",
-  );
+  await writeAtomic(`${filePath}.deleted`, String(Date.now()));
   try {
     await fs.promises.unlink(filePath);
   } catch (error) {
