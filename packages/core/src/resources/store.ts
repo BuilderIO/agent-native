@@ -2134,14 +2134,18 @@ export async function resourceGetByPath(
   );
   if (!workspace || isBareWorkspaceResourceOwner(owners[0])) {
     if (!workspace && isPersonalMemoryResourcePath(owner, path)) {
-      const shared = await readSharedPersonalMemory(owner, path);
+      const mirrored = await readSharedPersonalMemory(owner, path);
       const dbResource = resources.at(0);
       const deletedAt = await readSharedMemoryTombstone(owner, path);
+      const shared =
+        mirrored && (deletedAt === null || mirrored.mtimeMs > deletedAt)
+          ? mirrored
+          : null;
       if (
         deletedAt !== null &&
         dbResource &&
         dbResource.updatedAt <= deletedAt &&
-        (!shared || shared.mtimeMs <= deletedAt)
+        !shared
       ) {
         await deleteMirroredRow(dbResource);
         return null;
@@ -3324,7 +3328,15 @@ export async function resourceList(
       "memory/".startsWith(pathPrefix) ||
       pathPrefix.startsWith("memory/")
     ) {
-      const sharedMemories = await listSharedPersonalMemories(owner);
+      const sharedMemories: Awaited<
+        ReturnType<typeof listSharedPersonalMemories>
+      > = [];
+      for (const item of await listSharedPersonalMemories(owner)) {
+        const deletedAt = await readSharedMemoryTombstone(owner, item.path);
+        if (deletedAt === null || item.mtimeMs > deletedAt) {
+          sharedMemories.push(item);
+        }
+      }
       const live: ResourceMeta[] = [];
       for (const candidate of resources) {
         const deletedAt = isPersonalMemoryResourcePath(owner, candidate.path)

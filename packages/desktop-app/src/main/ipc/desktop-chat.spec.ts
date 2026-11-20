@@ -36,7 +36,10 @@ import {
   desktopTerminalWorkspacePath,
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
+  bindDesktopSessionMemoryOwner,
   closeDesktopChatRelay,
+  noteDesktopBuilderRelayOwner,
+  setDesktopMemoryAccount,
   PI_TERMINAL_EXTENSION_SOURCE,
   getDesktopBuilderGatewayRunnerEnvironment,
   getDesktopBuilderConnectionStatus,
@@ -1242,15 +1245,12 @@ describe("Builder relay owner handling", () => {
 });
 
 describe("desktop Pi extension memory prompt", () => {
-  async function startSession(owner: string | undefined, dir: string) {
+  async function startSession(ownerFile: string, dir: string) {
     const file = path.join(dir, "ext.mjs");
     writeFileSync(file, PI_TERMINAL_EXTENSION_SOURCE);
     vi.stubEnv("AGENT_NATIVE_MEMORY_DIR", dir);
     vi.stubEnv("AGENT_NATIVE_TERMINAL_MCP_SERVERS", "{}");
-    const ownerFile = path.join(dir, "owner-file");
     vi.stubEnv("AGENT_NATIVE_MEMORY_OWNER_FILE", ownerFile);
-    if (owner === undefined) rmSync(ownerFile, { force: true });
-    else writeFileSync(ownerFile, owner);
     type Handler = (event: unknown) => { systemPrompt: string };
     const handlers = new Map<string, Handler>();
     const pi = new Proxy(
@@ -1260,11 +1260,17 @@ describe("desktop Pi extension memory prompt", () => {
     const mod = await import(/* @vite-ignore */ file + "?t=" + Math.random());
     mod.default(pi);
     const handler = handlers.get("before_agent_start");
-    return () => (handler ? handler({ systemPrompt: "" }).systemPrompt : "");
+    return () => {
+      vi.stubEnv("AGENT_NATIVE_MEMORY_OWNER_FILE", ownerFile);
+      return handler ? handler({ systemPrompt: "" }).systemPrompt : "";
+    };
   }
 
   async function promptFor(owner: string | undefined, dir: string) {
-    return (await startSession(owner, dir))();
+    const ownerFile = path.join(dir, "owner-file");
+    if (owner === undefined) rmSync(ownerFile, { force: true });
+    else writeFileSync(ownerFile, owner);
+    return (await startSession(ownerFile, dir))();
   }
 
   it("loads only the signed-in account's memory", async () => {
@@ -1287,8 +1293,7 @@ describe("desktop Pi extension memory prompt", () => {
     expect(none).not.toContain("SECRET");
   });
 
-  it("follows an account switch inside a running session", async () => {
-    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
+  function seedAccounts(dir: string) {
     const accounts: Array<{ owner: string; text: string }> = [
       { owner: "a@example.test", text: "ALICE-SECRET" },
       { owner: "b@example.test", text: "BOB-SECRET" },
@@ -1300,10 +1305,43 @@ describe("desktop Pi extension memory prompt", () => {
         text,
       );
     }
-    const prompt = await startSession("a@example.test", dir);
-    expect(prompt()).toContain("ALICE-SECRET");
-    writeFileSync(path.join(dir, "owner-file"), "b@example.test");
-    expect(prompt()).toContain("BOB-SECRET");
-    expect(prompt()).not.toContain("ALICE-SECRET");
+  }
+
+  it("stops a running session's memory when the account switches", async () => {
+    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
+    seedAccounts(dir);
+    setDesktopMemoryAccount("a@example.test");
+    const old = bindDesktopSessionMemoryOwner();
+    const oldPrompt = await startSession(old.file, dir);
+    expect(oldPrompt()).toContain("ALICE-SECRET");
+
+    setDesktopMemoryAccount("b@example.test");
+    const fresh = bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file, dir);
+
+    expect(oldPrompt()).not.toContain("SECRET");
+    expect(freshPrompt()).toContain("BOB-SECRET");
+    expect(freshPrompt()).not.toContain("ALICE-SECRET");
+    old.release();
+    fresh.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("clears memory for running and new sessions on sign-out", async () => {
+    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
+    seedAccounts(dir);
+    setDesktopMemoryAccount("a@example.test");
+    const running = bindDesktopSessionMemoryOwner();
+    const runningPrompt = await startSession(running.file, dir);
+    expect(runningPrompt()).toContain("ALICE-SECRET");
+
+    noteDesktopBuilderRelayOwner("no-account");
+    const fresh = bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file, dir);
+
+    expect(runningPrompt()).not.toContain("SECRET");
+    expect(freshPrompt()).not.toContain("SECRET");
+    running.release();
+    fresh.release();
   });
 });

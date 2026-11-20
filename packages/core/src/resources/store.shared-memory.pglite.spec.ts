@@ -269,6 +269,7 @@ describe("personal memory shared across local apps", () => {
     fs.writeFileSync(file, "from file");
     const future = new Date(stored.updatedAt + 60_000);
     fs.utimesSync(file, future, future);
+    const mtimeBefore = fs.statSync(file).mtimeMs;
     const events: unknown[] = [];
     const onEvent = (event: unknown) => events.push(event);
     getResourcesEmitter().on("resources", onEvent);
@@ -277,9 +278,9 @@ describe("personal memory shared across local apps", () => {
     getResourcesEmitter().off("resources", onEvent);
 
     expect(read?.content).toBe("from file");
-    expect(read?.updatedAt).toBe(future.getTime());
+    expect(read?.updatedAt).toBe(Math.floor(mtimeBefore));
     expect(events).toEqual([]);
-    expect(fs.statSync(file).mtimeMs).toBe(future.getTime());
+    expect(fs.statSync(file).mtimeMs).toBe(mtimeBefore);
   });
 
   it("does not overwrite a SQL write that lands after the row was read", async () => {
@@ -348,5 +349,23 @@ describe("personal memory shared across local apps", () => {
       true,
     );
     expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it("never adopts a file that survived a delete", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourceList } = await import("./store.js");
+    const file = writeSharedFile(dir, "stale.md", "should stay deleted");
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(file, past, past);
+    fs.writeFileSync(`${file}.deleted`, String(Date.now()));
+
+    await expect(
+      resourceGetByPath(OWNER, "memory/stale.md"),
+    ).resolves.toBeNull();
+    expect(await resourceList(OWNER, "memory/")).toEqual([]);
+    const { rows } = await pglite.query(
+      `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/stale.md'`,
+    );
+    expect(rows).toEqual([]);
   });
 });

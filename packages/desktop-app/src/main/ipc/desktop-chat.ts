@@ -927,9 +927,11 @@ async function createDesktopTerminalSession(
   let piExtensionPath: string | undefined;
   let codexHome: string | undefined;
   let closed = false;
+  const memoryOwner = bindDesktopSessionMemoryOwner();
   const close = async () => {
     if (closed) return;
     closed = true;
+    memoryOwner.release();
     removeDesktopTerminalConfig(claudeConfigPath);
     removeDesktopTerminalConfig(piExtensionPath);
     removeDesktopTerminalHome(codexHome);
@@ -1004,7 +1006,6 @@ async function createDesktopTerminalSession(
       });
     }
     if (command === "codex") codexHome = createCodexTerminalHome();
-    syncMemoryOwnerFile(builderRelaySession?.account ?? null);
     return {
       commandArgs: desktopTerminalMcpArgs(
         command,
@@ -1015,7 +1016,7 @@ async function createDesktopTerminalSession(
       ),
       environment: {
         AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
-        AGENT_NATIVE_MEMORY_OWNER_FILE: memoryOwnerFilePath(),
+        AGENT_NATIVE_MEMORY_OWNER_FILE: memoryOwner.file,
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
@@ -1764,23 +1765,39 @@ async function compareDispatchSession(
 // Hands the current bearer to a session only when it is the session the bearer
 // already serves; any other session first rotates it, so earlier runners are
 // refused rather than carried over.
-export function memoryOwnerFilePath(): string {
-  return path.join(app.getPath("userData"), "memory-owner");
+const memoryOwnerFiles = new Map<string, string>();
+let currentMemoryAccount: string | null = null;
+
+export function setDesktopMemoryAccount(account: string | null): void {
+  currentMemoryAccount = account;
+  for (const [file, owner] of memoryOwnerFiles) {
+    if (owner === account) continue;
+    fs.rmSync(file, { force: true });
+    memoryOwnerFiles.delete(file);
+  }
 }
 
-function syncMemoryOwnerFile(account: string | null): void {
-  const file = memoryOwnerFilePath();
-  try {
-    if (account) {
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, account, { mode: 0o600 });
-    } else {
-      fs.rmSync(file, { force: true });
-    }
-  } catch (error) {
-    console.error("[desktop-chat] Could not update the memory owner:", error);
-    fs.rmSync(file, { force: true });
+export function bindDesktopSessionMemoryOwner(): {
+  file: string;
+  release: () => void;
+} {
+  const file = path.join(
+    app.getPath("userData"),
+    "memory-owners",
+    randomUUID(),
+  );
+  if (currentMemoryAccount) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, currentMemoryAccount, { mode: 0o600 });
+    memoryOwnerFiles.set(file, currentMemoryAccount);
   }
+  return {
+    file,
+    release: () => {
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+    },
+  };
 }
 
 function bindBuilderRelaySession(next: BuilderRelaySession): void {
@@ -1793,7 +1810,7 @@ function bindBuilderRelaySession(next: BuilderRelaySession): void {
     rotateDesktopBuilderRelayBearer();
   }
   builderRelaySession = next;
-  syncMemoryOwnerFile(next.account);
+  setDesktopMemoryAccount(next.account);
 }
 
 const SETUP_SESSION_REFUSALS: Record<
@@ -1908,7 +1925,7 @@ export async function getDesktopBuilderGatewayRunnerEnvironment(): Promise<{
 export function rotateDesktopBuilderRelayBearer(): void {
   builderRelayBearer = randomBytes(32).toString("base64url");
   builderRelaySession = null;
-  syncMemoryOwnerFile(null);
+  setDesktopMemoryAccount(null);
 }
 
 // Only a real account replacing a different real account rotates the bearer.
@@ -1916,6 +1933,7 @@ export function rotateDesktopBuilderRelayBearer(): void {
 // same account returning after them keeps its runners. The bound session, not
 // this note, is what decides whether a request is forwarded.
 export function noteDesktopBuilderRelayOwner(owner: string | null): void {
+  if (owner === "no-account") setDesktopMemoryAccount(null);
   if (owner === null || owner === "no-account") return;
   const previous = lastBuilderRelayAccountKey;
   lastBuilderRelayAccountKey = owner;
