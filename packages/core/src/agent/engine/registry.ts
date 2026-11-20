@@ -27,6 +27,7 @@ import {
   resolveSecretDetailed,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
+import { personalRunProviderKeyOrgId } from "../../server/personal-provider-key-policy.js";
 import {
   getRequestOrgId,
   getRequestContext,
@@ -1030,6 +1031,43 @@ function connectionSourceForProvenance(
   return undefined;
 }
 
+export interface OwnerSettingEngineBinding {
+  engineName: string;
+  orgId: string | null;
+  orgScope: "personal" | null;
+  providerKeyOrgId: string | null;
+}
+
+function matchesTaggedOwnerSettingKey(
+  entry: AgentEngineEntry,
+  apiKeyEnvVar: string | undefined,
+  apiKeyEngineBinding: OwnerSettingEngineBinding | undefined,
+  provenance: CredentialProvenance | undefined,
+  identity: BuilderCredentialLookupIdentity | undefined,
+): boolean {
+  return (
+    getRequestContext()?.isSyntheticTraffic !== true &&
+    apiKeyEngineBinding?.engineName === entry.name &&
+    apiKeyEngineBinding.orgId === (getRequestOrgId() ?? null) &&
+    apiKeyEngineBinding.orgScope === (getRequestContext()?.orgScope ?? null) &&
+    apiKeyEngineBinding.providerKeyOrgId ===
+      (apiKeyEnvVar
+        ? (personalRunProviderKeyOrgId(apiKeyEnvVar) ?? null)
+        : null) &&
+    (identity?.orgId === undefined ||
+      identity.orgId === apiKeyEngineBinding.orgId) &&
+    entry.requiredEnvVars.length === 1 &&
+    entry.requiredEnvVars[0] === apiKeyEnvVar &&
+    provenance?.source === "settings" &&
+    provenance.scope === "user" &&
+    !!provenance.scopeId &&
+    provenance.scopeId ===
+      (identity === undefined
+        ? getRequestUserEmail()?.trim()
+        : identity.userEmail?.trim())
+  );
+}
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
@@ -1038,6 +1076,7 @@ async function engineCreateConfigForEntry(
   apiKeyEnvVar?: string,
   credentialIdentity?: BuilderCredentialLookupIdentity,
   apiKeyProvenance?: CredentialProvenance,
+  apiKeyEngineBinding?: OwnerSettingEngineBinding,
 ): Promise<{
   config: Record<string, unknown>;
   credentialOwner: EngineCredentialOwner | undefined;
@@ -1045,7 +1084,7 @@ async function engineCreateConfigForEntry(
   connectionSource: EngineLlmConnectionSource | undefined;
 }> {
   const safeExtra = { ...(extra ?? {}) };
-  let connectionSource = connectionSourceForProvenance(apiKeyProvenance);
+  let connectionSource: EngineLlmConnectionSource | undefined;
   if (entry.name === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
     const email = identityUserEmail(credentialIdentity);
     if (
@@ -1060,6 +1099,25 @@ async function engineCreateConfigForEntry(
   }
   let matchingApiKey = apiKey;
   let matchingApiKeyProvenance = apiKeyProvenance;
+  if (
+    apiKeyEngineBinding !== undefined &&
+    (!matchesTaggedOwnerSettingKey(
+      entry,
+      apiKeyEnvVar,
+      apiKeyEngineBinding,
+      apiKeyProvenance,
+      credentialIdentity,
+    ) ||
+      (apiKey &&
+        apiKeyEnvVar &&
+        (await getProviderCredentialAuthFailure({
+          key: apiKeyEnvVar,
+          value: apiKey,
+        }))))
+  ) {
+    matchingApiKey = undefined;
+    matchingApiKeyProvenance = undefined;
+  }
   if (
     matchingApiKey === undefined &&
     typeof safeExtra.apiKey === "string" &&
@@ -1311,6 +1369,9 @@ export async function isResolvedEngineUsableForRequest(
   engine: AgentEngine,
   options: {
     apiKey?: string;
+    apiKeyEnvVar?: string;
+    apiKeyEngineBinding?: OwnerSettingEngineBinding;
+    apiKeyProvenance?: CredentialProvenance;
     credentialIdentity?: BuilderCredentialLookupIdentity;
   } = {},
 ): Promise<boolean> {
@@ -1328,7 +1389,19 @@ export async function isResolvedEngineUsableForRequest(
     return canRunBuilderEngine(options.credentialIdentity);
   }
 
-  if (options.apiKey?.trim()) {
+  if (
+    options.apiKey?.trim() &&
+    (options.apiKeyEnvVar === undefined ||
+      entry.requiredEnvVars.includes(options.apiKeyEnvVar)) &&
+    (options.apiKeyEngineBinding === undefined ||
+      matchesTaggedOwnerSettingKey(
+        entry,
+        options.apiKeyEnvVar,
+        options.apiKeyEngineBinding,
+        options.apiKeyProvenance,
+        options.credentialIdentity,
+      ))
+  ) {
     const key = entry.requiredEnvVars[0];
     if (!key) return true;
     return !(await getProviderCredentialAuthFailure({
@@ -1350,6 +1423,7 @@ export interface ResolveEngineConfig {
     | { name: string; config: Record<string, unknown> };
   apiKey?: string;
   apiKeyEnvVar?: string;
+  apiKeyEngineBinding?: OwnerSettingEngineBinding;
   apiKeyProvenance?: CredentialProvenance;
   model?: string;
   appId?: string;
@@ -1408,6 +1482,7 @@ export async function resolveEngine(
     engineOption,
     apiKey,
     apiKeyEnvVar,
+    apiKeyEngineBinding,
     apiKeyProvenance,
     model: _model,
     appId,
@@ -1453,6 +1528,7 @@ export async function resolveEngine(
       apiKeyEnvVar,
       credentialIdentity,
       apiKeyProvenance,
+      apiKeyEngineBinding,
     );
   }
 
@@ -1471,6 +1547,7 @@ export async function resolveEngine(
       apiKeyEnvVar,
       credentialIdentity,
       apiKeyProvenance,
+      apiKeyEngineBinding,
     );
   }
 
@@ -1495,6 +1572,7 @@ export async function resolveEngine(
           apiKeyEnvVar,
           credentialIdentity,
           apiKeyProvenance,
+          apiKeyEngineBinding,
         );
       }
     }
@@ -1517,6 +1595,7 @@ export async function resolveEngine(
         apiKeyEnvVar,
         credentialIdentity,
         apiKeyProvenance,
+        apiKeyEngineBinding,
       );
     }
   }
@@ -1538,9 +1617,23 @@ export async function resolveEngine(
     const entry = _registry.get(storedEngine);
     if (
       entry &&
-      (await isStoredEngineUsableForRequest(storedRaw, entry, {
-        credentialIdentity,
-      }))
+      ((apiKey?.trim() &&
+        apiKeyEnvVar &&
+        matchesTaggedOwnerSettingKey(
+          entry,
+          apiKeyEnvVar,
+          apiKeyEngineBinding,
+          apiKeyProvenance,
+          credentialIdentity,
+        ) &&
+        isAgentEnginePackageInstalled(entry) &&
+        !(await getProviderCredentialAuthFailure({
+          key: apiKeyEnvVar,
+          value: apiKey,
+        }))) ||
+        (await isStoredEngineUsableForRequest(storedRaw, entry, {
+          ...(credentialIdentity ? { credentialIdentity } : {}),
+        })))
     ) {
       return await createEngineForEntry(
         entry,
@@ -1552,6 +1645,7 @@ export async function resolveEngine(
         apiKeyEnvVar,
         credentialIdentity,
         apiKeyProvenance,
+        apiKeyEngineBinding,
       );
     }
   }
@@ -1565,6 +1659,7 @@ export async function resolveEngine(
       apiKeyEnvVar,
       credentialIdentity,
       apiKeyProvenance,
+      apiKeyEngineBinding,
     );
   }
 
@@ -1578,6 +1673,7 @@ export async function resolveEngine(
       apiKeyEnvVar,
       credentialIdentity,
       apiKeyProvenance,
+      apiKeyEngineBinding,
     );
   }
 
@@ -1595,6 +1691,7 @@ export async function resolveEngine(
     apiKeyEnvVar,
     credentialIdentity,
     apiKeyProvenance,
+    apiKeyEngineBinding,
   );
 }
 
