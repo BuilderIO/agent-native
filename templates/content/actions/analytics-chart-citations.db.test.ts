@@ -1,0 +1,339 @@
+// guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { getDbExec } from "@agent-native/core/db";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import {
+  analyticsChartBlockRaw,
+  type AnalyticsChartData,
+} from "../shared/analytics-chart-block.js";
+
+const TEST_DB_PATH = join(
+  tmpdir(),
+  `content-analytics-chart-citations-${process.pid}-${Date.now()}.pglite`,
+);
+const OWNER = "citations-owner@example.test";
+const VIEWER = "citations-viewer@example.test";
+const STRANGER = "citations-stranger@example.test";
+const ORG_ID = "citations-org";
+
+type Schema = typeof import("../server/db/schema.js");
+type Action = {
+  run: (args: Record<string, unknown>) => Promise<unknown>;
+};
+type CitedPages = {
+  pages: Array<{ id: string; title: string; url: string; updatedAt: string }>;
+  more: boolean;
+};
+let getDb: typeof import("../server/db/index.js").getDb;
+let schema: Schema;
+let syncCitations: Action;
+let listCitations: Action;
+let count = 0;
+
+beforeAll(async () => {
+  process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  const dbModule = await import("../server/db/index.js");
+  getDb = dbModule.getDb;
+  schema = dbModule.schema;
+  syncCitations = (await import("./sync-analytics-chart-citations.js"))
+    .default as Action;
+  listCitations = (await import("./list-analytics-chart-citations.js"))
+    .default as Action;
+  const plugin = (await import("../server/plugins/db.js")).default;
+  await plugin(undefined as never);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+    identity_authority TEXT, identity_id TEXT
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL,
+    federation_removal_pending_at BIGINT
+  )`);
+}, 60_000);
+
+afterAll(() => {
+  rmSync(TEST_DB_PATH, { force: true, recursive: true });
+});
+
+function chartTag(dashboardId: string): string {
+  const data: AnalyticsChartData = {
+    dashboard: {
+      id: dashboardId,
+      title: `Dashboard ${dashboardId}`,
+      url: `https://analytics.example.test/dashboards/${dashboardId}`,
+      visibility: "org",
+    },
+    panel: {
+      id: "wau",
+      title: "Weekly active users",
+      type: "line",
+      fingerprint: "0123456789ab",
+      url: `https://analytics.example.test/dashboards/${dashboardId}?tile=wau`,
+    },
+    filters: {},
+    columns: ["week", "Users"],
+    rows: [["2026-10-05", 120]],
+    chart: {},
+    truncated: false,
+    capturedAt: "2026-11-07T16:40:00.000Z",
+  };
+  return analyticsChartBlockRaw(
+    `analytics-chart-${crypto.randomUUID().slice(0, 8)}`,
+    data,
+  );
+}
+
+function body(...dashboardIds: string[]): string {
+  return ["# Report", ...dashboardIds.map(chartTag), "The end."].join("\n\n");
+}
+
+async function page(
+  options: {
+    content?: string;
+    ownerEmail?: string;
+    trashedAt?: string;
+    updatedAt?: string;
+  } = {},
+) {
+  const id = `citations-doc-${++count}`;
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.documents)
+    .values({
+      id,
+      ownerEmail: options.ownerEmail ?? OWNER,
+      orgId: ORG_ID,
+      parentId: null,
+      title: `Page ${count}`,
+      content: options.content ?? "",
+      position: count,
+      visibility: "private",
+      trashedAt: options.trashedAt ?? null,
+      createdAt: now,
+      updatedAt: options.updatedAt ?? now,
+    });
+  return id;
+}
+
+async function share(
+  documentId: string,
+  email: string,
+  role: "viewer" | "editor",
+) {
+  await getDb()
+    .insert(schema.documentShares)
+    .values({
+      id: `share-${crypto.randomUUID()}`,
+      resourceId: documentId,
+      principalType: "user",
+      principalId: email,
+      role,
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+}
+
+async function setBody(documentId: string, content: string) {
+  await getDb()
+    .update(schema.documents)
+    .set({ content })
+    .where(eq(schema.documents.id, documentId));
+}
+
+async function cite(documentId: string, dashboardId: string) {
+  await getDb()
+    .insert(schema.analyticsChartCitations)
+    .values({ documentId, dashboardId });
+}
+
+async function citedDashboards(documentId: string): Promise<string[]> {
+  const rows: Array<{ dashboardId: string }> = await getDb()
+    .select({ dashboardId: schema.analyticsChartCitations.dashboardId })
+    .from(schema.analyticsChartCitations)
+    .where(eq(schema.analyticsChartCitations.documentId, documentId));
+  return rows.map((row) => row.dashboardId).sort();
+}
+
+function as<T>(email: string | undefined, run: () => Promise<T>): Promise<T> {
+  return runWithRequestContext({ userEmail: email, orgId: ORG_ID }, run);
+}
+
+function sync(email: string | undefined, documentId: string) {
+  return as(email, () => syncCitations.run({ documentId }));
+}
+
+function list(email: string | undefined, dashboardId: string) {
+  return as(
+    email,
+    () => listCitations.run({ dashboardId }) as Promise<CitedPages>,
+  );
+}
+
+async function failureOf(promise: Promise<unknown>) {
+  try {
+    await promise;
+  } catch (error) {
+    return {
+      errorCode: (error as { errorCode?: string }).errorCode,
+      statusCode: (error as { statusCode?: number }).statusCode,
+    };
+  }
+  throw new Error("expected the action to fail");
+}
+
+describe("sync-analytics-chart-citations", () => {
+  it("makes a page's citations match the dashboards its saved body holds charts from", async () => {
+    const id = await page({ content: body("growth", "retention", "growth") });
+
+    await expect(sync(OWNER, id)).resolves.toEqual({
+      dashboardIds: ["growth", "retention"],
+      unreadable: 0,
+    });
+    expect(await citedDashboards(id)).toEqual(["growth", "retention"]);
+
+    await setBody(id, body("retention", "revenue"));
+    await sync(OWNER, id);
+    expect(await citedDashboards(id)).toEqual(["retention", "revenue"]);
+
+    await setBody(id, "# Report\n\nNo charts now.");
+    await expect(sync(OWNER, id)).resolves.toEqual({
+      dashboardIds: [],
+      unreadable: 0,
+    });
+    expect(await citedDashboards(id)).toEqual([]);
+  });
+
+  it("leaves other pages' citations alone", async () => {
+    const synced = await page({ content: body("growth") });
+    const other = await page({ content: body("growth") });
+    await cite(other, "growth");
+
+    await setBody(synced, "");
+    await sync(OWNER, synced);
+
+    expect(await citedDashboards(other)).toEqual(["growth"]);
+  });
+
+  it("lets only the page's editors sync it", async () => {
+    const id = await page({ content: body("growth") });
+    await share(id, VIEWER, "viewer");
+    await cite(id, "stale");
+
+    await expect(failureOf(sync(VIEWER, id))).resolves.toEqual({
+      errorCode: "analytics_chart_edit_required",
+      statusCode: 403,
+    });
+    await expect(failureOf(sync(STRANGER, id))).resolves.toEqual({
+      errorCode: "document_not_found",
+      statusCode: 404,
+    });
+    await expect(failureOf(sync(undefined, id))).resolves.toEqual({
+      errorCode: "analytics_chart_signed_out",
+      statusCode: 401,
+    });
+    expect(await citedDashboards(id)).toEqual(["stale"]);
+
+    await share(id, STRANGER, "editor");
+    await sync(STRANGER, id);
+    expect(await citedDashboards(id)).toEqual(["growth"]);
+  });
+
+  it("doesn't sync a page in Trash", async () => {
+    const id = await page({
+      content: body("growth"),
+      trashedAt: new Date().toISOString(),
+    });
+    await expect(failureOf(sync(OWNER, id))).resolves.toEqual({
+      errorCode: "document_not_found",
+      statusCode: 404,
+    });
+    expect(await citedDashboards(id)).toEqual([]);
+  });
+});
+
+describe("list-analytics-chart-citations", () => {
+  it("lists only the pages the caller can open that still hold a chart from the dashboard", async () => {
+    const at = (minutes: number) =>
+      new Date(Date.UTC(2026, 10, 1, 12, minutes)).toISOString();
+    const own = await page({ content: body("cited"), updatedAt: at(1) });
+    const shared = await page({ content: body("cited"), updatedAt: at(2) });
+    await share(shared, VIEWER, "viewer");
+    const othersPrivate = await page({
+      content: body("cited"),
+      ownerEmail: STRANGER,
+      updatedAt: at(3),
+    });
+    const trashed = await page({
+      content: body("cited"),
+      trashedAt: at(4),
+      updatedAt: at(4),
+    });
+    await share(trashed, VIEWER, "viewer");
+    const stale = await page({ content: body("elsewhere"), updatedAt: at(5) });
+    await share(stale, VIEWER, "viewer");
+    for (const id of [own, shared, othersPrivate, trashed, stale]) {
+      await cite(id, "cited");
+    }
+
+    const forOwner = await list(OWNER, "cited");
+    expect(forOwner.pages.map((cited) => cited.id)).toEqual([shared, own]);
+    expect(forOwner.more).toBe(false);
+    expect(forOwner.pages[0]).toEqual({
+      id: shared,
+      title: expect.stringMatching(/^Page /),
+      url: expect.stringMatching(new RegExp(`/page/${shared}$`)),
+      updatedAt: at(2),
+    });
+
+    const forViewer = await list(VIEWER, "cited");
+    expect(forViewer.pages.map((cited) => cited.id)).toEqual([shared]);
+
+    const forStranger = await list(STRANGER, "cited");
+    expect(forStranger.pages.map((cited) => cited.id)).toEqual([othersPrivate]);
+  });
+
+  it("asks a signed-in person", async () => {
+    await expect(failureOf(list(undefined, "cited"))).resolves.toEqual({
+      errorCode: "analytics_chart_signed_out",
+      statusCode: 401,
+    });
+  });
+
+  it("lists at most 50 pages, most recently edited first, and says there are more", async () => {
+    const ids: string[] = [];
+    for (let index = 0; index < 52; index += 1) {
+      const id = await page({
+        content: body("busy"),
+        updatedAt: new Date(Date.UTC(2026, 9, 1, 0, index)).toISOString(),
+      });
+      await cite(id, "busy");
+      ids.push(id);
+    }
+
+    const cited = await list(OWNER, "busy");
+    expect(cited.pages).toHaveLength(50);
+    expect(cited.pages.map((entry) => entry.id)).toEqual(
+      ids.slice(2).reverse(),
+    );
+    expect(cited.more).toBe(true);
+  });
+
+  it("finds a page once its editor syncs it", async () => {
+    const id = await page({ content: body("fresh") });
+    await expect(list(OWNER, "fresh")).resolves.toEqual({
+      pages: [],
+      more: false,
+    });
+
+    await sync(OWNER, id);
+
+    const cited = await list(OWNER, "fresh");
+    expect(cited.pages.map((entry) => entry.id)).toEqual([id]);
+  });
+});

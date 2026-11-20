@@ -98,6 +98,24 @@ export const privateMediaReferences = table(
   ],
 );
 
+export const analyticsChartCitations = table(
+  "content_analytics_chart_citations",
+  {
+    documentId: text("document_id").notNull(),
+    dashboardId: text("dashboard_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (citation) => [
+    uniqueIndex("content_analytics_chart_citation_unique").on(
+      citation.documentId,
+      citation.dashboardId,
+    ),
+    index("content_analytics_chart_citation_dashboard_idx").on(
+      citation.dashboardId,
+    ),
+  ],
+);
+
 export const contentSpaces = table(
   "content_spaces",
   {

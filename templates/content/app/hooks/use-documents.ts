@@ -1543,7 +1543,7 @@ export function useCreateDocument() {
   );
 }
 
-const DOCUMENT_UPDATE_MUTATION_KEY = ["content", "update-document"];
+export const DOCUMENT_UPDATE_MUTATION_KEY = ["content", "update-document"];
 const recentSaveRecoveries = new WeakMap<QueryClient, () => void>();
 
 function recoverRecentAfterDocumentSaves(queryClient: QueryClient) {
