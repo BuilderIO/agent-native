@@ -1151,7 +1151,11 @@ describe("integrations plugin routes", () => {
       role: "owner",
     });
     getIntegrationConfigMock.mockResolvedValue({
-      configData: { enabled: true, managedOAuth: true },
+      configData: {
+        enabled: true,
+        managedOAuth: true,
+        ownerOrgId: "org-first",
+      },
       owner: "first-admin@example.test",
     } as never);
     resolveOrgScopeForEmailMock.mockResolvedValue({
@@ -1249,7 +1253,7 @@ describe("integrations plugin routes", () => {
       role: "owner",
     });
     getIntegrationConfigMock.mockResolvedValue({
-      configData: { enabled: true },
+      configData: { enabled: true, ownerOrgId: "org-first" },
       owner: "first-admin@example.test",
     } as never);
     resolveOrgScopeForEmailMock.mockResolvedValue({
@@ -1320,6 +1324,59 @@ describe("integrations plugin routes", () => {
     expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
       "org-first",
       "second-admin@example.test",
+    );
+  });
+
+  it("needs a current admin of the recorded organization, even for the previous owner", async () => {
+    getSessionMock.mockResolvedValue({ email: "first-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-second", role: "owner" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "first-admin@example.test",
+    } as never);
+    readOrgMemberRoleMock.mockImplementation(async (orgId: string) =>
+      orgId === "org-second" ? "owner" : null,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(403);
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the recorded organization when an admin of it toggles the channel from another organization", async () => {
+    getSessionMock.mockResolvedValue({ email: "shared-admin@example.test" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-second", role: "owner" });
+    getIntegrationConfigMock.mockResolvedValue({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "first-admin@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-second",
+    });
+    readOrgMemberRoleMock.mockResolvedValue("admin");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/disable",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "fake",
+      { enabled: false, ownerOrgId: "org-first" },
+      "default",
+      "shared-admin@example.test",
     );
   });
 
@@ -3283,6 +3340,54 @@ describe("integrations plugin routes", () => {
     expect(options.ownerEmail).toBe("owner+qa@example.com");
     expect(resourceGetByPathMock).not.toHaveBeenCalled();
     expect(options.initialToolNames).toEqual([]);
+  });
+
+  it("runs a webhook in the organization recorded on the channel", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true, ownerOrgId: "org-first" },
+      owner: "owner+qa@example.com",
+    });
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-second",
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "status",
+        senderId: "UQA",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      resolveOwner: async () => "owner+qa@example.com",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: "owner+qa@example.com",
+        orgId: "org-first",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
+    expect(runWithRequestContextMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-second" }),
+      expect.any(Function),
+    );
   });
 
   it("passes the app's own action names as initialToolNames so framework additions defer behind tool-search", async () => {

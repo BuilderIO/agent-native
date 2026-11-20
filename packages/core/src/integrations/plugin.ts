@@ -957,25 +957,32 @@ export function createIntegrationsPlugin(
       return scope.orgId ?? null;
     }
 
+    function storedIntegrationOwnerOrgId(
+      config: Awaited<ReturnType<typeof getIntegrationConfig>>,
+    ): string | null | undefined {
+      const stored = config?.configData.ownerOrgId;
+      return typeof stored === "string" || stored === null ? stored : undefined;
+    }
+
     async function assertCanReplaceIntegrationOwner(
       platform: string,
       actorEmail: string | undefined,
-    ): Promise<void> {
+    ): Promise<string | null | undefined> {
       const existing = await getIntegrationConfig(platform);
       const existingOwner = existing?.owner?.trim();
-      if (!existingOwner) return;
+      if (!existingOwner) return undefined;
       const actor = actorEmail?.trim().toLowerCase() ?? "";
-      if (actor && actor === existingOwner.toLowerCase()) return;
+      const storedOrgId = storedIntegrationOwnerOrgId(existing);
       if (actor) {
-        const storedOrgId = existing?.configData.ownerOrgId;
-        const ownerOrgId =
-          typeof storedOrgId === "string" || storedOrgId === null
-            ? storedOrgId
-            : await integrationOwnerOrgId(existingOwner);
-        if (ownerOrgId) {
-          if (canManageOrg(await readOrgMemberRole(ownerOrgId, actor))) return;
-        } else if (canManageDeploymentWithoutOrg(actor)) {
-          return;
+        if (typeof storedOrgId === "string") {
+          if (canManageOrg(await readOrgMemberRole(storedOrgId, actor))) {
+            return storedOrgId;
+          }
+        } else if (
+          actor === existingOwner.toLowerCase() ||
+          canManageDeploymentWithoutOrg(actor)
+        ) {
+          return storedOrgId;
         }
       }
       throw createError({
@@ -988,7 +995,9 @@ export function createIntegrationsPlugin(
       adapters,
       webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
       async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
-        await assertCanReplaceIntegrationOwner(platform, actorEmail);
+        const ownerOrgId =
+          (await assertCanReplaceIntegrationOwner(platform, actorEmail)) ??
+          (await integrationOwnerOrgId(actorEmail));
         if (platform === "google-docs") {
           if (enabled) {
             const ownerEmail = actorEmail?.trim();
@@ -999,7 +1008,7 @@ export function createIntegrationsPlugin(
             }
             await saveIntegrationConfig(
               platform,
-              { enabled, ownerOrgId: await integrationOwnerOrgId(ownerEmail) },
+              { enabled, ownerOrgId },
               "default",
               ownerEmail,
             );
@@ -1011,7 +1020,7 @@ export function createIntegrationsPlugin(
           } else {
             await saveIntegrationConfig(
               platform,
-              { enabled, ownerOrgId: await integrationOwnerOrgId(actorEmail) },
+              { enabled, ownerOrgId },
               "default",
               actorEmail,
             );
@@ -1021,7 +1030,7 @@ export function createIntegrationsPlugin(
         }
         await saveIntegrationConfig(
           platform,
-          { enabled, ownerOrgId: await integrationOwnerOrgId(actorEmail) },
+          { enabled, ownerOrgId },
           "default",
           actorEmail,
         );
@@ -1205,13 +1214,16 @@ export function createIntegrationsPlugin(
       const ownerEmail =
         typeof config?.owner === "string" ? config.owner.trim() : "";
       if (!ownerEmail) return null;
+      const storedOrgId = storedIntegrationOwnerOrgId(config);
       return {
         userEmail: ownerEmail,
         ...integrationRequestContext(
-          await resolveIntegrationRequestScope({
-            ownerEmail,
-            principalType: "user",
-          }),
+          storedOrgId === undefined
+            ? await resolveIntegrationRequestScope({
+                ownerEmail,
+                principalType: "user",
+              })
+            : verifiedRequestScope(storedOrgId),
         ),
         isIntegrationCaller: true,
       };
@@ -3340,12 +3352,14 @@ export function createIntegrationsPlugin(
               ...integrationRequestContext(requestScope),
             },
             async () => {
+              let installOwnerOrgId = access.orgId ?? null;
               if (!userOnlyInstall) {
                 try {
-                  await assertCanReplaceIntegrationOwner(
-                    "slack",
-                    access.ownerEmail,
-                  );
+                  installOwnerOrgId =
+                    (await assertCanReplaceIntegrationOwner(
+                      "slack",
+                      access.ownerEmail,
+                    )) ?? installOwnerOrgId;
                 } catch (err) {
                   if (!isError(err) || err.statusCode !== 403) throw err;
                   setResponseStatus(event, 403);
@@ -3437,7 +3451,7 @@ export function createIntegrationsPlugin(
                 {
                   enabled: true,
                   managedOAuth: true,
-                  ownerOrgId: access.orgId ?? null,
+                  ownerOrgId: installOwnerOrgId,
                 },
                 "default",
                 access.ownerEmail,
