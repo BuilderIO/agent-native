@@ -684,6 +684,35 @@ describe("org-shared data program runs", () => {
     expect(storeMocks.recordDataProgramRun).toHaveBeenCalledTimes(1);
   });
 
+  it("closes an org-only run without starting it when recording it left too little time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    storeMocks.recordDataProgramRun
+      .mockReset()
+      .mockImplementationOnce(async () => {
+        vi.setSystemTime(Date.now() + 8_500);
+        return makeRun({ id: "dpr_first", status: "running" });
+      })
+      .mockResolvedValueOnce(makeRun({ id: "dpr_second", status: "running" }));
+    const sandbox = mockSandbox(() => sandboxOutput([{ own: true }]));
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+      timeoutMs: 10_000,
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
+    expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+      "dpr_first",
+      expect.objectContaining({ status: "timed_out", errorCode: "timeout" }),
+    );
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBeUndefined();
+    expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBe(1_500);
+  });
+
   it("stops checking a viewer's credentials for the shared cache when the time limit runs out", async () => {
     const execute = await loadExecute();
     const sharedHash = execute.hashOrgSharedDataProgramParams(undefined, ORG);

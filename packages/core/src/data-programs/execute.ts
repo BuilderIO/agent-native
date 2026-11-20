@@ -666,8 +666,9 @@ async function runSharedProgram(
   sharing: OrgSharing,
   deadline: number,
 ): Promise<DataProgramSuccess | null> {
-  const runTimeoutMs = deadline - Date.now() - VIEWER_CHECK_RESERVE_MS;
-  if (runTimeoutMs < MIN_RUN_TIMEOUT_MS) return null;
+  if (deadline - Date.now() - VIEWER_CHECK_RESERVE_MS < MIN_RUN_TIMEOUT_MS) {
+    return null;
+  }
   const running = await recordDataProgramRun({
     programId: program.id,
     paramsHash: sharing.paramsHash,
@@ -675,6 +676,17 @@ async function runSharedProgram(
     status: "running",
     triggeredBy: args.triggeredBy,
   });
+  const runTimeoutMs = deadline - Date.now() - VIEWER_CHECK_RESERVE_MS;
+  if (runTimeoutMs < MIN_RUN_TIMEOUT_MS) {
+    await updateDataProgramRun(running.id, {
+      status: "timed_out",
+      errorCode: "timeout",
+      errorMessage: "Recording the run left too little time to start it.",
+      finishedAt: Date.now(),
+      durationMs: 0,
+    });
+    return null;
+  }
 
   const ledger = new CredentialUseLedger({
     readsOnly: true,
