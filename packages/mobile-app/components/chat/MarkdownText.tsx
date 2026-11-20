@@ -109,7 +109,11 @@ type InlineToken =
 const INLINE_PATTERN =
   /(\[[^\]\n]+\]\((?:https?:\/\/[^\s)]+|\/(?![\/\\])[^\s)\\]*)\)|https?:\/\/[^\s<>()]+|`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
 
-function parseInline(text: string, linksOnly = false): InlineToken[] {
+function parseInline(
+  text: string,
+  linksOnly: boolean,
+  hasLinkResolver: boolean,
+): InlineToken[] {
   const tokens: InlineToken[] = [];
   let lastIndex = 0;
   const pattern = linksOnly
@@ -127,7 +131,11 @@ function parseInline(text: string, linksOnly = false): InlineToken[] {
     const linkText = link?.[1];
     const linkUrl = link?.[2];
     if (linkText && linkUrl) {
-      tokens.push({ kind: "link", text: linkText, url: linkUrl });
+      if (linkUrl.startsWith("/") && !hasLinkResolver) {
+        tokens.push({ kind: "plain", text: raw });
+      } else {
+        tokens.push({ kind: "link", text: linkText, url: linkUrl });
+      }
     } else if (/^https?:\/\//.test(raw)) {
       tokens.push({ kind: "link", text: raw, url: raw });
     } else if (raw.startsWith("`")) {
@@ -157,7 +165,7 @@ export function InlineText({
   linksOnly?: boolean;
 }) {
   const onOpenLink = useAppPanelLink();
-  const tokens = parseInline(text, linksOnly);
+  const tokens = parseInline(text, linksOnly, Boolean(onOpenLink));
   let cumulativeLength = startIndex;
   return (
     <Text className={className ?? "text-text-light text-[15px] leading-5.5"}>

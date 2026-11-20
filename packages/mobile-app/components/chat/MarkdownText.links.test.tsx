@@ -298,6 +298,32 @@ it("does not treat protocol-relative or backslash paths as app links", async () 
   await act(() => root.unmount());
 });
 
+it("keeps relative markdown links as plain text without a panel resolver", async () => {
+  openURL.mockClear();
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const text =
+    "[Root](/settings) [Automation](/settings#agent-native-app-local) [Web](https://example.org)";
+  for (const linksOnly of [false, true]) {
+    await act(() =>
+      root.render(createElement(InlineText, { text, linksOnly })),
+    );
+    expect(container.textContent).toBe(
+      "[Root](/settings) [Automation](/settings#agent-native-app-local) Web",
+    );
+    expect(findSpan(container, "Root")).toBeUndefined();
+    expect(findSpan(container, "Automation")).toBeUndefined();
+    const webLink = findSpan(container, "Web");
+    if (!webLink) throw new Error("expected web link");
+    await act(() => webLink.click());
+  }
+  expect(openURL.mock.calls).toEqual([
+    ["https://example.org"],
+    ["https://example.org"],
+  ]);
+  await act(() => root.unmount());
+});
+
 it("opens links with the system handler when no panel resolver is mounted", async () => {
   const container = document.createElement("div");
   const root = createRoot(container);
