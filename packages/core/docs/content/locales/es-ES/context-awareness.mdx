@@ -365,14 +365,12 @@ en una transición de vista para que la barra de direcciones y la página visibl
 
 La pantalla del usuario solo cambia cuando pidió ver algo. Esto vale para todos los agentes: el chat integrado, los agentes externos por MCP o WebMCP y los pares por A2A (`isAgentCaller(ctx)` de `@agent-native/core`).
 
-- Las lecturas nunca navegan. Se rechaza una acción de solo lectura que escribe `navigate` durante una llamada de un agente.
-- Las escrituras no mueven la vista. Una escritura que abriría su resultado llama a `navigateAfterWrite(navigation, { ctx, intent })` de `@agent-native/core/application-state`; para un agente omite el cambio salvo que `intent` sea `"open"`.
-- Abrir un elemento requiere `intent: "open"`. Pasa a `createNavigateAction()` una comprobación `isDetailView`, y se rechaza la llamada de un agente a una vista de detalle sin esa intención. Una acción navigate escrita a mano llama a `assertAgentNavigationAllowed()`.
+- Las lecturas nunca navegan. Una acción de solo lectura que escribe `navigate` durante una llamada de un agente se rechaza en el almacén de estado de la aplicación.
+- Las escrituras no mueven la vista por defecto. Una escritura de un agente que escribe `navigate` sin `intent: "open"` se rechaza; llama a `navigateAfterWrite(navigation, { ctx, intent })` de `@agent-native/core/application-state` para que un agente omita el cambio limpiamente salvo que `intent` sea `"open"`, o configura `allowsAgentNavigation: true` en una acción cuya función sea abrir una interfaz.
+- Abrir un elemento requiere `intent: "open"`. `createNavigateAction()` y el almacén de estado lo aplican por defecto para campos de ID (`id`, `*Id`) y rutas de detalle sin código por aplicación. Pasa `isDetailView` a `createNavigateAction()` solo cuando necesites reglas personalizadas.
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## El gancho useNavigationState {#use-navigation-state}

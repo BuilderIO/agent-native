@@ -26,6 +26,16 @@ function navigatedPaths(): unknown[] {
     .map(([, , value]) => (value as { path?: unknown }).path);
 }
 
+function inTab<T>(fn: () => Promise<T>): Promise<T> {
+  return runWithRequestContext(
+    {
+      userEmail: "person@example.com",
+      run: { browserTabId: "tab-1" },
+    },
+    fn,
+  );
+}
+
 describe("agent navigation keeps the user's view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -34,27 +44,33 @@ describe("agent navigation keeps the user's view", () => {
 
   it("skips a write's follow-up navigation for an agent, keeps it for a person", async () => {
     await expect(
-      navigateAfterWrite({ path: "/tasks/t1" }, { ctx: { caller: "mcp" } }),
+      inTab(() =>
+        navigateAfterWrite({ path: "/tasks/t1" }, { ctx: { caller: "mcp" } }),
+      ),
     ).resolves.toEqual({ navigated: false, reason: "agent-keeps-view" });
     expect(navigatedPaths()).toEqual([]);
 
     await expect(
-      navigateAfterWrite(
-        { path: "/tasks/t1" },
-        { ctx: { caller: "mcp" }, intent: "open" },
+      inTab(() =>
+        navigateAfterWrite(
+          { path: "/tasks/t1" },
+          { ctx: { caller: "mcp" }, intent: "open" },
+        ),
       ),
     ).resolves.toEqual({ navigated: true });
     await expect(
-      navigateAfterWrite(
-        { path: "/tasks/t2" },
-        { ctx: { caller: "frontend" } },
+      inTab(() =>
+        navigateAfterWrite(
+          { path: "/tasks/t2" },
+          { ctx: { caller: "frontend" } },
+        ),
       ),
     ).resolves.toEqual({ navigated: true });
     expect(navigatedPaths()).toEqual(["/tasks/t1", "/tasks/t2"]);
   });
 
-  it("says no tab moved when a call from no tab finds none", async () => {
-    const result = await runWithRequestContext(
+  it("says no tab moved when a call from no tab finds none or has no tab slot", async () => {
+    const unavailableResult = await runWithRequestContext(
       {
         userEmail: "person@example.com",
         run: {
@@ -69,7 +85,17 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "frontend" } },
         ),
     );
-    expect(result).toEqual({ navigated: false, reason: "no-tab" });
+    expect(unavailableResult).toEqual({ navigated: false, reason: "no-tab" });
+
+    const noSlotResult = await runWithRequestContext(
+      { userEmail: "person@example.com" },
+      () =>
+        navigateAfterWrite(
+          { path: "/tasks/t1" },
+          { ctx: { caller: "a2a" }, intent: "open" },
+        ),
+    );
+    expect(noSlotResult).toEqual({ navigated: false, reason: "no-tab" });
     expect(navigatedPaths()).toEqual([]);
   });
 });

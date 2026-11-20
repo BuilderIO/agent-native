@@ -232,14 +232,19 @@ await writeAppStateForCurrentTab("navigate", {
 **Agents keep the user's view.** Every agent caller counts — built-in chat,
 MCP, WebMCP, A2A (`isAgentCaller(ctx)`), not just `caller === "tool"`:
 
-- Reads never navigate: a read-only action writing `navigate` during an agent
-  call is refused.
-- Writes stay put: a write that would open its result uses
-  `navigateAfterWrite(navigation, { ctx, intent })`, which skips the move for
-  an agent unless `intent: "open"`.
+- Reads never navigate: any read-only action writing `navigate` during an agent
+  call is refused at the app-state store.
+- Writes stay put by default: an agent write that tries to write `navigate`
+  without `intent: "open"` is refused. Use
+  `navigateAfterWrite(navigation, { ctx, intent })` when a write should open
+  its result for a person while skipping the move for an agent unless
+  `intent: "open"` is set (or set `allowsAgentNavigation: true` on an action
+  whose job is opening a UI).
 - Opening one item needs `intent: "open"`, set only when the user asked to see
-  it. Pass `isDetailView` to `createNavigateAction()`, or call
-  `assertAgentNavigationAllowed()` in a hand-written navigate action.
+  it. `createNavigateAction()` and the app-state store enforce this by default
+  for item ID fields (`id`, `*Id`) and detail paths without per-app code; pass
+  `isDetailView` to `createNavigateAction()` only when an app needs custom
+  matching.
 
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
 dedupes `_writeId`, deletes consumed commands, and applies app-local routing.

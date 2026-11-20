@@ -58,9 +58,11 @@ export {
 export {
   AgentNavigationRefusedError,
   assertAgentNavigationAllowed,
+  isDefaultDetailNavigation,
   navigateAfterWrite,
   navigationIntentSchema,
   NAVIGATION_OPEN_INTENT,
+  withAuthorizedAgentNavigation,
   type DetailViewPredicate,
   type NavigateAfterWriteResult,
   type NavigationIntent,

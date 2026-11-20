@@ -367,14 +367,12 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 
 لا تنتقل شاشة المستخدم إلا عندما يطلب رؤية شيء ما. ينطبق هذا على كل وكيل: الدردشة المدمجة، والوكلاء الخارجيين عبر MCP أو WebMCP، والنظراء عبر A2A (`isAgentCaller(ctx)` من `@agent-native/core`).
 
-- القراءة لا تنقل الشاشة أبدًا. يُرفض الإجراء للقراءة فقط الذي يكتب `navigate` أثناء استدعاء من وكيل.
-- الكتابة لا تحرّك العرض. الكتابة التي ستفتح نتيجتها تستدعي `navigateAfterWrite(navigation, { ctx, intent })` من `@agent-native/core/application-state`؛ وبالنسبة للوكيل يُتخطّى الانتقال ما لم تكن `intent` هي `"open"`.
-- فتح عنصر واحد يتطلب `intent: "open"`. مرّر إلى `createNavigateAction()` فحص `isDetailView`، فيُرفض استدعاء الوكيل لعرض التفاصيل دون هذه النية. إجراء navigate المكتوب يدويًا يستدعي `assertAgentNavigationAllowed()`.
+- القراءة لا تنقل الشاشة أبدًا. يُرفض أي إجراء للقراءة فقط يكتب `navigate` أثناء استدعاء وكيل في مخزن حالة التطبيق.
+- الكتابة لا تحرّك العرض افتراضيًا. يُرفض أي إجراء كتابة من وكيل يكتب `navigate` دون `intent: "open"`؛ استدعِ `navigateAfterWrite(navigation, { ctx, intent })` من `@agent-native/core/application-state` حتى يتخطّى الوكيل الانتقال بسلاسة ما لم تكن `intent` هي `"open"`، أو اضبط `allowsAgentNavigation: true` على إجراء وظيفته فتح واجهة.
+- فتح عنصر واحد يتطلب `intent: "open"`. يفرض `createNavigateAction()` ومخزن حالة التطبيق ذلك افتراضيًا لحقول معرّف العنصر (`id`، `*Id`) ومسارات التفاصيل دون كود خاص بكل تطبيق. مرّر `isDetailView` إلى `createNavigateAction()` فقط عند الحاجة إلى مطابقة مخصصة.
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## خطاف useNavigationState {#use-navigation-state}

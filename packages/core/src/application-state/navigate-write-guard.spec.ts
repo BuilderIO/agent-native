@@ -1,25 +1,64 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { noteObservedWrite } from "../action-frame.js";
 import { defineAction } from "../action.js";
 import {
   AgentNavigationRefusedError,
   assertNavigateWriteAllowed,
+  isDefaultDetailNavigation,
 } from "./navigate-write-guard.js";
 
 function inAction<T>(
   caller: "mcp" | "tool" | "a2a" | "frontend" | "cli",
-  readOnly: boolean,
+  options: {
+    readOnly?: boolean;
+    allowsAgentNavigation?: boolean;
+    intent?: string;
+  },
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const action = defineAction({
     description: "Run a check inside an action.",
     schema: z.object({}),
-    readOnly,
+    readOnly: options.readOnly,
+    allowsAgentNavigation: options.allowsAgentNavigation,
     run: async () => fn(),
   });
-  return action.run({}, { caller }) as Promise<T>;
+  const input = options.intent ? { intent: options.intent } : {};
+  return action.run(input as Record<string, never>, { caller }) as Promise<T>;
 }
+
+describe("isDefaultDetailNavigation", () => {
+  it("recognizes item id fields and nested detail paths", () => {
+    expect(isDefaultDetailNavigation({ view: "tasks", taskId: "t1" })).toBe(
+      true,
+    );
+    expect(isDefaultDetailNavigation({ view: "inbox", threadId: "th-1" })).toBe(
+      true,
+    );
+    expect(isDefaultDetailNavigation({ id: "item-1" })).toBe(true);
+    expect(isDefaultDetailNavigation({ task_id: "t1" })).toBe(true);
+    expect(isDefaultDetailNavigation({ path: "/tasks/t1" })).toBe(true);
+    expect(isDefaultDetailNavigation({ path: "/page/doc_123" })).toBe(true);
+    expect(isDefaultDetailNavigation({ path: "/factory?factoryId=f1" })).toBe(
+      true,
+    );
+  });
+
+  it("treats list views, settings paths, and internal _writeId as non-detail", () => {
+    expect(
+      isDefaultDetailNavigation({ view: "tasks", _writeId: "123-abc" }),
+    ).toBe(false);
+    expect(isDefaultDetailNavigation({ path: "/tasks" })).toBe(false);
+    expect(isDefaultDetailNavigation({ path: "/settings/app/rules" })).toBe(
+      false,
+    );
+    expect(isDefaultDetailNavigation({ path: "/tasks?includeDone=true" })).toBe(
+      false,
+    );
+  });
+});
 
 describe("assertNavigateWriteAllowed", () => {
   it.each([
@@ -27,12 +66,10 @@ describe("assertNavigateWriteAllowed", () => {
     ["tool", "navigate:tab-1"],
     ["a2a", "navigate"],
   ] as const)("refuses a %s read writing %s", async (caller, key) => {
-    const refusal = inAction(caller, true, () =>
-      assertNavigateWriteAllowed(key),
-    );
-    await expect(refusal).rejects.toBeInstanceOf(AgentNavigationRefusedError);
     await expect(
-      inAction(caller, true, () => assertNavigateWriteAllowed(key)),
+      inAction(caller, { readOnly: true }, () =>
+        assertNavigateWriteAllowed(key, { view: "tasks" }),
+      ),
     ).rejects.toMatchObject({
       name: "AgentNavigationRefusedError",
       code: "agent_navigation_refused",
@@ -42,25 +79,121 @@ describe("assertNavigateWriteAllowed", () => {
 
   it("refuses a write nested inside an agent's read", async () => {
     await expect(
-      inAction("mcp", true, () =>
-        inAction("mcp", false, () => assertNavigateWriteAllowed("navigate")),
+      inAction("mcp", { readOnly: true }, () =>
+        inAction("mcp", { readOnly: false }, () =>
+          assertNavigateWriteAllowed("navigate", { view: "tasks" }),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+  });
+
+  it.each(["mcp", "tool", "a2a"] as const)(
+    "refuses a %s detail navigate write without intent open",
+    async (caller) => {
+      await expect(
+        inAction(caller, { readOnly: false }, () =>
+          assertNavigateWriteAllowed("navigate:tab-1", {
+            view: "tasks",
+            taskId: "t1",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        name: "AgentNavigationRefusedError",
+        code: "agent_navigation_refused",
+        message: expect.stringContaining('intent: "open"'),
+      });
+    },
+  );
+
+  it("allows a detail navigate write when raw input carries intent open even if the schema strips it", async () => {
+    await expect(
+      inAction("mcp", { readOnly: false, intent: "open" }, () =>
+        assertNavigateWriteAllowed("navigate:tab-1", {
+          view: "tasks",
+          taskId: "t1",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses any navigate write during an edit or after an observed write without intent open", async () => {
+    await expect(
+      inAction("mcp", { readOnly: false }, () => {
+        noteObservedWrite("sql");
+        assertNavigateWriteAllowed("navigate", { view: "tasks" });
+      }),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+      message: expect.stringContaining("write action cannot move"),
+    });
+
+    await expect(
+      inAction("mcp", { readOnly: false }, () =>
+        inAction("mcp", { readOnly: false }, () =>
+          assertNavigateWriteAllowed("navigate", { view: "tasks" }),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+  });
+
+  it("allows an explicit allowsAgentNavigation write action, but still refuses reads", async () => {
+    await expect(
+      inAction("mcp", { readOnly: false, allowsAgentNavigation: true }, () => {
+        noteObservedWrite("sql");
+        assertNavigateWriteAllowed("navigate", { path: "/design/d1" });
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      inAction("mcp", { readOnly: true, allowsAgentNavigation: true }, () =>
+        assertNavigateWriteAllowed("navigate", { path: "/design/d1" }),
       ),
     ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
   });
 
   it.each([
-    ["an agent's read of another key", "mcp", true, "navigation"],
-    ["an agent's read of a similar key", "mcp", true, "navigated"],
-    ["an agent's write", "mcp", false, "navigate"],
-    ["a person's read", "frontend", true, "navigate"],
-    ["a CLI read", "cli", true, "navigate"],
-  ] as const)("allows %s", async (_label, caller, readOnly, key) => {
+    [
+      "an agent's read of another key",
+      "mcp",
+      true,
+      "navigation",
+      { path: "/tasks/t1" },
+    ],
+    [
+      "an agent's read of a similar key",
+      "mcp",
+      true,
+      "navigated",
+      { path: "/tasks/t1" },
+    ],
+    [
+      "an agent's standalone list navigate",
+      "mcp",
+      false,
+      "navigate",
+      { view: "tasks" },
+    ],
+    ["a person's read", "frontend", true, "navigate", { path: "/tasks/t1" }],
+    [
+      "a person's detail navigate",
+      "frontend",
+      false,
+      "navigate",
+      { view: "tasks", taskId: "t1" },
+    ],
+    ["a CLI read", "cli", true, "navigate", { path: "/tasks/t1" }],
+  ] as const)("allows %s", async (_label, caller, readOnly, key, value) => {
     await expect(
-      inAction(caller, readOnly, () => assertNavigateWriteAllowed(key)),
+      inAction(caller, { readOnly }, () =>
+        assertNavigateWriteAllowed(key, value),
+      ),
     ).resolves.toBeUndefined();
   });
 
   it("allows a write outside any action", () => {
-    expect(() => assertNavigateWriteAllowed("navigate")).not.toThrow();
+    expect(() =>
+      assertNavigateWriteAllowed("navigate", { path: "/tasks/t1" }),
+    ).not.toThrow();
   });
 });

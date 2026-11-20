@@ -367,14 +367,12 @@ em uma transição de visualização para que a barra de endereço e a página v
 
 A tela do usuário só muda quando ele pediu para ver algo. Isso vale para todos os agentes: o chat integrado, agentes externos via MCP ou WebMCP e pares via A2A (`isAgentCaller(ctx)` de `@agent-native/core`).
 
-- Leituras nunca navegam. Uma ação somente leitura que grava `navigate` durante uma chamada de agente é recusada.
-- Gravações não mudam a tela. Uma gravação que abriria seu resultado chama `navigateAfterWrite(navigation, { ctx, intent })` de `@agent-native/core/application-state`; para um agente, a mudança é ignorada a menos que `intent` seja `"open"`.
-- Abrir um item exige `intent: "open"`. Passe a `createNavigateAction()` uma verificação `isDetailView`, e a chamada de um agente para uma tela de detalhe sem essa intenção é recusada. Uma ação navigate escrita à mão chama `assertAgentNavigationAllowed()`.
+- Leituras nunca navegam. Uma ação somente leitura que grava `navigate` durante uma chamada de agente é recusada no armazenamento de estado do aplicativo.
+- Gravações mantêm a tela por padrão. Uma gravação de agente que tenta gravar `navigate` sem `intent: "open"` é recusada; chame `navigateAfterWrite(navigation, { ctx, intent })` de `@agent-native/core/application-state` para ignorar a mudança sem erro salvo quando `intent` for `"open"`, ou defina `allowsAgentNavigation: true` em uma ação feita para abrir uma interface.
+- Abrir um item exige `intent: "open"`. `createNavigateAction()` e o armazenamento de estado aplicam isso por padrão para campos de ID (`id`, `*Id`) e rotas de detalhe sem código por aplicativo. Passe `isDetailView` para `createNavigateAction()` só quando precisar de regras próprias.
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## O gancho useNavigationState {#use-navigation-state}

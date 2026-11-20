@@ -369,14 +369,12 @@ UI की तरफ आप कभी भी इस कुंजी को हा
 
 उपयोगकर्ता की स्क्रीन तभी बदलती है जब उसने कुछ देखने को कहा हो। यह हर एजेंट पर लागू होता है: बिल्ट-इन चैट, MCP या WebMCP से जुड़े बाहरी एजेंट, और A2A से जुड़े पीयर (`@agent-native/core` से `isAgentCaller(ctx)`)।
 
-- पढ़ना कभी नेविगेट नहीं करता। एजेंट कॉल के दौरान `navigate` लिखने वाली केवल-पढ़ने वाली क्रिया अस्वीकार की जाती है।
-- लिखना व्यू नहीं हिलाता। जो लेखन अपना परिणाम खोलेगा, वह `@agent-native/core/application-state` से `navigateAfterWrite(navigation, { ctx, intent })` कॉल करता है; एजेंट के लिए यह तब तक नहीं हिलता जब तक `intent` `"open"` न हो।
-- एक आइटम खोलने के लिए `intent: "open"` चाहिए। `createNavigateAction()` को `isDetailView` जाँच दें, तो इस इरादे के बिना डिटेल व्यू पर एजेंट की कॉल अस्वीकार की जाती है। हाथ से लिखी navigate क्रिया `assertAgentNavigationAllowed()` कॉल करती है।
+- पढ़ना कभी नेविगेट नहीं करता। एजेंट कॉल के दौरान `navigate` लिखने वाली केवल-पढ़ने वाली क्रिया ऐप-स्टेट स्टोर पर अस्वीकार की जाती है।
+- लिखना डिफ़ॉल्ट रूप से व्यू नहीं हिलाता। `intent: "open"` के बिना `navigate` लिखने वाला एजेंट लेखन अस्वीकार किया जाता है; `@agent-native/core/application-state` से `navigateAfterWrite(navigation, { ctx, intent })` कॉल करें ताकि एजेंट `intent` `"open"` न होने पर बदलाव छोड़ दे, या UI खोलने वाली क्रिया पर `allowsAgentNavigation: true` सेट करें।
+- एक आइटम खोलने के लिए `intent: "open"` चाहिए। `createNavigateAction()` और ऐप-स्टेट स्टोर बिना अलग ऐप कोड के आइटम ID फ़ील्ड (`id`, `*Id`) और डिटेल पथों के लिए इसे डिफ़ॉल्ट रूप से लागू करते हैं। कस्टम मिलान की ज़रूरत होने पर ही `createNavigateAction()` को `isDetailView` दें।
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## यूज़नेविगेशनस्टेट हुक {#use-navigation-state}

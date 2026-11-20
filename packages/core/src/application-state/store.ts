@@ -158,7 +158,7 @@ export async function appStatePut(
   value: Record<string, unknown>,
   options?: AppStateWriteOptions,
 ): Promise<void> {
-  assertNavigateWriteAllowed(key);
+  assertNavigateWriteAllowed(key, value);
   const serialized = serializeAppStateValue(key, value);
   await ensureTable();
   const client = getDbExec();
@@ -215,7 +215,7 @@ export async function appStateCompareAndSet(
   nextValue: Record<string, unknown> | null,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
-  if (nextValue) assertNavigateWriteAllowed(key);
+  if (nextValue) assertNavigateWriteAllowed(key, nextValue);
   if (nextValue !== null) serializeAppStateValue(key, nextValue);
   await ensureTable();
   const client = getDbExec();
@@ -318,7 +318,7 @@ export async function appStateCompareAndSetMany(
   options?: StoreWriteOptions,
 ): Promise<boolean> {
   for (const { key, nextValue } of operations) {
-    if (nextValue) assertNavigateWriteAllowed(key);
+    if (nextValue) assertNavigateWriteAllowed(key, nextValue);
   }
   if (operations.length === 0) return true;
   const keys = new Set(operations.map(({ key }) => key));

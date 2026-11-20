@@ -1,23 +1,33 @@
 import { z } from "zod";
 
 import { isAgentCaller } from "../action-caller.js";
-import { currentActionOriginCaller } from "../action-frame.js";
+import {
+  currentActionNavigationIntent,
+  currentActionOriginCaller,
+  hasObservedWriteInActionChain,
+  insideParentWriteAction,
+  insideReadOnlyAction,
+} from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
-import { AgentNavigationRefusedError } from "./navigate-write-guard.js";
+import {
+  AgentNavigationRefusedError,
+  NAVIGATION_OPEN_INTENT,
+  isDefaultDetailNavigation,
+  withAuthorizedAgentNavigation,
+  type NavigationIntent,
+} from "./navigate-write-guard.js";
 import {
   resolveCurrentRequestStateTab,
   writeAppStateForCurrentTab,
 } from "./script-helpers.js";
 
-export { AgentNavigationRefusedError };
-
-/**
- * The one intent that lets an agent open a view: the user asked to see it.
- * Agents (built-in chat, MCP, WebMCP, A2A) leave the user's view alone
- * otherwise, so "mark X done" or "what's in my inbox" never opens items.
- */
-export const NAVIGATION_OPEN_INTENT = "open" as const;
-export type NavigationIntent = typeof NAVIGATION_OPEN_INTENT;
+export {
+  AgentNavigationRefusedError,
+  NAVIGATION_OPEN_INTENT,
+  isDefaultDetailNavigation,
+  withAuthorizedAgentNavigation,
+  type NavigationIntent,
+};
 
 export const navigationIntentSchema = z
   .literal(NAVIGATION_OPEN_INTENT)
@@ -35,9 +45,14 @@ function agentCallRunning(ctx?: Pick<ActionRunContext, "caller">): boolean {
 }
 
 /**
- * Refuses an agent navigation that would open a detail view without
- * `intent: "open"`. Navigation outside a detail view, and every call a person
- * makes from the UI, passes.
+ * Refuses an agent navigation that would move the user off their current view
+ * without `intent: "open"`:
+ * - Read-only actions never navigate.
+ * - Writes/edits never navigate without `intent: "open"`.
+ * - Detail opens (`isDetailView`, defaulting to `isDefaultDetailNavigation`)
+ *   require `intent: "open"`.
+ * Navigation outside those cases, and every call a person makes from the UI,
+ * passes.
  */
 export function assertAgentNavigationAllowed(
   navigation: Record<string, unknown>,
@@ -45,11 +60,23 @@ export function assertAgentNavigationAllowed(
     ctx?: Pick<ActionRunContext, "caller"> | undefined;
     intent?: string | undefined;
     isDetailView?: DetailViewPredicate | undefined;
-  },
+  } = {},
 ): void {
   if (!agentCallRunning(options.ctx)) return;
-  if (options.intent === NAVIGATION_OPEN_INTENT) return;
-  if (!options.isDetailView?.(navigation)) return;
+  if (insideReadOnlyAction()) {
+    throw new AgentNavigationRefusedError(
+      'Refused: a read-only action cannot move the user\'s view. Read the data and answer; call navigate with intent: "open" only if the user asked to see it.',
+    );
+  }
+  const intent = options.intent ?? currentActionNavigationIntent();
+  if (intent === NAVIGATION_OPEN_INTENT) return;
+  if (insideParentWriteAction() || hasObservedWriteInActionChain()) {
+    throw new AgentNavigationRefusedError(
+      'Refused: a write action cannot move the user\'s view unless intent: "open" is set. Keep the user on their current view, or use navigateAfterWrite() so agent writes stay put.',
+    );
+  }
+  const isDetailView = options.isDetailView ?? isDefaultDetailNavigation;
+  if (!isDetailView(navigation)) return;
   throw new AgentNavigationRefusedError(
     'Refused: opening this item would move the user off their current view. Call again with intent: "open" only if the user asked to open or show it; otherwise answer without navigating.',
   );
@@ -71,18 +98,19 @@ export async function navigateAfterWrite(
     intent?: string | undefined;
   } = {},
 ): Promise<NavigateAfterWriteResult> {
-  if (
-    agentCallRunning(options.ctx) &&
-    options.intent !== NAVIGATION_OPEN_INTENT
-  ) {
+  const intent = options.intent ?? currentActionNavigationIntent();
+  if (agentCallRunning(options.ctx) && intent !== NAVIGATION_OPEN_INTENT) {
     return { navigated: false, reason: "agent-keeps-view" };
   }
-  if ((await resolveCurrentRequestStateTab()).unavailable) {
+  const tab = await resolveCurrentRequestStateTab();
+  if (tab.unavailable || !tab.tabId) {
     return { navigated: false, reason: "no-tab" };
   }
-  await writeAppStateForCurrentTab("navigate", {
-    ...navigation,
-    _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  });
+  await withAuthorizedAgentNavigation(() =>
+    writeAppStateForCurrentTab("navigate", {
+      ...navigation,
+      _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    }),
+  );
   return { navigated: true };
 }

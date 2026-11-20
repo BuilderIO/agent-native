@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const mockAppStatePut = vi.fn();
 
@@ -17,12 +18,9 @@ vi.mock("../db/client.js", () => ({
   isLocalDatabase: () => true,
 }));
 
+import { defineAction } from "../action.js";
 import { AgentNavigationRefusedError } from "../application-state/agent-navigation.js";
 import { createNavigateAction } from "./actions.js";
-
-const isDetailView = (navigation: Record<string, unknown>) =>
-  typeof navigation.path === "string" &&
-  /^\/tasks\/[^/]+$/.test(navigation.path);
 
 function navigatedPaths(): unknown[] {
   return mockAppStatePut.mock.calls
@@ -30,13 +28,13 @@ function navigatedPaths(): unknown[] {
     .map(([, , value]) => (value as { path?: unknown }).path);
 }
 
-describe("createNavigateAction keeps the user's view", () => {
+describe("createNavigateAction keeps the user's view by default", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.AGENT_USER_EMAIL = "person@example.com";
   });
 
-  const navigate = createNavigateAction({ isDetailView });
+  const navigate = createNavigateAction();
 
   it.each(["tool", "mcp", "webmcp", "a2a"] as const)(
     "refuses a %s detail navigation without an open intent",
@@ -54,6 +52,20 @@ describe("createNavigateAction keeps the user's view", () => {
       expect(navigatedPaths()).toEqual([]);
     },
   );
+
+  it("refuses navigating even to a list view during an edit without intent open", async () => {
+    const editAction = defineAction({
+      description: "Edit an item and try to navigate.",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        await navigate.run({ path: "/tasks" }, ctx);
+      },
+    });
+    await expect(editAction.run({}, { caller: "mcp" })).rejects.toBeInstanceOf(
+      AgentNavigationRefusedError,
+    );
+    expect(navigatedPaths()).toEqual([]);
+  });
 
   it("opens a detail view when the agent passes intent open", async () => {
     await navigate.run(

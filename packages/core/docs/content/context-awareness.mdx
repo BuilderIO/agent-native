@@ -369,14 +369,12 @@ in a view transition so the address bar and visible page stay together.
 
 The user's screen moves only when they asked to see something. This holds for every agent: the built-in chat, external agents over MCP or WebMCP, and peers over A2A (`isAgentCaller(ctx)` from `@agent-native/core`).
 
-- Reads never navigate. A read-only action that writes `navigate` during an agent call is refused.
-- Writes stay put. A write that would open its result calls `navigateAfterWrite(navigation, { ctx, intent })` from `@agent-native/core/application-state`; for an agent it skips the move unless `intent` is `"open"`.
-- Opening one item needs `intent: "open"`. Give `createNavigateAction()` an `isDetailView` check, and an agent's call to a detail view without that intent is refused. A hand-written navigate action calls `assertAgentNavigationAllowed()`.
+- Reads never navigate. A read-only action that writes `navigate` during an agent call is refused at the app-state store.
+- Writes stay put by default. An agent write that writes `navigate` without `intent: "open"` is refused; call `navigateAfterWrite(navigation, { ctx, intent })` from `@agent-native/core/application-state` so an agent skips the move cleanly unless `intent` is `"open"`, or set `allowsAgentNavigation: true` on an action whose job is opening a UI.
+- Opening one item needs `intent: "open"`. `createNavigateAction()` and the app-state store enforce this by default for item ID fields (`id`, `*Id`) and detail paths with no per-app code. Pass `isDetailView` to `createNavigateAction()` only when you need custom matching.
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## The useNavigationState hook {#use-navigation-state}

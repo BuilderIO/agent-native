@@ -365,14 +365,12 @@ in einem Ansichtsübergang, damit die Adressleiste und die sichtbare Seite zusam
 
 Der Bildschirm des Benutzers wechselt nur, wenn er etwas sehen wollte. Das gilt für jeden Agenten: den eingebauten Chat, externe Agenten über MCP oder WebMCP und Peers über A2A (`isAgentCaller(ctx)` aus `@agent-native/core`).
 
-- Lesen navigiert nie. Eine schreibgeschützte Aktion, die während eines Agentenaufrufs `navigate` schreibt, wird abgelehnt.
-- Schreiben bleibt an Ort und Stelle. Ein Schreibvorgang, der sein Ergebnis öffnen würde, ruft `navigateAfterWrite(navigation, { ctx, intent })` aus `@agent-native/core/application-state` auf; für einen Agenten entfällt der Wechsel, außer `intent` ist `"open"`.
-- Ein einzelnes Element zu öffnen braucht `intent: "open"`. Gib `createNavigateAction()` eine `isDetailView`-Prüfung, und der Aufruf eines Agenten zu einer Detailansicht ohne diese Absicht wird abgelehnt. Eine selbst geschriebene navigate-Aktion ruft `assertAgentNavigationAllowed()` auf.
+- Lesen navigiert nie. Eine schreibgeschützte Aktion, die während eines Agentenaufrufs `navigate` schreibt, wird im App-State-Store abgelehnt.
+- Schreiben bleibt standardmäßig an Ort und Stelle. Ein Agenten-Schreibvorgang, der `navigate` ohne `intent: "open"` schreibt, wird abgelehnt; rufe `navigateAfterWrite(navigation, { ctx, intent })` aus `@agent-native/core/application-state` auf, damit der Wechsel für Agenten ohne `intent: "open"` sauber entfällt, oder setze `allowsAgentNavigation: true` bei einer Aktion, deren Aufgabe das Öffnen einer Ansicht ist.
+- Ein einzelnes Element zu öffnen braucht `intent: "open"`. `createNavigateAction()` und der App-State-Store erzwingen das standardmäßig für Element-ID-Felder (`id`, `*Id`) und Detailpfade ohne App-spezifischen Code. Übergib `isDetailView` an `createNavigateAction()` nur für eigene Regeln.
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## Der useNavigationState-Hook {#use-navigation-state}

@@ -365,14 +365,12 @@ UI 측에서는 이 키를 직접 폴링하거나 삭제하지 않습니다. 경
 
 사용자의 화면은 사용자가 무언가를 보여 달라고 했을 때만 바뀝니다. 이는 내장 채팅, MCP나 WebMCP를 통한 외부 에이전트, A2A를 통한 피어 등 모든 에이전트에 적용됩니다(`@agent-native/core`의 `isAgentCaller(ctx)`).
 
-- 읽기는 절대 이동하지 않습니다. 에이전트 호출 중에 `navigate`를 쓰는 읽기 전용 작업은 거부됩니다.
-- 쓰기도 화면을 옮기지 않습니다. 결과를 열려는 쓰기는 `@agent-native/core/application-state`의 `navigateAfterWrite(navigation, { ctx, intent })`를 호출하며, 에이전트의 경우 `intent`가 `"open"`이 아니면 이동하지 않습니다.
-- 항목 하나를 열려면 `intent: "open"`이 필요합니다. `createNavigateAction()`에 `isDetailView` 검사를 넘기면, 이 의도 없이 상세 보기로 가려는 에이전트 호출은 거부됩니다. 직접 작성한 navigate 작업은 `assertAgentNavigationAllowed()`를 호출합니다.
+- 읽기는 절대 이동하지 않습니다. 에이전트 호출 중에 `navigate`를 쓰는 읽기 전용 작업은 앱 상태 저장소에서 거부됩니다.
+- 쓰기는 기본적으로 화면을 옮기지 않습니다. `intent: "open"` 없이 `navigate`를 쓰는 에이전트 쓰기는 거부됩니다. `intent`가 `"open"`이 아닐 때 이동을 깔끔하게 건너뛰려면 `@agent-native/core/application-state`의 `navigateAfterWrite(navigation, { ctx, intent })`를 호출하고, UI를 여는 전용 작업에는 `allowsAgentNavigation: true`를 설정합니다.
+- 항목 하나를 열려면 `intent: "open"`이 필요합니다. `createNavigateAction()`과 앱 상태 저장소는 별도 앱 코드 없이 항목 ID 필드(`id`, `*Id`)와 상세 경로에 대해 이를 기본 적용합니다. 직접 판별이 필요할 때만 `createNavigateAction()`에 `isDetailView`를 넘깁니다.
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## useNavigationState 후크 {#use-navigation-state}

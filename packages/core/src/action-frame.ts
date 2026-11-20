@@ -62,6 +62,10 @@ export type ActionExecutionFrame = {
   writes?: boolean;
   emitsChange?: boolean;
   boundaryPending?: boolean;
+  /** Raw `intent` input captured before schema parsing can strip unknown keys. */
+  navigationIntent?: string;
+  /** Declared on an explicit UI-opening write action (never on a read). */
+  allowsAgentNavigation?: boolean;
   /** The call's record, and the context it ran with, once validated. */
   record?: ActionCallRecord;
   context?: ActionRunContext;
@@ -161,6 +165,59 @@ export function insideReadOnlyAction(): boolean {
     frame = frame.parent
   ) {
     if (frame.writes === false) return true;
+  }
+  return false;
+}
+
+/**
+ * The raw `intent` argument on the running action or any ancestor frame,
+ * preferring `"open"` if any caller in the chain asked to open the view.
+ */
+export function currentActionNavigationIntent(): string | undefined {
+  let found: string | undefined;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.navigationIntent === "open") return "open";
+    found ??= frame.navigationIntent;
+  }
+  return found;
+}
+
+/** Whether the running action (or an ancestor) explicitly declared `allowsAgentNavigation`. */
+export function currentActionAllowsAgentNavigation(): boolean {
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.allowsAgentNavigation === true) return true;
+  }
+  return false;
+}
+
+/** Whether any write has already been observed in the active action chain. */
+export function hasObservedWriteInActionChain(): boolean {
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.writeObserved) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the current action is nested inside an outer write action (for
+ * example, an edit action invoking `navigate`).
+ */
+export function insideParentWriteAction(): boolean {
+  const current = actionExecutionStorage?.getStore()?.frame;
+  for (let frame = current?.parent; frame; frame = frame.parent) {
+    if (frame.writes === true) return true;
   }
   return false;
 }

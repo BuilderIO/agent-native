@@ -577,10 +577,35 @@ describe("agent reads keep the user's view", () => {
     expect(await appStateGet(SESSION, "draft")).toEqual({ body: "x" });
   });
 
-  it("lets an agent's write and a person's read navigate", async () => {
-    await inAction("mcp", false, () => writes.put("navigate"));
+  it("refuses a detail navigate write from an agent without intent open, and allows list or explicit open", async () => {
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+
+    await expect(
+      inAction("mcp", false, () => writes.put("navigate")),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+    });
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+
+    const listValue = { path: "/tasks" };
+    await inAction("mcp", false, () =>
+      appStatePut(SESSION, "navigate", listValue),
+    );
+    expect(await appStateGet(SESSION, "navigate")).toEqual(listValue);
+
+    const openAction = defineAction({
+      description: "Open a detail view explicitly.",
+      schema: z.object({}),
+      run: async () => writes.put("navigate:tab-open"),
+    });
+    await openAction.run({ intent: "open" } as Record<string, never>, {
+      caller: "mcp",
+    });
+    expect(await appStateGet(SESSION, "navigate:tab-open")).toEqual(value);
+
     await inAction("frontend", true, () => writes.cas("navigate:tab-1"));
-    expect(await appStateGet(SESSION, "navigate")).toEqual(value);
     expect(await appStateGet(SESSION, "navigate:tab-1")).toEqual(value);
   });
 });

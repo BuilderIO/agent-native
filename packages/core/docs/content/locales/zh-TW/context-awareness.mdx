@@ -365,14 +365,12 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 
 只有在使用者要求查看某樣東西時，使用者的畫面才會切換。這適用於所有代理：內建聊天、透過 MCP 或 WebMCP 的外部代理，以及透過 A2A 的對等端（`@agent-native/core` 中的 `isAgentCaller(ctx)`）。
 
-- 讀取從不導覽。在代理呼叫期間寫入 `navigate` 的唯讀操作會被拒絕。
-- 寫入不移動檢視。會開啟其結果的寫入呼叫 `@agent-native/core/application-state` 中的 `navigateAfterWrite(navigation, { ctx, intent })`；對代理而言，除非 `intent` 為 `"open"`，否則略過跳轉。
-- 開啟單一項目需要 `intent: "open"`。為 `createNavigateAction()` 提供 `isDetailView` 檢查後，代理在沒有該意圖時開啟詳細檢視的呼叫會被拒絕。手寫的 navigate 操作呼叫 `assertAgentNavigationAllowed()`。
+- 讀取從不導覽。在代理呼叫期間寫入 `navigate` 的唯讀操作會在應用程式狀態存放層被拒絕。
+- 寫入預設不移動檢視。未帶 `intent: "open"` 就寫入 `navigate` 的代理寫入會被拒絕；呼叫 `@agent-native/core/application-state` 中的 `navigateAfterWrite(navigation, { ctx, intent })` 可在未設定 `intent: "open"` 時平滑略過跳轉，或在專門用來開啟介面的操作上設定 `allowsAgentNavigation: true`。
+- 開啟單一項目需要 `intent: "open"`。`createNavigateAction()` 與應用程式狀態存放層預設會對項目 ID 欄位（`id`、`*Id`）和詳細路徑強制套用此規則，無須每個應用程式另外撰寫程式碼。只有在需要自訂判斷時才將 `isDetailView` 傳入 `createNavigateAction()`。
 
 ```ts
-export const navigate = createNavigateAction({
-  isDetailView: (nav) => /^\/tasks\/[^/]+$/.test(String(nav.path ?? "")),
-});
+export const navigate = createNavigateAction();
 ```
 
 ## useNavigationState 掛鉤 {#use-navigation-state}
