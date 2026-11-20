@@ -1318,8 +1318,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return true;
       };
       if (apply()) return;
-      wv.addEventListener("dom-ready", apply, { once: true });
-      return () => wv.removeEventListener("dom-ready", apply);
+      const applyOnDomReady = () => {
+        if (apply()) wv.removeEventListener("dom-ready", applyOnDomReady);
+      };
+      wv.addEventListener("dom-ready", applyOnDomReady);
+      return () => wv.removeEventListener("dom-ready", applyOnDomReady);
     }, [app.id, app.placeholder, preload]);
 
     function reportActiveWebview() {
