@@ -1417,12 +1417,12 @@ describe("content collection", () => {
       await collectContentForAllTenants({
         now: new Date("2026-10-16T07:00:00Z"),
       });
-      expect(readCalls("page").at(-1)).toEqual(
+      expect(readCalls("page").slice(-1)).toEqual([
         expect.objectContaining({
           startDate: "2026-10-10",
           endDate: "2026-10-15",
         }),
-      );
+      ]);
       expect(
         (await runWindows("search_console")).map((run) => run.window_end),
       ).toEqual(["2026-10-09", "2026-10-15"]);
