@@ -7317,10 +7317,12 @@ async function prepareToolCall(
   );
   try {
     return await Promise.race([
-      toolCallIntent(entry, input).then((intent): PreparedToolCall => ({
-        status: "prepared",
-        intent,
-      })),
+      toolCallIntent(entry, input).then(
+        (intent): PreparedToolCall => ({
+          status: "prepared",
+          intent,
+        }),
+      ),
       stopped,
     ]);
   } finally {
@@ -17082,10 +17084,12 @@ export function createProductionAgentHandler(
       ) ??
       requestHistory
         .filter((m) => m.content.trim())
-        .map((m): EngineMessage => ({
-          role: m.role as "user" | "assistant",
-          content: [{ type: "text" as const, text: m.content }],
-        }));
+        .map(
+          (m): EngineMessage => ({
+            role: m.role as "user" | "assistant",
+            content: [{ type: "text" as const, text: m.content }],
+          }),
+        );
 
     const messages: EngineMessage[] = [
       ...historyMessages,
