@@ -75,8 +75,6 @@ function hasNonEmptyIdValue(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-const NON_DETAIL_PATH_ROOTS = new Set(["settings", "admin"]);
-
 function isDetailPath(path: string): boolean {
   const trimmed = path.trim();
   if (!trimmed) return false;
@@ -92,17 +90,19 @@ function isDetailPath(path: string): boolean {
   }
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length < 2) return false;
-  const [first] = segments;
-  if (!first || NON_DETAIL_PATH_ROOTS.has(first) || first.startsWith("_")) {
-    return false;
+  const [first, second] = segments;
+  if (!first || first === "settings" || first.startsWith("_")) return false;
+  if (first === "admin") {
+    return segments.length >= 3 && second !== "integrations";
   }
   return true;
 }
 
 /**
  * Default detail-view detector for navigate payloads: true when the command
- * targets a specific item (`id`, `*Id`, `*_id`, a detail query param, or a
- * nested `/<section>/<item>` path outside `/settings` and `/admin`).
+ * targets a specific item (`id`, `*Id`, `*_id`, a detail query param, a nested
+ * `/<section>/<item>` path outside `/settings`, or a nested item path under
+ * `/admin/<section>/<id>` outside `/admin/integrations`).
  */
 export function isDefaultDetailNavigation(
   navigation: Record<string, unknown>,

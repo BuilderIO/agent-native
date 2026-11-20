@@ -52,6 +52,14 @@ describe("isDefaultDetailNavigation", () => {
     expect(
       isDefaultDetailNavigation({ path: "/admin/integrations?itemId=1" }),
     ).toBe(true);
+    expect(
+      isDefaultDetailNavigation({
+        path: "/admin/transactional-email/clips/msg-123",
+      }),
+    ).toBe(true);
+    expect(
+      isDefaultDetailNavigation({ path: "/admin/automations/auto-42" }),
+    ).toBe(true);
   });
 
   it("treats list views, settings and admin section paths, and internal _writeId as non-detail", () => {
@@ -72,6 +80,9 @@ describe("isDefaultDetailNavigation", () => {
       isDefaultDetailNavigation({ path: "/admin/integrations/notion" }),
     ).toBe(false);
     expect(isDefaultDetailNavigation({ path: "/admin/workspace" })).toBe(false);
+    expect(
+      isDefaultDetailNavigation({ path: "/admin/transactional-email" }),
+    ).toBe(false);
     expect(isDefaultDetailNavigation({ path: "/tasks?includeDone=true" })).toBe(
       false,
     );
