@@ -337,7 +337,7 @@ export async function reconcileContentFilesMemberships(
     };
     await assignLegacyDocuments(
       personalSpaceId,
-      personalLegacyDocuments.map((row: any) => row.id),
+      personalLegacyDocuments.map((row: { id: string }) => row.id),
     );
     for (const [orgId, orgSpaceId] of orgSpaces) {
       const legacyDocuments = await tx
@@ -352,7 +352,7 @@ export async function reconcileContentFilesMemberships(
         );
       await assignLegacyDocuments(
         orgSpaceId,
-        legacyDocuments.map((row: any) => row.id),
+        legacyDocuments.map((row: { id: string }) => row.id),
       );
     }
 
@@ -369,7 +369,7 @@ export async function reconcileContentFilesMemberships(
           ),
         )
     ).filter(
-      (document: any) =>
+      (document: typeof schema.documents.$inferSelect) =>
         document.spaceId !== personalSpaceId ||
         normalizeContentSpaceEmail(document.ownerEmail) === email,
     );
