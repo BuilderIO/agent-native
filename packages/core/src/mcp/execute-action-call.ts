@@ -7,6 +7,7 @@ import {
   actionCallIntent,
   invocationEffect,
   isActionContractError,
+  isReversibleWriteInlineApprovalAction,
   recordInvalidActionCall,
   preparedCallArguments,
   preparedCallClearsReview,
@@ -1005,7 +1006,9 @@ async function authorizeApproval(
   ) {
     return { status: "authorized" };
   }
-  const pageApprovalOnly = requiresTurnGrantPageApproval(name);
+  const inlineFormApproval = isReversibleWriteInlineApprovalAction(entry);
+  const pageApprovalOnly =
+    requiresTurnGrantPageApproval(name) && !inlineFormApproval;
   const verifiedState = pageApprovalOnly ? undefined : call.approval?.state();
   // A grant binds the exact call: as sent, which must be JSON, and the
   // identity of the arguments it runs with.
@@ -1097,6 +1100,9 @@ async function authorizeApproval(
           argumentsJson: storedApprovalArguments(callArguments),
         }),
       };
+    }
+    if (inlineFormApproval) {
+      return approvalDenied(`${name} was not approved.`);
     }
     // A client can decline without showing anyone a prompt, so a decline
     // ends this grant and the person reviews a new one on the page.

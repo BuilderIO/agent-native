@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { noteObservedWrite } from "../action-frame.js";
 import { defineAction } from "../action.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import {
   AgentNavigationRefusedError,
   assertNavigateWriteAllowed,
@@ -39,7 +43,11 @@ function inAction<T>(
 }
 
 describe("isDefaultDetailNavigation", () => {
-  it("recognizes item id fields and nested detail paths", () => {
+  afterEach(() => {
+    resetAppConfigForTests();
+  });
+
+  it("recognizes item id fields and generic nested detail paths without hardcoded app prefixes", () => {
     expect(isDefaultDetailNavigation({ view: "tasks", taskId: "t1" })).toBe(
       true,
     );
@@ -51,6 +59,9 @@ describe("isDefaultDetailNavigation", () => {
     expect(isDefaultDetailNavigation({ path: "/tasks/t1" })).toBe(true);
     expect(isDefaultDetailNavigation({ path: "/page/doc_123" })).toBe(true);
     expect(isDefaultDetailNavigation({ path: "/factory?factoryId=f1" })).toBe(
+      true,
+    );
+    expect(isDefaultDetailNavigation({ path: "/admin/integrations" })).toBe(
       true,
     );
     expect(
@@ -66,7 +77,7 @@ describe("isDefaultDetailNavigation", () => {
     ).toBe(true);
   });
 
-  it("treats list views, settings and admin section paths, and internal _writeId as non-detail", () => {
+  it("treats list views, settings paths, and internal _writeId as non-detail", () => {
     expect(
       isDefaultDetailNavigation({ view: "tasks", _writeId: "123-abc" }),
     ).toBe(false);
@@ -77,6 +88,35 @@ describe("isDefaultDetailNavigation", () => {
     expect(
       isDefaultDetailNavigation({ path: "/settings/integrations/slack" }),
     ).toBe(false);
+    expect(isDefaultDetailNavigation({ path: "/tasks?includeDone=true" })).toBe(
+      false,
+    );
+  });
+
+  it("uses declared per-app detailRoutes from app config instead of hardcoded /admin or /integrations special cases", () => {
+    defineAppConfig({
+      agent: {
+        detailRoutes: [
+          "/admin/transactional-email/:appId/:id",
+          "/admin/automations/:id",
+          "/apps/:appId/*",
+        ],
+      },
+    });
+    expect(
+      isDefaultDetailNavigation({
+        path: "/admin/transactional-email/clips/msg-123",
+      }),
+    ).toBe(true);
+    expect(
+      isDefaultDetailNavigation({ path: "/admin/automations/auto-42" }),
+    ).toBe(true);
+    expect(isDefaultDetailNavigation({ path: "/apps/mail/inbox/item-1" })).toBe(
+      true,
+    );
+    expect(
+      isDefaultDetailNavigation({ path: "/admin/integrations?itemId=1" }),
+    ).toBe(true);
     expect(isDefaultDetailNavigation({ path: "/admin/integrations" })).toBe(
       false,
     );
@@ -87,9 +127,6 @@ describe("isDefaultDetailNavigation", () => {
     expect(
       isDefaultDetailNavigation({ path: "/admin/transactional-email" }),
     ).toBe(false);
-    expect(isDefaultDetailNavigation({ path: "/tasks?includeDone=true" })).toBe(
-      false,
-    );
   });
 });
 
@@ -252,7 +289,7 @@ describe("assertNavigateWriteAllowed", () => {
     });
   });
 
-  it("allows an explicit allowsAgentNavigation write action, but still refuses reads", async () => {
+  it("allows an explicit allowsAgentNavigation write action, but still refuses reads and nested calls inside non-allowing writes", async () => {
     await expect(
       inAction("mcp", { readOnly: false, allowsAgentNavigation: true }, () => {
         noteObservedWrite("sql");
@@ -261,10 +298,60 @@ describe("assertNavigateWriteAllowed", () => {
     ).resolves.toBeUndefined();
 
     await expect(
+      inAction(
+        "mcp",
+        {
+          readOnly: false,
+          actionName: "navigate",
+          allowsAgentNavigation: true,
+        },
+        () => {
+          assertNavigateWriteAllowed("navigate", { eventId: "ev-1" });
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
       inAction("mcp", { readOnly: true, allowsAgentNavigation: true }, () =>
         assertNavigateWriteAllowed("navigate", { path: "/design/d1" }),
       ),
     ).rejects.toBeInstanceOf(AgentNavigationRefusedError);
+
+    await expect(
+      inAction("mcp", { readOnly: false, actionName: "edit-task" }, () =>
+        inAction(
+          "mcp",
+          {
+            readOnly: false,
+            actionName: "navigate",
+            allowsAgentNavigation: true,
+          },
+          () => assertNavigateWriteAllowed("navigate", { eventId: "ev-1" }),
+        ),
+      ),
+    ).resolves.toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "write-keeps-view",
+    });
+
+    await expect(
+      inAction("mcp", { readOnly: false, actionName: "edit-task" }, () =>
+        inAction(
+          "mcp",
+          {
+            readOnly: false,
+            actionName: "open-draft",
+            allowsAgentNavigation: true,
+          },
+          () => assertNavigateWriteAllowed("navigate", { draftId: "d-1" }),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+      reason: "write-keeps-view",
+    });
   });
 
   it.each([
@@ -293,12 +380,12 @@ describe("assertNavigateWriteAllowed", () => {
       { view: "tasks" },
     ],
     [
-      "an agent's standalone admin section navigate",
+      "an agent's standalone settings navigate",
       "mcp",
       false,
       "navigate",
       "navigate",
-      { path: "/admin/integrations" },
+      { path: "/settings/integrations" },
     ],
     [
       "a person's read",

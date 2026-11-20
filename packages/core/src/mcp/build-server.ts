@@ -27,6 +27,7 @@ import type { ActionMcpToolAnnotations, ActionRunContext } from "../action.js";
 import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isReversibleWriteInlineApprovalAction,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isValidTimezone } from "../agent/runtime-context.js";
@@ -3973,9 +3974,10 @@ export async function createMCPServerForRequest(
     ctx: ServerContext,
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
+    const inlineFormOnly = isReversibleWriteInlineApprovalAction(actions[name]);
     // A turn-grant write is approved on the app's own review page, never in
-    // the client, so the link opens on the origin the page minted it from.
-    if (requiresTurnGrantPageApproval(name)) {
+    // the client, except reversible writes that explicitly ask inline in a form.
+    if (requiresTurnGrantPageApproval(name) && !inlineFormOnly) {
       const origin = requestMeta?.resolveEmbedRequestOrigin?.();
       return actionApprovalReviewResult(
         review,
@@ -4003,7 +4005,10 @@ export async function createMCPServerForRequest(
       (elicitation.form !== undefined || elicitation.url === undefined);
     const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
     // The SDK requires an absolute URL for URL elicitation.
-    const offersUrl = elicitation?.url !== undefined && URL.canParse(reviewUrl);
+    const offersUrl =
+      !inlineFormOnly &&
+      elicitation?.url !== undefined &&
+      URL.canParse(reviewUrl);
     const mode =
       offersUrl && (MCP_APPROVAL_PROMPT_PREFERENCE === "url" || !offersForm)
         ? "url"
@@ -4011,6 +4016,17 @@ export async function createMCPServerForRequest(
           ? "form"
           : undefined;
     if (mode === undefined) {
+      if (inlineFormOnly) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${name} requires inline approval because approvals are turned on, and this client cannot display an inline approval form. Confirm the action in the app or turn off approvals in Settings.`,
+            },
+          ],
+          isError: true,
+        };
+      }
       return actionApprovalReviewResult(
         review,
         "unprompted",
