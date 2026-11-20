@@ -17,8 +17,10 @@ them. Never report "commits are unavailable", "read-only", or "a person must
 sync main" without running the command and quoting its error. If merging main
 really fails, or the fix or proof gate you need is only on main, don't ask a
 person to sync: commit your other work and stop with
-`OUTCOME: blocked - needs main merged: <the error or what main has>`. When the
-PR is behind main, the factory merges main itself and sends another round.
+`OUTCOME: blocked - needs main merged: <the error or what main has>`. Being
+behind main is not a reason to merge it: the factory merges main into a PR only
+when GitHub reports it `CONFLICTING`/`DIRTY` or the fix or proof gate it needs
+is only on main, then sends another round.
 
 - The factory owns this PR: it opened or adopted it. Skip `babysit-pr`'s
   `gh api user` login and author check. In Builder, `gh` uses an app token
