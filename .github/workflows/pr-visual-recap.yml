@@ -530,7 +530,7 @@ jobs:
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
             TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
-            "${TMO[@]}" env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-result.json 2> claude-stderr.log
             CLAUDE_STATUS="$?"
             set -e
             echo "$CLAUDE_STATUS" > claude-exit-code.txt
@@ -570,7 +570,7 @@ jobs:
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
             TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
-            "${TMO[@]}" env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > codex-events.jsonl 2> codex-stderr.log
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > codex-events.jsonl 2> codex-stderr.log
             CODEX_STATUS="$?"
             set -e
             echo "$CODEX_STATUS" > codex-exit-code.txt
@@ -608,7 +608,7 @@ jobs:
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
             TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
-            "${TMO[@]}" env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
@@ -714,7 +714,7 @@ jobs:
           set +e
           mkdir -p "$RUNNER_TEMP/recap-agent-home"
           TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
-          "${TMO[@]}" env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
+          ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-}" npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
           CLAUDE_REPAIR_STATUS="$?"
           set -e
           echo "$CLAUDE_REPAIR_STATUS" > claude-repair-exit-code.txt
@@ -741,7 +741,7 @@ jobs:
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
             TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
-            "${TMO[@]}" env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > codex-repair-events.jsonl 2> codex-repair-stderr.log
+            ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > codex-repair-events.jsonl 2> codex-repair-stderr.log
             CODEX_STATUS="$?"
             set -e
             echo "$CODEX_STATUS" > codex-repair-exit-code.txt
@@ -770,7 +770,7 @@ jobs:
           set +e
           mkdir -p "$RUNNER_TEMP/recap-agent-home"
           TMO=(); T="$(command -v timeout || command -v gtimeout || true)"; [ -n "$T" ] && TMO=("$T" 9m)
-          "${TMO[@]}" env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
+          ${TMO[@]+"${TMO[@]}"} env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
           OPENAI_COMPATIBLE_REPAIR_STATUS="$?"
           set -e
           echo "$OPENAI_COMPATIBLE_REPAIR_STATUS" > openai-compatible-repair-exit-code.txt
