@@ -1772,8 +1772,10 @@ export async function getEvalDatasetByName(
   return rowToDataset(rows[0] as any);
 }
 
+// The second placeholder is only compared with NULL, so Postgres cannot infer
+// its type without the cast. SQLite accepts the cast too.
 const PROMOTED_DATASET_OWNER =
-  "(user_id = ? OR (? IS NULL AND user_id IS NULL))";
+  "(user_id = ? OR (CAST(? AS TEXT) IS NULL AND user_id IS NULL))";
 
 async function selectPromotedEvalDatasetByKey(
   idempotencyKey: string,
