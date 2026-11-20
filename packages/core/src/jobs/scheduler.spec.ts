@@ -2759,6 +2759,57 @@ enabled: true`,
     ).resolves.toBe(now);
   });
 
+  it("wakes for a transient pause's probe, not a missing-credential recheck", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      job(
+        "jobs/rate-limited.md",
+        `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+enabled: false
+pausedReason: "http_429"
+pausedAt: "2026-11-20T11:00:00.000Z"
+consecutiveFailures: 5`,
+      ),
+      job(
+        "jobs/no-key.md",
+        `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+enabled: false
+pausedReason: "missing_credentials"
+lastCheck: "2026-11-20T11:50:00.000Z"`,
+      ),
+      job(
+        "jobs/owner-gone.md",
+        `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+enabled: false
+pausedReason: "owner_missing"`,
+      ),
+    ]);
+
+    await expect(
+      nextRecurringJobWakeAt({ appId: "calendar" }, now),
+    ).resolves.toBe(Date.parse("2026-11-20T15:00:00.000Z"));
+  });
+
+  it("answers now for a transient pause whose probe is due", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      job(
+        "jobs/rate-limited.md",
+        `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+enabled: false
+pausedReason: "http_429"
+pausedAt: "2026-11-20T07:00:00.000Z"
+consecutiveFailures: 5`,
+      ),
+    ]);
+
+    await expect(
+      nextRecurringJobWakeAt({ appId: "calendar" }, now),
+    ).resolves.toBe(now);
+  });
+
   it("wakes at an end date that comes before the next run", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
       job(

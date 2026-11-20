@@ -32,6 +32,7 @@ import {
   reservedIdentityMessage,
   runtimeFailureNextRun,
   TRANSIENT_PROBE_RESUME_PATCH,
+  transientPauseProbeAt,
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
@@ -226,10 +227,10 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
 /**
  * When this app's scheduled automations next need a sweep, for the Netlify
  * idle marker: `now` when one is running, newly enabled, expired, or due;
- * otherwise the earliest `nextRun`, end date, or identity-failure retry;
- * `null` when none is scheduled. It mirrors the checks `processRecurringJobs`
- * makes before running a job. Framework-paused jobs are left out, so their
- * recovery probes wait for the idle cap.
+ * otherwise the earliest `nextRun`, end date, identity-failure retry, or
+ * transient-pause probe; `null` when none is scheduled. It mirrors the checks
+ * `processRecurringJobs` makes before running a job. Rechecks of a job paused
+ * for a missing credential wait for the idle cap.
  */
 export async function nextRecurringJobWakeAt(
   deps: Pick<SchedulerDeps, "appId" | "additionalJobAppIds">,
@@ -254,7 +255,14 @@ export async function nextRecurringJobWakeAt(
     if (meta.lastStatus === "running" || hasStalePause(meta)) return now;
     const isScheduleTrigger =
       meta.triggerType === undefined || meta.triggerType === "schedule";
-    if (!isScheduleTrigger || isPausedByFramework(meta)) continue;
+    if (!isScheduleTrigger) continue;
+    if (isPausedByFramework(meta)) {
+      const probeAt = transientPauseProbeAt(meta);
+      if (probeAt === null) continue;
+      if (probeAt <= now) return now;
+      wakeAt(probeAt);
+      continue;
+    }
     if (!meta.enabled || !meta.schedule || !isValidCron(meta.schedule)) {
       continue;
     }

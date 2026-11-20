@@ -333,6 +333,25 @@ describe("the Netlify scheduled function and the sweep", () => {
     expect(await tick(T0 + 4 * MINUTE)).toBe("swept");
   });
 
+  it("keeps an older sweep's busy verdict over a newer idle one", async () => {
+    await recordNetlifySweepOutcome({
+      startedAt: T0 + MINUTE,
+      busy: false,
+      nextDueAt: null,
+      now: T0 + 2 * MINUTE,
+    });
+    await expect(
+      recordNetlifySweepOutcome({
+        startedAt: T0,
+        busy: true,
+        nextDueAt: null,
+        now: T0 + 3 * MINUTE,
+      }),
+    ).resolves.toEqual({ sweepAfter: T0 + 3 * MINUTE, decidedAt: T0 });
+
+    expect(await tick(T0 + 4 * MINUTE)).toBe("swept");
+  });
+
   it("replaces a verdict stamped in the future", async () => {
     netlify.blobs.set(
       markerPath("idle"),
