@@ -797,6 +797,7 @@ function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
 }
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Present generated design directions as normal screens on the Design " +
     "overview board and ask the user to choose one with inline chat buttons. " +
