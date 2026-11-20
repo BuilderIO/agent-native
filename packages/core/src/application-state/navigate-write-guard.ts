@@ -87,30 +87,19 @@ export function isAgentNavigationKeptResult(
   );
 }
 
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function describeCurrentView(
   currentView: Record<string, unknown> | null,
 ): string | null {
   if (!currentView) return null;
-  const mode =
-    typeof currentView.calendarViewMode === "string" &&
-    currentView.calendarViewMode.trim()
-      ? currentView.calendarViewMode.trim()
-      : null;
+  const mode = nonEmptyString(currentView.calendarViewMode);
   const view =
-    typeof currentView.view === "string" && currentView.view.trim()
-      ? currentView.view.trim()
-      : typeof currentView.screen === "string" && currentView.screen.trim()
-        ? currentView.screen.trim()
-        : null;
-  const path =
-    typeof currentView.path === "string" && currentView.path.trim()
-      ? currentView.path.trim()
-      : null;
+    nonEmptyString(currentView.view) ?? nonEmptyString(currentView.screen);
   if (view && mode) return `${view} (${mode})`;
-  if (mode) return mode;
-  if (view) return view;
-  if (path) return path;
-  return null;
+  return mode ?? view ?? nonEmptyString(currentView.path);
 }
 
 export function buildAgentNavigationKeptResult(

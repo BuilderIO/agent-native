@@ -87,4 +87,21 @@ describe("createNavigateAction keeps the user's view by default", () => {
     await navigate.run({ path: "/tasks/t1" }, { caller: "frontend" });
     expect(navigatedPaths()).toEqual(["/tasks", "/tasks/t1"]);
   });
+
+  it("refuses navigating when invoked inside a read-only agent action", async () => {
+    const readAction = defineAction({
+      description: "Read-only action trying to navigate.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await navigate.run({ path: "/tasks" }, ctx);
+      },
+    });
+    await expect(readAction.run({}, { caller: "mcp" })).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+      reason: "read-only-action",
+    });
+    expect(navigatedPaths()).toEqual([]);
+  });
 });

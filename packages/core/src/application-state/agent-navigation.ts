@@ -53,9 +53,9 @@ function agentCallRunning(ctx?: Pick<ActionRunContext, "caller">): boolean {
 }
 
 /**
- * Evaluates whether an agent navigation from a `navigate` action would move
- * the user off their current view without `intent: "open"`. Returns `null`
- * when navigation is allowed or the typed refusal otherwise.
+ * Evaluates whether an agent navigation would move the user off their current
+ * view without `intent: "open"`. Returns `null` when navigation is allowed or
+ * the typed refusal otherwise.
  */
 export function evaluateAgentNavigation(
   navigation: Record<string, unknown>,
@@ -63,13 +63,14 @@ export function evaluateAgentNavigation(
     ctx?: Pick<ActionRunContext, "caller"> | undefined;
     intent?: string | undefined;
     isDetailView?: DetailViewPredicate | undefined;
+    isNavigateAction?: boolean | undefined;
   } = {},
 ): AgentNavigationRefusal | null {
   return evaluateAgentNavigationPolicy(navigation, {
     caller: options.ctx?.caller,
     intent: options.intent,
     isDetailView: options.isDetailView,
-    isNavigateAction: true,
+    isNavigateAction: options.isNavigateAction,
   });
 }
 

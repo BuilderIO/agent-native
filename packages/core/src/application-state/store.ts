@@ -166,11 +166,6 @@ async function assertNavigateWriteAllowedForSession(
       currentView = await withoutWriteObservation(() =>
         appStateGet(sessionId, navKey),
       );
-      if (!currentView && navKey !== "navigation") {
-        currentView = await withoutWriteObservation(() =>
-          appStateGet(sessionId, "navigation"),
-        );
-      }
     }
   }
   throw new AgentNavigationRefusedError(refusal.message, {

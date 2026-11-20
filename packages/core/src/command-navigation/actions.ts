@@ -79,6 +79,7 @@ export function createNavigateAction(
         ctx,
         intent,
         isDetailView: options.isDetailView,
+        isNavigateAction: true,
       });
       if (refusal) {
         if (refusal.reason === "read-only-action") {

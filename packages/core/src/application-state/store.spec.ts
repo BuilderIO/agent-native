@@ -656,5 +656,25 @@ describe("agent reads keep the user's view", () => {
       message: expect.stringContaining("week"),
     });
     expect(await appStateGet(SESSION, "navigate:tab-week")).toBeNull();
+
+    // Tab-scoped refusal stays scoped to its tab and does not report another
+    // tab's or the account-wide navigation row.
+    await appStatePut(SESSION, "navigation", { view: "other-view" });
+    const missingTabResult = await inAction(
+      "mcp",
+      false,
+      () =>
+        appStatePut(SESSION, "navigate:tab-missing", {
+          eventId: "ev-2",
+        }),
+      "navigate",
+    );
+    expect(missingTabResult).toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      currentView: null,
+    });
+    expect(await appStateGet(SESSION, "navigate:tab-missing")).toBeNull();
   });
 });

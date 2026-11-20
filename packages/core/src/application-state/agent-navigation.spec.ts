@@ -17,8 +17,14 @@ vi.mock("../db/client.js", () => ({
   isLocalDatabase: () => true,
 }));
 
+import { z } from "zod";
+
+import { defineAction } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { navigateAfterWrite } from "./agent-navigation.js";
+import {
+  assertAgentNavigationAllowed,
+  navigateAfterWrite,
+} from "./agent-navigation.js";
 
 function navigatedPaths(): unknown[] {
   return mockAppStatePut.mock.calls
@@ -97,5 +103,34 @@ describe("agent navigation keeps the user's view", () => {
     );
     expect(noSlotResult).toEqual({ navigated: false, reason: "no-tab" });
     expect(navigatedPaths()).toEqual([]);
+  });
+
+  it("refuses non-navigate write actions in assertAgentNavigationAllowed even for non-detail targets", async () => {
+    const customWrite = defineAction({
+      description: "Custom write action calling assertAgentNavigationAllowed.",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        assertAgentNavigationAllowed({ view: "tasks" }, { ctx });
+      },
+    });
+    await expect(
+      customWrite.run({}, { caller: "mcp", actionName: "edit-task" }),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+      reason: "write-keeps-view",
+    });
+
+    const standaloneNav = defineAction({
+      description: "Standalone navigate calling assertAgentNavigationAllowed.",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        assertAgentNavigationAllowed({ view: "tasks" }, { ctx });
+        return { ok: true };
+      },
+    });
+    await expect(
+      standaloneNav.run({}, { caller: "mcp", actionName: "navigate" }),
+    ).resolves.toEqual({ ok: true });
   });
 });
