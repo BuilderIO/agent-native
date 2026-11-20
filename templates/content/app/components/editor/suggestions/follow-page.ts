@@ -1,6 +1,7 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { rebaseBodyEdit } from "@shared/body-rebase";
 import { canonicalizeNfm } from "@shared/nfm";
+import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 
 import {
   planSuggestionDraftPersistence,
@@ -130,20 +131,24 @@ export function carryOwnSuggestions(args: {
     if (after.length !== before.length) return null;
     const carried = new Map<string, SuggestionPersistenceEntry>();
     for (const [index, operation] of after.entries()) {
-      const previous = before[index]!;
+      const previous = before[index];
+      const entry = previous && entries.get(suggestionOperationKey(previous));
       if (
+        !previous ||
+        !entry ||
         operation.kind !== previous.kind ||
         operation.before.changedText !== previous.before.changedText ||
         operation.after.changedText !== previous.after.changedText
       )
         return null;
-      const entry = entries.get(suggestionOperationKey(previous))!;
       carried.set(suggestionOperationKey(operation), { ...entry, operation });
     }
     return { content, entries: carried };
-  } catch {
-    // An edit the diff can't map (formatting it can't place) starts over.
-    return null;
+  } catch (error) {
+    // Formatting the diff can't place reads as no edits it can carry; the
+    // draft starts over from the Page, as it did before it carried any.
+    if (error instanceof SuggestionFormattingMappingError) return null;
+    throw error;
   }
 }
 
