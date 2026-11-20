@@ -25,6 +25,7 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import { registerDbSyncQueryClient } from "./tool-done-refresh.js";
 import {
   bumpChangeVersion,
   bumpActiveLocalChangeVersions,
@@ -246,7 +247,9 @@ export function acquireCollabPollBoost(): () => void {
   };
 }
 const processedRunToolEvents = new WeakSet<Event>();
+const runToolEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
 const processedRunEndEvents = new WeakSet<Event>();
+const runEndEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
 const processedExplicitRefreshEvents = new WeakSet<Event>();
 const explicitRefreshClients = new WeakMap<Event, WeakSet<QueryClient>>();
 
@@ -2085,35 +2088,48 @@ export function useDbSync(
       event: Event,
       events: SyncEvent[],
       processedEvents: WeakSet<Event>,
+      invalidatedClients: WeakMap<Event, WeakSet<QueryClient>>,
     ) => {
       if (events.length === 0) return;
-      if (processedEvents.has(event)) {
-        for (const syncEvent of events) onEventRef.current?.(syncEvent);
+      const firstForEvent = !processedEvents.has(event);
+      if (firstForEvent) {
+        processedEvents.add(event);
+        const sources = events
+          .map((syncEvent) => syncEvent.source)
+          .filter((source): source is string => typeof source === "string");
+        for (const source of new Set(sources)) {
+          bumpLocalChangeVersion(source);
+        }
+        if (
+          events.some((syncEvent) => syncEvent.source === "action") &&
+          events.every(
+            (syncEvent) =>
+              syncEvent.source === "action" ||
+              syncEvent.source === "app-state" ||
+              syncEvent.source === "screen-refresh",
+          )
+        ) {
+          bumpActiveLocalChangeVersions(sources);
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("agentNative:syncActivity"));
+        }
+      }
+      if (queryClient) {
+        let clients = invalidatedClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          invalidatedClients.set(event, clients);
+        }
+        if (clients.has(queryClient)) {
+          for (const syncEvent of events) onEventRef.current?.(syncEvent);
+          return;
+        }
+        clients.add(queryClient);
+        queueInvalidateBatch(events);
         return;
       }
-      processedEvents.add(event);
-      const sources = events
-        .map((syncEvent) => syncEvent.source)
-        .filter((source): source is string => typeof source === "string");
-      for (const source of new Set(sources)) {
-        bumpLocalChangeVersion(source);
-      }
-      if (
-        events.some((syncEvent) => syncEvent.source === "action") &&
-        events.every(
-          (syncEvent) =>
-            syncEvent.source === "action" ||
-            syncEvent.source === "app-state" ||
-            syncEvent.source === "screen-refresh",
-        )
-      ) {
-        // Tool completion has no domain scope, so wake mounted raw-query counters too.
-        bumpActiveLocalChangeVersions(sources);
-      }
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("agentNative:syncActivity"));
-      }
-      queueInvalidateBatch(events);
+      for (const syncEvent of events) onEventRef.current?.(syncEvent);
     };
     const handleRunToolDone = (event: Event) => {
       const detail = (
@@ -2174,7 +2190,12 @@ export function useDbSync(
         );
         sideEffectToolsByTab.set(tabId, tools);
       }
-      applyRunEvents(event, events, processedRunToolEvents);
+      applyRunEvents(
+        event,
+        events,
+        processedRunToolEvents,
+        runToolEventClients,
+      );
     };
     const handleRunStatus = (event: Event) => {
       const detail = (
@@ -2239,9 +2260,13 @@ export function useDbSync(
           eventsForTool(tool, true, failed, browserTabId),
         ),
         processedRunEndEvents,
+        runEndEventClients,
       );
     };
 
+    const releaseDbSyncClient = queryClient
+      ? registerDbSyncQueryClient(queryClient)
+      : undefined;
     window.addEventListener("agent-native:tool-done", handleRunToolDone);
     window.addEventListener("agentNative.chatRunning", handleRunStatus);
     const handleExplicitRefresh = (event: Event) => {
@@ -2283,6 +2308,7 @@ export function useDbSync(
     }
 
     return () => {
+      releaseDbSyncClient?.();
       window.removeEventListener("agent-native:tool-done", handleRunToolDone);
       window.removeEventListener("agentNative.chatRunning", handleRunStatus);
       window.removeEventListener(
