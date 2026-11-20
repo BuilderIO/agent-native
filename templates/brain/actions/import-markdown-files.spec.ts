@@ -25,7 +25,11 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("../server/lib/brain.js", () => ({
   BrainCaptureBlockedError: mocks.BrainCaptureBlockedError,
-  createCapture: mocks.createCapture,
+  createCaptureWithWarnings: async (
+    ...args: Parameters<typeof mocks.createCapture>
+  ) => ({
+    capture: await mocks.createCapture(...args),
+  }),
   ensureManualSource: mocks.ensureManualSource,
   getAccessibleSource: mocks.getAccessibleSource,
   serializeSource: (source: unknown) => source,
@@ -35,6 +39,7 @@ vi.mock("../server/lib/distillation-queue.js", () => ({
   enqueueCaptureDistillation: mocks.enqueueCaptureDistillation,
 }));
 
+import { BrainClassifierUnavailableError } from "../server/lib/capture-sanitization.js";
 import action from "./import-markdown-files.js";
 
 const source = {
@@ -173,5 +178,57 @@ describe("import-markdown-files", () => {
       blocked: 1,
       failed: 0,
     });
+  });
+});
+
+describe("report BRAIN-IMPORT-001: markdown screening unavailable", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.ensureManualSource.mockResolvedValue(source);
+    mocks.enqueueCaptureDistillation.mockResolvedValue({
+      existing: false,
+      queueItem: { id: "queue-1" },
+    });
+  });
+
+  it("keeps successful siblings and reports a truthful refusal per file", async () => {
+    mocks.createCapture.mockImplementation(async (input) => {
+      if (input.title === "docs/b.md") {
+        throw new BrainClassifierUnavailableError("jev-credential-unavailable");
+      }
+      return { id: `capture-${input.title}`, status: "queued" };
+    });
+
+    const result = await action.run({
+      files: [
+        { path: "docs/a.md", content: "first" },
+        { path: "docs/b.md", content: "second" },
+        { path: "docs/c.md", content: "third" },
+      ],
+      enqueueDistillation: true,
+    });
+
+    expect(result.files).toEqual([
+      expect.objectContaining({ path: "docs/a.md", status: "imported" }),
+      expect.objectContaining({
+        path: "docs/b.md",
+        status: "failed",
+        errorCode: "screening_unavailable",
+        error: expect.stringMatching(/retry the import once screening works/i),
+      }),
+      expect.objectContaining({ path: "docs/c.md", status: "imported" }),
+    ]);
+    const refusal = result.files[1] as { error: string };
+    expect(refusal.error).not.toMatch(
+      /scheduled|retries (this source|at the next)/i,
+    );
+    expect(result.summary).toEqual({
+      requested: 3,
+      imported: 2,
+      queued: 2,
+      blocked: 0,
+      failed: 1,
+    });
+    expect(mocks.enqueueCaptureDistillation).toHaveBeenCalledTimes(2);
   });
 });

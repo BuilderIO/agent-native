@@ -64,9 +64,11 @@ function processEnv(name: string): string | undefined {
 
 /**
  * The tab a request from no browser tab acts on for tab-scoped app state:
- * the tab of this app the user used last, or none used recently.
+ * a tab explicitly requested by `x-agent-native-browser-tab`, the tab of this
+ * app the user used last, or none used recently.
  */
 export type BrowserTabTarget =
+  | { kind: "requested"; tabId: string }
   | { kind: "last-used"; tabId: string; usedAt: number }
   | { kind: "unavailable" };
 
@@ -235,6 +237,12 @@ export interface RequestContext {
   /** True only when this server received the request directly on 127.0.0.1. */
   isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
+  /**
+   * Inbound webhook verification runs as the channel config owner, but a
+   * signing secret must come from the deployment or the owner's workspace,
+   * never from a row the owner can write for themselves alone.
+   */
+  skipUserScopeSecrets?: boolean;
   integration?: {
     taskId: string;
     attempts?: number;

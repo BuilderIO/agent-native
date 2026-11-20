@@ -127,6 +127,8 @@ const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
 const SIGMA_OAUTH_CLIENTS_SECRET = "SIGMA_OAUTH_CLIENT_REGISTRATIONS";
 const WORKSPACE_OAUTH_ADMIN_ERROR =
   "This shared connection requires organization or app-admin access. Personal connections can be connected by any workspace member.";
+import { OAUTH_ACCOUNT_ALREADY_LINKED_ERROR } from "../connections/oauth-callback-error.js";
+
 const OAUTH_ACCOUNT_OWNERSHIP_ERROR =
   "This account is already linked to another user. Choose a different account to connect.";
 
@@ -282,13 +284,31 @@ export function oauthFlowFailure(
 function oauthAccountOwnershipFailure(
   event: H3Event,
   error: unknown,
+  returnPath: string | undefined,
+  accountLabel: string,
 ): Response | { error: string } | null {
   if (!(error instanceof OAuthAccountOwnedByOtherUserError)) return null;
-  return oauthFlowFailure(
-    event,
-    error.statusCode,
-    OAUTH_ACCOUNT_OWNERSHIP_ERROR,
-  );
+  const accept = getRequestHeader(event, "accept") ?? "";
+  if (returnPath && accept.includes("text/html")) {
+    const returnUrl = new URL(getAppUrl(event, returnPath));
+    returnUrl.searchParams.set(
+      "oauth_error",
+      OAUTH_ACCOUNT_ALREADY_LINKED_ERROR,
+    );
+    returnUrl.searchParams.set("oauth_account", accountLabel);
+    return queryEchoSafeRedirect(
+      event,
+      redirectWithStagedCookies(event, returnUrl.href),
+    );
+  }
+  setResponseStatus(event, error.statusCode);
+  if (!accept.includes("text/html")) {
+    return { error: OAUTH_ACCOUNT_OWNERSHIP_ERROR };
+  }
+  return oauthErrorPage(OAUTH_ACCOUNT_OWNERSHIP_ERROR, error.statusCode, {
+    backHref: "/",
+    backLabel: "Back to app",
+  });
 }
 
 export async function handleWorkspaceProviderOAuthStart(
@@ -747,7 +767,12 @@ export async function handleWorkspaceProviderOAuthCallback(
             session.email,
           );
         } catch (error) {
-          const response = oauthAccountOwnershipFailure(event, error);
+          const response = oauthAccountOwnershipFailure(
+            event,
+            error,
+            flow.returnUrl ?? state.returnUrl,
+            identity.label,
+          );
           if (response) return response;
           throw error;
         }

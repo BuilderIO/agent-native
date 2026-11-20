@@ -14,6 +14,7 @@ import { uploadFile } from "../file-upload/index.js";
 import { nameTaken, nextFreeName } from "../free-name/server.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
+import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
 import { saveConflict, saveIfCurrent } from "../save-conflict/server.js";
 import { getSession } from "../server/auth.js";
 import {
@@ -35,6 +36,9 @@ import {
   getFrontmatterValue,
   getResourceKind,
   isRemoteAgentPath,
+  isSkillPath,
+  restorePathForTrashedSkill,
+  SKILL_TRASH_PREFIX,
   parseFrontmatter,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
@@ -61,6 +65,7 @@ import {
   resourceListAccessible,
   resourceListOrganization,
   resourceMove,
+  resourceMoveIfCurrent,
   resourceStoredPathsTaken,
   resourceEffectiveContext,
   ensurePersonalDefaults,
@@ -132,6 +137,23 @@ function withContentRevision<R extends Pick<Resource, "content">>(resource: R) {
   return { ...resource, revision: resourceContentRevision(resource) };
 }
 
+function isInheritedAppDefault(resource: ResourceMeta, orgId: string | null) {
+  return (
+    resource.owner === SHARED_OWNER &&
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    !isLegacyOrganizationWorkspaceFile(resource, orgId)
+  );
+}
+
+function withResourceInheritance<R extends ResourceMeta>(
+  resource: R,
+  orgId: string | null,
+) {
+  return isInheritedAppDefault(resource, orgId)
+    ? { ...resource, inheritedFromAppDefault: true as const }
+    : resource;
+}
+
 function resourceDownloadDisposition(path: string): string {
   const basename = path.replaceAll("\\", "/").split("/").pop()?.trim() || "";
   const filename = Array.from(basename)
@@ -173,8 +195,11 @@ async function assertCanEditShared(event: any): Promise<void> {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return;
-  if (ctx.role === "owner" || ctx.role === "admin") return;
+  if (!ctx.orgId) {
+    if (canManageDeploymentWithoutOrg(session.email)) return;
+  } else if (ctx.role === "owner" || ctx.role === "admin") {
+    return;
+  }
   throw createError({
     statusCode: 403,
     message: "Only organization admins can edit organization files",
@@ -212,7 +237,10 @@ interface TreeNode {
   remoteAgentMeta?: RemoteAgentManifest;
 }
 
-function buildTree(resources: ResourceMeta[]): TreeNode[] {
+function buildTree(
+  resources: ResourceMeta[],
+  orgId: string | null,
+): TreeNode[] {
   const root: TreeNode[] = [];
 
   for (const res of resources) {
@@ -230,7 +258,7 @@ function buildTree(resources: ResourceMeta[]): TreeNode[] {
           path: currentPath,
           type: "file",
           kind: getResourceKind(res.path),
-          resource: res,
+          resource: withResourceInheritance(res, orgId),
         });
       } else {
         let folder = current.find(
@@ -278,7 +306,7 @@ export async function handleListResources(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  await ensurePersonalDefaults(email);
+  if (prefix !== SKILL_TRASH_PREFIX) await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
 
@@ -310,7 +338,7 @@ export async function handleGetResourceTree(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  await ensurePersonalDefaults(email);
+  if (query.seedDefaults !== "false") await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
 
@@ -338,7 +366,7 @@ export async function handleGetResourceTree(event: any) {
     );
   }
 
-  const tree = buildTree(resources);
+  const tree = buildTree(resources, orgId);
 
   await enrichTreeNodes(tree, orgId);
 
@@ -492,6 +520,11 @@ export async function handleGetResource(event: any) {
     setResponseHeader(event, "Content-Length", String(buf.length));
     setResponseHeader(event, "Cache-Control", "private, no-store");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+    );
     if (wantsDownload) {
       setResponseHeader(
         event,
@@ -510,10 +543,10 @@ export async function handleGetResource(event: any) {
 
   if (isBinary) {
     const { content: _content, ...meta } = resource;
-    return { ...meta, content: "" };
+    return { ...withResourceInheritance(meta, orgId), content: "" };
   }
 
-  return withContentRevision(resource);
+  return withContentRevision(withResourceInheritance(resource, orgId));
 }
 
 export async function handleCreateResource(event: any) {
@@ -814,6 +847,22 @@ export async function handleUpdateResource(event: any) {
   }
 
   const body = await readBody(event);
+  if (body.restoreSkill === true) {
+    const restorePath = restorePathForTrashedSkill(existing);
+    if (!restorePath) {
+      if (isSkillPath(existing.path)) return withContentRevision(existing);
+      setResponseStatus(event, 404);
+      return { error: "Trashed skill not found" };
+    }
+    const restored = await resourceMoveIfCurrent(existing, restorePath);
+    if (!restored) {
+      setResponseStatus(event, 409);
+      return {
+        error: "The skill changed or its restore path is already in use",
+      };
+    }
+    return withContentRevision(restored);
+  }
   const expectedRevision: unknown = body.expectedRevision;
   if (expectedRevision !== undefined && typeof expectedRevision !== "string") {
     setResponseStatus(event, 400);
@@ -1154,11 +1203,7 @@ export async function handleDeleteResource(event: any) {
     await assertCanEditShared(event);
   }
 
-  if (
-    existing.owner === SHARED_OWNER &&
-    sharedResourceOwner(orgId) !== SHARED_OWNER &&
-    !isLegacyOrganizationWorkspaceFile(existing, orgId)
-  ) {
+  if (isInheritedAppDefault(existing, orgId)) {
     setResponseStatus(event, 403);
     return {
       error:
@@ -1166,11 +1211,24 @@ export async function handleDeleteResource(event: any) {
     };
   }
 
-  const deleted =
-    existing.owner === SHARED_OWNER &&
-    sharedResourceOwner(orgId) !== SHARED_OWNER &&
-    isLegacyOrganizationWorkspaceFile(existing, orgId) &&
-    typeof existing.metadata === "string"
+  const trashSkill = getQuery(event).trashSkill === "true";
+  if (trashSkill && restorePathForTrashedSkill(existing)) return { ok: true };
+  if (trashSkill && (!isSkillPath(existing.path) || isLocalWorkspaceResource)) {
+    setResponseStatus(event, 400);
+    return { error: "Only stored skill files can be moved to Trash" };
+  }
+
+  const deleted = trashSkill
+    ? Boolean(
+        await resourceMoveIfCurrent(
+          existing,
+          `${SKILL_TRASH_PREFIX}${existing.id}/${existing.path}`,
+        ),
+      )
+    : existing.owner === SHARED_OWNER &&
+        sharedResourceOwner(orgId) !== SHARED_OWNER &&
+        isLegacyOrganizationWorkspaceFile(existing, orgId) &&
+        typeof existing.metadata === "string"
       ? await resourceDeleteIfCurrent(existing)
       : isLocalWorkspaceResource
         ? await resourceDelete(id)
@@ -1189,7 +1247,11 @@ export async function handleDeleteResource(event: any) {
   }
   if (!deleted) {
     setResponseStatus(event, 409);
-    return { error: "Resource changed before it could be deleted" };
+    return {
+      error: trashSkill
+        ? "Skill changed before it could be moved to Trash"
+        : "Resource changed before it could be deleted",
+    };
   }
   return { ok: true };
 }

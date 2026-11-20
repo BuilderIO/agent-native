@@ -143,6 +143,11 @@ export interface CreateAgentKitProtocolAdapterOptions {
 }
 
 export interface AgentKitProtocolAdapter extends AgentTransport {
+  replayTerminalRun(input: {
+    threadId: string;
+    runId: string;
+    signal?: AbortSignal;
+  }): Promise<AgentEvent[]>;
   dispose(): Promise<void>;
 }
 
@@ -190,6 +195,10 @@ interface ProtocolRun {
   terminalSource?: RunTerminalSource;
   /** A stream of this run closed with no terminal event at least once. */
   pipeClosedBeforeTerminal?: boolean;
+  cancelStreamDrained?: boolean;
+  pendingCancellation?: Promise<void>;
+  readerCursors?: Set<{ through: number }>;
+  awaitingReaders?: boolean;
   /** A restored decline must verify its request against the replayed stream. */
   requiresRestoredConnectionRequestReplay?: boolean;
   outcomeReported?: boolean;
@@ -238,6 +247,13 @@ const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
 const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const RESTORED_CONNECTION_REQUEST_REPLAY_TIMEOUT_MS = 5_000;
+const CANCEL_STREAM_DRAIN_MS = 3_000;
+const RUN_SETTLING_RUNTIME_EVENTS: ReadonlySet<string> = new Set([
+  "done",
+  "error",
+  "approval-request",
+  "connection-request",
+]);
 const RESTORED_CONNECTION_REQUEST_UNVERIFIED_MESSAGE =
   "Could not verify whether the restored connection request is still pending.";
 
@@ -1540,19 +1556,23 @@ export function createAgentKitProtocolAdapter(
     runId?: string;
     turnId?: string;
     includePendingConnectionRequest?: boolean;
+    signal?: AbortSignal;
   }): Promise<RunAuthorityRead> {
     if (!runAuthority) {
       throw new Error("The runtime does not provide run authority.");
     }
+    const { signal, ...request } = input;
     try {
-      return {
-        kind: "read",
-        state: await runAuthority.readRunState({
-          ...input,
-          abortSignal: readers.signal,
-        }),
-      };
+      const state = await runAuthority.readRunState({
+        ...request,
+        abortSignal: signal
+          ? AbortSignal.any([readers.signal, signal])
+          : readers.signal,
+      });
+      signal?.throwIfAborted();
+      return { kind: "read", state };
     } catch (error) {
+      signal?.throwIfAborted();
       const failure = asRecord(error);
       return failure?.retryable === false
         ? {
@@ -1650,6 +1670,7 @@ export function createAgentKitProtocolAdapter(
     runtimeRunId: string,
     sessionId?: string,
     authorityRead?: RunAuthorityRead,
+    signal?: AbortSignal,
   ): Promise<{ owner?: ProtocolRun; read?: RunAuthorityRead }> {
     if (!runAuthority) return {};
     const candidates = [...runs.values()].filter(
@@ -1667,6 +1688,7 @@ export function createAgentKitProtocolAdapter(
       (await readAuthoritativeRunState({
         sessionId: resolvedSessionId,
         runId: runtimeRunId,
+        signal,
       }));
     if (read.kind !== "read") return { read };
     const { state } = read;
@@ -1969,6 +1991,7 @@ export function createAgentKitProtocolAdapter(
     input: {
       threadId: string;
       runId: string;
+      signal?: AbortSignal;
     },
     restoreOptions: { includePendingConnectionRequest?: boolean } = {},
   ): Promise<ProtocolRun> {
@@ -1983,6 +2006,7 @@ export function createAgentKitProtocolAdapter(
         sessionId,
         runId,
         includePendingConnectionRequest: true,
+        signal: input.signal,
       });
       if (
         read.kind !== "read" ||
@@ -2002,6 +2026,9 @@ export function createAgentKitProtocolAdapter(
     const initialResolution = await resolveRuntimeRunOwner(
       input.threadId,
       input.runId,
+      undefined,
+      undefined,
+      input.signal,
     );
     if (initialResolution.owner) {
       if (restoreOptions.includePendingConnectionRequest && runAuthority) {
@@ -2020,11 +2047,13 @@ export function createAgentKitProtocolAdapter(
       return initialResolution.owner;
     }
     const session = await getSession(input.threadId);
+    input.signal?.throwIfAborted();
     const resolution = await resolveRuntimeRunOwner(
       input.threadId,
       input.runId,
       session.id,
       initialResolution.read,
+      input.signal,
     );
     if (resolution.owner) {
       if (restoreOptions.includePendingConnectionRequest && runAuthority) {
@@ -2052,6 +2081,7 @@ export function createAgentKitProtocolAdapter(
                 ? resolution.read.state.runId
                 : input.runId,
             includePendingConnectionRequest: true,
+            signal: input.signal,
           })
         : resolution.read;
     if (
@@ -2063,12 +2093,15 @@ export function createAgentKitProtocolAdapter(
     ) {
       throw restoredConnectionRequestUnverifiedError();
     }
+    input.signal?.throwIfAborted();
     const state = restoreRead?.kind === "read" ? restoreRead.state : undefined;
     const resumeInput = {
       sessionId: session.id,
       runId: input.runId,
       after: 0,
-      abortSignal: readers.signal,
+      abortSignal: input.signal
+        ? AbortSignal.any([readers.signal, input.signal])
+        : readers.signal,
     };
     // With a run authority, a restored run starts as a closed stream so its
     // first read goes through the same server check as every reconnect.
@@ -2090,6 +2123,10 @@ export function createAgentKitProtocolAdapter(
             runId: input.runId,
             events: await runtime.subscribe!(resumeInput),
           };
+    if (input.signal?.aborted) {
+      await closeDiscardedTurnEvents(turn);
+      input.signal.throwIfAborted();
+    }
     const metadata = mergeTrustedProtocolMetadata(options.metadata, {
       [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
         observability: {
@@ -3853,6 +3890,69 @@ export function createAgentKitProtocolAdapter(
     indexRun(run, resumed.runId);
   }
 
+  function appendRuntimeEvent(
+    run: ProtocolRun,
+    event: AgentChatRuntimeEvent,
+  ): void {
+    const sequence = event.metadata?.seq;
+    if (
+      typeof sequence === "number" &&
+      (run.runtimeSequence === undefined || sequence > run.runtimeSequence)
+    ) {
+      run.runtimeSequence = sequence;
+      run.resumeAttempts = 0;
+      run.quietAuthorityReads = 0;
+    }
+    for (const protocolEvent of runtimeEventToProtocolEvents(run, event)) {
+      append(run, protocolEvent);
+    }
+  }
+
+  function markCancelStreamDrained(run: ProtocolRun): void {
+    if (run.cancelStreamDrained) return;
+    run.cancelStreamDrained = true;
+    for (const listener of run.listeners) listener();
+  }
+
+  async function waitForCancelStreamDrain(run: ProtocolRun): Promise<void> {
+    if (
+      run.phase.type !== "cancelling" ||
+      run.phase.previous.type !== "streaming"
+    ) {
+      return;
+    }
+    const deadline = Date.now() + CANCEL_STREAM_DRAIN_MS;
+    while (
+      run.pumpPromise &&
+      !run.cancelStreamDrained &&
+      !readers.signal.aborted &&
+      isRunCancelling(run)
+    ) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return;
+      await notifyWhenChanged(run, readers.signal, remaining);
+    }
+    const delivered = run.sequence;
+    const readerBehind = () =>
+      [...(run.readerCursors ?? [])].some(
+        (cursor) => cursor.through < delivered,
+      );
+    run.awaitingReaders = true;
+    try {
+      while (
+        readerBehind() &&
+        !readers.signal.aborted &&
+        isRunCancelling(run)
+      ) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return;
+        await notifyWhenChanged(run, readers.signal, remaining);
+      }
+    } finally {
+      run.awaitingReaders = false;
+    }
+  }
+
   function ensurePump(run: ProtocolRun): void {
     if (
       run.pumpPromise ||
@@ -3871,30 +3971,24 @@ export function createAgentKitProtocolAdapter(
             stream = { failed: false };
             try {
               for await (const event of run.turn.events) {
+                if (
+                  isRunCancelling(run) &&
+                  !RUN_SETTLING_RUNTIME_EVENTS.has(event.type)
+                ) {
+                  appendRuntimeEvent(run, event);
+                  continue;
+                }
+                if (isRunCancelling(run)) markCancelStreamDrained(run);
                 while (isRunCancelling(run))
                   await notifyWhenChanged(run, readers.signal);
                 if (!isRunPhase(run, "streaming")) break;
-                const sequence = event.metadata?.seq;
-                if (
-                  typeof sequence === "number" &&
-                  (run.runtimeSequence === undefined ||
-                    sequence > run.runtimeSequence)
-                ) {
-                  run.runtimeSequence = sequence;
-                  run.resumeAttempts = 0;
-                  run.quietAuthorityReads = 0;
-                }
-                for (const protocolEvent of runtimeEventToProtocolEvents(
-                  run,
-                  event,
-                )) {
-                  append(run, protocolEvent);
-                }
+                appendRuntimeEvent(run, event);
                 if (!isRunPhase(run, "streaming")) break;
               }
             } catch (error) {
               stream = { failed: true, error };
             }
+            if (isRunCancelling(run)) markCancelStreamDrained(run);
             while (isRunCancelling(run))
               await notifyWhenChanged(run, readers.signal);
             if (isRunPhase(run, "streaming")) {
@@ -3945,6 +4039,13 @@ export function createAgentKitProtocolAdapter(
     run.activeReaders += 1;
     touchRun(run);
     let nextSequence = Math.max(1, afterSequence + 1);
+    const cursor = { through: nextSequence - 1 };
+    const cursors = (run.readerCursors ??= new Set());
+    cursors.add(cursor);
+    const wakeWaitingStop = () => {
+      if (!run.awaitingReaders) return;
+      for (const listener of run.listeners) listener();
+    };
     try {
       while (!signal?.aborted) {
         if (nextSequence < run.firstRetainedSequence) {
@@ -3961,6 +4062,8 @@ export function createAgentKitProtocolAdapter(
             );
           }
           yield event;
+          cursor.through = nextSequence - 1;
+          wakeWaitingStop();
         }
         if (
           run.phase.type === "disposed" ||
@@ -3973,6 +4076,8 @@ export function createAgentKitProtocolAdapter(
         await notifyWhenChanged(run, signal);
       }
     } finally {
+      cursors.delete(cursor);
+      wakeWaitingStop();
       run.activeReaders -= 1;
       touchRun(run);
       pruneRetainedRuns();
@@ -4141,6 +4246,51 @@ export function createAgentKitProtocolAdapter(
         }
       }
     },
+    async replayTerminalRun(input) {
+      const signal = input.signal;
+      signal?.throwIfAborted();
+      const collect = async () => {
+        const retained = findRun(input.threadId, input.runId);
+        if (
+          retained &&
+          isRunTerminal(retained) &&
+          retained.firstRetainedSequence > 1 &&
+          retained.activeReaders === 0
+        ) {
+          removeRun(retained);
+        }
+        const events: AgentEvent[] = [];
+        for await (const event of transport.subscribeToRun({
+          ...input,
+          afterSequence: 0,
+        })) {
+          events.push(event);
+        }
+        const run = findRun(input.threadId, input.runId);
+        if (
+          signal?.aborted ||
+          !run ||
+          !isRunTerminal(run) ||
+          run.terminalSource
+        ) {
+          throw new Error(
+            `Could not replay durable events for run ${input.runId}.`,
+          );
+        }
+        return events;
+      };
+      if (!signal) return collect();
+      let onAbort: (() => void) | undefined;
+      const aborted = new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+      try {
+        return await Promise.race([collect(), aborted]);
+      } finally {
+        if (onAbort) signal.removeEventListener("abort", onAbort);
+      }
+    },
     async *subscribeToRun(input) {
       pruneRetainedRuns();
       let run = findRun(input.threadId, input.runId);
@@ -4195,35 +4345,51 @@ export function createAgentKitProtocolAdapter(
         run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
-      if (isRunTerminal(run) || run.phase.type === "cancelling") return;
+      if (isRunTerminal(run)) return;
+      if (run.pendingCancellation) return run.pendingCancellation;
+      const stopping = run;
       // "user" is the server's turn-wide stop: it also stops any successor
       // run the turn would otherwise hand off to.
-      const cancellation = cancelCoreTurn(run, "user");
+      const cancellation = cancelCoreTurn(stopping, "user");
       // Keep readers attached until the cancellation has produced its events.
-      run.phase = transition(run.phase, { type: "cancelStarted" });
-      try {
-        let result;
+      stopping.cancelStreamDrained = false;
+      stopping.phase = transition(stopping.phase, { type: "cancelStarted" });
+      const pending = (async () => {
         try {
-          result = await cancellation;
-        } catch (error) {
-          run.phase = transition(run.phase, { type: "cancelFailed" });
-          throw error;
+          let result;
+          try {
+            result = await cancellation;
+          } catch (error) {
+            stopping.phase = transition(stopping.phase, {
+              type: "cancelFailed",
+            });
+            throw error;
+          }
+          if (result.status === "unsupported") {
+            stopping.phase = transition(stopping.phase, {
+              type: "cancelFailed",
+            });
+            throw new Error(
+              "The Core runtime does not support run cancellation.",
+            );
+          }
+          if (stopping.phase.type === "disposed") return;
+          await waitForCancelStreamDrain(stopping);
+          if (isRunPhase(stopping, "disposed")) return;
+          delete stopping.pendingApprovalId;
+          stopping.terminalSource = "local";
+          stopping.phase = transition(stopping.phase, {
+            type: "cancelSucceeded",
+          });
+          append(stopping, { type: "run.status", status: "cancelled" });
+          append(stopping, { type: "run.cancelled" });
+        } finally {
+          delete stopping.pendingCancellation;
+          for (const listener of stopping.listeners) listener();
         }
-        if (result.status === "unsupported") {
-          run.phase = transition(run.phase, { type: "cancelFailed" });
-          throw new Error(
-            "The Core runtime does not support run cancellation.",
-          );
-        }
-        if (run.phase.type === "disposed") return;
-        delete run.pendingApprovalId;
-        run.terminalSource = "local";
-        run.phase = transition(run.phase, { type: "cancelSucceeded" });
-        append(run, { type: "run.status", status: "cancelled" });
-        append(run, { type: "run.cancelled" });
-      } finally {
-        for (const listener of run.listeners) listener();
-      }
+      })();
+      stopping.pendingCancellation = pending;
+      return pending;
     },
     async dispose() {
       if (disposed) return;

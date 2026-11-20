@@ -726,7 +726,7 @@ export async function mcpApprovalPrompt(input: {
   review: McpApprovalReview;
   ownerEmail: string | undefined;
   mode: "form" | "url";
-  reviewUrl: string;
+  reviewUrl?: string;
 }): Promise<{ message: string; decisionTitle: string; decisionHelp: string }> {
   const preference = await readerPreference(input.ownerEmail);
   const { locale } = resolveLocaleFromRequest({

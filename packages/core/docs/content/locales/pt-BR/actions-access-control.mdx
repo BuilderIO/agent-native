@@ -207,6 +207,8 @@ Quando ocorre `approval_required`, a UI de chat renderiza um controle de **Aprov
 
 `approvedToolCalls` é um campo na requisição de chat (`AgentChatRequest.approvedToolCalls`). Chaves que não estão presentes nele continuam pausadas. Aprovar uma chamada nunca aprova nenhuma outra chamada. Como a chave é content-addressed (derivada do conteúdo da chamada), uma aprovação só autoriza aquela chamada exata, com aqueles argumentos exatos. Se o modelo depois propuser um envio diferente, isso vira uma nova chave e precisa da sua própria aprovação, feita do zero.
 
+O turno reemitido também carrega o id da solicitação pendente da chamada em `approvedToolCallAskIds`. O servidor executa a chamada somente enquanto essa solicitação ainda estiver pendente para o mesmo usuário e a mesma conversa, então uma chave sozinha não aprova nada, e apenas as próprias páginas do app podem repassar uma aprovação por `agentNative.submitChat`.
+
 ### Ponta a ponta {#flow}
 
 <Diagram id="doc-block-2nor1g" title="A interrupção de aprovação" summary={"Uma chamada com portão pausa o turno antes que run() dispare. A aprovação reenvia o turno carregando a chave da chamada. Só então o efeito colateral acontece."}>

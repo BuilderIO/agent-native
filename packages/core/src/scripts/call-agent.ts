@@ -1190,31 +1190,12 @@ export async function run(
     if (context?.send) {
       const callerEmail = getRequestUserEmail();
 
-      const a2aMetadata: Record<string, unknown> = {};
-      if (callerEmail) a2aMetadata.userEmail = callerEmail;
-
       let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
       callerOrgId = orgId;
       if (orgId && !agent.auth) {
         callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
-        if (callerOrgDomain) a2aMetadata.orgDomain = callerOrgDomain;
         callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
-      }
-
-      if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
-        try {
-          const { listOAuthAccountsByOwner } =
-            await import("../oauth-tokens/store.js");
-          const accounts = await listOAuthAccountsByOwner(
-            "google",
-            callerEmail,
-          );
-          const tokens = accounts[0]?.tokens;
-          if (tokens?.access_token) {
-            a2aMetadata.googleToken = tokens.access_token;
-          }
-        } catch {}
       }
 
       let responseText = "";

@@ -620,6 +620,15 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
     if (stop?.type === "stop") expect(stop.reason).toBe("max_tokens");
   });
 
+  it("preserves a content-filtered finish as a refusal", () => {
+    expect(
+      aiSdkPartToEngineEvents({
+        type: "finish",
+        finishReason: "content-filter",
+      }),
+    ).toEqual([{ type: "stop", reason: "refusal" }]);
+  });
+
   it("unpacks cacheReadTokens from v6 inputTokenDetails", () => {
     const events = aiSdkPartToEngineEvents({
       type: "finish",

@@ -426,6 +426,24 @@ describe("draft booking availability previews", () => {
     expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 
+  it("ignores a client-sent eventTitle on the public booking path", async () => {
+    mocks.readBody.mockResolvedValue({
+      ...(await mocks.readBody()),
+      eventTitle: "Client chosen title",
+    });
+
+    bookingLink.hosts = JSON.stringify([]);
+
+    await (createBooking as unknown as (event: unknown) => Promise<unknown>)(
+      {},
+    );
+
+    expect(mocks.insertedBookings.length).toBeGreaterThan(0);
+    for (const row of mocks.insertedBookings) {
+      expect(row.eventTitle).not.toBe("Client chosen title");
+    }
+  });
+
   it("confirms a reserved booking when Zoom creation has an ambiguous failure", async () => {
     bookingLink.conferencing = JSON.stringify({ type: "zoom" });
     bookingLink.hosts = JSON.stringify([]);

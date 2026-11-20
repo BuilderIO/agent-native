@@ -1,6 +1,8 @@
 import { createApp } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
+import { defineAction, fail } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const { browserSession } = vi.hoisted(() => ({ browserSession: vi.fn() }));
@@ -36,6 +38,115 @@ afterEach(() => {
 });
 
 describe("private HTTP scope before body consumption", () => {
+  it.each([
+    {
+      mode: "contract",
+      status: 400,
+      payload: {
+        error: "Dataset regional_fixture could not be verified.",
+        errorCode: "data_connection_dataset_unverified",
+        details: { field: "datasetNames", dataset: "regional_fixture" },
+      },
+    },
+    {
+      mode: "schema",
+      status: 400,
+      payload: {
+        error: "Invalid action parameters",
+        errorCode: "action_invalid_parameters",
+      },
+    },
+    {
+      mode: "nested",
+      status: 400,
+      payload: {
+        error: "Invalid action parameters",
+        errorCode: "action_invalid_parameters",
+      },
+    },
+    {
+      mode: "client",
+      status: 422,
+      payload: { error: "Rejected request.", errorCode: "action_http_422" },
+    },
+    {
+      mode: "internal",
+      status: 500,
+      payload: {
+        error: "Internal server error",
+        errorCode: "action_execution_failed",
+      },
+    },
+  ])(
+    "returns readable typed JSON for a private $mode action error",
+    async ({ mode, status, payload }) => {
+      const email = "actor@example.test";
+      const orgId = "org-test";
+      const authUserId = "auth-test";
+      browserSession.mockResolvedValue({ email, authUserId });
+      const app = createApp();
+      mountActionRoutes(
+        app,
+        {
+          "private-save": {
+            schema: z.object({
+              mode: z.enum(["contract", "nested", "client", "internal"]),
+              secret: z.string(),
+            }),
+            run: async (args: { secret: string }) => {
+              if (mode === "nested")
+                await defineAction({
+                  schema: z.object({ code: z.string().max(4) }),
+                  run: async () => null,
+                }).run({ code: args.secret });
+              if (mode === "internal") throw new Error("test-private-body");
+              if (mode === "client")
+                throw Object.assign(new Error("Rejected request."), {
+                  statusCode: 422,
+                });
+              fail("Dataset regional_fixture could not be verified.", {
+                statusCode: 400,
+                errorCode: "data_connection_dataset_unverified",
+                details: { field: "datasetNames", dataset: "regional_fixture" },
+              });
+            },
+            uiOnly: true,
+            persistInChatHistory: false,
+            agentTool: false,
+            mcpTool: false,
+            toolCallable: false,
+          } as ActionEntry,
+        },
+        {
+          getOwnerFromEvent: async () => email,
+          getAuthUserIdFromEvent: async () => authUserId,
+          resolveOrgId: async () => orgId,
+        },
+      );
+      const response = await app.fetch(
+        new Request("https://example.test/_agent-native/actions/private-save", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "sec-fetch-site": "same-origin",
+            "x-agent-native-frontend": "1",
+            [PRIVATE_ACTION_SCOPE_HEADER]: JSON.stringify({
+              email,
+              orgId,
+              authUserId,
+            }),
+          },
+          body: JSON.stringify({ mode, secret: "test-private-body" }),
+        }),
+      );
+      expect(response.status).toBe(status);
+      expect(response.headers.get("content-type")).toMatch(
+        /^application\/json\b/,
+      );
+      expect(await response.json()).toEqual(payload);
+    },
+  );
+
   it.each([
     {
       label: "organization switched",

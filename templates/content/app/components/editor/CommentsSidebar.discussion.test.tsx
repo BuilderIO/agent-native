@@ -234,6 +234,7 @@ describe("the Discussion panel", () => {
   // Sort and Filter are Content's menus, which open on a press or Enter, not a
   // bare click().
   const openMenu = async (selector: string) => {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     await act(async () => {
       button(selector).dispatchEvent(
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
