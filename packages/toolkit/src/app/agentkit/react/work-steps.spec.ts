@@ -842,6 +842,42 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("clears a failed page read when another page tool reads it without a title", () => {
+    const failed = { status: "failed" as const, output: "Timed out" };
+    const { failures } = agentWorkSources([
+      call("a", "get-document", { id: "x" }, failed),
+      call("b", "read-page", { id: "x" }, { output: { id: "x" } }),
+      call("c", "get-note", { id: "n" }, failed),
+      call("d", "get-doc", { id: "n" }, { output: { id: "n" } }),
+    ]);
+    expect(failures.map(({ kind, reason }) => [kind, reason])).toEqual([
+      ["document", "Timed out"],
+    ]);
+  });
+
+  it("clears a failed activity without a tool when the same activity succeeds", () => {
+    const activity = (
+      id: string,
+      label: string,
+      status: AgentActivity["status"],
+    ): AgentWorkCall => ({
+      id,
+      activity: { id, kind: "search", label, status },
+    });
+    const failed = activity("a", "Searched the web", "failed");
+    expect(agentWorkSources([failed]).failures).toHaveLength(1);
+    expect(
+      agentWorkSources([
+        failed,
+        activity("b", "Searched the docs", "completed"),
+      ]).failures,
+    ).toHaveLength(1);
+    expect(
+      agentWorkSources([failed, activity("c", "Searched the web", "completed")])
+        .failures,
+    ).toEqual([]);
+  });
+
   it("never counts tools named for a write, even with read or search words", () => {
     const failed = { status: "failed" as const, output: "Denied" };
     const { sources, failures } = agentWorkSources([

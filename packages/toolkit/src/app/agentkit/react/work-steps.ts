@@ -1058,10 +1058,7 @@ function attemptTargets(
   const input = inputRecord(call.tool?.input);
   const tool = call.tool?.name ?? "";
   const whole = call.tool ? stableJson(input ?? {}) : undefined;
-  const lookup =
-    call.activity.status === "failed" &&
-    readKind(call) === "read" &&
-    namesPages(call);
+  const lookup = readKind(call) === "read" && namesPages(call);
   const page =
     object?.kind === "document"
       ? object.id
@@ -1091,9 +1088,12 @@ function attemptTargets(
         ["path", "", firstString(input, FILE_KEYS)],
         ["input", tool, whole],
       ];
-  return targets.flatMap(([type, scope, target]) =>
+  const found = targets.flatMap(([type, scope, target]) =>
     target ? [[sourceScope(call), type, scope, target].join("\u0001")] : [],
   );
+  if (found.length || call.tool) return found;
+  const { kind, label } = call.activity;
+  return [[sourceScope(call), "activity", kind, label].join("\u0001")];
 }
 
 /**
