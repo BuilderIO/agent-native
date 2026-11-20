@@ -192,7 +192,10 @@ export default defineAction({
             ...(file.input.kind ? { kind: file.input.kind } : {}),
             content: file.input.content,
             ...(file.input.capturedAt
-              ? { capturedAt: file.input.capturedAt }
+              ? {
+                  capturedAt: file.input.capturedAt,
+                  capturedAtSource: "manual-markdown" as const,
+                }
               : {}),
             metadata: {
               path: normalizedPath,

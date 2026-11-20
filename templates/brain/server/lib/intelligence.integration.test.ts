@@ -341,7 +341,7 @@ describe("evidence-backed intelligence", () => {
         capturedAt: "2026-05-20T15:00:00.000Z",
       });
       expect(JSON.parse(capture.metadataJson)).toMatchObject({
-        capturedAtExplicit: true,
+        capturedAtSource: "manual-markdown",
       });
       expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
         "participants",
@@ -416,6 +416,17 @@ describe("evidence-backed intelligence", () => {
       capturedAt: "2026-05-20T15:00:00.000Z",
     });
     expect(item.evidence[1]).not.toHaveProperty("capturedAt");
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [
+        {
+          path: "dated.md",
+          content: "Avery: Launch approved.",
+          kind: "transcript",
+        },
+      ],
+      enqueueDistillation: false,
+    });
     expect(
       first((await listIntelligence({ id: item.id })).records).evidence,
     ).toEqual(item.evidence);
@@ -431,6 +442,105 @@ describe("evidence-backed intelligence", () => {
       .set({ status: "revoked" })
       .where(eq(schema.brainAudienceMembers.audienceId, item.audienceId));
     expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
+  it("does not cite connector fallback times or legacy untrusted citation dates", async () => {
+    await database
+      .update(schema.brainSources)
+      .set({ provider: "granola" })
+      .where(eq(schema.brainSources.id, "source-a"));
+    const { createCapture } = await import("./brain.js");
+    const capture = await createCapture({
+      sourceId: "source-a",
+      externalId: "granola:meeting",
+      title: "Meeting",
+      kind: "transcript",
+      content: "Morgan will ship Atlas.",
+      capturedAt: "2026-05-20T15:00:00.000Z",
+    });
+    expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
+      "capturedAtExplicit",
+    );
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: capture.id, quote: capture.content }],
+    });
+    expect(first(item.evidence)).not.toHaveProperty("capturedAt");
+    const row = first(
+      await database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id)),
+    );
+    const legacyEvidence = JSON.parse(row.evidenceJson);
+    legacyEvidence[0].capturedAt = "2026-05-20T15:00:00.000Z";
+    await database
+      .update(schema.brainKnowledge)
+      .set({ evidenceJson: JSON.stringify(legacyEvidence) })
+      .where(eq(schema.brainKnowledge.id, item.id));
+    const revised = first(
+      await database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id)),
+    );
+    await database
+      .update(schema.brainKnowledgeIntelligence)
+      .set({ knowledgeRevision: await knowledgeContentRevision(revised) })
+      .where(eq(schema.brainKnowledgeIntelligence.knowledgeId, item.id));
+    expect(
+      first(first((await listIntelligence({ id: item.id })).records).evidence),
+    ).not.toHaveProperty("capturedAt");
+    const search = await searchEverythingWithLanes({
+      query: "Ship Atlas",
+      type: "knowledge",
+    });
+    expect(
+      search.rows.find((entry) => entry.id === item.id)?.citation?.capturedAt,
+    ).toBeUndefined();
+  });
+
+  it("invalidates undated Markdown evidence when a meeting time is explicitly supplied on reimport", async () => {
+    const file = {
+      path: "meeting-time.md",
+      content: "Morgan will ship Atlas.",
+      kind: "transcript" as const,
+    };
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const capture = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    expect(first(item.evidence)).not.toHaveProperty("capturedAt");
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, capturedAt: capture.capturedAt }],
+      enqueueDistillation: false,
+    });
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+    const refreshed = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    expect(first(refreshed.item.evidence).capturedAt).toBe(capture.capturedAt);
   });
 
   it.each(["date", "content"] as const)(
@@ -465,7 +575,9 @@ describe("evidence-backed intelligence", () => {
       });
       const same = await createCapture(captureInput);
       expect(same.status).toBe("distilled");
-      expect(JSON.parse(same.metadataJson).capturedAtExplicit).toBe(true);
+      expect(JSON.parse(same.metadataJson)).not.toHaveProperty(
+        "capturedAtSource",
+      );
       expect(
         (await listIntelligence({ id: item.id })).records.map(
           (record) => record.id,

@@ -16,6 +16,7 @@ import {
   parseJson,
   publishedKnowledgeStatusClause,
   safeCitationUrl,
+  sanitizeEvidenceCitationUrls,
 } from "./brain.js";
 import {
   hybridSearchArtifacts,
@@ -386,7 +387,9 @@ export function sourceUrlFromMetadata(
 }
 
 function firstCitation(evidenceJson: string) {
-  const evidence = parseJson<BrainEvidence[]>(evidenceJson, []);
+  const evidence = sanitizeEvidenceCitationUrls(
+    parseJson<BrainEvidence[]>(evidenceJson, []),
+  );
   return (
     evidence.find((item) => item.sourceUrl ?? item.url) ?? evidence[0] ?? null
   );

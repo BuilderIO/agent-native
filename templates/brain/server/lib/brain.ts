@@ -213,6 +213,7 @@ export function sanitizeEvidenceCitationUrls(
 ): BrainEvidence[] {
   return evidence.map((item) => {
     const next: BrainEvidence = { ...item };
+    if (next.capturedAtSource !== "manual-markdown") delete next.capturedAt;
     const sourceUrl = safeCitationUrl(next.sourceUrl);
     const url = safeCitationUrl(next.url);
     if (sourceUrl) next.sourceUrl = sourceUrl;
@@ -857,6 +858,7 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   delete comparable.captureSanitization;
   // Connectors stamp every re-pull with a fresh run id; it must not re-queue unchanged captures.
   delete comparable.syncRunId;
+  // Legacy markers may have described connector fallback times; the new source marker affects citation freshness.
   delete comparable.capturedAtExplicit;
   return stableJson(comparable);
 }
@@ -870,6 +872,7 @@ export type CaptureInput = {
   content: string;
   metadata?: Record<string, unknown> | undefined;
   capturedAt?: string | undefined;
+  capturedAtSource?: "manual-markdown" | undefined;
   status?: "queued" | "distilling" | "distilled" | "ignored";
   audience?: {
     kind: BrainAudienceAssignment["kind"];
@@ -1072,11 +1075,15 @@ export async function commitPreparedCaptureWithWarnings(
     : {};
   const nextMetadata = { ...sanitized.metadata };
   delete nextMetadata.capturedAtExplicit;
+  delete nextMetadata.capturedAtSource;
   if (
-    values.capturedAt ||
-    (!values.capturedAt && previousMetadata.capturedAtExplicit === true)
+    source.provider === "manual" &&
+    values.externalId?.startsWith("markdown:") &&
+    ((values.capturedAt && values.capturedAtSource === "manual-markdown") ||
+      (!values.capturedAt &&
+        previousMetadata.capturedAtSource === "manual-markdown"))
   ) {
-    nextMetadata.capturedAtExplicit = true;
+    nextMetadata.capturedAtSource = "manual-markdown";
   }
   const nextMetadataJson = stableJson(nextMetadata);
   const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
@@ -1962,9 +1969,14 @@ export async function validateEvidenceWithContent(
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
       quote,
-      ...(metadata.capturedAtExplicit === true &&
+      ...(access.source.provider === "manual" &&
+      access.capture.externalId?.startsWith("markdown:") &&
+      metadata.capturedAtSource === "manual-markdown" &&
       !Number.isNaN(Date.parse(access.capture.capturedAt))
-        ? { capturedAt: access.capture.capturedAt }
+        ? {
+            capturedAt: access.capture.capturedAt,
+            capturedAtSource: "manual-markdown" as const,
+          }
         : {}),
       note: item.note,
       timestampMs: item.timestampMs,
@@ -2355,8 +2367,13 @@ function canonicalEvidenceFromUnknown(value: unknown): BrainEvidence[] {
             : captureId,
         quote,
       };
-      if (typeof evidence.capturedAt === "string")
+      if (
+        evidence.capturedAtSource === "manual-markdown" &&
+        typeof evidence.capturedAt === "string"
+      ) {
         result.capturedAt = evidence.capturedAt;
+        result.capturedAtSource = "manual-markdown";
+      }
       if (typeof evidence.note === "string") result.note = evidence.note;
       const sourceUrl = safeCitationUrl(evidence.sourceUrl ?? evidence.url);
       if (sourceUrl) result.sourceUrl = sourceUrl;
