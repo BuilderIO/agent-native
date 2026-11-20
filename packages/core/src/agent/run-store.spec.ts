@@ -876,7 +876,9 @@ describe("run store", () => {
     expect(safe).toMatchObject({
       type: "error",
       errorCode: "tool_call_journal_unreadable",
-      error: expect.stringContaining("Please send the request again."),
+      error: expect.stringContaining(
+        "Check what was saved before sending the request again.",
+      ),
     });
 
     const other = JSON.parse(

@@ -56,8 +56,6 @@ export type PriorTurnToolCallJournalRead =
       priorToolCalls: PriorTurnToolCallSummary[];
       priorToolResults: PriorTurnToolResultSummary[];
       priorToolCallSequence: PriorTurnToolCallSequenceEntry[];
-      /** Private tools that may have changed something earlier in this turn; their inputs are not kept. */
-      privateCompletedTools: string[];
     }
   | {
       status: "unreadable";
@@ -221,6 +219,9 @@ function durableStepToolDone(
       ? { chatUI, chatUIResult: outcome.chatUIResult }
       : {}),
     ...(fileMutation ? { fileMutation } : {}),
+    ...(event.omitFromPersistedHistory === true
+      ? { omitFromPersistedHistory: true as const }
+      : {}),
   };
 }
 
@@ -460,7 +461,6 @@ export async function loadPriorTurnToolCallJournal(
       priorToolCalls: [],
       priorToolResults: [],
       priorToolCallSequence: [],
-      privateCompletedTools: [],
     };
   }
   let priorEvents: AgentChatEvent[];
@@ -474,15 +474,14 @@ export async function loadPriorTurnToolCallJournal(
     return { status: "unreadable", error };
   }
   const privateStarts = new Map<string, string>();
-  const privateDone = new Set<string>();
-  const privateCompletedTools = new Set<string>();
+  const privateFinished = new Set<string>();
   for (const event of priorEvents) {
     if (event.omitFromPersistedHistory !== true) continue;
     if (event.type === "tool_start") {
       if (
         !event.id ||
         privateStarts.has(event.id) ||
-        privateDone.has(event.id)
+        privateFinished.has(event.id)
       ) {
         return {
           status: "unreadable",
@@ -496,7 +495,11 @@ export async function loadPriorTurnToolCallJournal(
       if (
         !event.id ||
         privateStarts.get(event.id) !== event.tool ||
-        privateDone.has(event.id)
+        privateFinished.has(event.id) ||
+        event.outcomeUnknown === true ||
+        (event.isError === true &&
+          typeof event.completedSideEffect !== "boolean") ||
+        (event.approvalPause === true && event.completedSideEffect !== false)
       ) {
         return {
           status: "unreadable",
@@ -506,14 +509,7 @@ export async function loadPriorTurnToolCallJournal(
         };
       }
       privateStarts.delete(event.id);
-      privateDone.add(event.id);
-      if (
-        event.approvalPause !== true &&
-        event.notExecuted !== true &&
-        event.completedSideEffect !== false
-      ) {
-        privateCompletedTools.add(event.tool);
-      }
+      privateFinished.add(event.id);
     }
   }
   if (privateStarts.size > 0) {
@@ -594,7 +590,6 @@ export async function loadPriorTurnToolCallJournal(
     priorToolCalls,
     priorToolResults,
     priorToolCallSequence,
-    privateCompletedTools: [...privateCompletedTools],
   };
 }
 

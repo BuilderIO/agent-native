@@ -294,6 +294,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
   AGENT_CHAT_TURN_GRANT_FIELD,
+  backgroundRunInitiatorMarker,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
@@ -437,7 +438,6 @@ import {
   schemaAcceptsToolValue,
   type ToolInputRepair,
 } from "./optional-placeholders.js";
-import { PRIVATE_ACTION_ALREADY_COMPLETED_RESULT } from "./private-safe-errors.js";
 import {
   ProcessorChain,
   TripWire,
@@ -4356,9 +4356,7 @@ export async function callConnectedAgentReference(input: {
   });
   relay.start();
   try {
-    const callerAuth = await input.resolveCallerAuth({
-      includeGoogleToken: true,
-    });
+    const callerAuth = await input.resolveCallerAuth();
     const response = await input.callAgent(input.path, input.message, {
       async: true,
       apiKey: callerAuth.apiKey,
@@ -8163,6 +8161,14 @@ export async function runAgentLoop(opts: {
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const priorPrivateSideEffect =
+    journalRead.status === "read" &&
+    journalRead.events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.omitFromPersistedHistory === true &&
+        event.completedSideEffect === true,
+    );
   turnHasActionWarnings =
     journalRead.status === "read" &&
     journalRead.events.some(
@@ -8410,9 +8416,6 @@ export async function runAgentLoop(opts: {
           details: journalRead.error,
         }
       : null;
-  const privateCompletedTools = new Set(
-    journalRead.status === "read" ? journalRead.privateCompletedTools : [],
-  );
 
   const historyReadOnlyCalls = await readOnlyToolCallsFromHistory(
     messages,
@@ -10935,35 +10938,6 @@ export async function runAgentLoop(opts: {
         };
       }
 
-      if (!actionIsReadOnly && privateCompletedTools.has(toolCall.name)) {
-        await send({
-          type: "tool_start",
-          id: toolCall.id,
-          ...(executionStepId ? { executionStepId } : {}),
-          tool: toolCall.name,
-          input: liveToolInput as Record<string, string>,
-        });
-        await emitToolDone({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: liveToolInput as Record<string, unknown>,
-          result: PRIVATE_ACTION_ALREADY_COMPLETED_RESULT,
-          isError: true,
-          errorCode: "private_action_already_completed",
-          notExecuted: true,
-        });
-        recordToolResult(PRIVATE_ACTION_ALREADY_COMPLETED_RESULT, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: PRIVATE_ACTION_ALREADY_COMPLETED_RESULT,
-          isError: true,
-        };
-      }
-
       // A continued turn replays only what this call recorded committing,
       // for arguments prepared exactly as these are, or a write recorded
       // before calls had identities, by its raw input; anything else runs
@@ -12247,10 +12221,9 @@ export async function runAgentLoop(opts: {
 
     const skipToolCallAfterStop = (
       toolCall: import("./engine/types.js").EngineToolCallPart,
+      result = `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
+        "Continue with the results already collected.",
     ): EngineContentPart => {
-      const result =
-        `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
-        "Continue with the results already collected.";
       send({
         type: "tool_start",
         id: toolCall.id,
@@ -12297,6 +12270,26 @@ export async function runAgentLoop(opts: {
       }
       if (turnYieldedToUser || requestedActionStop) {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
+        continue;
+      }
+      const privateResumeIntent = priorPrivateSideEffect
+        ? await resolveToolCallIntent(toolCall)
+        : undefined;
+      if (
+        priorPrivateSideEffect &&
+        (privateResumeIntent === undefined ||
+          (privateResumeIntent.status === "prepared" &&
+            privateResumeIntent.intent.valid &&
+            !intentIsReadOnly(privateResumeIntent.intent)))
+      ) {
+        await flushParallelBatch();
+        toolResultParts.push(
+          skipToolCallAfterStop(
+            toolCall,
+            `Not executed: a private action already completed earlier in this turn, and its details are not available after the run resumed. ` +
+              `Do not repeat it or guess its result. Tell the user that an earlier private step finished, ask them to check what was saved, and to send a new request for anything else.`,
+          ),
+        );
         continue;
       }
       const batchKind = await getParallelBatchKind(toolCall);
@@ -14055,6 +14048,7 @@ export async function chainServerDrivenContinuation(opts: {
   const continuationMarker = {
     runId: nextRunId,
     turnId: effectiveTurnId,
+    ...backgroundRunInitiatorMarker(nextRunId, opts.turnInitiator),
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
@@ -15634,9 +15628,8 @@ export function createProductionAgentHandler(
           })
         : null;
     if (
-      (requestedApprovedToolCallAskIds?.length ||
-        (privateRequestHistory && exactApprovedToolCall)) &&
-      !resolvedApprovalTurnId
+      requestedApprovedToolCalls?.length &&
+      (!requestedApprovedToolCallAskIds?.length || !resolvedApprovalTurnId)
     ) {
       setResponseStatus(event, 409);
       return {
@@ -17663,6 +17656,7 @@ export function createProductionAgentHandler(
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
                   payloadRef: true,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               }
             : {
@@ -17672,6 +17666,7 @@ export function createProductionAgentHandler(
                   turnId: effectiveTurnId,
                   backgroundFunctionRuntimeExpected:
                     expectsNetlifyBackgroundFunction,
+                  ...backgroundRunInitiatorMarker(runId, turnInitiator),
                 },
               },
         });

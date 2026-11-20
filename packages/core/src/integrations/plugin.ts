@@ -6,7 +6,7 @@ import {
   getQuery,
   sendRedirect,
 } from "h3";
-import { getRequestHeader } from "h3";
+import { createError, getRequestHeader, isError } from "h3";
 import type { EventHandler } from "h3";
 
 import {
@@ -23,6 +23,8 @@ import {
   hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
 } from "../org/context.js";
+import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
+import { canManageOrg } from "../org/permissions.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
@@ -49,6 +51,7 @@ import {
   startIntervalJob,
   type IntervalJobHandle,
 } from "../server/interval-job.js";
+import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { sessionResolutionFailure } from "../server/session-resolution-errors.js";
@@ -476,6 +479,7 @@ type IntegrationCredentialContext = {
   orgScope?: "personal";
   defaultAgentEngineScope?: "deployment";
   isIntegrationCaller?: boolean;
+  skipUserScopeSecrets?: boolean;
 };
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
@@ -941,10 +945,64 @@ export function createIntegrationsPlugin(
       };
     };
 
+    async function integrationOwnerOrgId(
+      ownerEmail: string | undefined,
+    ): Promise<string | null> {
+      const owner = ownerEmail?.trim();
+      if (!owner) return null;
+      const scope = await resolveIntegrationRequestScope({
+        ownerEmail: owner,
+        principalType: "user",
+      });
+      return scope.orgId ?? null;
+    }
+
+    function storedIntegrationOwnerOrgId(
+      config: Awaited<ReturnType<typeof getIntegrationConfig>>,
+    ): string | null | undefined {
+      const stored = config?.configData.ownerOrgId;
+      return typeof stored === "string" || stored === null ? stored : undefined;
+    }
+
+    async function assertCanReplaceIntegrationOwner(
+      platform: string,
+      actorEmail: string | undefined,
+    ): Promise<string | null | undefined> {
+      const existing = await getIntegrationConfig(platform);
+      const existingOwner = existing?.owner?.trim();
+      if (!existingOwner) return undefined;
+      const actor = actorEmail?.trim().toLowerCase() ?? "";
+      const storedOrgId = storedIntegrationOwnerOrgId(existing);
+      if (actor) {
+        if (typeof storedOrgId === "string") {
+          if (canManageOrg(await readOrgMemberRole(storedOrgId, actor))) {
+            return storedOrgId;
+          }
+        } else if (
+          actor === existingOwner.toLowerCase() ||
+          canManageDeploymentWithoutOrg(actor)
+        ) {
+          return storedOrgId;
+        }
+      }
+      throw createError({
+        statusCode: 403,
+        message: `${platform} is managed by another organization on this deployment.`,
+      });
+    }
+
     const channels: MountedChannels = {
       adapters,
       webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
       async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        const recordedOrgId = await assertCanReplaceIntegrationOwner(
+          platform,
+          actorEmail,
+        );
+        const ownerOrgId =
+          recordedOrgId === undefined
+            ? await integrationOwnerOrgId(actorEmail)
+            : recordedOrgId;
         if (platform === "google-docs") {
           if (enabled) {
             const ownerEmail = actorEmail?.trim();
@@ -955,7 +1013,7 @@ export function createIntegrationsPlugin(
             }
             await saveIntegrationConfig(
               platform,
-              { enabled },
+              { enabled, ownerOrgId },
               "default",
               ownerEmail,
             );
@@ -967,7 +1025,7 @@ export function createIntegrationsPlugin(
           } else {
             await saveIntegrationConfig(
               platform,
-              { enabled },
+              { enabled, ownerOrgId },
               "default",
               actorEmail,
             );
@@ -977,7 +1035,7 @@ export function createIntegrationsPlugin(
         }
         await saveIntegrationConfig(
           platform,
-          { enabled },
+          { enabled, ownerOrgId },
           "default",
           actorEmail,
         );
@@ -1161,13 +1219,16 @@ export function createIntegrationsPlugin(
       const ownerEmail =
         typeof config?.owner === "string" ? config.owner.trim() : "";
       if (!ownerEmail) return null;
+      const storedOrgId = storedIntegrationOwnerOrgId(config);
       return {
         userEmail: ownerEmail,
         ...integrationRequestContext(
-          await resolveIntegrationRequestScope({
-            ownerEmail,
-            principalType: "user",
-          }),
+          storedOrgId === undefined
+            ? await resolveIntegrationRequestScope({
+                ownerEmail,
+                principalType: "user",
+              })
+            : verifiedRequestScope(storedOrgId),
         ),
         isIntegrationCaller: true,
       };
@@ -1210,8 +1271,11 @@ export function createIntegrationsPlugin(
         return { ok: false, error: "unauthorized" };
       }
       const ctx = await getIntegrationOrgContext(event);
-      if (!ctx?.orgId) return { ok: true };
-      if (ctx.role === "owner" || ctx.role === "admin") return { ok: true };
+      if (!ctx.orgId) {
+        if (canManageDeploymentWithoutOrg(session.email)) return { ok: true };
+      } else if (ctx.role === "owner" || ctx.role === "admin") {
+        return { ok: true };
+      }
       setResponseStatus(event, 403);
       return {
         ok: false,
@@ -3293,6 +3357,30 @@ export function createIntegrationsPlugin(
               ...integrationRequestContext(requestScope),
             },
             async () => {
+              const installOwnerOrgId = access.orgId ?? null;
+              if (!userOnlyInstall) {
+                try {
+                  const recordedOrgId = await assertCanReplaceIntegrationOwner(
+                    "slack",
+                    access.ownerEmail,
+                  );
+                  if (
+                    recordedOrgId !== undefined &&
+                    recordedOrgId !== installOwnerOrgId
+                  ) {
+                    setResponseStatus(event, 409);
+                    return oauthErrorPage(
+                      "Switch to the organization that manages Slack, then install again.",
+                    );
+                  }
+                } catch (err) {
+                  if (!isError(err) || err.statusCode !== 403) throw err;
+                  setResponseStatus(event, 403);
+                  return oauthErrorPage(
+                    "Slack is managed by another organization on this deployment.",
+                  );
+                }
+              }
               const clientId = await resolveSecret("SLACK_CLIENT_ID");
               const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
               if (!clientId || !clientSecret) {
@@ -3373,7 +3461,11 @@ export function createIntegrationsPlugin(
               });
               await saveIntegrationConfig(
                 "slack",
-                { enabled: true, managedOAuth: true },
+                {
+                  enabled: true,
+                  managedOAuth: true,
+                  ownerOrgId: installOwnerOrgId,
+                },
                 "default",
                 access.ownerEmail,
               );
@@ -3488,9 +3580,12 @@ export function createIntegrationsPlugin(
           const config = await getIntegrationConfig(platform);
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
+          const verificationContext = credentialContext
+            ? { ...credentialContext, skipUserScopeSecrets: true }
+            : null;
 
           const verification = await withCredentialContext(
-            credentialContext,
+            verificationContext,
             () => adapter.handleVerification(event),
           );
 
@@ -3503,7 +3598,7 @@ export function createIntegrationsPlugin(
             return { error: "Invalid webhook verification challenge" };
           }
 
-          const isValid = await withCredentialContext(credentialContext, () =>
+          const isValid = await withCredentialContext(verificationContext, () =>
             adapter.verifyWebhook(event),
           );
           if (!isValid) {

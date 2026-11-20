@@ -108,6 +108,7 @@ import {
   onSessionIdentityPublished,
   subscribeSessionScope,
 } from "./session-identity.js";
+import { retainFallbackToolDoneRefresh } from "./tool-done-refresh.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 import { reportWriteFailure } from "./write-failure-event.js";
 
@@ -1845,6 +1846,7 @@ export function useActionQuery<
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
   const queryClient = useQueryClient();
+  useEffect(() => retainFallbackToolDoneRefresh(queryClient), [queryClient]);
   const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
   const surfaceOptions = useRef({ restOptions, callerEnabled, canFetch });

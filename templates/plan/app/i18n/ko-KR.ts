@@ -269,6 +269,8 @@ const messages = {
         "검토 중에는 링크가 비활성화되어 문서가 그대로 유지됩니다.",
       visualPromptCopied: "시각적 섭취 프롬프트가 복사되었습니다.",
       sentAnswers: "상담원에게 답변을 보냈습니다.",
+      sendAnswersPrompt: "답변을 에이전트에게 보낼까요?",
+      sendAnswersAction: "보내기",
       recapLinkCopied: "요약 링크 복사됨",
       planLinkCopied: "Plan 링크가 복사되었습니다.",
       localPathCopied: "로컬 경로가 복사되었습니다.",

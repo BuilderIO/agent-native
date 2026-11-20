@@ -544,6 +544,7 @@ export async function createNotionPageWithMarkdown(args: {
 export async function getDocumentOwnerEmail(
   event: H3Event,
   documentId?: string,
+  options: { requireOwner?: boolean } = {},
 ): Promise<string> {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -551,7 +552,7 @@ export async function getDocumentOwnerEmail(
   }
   if (!documentId) return session.email;
 
-  return runWithRequestContext(
+  const owner = await runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId },
     async () => {
       const access = await assertAccess("document", documentId, "editor").catch(
@@ -567,6 +568,16 @@ export async function getDocumentOwnerEmail(
       return owner;
     },
   );
+  if (
+    options.requireOwner &&
+    owner.trim().toLowerCase() !== session.email.trim().toLowerCase()
+  ) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: "Only the document owner can link or push to Notion.",
+    });
+  }
+  return owner;
 }
 
 export async function getNotionConnectionForOwner(owner: string) {
