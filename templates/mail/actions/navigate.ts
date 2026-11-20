@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { getDecisionsStatus } from "@agent-native/core/decisions";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import {
@@ -62,6 +65,7 @@ export default defineAction({
       .describe(
         "Compose draft ID to reopen — opens the inbox so the compose panel auto-shows the matching compose-<id> draft",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
   mcpTool: "search",

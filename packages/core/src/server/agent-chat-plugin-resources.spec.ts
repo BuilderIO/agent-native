@@ -2897,6 +2897,96 @@ describe("loadResourcesForPrompt", () => {
     );
   });
 
+  it("loads non-empty personal memory/MEMORY.md in compact prompt mode", async () => {
+    mocks.resourceGetByPath.mockImplementation(
+      async (owner: string, resourcePath: string) => {
+        if (
+          owner === "user@example.test" &&
+          resourcePath === "memory/MEMORY.md"
+        ) {
+          return {
+            content:
+              "# Memory Index\n- [wife-contact](wife-contact.md) — Wife's email address\n",
+          };
+        }
+        return null;
+      },
+    );
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain(
+      '<resource name="memory/MEMORY.md" scope="personal"',
+    );
+    expect(prompt).toContain("wife-contact.md");
+  });
+
+  function mockPersonalMemoryIndex(content: string) {
+    mocks.resourceGetByPath.mockImplementation(
+      async (owner: string, resourcePath: string) =>
+        owner === "user@example.test" && resourcePath === "memory/MEMORY.md"
+          ? { content }
+          : null,
+    );
+  }
+
+  it("skips a personal memory index that is still the empty default in compact mode", async () => {
+    mockPersonalMemoryIndex("# Memory Index\n");
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).not.toContain('name="memory/MEMORY.md"');
+  });
+
+  it("skips a blank personal memory index in either mode", async () => {
+    mockPersonalMemoryIndex("   \n");
+
+    expect(
+      await loadResourcesForPrompt("user@example.test", true),
+    ).not.toContain('name="memory/MEMORY.md"');
+    expect(
+      await loadResourcesForPrompt("user@example.test", false),
+    ).not.toContain('name="memory/MEMORY.md"');
+  });
+
+  it("keeps the default personal memory index in the full prompt", async () => {
+    mockPersonalMemoryIndex("# Memory Index");
+
+    const prompt = await loadResourcesForPrompt("user@example.test", false);
+
+    expect(prompt).toContain(
+      '<resource name="memory/MEMORY.md" scope="personal"',
+    );
+  });
+
+  it("does not load personal memory for the shared owner", async () => {
+    mocks.resourceGetByPath.mockImplementation(
+      async (_owner: string, resourcePath: string) =>
+        resourcePath === "memory/MEMORY.md" ? { content: "- [x](x.md)" } : null,
+    );
+
+    const prompt = await loadResourcesForPrompt("__shared__", true);
+
+    expect(prompt).not.toContain('name="memory/MEMORY.md"');
+  });
+
+  it("tells compact prompts that save-memory writes personal memory without approval", async () => {
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      true,
+      undefined,
+      null,
+      {
+        runtimeToolHints: true,
+      },
+    );
+
+    expect(prompt).toContain(
+      "`save-memory` writes personal memory (memory/MEMORY.md) immediately without extra approval",
+    );
+    expect(prompt).toContain("is not approval for shared writes");
+  });
+
   it("fails the prompt build when Lab-gated skill state cannot be read", async () => {
     const failure = new Error("Labs settings unavailable");
     mocks.getRuntimeSkillsForUser.mockRejectedValueOnce(failure);

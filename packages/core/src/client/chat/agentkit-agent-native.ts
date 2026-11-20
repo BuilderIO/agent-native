@@ -70,6 +70,7 @@ import {
   CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
   CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
   CHAT_REQUEST_TOO_LARGE_MESSAGE,
+  formatChatErrorText,
 } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
 import {
@@ -968,6 +969,26 @@ function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
       ];
     }),
   );
+}
+
+function removeRenderedRunError(
+  message: AgentMessage,
+  failedRuns: ReadonlyMap<string, AgentError>,
+): AgentMessage {
+  const runId = asRecord(message.metadata)?.runId;
+  if (message.role !== "assistant" || typeof runId !== "string") return message;
+  const error = failedRuns.get(runId);
+  const last = message.parts.at(-1);
+  if (!error || last?.type !== "text") return message;
+
+  const formatted = formatChatErrorText(error.message, undefined, error.code);
+  if (last.text !== formatted && !last.text.endsWith(`\n\n${formatted}`)) {
+    return message;
+  }
+  const partialReply = last.text.slice(0, -formatted.length).trimEnd();
+  const parts = message.parts.slice(0, -1);
+  if (partialReply) parts.push({ ...last, text: partialReply });
+  return { ...message, parts };
 }
 
 /** The turn each durable prompt started, keyed by the run it was submitted to. */
@@ -3734,15 +3755,6 @@ export function createAgentNativeAgentKitTransport(
         discoveredRun = { ...discoveredRun, activeMessageId };
       }
     }
-    if (discoveredRun?.status === "failed") {
-      const durableFailure = durableFailures.get(discoveredRun.id);
-      if (durableFailure) {
-        discoveredRun = {
-          ...discoveredRun,
-          error: { ...discoveredRun.error, ...durableFailure },
-        };
-      }
-    }
     const knownActiveRunId =
       discoveredRun &&
       !["completed", "failed", "cancelled"].includes(discoveredRun.status)
@@ -3827,12 +3839,20 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
-    const authoritativeRuns =
+    const renderedDurableFailures = new Map<string, AgentError>();
+    const authoritativeRuns = (
       projectRunLifecycles(
         runs,
         stored.runLifecycles,
         discoveredRun ?? undefined,
-      ) ?? runs;
+      ) ?? runs
+    ).map((run) => {
+      const failure = durableFailures.get(run.id);
+      if (run.status !== "failed" || !failure) return run;
+      renderedDurableFailures.set(run.id, failure);
+      return { ...run, error: mergeRunErrors(run.error, failure) ?? failure };
+    });
+
     let threadMessages = thread.messages;
     let replayedEvents: AgentEvent[] | undefined;
     if (
@@ -3894,6 +3914,8 @@ export function createAgentNativeAgentKitTransport(
       replayedEvents ?? thread.events,
       authoritativeRuns,
       thread.toolCalls,
+    ).map((message) =>
+      removeRenderedRunError(message, renderedDurableFailures),
     );
     const replayFromStart = [
       "running",

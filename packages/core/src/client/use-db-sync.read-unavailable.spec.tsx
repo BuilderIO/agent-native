@@ -144,6 +144,51 @@ describe("useDbSync durable read unavailable", () => {
     expect(pollCalls).toBeGreaterThan(after);
   });
 
+  it("refreshes data and advances past a typed unreadable entry", async () => {
+    pollResponses = [
+      () => ok({ version: 5, events: [] }),
+      () =>
+        ok({
+          version: 7,
+          cursor: "7.row-b",
+          events: [
+            {
+              version: 7,
+              cursorId: "row-b",
+              source: "action",
+              type: "change",
+              key: "create",
+            },
+          ],
+          unreadable: [{ type: "access-unavailable" }],
+        }),
+    ];
+    await mount();
+    await flush();
+    await flush(300_000);
+    expect(providerFetches).toBeGreaterThanOrEqual(2);
+    expect(predicate).toHaveBeenCalled();
+    expect(pollUrls[2]).toContain("since=7");
+  });
+
+  it("refreshes for an unreadable event with unknown scope", async () => {
+    pollResponses = [
+      () => ok({ version: 5, events: [] }),
+      () =>
+        ok({
+          version: 6,
+          cursor: "6.row-a",
+          events: [],
+          unreadable: [{ type: "unknown-scope" }],
+        }),
+    ];
+    await mount();
+    await flush();
+    await flush(300_000);
+    expect(providerFetches).toBeGreaterThanOrEqual(2);
+    expect(pollUrls[2]).toContain("since=6");
+  });
+
   it("resets a non-zero cursor and resyncs once for a genuine unavailable read", async () => {
     pollResponses = [() => ok({ version: 5, events: [] }), unavailable];
     await mount();

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import {
   BrainCaptureBlockedError,
-  createCapture,
+  createCaptureWithWarnings,
   ensureManualSource,
   serializeCapture,
   serializeSource,
@@ -34,9 +34,9 @@ export default defineAction({
       ? null
       : await ensureManualSource(args.sourceTitle ?? "Manual imports");
     const sourceId = args.sourceId ?? source!.id;
-    let capture;
+    let written;
     try {
-      capture = await createCapture({
+      written = await createCaptureWithWarnings({
         sourceId,
         externalId: args.externalId,
         title: args.title,
@@ -56,6 +56,7 @@ export default defineAction({
         distillation: undefined,
       };
     }
+    const { capture, ...warnings } = written;
     const distillation =
       args.enqueueDistillation &&
       capture.status !== "distilled" &&
@@ -73,6 +74,7 @@ export default defineAction({
           }
         : serializedCapture,
       distillation,
+      ...warnings,
     };
   },
 });

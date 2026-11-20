@@ -18,7 +18,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/lib/brain.js", () => ({
   BrainCaptureBlockedError: mocks.BrainCaptureBlockedError,
-  createCapture: mocks.createCapture,
+  createCaptureWithWarnings: async (
+    ...args: Parameters<typeof mocks.createCapture>
+  ) => ({
+    capture: await mocks.createCapture(...args),
+  }),
   ensureManualSource: mocks.ensureManualSource,
   serializeCapture: (capture: unknown) => capture,
   serializeSource: (source: unknown) => source,

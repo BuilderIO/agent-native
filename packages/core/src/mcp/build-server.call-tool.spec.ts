@@ -58,6 +58,7 @@ vi.mock("../org/context.js", async (importOriginal) => ({
 const alice: MCPCallerIdentity = {
   userEmail: "alice@example.com",
   identityAssurance: "user",
+  orgId: null,
   orgDomain: undefined,
 };
 

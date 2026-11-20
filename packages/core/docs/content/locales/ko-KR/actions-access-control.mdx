@@ -206,6 +206,8 @@ export default defineAction({
 
 `approvedToolCalls`는 채팅 요청의 필드입니다(`AgentChatRequest.approvedToolCalls`). 여기에 없는 키는 일시 정지 상태로 남습니다. 하나의 호출을 승인해도 다른 어떤 호출도 승인되지 않습니다. 키가 내용 기반으로 주소가 매겨지므로, 승인은 정확히 그 인자를 가진 그 호출 하나만 허가합니다. 모델이 이후 다른 전송을 제안하면 이는 새로운 키가 되어 별도의 새 승인이 필요합니다.
 
+다시 발행된 턴에는 해당 호출의 대기 중인 요청 ID도 `approvedToolCallAskIds`에 담깁니다. 서버는 그 요청이 같은 사용자와 같은 스레드에서 아직 대기 중일 때만 호출을 실행하므로, 키만으로는 아무것도 승인되지 않으며 `agentNative.submitChat`으로 승인을 전달할 수 있는 것은 앱 자체의 페이지뿐입니다.
+
 ### 전체 흐름 {#flow}
 
 <Diagram id="doc-block-2nor1g" title="승인 인터럽트" summary={"게이트가 걸린 호출은 run()이 실행되기 전에 턴을 멈춥니다. 승인은 호출의 키를 담아 턴을 다시 발행합니다. 그때에야 비로소 부작용이 일어납니다."}>

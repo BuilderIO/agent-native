@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isAgentCaller } from "../../action-caller.js";
 import { defineAction } from "../../action.js";
 import {
   assertVersionedResourceAccess,
@@ -89,7 +90,7 @@ function actorKindFromContext(
   ctx: VersionedResourceContext | undefined,
 ): HistoryActorKind {
   const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || caller === "tool") {
+  if (isAgentCaller(caller)) {
     return "agent";
   }
   return ctx?.userEmail ? "human" : "system";

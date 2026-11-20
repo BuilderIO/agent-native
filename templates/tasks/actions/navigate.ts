@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import {
@@ -23,6 +26,7 @@ export const navigateSchema = z.object({
   includeDone: optionalBooleanQueryParam().describe(
     "When true, show completed tasks on /tasks",
   ),
+  intent: navigationIntentSchema,
 });
 
 export default defineAction({

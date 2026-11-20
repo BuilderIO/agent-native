@@ -510,8 +510,9 @@ export function observeAcceptedCanonicalSettlement(args: {
 
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
+  fromSelectionToolbar = false,
 ) {
-  return capturedSelection == null;
+  return capturedSelection == null && !fromSelectionToolbar;
 }
 
 export function restoreCapturedEditorSelection(
@@ -8083,7 +8084,7 @@ function PageEditorSessionBody({
   ]);
 
   const handleSuggestionModeChange = useCallback(
-    async (next: boolean) => {
+    async (next: boolean, { fromSelectionToolbar = false } = {}) => {
       if (next) {
         if (!canSuggest || startingSuggestionRef.current) return;
         const initialSelection = pageActionsSelectionRef.current;
@@ -8124,7 +8125,10 @@ function PageEditorSessionBody({
             return;
           }
           if (
-            !shouldResumeSelectedSuggestionFromPageActions(initialSelection)
+            !shouldResumeSelectedSuggestionFromPageActions(
+              initialSelection,
+              fromSelectionToolbar,
+            )
           ) {
             if (
               !startSuggestionDraft(readyDocument, undefined, initialSelection)
@@ -8178,6 +8182,14 @@ function PageEditorSessionBody({
     canResume: documentFresh && canSuggest && (!canEdit || editorCanEdit),
     resume: resumeSuggestionMode,
   });
+
+  const handleSuggestEdit = useCallback(
+    (selection: VisualEditorSelectionSnapshot | null) => {
+      pageActionsSelectionRef.current = selection;
+      void handleSuggestionModeChange(true, { fromSelectionToolbar: true });
+    },
+    [handleSuggestionModeChange],
+  );
 
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
@@ -8942,6 +8954,7 @@ function PageEditorSessionBody({
   const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
   const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
   const agentSlotRef = useRef<HTMLDivElement>(null);
+  const agentHeadSlotRef = useRef<HTMLDivElement>(null);
   // The panel head's tool slot; Discussion portals its controls there.
   const [pagePanelHeadTools, setPagePanelHeadTools] =
     useState<HTMLDivElement | null>(null);
@@ -9233,7 +9246,11 @@ function PageEditorSessionBody({
   // A row preview's sheet covers the page's panel, so the agent stays there
   // and the preview's own panel holds Discussion and Info.
   const agent = useAgentPanelState();
-  const showAgentTab = useAgentPanelSlot(agentSlotRef, host === "page");
+  const showAgentTab = useAgentPanelSlot(
+    agentSlotRef,
+    host === "page",
+    agentHeadSlotRef,
+  );
   const agentInPanel = showAgentTab && agent.inPanel;
   const utilityPanelTab = documentPagePanelTab({
     agentInPanel: false,
@@ -12344,6 +12361,11 @@ function PageEditorSessionBody({
                                 onComment={
                                   canComment ? handleComment : undefined
                                 }
+                                onSuggestEdit={
+                                  canSuggest && !mcpDirectoryWidgetReadOnly
+                                    ? handleSuggestEdit
+                                    : undefined
+                                }
                                 onBlockComment={
                                   canComment ? handleBlockComment : undefined
                                 }
@@ -12538,6 +12560,7 @@ function PageEditorSessionBody({
           spacerRef={pagePanelSpacerRef}
           headingRef={pagePanelHeadingRef}
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          agentHeadSlotRef={host === "page" ? agentHeadSlotRef : undefined}
           headToolsRef={setPagePanelHeadTools}
           onClose={() => handlePagePanelChange(null)}
         >
