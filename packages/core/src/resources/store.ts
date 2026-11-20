@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import {
@@ -55,6 +56,7 @@ import {
   MemoryMirrorStaleError,
   MemoryTombstoneError,
   MemoryWriteConflictError,
+  readMemoryTombstone,
   readMemoryTombstoneFloor,
   withSharedMemoryLock,
   readMirroredMemory,
@@ -2091,6 +2093,17 @@ function handleMirrorFailure(error: unknown): void {
 }
 
 const memoryMirrorChains = new Map<string, Promise<unknown>>();
+const heldMirrorKeys = new AsyncLocalStorage<ReadonlySet<string>>();
+
+function underMemoryLock<T>(
+  owner: string,
+  path: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  return isPersonalMemoryResourcePath(owner, path)
+    ? serializeMemoryMirror(owner, path, work)
+    : work();
+}
 
 function serializeMemoryMirror<T>(
   owner: string,
@@ -2098,9 +2111,15 @@ function serializeMemoryMirror<T>(
   work: () => Promise<T>,
 ): Promise<T> {
   const key = `${owner}\0${path}`;
+  const held = heldMirrorKeys.getStore();
+  if (held?.has(key)) return work();
+  const locked = () =>
+    heldMirrorKeys.run(new Set(held).add(key), () =>
+      withSharedMemoryLock(owner, path, work),
+    );
   const run = (memoryMirrorChains.get(key) ?? Promise.resolve()).then(
-    work,
-    work,
+    locked,
+    locked,
   );
   const tail = run.catch(() => {});
   memoryMirrorChains.set(key, tail);
@@ -2488,18 +2507,16 @@ export async function resourceGetByPath(
           (shared.content !== dbResource.content &&
             (shared.mtimeMs > dbResource.updatedAt || dbIsEmptyIndex))
         ) {
-          return serializeMemoryMirror(owner, path, () =>
-            withSharedMemoryLock(owner, path, async () => {
-              const fresh = await readMirroredMemory(owner, path);
-              if (fresh.state === "present") {
-                return adoptSharedMemory(owner, path, fresh, dbResource);
-              }
-              const hidden =
-                fresh.state === "deleted" &&
-                (!dbResource || dbResource.updatedAt <= fresh.deletedAt);
-              return hidden ? null : (dbResource ?? null);
-            }),
-          );
+          return serializeMemoryMirror(owner, path, async () => {
+            const fresh = await readMirroredMemory(owner, path);
+            if (fresh.state === "present") {
+              return adoptSharedMemory(owner, path, fresh, dbResource);
+            }
+            const hidden =
+              fresh.state === "deleted" &&
+              (!dbResource || dbResource.updatedAt <= fresh.deletedAt);
+            return hidden ? null : (dbResource ?? null);
+          });
         }
       }
     }
@@ -2876,16 +2893,18 @@ export async function resourcePut(
   if (owner === WORKSPACE_OWNER) {
     await assertWritableWorkspaceResourcePath(path);
   }
-  const write = await resourcePutWithDb(
-    getDbExec(),
-    owner,
-    path,
-    content,
-    mimeType,
-    options,
-  );
-  await write.notifyAfterCommit();
-  return write.value;
+  return underMemoryLock(owner, path, async () => {
+    const write = await resourcePutWithDb(
+      getDbExec(),
+      owner,
+      path,
+      content,
+      mimeType,
+      options,
+    );
+    await write.notifyAfterCommit();
+    return write.value;
+  });
 }
 
 export async function resourcePutIfAbsent(
@@ -2895,13 +2914,8 @@ export async function resourcePutIfAbsent(
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource | null> {
-  return resourcePutIfAbsentInternal(
-    owner,
-    path,
-    content,
-    mimeType,
-    options,
-    true,
+  return underMemoryLock(owner, path, () =>
+    resourcePutIfAbsentInternal(owner, path, content, mimeType, options, true),
   );
 }
 
@@ -2998,9 +3012,11 @@ async function resourcePutIfAbsentInternal(
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
-  const resource = await writeResourceIfCurrent(input, getDbExec());
-  if (resource) await notifyResourceIfCurrent(input, resource);
-  return resource;
+  return underMemoryLock(input.owner, input.path, async () => {
+    const resource = await writeResourceIfCurrent(input, getDbExec());
+    if (resource) await notifyResourceIfCurrent(input, resource);
+    return resource;
+  });
 }
 
 /** The caller must emit the returned notification only after its transaction commits. */
@@ -3106,7 +3122,7 @@ export async function resourceDeleteWithDb(
     );
   }
   const { rows } = await client.execute({
-    sql: `SELECT path, owner, updated_at FROM resources WHERE id = ?`,
+    sql: `SELECT path, owner, updated_at, content FROM resources WHERE id = ?`,
     args: [id],
   });
   if (rows.length === 0) {
@@ -3166,9 +3182,26 @@ export async function resourceDeleteWithDb(
             removed.updatedAt + 1,
           );
         } catch (error) {
-          await clearSharedMemoryTombstone(owner, path, marker).catch(
-            handleMirrorFailure,
-          );
+          try {
+            const written = await readMemoryTombstone(owner, path);
+            if (
+              written !== null &&
+              !(await clearSharedMemoryTombstone(owner, path, written))
+            ) {
+              throw new Error("the deletion marker changed while clearing it");
+            }
+            await writeSharedPersonalMemory(
+              owner,
+              path,
+              String(rows[0].content),
+              Number(rows[0].updated_at),
+            );
+          } catch (cleanupError) {
+            throw new MemoryDeleteStateUnknownError(
+              `Could not delete ${path} and its deletion marker could not be removed; whether it is hidden is unknown`,
+              { cause: new AggregateError([error, cleanupError]) },
+            );
+          }
           throw error;
         }
       }
@@ -3240,7 +3273,9 @@ function localWorkspaceResourceSnapshot(resource: Resource) {
 export async function resourcePutIfSnapshot(
   input: ResourceSnapshotWrite,
 ): Promise<ResourceSnapshotWriteRecord | null> {
-  return resourcePutIfSnapshotInternal(input, true);
+  return underMemoryLock(input.owner, input.path, () =>
+    resourcePutIfSnapshotInternal(input, true),
+  );
 }
 
 async function resourcePutIfSnapshotInternal(
@@ -3521,7 +3556,16 @@ export async function resourcePutSnapshotPairIfCurrent(
     | null;
 }
 
-export async function resourceRestoreSnapshotIfCurrent(
+export function resourceRestoreSnapshotIfCurrent(
+  snapshot: Resource,
+  current: Resource | null,
+): Promise<boolean> {
+  return underMemoryLock(snapshot.owner, snapshot.path, () =>
+    restoreSnapshotIfCurrent(snapshot, current),
+  );
+}
+
+async function restoreSnapshotIfCurrent(
   snapshot: Resource,
   current: Resource | null,
 ): Promise<boolean> {

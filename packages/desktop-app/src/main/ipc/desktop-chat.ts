@@ -1023,6 +1023,7 @@ async function createDesktopTerminalSession(
       },
       cwd: resolveDesktopTerminalCwd(appConfig?.localPath),
       onClose: close,
+      bindTerminate: memoryOwner.bindTerminate,
     };
   } catch (error) {
     await close();
@@ -1761,6 +1762,14 @@ const memoryOwnerFiles = new Map<string, string>();
 let currentMemoryAccount: string | null = null;
 
 const memorySessions = new Set<(account: string | null) => void>();
+const memorySessionTerminators = new Map<string, () => void>();
+
+function terminateMemorySession(file: string): void {
+  console.error(
+    "[desktop-chat] Ending a terminal whose memory access cannot be revoked",
+  );
+  memorySessionTerminators.get(file)?.();
+}
 
 export function setDesktopMemoryAccount(rawAccount: string | null): void {
   const account = rawAccount?.trim().toLowerCase() || null;
@@ -1773,6 +1782,12 @@ export function setDesktopMemoryAccount(rawAccount: string | null): void {
       memoryOwnerFiles.delete(file);
     } catch (error) {
       failures.push(error);
+      try {
+        fs.writeFileSync(file, "");
+      } catch (blankError) {
+        failures.push(blankError);
+        terminateMemorySession(file);
+      }
     }
   }
   for (const rebind of [...memorySessions]) {
@@ -1831,6 +1846,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
   file: string;
   memoryDir: string | undefined;
   release: () => void;
+  bindTerminate: (terminate: () => void) => void;
 }> {
   const file = path.join(
     app.getPath("userData"),
@@ -1866,6 +1882,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
       console.error("[desktop-chat] Could not link the memory root:", error);
     }
   };
+  let unrevocable = false;
   const revoke = () => {
     if (!memoryDir) return;
     try {
@@ -1881,6 +1898,8 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
         fs.rmSync(memoryDir, { recursive: true, force: true });
       } catch (rootError) {
         failures.push(rootError);
+        unrevocable = true;
+        terminateMemorySession(file);
       }
       throw new AggregateError(failures, "Could not revoke the memory root");
     }
@@ -1965,8 +1984,13 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
   return {
     file,
     memoryDir,
+    bindTerminate: (terminate) => {
+      memorySessionTerminators.set(file, terminate);
+      if (unrevocable) terminate();
+    },
     release: () => {
       released = true;
+      memorySessionTerminators.delete(file);
       if (memoryDir) fs.rmSync(memoryDir, { recursive: true, force: true });
       memorySessions.delete(rebind);
       watcher?.close();

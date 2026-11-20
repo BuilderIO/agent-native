@@ -1581,6 +1581,7 @@ describe("desktop Pi extension memory prompt", () => {
       rm.mockRestore();
     }
     expect(readdirSync(root)).toEqual([]);
+    expect(readFileSync(session.file, "utf8")).toBe("");
     session.release();
     setDesktopMemoryAccount(null);
   });
@@ -1635,6 +1636,69 @@ describe("desktop Pi extension memory prompt", () => {
       rm.mockRestore();
     }
     expect(existsSync(link)).toBe(false);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("ends a terminal whose prompt file can neither be removed nor blanked", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const terminate = vi.fn();
+    session.bindTerminate(terminate);
+    await vi.waitFor(() => expect(existsSync(session.file)).toBe(true));
+    const realRm = nodeFs.rmSync;
+    const realWrite = nodeFs.writeFileSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === session.file) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    const write = vi.spyOn(nodeFs, "writeFileSync").mockImplementation(((
+      target: nodeFs.PathOrFileDescriptor,
+      ...rest: unknown[]
+    ) => {
+      if (String(target) === session.file) throw new Error("EROFS");
+      return (realWrite as (...a: unknown[]) => void)(target, ...rest);
+    }) as typeof nodeFs.writeFileSync);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      setDesktopMemoryAccount("b@example.test");
+    } finally {
+      write.mockRestore();
+      rm.mockRestore();
+      log.mockRestore();
+    }
+    expect(terminate).toHaveBeenCalledTimes(1);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("ends a terminal whose memory root cannot be removed", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const terminate = vi.fn();
+    session.bindTerminate(terminate);
+    const root = session.memoryDir as string;
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target).startsWith(root)) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      setDesktopMemoryAccount(null);
+    } finally {
+      rm.mockRestore();
+      log.mockRestore();
+    }
+    expect(terminate).toHaveBeenCalledTimes(1);
     session.release();
     setDesktopMemoryAccount(null);
   });

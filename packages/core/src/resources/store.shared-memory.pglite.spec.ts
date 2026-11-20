@@ -1351,6 +1351,81 @@ describe("personal memory shared across local apps", () => {
       );
     });
 
+    it("keeps a write visible when a delete races its tombstone-floor read", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/floor-race.md", "v1");
+      await pglite.exec(
+        `UPDATE resources SET updated_at = ${stored.updatedAt + 5_000} WHERE id = '${stored.id}'`,
+      );
+      await Promise.all([
+        resourceDeleteByPath(OWNER, "memory/floor-race.md"),
+        resourcePut(OWNER, "memory/floor-race.md", "v2"),
+      ]);
+      const { rows } = await pglite.query(
+        `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/floor-race.md'`,
+      );
+      const visible = await resourceGetByPath(OWNER, "memory/floor-race.md");
+      expect(visible !== null).toBe(rows.length > 0);
+      expect(fs.existsSync(sharedFile(dir, "floor-race.md"))).toBe(
+        rows.length > 0,
+      );
+    });
+
+    it("does not overwrite a shared edit installed by another process while this write waits for the lock", async () => {
+      const dir = useMemoryDir();
+      const { resourceGetByPath, resourcePut } = await import("./store.js");
+      const { MemoryWriteConflictError } = await import("./shared-memory.js");
+      const stored = await resourcePut(OWNER, "memory/lock-edit.md", "base");
+      const file = sharedFile(dir, "lock-edit.md");
+      fs.writeFileSync(`${file}.lock`, `${process.pid} ${Date.now()}`);
+      const writing = resourcePut(OWNER, "memory/lock-edit.md", "ours");
+      const settled = writing.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      // fixed-sleep-ok: lets the writer reach the held lock before the foreign edit lands.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      fs.writeFileSync(file, "edited elsewhere");
+      const later = new Date(stored.updatedAt + 60_000);
+      fs.utimesSync(file, later, later);
+      fs.unlinkSync(`${file}.lock`);
+      expect(await settled).toBeInstanceOf(MemoryWriteConflictError);
+      expect(fs.readFileSync(file, "utf8")).toBe("edited elsewhere");
+      await expect(
+        resourceGetByPath(OWNER, "memory/lock-edit.md"),
+      ).resolves.toMatchObject({ content: "edited elsewhere" });
+    });
+
+    it("restores the shared copy when the transactional restamp fails", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteWithDb, resourcePut } = await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/restamp2.md", "live");
+      const file = sharedFile(dir, "restamp2.md");
+      const realRename = fs.promises.rename.bind(fs.promises);
+      let tombstones = 0;
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (String(to).endsWith(".deleted") && ++tombstones > 1) {
+            throw new Error("EROFS");
+          }
+          return realRename(from, to);
+        });
+      try {
+        await expect(
+          sharedClient.transaction?.((tx) =>
+            resourceDeleteWithDb(tx, stored.id),
+          ),
+        ).rejects.toThrow("EROFS");
+      } finally {
+        rename.mockRestore();
+      }
+      expect(fs.existsSync(`${file}.deleted`)).toBe(false);
+      expect(fs.readFileSync(file, "utf8")).toBe("live");
+    });
+
     it("reconciles a newer shared-file edit when a memory is read by id", async () => {
       const dir = useMemoryDir();
       const { resourceGet, resourcePut } = await import("./store.js");

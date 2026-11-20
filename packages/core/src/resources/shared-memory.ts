@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -202,10 +203,14 @@ async function breakStaleLock(lockPath: string): Promise<void> {
   }
 }
 
+const heldFileLocks = new AsyncLocalStorage<ReadonlySet<string>>();
+
 async function lockFile<T>(
   filePath: string,
   work: () => Promise<T>,
 ): Promise<T> {
+  const held = heldFileLocks.getStore();
+  if (held?.has(filePath)) return work();
   const lockPath = `${filePath}.lock`;
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
@@ -230,7 +235,7 @@ async function lockFile<T>(
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
   try {
-    return await work();
+    return await heldFileLocks.run(new Set(held).add(filePath), work);
   } finally {
     await fs.promises.unlink(lockPath).catch((error) => {
       if (!isMissingPathError(error)) throw error;
@@ -419,6 +424,17 @@ export async function readMemoryTombstoneFloor(
     return null;
   });
   return stat?.isFile() && stat.mtimeMs > deletedAt ? null : deletedAt;
+}
+
+/** The raw tombstone value, whether or not the file still covers it. */
+export async function readMemoryTombstone(
+  owner: string,
+  resourcePath: string,
+): Promise<number | null> {
+  const rootDir = getSharedMemoryDir();
+  const tombstonePath =
+    rootDir && resolveTombstonePath(rootDir, owner, resourcePath);
+  return tombstonePath ? readTombstone(tombstonePath) : null;
 }
 
 /** Removes the marker only while it still holds the value this caller wrote. */
