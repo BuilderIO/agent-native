@@ -37,7 +37,9 @@ import { runWithMcpTurnGrantScope } from "./turn-grant-scope.js";
 
 const grants = vi.hoisted(() => new Map<string, any>());
 const getUserSettingMock = vi.hoisted(() =>
-  vi.fn<() => Promise<Record<string, unknown> | null>>(async () => null),
+  vi.fn<
+    (email?: string, key?: string) => Promise<Record<string, unknown> | null>
+  >(async () => null),
 );
 
 vi.mock("../settings/user-settings.js", async (importOriginal) => {
@@ -501,6 +503,88 @@ describe("executeMcpActionCall", () => {
         ),
       ).resolves.toMatchObject({ status: "approval-required" });
     } finally {
+      getUserSettingMock.mockReset();
+      getUserSettingMock.mockResolvedValue(null);
+      resetAppConfigForTests();
+    }
+  });
+
+  it("honors no-approvals mode for MCP direct and pageApprovalOnly gates via verified identity when request email is absent", async () => {
+    const direct = defineAction({
+      description: "Direct write.",
+      userTurn: "direct",
+      needsApproval: () => true,
+      run: async () => ({ ok: "direct" }),
+    }) as unknown as ActionEntry;
+    const approval = defineAction({
+      description: "Page approval write.",
+      userTurn: "approval",
+      needsApproval: () => true,
+      run: async () => ({ ok: "approval" }),
+    }) as unknown as ActionEntry;
+
+    const previousAmbientEmail = process.env.AGENT_USER_EMAIL;
+    try {
+      process.env.AGENT_USER_EMAIL = "deploy-admin@example.com";
+      getUserSettingMock.mockImplementation(async (email?: string) =>
+        email === "user@example.com" ? { enabled: true } : { enabled: false },
+      );
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          executeMcpActionCall(context, {
+            name: "direct",
+            args: {},
+            callable: { direct },
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () =>
+            executeMcpActionCall(context, {
+              name: "approval",
+              args: {},
+              callable: { approval },
+            }),
+        ),
+      ).resolves.toMatchObject({ status: "completed" });
+
+      getUserSettingMock.mockImplementation(async (email?: string) =>
+        email === "deploy-admin@example.com"
+          ? { enabled: true }
+          : { enabled: false },
+      );
+      await expect(
+        runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
+          executeMcpActionCall(context, {
+            name: "direct",
+            args: {},
+            callable: { direct },
+          }),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+      await expect(
+        runWithMcpTurnGrantScope(
+          "approval",
+          "approval",
+          Date.now() + 60_000,
+          () =>
+            executeMcpActionCall(context, {
+              name: "approval",
+              args: {},
+              callable: { approval },
+            }),
+        ),
+      ).resolves.toMatchObject({ status: "approval-required" });
+    } finally {
+      if (previousAmbientEmail === undefined) {
+        delete process.env.AGENT_USER_EMAIL;
+      } else {
+        process.env.AGENT_USER_EMAIL = previousAmbientEmail;
+      }
       getUserSettingMock.mockReset();
       getUserSettingMock.mockResolvedValue(null);
       resetAppConfigForTests();

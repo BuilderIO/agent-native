@@ -745,6 +745,8 @@ const messages = {
   "errorMessages.providerHtml": "The provider returned an HTML error page.",
   "errorMessages.providerNetwork":
     "The model provider could not be reached. Check your connection and retry.",
+  "errorMessages.emailVerificationRequired":
+    "Verify an eligible email address with the connected AI provider account or space, then retry.",
   "errorMessages.providerRateLimit":
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
   "errorMessages.providerTransientRejection":
@@ -1275,7 +1277,7 @@ const messages = {
     "This run can't be continued anymore. Send a message to keep going.",
   "errorMessages.invalidAttachmentNamed":
     "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
-  "recovery.resendVerificationEmail": "Resend verification email",
+  "recovery.resendVerificationEmail": "Resend app account verification email",
   "recovery.sendingVerificationEmail": "Sending...",
   "recovery.verificationEmailRequested":
     "Verification email requested. Check your inbox and spam folder.",

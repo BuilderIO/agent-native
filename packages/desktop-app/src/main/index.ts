@@ -356,7 +356,10 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
-import { setMailWebviewBackgroundThrottling } from "./webview-background-throttling.js";
+import {
+  setMailWebviewBackgroundThrottling,
+  setWebviewBackgroundThrottling,
+} from "./webview-background-throttling.js";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
@@ -2175,6 +2178,14 @@ ipcMain.on(
       app: appId || undefined,
     });
     clearDesktopShortcutActivation(requestId);
+  },
+);
+
+ipcMain.on(
+  IPC.SET_WEBVIEW_BACKGROUND_THROTTLING,
+  (event: IpcMainEvent, request: unknown) => {
+    if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+    setWebviewBackgroundThrottling(request, (id) => webContents.fromId(id));
   },
 );
 
