@@ -16,12 +16,16 @@ Copy the connection string for your database from the Prisma Console and set
 `DATABASE_URL` in the server environment:
 
 ```bash
-DATABASE_URL=postgresql://user:password@db.prisma.io:5432/postgres?sslmode=require
+DATABASE_URL=postgresql://user:password@db.prisma.io:5432/postgres?sslmode=verify-full
 ```
 
 The framework uses its standard Postgres driver for Prisma Postgres URLs. Do
-not add a second database client to the app. Prisma Postgres only accepts TLS
-connections, so keep `sslmode=require` in the URL.
+not add a second database client to the app.
+
+Prisma Postgres only accepts TLS connections. Its connection strings come with
+`sslmode=require`, which encrypts the connection but does not check the server
+certificate in the framework's driver. Change it to `sslmode=verify-full` so
+the driver verifies the certificate and host name. No CA file is needed.
 
 ## Direct and pooled hosts
 
