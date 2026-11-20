@@ -1,0 +1,97 @@
+@import "@fontsource-variable/inter";
+@import "tailwindcss";
+@import "@agent-native/toolkit/styles.css";
+@source "./**/*.{ts,tsx}";
+:root {
+  --background: 0 0% 100%;
+  --foreground: 210 12% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 210 12% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 210 12% 9%;
+  --primary: 205 96% 49%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 16% 96%;
+  --secondary-foreground: 210 12% 20%;
+  --muted: 210 15% 96%;
+  --muted-foreground: 210 13% 43%;
+  --accent: 205 65% 95%;
+  --accent-foreground: 205 50% 30%;
+  --destructive: 0 72% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 210 15% 92%;
+  --input: 210 15% 88%;
+  --ring: 205 96% 49%;
+  --radius: 0.65rem;
+  --jn-sidebar: 210 12% 98%;
+  --jn-selected: 210 8% 94%;
+  --jn-ink: 210 13% 34%;
+  --jn-muted: 208 13% 52%;
+  --jn-blue: 204 96% 51%;
+  --jn-orange: 29 100% 52%;
+  --jn-avatar: 185 30% 40%;
+  --jn-preview: 210 20% 99%;
+  --sidebar-background: 210 12% 98%;
+  --sidebar-foreground: 210 13% 34%;
+  --sidebar-border: 210 15% 92%;
+  --sidebar-primary: 205 96% 49%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 8% 94%;
+  --sidebar-accent-foreground: 210 12% 9%;
+  --sidebar-ring: 205 96% 49%;
+  --jn-sidebar-width: 300px;
+}
+.dark {
+  --background: 218 12% 10%;
+  --foreground: 210 15% 92%;
+  --card: 218 12% 10%;
+  --card-foreground: 210 15% 92%;
+  --popover: 218 12% 14%;
+  --popover-foreground: 210 15% 92%;
+  --secondary: 218 12% 18%;
+  --secondary-foreground: 210 15% 92%;
+  --muted: 218 12% 16%;
+  --muted-foreground: 210 10% 65%;
+  --accent: 210 20% 21%;
+  --accent-foreground: 205 60% 85%;
+  --border: 215 10% 21%;
+  --input: 215 10% 28%;
+  --jn-sidebar: 218 12% 12%;
+  --jn-selected: 215 12% 19%;
+  --jn-ink: 210 15% 84%;
+  --jn-muted: 210 10% 63%;
+  --jn-preview: 218 12% 12%;
+  --sidebar-background: 218 12% 12%;
+  --sidebar-foreground: 210 15% 84%;
+  --sidebar-border: 215 10% 21%;
+  --sidebar-accent: 215 12% 19%;
+  --sidebar-accent-foreground: 210 15% 92%;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family:
+    "Inter Variable",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-size: 14px;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+}
