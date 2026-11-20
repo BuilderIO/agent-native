@@ -5373,6 +5373,223 @@ describe("createAgentKitProtocolAdapter", () => {
     await transport.dispose();
   });
 
+  it("makes a second Stop wait until the first has stopped the run", async () => {
+    const streamClosed = Promise.withResolvers<void>();
+    const cancelSettled = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "status", message: "Working" };
+      await streamClosed.promise;
+    }
+    const cancel = vi.fn(async () => {
+      streamClosed.resolve();
+      await cancelSettled.promise;
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Copy the slides")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    const drained = (async () => {
+      while (!(await iterator.next()).done) {}
+    })();
+
+    const first = transport.cancelRun({ threadId: "thread-1", runId });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    let secondReturned = false;
+    const second = transport
+      .cancelRun({ threadId: "thread-1", runId })
+      .then(() => {
+        secondReturned = true;
+      });
+    // fixed-sleep-ok: gives a second Stop a turn to return early, which it must not
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(secondReturned).toBe(false);
+
+    cancelSettled.resolve();
+    await Promise.all([first, second]);
+    await drained;
+
+    expect(cancel).toHaveBeenCalledOnce();
+    await expect(
+      transport.getRun?.({ threadId: "thread-1", runId }),
+    ).resolves.toMatchObject({ status: "cancelled" });
+    await transport.dispose();
+  });
+
+  it("keeps the text a run streamed before the server stopped it", async () => {
+    const stopSent = Promise.withResolvers<void>();
+    const trailingArrived = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: "44. A salmon rests" },
+      };
+      await stopSent.promise;
+      await trailingArrived.promise;
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: " in the shadow.\n45. R" },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const cancel = vi.fn(async () => {
+      stopSent.resolve();
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("List river sentences")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    let streamed = await iterator.next();
+    while (streamed.value?.type !== "message.delta") {
+      streamed = await iterator.next();
+    }
+    const remaining: AgentEvent[] = [];
+    const drained = (async () => {
+      for (
+        let next = await iterator.next();
+        !next.done;
+        next = await iterator.next()
+      ) {
+        remaining.push(next.value);
+      }
+    })();
+
+    const cancelling = transport.cancelRun({ threadId: "thread-1", runId });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    // fixed-sleep-ok: lets the Stop request return before the trailing text arrives
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    trailingArrived.resolve();
+    await cancelling;
+    await drained;
+
+    expect(
+      remaining.flatMap((event) =>
+        event.type === "message.delta" ? [event.text] : [],
+      ),
+    ).toEqual([" in the shadow.\n45. R"]);
+    expect(remaining.map((event) => event.type)).not.toContain("run.completed");
+    expect(remaining.at(-1)?.type).toBe("run.cancelled");
+    await transport.dispose();
+  });
+
+  it("settles a Stop only once its readers have taken the stopped reply's text", async () => {
+    const stopSent = Promise.withResolvers<void>();
+    const trailingArrived = Promise.withResolvers<void>();
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: "44. A salmon rests" },
+      };
+      await stopSent.promise;
+      await trailingArrived.promise;
+      yield {
+        type: "message-delta",
+        messageId: "assistant-1",
+        delta: { type: "text", text: " in the shadow." },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const cancel = vi.fn(async () => {
+      stopSent.resolve();
+      return { status: "cancelled" as const };
+    });
+    const runtime = createRuntime(activeEvents);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: activeEvents(),
+        cancel,
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("List river sentences")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    let streamed = await iterator.next();
+    while (streamed.value?.type !== "message.delta") {
+      streamed = await iterator.next();
+    }
+
+    const stop = { settled: false };
+    const cancelling = transport
+      .cancelRun({ threadId: "thread-1", runId })
+      .then(() => {
+        stop.settled = true;
+      });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    trailingArrived.resolve();
+    // fixed-sleep-ok: gives the Stop time to settle early, before the reader takes the trailing text
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(stop.settled).toBe(false);
+
+    const taken: AgentEvent[] = [];
+    while (!stop.settled) {
+      const next = await iterator.next();
+      if (next.done) break;
+      taken.push(next.value);
+    }
+    await cancelling;
+
+    expect(
+      taken.flatMap((event) =>
+        event.type === "message.delta" ? [event.text] : [],
+      ),
+    ).toEqual([" in the shadow."]);
+    await transport.dispose();
+  });
+
   it("releases readers when a cancel whose stream closed first fails", async () => {
     const streamClosed = Promise.withResolvers<void>();
     async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {

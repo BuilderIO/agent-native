@@ -170,4 +170,20 @@ export const agentConfig = z.object({
       env: ["AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"],
       doc: "Hard abort for one in-process background automation run, in milliseconds. This is the host's real function budget for scheduled work.",
     }),
+  noApprovalsEmails: z
+    .array(z.string().email())
+    .default([])
+    .meta({
+      env: ["AGENT_NATIVE_NO_APPROVALS_EMAILS"],
+      doc: "User emails for which no-approvals mode defaults on unless overridden by their stored setting.",
+    }),
+  sharedMemoryDir: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_MEMORY_DIR"],
+      doc: "Directory shared by local app processes in the desktop app so personal memory written by one app's agent loads in every other app's new chats.",
+    }),
 });

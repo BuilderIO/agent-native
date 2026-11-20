@@ -1,7 +1,7 @@
-import { fail } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import {
+  navigateAfterWrite,
   writeAppState,
-  writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
@@ -125,7 +125,7 @@ function playerDimensions(oembed: YouTubeOembed): {
  */
 export async function importYouTubeVideo(
   args: YouTubeImportArgs,
-  actionContext: { userEmail?: string | null } | undefined,
+  actionContext: Pick<ActionRunContext, "userEmail" | "caller"> | undefined,
 ) {
   const videoId = extractYouTubeVideoId(args.url);
   if (!videoId) {
@@ -225,10 +225,13 @@ export async function importYouTubeVideo(
     updatedAt: now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
-  await writeAppStateForCurrentTab("navigate", {
-    view: "recording",
-    recordingId: id,
-  });
+  await navigateAfterWrite(
+    {
+      view: "recording",
+      recordingId: id,
+    },
+    { ctx: actionContext },
+  );
 
   return {
     recordingId: id,

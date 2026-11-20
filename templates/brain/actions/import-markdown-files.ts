@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import {
   BrainCaptureBlockedError,
-  createCapture,
+  createCaptureWithWarnings,
   ensureManualSource,
   getAccessibleSource,
   serializeSource,
@@ -27,6 +27,7 @@ type ImportedMarkdownResult =
       captureId: string;
       distillation: "queued" | "existing" | "skipped" | "failed";
       error?: string;
+      postCommitWarnings?: string[];
     }
   | {
       path: string;
@@ -169,17 +170,19 @@ export default defineAction({
     for (const file of validFiles) {
       const normalizedPath = file.normalizedPath;
       try {
-        const capture = await createCapture({
-          sourceId: source.id,
-          externalId: `markdown:${normalizedPath}`,
-          title: normalizedPath,
-          kind: "document",
-          content: file.input.content,
-          metadata: {
-            path: normalizedPath,
-            sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+        const { capture, postCommitWarnings } = await createCaptureWithWarnings(
+          {
+            sourceId: source.id,
+            externalId: `markdown:${normalizedPath}`,
+            title: normalizedPath,
+            kind: "document",
+            content: file.input.content,
+            metadata: {
+              path: normalizedPath,
+              sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+            },
           },
-        });
+        );
         let distillation: "queued" | "existing" | "skipped" | "failed" =
           "skipped";
         let distillationError: string | undefined;
@@ -202,6 +205,7 @@ export default defineAction({
           status: "imported",
           captureId: capture.id,
           distillation,
+          ...(postCommitWarnings ? { postCommitWarnings } : {}),
           ...(distillationError
             ? {
                 error: `Capture imported, but distillation failed: ${distillationError}`,

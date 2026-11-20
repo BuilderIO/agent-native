@@ -390,32 +390,48 @@ export async function resolveBackgroundAutomationIdentity(
     return resolved;
   }
 
+  const owner = automation.resource.owner;
+  const ownerOrgId = organizationIdFromResourceOwner(owner);
+  const declaredOrgId = automation.meta.orgId?.trim() || undefined;
+  const createdBy = automation.meta.createdBy?.trim() || undefined;
+  if (!ownerOrgId && owner !== SHARED_OWNER) {
+    if (createdBy && createdBy.toLowerCase() !== owner.trim().toLowerCase()) {
+      return {
+        ok: false,
+        reason: "Personal automation creator does not match its owner.",
+        code: "config_invalid",
+      };
+    }
+    if (!declaredOrgId) {
+      const resolved = await resolveExecutionIdentity();
+      if (!resolved.ok) return resolved;
+      const validity = await validateAutomationRunIdentity(
+        resolved.identity.userEmail,
+      );
+      if (!validity.ok) return validity;
+      return resolved;
+    }
+  } else if (declaredOrgId && declaredOrgId !== (ownerOrgId ?? undefined)) {
+    return {
+      ok: false,
+      reason: "Automation metadata does not match its owner.",
+      code: "config_invalid",
+    };
+  }
+
   const effectiveRunAs = automation.meta.runAs ?? "creator";
   const userEmail =
-    effectiveRunAs === "creator"
-      ? automation.meta.createdBy || automation.resource.owner
-      : automation.resource.owner;
+    effectiveRunAs === "creator" && (ownerOrgId || owner === SHARED_OWNER)
+      ? createdBy || owner
+      : owner;
   const orgId =
     recoveredFactoryOwnerOrgId(
       automation.meta,
       automation.resource.path,
-      automation.resource.owner,
+      owner,
     ) ??
-    automation.meta.orgId ??
-    undefined;
-  if (
-    !orgId &&
-    automation.resource.owner !== "__shared__" &&
-    !organizationIdFromResourceOwner(automation.resource.owner)
-  ) {
-    const resolved = await resolveExecutionIdentity();
-    if (!resolved.ok) return resolved;
-    const validity = await validateAutomationRunIdentity(
-      resolved.identity.userEmail,
-    );
-    if (!validity.ok) return validity;
-    return resolved;
-  }
+    ownerOrgId ??
+    declaredOrgId;
   const validity = await validateAutomationRunIdentity(userEmail, orgId);
   return validity.ok
     ? {

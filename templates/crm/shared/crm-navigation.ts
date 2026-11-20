@@ -58,14 +58,14 @@ export const CRM_VIEW_PATHS: Record<Exclude<CrmView, "record">, string> = {
 };
 
 export interface CrmNavigationTarget {
-  view?: string;
-  recordId?: string;
-  listId?: string;
-  viewId?: string;
-  dashboardId?: string;
-  kind?: CrmRecordKind;
-  query?: string;
-  settingsSection?: CrmSettingsSection;
+  view?: string | undefined;
+  recordId?: string | undefined;
+  listId?: string | undefined;
+  viewId?: string | undefined;
+  dashboardId?: string | undefined;
+  kind?: CrmRecordKind | undefined;
+  query?: string | undefined;
+  settingsSection?: CrmSettingsSection | undefined;
 }
 
 export function viewFromPath(pathname: string): CrmView {

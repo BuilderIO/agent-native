@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import { SELECTABLE_INTERACT_DEVICE_PRESETS } from "../shared/interact-device-presets.js";
@@ -113,6 +116,7 @@ export default defineAction({
         .optional()
         .describe("Saved or built-in template ID for templates view"),
       path: z.string().optional().describe("URL path to navigate to"),
+      intent: navigationIntentSchema,
     })
     .superRefine((args, ctx) => {
       const editorView = args.editorView ?? args.viewMode;

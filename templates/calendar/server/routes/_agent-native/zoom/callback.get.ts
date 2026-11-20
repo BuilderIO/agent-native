@@ -67,7 +67,7 @@ export default defineEventHandler(async (event: H3Event) => {
     }
     const { redirectUri, owner: stateOwner } = state;
 
-    const { owner } = await resolveOAuthOwner(event, stateOwner);
+    const { owner } = await resolveOAuthOwner(event, stateOwner, state);
     const session = await getSession(event);
     const ownerEmail = owner ?? session?.email;
     if (!ownerEmail) {

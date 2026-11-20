@@ -339,7 +339,8 @@ async function processRecurringJobsWithLease(
                     }),
                 )
               : null;
-          if (recovery?.state === "active") continue;
+          if (recovery?.state === "active" || recovery?.state === "other-app")
+            continue;
           if (recovery?.state === "resume") {
             dueJobCandidates.push({
               key: `${resource.owner}:${resource.path}`,

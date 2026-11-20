@@ -24,7 +24,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "Save an evidence-backed action item, decision, or customer feature request. Copy exact quotes from get-capture; include cited owner, due date, entities and ownership confidence. If privacy redaction is required, use an exact email-free excerpt and omit email owners. AI extraction happens in agent chat.",
+    "Save an evidence-backed action item, decision, or customer feature request. Call write-intelligence one item at a time in sequence (never in parallel batches) with every required field populated. Copy exact quotes from get-capture; include cited owner, due date, entities and ownership confidence. If privacy redaction is required, use an exact email-free excerpt and omit email owners. AI extraction happens in agent chat.",
   schema: z.object({
     expectedRevision: z
       .string()
@@ -113,7 +113,10 @@ export default defineAction({
         "private (default), team, or company; evidence audience restrictions always apply.",
       ),
   }),
-  outputSchema: z.object({ item: intelligenceItemSchema }),
+  outputSchema: z.object({
+    item: intelligenceItemSchema,
+    postCommitWarnings: z.array(z.string()).optional(),
+  }),
   link: ({ result }) => ({
     url: buildDeepLink({
       app: "brain",

@@ -1202,21 +1202,6 @@ export async function run(
         callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
       }
 
-      if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
-        try {
-          const { listOAuthAccountsByOwner } =
-            await import("../oauth-tokens/store.js");
-          const accounts = await listOAuthAccountsByOwner(
-            "google",
-            callerEmail,
-          );
-          const tokens = accounts[0]?.tokens;
-          if (tokens?.access_token) {
-            a2aMetadata.googleToken = tokens.access_token;
-          }
-        } catch {}
-      }
-
       let responseText = "";
       let lastSentLength = 0;
       const agentCallId = randomUUID();

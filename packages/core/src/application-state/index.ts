@@ -54,3 +54,16 @@ export {
   getCurrentRequestBrowserTabId,
   resolveCurrentRequestStateTab,
 } from "./script-helpers.js";
+
+export {
+  AgentNavigationRefusedError,
+  assertAgentNavigationAllowed,
+  isDefaultDetailNavigation,
+  navigateAfterWrite,
+  navigationIntentSchema,
+  NAVIGATION_OPEN_INTENT,
+  withAuthorizedAgentNavigation,
+  type DetailViewPredicate,
+  type NavigateAfterWriteResult,
+  type NavigationIntent,
+} from "./agent-navigation.js";
