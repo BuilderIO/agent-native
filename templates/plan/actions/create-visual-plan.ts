@@ -131,6 +131,14 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    if (args.html?.trim()) {
+      throw Object.assign(
+        new Error(
+          "create-visual-plan no longer accepts html. Send structured `content` (call get-plan-blocks for the block catalog) instead.",
+        ),
+        { statusCode: 400 },
+      );
+    }
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
     const ownerEmail = requirePlanOwnerEmailForWrite(

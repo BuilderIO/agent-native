@@ -571,8 +571,7 @@ const MarkdownPasteDetection = Extension.create({
               return false;
             }
 
-            const div = document.createElement("div");
-            div.innerHTML = html;
+            const div = new DOMParser().parseFromString(html, "text/html").body;
             const hasRichStructure = div.querySelector(
               "h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table, a, strong, b, em, i, u, s, code, img, picture, video, audio, iframe, object, embed, svg",
             );

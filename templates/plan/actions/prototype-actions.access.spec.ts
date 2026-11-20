@@ -242,6 +242,20 @@ describe("create-prototype-plan: owner scoping", () => {
     );
   });
 
+  it("create-visual-plan rejects a non-empty html payload with a 400", async () => {
+    await expect(
+      asUser({ userEmail: OWNER, orgId: ORG }, () =>
+        createVisualPlan.run({
+          brief: "html plan",
+          html: "<p>legacy</p>",
+          status: "review",
+          sections: [],
+          comments: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   it("scopes the new plan to the request user, private + org from context", async () => {
     const planId = await createPrototypeAs(OWNER, ORG);
     const row = await rawPlan(planId);
