@@ -222,6 +222,7 @@ async function resolveSlackSenderProfile(
     const data = (await res.json()) as {
       ok?: boolean;
       user?: {
+        id?: string;
         real_name?: string;
         name?: string;
         profile?: {
@@ -235,7 +236,12 @@ async function resolveSlackSenderProfile(
       };
     };
     const profile =
-      data.ok && data.user
+      data.ok &&
+      data.user?.id === userId &&
+      typeof data.user.is_restricted === "boolean" &&
+      typeof data.user.is_ultra_restricted === "boolean" &&
+      (data.user.is_stranger === undefined ||
+        typeof data.user.is_stranger === "boolean")
         ? {
             email: data.user?.profile?.email?.trim().toLowerCase() || null,
             name:
@@ -245,10 +251,9 @@ async function resolveSlackSenderProfile(
               data.user?.name?.trim() ||
               null,
             trust:
-              data.user?.is_stranger === true ||
-              data.user?.is_ultra_restricted === true
+              data.user.is_stranger === true
                 ? ("external_shared" as const)
-                : data.user?.is_restricted === true
+                : data.user.is_restricted || data.user.is_ultra_restricted
                   ? ("guest" as const)
                   : ("trusted" as const),
           }
@@ -416,7 +421,11 @@ async function resolveSlackConversationTrust(
         is_mpim?: boolean;
       };
     };
-    if (!data.ok || !data.channel) {
+    if (
+      !data.ok ||
+      !data.channel ||
+      typeof data.channel.is_ext_shared !== "boolean"
+    ) {
       return { trust: "unknown", conversationType: "channel" };
     }
     return {
@@ -604,6 +613,11 @@ export async function resolveDispatchExecutionContext(
   };
   let scope = await getIntegrationScope(key, access);
   if (!scope && incoming.triggerKind === "mention") {
+    if (profile.trust === "unknown" || conversation.trust === "unknown") {
+      throw new Error(
+        "Slack channel policy denied: unverified_conversation_disabled",
+      );
+    }
     scope = await saveIntegrationScope(
       {
         ...key,
@@ -622,10 +636,7 @@ export async function resolveDispatchExecutionContext(
       incoming.triggerKind === "thread_reply",
   };
   for (const candidate of [
-    {
-      ...scope,
-      trust: scope.trust === "unknown" ? conversation.trust : scope.trust,
-    },
+    scope,
     { ...scope, ...conversation },
     { ...scope, trust: profile.trust },
   ]) {

@@ -83,6 +83,10 @@ function slackIncoming(
   };
 }
 
+function verifiedSlackUser(id: string, fields: Record<string, unknown> = {}) {
+  return { id, is_restricted: false, is_ultra_restricted: false, ...fields };
+}
+
 function emailIncoming(
   overrides: Partial<IncomingMessage> = {},
 ): IncomingMessage {
@@ -195,10 +199,10 @@ describe("resolveDispatchOwner", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: {
+          user: verifiedSlackUser("U123", {
             real_name: "Slack User",
             profile: { email: "USER@EXAMPLE.TEST", display_name: "User" },
-          },
+          }),
         }),
       ),
     );
@@ -223,9 +227,9 @@ describe("resolveDispatchOwner", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: {
+          user: verifiedSlackUser("U999", {
             profile: { email: "member@example.test", display_name: "Member" },
-          },
+          }),
         }),
       ),
     );
@@ -276,7 +280,9 @@ describe("resolveDispatchOwner", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: { profile: { email: "guest@example.test" } },
+          user: verifiedSlackUser("U123", {
+            profile: { email: "guest@example.test" },
+          }),
         }),
       ),
     );
@@ -468,7 +474,9 @@ describe("beforeDispatchProcess", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: { profile: { email: "outside@example.test" } },
+          user: verifiedSlackUser("U-MANAGED-LINK", {
+            profile: { email: "outside@example.test" },
+          }),
         }),
       ),
     );
@@ -608,7 +616,9 @@ describe("managed Slack execution identity", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: { profile: { email: "alice@example.test" } },
+          user: verifiedSlackUser("U-ENTERPRISE-ALICE", {
+            profile: { email: "alice@example.test" },
+          }),
         }),
       ),
     );
@@ -680,7 +690,9 @@ describe("managed Slack execution identity", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: { profile: { email: "alice@example.test" } },
+          user: verifiedSlackUser("U-MANAGED-ALICE", {
+            profile: { email: "alice@example.test" },
+          }),
         }),
       ),
     );
@@ -723,7 +735,9 @@ describe("managed Slack execution identity", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: { profile: { email: "current@example.test" } },
+          user: verifiedSlackUser("U-MANAGED-MEMBER", {
+            profile: { email: "current@example.test" },
+          }),
         }),
       ),
     );
@@ -789,12 +803,12 @@ describe("managed Slack execution identity", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: {
+          user: verifiedSlackUser("U-MANAGED-ALICE", {
             profile: {
               email: "ALICE@EXAMPLE.TEST",
               display_name: "Alice",
             },
-          },
+          }),
         }),
       ),
     );
@@ -875,7 +889,9 @@ describe("managed Slack execution identity", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: { profile: { email: "outside@example.test" } },
+          user: verifiedSlackUser("U-MANAGED-OUTSIDE", {
+            profile: { email: "outside@example.test" },
+          }),
         }),
       ),
     );
@@ -917,7 +933,9 @@ describe("managed Slack execution identity", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: { profile: { email: "outside@example.test" } },
+          user: verifiedSlackUser("U-MANAGED-LINKED", {
+            profile: { email: "outside@example.test" },
+          }),
         }),
       ),
     );
@@ -964,10 +982,10 @@ describe("managed Slack execution identity", () => {
       new Response(
         JSON.stringify({
           ok: true,
-          user: {
+          user: verifiedSlackUser("U-SLACK-CONNECT-STRANGER", {
             is_stranger: true,
             profile: { email: "stranger@example.test" },
-          },
+          }),
         }),
       ),
     );
@@ -1027,14 +1045,23 @@ describe("managed Slack execution identity", () => {
     try {
       let channelAvailable = false;
       let channelMissing = false;
+      let missingSharedFlag = false;
       let externalShared = false;
+      let senderAvailable = false;
       vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
         const url = String(input);
         if (url.includes("users.info")) {
+          if (url.includes("U-RECOVERY-UNAVAILABLE") && !senderAvailable) {
+            return new Response(JSON.stringify({ ok: false }));
+          }
           return new Response(
             JSON.stringify({
               ok: true,
-              user: { is_restricted: url.includes("U-RECOVERY-GUEST") },
+              user: {
+                id: new URL(url).searchParams.get("user"),
+                is_restricted: false,
+                is_ultra_restricted: url.includes("U-RECOVERY-GUEST"),
+              },
             }),
           );
         }
@@ -1043,7 +1070,12 @@ describe("managed Slack execution identity", () => {
             channelAvailable
               ? channelMissing
                 ? { ok: true }
-                : { ok: true, channel: { is_ext_shared: externalShared } }
+                : {
+                    ok: true,
+                    channel: missingSharedFlag
+                      ? {}
+                      : { is_ext_shared: externalShared },
+                  }
               : { ok: false },
           ),
         );
@@ -1059,19 +1091,59 @@ describe("managed Slack execution identity", () => {
       await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
         "unverified_conversation_disabled",
       );
-      let scope = await actual.getIntegrationScope(key, access);
-      expect(scope).toMatchObject({ trust: "unknown" });
-      if (!scope) throw new Error("Scope was not persisted");
+      expect(await actual.getIntegrationScope(key, access)).toBeNull();
+      expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
 
       channelAvailable = true;
+      missingSharedFlag = true;
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "unverified_conversation_disabled",
+      );
+      expect(await actual.getIntegrationScope(key, access)).toBeNull();
+      missingSharedFlag = false;
+      externalShared = true;
       await expect(
-        resolveDispatchExecutionContext(incoming()),
-      ).resolves.toMatchObject({
+        resolveDispatchExecutionContext(incoming("U-RECOVERY-UNAVAILABLE")),
+      ).rejects.toThrow("unverified_conversation_disabled");
+      expect(await actual.getIntegrationScope(key, access)).toBeNull();
+      expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
+      externalShared = false;
+      senderAvailable = true;
+      const execution = await resolveDispatchExecutionContext(
+        incoming("U-RECOVERY-UNAVAILABLE"),
+      );
+      let scope = await actual.getIntegrationScope(key, access);
+      expect(scope).toMatchObject({ trust: "trusted" });
+      if (!scope) throw new Error("Scope was not persisted");
+      expect(execution).toMatchObject({
         scopeId: scope.id,
         ownerEmail: scope.serviceOwnerEmail,
       });
-      expect(await actual.getIntegrationScope(key, access)).toEqual(scope);
       expect(mocks.saveIntegrationScope).toHaveBeenCalledTimes(1);
+
+      scope = await actual.saveIntegrationScope(
+        { ...scope, trust: "unknown", defaultModel: "admin-model" },
+        access,
+      );
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "unverified_conversation_disabled",
+      );
+      expect(await actual.getIntegrationScope(key, access)).toEqual(scope);
+      scope = await actual.saveIntegrationScope(
+        { ...scope, policy: { ...scope.policy, allowUnknownTrust: true } },
+        access,
+      );
+      await expect(
+        resolveDispatchExecutionContext(incoming()),
+      ).resolves.toMatchObject({ scopeId: scope.id });
+      scope = await actual.saveIntegrationScope(
+        {
+          ...scope,
+          trust: "trusted",
+          policy: { ...scope.policy, allowUnknownTrust: false },
+        },
+        access,
+      );
 
       await expect(
         resolveDispatchExecutionContext(incoming("U-RECOVERY-GUEST")),
@@ -1139,6 +1211,92 @@ describe("managed Slack execution identity", () => {
     }
   });
 
+  it.each([
+    {
+      name: "an existing unknown scope",
+      scopeTrust: "unknown",
+      user: {
+        id: "U-POLICY-UNKNOWN",
+        is_restricted: false,
+        is_ultra_restricted: false,
+      },
+      reason: "unverified_conversation_disabled",
+    },
+    {
+      name: "a single-channel guest",
+      scopeTrust: "trusted",
+      user: {
+        id: "U-POLICY-GUEST",
+        is_restricted: false,
+        is_ultra_restricted: true,
+      },
+      reason: "guests_disabled",
+    },
+    {
+      name: "a multi-channel guest",
+      scopeTrust: "trusted",
+      user: {
+        id: "U-POLICY-MULTI-GUEST",
+        is_restricted: true,
+        is_ultra_restricted: false,
+      },
+      reason: "guests_disabled",
+    },
+  ])(
+    "denies $name without relaxing the saved policy",
+    async ({ scopeTrust, user, reason }) => {
+      const { evaluateIntegrationScopePolicy } = await vi.importActual<
+        typeof import("@agent-native/core/integrations")
+      >("@agent-native/core/integrations");
+      mocks.evaluateIntegrationScopePolicy.mockImplementation(
+        evaluateIntegrationScopePolicy,
+      );
+      mocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+        managedSlackInstallation(),
+      );
+      mocks.resolveSlackBotTokenForIncoming.mockResolvedValue("managed-token");
+      mocks.resolveIntegrationTokenBundle.mockResolvedValue({
+        accessToken: "managed-token",
+      });
+      mocks.getIntegrationScope.mockResolvedValue({
+        id: "scope-policy",
+        serviceOwnerEmail: "scope@integration.local",
+        orgId: "org-managed",
+        defaultModel: null,
+        trust: scopeTrust,
+        conversationType: "channel",
+        policy: {
+          requireMention: true,
+          allowDirectMessages: false,
+          allowGuests: false,
+          allowExternalShared: true,
+          allowUnknownTrust: false,
+        },
+      });
+      vi.mocked(globalThis.fetch).mockImplementation(
+        async (input) =>
+          new Response(
+            JSON.stringify(
+              String(input).includes("users.info")
+                ? { ok: true, user }
+                : { ok: true, channel: { is_ext_shared: false } },
+            ),
+          ),
+      );
+      await expect(
+        resolveDispatchExecutionContext(
+          slackIncoming({
+            senderId: user.id,
+            triggerKind: "mention",
+            conversationType: "channel",
+            platformContext: { teamId: "T-POLICY", channelId: "C-POLICY" },
+          }),
+        ),
+      ).rejects.toThrow(reason);
+      expect(mocks.saveIntegrationScope).not.toHaveBeenCalled();
+    },
+  );
+
   it("retries an unavailable Slack sender lookup instead of caching unknown trust", async () => {
     const { evaluateIntegrationScopePolicy } = await vi.importActual<
       typeof import("@agent-native/core/integrations")
@@ -1158,7 +1316,7 @@ describe("managed Slack execution identity", () => {
       serviceOwnerEmail: "scope@integration.local",
       orgId: "org-managed",
       defaultModel: null,
-      trust: "unknown",
+      trust: "trusted",
       conversationType: "channel",
       policy: {
         requireMention: true,
@@ -1170,6 +1328,9 @@ describe("managed Slack execution identity", () => {
     });
     let senderAvailable = false;
     let senderMissing = false;
+    let senderIncomplete = false;
+    let senderMismatch = false;
+    let missingGuestFlag = false;
     vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
       if (String(input).includes("users.info")) {
         return new Response(
@@ -1177,7 +1338,18 @@ describe("managed Slack execution identity", () => {
             senderAvailable
               ? senderMissing
                 ? { ok: true }
-                : { ok: true, user: {} }
+                : senderIncomplete
+                  ? { ok: true, user: {} }
+                  : {
+                      ok: true,
+                      user: {
+                        id: senderMismatch ? "U-OTHER" : "U-SENDER-RECOVERY",
+                        is_restricted: false,
+                        ...(missingGuestFlag
+                          ? {}
+                          : { is_ultra_restricted: false }),
+                      },
+                    }
               : { ok: false },
           ),
         );
@@ -1206,6 +1378,21 @@ describe("managed Slack execution identity", () => {
       "unverified_conversation_disabled",
     );
     senderMissing = false;
+    senderIncomplete = true;
+    await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+      "unverified_conversation_disabled",
+    );
+    senderIncomplete = false;
+    senderMismatch = true;
+    await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+      "unverified_conversation_disabled",
+    );
+    senderMismatch = false;
+    missingGuestFlag = true;
+    await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+      "unverified_conversation_disabled",
+    );
+    missingGuestFlag = false;
     await expect(
       resolveDispatchExecutionContext(incoming()),
     ).resolves.toMatchObject({ scopeId: "scope-sender-recovery" });
@@ -1227,12 +1414,12 @@ describe("managed Slack execution identity", () => {
         new Response(
           JSON.stringify({
             ok: true,
-            user: {
+            user: verifiedSlackUser("U-MANAGED-ALICE", {
               profile: {
                 email: "alice@example.test",
                 display_name: "Alice",
               },
-            },
+            }),
           }),
         ),
       )

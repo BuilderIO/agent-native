@@ -2,4 +2,4 @@
 "@agent-native/dispatch": patch
 ---
 
-Allow Slack channel mentions to recover after temporary trust lookup failures while preserving channel policy.
+Avoid creating Slack channel scopes from unverified lookups, preserve existing scope restrictions, and classify single-channel guests correctly.
