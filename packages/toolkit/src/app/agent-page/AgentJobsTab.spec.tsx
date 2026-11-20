@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -142,6 +143,8 @@ describe("AgentJobsTab organization automations", () => {
           ? [
               {
                 id: "event-automation",
+                resourceId: "event-automation",
+                classification: "automation",
                 name: "new-lead-alert",
                 path: "jobs/new-lead-alert.md",
                 scope: "organization",
@@ -229,6 +232,8 @@ describe("AgentJobsTab organization automations", () => {
       const job = existingJobs("org").data[0];
       const automation = existingAutomations("org").data[0];
       const manageRecurringJob = vi.fn();
+      const runNow = vi.fn();
+      jobMocks.useRunAutomationNow.mockReturnValue(mutationResult(runNow));
       jobMocks.useManageRecurringJob.mockReturnValue(
         mutationResult(manageRecurringJob),
       );
@@ -265,6 +270,9 @@ describe("AgentJobsTab organization automations", () => {
                   name: "same-name",
                   scope: resourceScope,
                   classification: "recurring-job",
+                  lastRun: "2026-01-01T12:00:00.000Z",
+                  lastStatus: "error",
+                  lastError: "Latest run failed",
                 },
                 {
                   ...automation,
@@ -280,6 +288,9 @@ describe("AgentJobsTab organization automations", () => {
                   name: "legacy-only",
                   scope: resourceScope,
                   classification: "recurring-job",
+                  triggerType: "schedule",
+                  schedule: "0 9 * * 1",
+                  scheduleDescription: "Every Monday",
                 },
                 {
                   ...automation,
@@ -311,6 +322,8 @@ describe("AgentJobsTab organization automations", () => {
       ).toHaveLength(1);
 
       const rows = section.querySelectorAll("article");
+      expect(rows[0].textContent).toContain("Latest run failed");
+      expect(rows[0].textContent).toContain("2026-01-01T12:00:00.000Z");
       const recurringToggle =
         rows[0].querySelector<HTMLButtonElement>('[role="switch"]');
       const legacyOnlyToggle =
@@ -324,23 +337,147 @@ describe("AgentJobsTab organization automations", () => {
       expect(manageRecurringJob).toHaveBeenCalledWith(
         {
           operation: "update",
-          name: "same-name",
-          scope: resourceScope,
+          resourceId: "overlap",
           enabled: false,
         },
         undefined,
       );
-      expect(jobMocks.manageAutomation[scope]).toHaveBeenCalledWith(
+      expect(manageRecurringJob).toHaveBeenCalledWith(
         {
           operation: "update",
-          name: "legacy-only",
-          scope: resourceScope,
+          resourceId: "legacy-only",
           enabled: false,
         },
         undefined,
+      );
+      expect(jobMocks.manageAutomation[scope]).not.toHaveBeenCalled();
+
+      const menu = rows[1].querySelector<HTMLButtonElement>(
+        'button[aria-haspopup="menu"]',
+      );
+      if (!menu) throw new Error("Missing automation menu");
+      act(() =>
+        menu.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        ),
+      );
+      const runItem = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ].find((item) => item.textContent?.trim() === "Run now");
+      if (!runItem) throw new Error("Missing run action");
+      act(() => runItem.click());
+      const runButton = [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          '[role="dialog"] button',
+        ),
+      ].find((button) => button.textContent?.trim() === "Run now");
+      if (!runButton) throw new Error("Missing run confirmation");
+      act(() => runButton.click());
+      expect(runNow).toHaveBeenCalledWith(
+        { resourceId: "distinct" },
+        expect.any(Object),
       );
     },
   );
+
+  it("does not reveal a stale automation while deleting a recurring job and restores it on failure", async () => {
+    const actual =
+      await vi.importActual<typeof import("./use-jobs.js")>("./use-jobs.js");
+    const job =
+      jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+    const automation =
+      jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+    if (!job || !automation) throw new Error("Job fixtures are not configured");
+    jobMocks.useRecurringJobs.mockImplementation(actual.useRecurringJobs);
+    jobMocks.useAutomations.mockImplementation(actual.useAutomations);
+    jobMocks.useManageRecurringJob.mockImplementation(
+      actual.useManageRecurringJob,
+    );
+    jobMocks.useManageAutomation.mockImplementation(actual.useManageAutomation);
+
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    client.setQueryData(
+      ["action", "list-recurring-jobs", { scope: "personal" }],
+      [],
+    );
+    client.setQueryData(
+      ["action", "list-automations", { scope: "personal" }],
+      [],
+    );
+    client.setQueryData(
+      ["action", "list-recurring-jobs", { scope: "organization" }],
+      [job],
+    );
+    client.setQueryData(
+      ["action", "list-automations", { scope: "organization" }],
+      [
+        {
+          ...automation,
+          id: job.id,
+          resourceId: job.id,
+          name: job.name,
+          classification: "recurring-job",
+        },
+      ],
+    );
+    let rejectWrite: ((error: Error) => void) | undefined;
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectWrite = reject;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <AgentJobsTab scope="org" canManageOrg />
+        </QueryClientProvider>,
+      ),
+    );
+    expect(container.querySelectorAll("article")).toHaveLength(1);
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'article button[aria-haspopup="menu"]',
+    );
+    if (!trigger) throw new Error("Missing menu trigger");
+    act(() =>
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      ),
+    );
+    const deleteItem = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent?.trim() === "Delete");
+    if (!deleteItem) throw new Error("Missing delete action");
+    act(() => deleteItem.click());
+    const deleteButton = [
+      ...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+    ].find((button) => button.textContent?.trim() === "Delete");
+    if (!deleteButton) throw new Error("Missing delete confirmation");
+    await act(async () => deleteButton.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({ operation: "delete", resourceId: job.id }),
+      }),
+    );
+    expect(container.querySelectorAll("article")).toHaveLength(0);
+    if (!rejectWrite) throw new Error("Delete request did not start");
+    const failWrite = rejectWrite;
+    await act(async () => failWrite(new Error("Network failure")));
+    await vi.waitFor(() =>
+      expect(container.querySelectorAll("article")).toHaveLength(1),
+    );
+    expect(container.querySelector("article")?.textContent).toContain(
+      "weekly report",
+    );
+    client.clear();
+  });
 
   it("opens the organization editor with its scope fixed", async () => {
     act(() => {
@@ -503,8 +640,7 @@ describe("AgentJobsTab organization automations", () => {
     expect(jobMocks.manageAutomation.org).toHaveBeenCalledWith(
       {
         operation: "update",
-        name: "new-lead-alert",
-        scope: "organization",
+        resourceId: "event-automation",
         enabled: false,
       },
       undefined,

@@ -16,9 +16,9 @@ export interface RecurringJob {
   name: string;
   path: string;
   scope: "personal" | "organization";
-  schedule: string;
-  timezone: string;
-  scheduleDescription: string;
+  schedule: string | null;
+  timezone: string | null;
+  scheduleDescription: string | null;
   instructions: string;
   enabled: boolean;
   lastRun: string | null;
@@ -126,10 +126,8 @@ export type AutomationSharingSubmission =
       grants: AutomationSharingGrantSubmission[];
     };
 
-export type ManageJobInput = {
+export type ManageJobInput = LegacyJobLocator & {
   operation: "update" | "delete";
-  name: string;
-  scope: "personal" | "organization";
   enabled?: boolean;
   schedule?: string;
   timezone?: string;
@@ -338,14 +336,20 @@ export function useManageRecurringJob(scope: JobsScope) {
     "list-recurring-jobs",
     recurringParams(scope),
   ] as const;
+  const automationsKey = automationQueryKey(scope);
 
   return useActionMutation<
     { deleted?: boolean; resourceId?: string; name: string; enabled?: boolean },
     ManageJobInput
   >("manage-recurring-job", {
     onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey });
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey }),
+        queryClient.cancelQueries({ queryKey: automationsKey }),
+      ]);
       const previous = queryClient.getQueryData<RecurringJob[]>(queryKey);
+      const previousAutomations =
+        queryClient.getQueryData<Automation[]>(automationsKey);
       queryClient.setQueryData<RecurringJob[]>(queryKey, (current) => {
         if (!current) return current;
         if (variables.operation === "delete") {
@@ -357,12 +361,28 @@ export function useManageRecurringJob(scope: JobsScope) {
             : job,
         );
       });
-      return { previous };
+      queryClient.setQueryData<Automation[]>(automationsKey, (current) => {
+        if (!current) return current;
+        if (variables.operation === "delete") {
+          return current.filter(
+            (automation) => !matchesLocator(automation, variables),
+          );
+        }
+        return current.map((automation) =>
+          matchesLocator(automation, variables)
+            ? { ...automation, ...optimisticJobPatch(variables) }
+            : automation,
+        );
+      });
+      return { previous, previousAutomations };
     },
     onError: (_error, _variables, context) => {
-      const rollback = context as { previous?: RecurringJob[] } | undefined;
+      const rollback = context as
+        | { previous?: RecurringJob[]; previousAutomations?: Automation[] }
+        | undefined;
       if (rollback && "previous" in rollback) {
         queryClient.setQueryData(queryKey, rollback.previous);
+        queryClient.setQueryData(automationsKey, rollback.previousAutomations);
       }
     },
     onSuccess: () => {
