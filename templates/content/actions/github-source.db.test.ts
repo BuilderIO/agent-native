@@ -3884,6 +3884,9 @@ describe("GitHub folder freshness", () => {
   });
 
   it("syncs every stale link in the background as the person who linked it", async () => {
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ lastRefreshedAt: new Date().toISOString() });
     const stale = await linkBaseFolder();
     const recent = await linkBaseFolder();
     const trashed = await linkBaseFolder();
