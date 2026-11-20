@@ -89,7 +89,8 @@ proof line it names, and list every report under `## Reports` (a chat-health
 report by its key, `chat-health:<app>:<date>`).
 
 1. Leave the PR's checkout clean: `merge` refuses a dirty one.
-2. Worktrees `create` (name `fix-<n>`), then `activate` it, and run
+2. Worktrees `create` (name `fix-<n>`, and `folder` when the workspace has
+   several git folders; see below), then `activate` it, and run
    `pnpm install --frozen-lockfile --prefer-offline` (about a minute).
 3. Make the fix and its test in the worktree.
 4. Worktrees `merge` it. That commits the fix and fast-forwards the PR
@@ -103,6 +104,30 @@ report by its key, `chat-health:<app>:<date>`).
    steps 3 and 4 and prove `--fix <its sha>`.
 7. Worktrees `activate` `original`, then `remove` the worktree. It is
    merged and clean, so removal is expected and loses nothing.
+
+### Several git folders
+
+A factory branch can hold more than one git folder (agent-native and
+agent-native-labs). Pass Worktrees `create` the `folder` that holds this
+PR's repository. Only that folder moves into the worktree, so the fix, the
+install, and the proof all happen inside it; files in the other folders stay
+in their original checkouts.
+
+If `create` or `activate` refuses with "Worktrees support workspaces with a
+single git repository" (a Builder CLI from before multi-folder worktrees),
+prove in the PR's checkout instead of stopping:
+
+1. Leave the PR's checkout clean, then make the fix and its test there and
+   commit them as one commit (`git commit`).
+2. From that folder's root, run `node scripts/fix-proof.ts --fix HEAD -- <check>`.
+   It reverts the fix's files with fs, runs the check, and puts HEAD back,
+   even when interrupted. Run `git status` afterwards: it must be clean.
+   If it isn't, restore with the command fix-proof printed before doing
+   anything else.
+3. Continue from step 6.
+
+A missing single-repository worktree is never a reason for
+`OUTCOME: blocked`.
 
 End your reply with the OUTCOME and CONFIDENCE lines the prompt asks for.
 Score CONFIDENCE with the fix signals in [confidence.md](confidence.md): how
