@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   contentFilesIdKey,
@@ -16,6 +16,7 @@ const otherKey = "b".repeat(43);
 const directories: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of directories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -77,5 +78,25 @@ describe("contentFilesIdKey", () => {
     const first = contentFilesIdKey(directory);
     expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(contentFilesIdKey(directory)).toBe(first);
+  });
+
+  it("keeps an unreadable key aside instead of writing over it", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "content-files-"));
+    directories.push(directory);
+    fs.writeFileSync(path.join(directory, "content-file-id-key"), "damaged");
+
+    const replacement = contentFilesIdKey(directory);
+
+    expect(replacement).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(contentFilesIdKey(directory)).toBe(replacement);
+    const keptAside = fs
+      .readdirSync(directory)
+      .filter((name) => name.startsWith("content-file-id-key.unreadable-"));
+    expect(keptAside).toHaveLength(1);
+    expect(
+      fs.readFileSync(path.join(directory, keptAside[0] ?? ""), "utf-8"),
+    ).toBe("damaged");
+    expect(fs.readdirSync(directory)).toHaveLength(2);
   });
 });

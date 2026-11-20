@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -16,10 +16,21 @@ export function contentFilesIdKey(directory: string): string {
   if (fs.existsSync(file)) {
     const stored = fs.readFileSync(file, "utf-8").trim();
     if (ID_KEY_PATTERN.test(stored)) return stored;
+    const keptAside = `${file}.unreadable-${Date.now()}`;
+    fs.renameSync(file, keptAside);
+    console.warn("[content-files] replaced an unreadable folder id key", {
+      keptAside,
+    });
   }
   const key = randomBytes(32).toString("base64url");
   fs.mkdirSync(directory, { recursive: true });
-  fs.writeFileSync(file, key, { encoding: "utf-8", mode: 0o600 });
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  fs.writeFileSync(temporary, key, {
+    encoding: "utf-8",
+    mode: 0o600,
+    flag: "wx",
+  });
+  fs.renameSync(temporary, file);
   return key;
 }
 
