@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import path from "node:path";
 
@@ -37,6 +37,7 @@ import {
   DesktopTerminalMcpRelay,
   desktopTerminalOpenCodeEnvironment,
   closeDesktopChatRelay,
+  PI_TERMINAL_EXTENSION_SOURCE,
   getDesktopBuilderGatewayRunnerEnvironment,
   getDesktopBuilderConnectionStatus,
   getDesktopAppMcpAuthorization,
@@ -1237,5 +1238,45 @@ describe("Builder relay owner handling", () => {
     } finally {
       await h.cleanup();
     }
+  });
+});
+
+describe("desktop Pi extension memory prompt", () => {
+  async function promptFor(owner: string | undefined, dir: string) {
+    const file = path.join(dir, "ext.mjs");
+    writeFileSync(file, PI_TERMINAL_EXTENSION_SOURCE);
+    vi.stubEnv("AGENT_NATIVE_MEMORY_DIR", dir);
+    vi.stubEnv("AGENT_NATIVE_TERMINAL_MCP_SERVERS", "{}");
+    vi.stubEnv("AGENT_NATIVE_MEMORY_OWNER", owner ?? "");
+    type Handler = (event: unknown) => { systemPrompt: string };
+    const handlers = new Map<string, Handler>();
+    const pi = new Proxy(
+      { on: (name: string, fn: Handler) => handlers.set(name, fn) },
+      { get: (target, key) => (key === "on" ? target.on : () => undefined) },
+    );
+    const mod = await import(/* @vite-ignore */ file + "?t=" + Math.random());
+    mod.default(pi);
+    const handler = handlers.get("before_agent_start");
+    return handler ? handler({ systemPrompt: "" }).systemPrompt : "";
+  }
+
+  it("loads only the signed-in account's memory", async () => {
+    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
+    const accounts: Array<{ owner: string; text: string }> = [
+      { owner: "a@example.test", text: "ALICE-SECRET" },
+      { owner: "b@example.test", text: "BOB-SECRET" },
+    ];
+    for (const { owner, text } of accounts) {
+      mkdirSync(path.join(dir, encodeURIComponent(owner)), { recursive: true });
+      writeFileSync(
+        path.join(dir, encodeURIComponent(owner), "MEMORY.md"),
+        text,
+      );
+    }
+    const prompt = await promptFor("A@example.test", dir);
+    expect(prompt).toContain("ALICE-SECRET");
+    expect(prompt).not.toContain("BOB-SECRET");
+    const none = await promptFor(undefined, dir);
+    expect(none).not.toContain("SECRET");
   });
 });

@@ -122,13 +122,16 @@ describe("personal memory shared across local apps", () => {
     const resource = await resourceGetByPath(OWNER, "memory/MEMORY.md");
 
     expect(resource).toMatchObject({
-      id: `shared-memory:${OWNER}:memory/MEMORY.md`,
       owner: OWNER,
       path: "memory/MEMORY.md",
       content: "# Memory Index\n- [x](x.md)\n",
       mimeType: "text/markdown",
       visibility: "workspace",
     });
+    const { resourceGet } = await import("./store.js");
+    await expect(
+      resource ? resourceGet(resource.id) : null,
+    ).resolves.toMatchObject({ content: resource?.content });
     await expect(
       resourceGetByPath(OWNER, "memory/missing.md"),
     ).resolves.toBeNull();
@@ -146,7 +149,8 @@ describe("personal memory shared across local apps", () => {
     expect(newerShared?.content).toBe("from shared");
     expect(newerShared?.id).toBe(stored.id);
 
-    const past = new Date(stored.updatedAt - 60_000);
+    const rewritten = await resourcePut(OWNER, "memory/note.md", "from db");
+    const past = new Date(rewritten.updatedAt - 60_000);
     fs.utimesSync(file, past, past);
     const newerDb = await resourceGetByPath(OWNER, "memory/note.md");
     expect(newerDb?.content).toBe("from db");
@@ -168,7 +172,6 @@ describe("personal memory shared across local apps", () => {
     writeSharedFile(dir, "MEMORY.md", "# Memory Index");
     const stillEmpty = await resourceGetByPath(OWNER, "memory/MEMORY.md");
     expect(stillEmpty?.content).toBe("# Memory Index");
-    expect(stillEmpty?.updatedAt).toBeGreaterThan(Date.now());
   });
 
   it("lists shared memories beside stored ones and honours prefix and limit", async () => {
@@ -223,5 +226,36 @@ describe("personal memory shared across local apps", () => {
     expect((await resourceList(OWNER, "memory/")).map((i) => i.path)).toEqual([
       "memory/solo.md",
     ]);
+  });
+
+  it("deletes a memory that exists only as a shared file", async () => {
+    const dir = useMemoryDir();
+    const file = writeSharedFile(dir, "file-only.md", "only a file");
+    const { resourceDeleteByPath } = await import("./store.js");
+
+    await expect(
+      resourceDeleteByPath(OWNER, "memory/file-only.md"),
+    ).resolves.toBe(true);
+    expect(fs.existsSync(file)).toBe(false);
+    await expect(
+      resourceDeleteByPath(OWNER, "memory/file-only.md"),
+    ).resolves.toBe(false);
+  });
+
+  it("returns a mirrored read whose revision matches the SQL row", async () => {
+    const dir = useMemoryDir();
+    const { resourceGet, resourceGetByPath, resourcePut } =
+      await import("./store.js");
+    await resourcePut(OWNER, "memory/rev.md", "old");
+    const file = sharedFile(dir, "rev.md");
+    fs.writeFileSync(file, "newer from another app");
+    const future = new Date(Date.now() + 60_000);
+    fs.utimesSync(file, future, future);
+
+    const read = await resourceGetByPath(OWNER, "memory/rev.md");
+    const row = read ? await resourceGet(read.id) : null;
+
+    expect(read?.content).toBe("newer from another app");
+    expect(row?.content).toBe(read?.content);
   });
 });

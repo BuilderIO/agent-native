@@ -195,7 +195,7 @@ export interface DesktopTerminalMcpRegistration {
   bearerToken: string;
 }
 
-const PI_TERMINAL_EXTENSION_SOURCE = String.raw`
+export const PI_TERMINAL_EXTENSION_SOURCE = String.raw`
 export default function (pi) {
   const rawServers = process.env.AGENT_NATIVE_TERMINAL_MCP_SERVERS || "{}";
   const servers = JSON.parse(rawServers);
@@ -365,14 +365,15 @@ export default function (pi) {
       const fs = require("node:fs");
       const path = require("node:path");
       if (!fs.existsSync(rootDir)) return "";
-      const ownerDirs = fs.readdirSync(rootDir, { withFileTypes: true }).filter((d) => d.isDirectory());
+      const owner = (process.env.AGENT_NATIVE_MEMORY_OWNER || "").trim().toLowerCase();
+      if (!owner) return "";
       const sections = [];
-      for (const ownerDir of ownerDirs) {
-        const indexPath = path.join(rootDir, ownerDir.name, "MEMORY.md");
-        if (!fs.existsSync(indexPath)) continue;
+      const indexPath = path.join(rootDir, encodeURIComponent(owner), "MEMORY.md");
+      if (fs.existsSync(indexPath)) {
         const content = fs.readFileSync(indexPath, "utf8").trim();
-        if (!content || content === "# Memory Index") continue;
-        sections.push('<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n' + content + "\n</resource>");
+        if (content && content !== "# Memory Index") {
+          sections.push('<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n' + content + "\n</resource>");
+        }
       }
       return sections.length > 0 ? "\n\n" + sections.join("\n\n") : "";
     } catch (error) {
@@ -1011,6 +1012,9 @@ async function createDesktopTerminalSession(
       ),
       environment: {
         AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
+        ...(builderRelaySession
+          ? { AGENT_NATIVE_MEMORY_OWNER: builderRelaySession.account }
+          : {}),
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext

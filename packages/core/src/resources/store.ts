@@ -2069,22 +2069,7 @@ export async function resourceGetByPath(
           shared.mtimeMs > dbResource.updatedAt ||
           dbIsEmptyIndex
         ) {
-          return {
-            id: dbResource?.id ?? `shared-memory:${owner}:${path}`,
-            path,
-            owner,
-            content: shared.content,
-            mimeType: "text/markdown",
-            size: shared.size,
-            createdAt: dbResource?.createdAt ?? shared.mtimeMs,
-            updatedAt: Math.max(dbResource?.updatedAt ?? 0, shared.mtimeMs),
-            createdBy: dbResource?.createdBy ?? "user",
-            visibility: dbResource?.visibility ?? "workspace",
-            threadId: dbResource?.threadId ?? null,
-            runId: dbResource?.runId ?? null,
-            expiresAt: dbResource?.expiresAt ?? null,
-            metadata: dbResource?.metadata ?? null,
-          };
+          return resourcePut(owner, path, shared.content, "text/markdown");
         }
       }
     }
@@ -3145,7 +3130,15 @@ export async function resourceDeleteByPath(
     sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
-  if (rows.length === 0) return false;
+  if (rows.length === 0) {
+    if (isPersonalMemoryResourcePath(owner, path)) {
+      const mirrored = await readSharedPersonalMemory(owner, path);
+      if (!mirrored) return false;
+      await deleteSharedPersonalMemory(owner, path);
+      return true;
+    }
+    return false;
+  }
 
   const result = await client.execute({
     sql: `DELETE FROM resources WHERE owner = ? AND path = ?`,
