@@ -793,7 +793,7 @@ describe("Content view dashboard", () => {
         ('a4', 2, 10), ('a4', 380, 40)
       ) AS days (item_id, days_ago, value);
     `);
-    expect(await runPanel("search-year-over-year", "7d")).toEqual([
+    const yearOverYear = [
       {
         title: "Post four",
         href: "https://www.builder.io/blog/four",
@@ -815,7 +815,16 @@ describe("Content view dashboard", () => {
         year_before: null,
         change: null,
       },
-    ]);
+    ];
+    expect(await runPanel("search-year-over-year", "7d")).toEqual(yearOverYear);
+
+    await client.exec(
+      "UPDATE analytics_content_metric_snapshots SET metric_date = to_char(metric_date::date - 57, 'YYYY-MM-DD') WHERE metric = 'search_console_clicks'",
+    );
+    expect(await runPanel("search-year-over-year", "7d")).toEqual(yearOverYear);
+    await client.exec(
+      "UPDATE analytics_content_metric_snapshots SET metric_date = to_char(metric_date::date + 57, 'YYYY-MM-DD') WHERE metric = 'search_console_clicks'",
+    );
 
     await client.exec(
       "DELETE FROM analytics_content_metric_snapshots WHERE metric = 'search_console_clicks' AND metric_date < to_char(CURRENT_DATE - 300, 'YYYY-MM-DD')",
