@@ -19,6 +19,7 @@ import {
 } from "../server/auth.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
+import { revokeEmbedSessionsForOwner } from "../server/embed-session.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
@@ -1859,6 +1860,7 @@ export async function handleMcpConnect(
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return json({ error: "id required" }, 400);
     const revoked = await revokeToken(session.email, id);
+    if (revoked) await revokeEmbedSessionsForOwner(session.email);
     return json({ ok: revoked });
   }
 
