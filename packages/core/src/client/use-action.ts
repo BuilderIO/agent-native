@@ -2681,7 +2681,7 @@ function useNormalActionMutation<
           interactive,
         );
       }
-      const result = (onSuccess as Function)?.(...args);
+      const result = (onSuccess as Function | undefined)?.(...args);
       void Promise.resolve(result).then(
         requestActionCacheFlush,
         requestActionCacheFlush,
