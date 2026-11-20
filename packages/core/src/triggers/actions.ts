@@ -19,7 +19,11 @@ import {
   listRemoteDevicesForOwner,
 } from "../integrations/remote-devices-store.js";
 import { describeCron, effectiveTimezone } from "../jobs/cron.js";
-import { queueAutomationRunNow } from "../jobs/run-now.js";
+import { parseJobResource } from "../jobs/frontmatter.js";
+import {
+  authorizeAutomationRunNow,
+  queueAutomationRunNow,
+} from "../jobs/run-now.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
@@ -581,17 +585,73 @@ const VALID_ACTIONS = [
   "run-now",
 ] as const;
 
+const EXECUTION_TARGET_ARGS = [
+  "execution_host_id",
+  "execution_engine",
+  "execution_cwd",
+] as const;
+
+function setsExecutionTarget(args: Record<string, unknown>): boolean {
+  return EXECUTION_TARGET_ARGS.some((field) => {
+    const value = args[field];
+    if (value === undefined || value === null) return false;
+    return typeof value !== "string" || value.trim() !== "";
+  });
+}
+
+async function runNowTargetsHost(
+  args: Record<string, unknown>,
+  context: ActionRunContext | undefined,
+  appId?: string,
+): Promise<boolean> {
+  if (!context?.userEmail) return false;
+  const resourceId =
+    typeof args.resource_id === "string" ? args.resource_id : undefined;
+  const path = typeof args.path === "string" ? args.path.trim() : undefined;
+  const name = typeof args.name === "string" ? args.name : undefined;
+  const scope = optionalAutomationScope(args.scope);
+  const orgId = context.orgId ?? getRequestOrgId();
+  try {
+    const access = await authorizeAutomationRunNow({
+      userEmail: context.userEmail,
+      ...(orgId !== undefined ? { orgId } : {}),
+      ...(appId !== undefined ? { appId } : {}),
+      ...(resourceId !== undefined ? { resourceId } : {}),
+      ...(scope !== undefined ? { scope } : {}),
+      ...(path ? { path } : name ? { name } : {}),
+    });
+    const { meta } = parseJobResource(access.resource.content);
+    return Boolean(meta.executionHostId?.trim());
+  } catch {
+    // coercion-ok: run-now reports its own lookup failure
+    return false;
+  }
+}
+
 export function createAutomationToolEntries(
   getCurrentUser: () => string,
   appId?: string,
 ): Record<string, ActionEntry> {
   return frameworkMcpTools({
     "manage-automations": {
-      needsApproval: (args, context) =>
-        isOutsideAutomationOrigin(context) &&
-        args.action !== "list" &&
-        args.action !== "list-events" &&
-        args.action !== "list-hosts",
+      needsApproval: async (args, context) => {
+        if (
+          isOutsideAutomationOrigin(context) &&
+          args.action !== "list" &&
+          args.action !== "list-events" &&
+          args.action !== "list-hosts"
+        ) {
+          return true;
+        }
+        if (args.action === "define" || args.action === "update") {
+          return setsExecutionTarget(args);
+        }
+        if (args.action === "run-now") {
+          return runNowTargetsHost(args, context, appId);
+        }
+        return false;
+      },
+      allowPersistentApproval: false,
       chatUI: {
         renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
         when: (args, result) => {

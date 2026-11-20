@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   listAccessibleAutomationDefinitions: vi.fn(),
   queueAutomationRunNow: vi.fn(),
+  authorizeAutomationRunNow: vi.fn(),
   refreshEventSubscriptions: vi.fn(),
   updateAutomation: vi.fn(),
 }));
@@ -22,6 +23,7 @@ vi.mock("../automations/service.js", () => ({
 }));
 vi.mock("../jobs/run-now.js", () => ({
   queueAutomationRunNow: mocks.queueAutomationRunNow,
+  authorizeAutomationRunNow: mocks.authorizeAutomationRunNow,
 }));
 vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/user-settings.js")>()),
@@ -628,5 +630,59 @@ describe("MCP automation approval", () => {
       expect.objectContaining({ caller: "mcp" }),
       expect.not.objectContaining({ mcpManaged: false }),
     );
+  });
+});
+
+describe("manage-automations approval for paired-computer targets", () => {
+  const frontend = { caller: "frontend", userEmail: owner } as ActionRunContext;
+  const gate = async (
+    args: Record<string, unknown>,
+    ctx: ActionRunContext = frontend,
+  ) => {
+    const needsApproval = tool().needsApproval;
+    if (typeof needsApproval !== "function") throw new Error("no gate");
+    return needsApproval(args, ctx);
+  };
+
+  beforeEach(() => {
+    mocks.authorizeAutomationRunNow.mockReset();
+  });
+
+  it("asks when define or update sets a host, engine or workspace", async () => {
+    for (const field of [
+      "execution_host_id",
+      "execution_engine",
+      "execution_cwd",
+    ]) {
+      expect(await gate({ action: "define", [field]: "x" })).toBe(true);
+      expect(await gate({ action: "update", [field]: "x" })).toBe(true);
+    }
+  });
+
+  it("does not ask for define or update without an execution target", async () => {
+    expect(await gate({ action: "define", name: "digest" })).toBe(false);
+    expect(
+      await gate({ action: "update", name: "digest", execution_host_id: null }),
+    ).toBe(false);
+    expect(await gate({ action: "list" })).toBe(false);
+  });
+
+  it("asks for run-now only when the automation has a host", async () => {
+    mocks.authorizeAutomationRunNow.mockResolvedValueOnce({
+      resource: {
+        content: "---\nschedule: ''\nexecutionHostId: host-1\n---\n\nGo.",
+      },
+    });
+    expect(await gate({ action: "run-now", resource_id: "r1" })).toBe(true);
+    mocks.authorizeAutomationRunNow.mockResolvedValueOnce({
+      resource: { content: "---\nschedule: ''\n---\n\nGo." },
+    });
+    expect(await gate({ action: "run-now", resource_id: "r1" })).toBe(false);
+  });
+
+  it("keeps asking outside callers and disables persistent approval", async () => {
+    expect(await gate({ action: "delete" }, { caller: "mcp" })).toBe(true);
+    expect(await gate({ action: "list" }, { caller: "mcp" })).toBe(false);
+    expect(tool().allowPersistentApproval).toBe(false);
   });
 });

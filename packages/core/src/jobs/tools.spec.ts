@@ -1395,3 +1395,41 @@ describe("manage-jobs tool", () => {
     });
   });
 });
+
+describe("manage-jobs approval", () => {
+  const gate = (args: Record<string, unknown>) => {
+    const needsApproval = createJobTools("mail")["manage-jobs"].needsApproval;
+    if (typeof needsApproval !== "function") throw new Error("no gate");
+    return needsApproval(args, { caller: "tool" });
+  };
+
+  it("asks when create or update sets an execution target", async () => {
+    for (const field of [
+      "executionHostId",
+      "executionEngine",
+      "executionCwd",
+    ]) {
+      expect(await gate({ action: "create", name: "a", [field]: "x" })).toBe(
+        true,
+      );
+      expect(await gate({ action: "update", name: "a", [field]: "x" })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("does not ask without an execution target", async () => {
+    expect(await gate({ action: "create", name: "a" })).toBe(false);
+    expect(
+      await gate({ action: "update", name: "a", executionHostId: "" }),
+    ).toBe(false);
+    expect(await gate({ action: "list" })).toBe(false);
+    expect(await gate({ action: "delete", name: "a" })).toBe(false);
+  });
+
+  it("never offers persistent approval", () => {
+    expect(createJobTools("mail")["manage-jobs"].allowPersistentApproval).toBe(
+      false,
+    );
+  });
+});

@@ -577,9 +577,27 @@ async function runDelete(
   return JSON.stringify({ deleted: true, name });
 }
 
+const EXECUTION_TARGET_FIELDS = [
+  "executionHostId",
+  "executionEngine",
+  "executionCwd",
+] as const;
+
+function setsExecutionTarget(args: Record<string, unknown>): boolean {
+  return EXECUTION_TARGET_FIELDS.some((field) => {
+    const value = args[field];
+    if (value === undefined || value === null) return false;
+    return typeof value !== "string" || value.trim() !== "";
+  });
+}
+
 export function createJobTools(appId?: string): Record<string, ActionEntry> {
   return frameworkMcpTools({
     "manage-jobs": {
+      needsApproval: (args) =>
+        (args.action === "create" || args.action === "update") &&
+        setsExecutionTarget(args),
+      allowPersistentApproval: false,
       tool: {
         description: `Manage recurring jobs that run on a cron schedule.
 
