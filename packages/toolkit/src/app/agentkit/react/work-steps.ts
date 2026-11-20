@@ -979,7 +979,13 @@ function toolWords(call: AgentWorkCall): string[] {
   const [serverName, toolName] = parts;
   const server = new Set(nameTokens(serverName));
   const named = nameTokens(toolName);
-  const skip = named.findIndex((token) => !server.has(token));
+  const skip = named.findIndex(
+    (token) =>
+      !server.has(token) ||
+      READ_VERBS.has(token) ||
+      WRITE_VERBS.has(token) ||
+      SOURCE_ACTIVITY_KINDS.has(inferAgentActivityKind(token)),
+  );
   return skip === -1 ? named.slice(-1) : named.slice(skip);
 }
 

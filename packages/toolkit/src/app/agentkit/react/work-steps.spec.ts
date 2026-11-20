@@ -889,6 +889,26 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("keeps an MCP tool's verb when its server is named with the same word", () => {
+    const { sources, failures } = agentWorkSources([
+      call("a", "mcp__search__search_documents", { query: "pricing" }),
+      call(
+        "b",
+        "mcp__fetch__fetch_page",
+        { id: "p" },
+        { status: "failed", output: "Denied" },
+      ),
+      call("c", "mcp__notion__notion_search", { query: "roadmap" }),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", "pricing"],
+      ["search", "roadmap"],
+    ]);
+    expect(failures.map(({ kind, reason }) => [kind, reason])).toEqual([
+      ["document", "Denied"],
+    ]);
+  });
+
   it("clears a failed page activity without a tool when a page tool reads it", () => {
     const missed = (id: string, label: string): AgentWorkCall => ({
       id: `missed-${id}`,
