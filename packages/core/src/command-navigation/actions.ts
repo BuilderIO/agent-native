@@ -2,7 +2,9 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import {
-  assertAgentNavigationAllowed,
+  AgentNavigationRefusedError,
+  buildAgentNavigationKeptResult,
+  evaluateAgentNavigation,
   navigationIntentSchema,
   withAuthorizedAgentNavigation,
   type DetailViewPredicate,
@@ -73,11 +75,20 @@ export function createNavigateAction(
             ...(target.view ? { view: target.view } : null),
             ...(target.path ? { path: target.path } : null),
           } as Record<string, unknown>);
-      assertAgentNavigationAllowed(navigation, {
+      const refusal = evaluateAgentNavigation(navigation, {
         ctx,
         intent,
         isDetailView: options.isDetailView,
       });
+      if (refusal) {
+        if (refusal.reason === "read-only-action") {
+          throw new AgentNavigationRefusedError(refusal.message, {
+            reason: refusal.reason,
+          });
+        }
+        const currentView = await readAppState("navigation");
+        return buildAgentNavigationKeptResult(refusal.reason, currentView);
+      }
       navigation._writeId = writeId();
       await withAuthorizedAgentNavigation(() =>
         writeAppState(stateKey, navigation),

@@ -4,16 +4,22 @@ import { isAgentCaller } from "../action-caller.js";
 import {
   currentActionNavigationIntent,
   currentActionOriginCaller,
-  hasObservedWriteInActionChain,
-  insideParentWriteAction,
-  insideReadOnlyAction,
 } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
 import {
   AgentNavigationRefusedError,
   NAVIGATION_OPEN_INTENT,
+  buildAgentNavigationKeptResult,
+  evaluateAgentNavigationPolicy,
+  isAgentNavigationKeptResult,
+  isAgentNavigationRefusedError,
   isDefaultDetailNavigation,
   withAuthorizedAgentNavigation,
+  type AgentNavigationKeptReason,
+  type AgentNavigationKeptResult,
+  type AgentNavigationRefusal,
+  type AgentNavigationRefusalReason,
+  type DetailViewPredicate,
   type NavigationIntent,
 } from "./navigate-write-guard.js";
 import {
@@ -24,8 +30,16 @@ import {
 export {
   AgentNavigationRefusedError,
   NAVIGATION_OPEN_INTENT,
+  buildAgentNavigationKeptResult,
+  isAgentNavigationKeptResult,
+  isAgentNavigationRefusedError,
   isDefaultDetailNavigation,
   withAuthorizedAgentNavigation,
+  type AgentNavigationKeptReason,
+  type AgentNavigationKeptResult,
+  type AgentNavigationRefusal,
+  type AgentNavigationRefusalReason,
+  type DetailViewPredicate,
   type NavigationIntent,
 };
 
@@ -34,12 +48,29 @@ export const navigationIntentSchema = z
   .optional()
   .describe('Pass "open" only when the user asked to open or show an item.');
 
-export type DetailViewPredicate = (
-  navigation: Record<string, unknown>,
-) => boolean;
-
 function agentCallRunning(ctx?: Pick<ActionRunContext, "caller">): boolean {
   return isAgentCaller(currentActionOriginCaller() ?? ctx?.caller);
+}
+
+/**
+ * Evaluates whether an agent navigation from a `navigate` action would move
+ * the user off their current view without `intent: "open"`. Returns `null`
+ * when navigation is allowed or the typed refusal otherwise.
+ */
+export function evaluateAgentNavigation(
+  navigation: Record<string, unknown>,
+  options: {
+    ctx?: Pick<ActionRunContext, "caller"> | undefined;
+    intent?: string | undefined;
+    isDetailView?: DetailViewPredicate | undefined;
+  } = {},
+): AgentNavigationRefusal | null {
+  return evaluateAgentNavigationPolicy(navigation, {
+    caller: options.ctx?.caller,
+    intent: options.intent,
+    isDetailView: options.isDetailView,
+    isNavigateAction: true,
+  });
 }
 
 /**
@@ -60,24 +91,11 @@ export function assertAgentNavigationAllowed(
     isDetailView?: DetailViewPredicate | undefined;
   } = {},
 ): void {
-  if (!agentCallRunning(options.ctx)) return;
-  if (insideReadOnlyAction()) {
-    throw new AgentNavigationRefusedError(
-      'Refused: a read-only action cannot move the user\'s view. Read the data and answer; call navigate with intent: "open" only if the user asked to see it.',
-    );
-  }
-  const intent = options.intent ?? currentActionNavigationIntent();
-  if (intent === NAVIGATION_OPEN_INTENT) return;
-  if (insideParentWriteAction() || hasObservedWriteInActionChain()) {
-    throw new AgentNavigationRefusedError(
-      'Refused: a write action cannot move the user\'s view unless intent: "open" is set. Keep the user on their current view, or use navigateAfterWrite() so agent writes stay put.',
-    );
-  }
-  const isDetailView = options.isDetailView ?? isDefaultDetailNavigation;
-  if (!isDetailView(navigation)) return;
-  throw new AgentNavigationRefusedError(
-    'Refused: opening this item would move the user off their current view. Call again with intent: "open" only if the user asked to open or show it; otherwise answer without navigating.',
-  );
+  const refusal = evaluateAgentNavigation(navigation, options);
+  if (!refusal) return;
+  throw new AgentNavigationRefusedError(refusal.message, {
+    reason: refusal.reason,
+  });
 }
 
 export type NavigateAfterWriteResult =

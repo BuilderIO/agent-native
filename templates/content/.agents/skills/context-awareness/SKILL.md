@@ -241,10 +241,14 @@ MCP, WebMCP, A2A (`isAgentCaller(ctx)`), not just `caller === "tool"`:
   `intent: "open"` is set (or set `allowsAgentNavigation: true` on an action
   whose job is opening a UI).
 - Opening one item needs `intent: "open"`, set only when the user asked to see
-  it. `createNavigateAction()` and the app-state store enforce this by default
-  for item ID fields (`id`, `*Id`) and detail paths without per-app code; pass
-  `isDetailView` to `createNavigateAction()` only when an app needs custom
-  matching.
+  it. `createNavigateAction()`, `defineAction()`, and the app-state store
+  enforce this by default for item ID fields (`id`, `*Id`) and detail paths
+  without per-app code; pass `isDetailView` to `createNavigateAction()` only
+  when an app needs custom matching. When an agent calls `navigate` without
+  `intent: "open"` and it would move the user's view (for a detail item or
+  during/after agent writes), `navigate` keeps the current view and returns a
+  successful typed result (`{ kept: true, navigated: false, reason, currentView, message }`)
+  instead of throwing an error.
 
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
 dedupes `_writeId`, deletes consumed commands, and applies app-local routing.

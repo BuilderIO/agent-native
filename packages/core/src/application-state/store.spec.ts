@@ -628,4 +628,33 @@ describe("agent reads keep the user's view", () => {
     await inAction("frontend", true, () => writes.cas("navigate:tab-1"));
     expect(await appStateGet(SESSION, "navigate:tab-1")).toEqual(value);
   });
+
+  it("returns a typed kept-view result with currentView when a standalone navigate hits the store guard", async () => {
+    const weekView = {
+      view: "calendar",
+      calendarViewMode: "week",
+      date: "2026-11-21",
+    };
+    await appStatePut(SESSION, "navigation:tab-week", weekView);
+
+    const result = await inAction(
+      "mcp",
+      false,
+      () =>
+        appStatePut(SESSION, "navigate:tab-week", {
+          eventId: "ev-1",
+          calendarViewMode: "day",
+        }),
+      "navigate",
+    );
+
+    expect(result).toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      currentView: weekView,
+      message: expect.stringContaining("week"),
+    });
+    expect(await appStateGet(SESSION, "navigate:tab-week")).toBeNull();
+  });
 });
