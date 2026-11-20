@@ -657,8 +657,6 @@ describe("agent reads keep the user's view", () => {
     });
     expect(await appStateGet(SESSION, "navigate:tab-week")).toBeNull();
 
-    // Tab-scoped refusal stays scoped to its tab and does not report another
-    // tab's or the account-wide navigation row.
     await appStatePut(SESSION, "navigation", { view: "other-view" });
     const missingTabResult = await inAction(
       "mcp",
