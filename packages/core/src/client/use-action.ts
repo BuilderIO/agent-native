@@ -2684,8 +2684,6 @@ function useNormalActionMutation<
         );
       }
       const result = (onSuccess as Function | undefined)?.(...args);
-      // React Query keeps the old rows while the refetch is pending, so a
-      // flush before it settles would persist the pre-write snapshot.
       void Promise.allSettled([result, refetched]).then(
         requestActionCacheFlush,
       );
