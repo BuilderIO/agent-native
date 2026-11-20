@@ -24,6 +24,7 @@ import {
   designFrame,
   enterDirectMode,
   installBridge,
+  openPageOverview,
   readSeedDesignId,
   selectByText,
   waitForBridge,
@@ -815,7 +816,7 @@ test.describe("public visual edit", () => {
       await expect(preparing).toBeHidden();
       await expect(frame).toHaveAttribute("src", settledSource!);
       await expect(
-        page.getByRole("dialog", { name: "Connect your local screens" }),
+        page.getByRole("dialog", { name: "Connect your local pages" }),
         "a rejected preview token is not a local-network permission problem",
       ).toHaveCount(0);
     } finally {
@@ -1561,11 +1562,8 @@ test.describe("public visual edit", () => {
     await expect(
       ownerFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
-    const allScreensButton = page.getByRole("button", {
-      name: "All screens",
-    });
-    await allScreensButton.click();
-    await expect(allScreensButton).toHaveAttribute("aria-current", "page");
+    // oracle-change: the All screens row is gone; the overview is entered from the View menu, which asserts the switch itself.
+    await openPageOverview(page);
 
     await page.getByRole("button", { name: /^share$/i }).click();
     const copyLiveCanvasLink = page
