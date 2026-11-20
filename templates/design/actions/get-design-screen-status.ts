@@ -6,7 +6,7 @@ import {
 
 import {
   loadCaptureDesign,
-  loadCaptureScreens,
+  loadStatusScreens,
   openCommentCount,
   screenFingerprint,
 } from "../server/lib/screen-capture.js";
@@ -30,7 +30,7 @@ export default defineAction({
     }
     const design = await loadCaptureDesign(designId);
     const ids = [...new Set(screenIds)];
-    const screens = await loadCaptureScreens(design.id, ids);
+    const screens = await loadStatusScreens(design.id, ids);
     return {
       design: {
         id: design.id,
@@ -38,16 +38,18 @@ export default defineAction({
         visibility: design.visibility,
       },
       screens: await Promise.all(
-        ids.map(async (id) => {
-          const screen = screens.get(id);
-          return screen
-            ? {
-                id,
-                fingerprint: screenFingerprint(screen, design.data, id),
-                openComments: await openCommentCount(design.id, id),
-              }
-            : { id, fingerprint: null, openComments: 0 };
-        }),
+        ids
+          .filter((id) => screens.get(id) !== null)
+          .map(async (id) => {
+            const screen = screens.get(id);
+            return screen
+              ? {
+                  id,
+                  fingerprint: screenFingerprint(screen, design.data, id),
+                  openComments: await openCommentCount(design.id, id),
+                }
+              : { id, fingerprint: null, openComments: 0 };
+          }),
       ),
     };
   },

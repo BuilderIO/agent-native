@@ -255,6 +255,9 @@ export default defineAction({
             : answer.code === "design_refused"
               ? 409
               : 502,
+        ...(answer.peerCode
+          ? { details: { designCode: answer.peerCode } }
+          : {}),
       });
     }
     const capture = answer.data;
@@ -265,6 +268,15 @@ export default defineAction({
       });
     }
     const pageNow = await authorizeDesignScreenPage(args.documentId, "editor");
+    if (
+      pageNow.orgId !== page.orgId ||
+      pageNow.authorityOrgId !== page.authorityOrgId
+    ) {
+      fail(
+        "The page moved to another organization while Design was taking the picture. Try again.",
+        { errorCode: "design_screen_page_moved", statusCode: 409 },
+      );
+    }
     const design = {
       ...capture.design,
       visibility: visibilityForPageOrganization(

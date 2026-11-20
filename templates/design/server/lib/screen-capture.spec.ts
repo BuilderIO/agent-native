@@ -4,7 +4,12 @@ vi.mock("../db/index.js", () => ({
   getDb: vi.fn(),
   schema: { designFiles: {} },
 }));
-vi.mock("drizzle-orm", () => ({ and: vi.fn(), eq: vi.fn(), inArray: vi.fn() }));
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  and: vi.fn(),
+  eq: vi.fn(),
+  inArray: vi.fn(),
+}));
 vi.mock("../source-workspace.js", () => ({ readLiveSourceFile: vi.fn() }));
 vi.mock("./playwright-runtime.js", () => ({
   importPlaywright: vi.fn(),
@@ -16,6 +21,7 @@ import { readLiveSourceFile } from "../source-workspace.js";
 import { importPlaywright } from "./playwright-runtime.js";
 import {
   loadCaptureScreens,
+  loadStatusScreens,
   pngSize,
   renderScreenPng,
   screenFingerprint,
@@ -157,6 +163,39 @@ describe("loadCaptureScreens", () => {
       content: "<main>Live</main>",
     });
     expect(readLiveSourceFile).toHaveBeenCalledWith(saved);
+  });
+
+  it("reads status past a screen whose live source can't be read", async () => {
+    const saved = {
+      id: "s1",
+      designId: "d1",
+      filename: "Pay.html",
+      fileType: "html",
+      content: "<main>Saved</main>",
+      createdAt: null,
+      updatedAt: null,
+    };
+    vi.mocked(getDb).mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: async () => [saved, { ...saved, id: "s2" }],
+        }),
+      }),
+    } as never);
+    vi.mocked(readLiveSourceFile).mockImplementation(async (row) => {
+      if (row.id === "s1") throw new Error("collab store is down");
+      return { content: "<main>Live</main>" } as never;
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const screens = await loadStatusScreens("d1", ["s1", "s2"]);
+    expect(screens.get("s1")).toBeNull();
+    expect(screens.get("s2")?.content).toBe("<main>Live</main>");
+    expect(warn).toHaveBeenCalledTimes(1);
+    await expect(loadCaptureScreens("d1", ["s1", "s2"])).rejects.toThrow(
+      "collab store is down",
+    );
+    warn.mockRestore();
+    vi.mocked(readLiveSourceFile).mockReset();
   });
 });
 

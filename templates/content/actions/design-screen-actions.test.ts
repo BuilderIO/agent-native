@@ -416,6 +416,43 @@ describe("capture-design-screen", () => {
       statusCode: 409,
     });
     expect(mocks.putPrivateMedia).not.toHaveBeenCalled();
+
+    mocks.requestDesign.mockResolvedValue({
+      ok: false,
+      code: "design_refused",
+      message: "This screen has live effects.",
+      peerCode: "design_screen_live_effects",
+    });
+    await expect(
+      captureDesignScreen.run({
+        documentId: "doc_1",
+        link: LINK,
+        purpose: "insert",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_refused",
+      details: { designCode: "design_screen_live_effects" },
+    });
+  });
+
+  it("asks to try again when the page moved to another organization while Design answered", async () => {
+    const moved = page("private");
+    moved.resource.orgId = "org_2";
+    moved.authority.orgId = "org_2";
+    mocks.resolveDocumentAccess
+      .mockResolvedValueOnce(page("private"))
+      .mockResolvedValueOnce(moved);
+    await expect(
+      captureDesignScreen.run({
+        documentId: "doc_1",
+        link: LINK,
+        purpose: "insert",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_screen_page_moved",
+      statusCode: 409,
+    });
+    expect(mocks.putPrivateMedia).not.toHaveBeenCalled();
   });
 
   it("says when Content has nowhere private to keep the picture", async () => {

@@ -124,6 +124,10 @@ export function createSourceLinkPaste<Request>(
       : null;
   }
 
+  function openLinkRange(editor: Editor, id: string) {
+    return editor.isDestroyed ? null : pendingLinkRange(editor.state, id);
+  }
+
   function remember(editor: Editor, meta: PendingMeta) {
     if (editor.isDestroyed) return;
     editor.view.dispatch(
@@ -138,8 +142,7 @@ export function createSourceLinkPaste<Request>(
     context: SourceLinkPasteContext,
     acknowledgeWiderAudience = false,
   ): Promise<void> {
-    if (editor.isDestroyed) return;
-    if (!pendingLinkRange(editor.state, id)) {
+    if (!openLinkRange(editor, id)) {
       remember(editor, { remove: id });
       return;
     }
@@ -152,7 +155,12 @@ export function createSourceLinkPaste<Request>(
         request,
         acknowledgeWiderAudience,
       );
-      if (editor.isDestroyed) return;
+      const range = openLinkRange(editor, id);
+      if (!range) {
+        remember(editor, { remove: id });
+        toast.dismiss(toastId);
+        return;
+      }
       if (result.status === "needs_confirmation") {
         toast.warning(result.message, {
           id: toastId,
@@ -169,12 +177,7 @@ export function createSourceLinkPaste<Request>(
         });
         return;
       }
-      const range = pendingLinkRange(editor.state, id);
       remember(editor, { remove: id });
-      if (!range) {
-        toast.dismiss(toastId);
-        return;
-      }
       const replaced = replaceLinkWithBlock(editor, range, {
         blockType: spec.blockType,
         blockId: result.blockId,
@@ -183,7 +186,12 @@ export function createSourceLinkPaste<Request>(
       if (replaced) toast.success(t(spec.messages.added), { id: toastId });
       else toast.error(t(spec.messages.addFailed), { id: toastId });
     } catch (error) {
+      const linkGone = !openLinkRange(editor, id);
       remember(editor, { remove: id });
+      if (linkGone) {
+        toast.dismiss(toastId);
+        return;
+      }
       toast.error(t(spec.messages.addFailed), {
         id: toastId,
         description: spec.describeError

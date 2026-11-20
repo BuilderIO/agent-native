@@ -82,6 +82,25 @@ describe("requestDesign", () => {
     });
   });
 
+  it("keeps the code Design gave its refusal", async () => {
+    mocks.invokeAgentAction.mockResolvedValue(
+      answer(
+        "failed",
+        JSON.stringify({
+          error:
+            "Error running capture-design-screen: This screen shows a running app. (errorCode: design_screen_live_app)",
+        }),
+      ),
+    );
+    await expect(
+      requestDesign("capture-design-screen", {}, schema, 58_000, null),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "design_refused",
+      peerCode: "design_screen_live_app",
+    });
+  });
+
   it("says when Design can't be reached or answers nonsense", async () => {
     mocks.invokeAgentAction.mockRejectedValueOnce(new Error("ECONNREFUSED"));
     await expect(

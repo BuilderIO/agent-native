@@ -105,11 +105,8 @@ export async function loadCaptureDesign(
   };
 }
 
-export async function loadCaptureScreens(
-  designId: string,
-  screenIds: readonly string[],
-): Promise<Map<string, CaptureScreen>> {
-  if (screenIds.length === 0) return new Map();
+async function loadScreenRows(designId: string, screenIds: readonly string[]) {
+  if (screenIds.length === 0) return [];
   const rows = await getDb()
     .select({
       id: schema.designFiles.id,
@@ -127,16 +124,54 @@ export async function loadCaptureScreens(
         inArray(schema.designFiles.id, [...screenIds]),
       ),
     );
+  return rows.filter((row) => row.fileType === "html");
+}
+
+export async function loadCaptureScreens(
+  designId: string,
+  screenIds: readonly string[],
+): Promise<Map<string, CaptureScreen>> {
   const screens = await Promise.all(
-    rows
-      .filter((row) => row.fileType === "html")
-      .map(async (row) => ({
-        id: row.id,
-        filename: row.filename,
-        content: (await readLiveSourceFile(row)).content,
-      })),
+    (await loadScreenRows(designId, screenIds)).map(async (row) => ({
+      id: row.id,
+      filename: row.filename,
+      content: (await readLiveSourceFile(row)).content,
+    })),
   );
   return new Map(screens.map((screen) => [screen.id, screen]));
+}
+
+export async function loadStatusScreens(
+  designId: string,
+  screenIds: readonly string[],
+): Promise<Map<string, CaptureScreen | null>> {
+  const screens = await Promise.all(
+    (await loadScreenRows(designId, screenIds)).map(
+      async (row): Promise<[string, CaptureScreen | null]> => {
+        try {
+          return [
+            row.id,
+            {
+              id: row.id,
+              filename: row.filename,
+              content: (await readLiveSourceFile(row)).content,
+            },
+          ];
+        } catch (error) {
+          console.warn(
+            "[design-screen-status] couldn't read a screen's live source",
+            {
+              screenId: row.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+          // coercion-ok: null marks a screen whose source couldn't be read, apart from one that's gone
+          return [row.id, null];
+        }
+      },
+    ),
+  );
+  return new Map(screens);
 }
 
 export function screenWidthPx(
@@ -176,7 +211,7 @@ export function screenFingerprint(
     : null;
   const frames = parseCanvasFrameGeometryById(data.canvasFrames);
   const frameWidth = Object.prototype.hasOwnProperty.call(frames, screenId)
-    ? frames[screenId].width
+    ? (frames[screenId]?.width ?? null)
     : null;
   return createHash("sha256")
     .update(screen.content)

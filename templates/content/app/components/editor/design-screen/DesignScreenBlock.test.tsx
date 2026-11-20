@@ -18,6 +18,7 @@ const hooks = vi.hoisted(() => ({
   session: null as { email: string } | null,
   callAction: vi.fn(),
   refetch: vi.fn(),
+  updatedAt: 1,
 }));
 
 vi.mock("@agent-native/core/client/hooks", async () => {
@@ -35,6 +36,7 @@ vi.mock("@agent-native/core/client/hooks", async () => {
       return {
         data: options?.enabled ? hooks.queries[name] : undefined,
         refetch: hooks.refetch,
+        dataUpdatedAt: hooks.updatedAt,
       };
     },
   };
@@ -146,6 +148,7 @@ beforeEach(() => {
   hooks.session = { email: "reader@example.test" };
   hooks.callAction.mockReset();
   hooks.refetch.mockReset();
+  hooks.updatedAt = 1;
   tracked.mockReset();
   for (const fn of Object.values(toasts)) fn.mockReset();
   container = document.createElement("div");
@@ -328,6 +331,23 @@ describe("DesignScreen for editors", () => {
     expect(toasts.success).toHaveBeenCalled();
   });
 
+  it("weighs only a status read after the new picture once it is refreshed", async () => {
+    const fresh = screen({
+      screen: { ...screen().screen, fingerprint: "ba9876543210" },
+    });
+    hooks.queries["get-design-screen-status"] = status("0123456789ab");
+    hooks.callAction.mockResolvedValue({ status: "captured", screen: fresh });
+    const onChange = renderEdit(screen());
+    await act(async () => defined(refreshButton()).click());
+    renderEdit(fresh, onChange);
+    expect(container.textContent).not.toContain("designScreen.changedRefresh");
+
+    hooks.updatedAt = Date.now() + 60_000;
+    hooks.queries["get-design-screen-status"] = status("ffffffffffff");
+    renderEdit(fresh, onChange);
+    expect(container.textContent).toContain("designScreen.changedRefresh");
+  });
+
   it("asks before a refresh that would show the screen to more people", async () => {
     hooks.callAction.mockResolvedValueOnce({
       status: "needs_confirmation",
@@ -377,6 +397,20 @@ describe("DesignScreen for editors", () => {
     await act(async () => defined(refreshButton()).click());
     expect(toasts.error).toHaveBeenCalledWith("designScreen.refreshFailed", {
       description: "designScreen.errorUnreachable",
+    });
+  });
+
+  it("gives Design's own reason in the page's words when Design names it", async () => {
+    hooks.callAction.mockRejectedValue(
+      Object.assign(new Error("Something went wrong. Try again."), {
+        errorCode: "design_refused",
+        details: { designCode: "design_screen_too_large" },
+      }),
+    );
+    renderEdit(screen());
+    await act(async () => defined(refreshButton()).click());
+    expect(toasts.error).toHaveBeenCalledWith("designScreen.refreshFailed", {
+      description: "designScreen.errorTooLarge",
     });
   });
 });

@@ -53,6 +53,7 @@ export default defineAction({
     const width = args.width ?? screenWidthPx(design.data, screen.id);
     const png = await renderScreenPng(screen, width, ctx.signal);
     const size = pngSize(png);
+    const sharing = await loadCaptureDesign(design.id);
     const { designUrl, screenUrl } = captureLinks(design.id, screen.id);
     const openComments = await openCommentCount(design.id, screen.id);
 
@@ -64,7 +65,7 @@ export default defineAction({
         width,
         image_bytes: png.length,
         open_comments: openComments,
-        design_visibility: design.visibility,
+        design_visibility: sharing.visibility,
       },
       ctx,
     );
@@ -72,9 +73,9 @@ export default defineAction({
     return {
       design: {
         id: design.id,
-        title: design.title,
+        title: sharing.title,
         url: designUrl,
-        visibility: design.visibility,
+        visibility: sharing.visibility,
       },
       screen: {
         id: screen.id,

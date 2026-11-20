@@ -57,6 +57,7 @@ export type PeerAppResult<T, App extends PeerAppId> =
         | `${App}_refused`
         | `${App}_invalid_response`;
       message: string;
+      peerCode?: string;
     };
 
 export interface PeerAppMessages {
@@ -82,6 +83,14 @@ function peerMessage(output: string): string | null {
   if (typeof message !== "string") return null;
   const text = message.replace(/\s+/g, " ").trim();
   return text ? text.slice(0, MAX_PEER_MESSAGE_CHARS) : null;
+}
+
+function peerErrorCode(output: string): string | undefined {
+  let code: string | undefined;
+  for (const match of output.matchAll(/\(errorCode: ([a-z0-9_]+)\)/gi)) {
+    code = match[1];
+  }
+  return code;
 }
 
 function inOrganization(orgId: string | null): RequestContext {
@@ -134,10 +143,12 @@ export async function requestPeerApp<T, App extends PeerAppId>(args: {
     };
   }
   if (response.result.status !== "completed") {
+    const peerCode = peerErrorCode(response.result.output);
     return {
       ok: false,
       code: `${target}_refused`,
       message: peerMessage(response.result.output) ?? messages.refused,
+      ...(peerCode ? { peerCode } : {}),
     };
   }
   const invalid = {

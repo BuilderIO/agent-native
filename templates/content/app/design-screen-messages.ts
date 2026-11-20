@@ -48,6 +48,18 @@ const en = {
     "Anyone with the link can open this page, but not this screen's design, so it can't be pinned here. Narrow the page's sharing first.",
   errorUnreadableAnswer:
     "Design sent back something Content can't read. Try again.",
+  errorLiveEffects:
+    "This screen uses Design's live effects, which only show in the Design editor, so it can't be pinned as a picture.",
+  errorLiveApp:
+    "This screen shows a running app from its address, which only loads in the Design editor, so it can't be pinned as a picture.",
+  errorNavigatedAway:
+    "This screen leaves its own page while it loads, so it can't be pinned as a picture.",
+  errorTooLarge:
+    "This screen is too long to pin as one picture. Split it into shorter screens in Design.",
+  errorRenderUnavailable:
+    "Design can't take pictures of screens right now. Try again in a minute.",
+  errorPageMoved:
+    "This page moved to another organization while Design was taking the picture. Try again.",
 } as const;
 
 type DesignScreenMessages = Record<keyof typeof en, string>;
@@ -105,6 +117,18 @@ const translations: Record<
       "Cualquiera con el enlace puede abrir esta página, pero no el diseño de esta pantalla, así que no se puede fijar aquí. Primero limita el uso compartido de la página.",
     errorUnreadableAnswer:
       "Design devolvió algo que Content no puede leer. Inténtalo de nuevo.",
+    errorLiveEffects:
+      "Esta pantalla usa los efectos en vivo de Design, que solo se ven en el editor de Design, así que no se puede fijar como imagen.",
+    errorLiveApp:
+      "Esta pantalla muestra una app en ejecución desde su dirección, que solo se carga en el editor de Design, así que no se puede fijar como imagen.",
+    errorNavigatedAway:
+      "Esta pantalla sale de su propia página mientras carga, así que no se puede fijar como imagen.",
+    errorTooLarge:
+      "Esta pantalla es demasiado larga para fijarla como una sola imagen. Divídela en pantallas más cortas en Design.",
+    errorRenderUnavailable:
+      "Design no puede tomar imágenes de pantallas en este momento. Inténtalo de nuevo en un minuto.",
+    errorPageMoved:
+      "Esta página se movió a otra organización mientras Design tomaba la imagen. Inténtalo de nuevo.",
   },
   "fr-FR": {
     openInDesign: "Ouvrir dans Design",
@@ -155,6 +179,18 @@ const translations: Record<
       "Toute personne disposant du lien peut ouvrir cette page, mais pas le design de cet écran, qui ne peut donc pas être épinglé ici. Restreignez d'abord le partage de la page.",
     errorUnreadableAnswer:
       "Design a renvoyé une réponse que Content ne peut pas lire. Réessayez.",
+    errorLiveEffects:
+      "Cet écran utilise les effets en direct de Design, qui ne s'affichent que dans l'éditeur Design ; il ne peut donc pas être épinglé comme image.",
+    errorLiveApp:
+      "Cet écran affiche une application en cours d'exécution depuis son adresse, qui ne se charge que dans l'éditeur Design ; il ne peut donc pas être épinglé comme image.",
+    errorNavigatedAway:
+      "Cet écran quitte sa propre page pendant son chargement ; il ne peut donc pas être épinglé comme image.",
+    errorTooLarge:
+      "Cet écran est trop long pour être épinglé en une seule image. Divisez-le en écrans plus courts dans Design.",
+    errorRenderUnavailable:
+      "Design ne peut pas prendre d'images d'écrans pour le moment. Réessayez dans une minute.",
+    errorPageMoved:
+      "Cette page a été déplacée vers une autre organisation pendant que Design prenait l'image. Réessayez.",
   },
   "de-DE": {
     openInDesign: "In Design öffnen",
@@ -207,6 +243,18 @@ const translations: Record<
       "Jeder mit dem Link kann diese Seite öffnen, aber nicht das Design dieses Screens, daher kann er hier nicht angeheftet werden. Schränke zuerst die Freigabe der Seite ein.",
     errorUnreadableAnswer:
       "Design hat etwas zurückgeschickt, das Content nicht lesen kann. Versuche es erneut.",
+    errorLiveEffects:
+      "Dieser Screen nutzt die Live-Effekte von Design, die nur im Design-Editor angezeigt werden, daher kann er nicht als Bild angeheftet werden.",
+    errorLiveApp:
+      "Dieser Screen zeigt eine laufende App über ihre Adresse, die nur im Design-Editor lädt, daher kann er nicht als Bild angeheftet werden.",
+    errorNavigatedAway:
+      "Dieser Screen verlässt beim Laden seine eigene Seite, daher kann er nicht als Bild angeheftet werden.",
+    errorTooLarge:
+      "Dieser Screen ist zu lang, um ihn als ein Bild anzuheften. Teile ihn in Design in kürzere Screens auf.",
+    errorRenderUnavailable:
+      "Design kann gerade keine Bilder von Screens aufnehmen. Versuche es in einer Minute erneut.",
+    errorPageMoved:
+      "Diese Seite wurde in eine andere Organisation verschoben, während Design das Bild aufgenommen hat. Versuche es erneut.",
   },
   "pt-BR": {
     openInDesign: "Abrir no Design",
@@ -257,6 +305,18 @@ const translations: Record<
       "Qualquer pessoa com o link pode abrir esta página, mas não o design desta tela, então ela não pode ser fixada aqui. Restrinja primeiro o compartilhamento da página.",
     errorUnreadableAnswer:
       "O Design enviou algo que o Content não consegue ler. Tente novamente.",
+    errorLiveEffects:
+      "Esta tela usa os efeitos ao vivo do Design, que só aparecem no editor do Design, então não pode ser fixada como imagem.",
+    errorLiveApp:
+      "Esta tela mostra um app em execução a partir do endereço dele, que só carrega no editor do Design, então não pode ser fixada como imagem.",
+    errorNavigatedAway:
+      "Esta tela sai da própria página enquanto carrega, então não pode ser fixada como imagem.",
+    errorTooLarge:
+      "Esta tela é longa demais para ser fixada como uma única imagem. Divida-a em telas mais curtas no Design.",
+    errorRenderUnavailable:
+      "O Design não consegue tirar imagens de telas agora. Tente novamente em um minuto.",
+    errorPageMoved:
+      "Esta página foi movida para outra organização enquanto o Design tirava a imagem. Tente novamente.",
   },
   "zh-CN": {
     openInDesign: "在 Design 中打开",
@@ -303,6 +363,16 @@ const translations: Record<
     errorPublicPage:
       "任何拥有链接的人都能打开此页面，但不能打开此画面所在的设计，因此无法在这里固定它。请先缩小此页面的共享范围。",
     errorUnreadableAnswer: "Design 返回了 Content 无法读取的内容。请重试。",
+    errorLiveEffects:
+      "此画面使用了 Design 的实时效果，这些效果只在 Design 编辑器中显示，因此无法固定为图片。",
+    errorLiveApp:
+      "此画面通过地址显示一个正在运行的应用，它只在 Design 编辑器中加载，因此无法固定为图片。",
+    errorNavigatedAway: "此画面在加载时会离开自己的页面，因此无法固定为图片。",
+    errorTooLarge:
+      "此画面太长，无法固定为一张图片。请在 Design 中将它拆分成更短的画面。",
+    errorRenderUnavailable: "Design 现在无法为画面拍摄图片。请过一分钟再试。",
+    errorPageMoved:
+      "在 Design 拍摄图片期间，此页面被移到了另一个组织。请重试。",
   },
   "zh-TW": {
     openInDesign: "在 Design 中開啟",
@@ -349,6 +419,16 @@ const translations: Record<
     errorPublicPage:
       "任何擁有連結的人都能開啟此頁面，但無法開啟此畫面所屬的設計，因此無法在這裡固定它。請先縮小此頁面的共用範圍。",
     errorUnreadableAnswer: "Design 傳回了 Content 無法讀取的內容。請再試一次。",
+    errorLiveEffects:
+      "此畫面使用了 Design 的即時效果，這些效果只會在 Design 編輯器中顯示，因此無法固定為圖片。",
+    errorLiveApp:
+      "此畫面透過網址顯示一個正在執行的應用程式，它只會在 Design 編輯器中載入，因此無法固定為圖片。",
+    errorNavigatedAway: "此畫面在載入時會離開自己的頁面，因此無法固定為圖片。",
+    errorTooLarge:
+      "此畫面太長，無法固定為一張圖片。請在 Design 中將它拆分成較短的畫面。",
+    errorRenderUnavailable: "Design 目前無法為畫面拍攝圖片。請過一分鐘再試。",
+    errorPageMoved:
+      "在 Design 拍攝圖片期間，此頁面被移到了另一個組織。請再試一次。",
   },
   "ja-JP": {
     openInDesign: "Design で開く",
@@ -399,6 +479,18 @@ const translations: Record<
       "リンクを知っている人は誰でもこのページを開けますが、この画面のデザインは開けないため、ここにピン留めできません。先にページの共有範囲を狭めてください。",
     errorUnreadableAnswer:
       "Design から Content が読み取れない内容が返されました。もう一度お試しください。",
+    errorLiveEffects:
+      "この画面は Design のライブエフェクトを使っており、Design エディターでしか表示されないため、画像としてピン留めできません。",
+    errorLiveApp:
+      "この画面はアドレスから実行中のアプリを表示しており、Design エディターでしか読み込まれないため、画像としてピン留めできません。",
+    errorNavigatedAway:
+      "この画面は読み込み中に自分のページから離れてしまうため、画像としてピン留めできません。",
+    errorTooLarge:
+      "この画面は長すぎて 1 枚の画像としてピン留めできません。Design で短い画面に分けてください。",
+    errorRenderUnavailable:
+      "Design は現在、画面の画像を撮影できません。1 分ほどしてからもう一度お試しください。",
+    errorPageMoved:
+      "Design が画像を撮影している間に、このページが別の組織に移動されました。もう一度お試しください。",
   },
   "ko-KR": {
     openInDesign: "Design에서 열기",
@@ -448,6 +540,18 @@ const translations: Record<
       "링크가 있는 누구나 이 페이지를 열 수 있지만 이 화면의 디자인은 열 수 없으므로 여기에 고정할 수 없습니다. 먼저 페이지의 공유 범위를 좁히세요.",
     errorUnreadableAnswer:
       "Design이 Content에서 읽을 수 없는 내용을 보냈습니다. 다시 시도하세요.",
+    errorLiveEffects:
+      "이 화면은 Design 편집기에서만 보이는 Design의 라이브 효과를 사용하므로 이미지로 고정할 수 없습니다.",
+    errorLiveApp:
+      "이 화면은 주소로 실행 중인 앱을 보여 주며, 이 앱은 Design 편집기에서만 로드되므로 이미지로 고정할 수 없습니다.",
+    errorNavigatedAway:
+      "이 화면은 로드되는 동안 자기 페이지를 벗어나므로 이미지로 고정할 수 없습니다.",
+    errorTooLarge:
+      "이 화면은 너무 길어서 하나의 이미지로 고정할 수 없습니다. Design에서 더 짧은 화면으로 나누세요.",
+    errorRenderUnavailable:
+      "Design에서 지금은 화면 이미지를 찍을 수 없습니다. 1분 후에 다시 시도하세요.",
+    errorPageMoved:
+      "Design이 이미지를 찍는 동안 이 페이지가 다른 조직으로 이동되었습니다. 다시 시도하세요.",
   },
   "hi-IN": {
     openInDesign: "Design में खोलें",
@@ -498,6 +602,18 @@ const translations: Record<
       "लिंक वाला कोई भी व्यक्ति यह पेज खोल सकता है, लेकिन इस स्क्रीन का डिज़ाइन नहीं, इसलिए इसे यहाँ पिन नहीं किया जा सकता। पहले पेज की शेयरिंग सीमित करें।",
     errorUnreadableAnswer:
       "Design ने कुछ ऐसा भेजा जिसे Content पढ़ नहीं सकता। फिर कोशिश करें।",
+    errorLiveEffects:
+      "यह स्क्रीन Design के लाइव इफ़ेक्ट इस्तेमाल करती है, जो सिर्फ़ Design एडिटर में दिखते हैं, इसलिए इसे तस्वीर के रूप में पिन नहीं किया जा सकता।",
+    errorLiveApp:
+      "यह स्क्रीन अपने पते से एक चल रहा ऐप दिखाती है, जो सिर्फ़ Design एडिटर में लोड होता है, इसलिए इसे तस्वीर के रूप में पिन नहीं किया जा सकता।",
+    errorNavigatedAway:
+      "यह स्क्रीन लोड होते समय अपना ही पेज छोड़ देती है, इसलिए इसे तस्वीर के रूप में पिन नहीं किया जा सकता।",
+    errorTooLarge:
+      "यह स्क्रीन एक तस्वीर के रूप में पिन करने के लिए बहुत लंबी है। इसे Design में छोटी स्क्रीन में बाँटें।",
+    errorRenderUnavailable:
+      "Design अभी स्क्रीन की तस्वीरें नहीं ले सकता। एक मिनट बाद फिर कोशिश करें।",
+    errorPageMoved:
+      "Design के तस्वीर लेते समय यह पेज किसी दूसरे संगठन में चला गया। फिर कोशिश करें।",
   },
   "ar-SA": {
     openInDesign: "فتح في Design",
@@ -547,6 +663,18 @@ const translations: Record<
       "يمكن لأي شخص لديه الرابط فتح هذه الصفحة، لكن ليس تصميم هذه الشاشة، لذا لا يمكن تثبيتها هنا. ضيّق مشاركة الصفحة أولاً.",
     errorUnreadableAnswer:
       "أرسل Design شيئًا لا يستطيع Content قراءته. حاول مرة أخرى.",
+    errorLiveEffects:
+      "تستخدم هذه الشاشة المؤثرات الحية في Design، وهي لا تظهر إلا في محرر Design، لذا لا يمكن تثبيتها كصورة.",
+    errorLiveApp:
+      "تعرض هذه الشاشة تطبيقًا قيد التشغيل من عنوانه، وهو لا يُحمَّل إلا في محرر Design، لذا لا يمكن تثبيتها كصورة.",
+    errorNavigatedAway:
+      "تغادر هذه الشاشة صفحتها أثناء التحميل، لذا لا يمكن تثبيتها كصورة.",
+    errorTooLarge:
+      "هذه الشاشة أطول من أن تُثبَّت كصورة واحدة. قسّمها إلى شاشات أقصر في Design.",
+    errorRenderUnavailable:
+      "لا يستطيع Design التقاط صور للشاشات الآن. حاول مرة أخرى بعد دقيقة.",
+    errorPageMoved:
+      "نُقلت هذه الصفحة إلى مؤسسة أخرى بينما كان Design يلتقط الصورة. حاول مرة أخرى.",
   },
 };
 

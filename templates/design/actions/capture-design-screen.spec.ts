@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   loadCaptureDesign: vi.fn(),
   loadCaptureScreens: vi.fn(),
+  loadStatusScreens: vi.fn(),
   renderScreenPng: vi.fn(),
   openCommentCount: vi.fn(),
   track: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("../server/lib/screen-capture.js", async (importOriginal) => {
     ...actual,
     loadCaptureDesign: mocks.loadCaptureDesign,
     loadCaptureScreens: mocks.loadCaptureScreens,
+    loadStatusScreens: mocks.loadStatusScreens,
     renderScreenPng: mocks.renderScreenPng,
     openCommentCount: mocks.openCommentCount,
     captureLinks: (designId: string, screenId: string) => ({
@@ -50,6 +52,9 @@ beforeEach(() => {
     data: { screenMetadata: { s1: { width: 390 } } },
   });
   mocks.loadCaptureScreens.mockResolvedValue(
+    new Map([["s1", { id: "s1", filename: "Cart.html", content: "<main/>" }]]),
+  );
+  mocks.loadStatusScreens.mockResolvedValue(
     new Map([["s1", { id: "s1", filename: "Cart.html", content: "<main/>" }]]),
   );
   mocks.renderScreenPng.mockResolvedValue(png(780, 1688));
@@ -91,6 +96,26 @@ describe("capture-design-screen", () => {
       expect.anything(),
       1440,
       undefined,
+    );
+  });
+
+  it("says who can open the design once the picture is taken, not before", async () => {
+    mocks.loadCaptureDesign.mockResolvedValueOnce({
+      id: "d1",
+      title: "Checkout",
+      visibility: "public",
+      data: {},
+    });
+    const result = await captureDesignScreen.run(
+      { designId: "d1", screenId: "s1" },
+      a2a,
+    );
+    expect(mocks.loadCaptureDesign).toHaveBeenCalledTimes(2);
+    expect(result.design.visibility).toBe("org");
+    expect(mocks.track).toHaveBeenCalledWith(
+      "design_screen_captured",
+      expect.objectContaining({ design_visibility: "org" }),
+      a2a,
     );
   });
 
@@ -146,6 +171,20 @@ describe("get-design-screen-status", () => {
       },
       { id: "gone", fingerprint: null, openComments: 0 },
     ]);
+  });
+
+  it("leaves out a screen whose source can't be read, and reports the rest", async () => {
+    mocks.loadStatusScreens.mockResolvedValue(
+      new Map([
+        ["s1", { id: "s1", filename: "Cart.html", content: "<main/>" }],
+        ["s2", null],
+      ]),
+    );
+    const result = await getDesignScreenStatus.run(
+      { designId: "d1", screenIds: ["s1", "s2", "gone"] },
+      a2a,
+    );
+    expect(result.screens.map((screen) => screen.id)).toEqual(["s1", "gone"]);
   });
 
   it("answers only other apps", async () => {

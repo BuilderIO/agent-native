@@ -201,6 +201,7 @@ function DesignScreenView({
 function useScreenStatus(
   documentId: string | null | undefined,
   data: DesignScreenData,
+  notBefore = 0,
 ): { status: ScreenStatus | null; recheck: () => void } {
   const { session } = useSession();
   const query = useActionQuery(
@@ -233,11 +234,13 @@ function useScreenStatus(
   return {
     status: {
       state:
-        screen.fingerprint === null
-          ? "gone"
-          : screen.fingerprint !== data.screen.fingerprint
-            ? "changed"
-            : null,
+        query.dataUpdatedAt < notBefore
+          ? null
+          : screen.fingerprint === null
+            ? "gone"
+            : screen.fingerprint !== data.screen.fingerprint
+              ? "changed"
+              : null,
       openComments: screen.openComments,
     },
     recheck,
@@ -283,7 +286,8 @@ function DesignScreenEditor({
   const t = useT();
   const { documentId } = ctx as ContentBlockRenderContext;
   const [refreshing, setRefreshing] = useState(false);
-  const { status, recheck } = useScreenStatus(documentId, data);
+  const [refreshedAt, setRefreshedAt] = useState(0);
+  const { status, recheck } = useScreenStatus(documentId, data, refreshedAt);
 
   const refresh = async (acknowledgeWiderAudience = false) => {
     if (!documentId || refreshing) return;
@@ -311,6 +315,7 @@ function DesignScreenEditor({
         return;
       }
       onChange(result.screen);
+      setRefreshedAt(Date.now());
       recheck();
       toast.success(t("designScreen.refreshed"));
     } catch (error) {

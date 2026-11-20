@@ -269,7 +269,7 @@ describe("pasting a Design screen link", () => {
       string,
       { action: { onClick: () => void } },
     ];
-    first.commands.clearContent();
+    first.chain().selectAll().deleteSelection().run();
     removed.action.onClick();
     await settle();
     expect(hooks.callAction).toHaveBeenCalledTimes(1);
@@ -288,6 +288,49 @@ describe("pasting a Design screen link", () => {
     closed.action.onClick();
     await settle();
     expect(hooks.callAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops quietly when the link goes or the page closes while Design is answering", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    let refuse: (error: unknown) => void = () => undefined;
+    hooks.callAction
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            refuse = reject;
+          }),
+      );
+    const first = open("See ");
+    caretAtEnd(first);
+    paste(first, LINK);
+    await settle();
+    first.chain().selectAll().deleteSelection().run();
+    answer({
+      status: "needs_confirmation",
+      blockId: "design-screen-1a2b3c4d",
+      design: { title: "Checkout" },
+    });
+    await settle();
+    expect(toasts.warning).not.toHaveBeenCalled();
+    expect(toasts.dismiss).toHaveBeenCalledTimes(1);
+
+    first.destroy();
+    const second = open("See ");
+    caretAtEnd(second);
+    paste(second, LINK);
+    await settle();
+    second.destroy();
+    editor = null;
+    refuse(new Error("Design didn't answer."));
+    await settle();
+    expect(toasts.error).not.toHaveBeenCalled();
+    expect(toasts.dismiss).toHaveBeenCalledTimes(2);
   });
 
   it("leaves an Analytics panel link to Analytics", async () => {
