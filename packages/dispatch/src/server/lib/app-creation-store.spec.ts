@@ -3583,8 +3583,14 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledOnce();
     const { prompt } = mocks.runBuilderAgent.mock.calls[0][0];
     expect(prompt).toMatch(
-      /user-owned domain reads and writes.*authenticated caller.*access scope/i,
+      /authenticated caller.*access scope.*all domain reads and writes/i,
     );
+    expect(prompt).toMatch(/scope private user records to their owner/i);
+    expect(prompt).toMatch(
+      /scope organization records to the active organization/i,
+    );
+    expect(prompt).toMatch(/enforce access checks for shared records/i);
+    expect(prompt).toMatch(/do not make all data private/i);
     expect(prompt).toMatch(/visibly identify.*samples.*UI/i);
     expect(prompt).toMatch(/mark.*stored records as samples/i);
     expect(prompt).toMatch(/seed samples per user/i);
