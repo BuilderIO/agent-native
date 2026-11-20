@@ -13,13 +13,24 @@ import {
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
 } from "../server/lib/mcp-gateway.js";
+import routeAppIntent from "./route-app-intent.js";
 
 const deepLinkParam = z.union([z.string(), z.number(), z.boolean()]);
 const openAppSchema = z.object({
   app: z
     .string()
+    .optional()
     .describe(
-      'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions.',
+      'Granted app id, e.g. mail or calendar. Use "dispatch" for Dispatch-owned pages such as /extensions. Leave it out and pass intent to let Dispatch pick the app.',
+    ),
+  intent: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .optional()
+    .describe(
+      "What the user wants to see, in their words (for example: my unread email from Dana). Used to pick the app when app is not given; app wins when both are set.",
     ),
   view: z.string().optional().describe("Target view in the app, e.g. inbox."),
   path: z
@@ -121,16 +132,44 @@ const openAppResource = embedApp({
   openLabel: "Open app",
 });
 
+// Same router the desktop chat uses, so an intent lands on the app a saved
+// pointer or the granted-app list says it belongs to.
+async function pickAppForIntent(
+  intent: string,
+  ctx: Parameters<typeof routeAppIntent.run>[1],
+): Promise<string> {
+  const routed = await routeAppIntent.run({ text: intent }, ctx);
+  if (routed.status !== "ok") {
+    throw new Error(
+      `open_app could not pick an app for that intent (${routed.reason}). Pass app explicitly; list_apps shows the choices.`,
+    );
+  }
+  if (routed.app === "none") {
+    throw new Error(
+      "That request needs no app on screen. Answer in chat, or pass app explicitly to open one.",
+    );
+  }
+  return routed.app;
+}
+
 export default defineAction({
   description:
-    "Show a found or created mail, event, document, or record when viewing it is the useful result. Returns a registered app route for the chat client to open beside the conversation.",
+    "Show a found or created mail, event, document, or record when viewing it is the useful result. Pass app (or just intent, in the user's words, to let Dispatch pick the app). Returns a registered app route for the chat client to open beside the conversation.",
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,
   parallelSafe: true,
   opensAnotherAppEmbed: true,
   run: async (args, ctx) => {
-    const normalized = normalizeOpenAppArgs(args);
+    const { intent, ...normalizedArgs } = normalizeOpenAppArgs(args);
+    let app = normalizedArgs.app?.trim();
+    if (!app) {
+      if (!intent) {
+        throw new Error("open_app needs an app, or an intent to pick one.");
+      }
+      app = await pickAppForIntent(intent, ctx);
+    }
+    const normalized = { ...normalizedArgs, app };
     // An MCP host shows the app from the session the target app mints, so
     // ask for one unless the caller opted out.
     const result = await openGrantedDispatchMcpApp(
