@@ -1355,13 +1355,17 @@ interface DefineActionWithSchema<
    * `action_started`, `action_completed`, and `action_failed` events carry
    * `action_kind: "automatic"` instead of `"write"`, so product-use counts
    * leave it out. Pass a predicate when only some calls are automatic, such
-   * as a background sync whose manual refresh passes `force: true`; it sees
-   * the arguments as sent. It labels analytics only: a write stays a write
+   * as a background sync that only the app's own poller calls without
+   * `force`; it sees the arguments as sent and the call's context, so it can
+   * tell the app's UI from an agent acting on a person's request. It labels analytics only: a write stays a write
    * everywhere else, so never set `readOnly` to quiet one.
    */
   automatic?:
     | boolean
-    | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
+    | ((
+        input: StandardSchemaV1.InferInput<TSchema>,
+        ctx: ActionRunContext,
+      ) => boolean);
   /**
    * How the action reads an ISO date-time argument that names no zone, so an
    * approval summary can say so: `"calendar"` means in the calendar's own
@@ -1502,7 +1506,9 @@ interface DefineActionWithParams<
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
   /** See `automatic` on the schema form above. */
-  automatic?: boolean | ((input: InferParams<TParams>) => boolean);
+  automatic?:
+    | boolean
+    | ((input: InferParams<TParams>, ctx: ActionRunContext) => boolean);
   /** See `ActionDefinition.zonelessTimes`. */
   zonelessTimes?: "calendar";
   endsTurn?: boolean;
@@ -1576,7 +1582,9 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
   /** See `automatic` on the action options. */
-  readonly automatic?: boolean | ((input: TInput) => boolean);
+  readonly automatic?:
+    | boolean
+    | ((input: TInput, ctx: ActionRunContext) => boolean);
   readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -2031,6 +2039,7 @@ export function defineAction(options: any) {
       return actionCallIsAutomatic(
         { automatic },
         typeof automatic === "function" ? copy() : args,
+        ctx,
       )
         ? "automatic"
         : "write";

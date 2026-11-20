@@ -499,8 +499,8 @@ and high-frequency refresh, polling, navigation, and application-state actions
 are excluded. `action_kind` says what kind of call it was: `write` for one
 someone asked for, `read` for a call the action's `planMode` declares a read,
 and `automatic` for a write the app made on its own, declared with
-`automatic` on `defineAction` (a predicate of the input when only some calls
-are automatic). Product-use counts keep `write` only. A new action that runs
+`automatic` on `defineAction` (a predicate of the input and the call's
+context when only some calls are automatic). Product-use counts keep `write` only. A new action that runs
 on load, on mount, on a timer, or as experiment or usage bookkeeping must
 declare `automatic`.
 

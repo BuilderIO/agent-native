@@ -158,17 +158,20 @@ export function actionCallIsRetrySafe(
 /**
  * Whether one call is a write the app made on its own, as the action's
  * `automatic` declaration says for these arguments. The predicate sees the
- * arguments as sent. One that throws declares nothing, so the call counts as
+ * arguments as sent and the call's context. One that throws declares nothing, so the call counts as
  * one someone asked for.
  */
-export function actionCallIsAutomatic<TInput>(
-  entry: { automatic?: boolean | ((input: TInput) => boolean) },
+export function actionCallIsAutomatic<TInput, TContext>(
+  entry: {
+    automatic?: boolean | ((input: TInput, ctx: TContext) => boolean);
+  },
   params: TInput,
+  ctx: TContext,
 ): boolean {
   const { automatic } = entry;
   if (typeof automatic !== "function") return automatic === true;
   try {
-    return automatic(params) === true;
+    return automatic(params, ctx) === true;
   } catch {
     // coercion-ok: an analytics label must not fail the call; unlabeled still counts.
     return false;

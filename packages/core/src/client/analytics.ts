@@ -3002,7 +3002,10 @@ export type SessionStatusTrigger =
 
 export function trackSessionStatus(
   signedIn: boolean,
-  trigger: SessionStatusTrigger,
+  trigger?: SessionStatusTrigger,
 ): void {
-  trackEvent("session status", { signed_in: signedIn, trigger });
+  trackEvent("session status", {
+    signed_in: signedIn,
+    ...(trigger !== undefined ? { trigger } : {}),
+  });
 }

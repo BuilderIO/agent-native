@@ -231,19 +231,20 @@ describe("action lifecycle tracking", () => {
       const sync = defineAction({
         description: "Sync the inbox.",
         schema: z.object({ force: z.boolean().optional() }),
-        automatic: (input) => input.force !== true,
+        automatic: (input, ctx) => ctx.caller === "frontend" && !input.force,
         run: async () => ({ synced: true }),
       });
       const ctx = { ...context, actionName: "sync-inbox" };
 
       await sync.run({}, ctx);
       await sync.run({ force: true }, ctx);
+      await sync.run({}, { ...ctx, caller: "tool" });
 
       expect(
         events
           .filter((event) => event.name === "action_completed")
           .map((event) => event.properties?.action_kind),
-      ).toEqual(["automatic", "write"]);
+      ).toEqual(["automatic", "write", "write"]);
     });
 
     it("labels a call its planMode declares a read as read, whatever else it declares", async () => {
