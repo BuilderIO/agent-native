@@ -2360,8 +2360,7 @@ export default {
     unavailable:
       "Não foi possível acessar o Content. Tente novamente em um minuto.",
     untitledPage: "Sem título",
-    more:
-      "O Content verificou apenas as páginas editadas mais recentemente, então pode haver mais.",
+    more: "O Content verificou apenas as páginas editadas mais recentemente, então pode haver mais.",
   },
   annotations: {
     menu: "Anotações",
