@@ -1468,6 +1468,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "O provedor retornou uma página de erro HTML.",
   "errorMessages.providerNetwork":
     "Não foi possível acessar o provedor do modelo. Verifique sua conexão e tente novamente.",
+  "errorMessages.emailVerificationRequired":
+    "Verifique um endereço de e-mail elegível na conta ou no espaço do provedor de IA conectado e tente novamente.",
   "errorMessages.providerRateLimit":
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
   "errorMessages.providerTransientRejection":

@@ -697,6 +697,8 @@ const messages: ToolkitAgentChatTranslation = {
     "此模型无法在当前设置下使用工具。请在设置中切换模型，然后重试。",
   "errorMessages.providerHtml": "提供商返回了 HTML 错误页面。",
   "errorMessages.providerNetwork": "无法连接模型提供商。请检查网络连接后重试。",
+  "errorMessages.emailVerificationRequired":
+    "请在已连接的 AI 提供商账户或空间中验证一个符合条件的电子邮箱地址，然后重试。",
   "errorMessages.providerRateLimit":
     "模型提供商目前正在限制此聊天的请求频率。请稍等片刻后重试。",
   "errorMessages.providerTransientRejection":

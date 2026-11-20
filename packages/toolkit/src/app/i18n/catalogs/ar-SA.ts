@@ -741,6 +741,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "أرجع المزوّد صفحة خطأ بتنسيق HTML.",
   "errorMessages.providerNetwork":
     "تعذّر الوصول إلى مزوّد النموذج. تحقّق من اتصالك وأعد المحاولة.",
+  "errorMessages.emailVerificationRequired":
+    "تحقّق من عنوان بريد إلكتروني مؤهل لدى حساب أو مساحة مزوّد الذكاء الاصطناعي المتصل، ثم أعد المحاولة.",
   "errorMessages.providerRateLimit":
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
   "errorMessages.providerTransientRejection":

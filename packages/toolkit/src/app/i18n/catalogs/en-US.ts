@@ -743,6 +743,8 @@ const messages = {
   "errorMessages.providerHtml": "The provider returned an HTML error page.",
   "errorMessages.providerNetwork":
     "The model provider could not be reached. Check your connection and retry.",
+  "errorMessages.emailVerificationRequired":
+    "Verify an eligible email address with the connected AI provider account or space, then retry.",
   "errorMessages.providerRateLimit":
     "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
   "errorMessages.providerTransientRejection":

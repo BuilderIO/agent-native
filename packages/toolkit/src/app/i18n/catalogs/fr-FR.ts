@@ -1492,6 +1492,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Le fournisseur a renvoyé une page d'erreur HTML.",
   "errorMessages.providerNetwork":
     "Le fournisseur du modèle est injoignable. Vérifiez votre connexion et réessayez.",
+  "errorMessages.emailVerificationRequired":
+    "Vérifiez une adresse e-mail éligible auprès du compte ou de l’espace du fournisseur d’IA connecté, puis réessayez.",
   "errorMessages.providerRateLimit":
     "Le fournisseur du modèle limite temporairement cette discussion. Patientez un instant, puis réessayez.",
   "errorMessages.providerTransientRejection":

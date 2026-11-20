@@ -82,6 +82,8 @@ const GATEWAY_INTERNAL_ERROR_MESSAGE =
   "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.";
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
   "The AI provider temporarily refused this request. This usually clears within a minute — retry.";
+const EMAIL_VERIFICATION_REQUIRED_MESSAGE =
+  "Verify an eligible email address with the connected AI provider account or space, then retry.";
 const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
 const ATTACHMENT_PASSWORD_PROTECTED_MESSAGE =
   "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
@@ -217,6 +219,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     PROVIDER_TRANSIENT_REJECTION_MESSAGE,
     "agentChat.errorMessages.providerTransientRejection",
+  ],
+  [
+    EMAIL_VERIFICATION_REQUIRED_MESSAGE,
+    "agentChat.errorMessages.emailVerificationRequired",
   ],
   [
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -490,8 +496,7 @@ export function normalizeChatError(
 
   if (code === "email_verification_required") {
     return {
-      message:
-        "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+      message: EMAIL_VERIFICATION_REQUIRED_MESSAGE,
       details: text,
     };
   }

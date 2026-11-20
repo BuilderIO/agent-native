@@ -736,6 +736,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "제공업체가 HTML 오류 페이지를 반환했습니다.",
   "errorMessages.providerNetwork":
     "모델 제공업체에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
+  "errorMessages.emailVerificationRequired":
+    "연결된 AI 제공업체 계정 또는 스페이스에서 조건에 맞는 이메일 주소를 인증한 후 다시 시도하세요.",
   "errorMessages.providerRateLimit":
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
   "errorMessages.providerTransientRejection":

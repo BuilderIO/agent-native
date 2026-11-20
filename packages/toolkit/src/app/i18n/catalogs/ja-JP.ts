@@ -758,6 +758,8 @@ const messages: ToolkitAgentChatTranslation = {
     "プロバイダーから HTML のエラーページが返されました。",
   "errorMessages.providerNetwork":
     "モデルプロバイダーに接続できませんでした。接続を確認して再試行してください。",
+  "errorMessages.emailVerificationRequired":
+    "接続されている AI プロバイダーのアカウントまたはスペースで、条件を満たすメールアドレスを認証してから再試行してください。",
   "errorMessages.providerRateLimit":
     "現在、モデルプロバイダーがこのチャットのリクエスト数を制限しています。少し待ってから再試行してください。",
   "errorMessages.providerTransientRejection":

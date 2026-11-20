@@ -731,6 +731,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "प्रदाता ने HTML त्रुटि पेज लौटाया।",
   "errorMessages.providerNetwork":
     "मॉडल प्रदाता तक पहुँचा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "errorMessages.emailVerificationRequired":
+    "कनेक्ट किए गए AI प्रदाता के खाते या स्पेस में योग्य ईमेल पते की पुष्टि करें, फिर दोबारा प्रयास करें।",
   "errorMessages.providerRateLimit":
     "मॉडल प्रदाता अभी इस चैट की अनुरोध दर सीमित कर रहा है। कुछ देर रुकें, फिर से प्रयास करें।",
   "errorMessages.providerTransientRejection":

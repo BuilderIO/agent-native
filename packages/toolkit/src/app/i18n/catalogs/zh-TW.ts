@@ -699,6 +699,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "供應商傳回了 HTML 錯誤頁面。",
   "errorMessages.providerNetwork":
     "無法連線至模型供應商。請檢查網路連線後重試。",
+  "errorMessages.emailVerificationRequired":
+    "請在已連線的 AI 供應商帳戶或空間中驗證一個符合條件的電子郵件地址，然後重試。",
   "errorMessages.providerRateLimit":
     "模型供應商目前正在限制這個聊天的要求頻率。請稍候再試。",
   "errorMessages.providerTransientRejection":

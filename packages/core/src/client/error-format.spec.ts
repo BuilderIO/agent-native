@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import germanMessages from "../../../toolkit/src/app/i18n/catalogs/de-DE.js";
 import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -249,7 +250,7 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError(raw, "email_verification_required");
 
     expect(normalized.message).toBe(
-      "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+      "Verify an eligible email address with the connected AI provider account or space, then retry.",
     );
     expect(normalized.details).toBe(raw);
   });
@@ -558,6 +559,21 @@ describe("malformed provider request", () => {
 });
 
 describe("localizeKnownChatErrorText", () => {
+  it("localizes the provider email verification recovery message", () => {
+    const message =
+      "Error: Verify an eligible email address with the connected AI provider account or space, then retry.";
+    expect(
+      localizeKnownChatErrorText(message, (key, options) => {
+        const catalogKey = key.replace(/^agentChat\./, "");
+        return (
+          germanMessages[catalogKey] ?? String(options?.defaultValue ?? key)
+        ).replace("{{message}}", String(options?.message ?? ""));
+      }),
+    ).toBe(
+      "Fehler: Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
+    );
+  });
+
   it("localizes the normalized Builder authentication recovery message", () => {
     const normalized = normalizeChatError(
       "Builder rejected this request.",

@@ -1479,6 +1479,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Anbieter hat eine HTML-Fehlerseite zurückgegeben.",
   "errorMessages.providerNetwork":
     "Der Modellanbieter konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut.",
+  "errorMessages.emailVerificationRequired":
+    "Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
   "errorMessages.providerRateLimit":
     "Der Modellanbieter begrenzt diesen Chat derzeit. Warte einen Moment und versuche es dann erneut.",
   "errorMessages.providerTransientRejection":
