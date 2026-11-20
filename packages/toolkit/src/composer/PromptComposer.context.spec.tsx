@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { waitFor } from "@testing-library/react";
 import type { Editor } from "@tiptap/core";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -1079,20 +1080,27 @@ describe("controlled composer context", () => {
         Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
 
       await render({ source: "dashboards", referenceType: "dashboard" });
-      await act(async () =>
-        container
-          .querySelector<HTMLElement>('button[aria-label="Add context"]')!
-          .dispatchEvent(
-            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-          ),
-      );
       await act(async () => {
-        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-          .find((item) => item.textContent === "Choose reference")!
-          .click();
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        const trigger = container.querySelector<HTMLElement>(
+          'button[aria-label="Add context"]',
+        );
+        if (!trigger) throw new Error("Missing context trigger");
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
       });
-      expect(options().map((item) => item.textContent)).toEqual(["Old result"]);
+      await act(async () => {
+        const action = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((item) => item.textContent === "Choose reference");
+        if (!action) throw new Error("Missing scoped reference action");
+        action.click();
+      });
+      await waitFor(() =>
+        expect(options().map((item) => item.textContent)).toEqual([
+          "Old result",
+        ]),
+      );
 
       await render(nextFilter);
       expect(options()).toHaveLength(0);
@@ -1106,7 +1114,9 @@ describe("controlled composer context", () => {
       expect(options().map((item) => item.textContent)).toEqual(["New result"]);
       await act(async () => options()[0].click());
       expect(document.querySelector('[role="dialog"]')).toBeNull();
-      await act(async () => composerRef.current!.submit());
+      const composer = composerRef.current;
+      if (!composer) throw new Error("Missing composer handle");
+      await act(async () => composer.submit());
       expect(onSubmit.mock.calls[0][2]).toEqual([
         expect.objectContaining({
           refType: nextFilter.referenceType,
@@ -1160,37 +1170,50 @@ describe("controlled composer context", () => {
         ),
       );
     };
-    const open = async () => {
+    const open = async (label: string) => {
       await act(async () => {
-        container
-          .querySelector<HTMLElement>('button[aria-label="Add context"]')!
-          .dispatchEvent(
-            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-          );
+        const trigger = container.querySelector<HTMLElement>(
+          'button[aria-label="Add context"]',
+        );
+        if (!trigger) throw new Error("Missing context trigger");
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
       });
       await act(async () => {
-        Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-          .find((item) => item.textContent === "Search workspace…")!
-          .click();
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        const action = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((item) => item.textContent === "Search workspace…");
+        if (!action) throw new Error("Missing workspace search");
+        action.click();
       });
+      await waitFor(() =>
+        expect(
+          Array.from(
+            document.querySelectorAll<HTMLElement>('[role="option"]'),
+          ).some((item) => item.textContent === label),
+        ).toBe(true),
+      );
     };
     const select = async (label: string) => {
       const option = Array.from(
         document.querySelectorAll<HTMLElement>('[role="option"]'),
       ).find((item) => item.textContent === label);
       expect(option).toBeDefined();
-      await act(async () => option!.click());
+      if (!option) throw new Error(`Missing workspace result: ${label}`);
+      await act(async () => option.click());
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     };
 
     await render();
-    await open();
+    await open("Slides");
     await select("Slides");
-    await open();
+    await open("Plans");
     await render();
     await select("Plans");
-    await act(async () => composerRef.current!.submit());
+    const composer = composerRef.current;
+    if (!composer) throw new Error("Missing composer handle");
+    await act(async () => composer.submit());
     expect(onSubmit.mock.calls[0][2]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ refType: "agent", refId: "slides" }),
