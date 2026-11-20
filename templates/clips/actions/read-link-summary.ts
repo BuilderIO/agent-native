@@ -25,7 +25,7 @@ export default defineAction({
   http: false,
   readOnly: true,
   agentTool: false,
-  mcpTool: true,
+  mcpTool: "search",
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ links }) =>
     answerLinkSummaries({
@@ -39,9 +39,6 @@ export default defineAction({
           access.resource as typeof schema.recordings.$inferSelect;
         const viewerIsOwner = access.role === "owner";
         const hasPassword = Boolean(recording.password);
-        // The same gates the Clip's player applies before it shows anything:
-        // a takedown hides it from everyone, a pending redaction from all but
-        // its editors.
         if (
           recording.failureCode === "taken_down" ||
           isHeldForRedaction(recording.editsJson, access.role) ||

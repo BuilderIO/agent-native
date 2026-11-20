@@ -22,8 +22,6 @@ type ReaderQueue = {
   links: Map<string, Waiter[]>;
 };
 
-// One queue per reader, so a request never answers a card queued by someone
-// else, even when the tab's session changes before the queue is sent.
 let queued = new Map<string, ReaderQueue>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -47,9 +45,6 @@ async function askChunk(
       reader?: string | null;
       summaries: LinkSummary[];
     };
-    // The server answers as whoever is signed in when the request arrives.
-    // Answers for anyone but the reader who queued these cards are dropped,
-    // never cached under this reader.
     if (!sameEmail(result.reader, reader.email)) {
       throw new Error("Link summaries were answered for another reader");
     }
@@ -72,8 +67,6 @@ function flush() {
   timer = null;
   const batches = queued;
   queued = new Map();
-  // Every chunk is asked at once, so a slow app delays each card by one
-  // request's timeout at most, however many cards the page holds.
   for (const { reader, links } of batches.values()) {
     const all = [...links.keys()];
     for (let start = 0; start < all.length; start += MAX_BATCH) {

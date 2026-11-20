@@ -186,8 +186,6 @@ function inlineMarkdownSegmentToHtml(
   text: string,
   tokens: InlineExportToken[],
 ): string {
-  // Finished images and links wait behind a numbered marker the text doesn't
-  // contain, so emphasis never rewrites the underscores in their URLs.
   let mark = "\uE002";
   while (text.includes(mark)) mark += "\uE002";
   const elements: string[] = [];
@@ -205,7 +203,6 @@ function inlineMarkdownSegmentToHtml(
               `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`,
             ),
         )
-        // A linked image's label is the image's marker, restored inside the link.
         .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) =>
           keep(
             `<a href="${safeExportUrl(href, "link")}">${restore(emphasisToHtml(label))}</a>`,

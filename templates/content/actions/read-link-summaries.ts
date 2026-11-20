@@ -28,8 +28,6 @@ export default defineAction({
       .describe("The cards' links, as stored in the page."),
   }),
   outputSchema: z.object({
-    // Who the answers were asked as, so a tab whose reader changed while the
-    // request was in flight can drop answers meant for someone else.
     reader: z.string().nullable(),
     summaries: z.array(linkSummarySchema),
   }),

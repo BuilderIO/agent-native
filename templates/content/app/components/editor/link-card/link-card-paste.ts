@@ -37,9 +37,6 @@ export function linkCardFromPaste(
   return item && url ? { app: item.app, url: url.href } : null;
 }
 
-// The card replaces the whole paragraph, so the paragraph must hold the link
-// and nothing else: no other text, and no inline item such as a mention, an
-// equation or a line break, which a text comparison alone would miss.
 function holdsOnlyText(paragraph: ProseMirrorNode, link: string): boolean {
   let onlyText = true;
   paragraph.forEach((child) => {

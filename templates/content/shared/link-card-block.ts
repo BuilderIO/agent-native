@@ -62,7 +62,6 @@ export function linkCardBlockRaw(blockId: string, data: LinkCardData): string {
   return serializeSpecBlock(linkCardBlockConfig, { id: blockId, data });
 }
 
-// One MDX attribute: a bare name, "text", 'text' or an {expression}.
 const RAW_ATTR =
   /\s+([A-Za-z_:][\w:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|\{([^{}]*)\}))?/y;
 
@@ -84,11 +83,6 @@ function expressionString(expression: string): string | null {
   }
 }
 
-/**
- * A self-closing LinkCard tag's attributes, read in order the way the MDX
- * parser reads them (the first of a repeated name wins), or null when the tag
- * holds anything else.
- */
 function rawAttrs(tag: string): Map<string, string | null> | null {
   const open = `<${LINK_CARD_TAG}`;
   if (!tag.startsWith(open)) return null;
@@ -99,8 +93,9 @@ function rawAttrs(tag: string): Map<string, string | null> | null {
     const match = RAW_ATTR.exec(tag);
     if (!match) break;
     at = RAW_ATTR.lastIndex;
-    const [, name, double, single, expression] = match;
-    if (attrs.has(name)) continue;
+    const groups: Array<string | undefined> = [...match];
+    const [, name, double, single, expression] = groups;
+    if (name === undefined || attrs.has(name)) continue;
     attrs.set(
       name,
       double !== undefined
@@ -139,7 +134,6 @@ const FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
  */
 export function linkCardsAsPlainLinks(markdown: string): string {
   if (!markdown.includes(`<${LINK_CARD_TAG}`)) return markdown;
-  // A fence closes only on a run of its own character at least as long.
   let fence: string | null = null;
   return markdown
     .split("\n")
