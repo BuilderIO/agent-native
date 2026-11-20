@@ -86,6 +86,7 @@ import {
   releaseTurnExecutionLease,
   TurnExecutionLeaseBusyError,
   terminalEventForAbortReason,
+  type UserStopOptions,
   RUN_RECORD_MISSING_ERROR_EVENT,
   RUN_RECORD_MISSING_GRACE_MS,
   RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT,
@@ -177,6 +178,45 @@ async function flushRunEventsBeforeAbort(
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
 const HEARTBEAT_ATTEMPT_DEADLINE_MS = 5_000;
+
+const REVOKED_LEASE_ABORT_STATE_DEADLINE_MS = 2_000;
+
+const ABORT_STATE_READ_RETRY_MS = 200;
+
+/**
+ * Reads a run's abort state, retrying a failed read until the deadline.
+ * Null means it couldn't be read in time, which is not the same as no Stop.
+ * Each failed read goes to `onFailedRead`, so the caller can report the last.
+ */
+export async function readAbortStateBeforeDeadline<TState>(
+  read: () => Promise<TState>,
+  deadlineMs: number,
+  onFailedRead?: (error: unknown) => void,
+): Promise<TState | null> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<"timed-out">((resolve) => {
+      timer = setTimeout(() => resolve("timed-out"), deadline - Date.now());
+    });
+    try {
+      const result = await Promise.race([
+        read().then((state) => ({ state })),
+        timedOut,
+      ]);
+      if (result === "timed-out") return null;
+      return result.state;
+    } catch (error) {
+      // coercion-ok: a failed read is retried until the deadline, then reported.
+      onFailedRead?.(error);
+      const wait = Math.min(ABORT_STATE_READ_RETRY_MS, deadline - Date.now());
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
+}
 
 const MAX_PENDING_HEARTBEATS = 2;
 
@@ -812,7 +852,11 @@ function emitRunTerminalTrackingEvent(args: {
   );
 }
 
-function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
+function abortInMemoryRun(
+  run: ActiveRun,
+  reason: string = "user",
+  stop?: UserStopOptions,
+) {
   run.abortReason = reason;
   run.status = "aborted";
   if (threadToRun.get(run.threadId) === run.runId) {
@@ -825,7 +869,7 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   const terminalRunEvent = existingTerminalEvent ??
     run.pendingAbortEvent ?? {
       seq: allocateRunEventSeq(run),
-      event: terminalEventForAbortReason(reason),
+      event: terminalEventForAbortReason(reason, stop),
     };
   if (!existingTerminalEvent && !run.pendingAbortEvent) {
     run.pendingAbortEvent = terminalRunEvent;
@@ -1751,13 +1795,20 @@ export function startRun(
   let ownTerminalStatusEstablished = false;
   let terminalStatusWrite: Promise<boolean> | null = null;
   let terminalStatusWriteOutcomeUnknown = false;
+  const adoptPersistedAbort = (state: {
+    reason?: string;
+    shownThroughSeq?: number;
+  }) => {
+    run.abortPersistenceManaged = true;
+    abortInMemoryRun(run, state.reason ?? "user", userStopFrom(state));
+  };
   const inspectSqlAbortState = async (
     includeTerminalStatus: boolean,
   ): Promise<void> => {
     // raw-sql-ok: getRunAbortState binds runId through its query args.
     const state = await getRunAbortState(runId);
     if (state.aborted && !abort.signal.aborted) {
-      abortInMemoryRun(run, state.reason ?? "user");
+      adoptPersistedAbort(state);
       return;
     }
     let status: string | null = null;
@@ -1822,6 +1873,39 @@ export function startRun(
       });
   };
 
+  const abortForRevokedLease = async () => {
+    let lastReadError: unknown;
+    const state = await readAbortStateBeforeDeadline(
+      // raw-sql-ok: getRunAbortState binds runId through its query args.
+      () => getRunAbortState(runId),
+      REVOKED_LEASE_ABORT_STATE_DEADLINE_MS,
+      (error) => {
+        lastReadError = error;
+      },
+    );
+    if (completionInProgress || abort.signal.aborted) return;
+    if (state?.aborted) adoptPersistedAbort(state);
+    else {
+      if (!state) {
+        captureError(
+          new Error("Could not read the run's abort state in time", {
+            cause: lastReadError,
+          }),
+          {
+            route: "/_agent-native/agent-chat",
+            aiTraceId: runId,
+            tags: {
+              source: "agent-run-manager",
+              phase: "revoked-lease-abort-state-read",
+            },
+            extra: { runId, threadId },
+          },
+        );
+      }
+      abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
+    }
+  };
+
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
   let livenessResolved = false;
@@ -1855,9 +1939,7 @@ export function startRun(
         })
         .catch((error) => {
           if (error instanceof StaleExecutionFenceError) {
-            if (!completionInProgress) {
-              abortInMemoryRun(run, EXECUTION_LEASE_LOST_ABORT_REASON);
-            }
+            if (!completionInProgress) return abortForRevokedLease();
             return;
           }
           consecutiveHeartbeatFailures += 1;
@@ -3897,10 +3979,22 @@ export function getRun(runId: string): ActiveRun | null {
   return activeRuns.get(runId) ?? null;
 }
 
-function abortRunInMemory(runId: string, reason: string): boolean {
+function userStopFrom(
+  options: UserStopOptions | undefined,
+): UserStopOptions | undefined {
+  return options?.shownThroughSeq === undefined
+    ? undefined
+    : { shownThroughSeq: options.shownThroughSeq };
+}
+
+function abortRunInMemory(
+  runId: string,
+  reason: string,
+  stop?: UserStopOptions,
+): boolean {
   const run = activeRuns.get(runId);
   if (run) {
-    abortInMemoryRun(run, reason);
+    abortInMemoryRun(run, reason, stop);
   }
   return !!run;
 }
@@ -3944,10 +4038,11 @@ export function abortRun(runId: string, reason: string = "user"): boolean {
 export async function abortRunDurably(
   runId: string,
   reason: string = "user",
-  options?: { allowNotStarted?: boolean },
+  options?: { allowNotStarted?: boolean } & UserStopOptions,
 ): Promise<boolean> {
   const run = activeRuns.get(runId);
-  const abortedInMemory = abortRunInMemory(runId, reason);
+  const stop = userStopFrom(options);
+  const abortedInMemory = abortRunInMemory(runId, reason, stop);
   const persistence = (async () => {
     let eventFlushFailure: AgentRunEventNotPersistedError | null;
     try {
@@ -3958,7 +4053,9 @@ export async function abortRunDurably(
     }
     let abortPersistedDurably = false;
     try {
-      const abortPersisted = await markRunAborted(runId, reason);
+      const abortPersisted = await (stop
+        ? markRunAborted(runId, reason, stop)
+        : markRunAborted(runId, reason));
       abortPersistedDurably = abortPersisted;
       if (!abortPersisted || eventFlushFailure) {
         const persistedStatus = await getRunStatus(runId);
@@ -4025,17 +4122,20 @@ interface SafeBoundaryAbortResult {
 async function abortRunAtSafeBoundaryDurablyResult(
   runId: string,
   reason: string = "user",
+  stop?: UserStopOptions,
 ): Promise<SafeBoundaryAbortResult> {
   const run = activeRuns.get(runId);
   const eventFlushFailure = await flushRunEventsBeforeAbort(run);
   let aborted: boolean;
   try {
-    aborted = await markRunAbortedAtSafeBoundary(runId, reason);
+    aborted = await (stop
+      ? markRunAbortedAtSafeBoundary(runId, reason, stop)
+      : markRunAbortedAtSafeBoundary(runId, reason));
   } catch (error) {
     try {
       const state = await getRunAbortState(runId);
       if (state.aborted && run) {
-        abortRunInMemory(runId, state.reason ?? reason);
+        abortRunInMemory(runId, state.reason ?? reason, userStopFrom(state));
       }
     } catch (stateError) {
       captureError(stateError, {
@@ -4063,7 +4163,7 @@ async function abortRunAtSafeBoundaryDurablyResult(
   if (!aborted) {
     return { aborted: false, eventFlushFailure };
   }
-  if (run) abortInMemoryRun(run, reason);
+  if (run) abortInMemoryRun(run, reason, stop);
   return { aborted: true, eventFlushFailure };
 }
 
@@ -4204,17 +4304,22 @@ export async function abortTurnDurably(
 export async function abortRunAndTurnDurably(
   runId: string,
   reason: string = "user",
-  options?: { safeBoundary?: boolean },
+  options?: { safeBoundary?: boolean } & UserStopOptions,
 ): Promise<boolean> {
   let abortedInMemory = false;
   let terminalFlushFailure: AgentRunEventNotPersistedError | undefined;
+  const stop = userStopFrom(options);
   try {
     if (options?.safeBoundary) {
-      const result = await abortRunAtSafeBoundaryDurablyResult(runId, reason);
+      const result = await abortRunAtSafeBoundaryDurablyResult(
+        runId,
+        reason,
+        stop,
+      );
       abortedInMemory = result.aborted;
       terminalFlushFailure = result.eventFlushFailure ?? undefined;
     } else {
-      abortedInMemory = await abortRunDurably(runId, reason);
+      abortedInMemory = await abortRunDurably(runId, reason, stop);
     }
   } catch (error) {
     if (

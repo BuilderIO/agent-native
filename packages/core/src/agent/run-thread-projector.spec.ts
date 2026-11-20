@@ -23,6 +23,46 @@ describe("buildAssistantMessageFromRunJournal", () => {
     vi.mocked(getCurrentTurnRunEventsForThread).mockReset();
   });
 
+  it("saves a reply stopped through another server only up to what the browser showed", async () => {
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValue([
+      {
+        runId: "run-stopped",
+        seq: 0,
+        event: { type: "text", text: "1. The ocean covers most of Earth." },
+      },
+      {
+        runId: "run-stopped",
+        seq: 1,
+        event: { type: "text", text: "\n2. Mangrove" },
+      },
+      {
+        runId: "run-stopped",
+        seq: 5,
+        event: { type: "done", reason: "user", shownThroughSeq: 0 },
+      },
+    ]);
+
+    const message = await buildAssistantMessageFromRunJournal({
+      threadId: "thread-journal",
+      turnId: "turn-journal",
+      runId: "run-stopped",
+      runEvents: [
+        {
+          seq: 0,
+          event: { type: "text", text: "1. The ocean covers most of Earth." },
+        },
+        { seq: 1, event: { type: "text", text: "\n2. Mangrove" } },
+        { seq: 2, event: { type: "text", text: " forests grow" } },
+        { seq: 3, event: { type: "text", text: " along tropical co" } },
+        { seq: 4, event: { type: "done", reason: "user" } },
+      ],
+    });
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "1. The ocean covers most of Earth." },
+    ]);
+  });
+
   it("projects persisted content and supplements a terminal event not yet journaled", async () => {
     vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValue([
       {
