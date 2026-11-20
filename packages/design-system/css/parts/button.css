@@ -60,14 +60,14 @@
     --control-font-size: var(--control-font-size-1);
     --control-line-height: var(--control-line-height-1);
     height: var(--control-height-1);
-    padding-inline: var(--control-padding-x-1);
+    padding-inline: var(--space-2);
   }
 
   :is(.button, .icon-button)[data-size="2"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     height: var(--control-height-2);
-    padding-inline: var(--control-padding-x-2);
+    padding-inline: var(--space-2);
   }
 
   :is(.button, .icon-button)[data-size="4"] {

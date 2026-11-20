@@ -76,7 +76,7 @@
     --control-line-height: var(--control-line-height-1);
     --_height: var(--control-height-1);
     --_icon: var(--control-icon-size-1);
-    --_padding: var(--control-padding-x-2);
+    --_padding: var(--space-2);
   }
 
   .select-trigger[data-size="2"] {
