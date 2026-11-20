@@ -32,8 +32,6 @@ sequence are in `docs/plans/2026-11-17-design-system-base-ui.md`.
 | How a part is built | `css/parts/<part>.css` and its toolkit component |
 | Sizes across an app | `data-density` / `data-radius` / `data-corners`, not part CSS |
 | App chrome layout | Tailwind utilities on role tokens: `bg-surface-nav`, `text-fg-muted`, `rounded-control` |
-| What a surface contains | its headless model (`ScreenModel` rows with stable ids), drawn by `ModelSurface` |
-| A part's markup for one product | a part set (`defineDesignSystem({ parts })`); reference sets live in the private repo |
 
 After editing anything under `src/`, run `pnpm --filter @agent-native/design-system css`;
 `css:check` and a spec fail when `css/tokens.css` or a `css/themes/*.css` file drifts.
@@ -129,8 +127,7 @@ the shared lists.
 5. Move call sites to the new props; typecheck lists them. A popup's defaults
    (soft, gray) keep today's look, so most call sites need no props.
 
-Details: `references/model.md` (headless model, part sets, equivalence and
-fidelity checks), `references/parts.md` (part anatomy and CSS contract),
+Details: `references/parts.md` (part anatomy and CSS contract),
 `references/tokens.md` (tiers, names, presets, generation),
 `references/themes.md` (app themes), `references/translating.md` (restyling
 a product-modelled app into Agent-Native).
