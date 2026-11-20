@@ -83,3 +83,22 @@ it("does not adopt an epoch bumped by another tab", async () => {
 
   expect(writes.at(-1)?.mutationEpoch).toBeNull();
 });
+
+it("stamps later writes with its own epoch even when nothing was pending at settle", async () => {
+  advanceMutationEpoch();
+  const ownEpoch = readMutationEpoch();
+  requestActionCacheFlush(ownEpoch);
+
+  saveQuery("blue");
+  await vi.advanceTimersByTimeAsync(1_000);
+
+  expect(writes.at(-1)?.mutationEpoch).toBe(ownEpoch);
+});
+
+it("keeps the stamped epoch when the settled epoch is not a current string", async () => {
+  saveQuery("red");
+  requestActionCacheFlush(null);
+  await vi.advanceTimersByTimeAsync(1_000);
+
+  expect(writes.at(-1)?.mutationEpoch).toBeNull();
+});
