@@ -814,6 +814,7 @@
         "@agent-native/core/client/oauth-popup",
         "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-session",
+        "@agent-native/core/localization/privacy-choice-messages",
         "@agent-native/core/localization/shared",
         "@agent-native/core/shared/analytics-events",
         "@agent-native/core/shared/app-status",

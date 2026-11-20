@@ -20,6 +20,7 @@ import { whenConsentDecided } from "@agent-native/core/client/consent";
 import { startMobileGoogleAuth } from "@agent-native/core/client/mobile-auth";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
+import { consentBannerMessagesForLocale } from "@agent-native/core/localization/privacy-choice-messages";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
 import { canonicalTrackingEvent } from "@agent-native/core/shared/analytics-events";
 import { getAppStatus } from "@agent-native/core/shared/app-status";
@@ -44,6 +45,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
+import { ConsentBannerPanel } from "../shared/ConsentBanner.js";
 import { WaveBackground } from "../shared/WaveBackground.js";
 
 export type {
@@ -3257,12 +3259,18 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   ) : null;
+  // The page has its own locale and no i18n provider, so the cookie banner
+  // takes its copy from that locale. It sits under the card, never over it.
+  const consentBanner = (
+    <ConsentBannerPanel messages={consentBannerMessagesForLocale(locale)} />
+  );
   const marketingSurface = marketingCopy ? (
     <main className="auth-marketing-home" data-agent-native-marketing-home>
       <div className="auth-marketing-shell">
         <div className="split auth-marketing-layout">
           <aside className="form-panel w-full max-w-md justify-self-end">
             {authCard}
+            {consentBanner}
           </aside>
           <section className="marketing-panel">
             <div className="auth-marketing-visual">{marketingContent}</div>
@@ -3271,7 +3279,10 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </main>
   ) : (
-    <div className="auth-centered">{authCard}</div>
+    <div className="auth-centered">
+      {authCard}
+      {consentBanner}
+    </div>
   );
   const localePicker = (
     <div className="locale-picker">
@@ -3345,7 +3356,10 @@ export function AuthPage(props: AuthPageProps) {
       <div className="auth-page-content">
         {localePicker}
         {initialPrompt ? (
-          <div className="auth-centered">{authCard}</div>
+          <div className="auth-centered">
+            {authCard}
+            {consentBanner}
+          </div>
         ) : (
           marketingSurface
         )}

@@ -272,7 +272,9 @@ together.
 
 Visitors in the consent region (`shared/consent.ts`, copied from builder.io's
 banner rules) see `ConsentBanner`, which `AppProviders` and the docs root
-mount, and choose two categories: `performance` (Google Analytics,
+mount, and choose two categories (the sign-in page shows the same banner
+under its card, through `ConsentBannerPanel` with the page's own language,
+so a visitor can accept before signing up): `performance` (Google Analytics,
 Amplitude, Ahrefs) and `targeting` (Google Tag Manager, attribution).
 Everyone else gets no banner and every tag at once.
 
@@ -418,7 +420,9 @@ There is one capture implementation, `captureAttribution()` from `@agent-native/
 - `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term` (raw passthrough)
 - `first_touch_path` (= `landing_path`), `landing_referrer`
 
-Attribution parsing is fully defensive and never blocks signup — a missing/malformed cookie falls back to `referral_source: "direct"`.
+Attribution parsing is defensive and never blocks signup. A request with no attribution context (no `an_fts`, `an_ft`, `an_lt` or `an_aid`) adds no attribution fields at all, not `referral_source: "direct"`, so a signup we couldn't attribute stays distinct from a direct visit.
+
+**Consent markers.** When the signup request's consent kept attribution or analytics ids off the event, the event says so: `attribution_consent` when `targeting` wasn't allowed, `analytics_consent` when `performance` wasn't. Each is `"withheld"` (a stored `an_consent` choice said no, or the request's country is in the consent region and no choice was made) or `"unknown"` (no stored choice and no usable country: missing, `XX` or `ZZ`). An allowed category adds no marker, and a marker never brings back what consent withheld. `requestConsentCategoryState` in `server/consent-route.ts` decides both; the boolean helpers are its `"allowed"` case. An account another signed-in user created carries no markers, as it carries no attribution.
 
 Other framework-level baseline events:
 
@@ -463,7 +467,7 @@ Other framework-level baseline events:
   database work) and an `X-Agent-Native-Request-Id` header where applicable.
   Query text and parameters are never captured. There is no sampling knob for
   this span; export volume is governed by the OpenTelemetry sampler.
-- `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
+- `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above), and `attribution_consent` / `analytics_consent` when consent withheld them
 - `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 - `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `turn_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Run failure messages are omitted from every tracking provider even with content capture enabled. `$ai_error` carries a fixed message derived from `terminal_code`, a named `cause`, terminal state, and retryability. The `error_message` field and tool error output text are absent. Local trace SQL retains debugging detail under the observability capture settings.
