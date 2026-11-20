@@ -1121,6 +1121,30 @@ describe("saved-panel capture outside-agent budget adapter", () => {
     expect(budget.settle).not.toHaveBeenCalled();
   });
 
+  it("returns a non-retryable refusal when the saved query exceeds the per-job cap", async () => {
+    dryRun.response = () =>
+      json({
+        statistics: {
+          query: { totalBytesProcessed: "100000000000", referencedTables: [] },
+        },
+      });
+    await expect(
+      capturePanel.run(args, { caller: "mcp" }),
+    ).rejects.toMatchObject({
+      errorCode: "over_job_cap",
+      statusCode: 422,
+      details: {
+        bigQueryBudget: {
+          refusal: { code: "over_job_cap" },
+          thisCall: { jobsAdmitted: 0 },
+        },
+      },
+    });
+    expect(submissions).toHaveLength(0);
+    expect(budget.admit).not.toHaveBeenCalled();
+    expect(budget.settle).not.toHaveBeenCalled();
+  });
+
   it("checks sign-in and dashboard access before warehouse work", async () => {
     captureState.email = null;
     await expect(
