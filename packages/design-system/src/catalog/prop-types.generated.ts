@@ -1108,10 +1108,10 @@ export interface TableRowOwnProps {
 
 export interface TabNavOwnProps {
   /**
-   * Link height: 1 is 24px, 2 is 32px.
-   * @default "2"
+   * Control height: 3 is 24px, 4 is 32px.
+   * @default "4"
    */
-  size?: "1" | "2";
+  size?: "3" | "4";
   /**
    * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
    */
@@ -1135,10 +1135,10 @@ export interface TabNavOwnProps {
 
 export interface TabsListOwnProps {
   /**
-   * Trigger height: 1 is 24px, 2 is 32px.
-   * @default "2"
+   * Control height: 3 is 24px, 4 is 32px.
+   * @default "4"
    */
-  size?: "1" | "2";
+  size?: "3" | "4";
   /**
    * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
    */

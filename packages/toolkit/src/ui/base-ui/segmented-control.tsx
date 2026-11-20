@@ -6,6 +6,7 @@ import { Toggle as BaseToggle } from "@base-ui/react/toggle";
 import { ToggleGroup as BaseToggleGroup } from "@base-ui/react/toggle-group";
 import * as React from "react";
 
+import { labelText } from "./label-text.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
@@ -75,12 +76,14 @@ export interface SegmentedControlItemProps extends Omit<
 const SegmentedControlItem = React.forwardRef<
   HTMLButtonElement,
   SegmentedControlItemProps
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <BaseToggle
     ref={ref}
     className={partClassName("segmented-control-item", className)}
     {...props}
-  />
+  >
+    {labelText(children)}
+  </BaseToggle>
 ));
 SegmentedControlItem.displayName = "SegmentedControlItem";
 

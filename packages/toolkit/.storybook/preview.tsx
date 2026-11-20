@@ -125,6 +125,7 @@ const preview: Preview = {
             "Typography",
             "Space and density",
             "Sizing",
+            "Control insets",
             "Radius and shape",
             "Elevation",
             "Motion",

@@ -109,12 +109,14 @@ describe("Badge and Spinner parts", () => {
         <Badge render={<a href="/drafts" />}>Draft</Badge>
       </>,
     );
-    const live = screen.getByText("Live");
+    const live = screen.getByText("Live").closest(".badge");
+    if (!(live instanceof HTMLElement)) throw new Error("no badge");
     expect(live.className).toBe("badge");
     expect(live.dataset.color).toBe("success");
     expect(live.dataset.variant).toBe("solid");
     expect(live.dataset.size).toBe("1");
-    const draft = screen.getByText("Draft");
+    const draft = screen.getByText("Draft").closest(".badge");
+    if (!(draft instanceof HTMLElement)) throw new Error("no badge");
     expect(draft.tagName).toBe("A");
     expect(draft.dataset.variant).toBe("soft");
     expect(draft.dataset.size).toBe("2");

@@ -14,9 +14,9 @@
  * input in the markup and are placed by `order`: a slot goes before the
  * text unless it is marked right, and a second unmarked slot goes after
  * it. A slot's outer padding belongs to what sits at the edge: the text
- * padding for a unit or a shortcut, and (height - icon) / 2 for an icon or
- * a button, so it sits as far from the edge as from the top and bottom. Surface is the field with an
- * edge, and soft a tint of the color without one; as in Radix, a surface
+ * padding for a unit or a shortcut, and --space-1 (--space-2 at size 4) for
+ * an icon or a button, the same as its gap to the text. Surface is the field
+ * with an edge, and soft a tint of the color without one; as in Radix, a surface
  * field keeps neutral edges in every color.
  */
 
@@ -26,7 +26,7 @@
     --control-line-height: var(--control-line-height-3);
     --_height: var(--control-height-3);
     --_icon: var(--control-icon-size-3);
-    --_padding: var(--control-padding-x-4);
+    --_padding: var(--control-padding-x-3);
 
     display: flex;
     align-items: stretch;
@@ -53,7 +53,7 @@
     --control-line-height: var(--control-line-height-1);
     --_height: var(--control-height-1);
     --_icon: var(--control-icon-size-1);
-    --_padding: var(--control-padding-x-2);
+    --_padding: var(--control-padding-x-1);
   }
 
   .input[data-size="2"] {
@@ -61,7 +61,7 @@
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
     --_icon: var(--control-icon-size-2);
-    --_padding: var(--control-padding-x-3);
+    --_padding: var(--control-padding-x-2);
   }
 
   .input[data-size="4"] {
@@ -69,6 +69,11 @@
     --control-line-height: var(--control-line-height-4);
     --_height: var(--control-height-4);
     --_icon: var(--control-icon-size-4);
+    --_padding: var(--control-padding-x-4);
+  }
+
+  .input[data-size="4"] .input-slot:has(> svg, > button) {
+    --_edge: var(--space-2);
   }
 
   /* ---- the input and its slots ---- */
@@ -99,6 +104,7 @@
 
   .input-slot {
     --_edge: var(--_padding);
+    --_gap: var(--space-2);
 
     display: flex;
     flex-shrink: 0;
@@ -106,18 +112,19 @@
     gap: var(--control-gap);
     box-sizing: border-box;
     order: -1;
-    padding-inline: var(--_edge) var(--space-2);
+    padding-inline: var(--_edge) var(--_gap);
     color: var(--fg-muted);
   }
 
   .input-slot[data-side="right"],
   .input-slot:not([data-side="right"]) ~ .input-slot:not([data-side="left"]) {
     order: 0;
-    padding-inline: var(--space-2) var(--_edge);
+    padding-inline: var(--_gap) var(--_edge);
   }
 
   .input-slot:has(> svg, > button) {
-    --_edge: calc((var(--_height) - var(--_icon)) / 2);
+    --_edge: var(--space-1);
+    --_gap: var(--_edge);
   }
 
   .input-slot svg {

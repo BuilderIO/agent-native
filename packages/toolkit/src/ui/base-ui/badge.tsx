@@ -2,6 +2,7 @@ import { type BadgeOwnProps, badgeProps } from "@agent-native/design-system";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 
+import { labelText } from "./label-text.js";
 import { splitProps } from "./props.js";
 
 export interface BadgeProps
@@ -15,11 +16,17 @@ export interface BadgeProps
  * @import import { Badge } from "@agent-native/toolkit/ui/base-ui/badge";
  */
 function Badge(props: BadgeProps) {
-  const [attributes, { render, ...rest }] = splitProps(badgeProps, props);
+  const [attributes, { render, children, ...rest }] = splitProps(
+    badgeProps,
+    props,
+  );
   return useRender({
     defaultTagName: "span",
     render,
-    props: mergeProps<"span">({ className: "badge", ...attributes }, rest),
+    props: mergeProps<"span">(
+      { className: "badge", ...attributes, children: labelText(children) },
+      rest,
+    ),
   });
 }
 

@@ -20,7 +20,7 @@
     --control-font-size: var(--control-font-size-3);
     --control-line-height: var(--control-line-height-3);
     --_height: var(--control-height-3);
-    --_padding: var(--control-padding-x-4);
+    --_padding: var(--control-padding-x-3);
     --_padding-y: calc((var(--_height) - var(--control-line-height)) / 2);
 
     display: block;
@@ -49,20 +49,21 @@
     --control-font-size: var(--control-font-size-1);
     --control-line-height: var(--control-line-height-1);
     --_height: var(--control-height-1);
-    --_padding: var(--control-padding-x-2);
+    --_padding: var(--control-padding-x-1);
   }
 
   .text-area[data-size="2"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
-    --_padding: var(--control-padding-x-3);
+    --_padding: var(--control-padding-x-2);
   }
 
   .text-area[data-size="4"] {
     --control-font-size: var(--control-font-size-4);
     --control-line-height: var(--control-line-height-4);
     --_height: var(--control-height-4);
+    --_padding: var(--control-padding-x-4);
   }
 
   .text-area[data-resize="none"] {

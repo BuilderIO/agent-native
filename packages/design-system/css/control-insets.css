@@ -1,0 +1,143 @@
+/*
+ * Control insets: one rule, from the spacing tokens, for every control that
+ * sets a label beside a glyph. Text at an edge sits --control-padding-x-N from
+ * it. A glyph at an edge sits --space-1 from it and from its label, --space-2
+ * at size 4. A part declares its size on itself (Button, Badge, Toggle,
+ * Select) or on its container (Toolbar, Segmented Control, Tabs, Tab Nav), and
+ * its label is wrapped in a span, so `> svg:first-child` and
+ * `> svg:last-child` find a glyph at either edge. Every selector is wrapped in
+ * :where(), so the order below decides and a part's own rules win.
+ */
+
+@layer components {
+  :where(
+    .button,
+    .badge,
+    .toggle,
+    .select-trigger,
+    .toolbar-button,
+    .toolbar-link,
+    .segmented-control-item,
+    .tabs-tab,
+    .tab-nav-link
+  ) {
+    gap: var(--space-1);
+    padding-block: 0;
+    padding-inline: var(--control-padding-x-3);
+  }
+
+  :where(:is(.button, .badge, .toggle, .select-trigger)[data-size="1"]),
+  :where(
+    :is(.toolbar, .segmented-control, .tabs-list, .tab-nav-list)[data-size="1"]
+      :is(
+        .toolbar-button,
+        .toolbar-link,
+        .segmented-control-item,
+        .tabs-tab,
+        .tab-nav-link
+      )
+  ) {
+    padding-inline: var(--control-padding-x-1);
+  }
+
+  :where(:is(.button, .badge, .toggle, .select-trigger)[data-size="2"]),
+  :where(
+    :is(.toolbar, .segmented-control, .tabs-list, .tab-nav-list)[data-size="2"]
+      :is(
+        .toolbar-button,
+        .toolbar-link,
+        .segmented-control-item,
+        .tabs-tab,
+        .tab-nav-link
+      )
+  ) {
+    padding-inline: var(--control-padding-x-2);
+  }
+
+  :where(:is(.button, .badge, .toggle, .select-trigger)[data-size="4"]),
+  :where(
+    :is(.toolbar, .segmented-control, .tabs-list, .tab-nav-list)[data-size="4"]
+      :is(
+        .toolbar-button,
+        .toolbar-link,
+        .segmented-control-item,
+        .tabs-tab,
+        .tab-nav-link
+      )
+  ) {
+    gap: var(--space-2);
+    padding-inline: var(--control-padding-x-4);
+  }
+
+  :where(
+    :is(
+      .button,
+      .badge,
+      .toggle,
+      .select-trigger,
+      .toolbar-button,
+      .toolbar-link,
+      .segmented-control-item,
+      .tabs-tab,
+      .tab-nav-link
+    ):has(> svg:first-child, > .button-content > svg:first-child)
+  ) {
+    padding-inline-start: var(--space-1);
+  }
+
+  :where(
+    :is(
+      .button,
+      .badge,
+      .toggle,
+      .select-trigger,
+      .toolbar-button,
+      .toolbar-link,
+      .segmented-control-item,
+      .tabs-tab,
+      .tab-nav-link
+    ):has(> svg:last-child, > .button-content > svg:last-child)
+  ),
+  :where(.select-trigger) {
+    padding-inline-end: var(--space-1);
+  }
+
+  :where(
+    :is(.button, .badge, .toggle, .select-trigger)[data-size="4"]:has(
+        > svg:first-child,
+        > .button-content > svg:first-child
+      )
+  ),
+  :where(
+    :is(.toolbar, .segmented-control, .tabs-list, .tab-nav-list)[data-size="4"]
+      :is(
+        .toolbar-button,
+        .toolbar-link,
+        .segmented-control-item,
+        .tabs-tab,
+        .tab-nav-link
+      ):has(> svg:first-child, > .button-content > svg:first-child)
+  ) {
+    padding-inline-start: var(--space-2);
+  }
+
+  :where(
+    :is(.button, .badge, .toggle, .select-trigger)[data-size="4"]:has(
+        > svg:last-child,
+        > .button-content > svg:last-child
+      )
+  ),
+  :where(
+    :is(.toolbar, .segmented-control, .tabs-list, .tab-nav-list)[data-size="4"]
+      :is(
+        .toolbar-button,
+        .toolbar-link,
+        .segmented-control-item,
+        .tabs-tab,
+        .tab-nav-link
+      ):has(> svg:last-child, > .button-content > svg:last-child)
+  ),
+  :where(.select-trigger[data-size="4"]) {
+    padding-inline-end: var(--space-2);
+  }
+}
