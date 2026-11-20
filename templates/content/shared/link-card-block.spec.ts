@@ -80,6 +80,40 @@ describe("link cards outside the editor", () => {
     );
   });
 
+  it("reads a card's attributes in each MDX form, and nothing after the tag", () => {
+    for (const tag of [
+      `<LinkCard id='x' app='design' url='${PLAIN}' />`,
+      `<LinkCard id="x" app={"design"} url={"${PLAIN}"} />`,
+      `<LinkCard id="x" app="design" url="${PLAIN}" url="https://example.test/other" />`,
+    ]) {
+      expect(linkCardDataFromRaw(tag)).toEqual({ app: "design", url: PLAIN });
+    }
+    expect(
+      linkCardDataFromRaw(`<LinkCard id="x" app="design" url="${PLAIN}" /> and more`),
+    ).toBeNull();
+    expect(
+      linkCardDataFromRaw(`<LinkCards id="x" app="design" url="${PLAIN}" />`),
+    ).toBeNull();
+  });
+
+  it("leaves a tag in a sentence, inline code, or any fence as written", () => {
+    const card = linkCardBlockRaw("link-card-4", { app: "design", url: PLAIN });
+    const untouched = [
+      `See \`${card}\` for the source`,
+      `A card: ${card}`,
+      "~~~",
+      "```",
+      card,
+      "~~~",
+      "````md",
+      "```",
+      card,
+      "````",
+    ].join("\n");
+    expect(linkCardsAsPlainLinks(untouched)).toBe(untouched);
+    expect(linkCardsAsPlainLinks(`\t${card}`)).toBe(`\t[${PLAIN}](${PLAIN})`);
+  });
+
   it("exports a card as a plain link in Markdown and HTML", () => {
     const markdown = buildDocumentExport({
       id: "doc_1",

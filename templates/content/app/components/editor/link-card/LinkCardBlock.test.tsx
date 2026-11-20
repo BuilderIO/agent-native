@@ -85,6 +85,7 @@ afterEach(() => {
 describe("link card", () => {
   it("shows the title the owning app gave this reader, and opens the link", async () => {
     hooks.callAction.mockResolvedValue({
+      reader: "reader@example.test",
       summaries: [
         {
           status: "available",
@@ -115,6 +116,24 @@ describe("link card", () => {
     );
     expect(slides.dataset.linkCardState).toBe("untitled");
     expect(slides.textContent).toBe("Slidesslides.example.test/deck/q3");
+  });
+
+  it("drops a title answered for someone other than this reader", async () => {
+    hooks.callAction.mockResolvedValue({
+      reader: "someone-else@example.test",
+      summaries: [
+        {
+          status: "available",
+          app: "design",
+          kind: "design",
+          title: "Someone else's launch page",
+          url: DESIGN,
+        },
+      ],
+    });
+    await render([{ app: "design", url: DESIGN }]);
+    expect(card(0).dataset.linkCardState).toBe("untitled");
+    expect(container.textContent).not.toContain("launch page");
   });
 
   it("shows the untitled card when the owning app doesn't answer", async () => {

@@ -11,6 +11,9 @@ vi.mock("../../../packages/core/src/a2a/caller-auth.js", () => ({
     metadata: {},
   }),
 }));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => mocks.reader,
+}));
 vi.mock("../../../packages/core/src/a2a/invoke.js", () => ({
   invokeAgentAction: mocks.invoke,
 }));
@@ -85,6 +88,7 @@ describe("read-link-summaries", () => {
     const result = await readLinkSummaries.run({
       links: [DESIGN, OTHER, SLIDES, DESIGN_BETA, CLIPS],
     });
+    expect(result.reader).toBe("alice@example.test");
     expect(result.summaries).toEqual([
       {
         status: "available",
@@ -146,6 +150,7 @@ describe("read-link-summaries", () => {
   it("makes no call for a signed-out reader", async () => {
     mocks.reader = undefined;
     const result = await readLinkSummaries.run({ links: [DESIGN, CLIPS] });
+    expect(result.reader).toBeNull();
     expect(result.summaries).toEqual([
       { status: "unavailable" },
       { status: "unavailable" },
@@ -170,6 +175,7 @@ describe("read-link-summaries", () => {
       const pending = readLinkSummaries.run({ links: [DESIGN] });
       await vi.advanceTimersByTimeAsync(5000);
       await expect(pending).resolves.toEqual({
+        reader: "alice@example.test",
         summaries: [{ status: "unavailable" }],
       });
     } finally {

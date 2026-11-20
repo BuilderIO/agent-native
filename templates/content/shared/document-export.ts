@@ -186,26 +186,33 @@ function inlineMarkdownSegmentToHtml(
   text: string,
   tokens: InlineExportToken[],
 ): string {
+  // Finished images and links wait behind a numbered marker the text doesn't
+  // contain, so emphasis never rewrites the underscores in their URLs.
+  let mark = "\uE002";
+  while (text.includes(mark)) mark += "\uE002";
   const elements: string[] = [];
-  let open = "";
-  while (text.includes(open)) open += "";
-  const keep = (html: string) => `${open}${elements.push(html) - 1}`;
-  const kept = new RegExp(`${open}(\\d+)`, "g");
-  return emphasisToHtml(
-    escapeHtml(text)
-      .replace(
-        /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
-        (_m, alt, src) =>
+  const keep = (html: string) => `${mark}${elements.push(html) - 1}${mark}`;
+  const kept = new RegExp(`${mark}(\\d+)${mark}`, "g");
+  const restore = (html: string) =>
+    html.replace(kept, (_m, index: string) => elements[Number(index)] ?? "");
+  return restore(
+    emphasisToHtml(
+      escapeHtml(text)
+        .replace(
+          /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
+          (_m, alt, src) =>
+            keep(
+              `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`,
+            ),
+        )
+        // A linked image's label is the image's marker, restored inside the link.
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) =>
           keep(
-            `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`,
+            `<a href="${safeExportUrl(href, "link")}">${restore(emphasisToHtml(label))}</a>`,
           ),
-      )
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) =>
-        keep(
-          `<a href="${safeExportUrl(href, "link")}">${emphasisToHtml(label)}</a>`,
         ),
-      ),
-  ).replace(kept, (_m, index: string) => elements[Number(index)] ?? "");
+    ),
+  );
 }
 
 function isEscapedDelimiter(text: string, index: number): boolean {

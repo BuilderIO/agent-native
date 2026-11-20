@@ -1,5 +1,6 @@
 import { readPeerLinkSummaries } from "@agent-native/core/a2a";
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   LINK_SUMMARY_APPS,
   LINK_SUMMARY_MAX_LINKS,
@@ -27,12 +28,16 @@ export default defineAction({
       .describe("The cards' links, as stored in the page."),
   }),
   outputSchema: z.object({
+    // Who the answers were asked as, so a tab whose reader changed while the
+    // request was in flight can drop answers meant for someone else.
+    reader: z.string().nullable(),
     summaries: z.array(linkSummarySchema),
   }),
   http: { method: "POST" },
   readOnly: true,
   agentTool: false,
   run: async ({ links }) => {
+    const reader = getRequestUserEmail() ?? null;
     const appUrls = Object.fromEntries(
       LINK_SUMMARY_APPS.map((app) => [app, peerAppLinkOrigins(app)]),
     );
@@ -69,6 +74,6 @@ export default defineAction({
       }
     }
     await Promise.all(requests);
-    return { summaries };
+    return { reader, summaries };
   },
 });

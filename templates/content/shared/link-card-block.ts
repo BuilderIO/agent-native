@@ -62,10 +62,9 @@ export function linkCardBlockRaw(blockId: string, data: LinkCardData): string {
   return serializeSpecBlock(linkCardBlockConfig, { id: blockId, data });
 }
 
-const RAW_TAG = /<LinkCard\b[^>]*?\/>/g;
-const RAW_APP = /\sapp="([a-z]+)"/;
-const RAW_QUOTED_URL = /(?<=\surl=")[^"]*(?=")/;
-const RAW_JSON_URL = /(?<=\surl=\{\s*)"(?:[^"\\\n]|\\.)*"(?=\s*\})/;
+// One MDX attribute: a bare name, "text", 'text' or an {expression}.
+const RAW_ATTR =
+  /\s+([A-Za-z_:][\w:.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|\{([^{}]*)\}))?/y;
 
 function unescapeAttr(value: string): string {
   return value
@@ -75,27 +74,53 @@ function unescapeAttr(value: string): string {
     .replace(/&amp;/g, "&");
 }
 
-function rawUrl(tag: string): string | null {
-  const quoted = RAW_QUOTED_URL.exec(tag)?.[0];
-  if (quoted !== undefined) return unescapeAttr(quoted);
-  const json = RAW_JSON_URL.exec(tag)?.[0];
-  if (json === undefined) return null;
+function expressionString(expression: string): string | null {
   try {
-    const value: unknown = JSON.parse(json);
+    const value: unknown = JSON.parse(expression);
     return typeof value === "string" ? value : null;
-    // coercion-ok: a tag whose link isn't a JSON string names no card, and callers keep its source as is
+    // coercion-ok: an expression that isn't a JSON string names no value, and callers keep the tag as is
   } catch {
     return null;
   }
 }
 
+/**
+ * A self-closing LinkCard tag's attributes, read in order the way the MDX
+ * parser reads them (the first of a repeated name wins), or null when the tag
+ * holds anything else.
+ */
+function rawAttrs(tag: string): Map<string, string | null> | null {
+  const open = `<${LINK_CARD_TAG}`;
+  if (!tag.startsWith(open)) return null;
+  const attrs = new Map<string, string | null>();
+  let at = open.length;
+  for (;;) {
+    RAW_ATTR.lastIndex = at;
+    const match = RAW_ATTR.exec(tag);
+    if (!match) break;
+    at = RAW_ATTR.lastIndex;
+    const [, name, double, single, expression] = match;
+    if (attrs.has(name)) continue;
+    attrs.set(
+      name,
+      double !== undefined
+        ? unescapeAttr(double)
+        : single !== undefined
+          ? unescapeAttr(single)
+          : expression !== undefined
+            ? expressionString(expression.trim())
+            : null,
+    );
+  }
+  return /^\s*\/>$/.test(tag.slice(at)) ? attrs : null;
+}
+
 export function linkCardDataFromRaw(raw: unknown): LinkCardData | null {
   if (typeof raw !== "string") return null;
-  const tag = raw.trim();
-  if (!tag.startsWith(`<${LINK_CARD_TAG}`) || !tag.endsWith("/>")) return null;
-  const app = RAW_APP.exec(tag)?.[1];
-  const url = rawUrl(tag);
-  if (!isLinkSummaryApp(app) || url === null) return null;
+  const attrs = rawAttrs(raw.trim());
+  const app = attrs?.get("app");
+  const url = attrs?.get("url");
+  if (!isLinkSummaryApp(app) || typeof url !== "string") return null;
   return readLinkCardData({ app, url });
 }
 
@@ -105,21 +130,36 @@ export function linkCardMarkdownLink(url: string): string {
   return `[${label}](${href})`;
 }
 
+const FENCE_OPEN = /^\s*(`{3,}|~{3,})/;
+
+/**
+ * Turns each card in a page body into its plain link, for exports. A card is a
+ * block, alone on its line; a tag inside a sentence, inline code or a fenced
+ * code block is text and stays as written.
+ */
 export function linkCardsAsPlainLinks(markdown: string): string {
   if (!markdown.includes(`<${LINK_CARD_TAG}`)) return markdown;
-  let inFence = false;
+  // A fence closes only on a run of its own character at least as long.
+  let fence: string | null = null;
   return markdown
     .split("\n")
     .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) {
-        inFence = !inFence;
+      if (fence !== null) {
+        const close = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+        if (close && close[0] === fence[0] && close.length >= fence.length) {
+          fence = null;
+        }
         return line;
       }
-      if (inFence) return line;
-      return line.replace(RAW_TAG, (tag) => {
-        const card = linkCardDataFromRaw(tag);
-        return card ? linkCardMarkdownLink(card.url) : tag;
-      });
+      const open = FENCE_OPEN.exec(line)?.[1];
+      if (open) {
+        fence = open;
+        return line;
+      }
+      const card = linkCardDataFromRaw(line);
+      if (!card) return line;
+      const indent = /^\s*/.exec(line)?.[0] ?? "";
+      return `${indent}${linkCardMarkdownLink(card.url)}`;
     })
     .join("\n");
 }

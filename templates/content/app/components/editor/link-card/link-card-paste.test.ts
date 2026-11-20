@@ -160,6 +160,24 @@ describe("pasting a Design, Slides or Clips link", () => {
     ]);
   });
 
+  it("keeps a link pasted beside a line break as a link", async () => {
+    const target = open("Intro");
+    newLine(target);
+    target.commands.setHardBreak();
+    paste(target, DESIGN);
+    settle();
+    expect(blocks(target).map((block) => block.type)).toEqual([
+      "paragraph",
+      "paragraph",
+    ]);
+    let breaks = 0;
+    target.state.doc.descendants((node) => {
+      if (node.type.name === "hardBreak") breaks += 1;
+    });
+    expect(breaks).toBe(1);
+    expect(target.state.doc.textContent).toContain(DESIGN);
+  });
+
   it("turns the card back into the link on undo right after", async () => {
     const target = open("Intro");
     newLine(target);

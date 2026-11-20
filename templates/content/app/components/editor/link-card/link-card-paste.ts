@@ -10,7 +10,7 @@ import {
 } from "@shared/link-card-block";
 import { Extension, type Editor } from "@tiptap/core";
 import { closeHistory } from "@tiptap/pm/history";
-import { Fragment } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { yUndoPluginKey } from "@tiptap/y-tiptap";
 
@@ -37,6 +37,17 @@ export function linkCardFromPaste(
   return item && url ? { app: item.app, url: url.href } : null;
 }
 
+// The card replaces the whole paragraph, so the paragraph must hold the link
+// and nothing else: no other text, and no inline item such as a mention, an
+// equation or a line break, which a text comparison alone would miss.
+function holdsOnlyText(paragraph: ProseMirrorNode, link: string): boolean {
+  let onlyText = true;
+  paragraph.forEach((child) => {
+    if (!child.isText) onlyText = false;
+  });
+  return onlyText && paragraph.textContent.trim() === link.trim();
+}
+
 export function replaceLinkWithCard(
   editor: Editor,
   range: { from: number; to: number },
@@ -61,8 +72,7 @@ export function replaceLinkWithCard(
   });
   if (
     paragraph.type.name !== "paragraph" ||
-    paragraph.textContent.trim() !==
-      state.doc.textBetween(range.from, range.to).trim() ||
+    !holdsOnlyText(paragraph, state.doc.textBetween(range.from, range.to)) ||
     !container.canReplace(index, index + 1, Fragment.from(card))
   ) {
     return false;
