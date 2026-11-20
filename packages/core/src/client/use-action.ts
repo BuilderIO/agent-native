@@ -61,6 +61,7 @@ import { fetchActionGet } from "./action-get-batch.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
 import {
   advanceMutationEpoch,
+  readMutationEpoch,
   requestActionCacheFlush,
 } from "./action-query-cache-mutation.js";
 import {
@@ -2398,9 +2399,10 @@ function usePrivateInputMutation<V>(
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       if (!valid()) throw privateMutationError(true);
       let refetched: Promise<void> | undefined;
+      let ownEpoch: string | null | undefined;
       if (!opts.skipActionQueryInvalidation || outcome.markerFailed) {
-        if (!advanceMutationEpoch())
-          revokeActionQueryCacheForClient(queryClient);
+        if (advanceMutationEpoch()) ownEpoch = readMutationEpoch();
+        else revokeActionQueryCacheForClient(queryClient);
         refetched = queryClient.invalidateQueries(
           actionQueryInvalidation(opts.resources),
         );
@@ -2408,7 +2410,9 @@ function usePrivateInputMutation<V>(
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
-      void Promise.allSettled([refetched]).then(requestActionCacheFlush);
+      void Promise.allSettled([refetched]).then(() =>
+        requestActionCacheFlush(ownEpoch),
+      );
       setState({ status: "success", error: null });
     } catch {
       const isCurrent = valid();
@@ -2674,9 +2678,10 @@ function useNormalActionMutation<
         console.warn("Action mutation projection observer failed");
       }
       let refetched: Promise<void> | undefined;
+      let ownEpoch: string | null | undefined;
       if (!skipActionQueryInvalidation) {
-        if (!advanceMutationEpoch())
-          revokeActionQueryCacheForClient(queryClient);
+        if (advanceMutationEpoch()) ownEpoch = readMutationEpoch();
+        else revokeActionQueryCacheForClient(queryClient);
         refetched = invalidateForegroundActionQueries(
           queryClient,
           actionQueryInvalidation(resources),
@@ -2684,8 +2689,8 @@ function useNormalActionMutation<
         );
       }
       const result = (onSuccess as Function | undefined)?.(...args);
-      void Promise.allSettled([result, refetched]).then(
-        requestActionCacheFlush,
+      void Promise.allSettled([result, refetched]).then(() =>
+        requestActionCacheFlush(ownEpoch),
       );
       return result;
     },
