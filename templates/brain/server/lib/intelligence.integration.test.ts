@@ -1176,6 +1176,19 @@ describe("evidence-backed intelligence", () => {
     expect(reverified.verification.state).toBe("verified");
     expect(reverified.verification.remindAt).toBe(remindAt);
 
+    await database
+      .update(schema.brainKnowledgeVerifications)
+      .set({ remindAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(schema.brainKnowledgeVerifications.knowledgeId, item.id));
+    const reverifiedOverdue = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(reverifiedOverdue.verification.state).toBe("verified");
+    expect(reverifiedOverdue.verification.remindAt).toBeNull();
+
     const cleared = await verifyKnowledge({
       knowledgeId: item.id,
       state: "unverified",

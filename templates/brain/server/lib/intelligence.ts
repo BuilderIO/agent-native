@@ -775,17 +775,20 @@ async function verifyKnowledgeLocked(input: {
     (entry) => entry.knowledgeId === row.id,
   );
   const actedAt = nowIso();
+  const actedAtMs = Date.parse(actedAt);
+  const existingRemindAt =
+    existingVerification?.state === "verified" &&
+    existingVerification.knowledgeRevision === revision &&
+    existingVerification.remindAt &&
+    Date.parse(existingVerification.remindAt) > actedAtMs
+      ? existingVerification.remindAt
+      : null;
   const remindAt =
     input.state !== "verified"
       ? null
       : input.remindInDays !== undefined
-        ? new Date(
-            Date.parse(actedAt) + input.remindInDays * 86_400_000,
-          ).toISOString()
-        : existingVerification?.state === "verified" &&
-            existingVerification.knowledgeRevision === revision
-          ? (existingVerification.remindAt ?? null)
-          : null;
+        ? new Date(actedAtMs + input.remindInDays * 86_400_000).toISOString()
+        : existingRemindAt;
   const verification = {
     knowledgeId: row.id,
     knowledgeRevision: revision,
