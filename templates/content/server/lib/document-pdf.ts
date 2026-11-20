@@ -42,6 +42,15 @@ export interface PdfCanvas {
   link(x: number, y: number, width: number, height: number, url: string): void;
 }
 
+export const PDF_MAX_PAGES = 200;
+
+export class PdfTooLongError extends Error {
+  constructor() {
+    super(`The page runs past ${PDF_MAX_PAGES} PDF pages.`);
+    this.name = "PdfTooLongError";
+  }
+}
+
 const MARGIN = 54;
 const BODY_SIZE = 11;
 const LINE_HEIGHT = 1.5;
@@ -314,11 +323,14 @@ class PdfLayout {
     return this.canvas.height - MARGIN;
   }
 
+  private newPage() {
+    if (this.canvas.pageCount >= PDF_MAX_PAGES) throw new PdfTooLongError();
+    this.canvas.addPage();
+    this.y = MARGIN;
+  }
+
   private room(height: number) {
-    if (this.y + height > this.bottom && this.y > MARGIN) {
-      this.canvas.addPage();
-      this.y = MARGIN;
-    }
+    if (this.y + height > this.bottom && this.y > MARGIN) this.newPage();
   }
 
   private gap(height: number) {
@@ -722,8 +734,7 @@ class PdfLayout {
         const below = index === lineCount - 1 ? padding : 0;
         if (this.y + lineHeight + below > this.bottom) {
           borders(this.y);
-          this.canvas.addPage();
-          this.y = MARGIN;
+          this.newPage();
           segmentTop = this.y;
         }
         cellLines.forEach((lines, column) => {

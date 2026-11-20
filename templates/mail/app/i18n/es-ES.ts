@@ -490,6 +490,10 @@ const messages = {
       failedToAttachContentPage: "No se pudo adjuntar la página de Content",
       contentPagePdfTextUnsupported:
         "Esta página tiene texto que un PDF aún no puede mostrar, como chino, japonés, coreano, árabe, hebreo o hindi. Adjúntala como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página es demasiado larga para adjuntarla como PDF (más de 200 páginas). Adjúntala como Markdown.",
+      contentPagePdfUnavailable:
+        "Content no pudo crear un PDF de esta página. Adjúntala como Markdown.",
       failedToUploadImage: "No se pudo subir la imagen",
       storageBuilderRefused:
         "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",

@@ -463,6 +463,10 @@ const messages = {
       failedToAttachContentPage: "附加 Content 頁面失敗",
       contentPagePdfTextUnsupported:
         "此頁面包含 PDF 暫時無法顯示的文字，例如中文、日文、韓文、阿拉伯文、希伯來文或印地文。請改以 Markdown 格式附加。",
+      contentPagePdfTooLong:
+        "此頁面太長，無法以 PDF 格式附加（超過 200 頁）。請改以 Markdown 格式附加。",
+      contentPagePdfUnavailable:
+        "Content 無法為此頁面產生 PDF。請改以 Markdown 格式附加。",
       failedToUploadImage: "上傳圖片失敗",
       storageBuilderRefused:
         "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io 或使用自己的儲存空間，然後再試一次。",

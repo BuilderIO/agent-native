@@ -496,6 +496,10 @@ const messages = {
       failedToAttachContentPage: "Content-Seite konnte nicht angehängt werden",
       contentPagePdfTextUnsupported:
         "Diese Seite enthält Text, den ein PDF noch nicht darstellen kann, etwa Chinesisch, Japanisch, Koreanisch, Arabisch, Hebräisch oder Hindi. Hänge sie stattdessen als Markdown an.",
+      contentPagePdfTooLong:
+        "Diese Seite ist zu lang, um sie als PDF anzuhängen (über 200 Seiten). Hänge sie stattdessen als Markdown an.",
+      contentPagePdfUnavailable:
+        "Content konnte aus dieser Seite kein PDF erstellen. Hänge sie stattdessen als Markdown an.",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       storageBuilderRefused:
         "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder nutze deinen eigenen Speicher und versuche es dann erneut.",

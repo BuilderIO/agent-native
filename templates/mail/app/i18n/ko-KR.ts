@@ -476,6 +476,10 @@ const messages = {
       failedToAttachContentPage: "Content 페이지를 첨부하지 못했습니다",
       contentPagePdfTextUnsupported:
         "이 페이지에는 중국어, 일본어, 한국어, 아랍어, 히브리어, 힌디어처럼 PDF에서 아직 표시할 수 없는 텍스트가 있습니다. 대신 Markdown으로 첨부하세요.",
+      contentPagePdfTooLong:
+        "이 페이지는 너무 길어서 PDF로 첨부할 수 없습니다(200페이지 초과). 대신 Markdown으로 첨부하세요.",
+      contentPagePdfUnavailable:
+        "Content에서 이 페이지의 PDF를 만들지 못했습니다. 대신 Markdown으로 첨부하세요.",
       failedToUploadImage: "이미지 업로드 실패",
       storageBuilderRefused:
         "Builder.io가 Mail의 파일 저장소 연결을 거부해 파일을 첨부하지 못했습니다. Builder.io를 다시 연결하거나 자체 저장소를 사용한 뒤 다시 시도하세요.",

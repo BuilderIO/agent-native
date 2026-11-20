@@ -477,6 +477,10 @@ const messages = {
       failedToAttachContentPage: "تعذّر إرفاق صفحة Content",
       contentPagePdfTextUnsupported:
         "تحتوي هذه الصفحة على نص لا يمكن لملف PDF عرضه بعد، مثل الصينية أو اليابانية أو الكورية أو العربية أو العبرية أو الهندية. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfTooLong:
+        "هذه الصفحة أطول من أن تُرفق كملف PDF (أكثر من 200 صفحة). أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfUnavailable:
+        "تعذّر على Content إنشاء ملف PDF لهذه الصفحة. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       failedToUploadImage: "فشل تحميل الصورة",
       storageBuilderRefused:
         "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو استخدم مساحة التخزين الخاصة بك، ثم حاول مرة أخرى.",

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   layoutDocumentPdf,
+  PDF_MAX_PAGES,
+  PdfTooLongError,
   PdfUnsupportedTextError,
   renderDocumentPdf,
   type PdfCanvas,
@@ -394,6 +396,20 @@ describe("document PDF layout", () => {
     expect(
       texts.filter((op) => op.text.normalize("NFC") === "Café"),
     ).toHaveLength(1);
+  });
+
+  it("stops at the PDF page limit instead of laying out a longer page", () => {
+    const paragraphs = (count: number) =>
+      Array.from({ length: count }, (_, index) => `Paragraph ${index}`).join(
+        "\n\n",
+      );
+    const { pageCount } = recordLayout("Long", paragraphs(5000));
+
+    expect(pageCount).toBeGreaterThan(PDF_MAX_PAGES / 2);
+    expect(pageCount).toBeLessThan(PDF_MAX_PAGES);
+    expect(() => recordLayout("Long", paragraphs(20_000))).toThrow(
+      PdfTooLongError,
+    );
   });
 });
 

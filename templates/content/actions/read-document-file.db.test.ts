@@ -288,6 +288,24 @@ describe("Content read-document-file", () => {
     });
   });
 
+  it("refuses a PDF of a page longer than the PDF page limit", async () => {
+    await addDocument({
+      id: "long-page",
+      content: Array.from(
+        { length: 12_000 },
+        (_, index) => `Paragraph ${index}`,
+      ).join("\n\n"),
+    });
+    await expect(read("long-page", "pdf")).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_pdf_too_long",
+      message: expect.stringContaining("over 200 pages"),
+    });
+    await expect(read("long-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
+  });
+
   it("refuses a page too large to send back in one response", async () => {
     await addDocument({ id: "huge-page", content: "x".repeat(2_200_000) });
     await expect(read("huge-page")).rejects.toMatchObject({

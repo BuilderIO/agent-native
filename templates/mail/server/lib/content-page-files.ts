@@ -73,6 +73,11 @@ const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
         "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
       statusCode: 422,
     },
+    document_file_pdf_too_long: {
+      message:
+        "This page is too long to attach as a PDF (over 200 pages). Attach it as Markdown instead.",
+      statusCode: 413,
+    },
     collection_export_limit_exceeded: {
       message:
         "This collection has too many rows to attach. Export a narrower view from Content and attach the file instead.",
@@ -118,6 +123,12 @@ async function readDocumentFile(input: Record<string, unknown>) {
   if (response.result.status !== "completed") {
     const code = contentErrorCode(response.result.output);
     const known = code ? CONTENT_ERRORS[code] : undefined;
+    if (!known && input.format === "pdf") {
+      fail(
+        "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
+        { statusCode: 409, errorCode: "content_page_pdf_unavailable" },
+      );
+    }
     fail(
       known?.message ??
         "Content could not read this page. Check your access and its connection.",

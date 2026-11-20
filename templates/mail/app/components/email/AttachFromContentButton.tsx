@@ -89,6 +89,19 @@ export function AttachFromContentButton({
     retry: false,
   });
 
+  const pdfRefusal = (errorCode: unknown) => {
+    switch (errorCode) {
+      case "document_file_pdf_text_unsupported":
+        return t("mail.toasts.contentPagePdfTextUnsupported");
+      case "document_file_pdf_too_long":
+        return t("mail.toasts.contentPagePdfTooLong");
+      case "content_page_pdf_unavailable":
+        return t("mail.toasts.contentPagePdfUnavailable");
+      default:
+        return undefined;
+    }
+  };
+
   const close = () => {
     setOpen(false);
     setSearch("");
@@ -110,10 +123,9 @@ export function AttachFromContentButton({
       const reason = storageSetupReasonOf(error);
       const { errorCode } = (error ?? {}) as { errorCode?: unknown };
       const message =
-        errorCode === "document_file_pdf_text_unsupported"
-          ? t("mail.toasts.contentPagePdfTextUnsupported")
-          : (actionErrorMessage(error) ??
-            t("mail.toasts.failedToAttachContentPage"));
+        pdfRefusal(errorCode) ??
+        actionErrorMessage(error) ??
+        t("mail.toasts.failedToAttachContentPage");
       toastUploadFailure(
         reason ? new UploadError(message, reason) : new Error(message),
         t("mail.toasts.failedToAttachContentPage"),

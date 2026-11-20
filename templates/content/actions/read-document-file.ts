@@ -300,12 +300,22 @@ export default defineAction({
       content = markdownWithTitle(title, doc.content);
       size = Buffer.byteLength(content, "utf8");
       if (format === "pdf" && size <= DOCUMENT_FILE_MAX_BYTES) {
-        const { PdfUnsupportedTextError, renderDocumentPdf } =
-          await import("../server/lib/document-pdf.js");
+        const {
+          PDF_MAX_PAGES,
+          PdfTooLongError,
+          PdfUnsupportedTextError,
+          renderDocumentPdf,
+        } = await import("../server/lib/document-pdf.js");
         let pdf: Buffer;
         try {
           pdf = renderDocumentPdf({ title, content: doc.content });
         } catch (error) {
+          if (error instanceof PdfTooLongError) {
+            fail(
+              `This page is too long to attach as a PDF (over ${PDF_MAX_PAGES} pages). Attach it as Markdown instead.`,
+              { statusCode: 413, errorCode: "document_file_pdf_too_long" },
+            );
+          }
           if (!(error instanceof PdfUnsupportedTextError)) throw error;
           fail(PDF_TEXT_UNSUPPORTED, {
             statusCode: 422,

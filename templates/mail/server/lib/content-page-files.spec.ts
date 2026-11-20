@@ -255,6 +255,22 @@ describe("Content page files", () => {
       errorCode: "document_file_pdf_text_unsupported",
       message: expect.stringContaining("Attach it as Markdown"),
     });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: This page is too long to attach as a PDF (over 200 pages). (errorCode: document_file_pdf_too_long)",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_pdf_too_long",
+      message: expect.stringContaining("over 200 pages"),
+    });
   });
 
   it("names an unknown refusal and an unreachable Content plainly", async () => {
@@ -269,6 +285,22 @@ describe("Content page files", () => {
     ).rejects.toMatchObject({
       statusCode: 409,
       errorCode: "content_page_unavailable",
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: Invalid action parameters — format: Invalid enum value. Expected 'markdown' | 'csv', received 'pdf'.",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "content_page_pdf_unavailable",
+      message: expect.stringContaining("Attach it as Markdown"),
     });
 
     invokeAgentAction.mockRejectedValue(new Error("connect ECONNREFUSED"));

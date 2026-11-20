@@ -482,6 +482,10 @@ const messages = {
       failedToAttachContentPage: "Content のページを添付できませんでした",
       contentPagePdfTextUnsupported:
         "このページには、中国語、日本語、韓国語、アラビア語、ヘブライ語、ヒンディー語など、PDF でまだ表示できない文字が含まれています。代わりに Markdown として添付してください。",
+      contentPagePdfTooLong:
+        "このページは長すぎるため PDF として添付できません（200 ページ超）。代わりに Markdown として添付してください。",
+      contentPagePdfUnavailable:
+        "Content でこのページの PDF を作成できませんでした。代わりに Markdown として添付してください。",
       failedToUploadImage: "画像のアップロードに失敗しました",
       storageBuilderRefused:
         "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか独自のストレージを使ってから、もう一度お試しください。",

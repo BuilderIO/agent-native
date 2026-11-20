@@ -488,6 +488,10 @@ const messages = {
       failedToAttachContentPage: "Falha ao anexar a página do Content",
       contentPagePdfTextUnsupported:
         "Esta página tem texto que um PDF ainda não consegue mostrar, como chinês, japonês, coreano, árabe, hebraico ou hindi. Anexe-a como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página é longa demais para anexar como PDF (mais de 200 páginas). Anexe-a como Markdown.",
+      contentPagePdfUnavailable:
+        "O Content não conseguiu criar um PDF desta página. Anexe-a como Markdown.",
       failedToUploadImage: "Falha ao enviar imagem",
       storageBuilderRefused:
         "O Builder.io recusou a conexão de armazenamento de arquivos do Mail, então o arquivo não foi anexado. Reconecte o Builder.io ou use seu próprio armazenamento e tente novamente.",
