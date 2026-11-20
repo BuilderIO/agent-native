@@ -143,6 +143,7 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+type StoryArgs = Parameters<NonNullable<Story["render"]>>[0];
 
 /** Type to see suggestions; any text is kept. The input takes the controls. */
 export const Playground: Story = {};
@@ -235,27 +236,26 @@ export const Groups: Story = {
   ),
 };
 
+function EmptyStory(args: StoryArgs) {
+  const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
+  return (
+    <div className="flex w-72 flex-col gap-1">
+      <Autocomplete items={TAGS} open defaultValue="kubernetes">
+        <AutocompleteInput {...args} aria-label="Tags" />
+        {container ? (
+          <AutocompletePopup container={container}>
+            <AutocompleteEmpty>No tags found.</AutocompleteEmpty>
+            <Rows />
+          </AutocompletePopup>
+        ) : null}
+      </Autocomplete>
+      <div ref={setContainer} className="h-24" />
+    </div>
+  );
+}
 /** Text that matches nothing stays, and the popup says so. */
 export const Empty: Story = {
-  render: (args) => {
-    const [container, setContainer] = React.useState<HTMLDivElement | null>(
-      null,
-    );
-    return (
-      <div className="flex w-72 flex-col gap-1">
-        <Autocomplete items={TAGS} open defaultValue="kubernetes">
-          <AutocompleteInput {...args} aria-label="Tags" />
-          {container ? (
-            <AutocompletePopup container={container}>
-              <AutocompleteEmpty>No tags found.</AutocompleteEmpty>
-              <Rows />
-            </AutocompletePopup>
-          ) : null}
-        </Autocomplete>
-        <div ref={setContainer} className="h-24" />
-      </div>
-    );
-  },
+  render: (args) => <EmptyStory {...args} />,
 };
 
 function searchTags(query: string, signal: AbortSignal): Promise<string[]> {
@@ -271,63 +271,64 @@ function searchTags(query: string, signal: AbortSignal): Promise<string[]> {
   });
 }
 
+function AsyncFilteringStory(args: StoryArgs) {
+  const [results, setResults] = React.useState<string[]>([]);
+  const [pending, setPending] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const request = React.useRef<AbortController | null>(null);
+
+  function search(value: string) {
+    setQuery(value);
+    request.current?.abort();
+    if (value.trim() === "") {
+      setResults([]);
+      setPending(false);
+      return;
+    }
+    const controller = new AbortController();
+    request.current = controller;
+    setPending(true);
+    searchTags(value, controller.signal).then(
+      (next) => {
+        setResults(next);
+        setPending(false);
+      },
+      () => {},
+    );
+  }
+
+  return (
+    <div className="w-72">
+      <Autocomplete
+        items={results}
+        filter={null}
+        value={query}
+        onValueChange={search}
+      >
+        <AutocompleteInput {...args} aria-label="Tags" placeholder="Search">
+          <InputSlot>
+            <IconSearch aria-hidden />
+          </InputSlot>
+        </AutocompleteInput>
+        <AutocompletePopup>
+          <AutocompleteStatus>
+            {pending ? "Searching…" : null}
+          </AutocompleteStatus>
+          <AutocompleteEmpty>
+            {pending ? null : "No tags found."}
+          </AutocompleteEmpty>
+          <Rows />
+        </AutocompletePopup>
+      </Autocomplete>
+    </div>
+  );
+}
 /**
  * Suggestions from a server: `filter={null}` turns off local filtering, and
  * the status says what the list is waiting for.
  */
 export const AsyncFiltering: Story = {
-  render: (args) => {
-    const [results, setResults] = React.useState<string[]>([]);
-    const [pending, setPending] = React.useState(false);
-    const [query, setQuery] = React.useState("");
-    const request = React.useRef<AbortController | null>(null);
-
-    function search(value: string) {
-      setQuery(value);
-      request.current?.abort();
-      if (value.trim() === "") {
-        setResults([]);
-        setPending(false);
-        return;
-      }
-      const controller = new AbortController();
-      request.current = controller;
-      setPending(true);
-      searchTags(value, controller.signal).then(
-        (next) => {
-          setResults(next);
-          setPending(false);
-        },
-        () => {},
-      );
-    }
-
-    return (
-      <div className="w-72">
-        <Autocomplete
-          items={results}
-          filter={null}
-          value={query}
-          onValueChange={search}
-        >
-          <AutocompleteInput {...args} aria-label="Tags" placeholder="Search">
-            <InputSlot>
-              <IconSearch aria-hidden />
-            </InputSlot>
-          </AutocompleteInput>
-          <AutocompletePopup>
-            <AutocompleteStatus>
-              {pending ? "Searching…" : null}
-            </AutocompleteStatus>
-            <AutocompleteEmpty>
-              {pending ? null : "No tags found."}
-            </AutocompleteEmpty>
-            <Rows />
-          </AutocompletePopup>
-        </Autocomplete>
-      </div>
-    );
-  },
+  render: (args) => <AsyncFilteringStory {...args} />,
 };
 
 const COMMANDS = [

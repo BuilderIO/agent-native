@@ -151,6 +151,7 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+type StoryArgs = Parameters<NonNullable<Story["render"]>>[0];
 
 /** A select you can type into. The input takes the controls. */
 export const Playground: Story = {};
@@ -250,27 +251,26 @@ export const Groups: Story = {
   ),
 };
 
+function EmptyStory(args: StoryArgs) {
+  const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
+  return (
+    <div className="flex w-64 flex-col gap-1">
+      <Combobox items={ZONES} open defaultInputValue="Atlantis">
+        <ComboboxInput {...args} aria-label="Time zone" />
+        {container ? (
+          <ComboboxPopup container={container}>
+            <ComboboxEmpty>No time zones found.</ComboboxEmpty>
+            <Rows />
+          </ComboboxPopup>
+        ) : null}
+      </Combobox>
+      <div ref={setContainer} className="h-24" />
+    </div>
+  );
+}
 /** A query that matches nothing: the popup says so. */
 export const Empty: Story = {
-  render: (args) => {
-    const [container, setContainer] = React.useState<HTMLDivElement | null>(
-      null,
-    );
-    return (
-      <div className="flex w-64 flex-col gap-1">
-        <Combobox items={ZONES} open defaultInputValue="Atlantis">
-          <ComboboxInput {...args} aria-label="Time zone" />
-          {container ? (
-            <ComboboxPopup container={container}>
-              <ComboboxEmpty>No time zones found.</ComboboxEmpty>
-              <Rows />
-            </ComboboxPopup>
-          ) : null}
-        </Combobox>
-        <div ref={setContainer} className="h-24" />
-      </div>
-    );
-  },
+  render: (args) => <EmptyStory {...args} />,
 };
 
 function searchZones(query: string, signal: AbortSignal): Promise<TimeZone[]> {
@@ -288,76 +288,76 @@ function searchZones(query: string, signal: AbortSignal): Promise<TimeZone[]> {
   });
 }
 
+function AsyncFilteringStory(args: StoryArgs) {
+  const [selected, setSelected] = React.useState<TimeZone | null>(null);
+  const [results, setResults] = React.useState<TimeZone[]>([]);
+  const [pending, setPending] = React.useState(false);
+  const request = React.useRef<AbortController | null>(null);
+
+  const items = React.useMemo(
+    () =>
+      selected === null || results.some((zone) => zone.value === selected.value)
+        ? results
+        : [selected, ...results],
+    [results, selected],
+  );
+
+  function search(query: string) {
+    request.current?.abort();
+    if (query.trim() === "") {
+      setResults([]);
+      setPending(false);
+      return;
+    }
+    const controller = new AbortController();
+    request.current = controller;
+    setPending(true);
+    searchZones(query, controller.signal).then(
+      (next) => {
+        setResults(next);
+        setPending(false);
+      },
+      () => {},
+    );
+  }
+
+  return (
+    <div className="w-64">
+      <Combobox
+        items={items}
+        filter={null}
+        value={selected}
+        onValueChange={setSelected}
+        onInputValueChange={(query, { reason }) => {
+          if (reason === "input-change") search(query);
+        }}
+        isItemEqualToValue={(item, value) => item.value === value.value}
+      >
+        <ComboboxInput
+          {...args}
+          aria-label="Time zone"
+          placeholder="Search time zones"
+        >
+          <Controls />
+        </ComboboxInput>
+        <ComboboxPopup>
+          <ComboboxStatus>{pending ? "Searching…" : null}</ComboboxStatus>
+          <ComboboxEmpty>
+            {pending ? null : "No time zones found."}
+          </ComboboxEmpty>
+          <Rows />
+        </ComboboxPopup>
+      </Combobox>
+    </div>
+  );
+}
 /**
  * Values from a server: `filter={null}` turns off local filtering, the
  * selected value stays in `items` so its label holds, and the status says
  * what the list is waiting for.
  */
 export const AsyncFiltering: Story = {
-  render: (args) => {
-    const [selected, setSelected] = React.useState<TimeZone | null>(null);
-    const [results, setResults] = React.useState<TimeZone[]>([]);
-    const [pending, setPending] = React.useState(false);
-    const request = React.useRef<AbortController | null>(null);
-
-    const items = React.useMemo(
-      () =>
-        selected === null ||
-        results.some((zone) => zone.value === selected.value)
-          ? results
-          : [selected, ...results],
-      [results, selected],
-    );
-
-    function search(query: string) {
-      request.current?.abort();
-      if (query.trim() === "") {
-        setResults([]);
-        setPending(false);
-        return;
-      }
-      const controller = new AbortController();
-      request.current = controller;
-      setPending(true);
-      searchZones(query, controller.signal).then(
-        (next) => {
-          setResults(next);
-          setPending(false);
-        },
-        () => {},
-      );
-    }
-
-    return (
-      <div className="w-64">
-        <Combobox
-          items={items}
-          filter={null}
-          value={selected}
-          onValueChange={setSelected}
-          onInputValueChange={(query, { reason }) => {
-            if (reason === "input-change") search(query);
-          }}
-          isItemEqualToValue={(item, value) => item.value === value.value}
-        >
-          <ComboboxInput
-            {...args}
-            aria-label="Time zone"
-            placeholder="Search time zones"
-          >
-            <Controls />
-          </ComboboxInput>
-          <ComboboxPopup>
-            <ComboboxStatus>{pending ? "Searching…" : null}</ComboboxStatus>
-            <ComboboxEmpty>
-              {pending ? null : "No time zones found."}
-            </ComboboxEmpty>
-            <Rows />
-          </ComboboxPopup>
-        </Combobox>
-      </div>
-    );
-  },
+  render: (args) => <AsyncFilteringStory {...args} />,
 };
 
 /**
