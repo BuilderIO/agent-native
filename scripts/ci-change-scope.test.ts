@@ -3452,7 +3452,7 @@ test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
     ["pnpm-lock.yaml"],
     [],
     process.cwd(),
-    ["templates/design/e2e/home-system-selection.spec.ts"],
+    ["templates/design/e2e/interaction-landing-page-build.spec.ts"],
   );
   assert.equal(
     fullRunWithDeletedShard.checks.design_canvas_broad_workflows,
@@ -3461,10 +3461,42 @@ test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
   assert.deepEqual(fullRunWithDeletedShard.designCanvasBroadWorkflowShards, [
     "ai-sidebar-loopback",
     "music-app-workflow",
-    "landing-page-build",
     "autolayout-vertical-center-trailing",
   ]);
 });
+
+test(
+  "CI names only E2E specs that exist",
+  { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
+  () => {
+    const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+    const missing: string[] = [];
+    for (const step of workflow.split("\n      - name: ")) {
+      const directory = step.match(/^\s+working-directory: (\S+)$/m)?.[1];
+      if (!directory) continue;
+      for (const [spec] of step.matchAll(
+        /(?<![\w./-])e2e\/[\w.-]+\.spec\.ts/g,
+      )) {
+        if (!existsSync(join(directory, spec))) {
+          missing.push(`.github/workflows/ci.yml: ${directory}/${spec}`);
+        }
+      }
+    }
+    for (const source of [
+      ".github/workflows/ci.yml",
+      "scripts/ci-change-scope.ts",
+    ]) {
+      // source-read-ok: the spec paths CI and the classifier name are the subject, checked against the tree
+      const text = readFileSync(source, "utf8");
+      for (const [spec] of text.matchAll(
+        /(?:templates|packages)\/[\w-]+\/e2e\/[\w.-]+\.spec\.ts/g,
+      )) {
+        if (!existsSync(spec)) missing.push(`${source}: ${spec}`);
+      }
+    }
+    assert.deepEqual(missing, []);
+  },
+);
 
 test("a non-empty selector with only deleted specs resolves to a no-op", () => {
   const removed = "templates/design/e2e/removed-by-this-change.spec.ts";
