@@ -3400,6 +3400,11 @@ export function preparedCallArguments(call: PreparedActionCall): unknown {
   return copyActionArguments(prepared.snapshot);
 }
 
+async function isNoApprovalsForCall(ctx: ActionRunContext): Promise<boolean> {
+  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
+  return isNoApprovalsMode(ctx.userEmail);
+}
+
 /**
  * Whether `call` needs a person's approval before it runs, by the action's
  * `needsApproval`. Every surface that can run an action decides with this, so
@@ -3416,8 +3421,7 @@ export async function preparedCallNeedsApproval(
 ): Promise<boolean> {
   const gate = entry.needsApproval;
   if (typeof gate !== "function" && gate !== true) return false;
-  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
-  if (await isNoApprovalsMode(ctx.userEmail)) return false;
+  if (await isNoApprovalsForCall(ctx)) return false;
   if (typeof gate !== "function") return true;
   try {
     return Boolean(await gate(preparedCallArguments(call), ctx));
@@ -3429,9 +3433,9 @@ export async function preparedCallNeedsApproval(
 
 /**
  * Whether the action's `needsApproval` predicate clears `call` of review: only
- * an answer of exactly `false`. Anything else, a throw or a non-boolean
- * included, leaves the call to review, so a direct write never runs on a
- * predicate that could not decide.
+ * an answer of exactly `false` (or no-approvals mode). Anything else, a throw
+ * or a non-boolean included, leaves the call to review, so a direct write
+ * never runs on a predicate that could not decide.
  */
 export async function preparedCallClearsReview(
   entry: {
@@ -3442,6 +3446,7 @@ export async function preparedCallClearsReview(
   call: PreparedActionCall,
   ctx: ActionRunContext,
 ): Promise<boolean> {
+  if (await isNoApprovalsForCall(ctx)) return true;
   const gate = entry.needsApproval;
   if (typeof gate !== "function") return false;
   try {

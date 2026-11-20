@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
   actionCallIntent,
   defineAction,
+  preparedCallClearsReview,
   preparedCallNeedsApproval,
 } from "../action.js";
 import {
@@ -88,5 +89,41 @@ describe("no approvals mode", () => {
     });
     expect(await isNoApprovalsMode("person@example.test")).toBe(false);
     expect(await needsApproval("person@example.test")).toBe(true);
+  });
+
+  it("clears direct-write review when on, and keeps review when off or unreadable", async () => {
+    const directAction = defineAction({
+      description: "Add item.",
+      schema: z.object({ id: z.string() }),
+      userTurn: "direct",
+      needsApproval: () => true,
+      run: async ({ id }) => ({ id }),
+    });
+    const prepared = await actionCallIntent(directAction, { id: "d1" });
+    if (!prepared.valid) throw new Error("invalid fixture call");
+
+    getUserSetting.mockResolvedValue({ enabled: true });
+    expect(
+      await preparedCallClearsReview(directAction, prepared, {
+        caller: "mcp",
+        userEmail: "person@example.test",
+      }),
+    ).toBe(true);
+
+    getUserSetting.mockResolvedValue({ enabled: false });
+    expect(
+      await preparedCallClearsReview(directAction, prepared, {
+        caller: "mcp",
+        userEmail: "person@example.test",
+      }),
+    ).toBe(false);
+
+    getUserSetting.mockRejectedValue(new Error("db down"));
+    expect(
+      await preparedCallClearsReview(directAction, prepared, {
+        caller: "mcp",
+        userEmail: "person@example.test",
+      }),
+    ).toBe(false);
   });
 });
