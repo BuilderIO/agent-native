@@ -150,6 +150,9 @@ function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
   for (const protectedPrefix of CSRF_PROTECTED_PREFIXES) {
     if (sub.startsWith(protectedPrefix)) return false;
   }
+  if (/^\/integrations\/[^/]+\/(?:enable|disable|setup)\/?$/.test(sub)) {
+    return false;
+  }
   const webhookToken = sub.match(/^\/automations\/webhook\/([^/]+)$/)?.[1];
   if (webhookToken && isAutomationWebhookToken(webhookToken)) return true;
   for (const allowed of CSRF_ALLOWLIST_PREFIXES) {

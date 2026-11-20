@@ -296,6 +296,9 @@ describe("CSRF middleware", () => {
     "/_agent-native/integrations/budgets",
     "/_agent-native/integrations/memory",
     "/_agent-native/integrations/installations",
+    "/_agent-native/integrations/slack/enable",
+    "/_agent-native/integrations/slack/disable",
+    "/_agent-native/integrations/email/setup",
   ])("session-authenticated route %s", (path) => {
     it("rejects a cookie-bearing form POST", async () => {
       expect(
