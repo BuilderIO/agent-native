@@ -502,6 +502,12 @@ export interface MCPRequestMeta {
   turnGrant?: string;
   /** The request runs in agent work, so no turn grant may apply. */
   turnGrantExcluded?: boolean;
+  /**
+   * Optional browser tab ID from `x-agent-native-browser-tab` for tab-scoped
+   * application state reads and writes. Kept on `browserTabTarget` (never
+   * `run.browserTabId`) so the call does not impersonate an open editor tab.
+   */
+  browserTabId?: string;
   /** Origin verified at the HTTP boundary for a page-grant review link. */
   approvalOrigin?: string;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
@@ -3925,7 +3931,7 @@ export async function createMCPServerForRequest(
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
-      ? createBrowserTabTargetSlot()
+      ? createBrowserTabTargetSlot(requestMeta?.browserTabId)
       : undefined;
     const authUserId = await resolveCallerAuthUserId();
     const result = await runWithMcpChatTurnCall(
