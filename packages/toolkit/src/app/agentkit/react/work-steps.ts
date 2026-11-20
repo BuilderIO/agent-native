@@ -556,11 +556,15 @@ function jsonText(text: string): boolean {
 }
 
 /** A failed call's reason on one line: its HTTP status, or its first sentence. */
+const ERROR_PREFIX = /^(?:error running \S+?:\s+)?(?:error:\s*)?/i;
+
 function outputReason(output: unknown): string | undefined {
-  if (typeof output === "string" && !jsonText(output)) {
-    return output.trim() || undefined;
-  }
-  const record = inputRecord(output);
+  const text =
+    typeof output === "string"
+      ? output.trim().replace(ERROR_PREFIX, "")
+      : undefined;
+  if (text !== undefined && !jsonText(text)) return text || undefined;
+  const record = inputRecord(text ?? output);
   return (
     firstString(record, ["error", "message"]) ??
     firstString(inputRecord(record?.error), ["message"])
@@ -585,8 +589,7 @@ export function agentWorkFailureReason(
   const line =
     status ?? source.split("\n").find((candidate) => candidate.trim()) ?? "";
   const sentence = (status ? line : (line.split(/(?<=[.!?])\s/)[0] ?? line))
-    .replace(/^error running \S+?:\s+/i, "")
-    .replace(/^error:\s*/i, "")
+    .replace(ERROR_PREFIX, "")
     .replace(/[.:;,]\s*$/, "")
     .replace(/\s*\((?:error)?code:[^)]*\)\s*$/i, "")
     .trim();
@@ -1078,6 +1081,7 @@ function attemptTargets(
   const tool = call.tool?.name ?? "";
   const whole = call.tool ? stableJson(input ?? {}) : undefined;
   const lookup = readKind(call) === "read" && namesPages(call);
+  const failed = call.activity.status === "failed";
   const page =
     object?.kind === "document"
       ? object.id
@@ -1085,7 +1089,7 @@ function attemptTargets(
         ? firstId(input)
         : undefined;
   const title =
-    object?.kind === "document"
+    object?.kind === "document" && !failed
       ? object.text
       : lookup && !page
         ? firstString(input, ["title", "name"])
@@ -1097,6 +1101,7 @@ function attemptTargets(
     ? [["input", tool, whole]]
     : [
         ["page", pageNoun(call) ?? "", page],
+        ["page", "", call.tool && !failed ? page : undefined],
         ["title", pageNoun(call) ?? "", title?.toLowerCase()],
         object?.kind === "file"
           ? ["path", "", object.id]

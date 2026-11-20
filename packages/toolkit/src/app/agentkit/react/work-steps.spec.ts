@@ -889,6 +889,29 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("clears a failed page activity without a tool when a page tool reads it", () => {
+    const missed = (id: string, label: string): AgentWorkCall => ({
+      id: `missed-${id}`,
+      activity: {
+        id: `missed-${id}`,
+        kind: "read",
+        label: `Read ${label}`,
+        status: "failed",
+        object: { id, kind: "document", label },
+      },
+    });
+    const read = (id: string, title: string) =>
+      call(`read-${id}`, "get-document", { id }, { output: { id, title } });
+    expect(
+      agentWorkSources([missed("d2", "Roadmap"), read("d2", "Roadmap")])
+        .failures,
+    ).toEqual([]);
+    expect(
+      agentWorkSources([missed("d2", "Roadmap"), read("d9", "Roadmap")])
+        .failures,
+    ).toHaveLength(1);
+  });
+
   it("clears a failed activity without a tool when the same activity succeeds", () => {
     const activity = (
       id: string,
@@ -1524,6 +1547,11 @@ describe("agentWorkFailureReason", () => {
     expect(reason('{"message":"Denied"}')).toBe("Denied");
     expect(reason('{"ok":false,"code":"x"}')).toBe(undefined);
     expect(reason("[1, 2]")).toBe(undefined);
+    expect(reason('Error running get-document: {"error":"Not found."}')).toBe(
+      "Not found",
+    );
+    expect(reason('Error: {"message":"Denied"}')).toBe("Denied");
+    expect(reason('Error running x: {"ok":false}')).toBe(undefined);
     const parsed = (output: unknown) =>
       agentWorkFailureReason(call("c", "x", {}, { status: "failed", output }));
     expect(parsed({ error: "Rate limited." })).toBe("Rate limited");
