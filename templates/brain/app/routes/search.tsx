@@ -427,6 +427,7 @@ function SearchResultRow({
   query: string;
 }) {
   const t = useT();
+  const format = useFormatters();
   const [params] = useSearchParams();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const whyMatched = explainMatch(result, query);
@@ -499,6 +500,16 @@ function SearchResultRow({
           <span className="truncate">
             {t("searchPage.citation")}: {sourceLabel}
           </span>
+          {result.type === "capture" &&
+          result.citation?.capturedAt &&
+          !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+            <time dateTime={result.citation.capturedAt}>
+              {format.formatDate(result.citation.capturedAt, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </time>
+          ) : null}
           {result.updatedAt ? (
             <span>
               {t("searchPage.updated")} {result.updatedAt}

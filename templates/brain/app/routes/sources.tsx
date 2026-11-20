@@ -1790,6 +1790,7 @@ type MarkdownFileSelection = {
   file: File;
   transcript: boolean | null;
   capturedAt: string;
+  participants: string;
 };
 
 function actionErrorMessage(error: unknown) {
@@ -1823,6 +1824,7 @@ function MarkdownImportDialog({
         content: string;
         kind?: "document" | "transcript";
         capturedAt?: string;
+        participants?: string[];
       }>;
       enqueueDistillation: boolean;
     }
@@ -1848,6 +1850,7 @@ function MarkdownImportDialog({
           file,
           transcript: null,
           capturedAt: "",
+          participants: "",
         });
     }
     setFiles(Array.from(byPath.values()));
@@ -1862,20 +1865,30 @@ function MarkdownImportDialog({
     setReadError(null);
     try {
       const payload = await Promise.all(
-        files.map(async ({ path, file, transcript, capturedAt }) => ({
-          path,
-          content: await file.text(),
-          ...(transcript === null
-            ? {}
-            : {
-                kind: transcript
-                  ? ("transcript" as const)
-                  : ("document" as const),
-              }),
-          ...(capturedAt
-            ? { capturedAt: new Date(capturedAt).toISOString() }
-            : {}),
-        })),
+        files.map(
+          async ({ path, file, transcript, capturedAt, participants }) => ({
+            path,
+            content: await file.text(),
+            ...(transcript === null
+              ? {}
+              : {
+                  kind: transcript
+                    ? ("transcript" as const)
+                    : ("document" as const),
+                }),
+            ...(capturedAt
+              ? { capturedAt: new Date(capturedAt).toISOString() }
+              : {}),
+            ...(participants.trim()
+              ? {
+                  participants: participants
+                    .split(",")
+                    .map((name) => name.trim())
+                    .filter(Boolean),
+                }
+              : {}),
+          }),
+        ),
       );
       const nextResult = await importMarkdownFiles.mutateAsync({
         sourceId: source.id,
@@ -1984,6 +1997,24 @@ function MarkdownImportDialog({
                               current.map((entry) =>
                                 entry.path === item.path
                                   ? { ...entry, capturedAt: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="grid gap-1">
+                        {t("sources.importParticipants")}
+                        <Input
+                          value={item.participants}
+                          onChange={(event) =>
+                            setFiles((current) =>
+                              current.map((entry) =>
+                                entry.path === item.path
+                                  ? {
+                                      ...entry,
+                                      participants: event.target.value,
+                                    }
                                   : entry,
                               ),
                             )

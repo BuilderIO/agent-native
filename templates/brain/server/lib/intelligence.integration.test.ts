@@ -397,9 +397,10 @@ describe("evidence-backed intelligence", () => {
         participantsCount: 1,
       });
       expect(JSON.stringify(otherCapture)).not.toContain("Casey");
-      expect(JSON.parse(emptyCapture.metadataJson)).toMatchObject({
-        participantsCount: 0,
-      });
+      // oracle-change: an empty list is padding, not a request to store zero.
+      expect(JSON.parse(emptyCapture.metadataJson)).not.toHaveProperty(
+        "participantsCount",
+      );
       const audience = first(
         await database
           .select()
@@ -430,6 +431,71 @@ describe("evidence-backed intelligence", () => {
       ).toEqual(visibility === "org" ? [["org", "qa-org"]] : [["user", email]]);
     },
   );
+  it("preserves screened participant counts and knowledge on omitted or empty reimports", async () => {
+    const file = {
+      path: "participants.md",
+      content: "Morgan will ship Atlas.",
+      kind: "transcript" as const,
+    };
+    const firstImport = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, participants: ["Avery", "Jordan"] }],
+      enqueueDistillation: false,
+    });
+    const imported = first(firstImport.files);
+    if (imported.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: imported.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: "2026-05-20T15:00:00.000Z" })
+      .where(eq(schema.brainRawCaptures.id, imported.captureId));
+    for (const participants of [undefined, []]) {
+      const result = await importMarkdownFiles.run({
+        sourceId: "source-a",
+        files: [{ ...file, ...(participants ? { participants } : {}) }],
+        enqueueDistillation: false,
+      });
+      expect(first(result.files)).toMatchObject({
+        status: "imported",
+        captureId: imported.captureId,
+      });
+      const capture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, imported.captureId)),
+      );
+      expect(capture.status).toBe("distilled");
+      expect(JSON.parse(capture.metadataJson).participantsCount).toBe(2);
+      expect(JSON.stringify(capture)).not.toMatch(/Avery|Jordan/);
+      expect(
+        (await listIntelligence({ id: item.id })).records.map(
+          (record) => record.id,
+        ),
+      ).toEqual([item.id]);
+    }
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, participants: ["Casey"] }],
+      enqueueDistillation: false,
+    });
+    const changed = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, imported.captureId)),
+    );
+    expect(JSON.parse(changed.metadataJson).participantsCount).toBe(1);
+    expect(JSON.stringify(changed)).not.toContain("Casey");
+    expect(changed.status).toBe("queued");
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
   it("cites supplied meeting time but not an import-time fallback", async () => {
     const result = await importMarkdownFiles.run({
       sourceId: "source-a",
@@ -525,6 +591,14 @@ describe("evidence-backed intelligence", () => {
     expect(
       searched.rows.find((entry) => entry.id === dated.captureId)?.capturedAt,
     ).toBe("2026-05-20T15:00:00.000Z");
+    expect(
+      searched.rows.find((entry) => entry.id === dated.captureId)?.citation
+        ?.capturedAt,
+    ).toBe("2026-05-20T15:00:00.000Z");
+    expect(
+      searched.rows.find((entry) => entry.id === undated.captureId)?.citation
+        ?.capturedAt,
+    ).toBeUndefined();
     const answer = await askBrainAction.run({
       question: "Galileo",
       mode: "cited",

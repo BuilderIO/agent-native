@@ -1074,6 +1074,17 @@ export async function commitPreparedCaptureWithWarnings(
     ? parseJson<Record<string, unknown>>(existing.metadataJson, {})
     : {};
   const nextMetadata = { ...sanitized.metadata };
+  if (
+    source.provider === "manual" &&
+    values.externalId?.startsWith("markdown:") &&
+    nextMetadata.participantsCount === undefined &&
+    typeof previousMetadata.participantsCount === "number" &&
+    Number.isInteger(previousMetadata.participantsCount) &&
+    previousMetadata.participantsCount >= 0 &&
+    previousMetadata.participantsCount <= 100
+  ) {
+    nextMetadata.participantsCount = previousMetadata.participantsCount;
+  }
   delete nextMetadata.capturedAtExplicit;
   delete nextMetadata.capturedAtSource;
   if (

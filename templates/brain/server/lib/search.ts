@@ -597,6 +597,20 @@ async function searchKnowledgeResults(
   });
 }
 
+function trustedMarkdownCaptureTime(
+  provider: string,
+  externalId: string | null,
+  capturedAt: string,
+  metadata: Record<string, unknown>,
+) {
+  return provider === "manual" &&
+    externalId?.startsWith("markdown:") &&
+    metadata.capturedAtSource === "manual-markdown" &&
+    !Number.isNaN(Date.parse(capturedAt))
+    ? capturedAt
+    : undefined;
+}
+
 function captureSourceTime(
   provider: string,
   externalId: string | null,
@@ -605,10 +619,7 @@ function captureSourceTime(
 ) {
   if (provider !== "manual" || !externalId?.startsWith("markdown:"))
     return capturedAt;
-  return metadata.capturedAtSource === "manual-markdown" &&
-    !Number.isNaN(Date.parse(capturedAt))
-    ? capturedAt
-    : undefined;
+  return trustedMarkdownCaptureTime(provider, externalId, capturedAt, metadata);
 }
 
 async function searchCaptureResults(
@@ -671,6 +682,12 @@ async function searchCaptureResults(
         citation: {
           captureId: row.id,
           captureTitle: redactSensitiveText(row.title),
+          capturedAt: trustedMarkdownCaptureTime(
+            source.provider,
+            row.externalId,
+            row.capturedAt,
+            metadata,
+          ),
           quote: null,
           preview: snippet,
           verbatim: false,
@@ -931,6 +948,12 @@ export async function searchEverythingWithLanes(args: {
                 citation: {
                   captureId: artifact.captureId,
                   captureTitle: redactSensitiveText(artifact.title),
+                  capturedAt: trustedMarkdownCaptureTime(
+                    source.provider,
+                    detail.externalId,
+                    detail.capturedAt,
+                    metadata,
+                  ),
                   quote: null,
                   preview: snippet,
                   verbatim: false,

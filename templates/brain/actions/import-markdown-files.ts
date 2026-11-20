@@ -62,7 +62,7 @@ const markdownFileSchema = z
       .max(100)
       .optional()
       .describe(
-        "Optional participant labels. Privacy screening discards the labels and stores only their count; they do not grant access or change the audience.",
+        "Optional participant labels. Privacy screening discards the labels and stores only their count; they do not grant access or change the audience. An empty list preserves the existing count.",
       ),
   })
   .strict();
@@ -207,7 +207,7 @@ export default defineAction({
             metadata: {
               path: normalizedPath,
               sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
-              ...(file.input.participants !== undefined
+              ...(file.input.participants?.length
                 ? { participants: file.input.participants }
                 : {}),
             },

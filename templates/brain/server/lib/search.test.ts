@@ -846,6 +846,7 @@ describe("Brain semantic capture hits", () => {
       type: "capture",
     });
     expect(rows[0]?.capturedAt).toBeUndefined();
+    expect(rows[0]?.citation?.capturedAt).toBeUndefined();
   });
 
   it("returns the supplied Markdown time rather than an index timestamp", async () => {
@@ -870,6 +871,7 @@ describe("Brain semantic capture hits", () => {
       type: "capture",
     });
     expect(rows[0]?.capturedAt).toBe("2026-05-20T15:00:00.000Z");
+    expect(rows[0]?.citation?.capturedAt).toBe("2026-05-20T15:00:00.000Z");
   });
 
   it("preserves semantic timestamp behavior for other manual captures", async () => {
@@ -894,6 +896,7 @@ describe("Brain semantic capture hits", () => {
       type: "capture",
     });
     expect(rows[0]?.capturedAt).toBe(capturedAt);
+    expect(rows[0]?.citation?.capturedAt).toBeUndefined();
   });
 
   it("returns Slack channel, content, date and permalink for semantic hits", async () => {

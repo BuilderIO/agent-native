@@ -459,7 +459,7 @@ const messages = {
     manualImportNoFiles: "未選取文件",
     importCaptureTime: "記錄時間（選填）",
     importTranscript: "此檔案是逐字稿",
-    importParticipants: "參與者，以逗號分隔（隱私篩查會移除姓名）",
+    importParticipants: "參與者，以逗號分隔（僅儲存人數，不授予存取權）",
     manualImportFilesSelected: "已選取 {{count}} 份文件",
     manualImportFileLimit:
       "支援 .md、.markdown 和 .txt。每次匯入上限為 100 個檔案和 400 萬個字元。",
