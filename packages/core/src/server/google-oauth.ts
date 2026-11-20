@@ -768,6 +768,7 @@ export function encodeOAuthState(
   const payload: Record<string, unknown> = {
     n: nonce,
     r: opts.redirectUri,
+    t: Math.floor(Date.now() / 1000),
   };
   if (opts.owner) payload.o = opts.owner;
   if (opts.orgId) payload.g = opts.orgId;
@@ -808,7 +809,11 @@ export type OAuthStateDecodeFailureReason =
   | "missing-state"
   | "missing-delimiter"
   | "bad-signature"
+  | "expired"
   | "malformed-payload";
+
+/** A consent screen left open longer than this has to be started again. */
+export const OAUTH_STATE_MAX_AGE_SECONDS = 30 * 60;
 
 export type DecodeOAuthStateResult =
   | ({ ok: true } & OAuthStatePayload)
@@ -846,6 +851,11 @@ export function decodeOAuthState(
     }
 
     const parsed = JSON.parse(Buffer.from(data, "base64url").toString());
+    const issuedAt = typeof parsed.t === "number" ? parsed.t : NaN;
+    const age = Math.floor(Date.now() / 1000) - issuedAt;
+    if (!(age >= -60 && age <= OAUTH_STATE_MAX_AGE_SECONDS)) {
+      return { ok: false, reason: "expired", redirectUri: fallbackUri };
+    }
     return {
       ok: true,
       redirectUri: parsed.r || fallbackUri,
@@ -896,16 +906,64 @@ export interface OAuthOwnerResult {
   hasProductionSession: boolean;
 }
 
+/**
+ * The account an OAuth callback connects to. A browser callback belongs to the
+ * session it arrives with; the signed state's owner stands in only for a
+ * desktop hand-off bound to its browser, which the caller verifies before
+ * this runs.
+ */
+export function oauthCallbackOwner(
+  sessionEmail: string | null | undefined,
+  state: {
+    owner?: string | undefined;
+    desktop?: boolean | undefined;
+    flowId?: string | undefined;
+    desktopBrowserBindingHash?: string | undefined;
+  },
+): string | undefined {
+  if (sessionEmail) {
+    return oauthStateOwnerMatches(sessionEmail, state.owner)
+      ? sessionEmail
+      : undefined;
+  }
+  return state.desktop && state.flowId && state.desktopBrowserBindingHash
+    ? state.owner || undefined
+    : undefined;
+}
+
+function oauthStateOwnerMatches(
+  sessionEmail: string,
+  stateOwner: string | undefined,
+): boolean {
+  return (
+    !stateOwner ||
+    stateOwner.trim().toLowerCase() === sessionEmail.trim().toLowerCase()
+  );
+}
+
 export async function resolveOAuthOwner(
   event: H3Event,
   stateOwner?: string,
+  flow: Pick<
+    OAuthStatePayload,
+    "desktop" | "flowId" | "desktopBrowserBindingHash"
+  > = {},
 ): Promise<OAuthOwnerResult> {
   const { getSession } = await import("./auth.js");
   const existingSession = await getSession(event);
   const hasProductionSession = !!existingSession?.email;
-  const owner = hasProductionSession
-    ? existingSession!.email
-    : stateOwner || undefined;
+  if (
+    existingSession?.email &&
+    !oauthStateOwnerMatches(existingSession.email, stateOwner)
+  ) {
+    throw new Error(
+      "This link was started from a different account. Sign in again and retry.",
+    );
+  }
+  const owner = oauthCallbackOwner(existingSession?.email, {
+    ...flow,
+    owner: stateOwner,
+  });
 
   return { owner, hasProductionSession };
 }

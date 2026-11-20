@@ -1649,6 +1649,7 @@ const enUS = {
     heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
+    suggestEdit: "Suggest edit",
     pasteLink: "Paste link...",
     apply: "Apply",
     plainText: "Plain text",

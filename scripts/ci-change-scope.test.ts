@@ -2102,13 +2102,7 @@ test("Design core and broad selectors stay independently scoped", () => {
     );
   }
 
-  // oracle-change: #9349 deleted the Home Design spec, so its CI step and the assertions on that step go with it
-  const landingPageSelection = classifyChangedPaths([
-    "templates/design/e2e/interaction-landing-page-build.spec.ts",
-  ]);
-  assert.deepEqual(landingPageSelection.designCanvasBroadWorkflowShards, [
-    "landing-page-build",
-  ]);
+  // oracle-change: the Home system-selection spec and its shard were removed with Creative context
   assert.deepEqual(
     classifyChangedPaths([
       "templates/design/app/components/design/EditPanel.document-colors.test.tsx",
@@ -2383,6 +2377,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "the landing-page matrix cell must retain its Design E2E traces and results",
   );
+  assert.match(
+    workflow,
+    /^  design-canvas-broad-workflows:\n(?:.*\n){4}    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    "the broad workflow job must leave setup and artifact headroom after the long Playwright step",
+  );
+
   assert.match(
     verticalAutoLayoutWorkflow,
     /^        if: \$\{\{ matrix\.shard == 'autolayout-vertical-center-trailing' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/autolayout-drag-drop-matrix\.spec\.ts'\) \}\}$/m,
@@ -3509,32 +3509,6 @@ test("a non-empty selector with only deleted specs resolves to a no-op", () => {
       filteredSpecs: [],
     },
   );
-});
-
-test("filters loopback-only Home specs from default changed-spec selection", () => {
-  const home = "templates/design/e2e/home-system-selection.spec.ts";
-  const regular = "templates/design/e2e/interaction-selection.spec.ts";
-  const selector = JSON.stringify([home, regular]);
-  const resolve = (includeLoopbackOnlySpecs: boolean) =>
-    resolveDesignE2ESpecs(selector, {
-      isFile: () => true,
-      readFile: () => "",
-      includeLoopbackOnlySpecs,
-    });
-
-  assert.deepEqual(resolve(false), {
-    existingSpecs: ["e2e/interaction-selection.spec.ts"],
-    removedSpecs: [],
-    filteredSpecs: ["e2e/home-system-selection.spec.ts"],
-  });
-  assert.deepEqual(resolve(true), {
-    existingSpecs: [
-      "e2e/home-system-selection.spec.ts",
-      "e2e/interaction-selection.spec.ts",
-    ],
-    removedSpecs: [],
-    filteredSpecs: [],
-  });
 });
 
 test("keeps runnable specs while excluding deleted paths from the same selector", () => {

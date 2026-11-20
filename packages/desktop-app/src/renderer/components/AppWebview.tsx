@@ -655,7 +655,23 @@ export function resolveAppWebviewPartition(input: {
 }
 
 function buildSoftOpenScript(path: string): string {
-  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(() => true, () => false))()`;
+  return `(() => fetch(${JSON.stringify(path)}, { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then((res) => res.type === "opaqueredirect" || res.ok, () => false))()`;
+}
+
+function buildSoftNavigateScript(targetUrl: string): string {
+  const encodedTargetUrl = JSON.stringify(targetUrl);
+  return `(() => {
+    const target = new URL(${encodedTargetUrl}, window.location.href);
+    if (target.origin !== window.location.origin) return false;
+    const next = target.pathname + target.search + target.hash;
+    const current =
+      window.location.pathname + window.location.search + window.location.hash;
+    if (current !== next) {
+      window.history.pushState(null, "", next);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    }
+    return true;
+  })()`;
 }
 
 function buildGuestLifecycleScript(
@@ -1687,16 +1703,15 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       unresponsiveFailureRef.current = false;
       setError(false);
 
-      if (
-        urlOpenSoft &&
-        openNonceChanged &&
-        isAgentNativeOpenPath(urlPath) &&
-        canSoftOpenWebview(wv, url)
-      ) {
-        void executeGuestScript(
-          `soft-open:${urlPath}`,
-          buildSoftOpenScript(urlPath),
-        )
+      if (urlOpenSoft && canSoftOpenWebview(wv, url)) {
+        const isOpenRoute = isAgentNativeOpenPath(urlPath);
+        const script = isOpenRoute
+          ? buildSoftOpenScript(urlPath)
+          : buildSoftNavigateScript(url);
+        const scriptKey = isOpenRoute
+          ? `soft-open:${urlPath}`
+          : `soft-navigate:${url}`;
+        void executeGuestScript(scriptKey, script)
           .then((ok) => {
             if (ok !== false) return;
             setIsLoading(true);
