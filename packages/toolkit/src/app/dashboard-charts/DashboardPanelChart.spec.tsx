@@ -193,6 +193,66 @@ describe("DashboardPanelChart", () => {
     ).toBe(targetLine);
   });
 
+  it("stacks positive and negative combo bars on opposite sides of zero", async () => {
+    const config = {
+      xKey: "day",
+      yKeys: ["positive", "negative", "morePositive", "moreNegative", "target"],
+      barKeys: ["positive", "negative", "morePositive", "moreNegative"],
+    };
+    const rows = [
+      {
+        day: "2026-10-11",
+        positive: 30,
+        negative: -20,
+        morePositive: 10,
+        moreNegative: -10,
+        target: 5,
+      },
+    ];
+    const bars = () =>
+      [...container.querySelectorAll(".recharts-bar-rectangle path")].map(
+        (path) => {
+          const y = Number(path.getAttribute("y"));
+          const height = Number(path.getAttribute("height"));
+          return {
+            x: Number(path.getAttribute("x")),
+            y: Math.min(y, y + height),
+            height: Math.abs(height),
+          };
+        },
+      );
+
+    await render(
+      <DashboardPanelChart
+        panel={panel("combo", { ...config, stacked: true })}
+        rows={rows}
+      />,
+    );
+    const [positive, negative, morePositive, moreNegative] = bars();
+    if (!positive || !negative || !morePositive || !moreNegative)
+      throw new Error("Missing bars");
+    expect(bars()).toHaveLength(4);
+    expect(positive.height).toBeGreaterThan(0);
+    expect(negative.height).toBeGreaterThan(0);
+    expect(morePositive.height).toBeGreaterThan(0);
+    expect(moreNegative.height).toBeGreaterThan(0);
+    expect(positive.x).toBeCloseTo(negative.x);
+    expect(negative.y).toBeCloseTo(positive.y + positive.height);
+    expect(morePositive.y + morePositive.height).toBeCloseTo(positive.y);
+    expect(moreNegative.y).toBeCloseTo(negative.y + negative.height);
+
+    await render(
+      <DashboardPanelChart panel={panel("combo", config)} rows={rows} />,
+    );
+    const [groupedPositive, groupedNegative] = bars();
+    if (!groupedPositive || !groupedNegative)
+      throw new Error("Missing grouped bars");
+    expect(groupedPositive.x).not.toBeCloseTo(groupedNegative.x);
+    expect(groupedNegative.y).toBeCloseTo(
+      groupedPositive.y + groupedPositive.height,
+    );
+  });
+
   it("positions stacks on different value axes side by side", async () => {
     await render(
       <DashboardPanelChart

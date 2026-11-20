@@ -3228,6 +3228,7 @@ export function ComboRenderer({
         <ComposedChart
           data={rows}
           margin={chartMargin.margin}
+          stackOffset={stacked ? "sign" : undefined}
           {...chartClick.props}
         >
           {chartClick.locator}
