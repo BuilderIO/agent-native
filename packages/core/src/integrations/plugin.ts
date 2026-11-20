@@ -974,18 +974,15 @@ export function createIntegrationsPlugin(
       if (!existingOwner) return undefined;
       const actor = actorEmail?.trim().toLowerCase() ?? "";
       const storedOrgId = storedIntegrationOwnerOrgId(existing);
-      if (actor && canManageDeploymentWithoutOrg(actor)) return storedOrgId;
       if (actor) {
         if (typeof storedOrgId === "string") {
           if (canManageOrg(await readOrgMemberRole(storedOrgId, actor))) {
             return storedOrgId;
           }
-        } else if (
-          actor === existingOwner.toLowerCase() ||
-          canManageDeploymentWithoutOrg(actor)
-        ) {
+        } else if (actor === existingOwner.toLowerCase()) {
           return storedOrgId;
         }
+        if (canManageDeploymentWithoutOrg(actor)) return undefined;
       }
       throw createError({
         statusCode: 403,

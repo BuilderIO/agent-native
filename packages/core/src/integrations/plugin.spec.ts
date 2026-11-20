@@ -1332,6 +1332,9 @@ describe("integrations plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(saveIntegrationConfigMock).toHaveBeenCalledTimes(1);
+    expect(saveIntegrationConfigMock.mock.calls[0]?.[1]).not.toMatchObject({
+      ownerOrgId: "org-first",
+    });
   });
 
   it("still refuses a non-admin of another organization on a recorded channel", async () => {
