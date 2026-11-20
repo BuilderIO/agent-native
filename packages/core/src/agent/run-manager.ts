@@ -2473,6 +2473,7 @@ export function startRun(
         : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
+        !privateTurn &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
         !(

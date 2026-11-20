@@ -10935,11 +10935,7 @@ export async function runAgentLoop(opts: {
         };
       }
 
-      if (
-        !actionIsReadOnly &&
-        actionEntry?.persistInChatHistory === false &&
-        privateCompletedTools.has(toolCall.name)
-      ) {
+      if (!actionIsReadOnly && privateCompletedTools.has(toolCall.name)) {
         rollbackRepeatedToolCall();
         const result = requirePrivateSafeErrorMessage(
           "private_action_already_completed",
