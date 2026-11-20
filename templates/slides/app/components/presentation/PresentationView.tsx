@@ -73,6 +73,7 @@ const NO_BUILD_STEPS: BuildSteps = { steps: [], unresolved: [] };
 interface PresentationViewProps {
   slides: Slide[];
   deckId: string;
+  exitTo?: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
@@ -85,6 +86,7 @@ interface PresentationViewProps {
 export default function PresentationView({
   slides,
   deckId,
+  exitTo,
   startIndex = 0,
   aspectRatio,
   designSystem,
@@ -291,10 +293,6 @@ export default function PresentationView({
   }, [nav.displayedIndex]);
   const visibleRawIndicesRef = useRef(visibleRawIndices);
   visibleRawIndicesRef.current = visibleRawIndices;
-  const deckIdRef = useRef(deckId);
-  deckIdRef.current = deckId;
-  const isSharedRef = useRef(isShared);
-  isSharedRef.current = isShared;
 
   // One atomic effect handles both cases so they can't race each other:
   // - A genuine deep link or deck switch (startIndex/deckId changed) reseeds
@@ -414,11 +412,10 @@ export default function PresentationView({
     [apply],
   );
 
-  const exit = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-    if (isShared) {
+  const navigateToExit = useCallback(() => {
+    if (exitTo) {
+      void navigate(exitTo);
+    } else if (isShared) {
       const token = deckId.replace("__shared__/", "");
       void navigate(`/share/${token}`);
     } else {
@@ -426,7 +423,17 @@ export default function PresentationView({
       const rawIndex = visibleRawIndicesRef.current[target] ?? target;
       void navigate(`/deck/${deckId}?slide=${rawIndex + 1}`);
     }
-  }, [navigate, deckId, isShared]);
+  }, [navigate, deckId, isShared, exitTo]);
+  const navigateToExitRef = useRef(navigateToExit);
+  navigateToExitRef.current = navigateToExit;
+
+  const exit = useCallback(() => {
+    enteredFullscreenRef.current = false;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    navigateToExit();
+  }, [navigateToExit]);
 
   const channelRef = useRef<BroadcastChannel | null>(null);
   const postState = useCallback((index: number, buildStep: number) => {
@@ -557,14 +564,7 @@ export default function PresentationView({
     const handleFullscreenChange = () => {
       if (enteredFullscreenRef.current && !document.fullscreenElement) {
         enteredFullscreenRef.current = false;
-        if (isSharedRef.current) {
-          const token = deckIdRef.current.replace("__shared__/", "");
-          void navigate(`/share/${token}`);
-        } else {
-          const target = navRef.current.targetIndex;
-          const rawIndex = visibleRawIndicesRef.current[target] ?? target;
-          void navigate(`/deck/${deckIdRef.current}?slide=${rawIndex + 1}`);
-        }
+        navigateToExitRef.current();
       }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);

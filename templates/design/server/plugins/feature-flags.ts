@@ -1,8 +1,7 @@
 import { createFeatureFlagsPlugin } from "@agent-native/core/server";
 
-import { DESIGN_SYSTEM_WORKFLOWS } from "../../shared/design-flags.js";
 import { FULL_APP_BUILDING } from "../../shared/full-app.js";
 
 export default createFeatureFlagsPlugin({
-  flags: [FULL_APP_BUILDING, DESIGN_SYSTEM_WORKFLOWS],
+  flags: [FULL_APP_BUILDING],
 });

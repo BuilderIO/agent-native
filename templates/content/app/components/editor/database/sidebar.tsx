@@ -65,10 +65,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { usePendingMoves } from "@/hooks/use-pending-moves";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
 import {
   filesNavigationPageParams,
+  filesRowDocument,
+  keptFilesRows,
   useFilesNavigationPage,
+  type FilesRowMove,
 } from "@/lib/files-navigation";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 import {
@@ -126,24 +130,7 @@ export function navigationItemAsDatabaseItem(
     databaseId: "",
     position: item.membershipPosition,
     properties: [],
-    document: document ?? {
-      id: item.documentId,
-      spaceId: item.spaceId,
-      parentId: item.parentId,
-      title: item.title,
-      content: "",
-      icon: item.icon,
-      position: item.membershipPosition,
-      isFavorite: item.isFavorite,
-      hideFromSearch: false,
-      canEdit: item.canEdit,
-      canManage: item.canManage,
-      source: item.sourceKind
-        ? { mode: "database", kind: item.sourceKind }
-        : undefined,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-    },
+    document: document ?? filesRowDocument(item),
   };
 }
 
@@ -265,6 +252,7 @@ function PagedContentFilesBranch({
   const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
   const [reloadRefused, setReloadRefused] = useState(false);
   const pendingTrash = usePendingTrash();
+  const pendingMoves = usePendingMoves();
   const query = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: props.databaseId,
@@ -356,6 +344,59 @@ function PagedContentFilesBranch({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstPageRowCount, firstPageHasMore]);
 
+  // A page on its way to a new parent leaves its old branch with the click
+  // and joins the end of its new branch's first page.
+  const movesHere = (move: FilesRowMove) =>
+    move.databaseId === props.databaseId && move.parentId === props.parentId;
+  const renderRow = (
+    navigationItem: ContentDatabaseNavigationItem,
+    first: boolean,
+  ) => {
+    const metadata = props.documentMetadata.get(navigationItem.documentId);
+    const item = navigationItemAsDatabaseItem(navigationItem, metadata);
+    const expanded = props.expandedDocumentIds.has(navigationItem.documentId);
+    return (
+      <div
+        key={navigationItem.membershipId}
+        {...(firstRoot && first
+          ? startupAnchor("sidebar-files-first-row")
+          : {})}
+        className="grid min-w-0 gap-0.5"
+      >
+        <DatabaseSidebarRow
+          item={item}
+          openPagesIn="full_page"
+          onPreview={() => {}}
+          onOpenItem={props.onOpenItem}
+          active={navigationItem.documentId === props.activeDocumentId}
+          onCreateChildPage={props.onCreateChildPage}
+          onCreateChildDatabase={props.onCreateChildDatabase}
+          onDeleteItem={props.onDeleteItem}
+          onToggleFavorite={props.onToggleFavorite}
+          untitledLabel={props.untitledLabel}
+          depth={props.depth}
+          hasChildren={navigationItem.hasChildren}
+          isCollection={navigationItem.type === "database"}
+          expanded={expanded}
+          onToggleExpanded={(open) =>
+            props.onDocumentExpandedChange(navigationItem.documentId, open)
+          }
+          elementTiming={
+            props.depth === 0 ? SIDEBAR_FILES_ROW_ELEMENT_TIMING : undefined
+          }
+        />
+        {expanded && navigationItem.hasChildren ? (
+          <PagedContentFilesBranch
+            {...props}
+            key={`${props.databaseId}:${navigationItem.documentId}`}
+            parentId={navigationItem.documentId}
+            depth={props.depth + 1}
+          />
+        ) : null}
+      </div>
+    );
+  };
+
   if (query.isLoading || (cursorExpired && !reloadRefused)) {
     // A first page holds the rows it drew last time, in the rows' own
     // geometry, so the rows below it do not move when the page arrives.
@@ -364,15 +405,37 @@ function PagedContentFilesBranch({
       : props.parentId === null
         ? rootPlaceholder
         : props.branchPlaceholders?.[props.parentId];
+    // A page moved into a folder that hasn't loaded yet shows below it, from
+    // the click, through the move's answer, until the folder's read lands.
+    const movingIn =
+      cursor === undefined
+        ? [
+            ...[...pendingMoves.values()]
+              .filter(movesHere)
+              .map((move) => move.item),
+            ...keptFilesRows(queryClient, props.databaseId, props.parentId),
+          ].filter((item, index, all) => {
+            if (pendingTrash.documentIds.has(item.documentId)) return false;
+            const move = pendingMoves.get(item.documentId);
+            return (
+              (!move || movesHere(move)) &&
+              all.findIndex((other) => other.documentId === item.documentId) ===
+                index
+            );
+          })
+        : [];
     return (
-      <SidebarRowsSkeleton
-        framed={false}
-        rows={placeholder?.rows ?? 3}
-        more={placeholder?.more}
-        firstRowProps={
-          firstRoot ? startupAnchor("sidebar-files-first-row") : undefined
-        }
-      />
+      <>
+        <SidebarRowsSkeleton
+          framed={false}
+          rows={placeholder?.rows ?? 3}
+          more={placeholder?.more}
+          firstRowProps={
+            firstRoot ? startupAnchor("sidebar-files-first-row") : undefined
+          }
+        />
+        {movingIn.map((navigationItem) => renderRow(navigationItem, false))}
+      </>
     );
   }
   if (query.isError || !data) {
@@ -429,64 +492,49 @@ function PagedContentFilesBranch({
       createdAt: document.createdAt,
       updatedAt: document.updatedAt,
     }));
-  // A page on its way to Trash leaves the tree with the click.
-  const items = [...pageItems, ...revealedItems].filter(
-    (item) => !pendingTrash.documentIds.has(item.documentId),
+  const movedInItems =
+    cursor === undefined
+      ? [...pendingMoves.values()]
+          .filter(
+            (move) =>
+              movesHere(move) &&
+              !pageDocumentIds.has(move.documentId) &&
+              !revealedItems.some(
+                (item) => item.documentId === move.documentId,
+              ),
+          )
+          .map((move) => move.item)
+      : [];
+  const movingInto = new Set(
+    [...pendingMoves.values()].flatMap((move) =>
+      move.databaseId === props.databaseId && move.parentId
+        ? [move.parentId]
+        : [],
+    ),
   );
+  // A page on its way to Trash leaves the tree with the click.
+  const items = [...pageItems, ...revealedItems, ...movedInItems]
+    .filter((item) => {
+      if (pendingTrash.documentIds.has(item.documentId)) return false;
+      const move = pendingMoves.get(item.documentId);
+      return !move || movesHere(move);
+    })
+    .map((item) =>
+      !item.hasChildren && movingInto.has(item.documentId)
+        ? { ...item, hasChildren: true }
+        : item,
+    );
   const composedDocumentIds = new Set([
     ...pageDocumentIds,
     ...revealedItems.map((item) => item.documentId),
+    ...movedInItems.map((item) => item.documentId),
   ]);
 
   return (
     <>
-      {items.map((navigationItem, index) => {
-        const metadata = props.documentMetadata.get(navigationItem.documentId);
-        const item = navigationItemAsDatabaseItem(navigationItem, metadata);
-        const expanded = props.expandedDocumentIds.has(
-          navigationItem.documentId,
-        );
-        return (
-          <div
-            key={navigationItem.membershipId}
-            {...(firstRoot && index === 0
-              ? startupAnchor("sidebar-files-first-row")
-              : {})}
-            className="grid min-w-0 gap-0.5"
-          >
-            <DatabaseSidebarRow
-              item={item}
-              openPagesIn="full_page"
-              onPreview={() => {}}
-              onOpenItem={props.onOpenItem}
-              active={navigationItem.documentId === props.activeDocumentId}
-              onCreateChildPage={props.onCreateChildPage}
-              onCreateChildDatabase={props.onCreateChildDatabase}
-              onDeleteItem={props.onDeleteItem}
-              onToggleFavorite={props.onToggleFavorite}
-              untitledLabel={props.untitledLabel}
-              depth={props.depth}
-              hasChildren={navigationItem.hasChildren}
-              isCollection={navigationItem.type === "database"}
-              expanded={expanded}
-              onToggleExpanded={(open) =>
-                props.onDocumentExpandedChange(navigationItem.documentId, open)
-              }
-              elementTiming={
-                props.depth === 0 ? SIDEBAR_FILES_ROW_ELEMENT_TIMING : undefined
-              }
-            />
-            {expanded && navigationItem.hasChildren ? (
-              <PagedContentFilesBranch
-                {...props}
-                key={`${props.databaseId}:${navigationItem.documentId}`}
-                parentId={navigationItem.documentId}
-                depth={props.depth + 1}
-              />
-            ) : null}
-          </div>
-        );
-      })}
+      {items.map((navigationItem, index) =>
+        renderRow(navigationItem, index === 0),
+      )}
       {data.pagination.hasMore && data.pagination.nextCursor ? (
         nextPageVisible ? (
           <PagedContentFilesBranch
@@ -1144,15 +1192,15 @@ function DatabaseSidebarRow({
 }: {
   item: ContentDatabaseItem;
   isCollection?: boolean;
-  elementTiming?: string;
+  elementTiming?: string | undefined;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
-  onOpenItem?: (item: ContentDatabaseItem) => boolean;
+  onOpenItem?: ((item: ContentDatabaseItem) => boolean) | undefined;
   active: boolean;
-  onCreateChildPage?: (item: ContentDatabaseItem) => void;
-  onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
-  onDeleteItem?: (item: ContentDatabaseItem) => void;
-  onToggleFavorite?: (item: ContentDatabaseItem) => void;
+  onCreateChildPage?: ((item: ContentDatabaseItem) => void) | undefined;
+  onCreateChildDatabase?: ((item: ContentDatabaseItem) => void) | undefined;
+  onDeleteItem?: ((item: ContentDatabaseItem) => void) | undefined;
+  onToggleFavorite?: ((item: ContentDatabaseItem) => void) | undefined;
   untitledLabel: string;
   depth?: number;
   hasChildren?: boolean;

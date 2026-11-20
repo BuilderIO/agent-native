@@ -5747,7 +5747,7 @@ importers:
     dependencies:
       '@agent-native/core':
         specifier: ^0.219.0
-        version: 0.219.0(8955d6cd10c842659db073167ca96dc4)
+        version: 0.219.0(b85f2ca936a5068bf587a39f4023b143)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -5905,6 +5905,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.1.44
+      jszip:
+        specifier: ^3.10.1
+        version: 3.10.1
       katex:
         specifier: 0.17.0
         version: 0.17.0
@@ -7412,6 +7415,9 @@ importers:
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
+      parse5:
+        specifier: 8.0.1
+        version: 8.0.1
       react:
         specifier: 19.2.7
         version: 19.2.7
@@ -8221,8 +8227,8 @@ packages:
   '@agent-native/agentkit@0.219.0':
     resolution: {integrity: sha512-aMCbnImC617tDfQrEyUuSy5gbdaBILacVgnHBIVYF5jikIWqCIUyYHvQMvhNCsMYlrcjkWBL9Y7ETs3ub5Cm5w==}
 
-  '@agent-native/core-corpus@0.228.2':
-    resolution: {integrity: sha512-BhWReSojFyxtxMaK4u13dH5unucej5hEPwdAvIdI0XWRNZ1UP9gg9mTKsj/ulUEw5b1J4YTbFjSOif2cikMa/w==}
+  '@agent-native/core-corpus@0.229.0':
+    resolution: {integrity: sha512-4Wn0wA7jxvNx6x3RcyyQn3SROdXybqj8q5s+PERFfsfzGx4IVna45Az0DYwKSBI6MJlE/xiwzd/zMk+zMbbgrw==}
 
   '@agent-native/core@0.219.0':
     resolution: {integrity: sha512-twQ73+RmBujEvC4O1ezowkADUK83jfMO71E7KMqBbNENWbItZfBmS1czOEtT1MVEgyZOFRtrQ0lyCQBgpSFWTA==}
@@ -25212,10 +25218,10 @@ snapshots:
       '@ag-ui/core': 0.0.59
       '@noble/hashes': 2.4.0
 
-  '@agent-native/core-corpus@0.228.2':
+  '@agent-native/core-corpus@0.229.0':
     optional: true
 
-  '@agent-native/core@0.219.0(8955d6cd10c842659db073167ca96dc4)':
+  '@agent-native/core@0.219.0(b85f2ca936a5068bf587a39f4023b143)':
     dependencies:
       '@agent-native/agentkit': 0.219.0
       '@agent-native/recap-cli': 0.5.88(playwright@1.63.0)
@@ -25270,7 +25276,7 @@ snapshots:
       yjs: 13.6.33
       zod: 4.6.7
     optionalDependencies:
-      '@agent-native/core-corpus': 0.228.2
+      '@agent-native/core-corpus': 0.229.0
       '@ai-sdk/anthropic': 3.0.86(zod@4.6.7)
       '@ai-sdk/cohere': 3.0.39(zod@4.6.7)
       '@ai-sdk/google': 3.0.83(zod@4.6.7)

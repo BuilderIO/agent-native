@@ -14,6 +14,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => state.orgId,
 }));
 vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => null,
+  mutateOrgSetting: async () => undefined,
   getUserSetting: async (email: string, key: string) =>
     state.values.get(`${email}:${key}`) ?? null,
   mutateUserSetting: async (

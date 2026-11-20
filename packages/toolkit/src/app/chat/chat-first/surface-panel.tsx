@@ -28,6 +28,7 @@ export function ChatFirstSurfacePanel({
       style={
         {
           "--chat-first-surface-width": `${panelWidth}px`,
+          flexBasis: "var(--chat-first-surface-width)",
         } as CSSProperties
       }
     >

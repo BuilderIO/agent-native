@@ -1009,6 +1009,8 @@ const editor = {
     noFilesOrMedia: "Aucun fichier ni média",
     noMatchingOptions: "Aucune option correspondante",
     noMatchingPropertyTypes: "Aucun type de propriété correspondant",
+    typeChangeUnavailable:
+      "Le type de propriété ne peut pas être modifié afin de protéger les valeurs existantes.",
     notMappedToBuilder: "Non mappé à Builder.",
     onlyBlocksPropertyWarning:
       "C'est la seule propriété de blocs présente dans ce type d'objet. Cela supprimera le contenu principal (corps) de tous les objets de ce type.",
@@ -1904,6 +1906,7 @@ const overrides = {
     heading6: "Titre 6",
     link: "Lien",
     comment: "Commentaire",
+    suggestEdit: "Suggérer une modification",
     pasteLink: "Coller le lien...",
     apply: "Appliquer",
     plainText: "Texte brut",
@@ -1985,6 +1988,18 @@ const overrides = {
     agentBadge: "Agent",
     addEmoji: "Ajouter un emoji",
     mentionSomeone: "Mentionner quelqu’un",
+    attachImage: "Ajouter une image",
+    removeImage: "Retirer l’image",
+    uploadingImage: "Envoi de l’image…",
+    imageUploadFailed: "Impossible d’envoyer l’image. Réessayez.",
+    imageTypeUnsupported:
+      "Un commentaire accepte les images PNG, JPEG, GIF ou WebP.",
+    imageTooLarge: "Chaque image peut peser jusqu’à 10 Mo.",
+    imageLimit: "Un commentaire contient au plus {{count}} images.",
+    imagesNeedStorage:
+      "Les images nécessitent un stockage de fichiers privé, que cet espace de travail n’a pas connecté.",
+    commentImages: "Images",
+    openImage: "Ouvrir l’image : {{name}}",
     mentionPeople: "Personnes",
     mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",

@@ -2386,7 +2386,7 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       );
     }
 
-    const settings = await readBrainSettings();
+    const settings = await readBrainSettings(source.orgId);
     const publicExclusionPatterns =
       settings.publicChannelExclusionPatterns ?? [];
     const channelsById = new Map<string, SlackChannel>();
@@ -2773,7 +2773,8 @@ export async function refreshSlackThreadCapture(
       !channel.is_private &&
       matchesPublicChannelExclusion(
         channel,
-        (await readBrainSettings()).publicChannelExclusionPatterns ?? [],
+        (await readBrainSettings(source.orgId))
+          .publicChannelExclusionPatterns ?? [],
       )
     ) {
       throw new Error(
