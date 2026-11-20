@@ -16,6 +16,7 @@ import { AutomationRecoveryProjectionDeferredError } from "./automation-recovery
 import { registerJobRunner, type JobRunnerContext } from "./job-runner.js";
 import {
   classifyJobResource,
+  nextRecurringJobWakeAt,
   parseJobResource,
   processRecurringJobs,
   runJobNow,
@@ -2629,5 +2630,187 @@ Runs the saved workflow.`,
       expect(getRemoteAutomationStatusMock).not.toHaveBeenCalled();
       expect(finishRemoteAutomationHistoryMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("nextRecurringJobWakeAt", () => {
+  const now = Date.parse("2026-11-20T12:00:00.000Z");
+  const job = (path: string, frontmatter: string) => ({
+    id: `resource-${path}`,
+    owner: "alice+jobs@agent-native.test",
+    path,
+    content: `---
+${frontmatter.trim()}
+appId: calendar
+---
+
+Send the digest.`,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("answers the earliest enabled scheduled run of this app", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      job(
+        "jobs/hourly.md",
+        `schedule: "0 * * * *"
+nextRun: "2026-11-20T13:00:00.000Z"
+enabled: true
+triggerType: schedule`,
+      ),
+      job(
+        "jobs/morning.md",
+        `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+enabled: true`,
+      ),
+      job(
+        "jobs/disabled.md",
+        `schedule: "* * * * *"
+nextRun: "2026-11-20T12:01:00.000Z"
+enabled: false`,
+      ),
+      job(
+        "jobs/on-event.md",
+        `schedule: "* * * * *"
+nextRun: "2026-11-20T12:01:00.000Z"
+enabled: true
+triggerType: event`,
+      ),
+      {
+        ...job(
+          "jobs/other-app.md",
+          `schedule: "* * * * *"
+nextRun: "2026-11-20T12:01:00.000Z"
+enabled: true`,
+        ),
+        content: `---
+schedule: "* * * * *"
+nextRun: "2026-11-20T12:01:00.000Z"
+enabled: true
+appId: mail
+---
+
+Other app.`,
+      },
+    ]);
+
+    await expect(
+      nextRecurringJobWakeAt({ appId: "calendar" }, now),
+    ).resolves.toBe(Date.parse("2026-11-20T13:00:00.000Z"));
+  });
+
+  it("answers null when no automation is scheduled", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      job(
+        "jobs/disabled.md",
+        `schedule: "* * * * *"
+nextRun: "2026-11-20T12:01:00.000Z"
+enabled: false`,
+      ),
+    ]);
+
+    await expect(
+      nextRecurringJobWakeAt({ appId: "calendar" }, now),
+    ).resolves.toBeNull();
+  });
+
+  it.each([
+    [
+      "a run is in flight",
+      `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+enabled: true
+lastStatus: running`,
+    ],
+    [
+      "a run is due",
+      `schedule: "0 9 * * *"
+nextRun: "2026-11-20T11:59:00.000Z"
+enabled: true`,
+    ],
+    [
+      "a new automation has no next run yet",
+      `schedule: "0 9 * * *"
+enabled: true`,
+    ],
+    [
+      "a next run does not parse",
+      `schedule: "0 9 * * *"
+nextRun: "not a date"
+enabled: true`,
+    ],
+    [
+      "an automation's end date has passed",
+      `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+expiresAt: "2026-11-20T11:00:00.000Z"
+enabled: true`,
+    ],
+  ])("answers now when %s", async (_case, frontmatter) => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      job("jobs/morning.md", frontmatter),
+    ]);
+
+    await expect(
+      nextRecurringJobWakeAt({ appId: "calendar" }, now),
+    ).resolves.toBe(now);
+  });
+
+  it("wakes at an end date that comes before the next run", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      job(
+        "jobs/morning.md",
+        `schedule: "0 9 * * *"
+nextRun: "2026-11-21T09:00:00.000Z"
+expiresAt: "2026-11-20T18:00:00.000Z"
+enabled: true`,
+      ),
+    ]);
+
+    await expect(
+      nextRecurringJobWakeAt({ appId: "calendar" }, now),
+    ).resolves.toBe(Date.parse("2026-11-20T18:00:00.000Z"));
+  });
+
+  it("does not stay awake for due runs the sweep would skip", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        ...job("jobs/empty.md", ""),
+        content: `---
+schedule: "0 9 * * *"
+nextRun: "2026-11-20T11:00:00.000Z"
+enabled: true
+appId: calendar
+---
+`,
+      },
+      {
+        ...job("jobs/empty-unparsable.md", ""),
+        content: `---
+schedule: "0 9 * * *"
+nextRun: "not a date"
+enabled: true
+appId: calendar
+---
+`,
+      },
+      job(
+        "jobs/owner-gone.md",
+        `schedule: "0 9 * * *"
+nextRun: "2026-11-20T11:00:00.000Z"
+enabled: true
+lastStatus: error
+lastErrorCode: owner_missing
+lastError: The automation's owner no longer exists.
+lastCheck: "2026-11-20T11:58:00.000Z"`,
+      ),
+    ]);
+
+    await expect(
+      nextRecurringJobWakeAt({ appId: "calendar" }, now),
+    ).resolves.toBe(Date.parse("2026-11-20T12:03:00.000Z"));
   });
 });
