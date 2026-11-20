@@ -234,25 +234,26 @@ async function resolveSlackSenderProfile(
         is_stranger?: boolean;
       };
     };
-    const profile = data.ok
-      ? {
-          email: data.user?.profile?.email?.trim().toLowerCase() || null,
-          name:
-            data.user?.profile?.real_name?.trim() ||
-            data.user?.profile?.display_name?.trim() ||
-            data.user?.real_name?.trim() ||
-            data.user?.name?.trim() ||
-            null,
-          trust:
-            data.user?.is_stranger === true ||
-            data.user?.is_ultra_restricted === true
-              ? ("external_shared" as const)
-              : data.user?.is_restricted === true
-                ? ("guest" as const)
-                : ("trusted" as const),
-        }
-      : { email: null, name: null, trust: "unknown" as const };
-    if (cacheKey) {
+    const profile =
+      data.ok && data.user
+        ? {
+            email: data.user?.profile?.email?.trim().toLowerCase() || null,
+            name:
+              data.user?.profile?.real_name?.trim() ||
+              data.user?.profile?.display_name?.trim() ||
+              data.user?.real_name?.trim() ||
+              data.user?.name?.trim() ||
+              null,
+            trust:
+              data.user?.is_stranger === true ||
+              data.user?.is_ultra_restricted === true
+                ? ("external_shared" as const)
+                : data.user?.is_restricted === true
+                  ? ("guest" as const)
+                  : ("trusted" as const),
+          }
+        : { email: null, name: null, trust: "unknown" as const };
+    if (cacheKey && profile.trust !== "unknown") {
       slackProfileCache.set(cacheKey, {
         profile,
         expiresAt: Date.now() + SLACK_PROFILE_CACHE_TTL,
@@ -415,7 +416,7 @@ async function resolveSlackConversationTrust(
         is_mpim?: boolean;
       };
     };
-    if (!data.ok) {
+    if (!data.ok || !data.channel) {
       return { trust: "unknown", conversationType: "channel" };
     }
     return {
@@ -615,13 +616,23 @@ export async function resolveDispatchExecutionContext(
     );
   }
   if (!scope) throw new Error("Slack channel is not enabled for Agent-Native");
-  const decision = evaluateIntegrationScopePolicy(scope, {
+  const policyContext = {
     mentioned:
       incoming.triggerKind === "mention" ||
       incoming.triggerKind === "thread_reply",
-  });
-  if (!decision.allowed) {
-    throw new Error(`Slack channel policy denied: ${decision.reason}`);
+  };
+  for (const candidate of [
+    {
+      ...scope,
+      trust: scope.trust === "unknown" ? conversation.trust : scope.trust,
+    },
+    { ...scope, ...conversation },
+    { ...scope, trust: profile.trust },
+  ]) {
+    const decision = evaluateIntegrationScopePolicy(candidate, policyContext);
+    if (!decision.allowed) {
+      throw new Error(`Slack channel policy denied: ${decision.reason}`);
+    }
   }
   incoming.integrationScopeId = scope.id;
   if (scope.defaultModel) {

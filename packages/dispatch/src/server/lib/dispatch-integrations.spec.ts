@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   resolveOrgIdForEmail: vi.fn(),
   resolveSecret: vi.fn(),
   resolveSlackBotTokenForIncoming: vi.fn(),
+  resolveIntegrationTokenBundle: vi.fn(),
+  saveIntegrationScope: vi.fn(),
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -28,6 +30,8 @@ vi.mock("@agent-native/core/integrations", async () => {
     evaluateIntegrationScopePolicy: mocks.evaluateIntegrationScopePolicy,
     getIntegrationScope: mocks.getIntegrationScope,
     resolveSlackBotTokenForIncoming: mocks.resolveSlackBotTokenForIncoming,
+    resolveIntegrationTokenBundle: mocks.resolveIntegrationTokenBundle,
+    saveIntegrationScope: mocks.saveIntegrationScope,
   };
 });
 
@@ -45,6 +49,10 @@ vi.mock("@agent-native/core/server", async () => {
     resolveSecret: mocks.resolveSecret,
   };
 });
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type {
   IncomingMessage,
@@ -985,6 +993,222 @@ describe("managed Slack execution identity", () => {
     );
     expect(mocks.resolveLinkedOwner).not.toHaveBeenCalled();
     expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
+  it("recovers a channel after a transient trust lookup failure without bypassing scope policy", async () => {
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/integrations")
+    >("@agent-native/core/integrations");
+    const { closeDbExec } = await import("@agent-native/core/db");
+    const dir = mkdtempSync(join(tmpdir(), "dispatch-scope-recovery-"));
+    vi.stubEnv("DATABASE_URL", `pglite:${dir}`);
+    vi.stubEnv("DISPATCH_DATABASE_URL", undefined);
+    mocks.evaluateIntegrationScopePolicy.mockImplementation(
+      actual.evaluateIntegrationScopePolicy,
+    );
+    mocks.getIntegrationScope.mockImplementation(actual.getIntegrationScope);
+    mocks.saveIntegrationScope.mockImplementation(actual.saveIntegrationScope);
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValue("managed-token");
+    mocks.resolveIntegrationTokenBundle.mockResolvedValue({
+      accessToken: "managed-token",
+    });
+    const key = {
+      platform: "slack",
+      tenantId: "T-RECOVERY",
+      conversationId: "C-RECOVERY",
+    };
+    const access = {
+      ownerEmail: "installer@example.test",
+      orgId: "org-managed",
+    };
+    try {
+      let channelAvailable = false;
+      let channelMissing = false;
+      let externalShared = false;
+      vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("users.info")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              user: { is_restricted: url.includes("U-RECOVERY-GUEST") },
+            }),
+          );
+        }
+        return new Response(
+          JSON.stringify(
+            channelAvailable
+              ? channelMissing
+                ? { ok: true }
+                : { ok: true, channel: { is_ext_shared: externalShared } }
+              : { ok: false },
+          ),
+        );
+      });
+      const incoming = (senderId = "U-RECOVERY-MEMBER") =>
+        slackIncoming({
+          senderId,
+          triggerKind: "mention",
+          conversationType: "channel",
+          platformContext: { teamId: "T-RECOVERY", channelId: "C-RECOVERY" },
+        });
+
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "unverified_conversation_disabled",
+      );
+      let scope = await actual.getIntegrationScope(key, access);
+      expect(scope).toMatchObject({ trust: "unknown" });
+      if (!scope) throw new Error("Scope was not persisted");
+
+      channelAvailable = true;
+      await expect(
+        resolveDispatchExecutionContext(incoming()),
+      ).resolves.toMatchObject({
+        scopeId: scope.id,
+        ownerEmail: scope.serviceOwnerEmail,
+      });
+      expect(await actual.getIntegrationScope(key, access)).toEqual(scope);
+      expect(mocks.saveIntegrationScope).toHaveBeenCalledTimes(1);
+
+      await expect(
+        resolveDispatchExecutionContext(incoming("U-RECOVERY-GUEST")),
+      ).rejects.toThrow("guests_disabled");
+      scope = await actual.saveIntegrationScope(
+        {
+          ...scope,
+          policy: { ...scope.policy, allowGuests: true },
+          defaultModel: "admin-model",
+        },
+        access,
+      );
+      const guest = incoming("U-RECOVERY-GUEST");
+      await expect(
+        resolveDispatchExecutionContext(guest),
+      ).resolves.toMatchObject({ scopeId: scope.id });
+      expect(guest.platformContext.defaultModel).toBe("admin-model");
+      channelAvailable = false;
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "unverified_conversation_disabled",
+      );
+      scope = await actual.saveIntegrationScope(
+        { ...scope, trust: "trusted" },
+        access,
+      );
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "unverified_conversation_disabled",
+      );
+      channelAvailable = true;
+      scope = await actual.saveIntegrationScope(
+        {
+          ...scope,
+          trust: "guest",
+          policy: { ...scope.policy, allowGuests: false },
+        },
+        access,
+      );
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "guests_disabled",
+      );
+      scope = await actual.saveIntegrationScope(
+        { ...scope, trust: "trusted" },
+        access,
+      );
+      externalShared = true;
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "external_shared_disabled",
+      );
+      scope = await actual.saveIntegrationScope(
+        { ...scope, policy: { ...scope.policy, allowExternalShared: true } },
+        access,
+      );
+      await expect(
+        resolveDispatchExecutionContext(incoming()),
+      ).resolves.toMatchObject({ scopeId: scope.id });
+      channelMissing = true;
+      await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+        "unverified_conversation_disabled",
+      );
+      expect(mocks.saveIntegrationScope).toHaveBeenCalledTimes(1);
+      expect(await actual.getIntegrationScope(key, access)).toEqual(scope);
+    } finally {
+      await closeDbExec();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("retries an unavailable Slack sender lookup instead of caching unknown trust", async () => {
+    const { evaluateIntegrationScopePolicy } = await vi.importActual<
+      typeof import("@agent-native/core/integrations")
+    >("@agent-native/core/integrations");
+    mocks.evaluateIntegrationScopePolicy.mockImplementation(
+      evaluateIntegrationScopePolicy,
+    );
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValue("managed-token");
+    mocks.resolveIntegrationTokenBundle.mockResolvedValue({
+      accessToken: "managed-token",
+    });
+    mocks.getIntegrationScope.mockResolvedValue({
+      id: "scope-sender-recovery",
+      serviceOwnerEmail: "scope@integration.local",
+      orgId: "org-managed",
+      defaultModel: null,
+      trust: "unknown",
+      conversationType: "channel",
+      policy: {
+        requireMention: true,
+        allowDirectMessages: false,
+        allowGuests: false,
+        allowExternalShared: false,
+        allowUnknownTrust: false,
+      },
+    });
+    let senderAvailable = false;
+    let senderMissing = false;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      if (String(input).includes("users.info")) {
+        return new Response(
+          JSON.stringify(
+            senderAvailable
+              ? senderMissing
+                ? { ok: true }
+                : { ok: true, user: {} }
+              : { ok: false },
+          ),
+        );
+      }
+      return new Response(
+        JSON.stringify({ ok: true, channel: { is_ext_shared: false } }),
+      );
+    });
+    const incoming = () =>
+      slackIncoming({
+        senderId: "U-SENDER-RECOVERY",
+        triggerKind: "mention",
+        conversationType: "channel",
+        platformContext: {
+          teamId: "T-SENDER-RECOVERY",
+          channelId: "C-SENDER-RECOVERY",
+        },
+      });
+
+    await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+      "unverified_conversation_disabled",
+    );
+    senderAvailable = true;
+    senderMissing = true;
+    await expect(resolveDispatchExecutionContext(incoming())).rejects.toThrow(
+      "unverified_conversation_disabled",
+    );
+    senderMissing = false;
+    await expect(
+      resolveDispatchExecutionContext(incoming()),
+    ).resolves.toMatchObject({ scopeId: "scope-sender-recovery" });
   });
 
   it("keeps a managed channel on its service principal even when Alice is verified", async () => {
