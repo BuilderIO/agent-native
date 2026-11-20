@@ -254,7 +254,11 @@ describe("route-requested thread lifecycle", () => {
       const routeThreadId = location.pathname.split("/")[2] ?? null;
       return (
         <>
-          <button onClick={() => navigate("/thread/thread-other")}>
+          <button
+            onClick={() => {
+              void navigate("/thread/thread-other");
+            }}
+          >
             Other thread
           </button>
           <RealThreadsChat
@@ -271,7 +275,13 @@ describe("route-requested thread lifecycle", () => {
                 ))}
               </div>
             )}
-            threadUrlSync={{ routeThreadId, getPath: navigatePath, navigate }}
+            threadUrlSync={{
+              routeThreadId,
+              getPath: navigatePath,
+              navigate: (path, options) => {
+                void navigate(path, options);
+              },
+            }}
           />
         </>
       );
