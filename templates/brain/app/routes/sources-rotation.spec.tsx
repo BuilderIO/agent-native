@@ -147,15 +147,15 @@ it("prevents overlapping rotations while a token is pending", async () => {
       );
     });
     const button = [...host.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("sources.rotateIngestToken"),
+      item.textContent.includes("sources.rotateIngestToken"),
     );
-    expect(button).toBeDefined();
+    if (!button) throw new Error("Missing rotation button");
     await act(async () => {
-      button?.click();
-      button?.click();
+      button.click();
+      button.click();
     });
     expect(fixture.rotate).toHaveBeenCalledTimes(1);
-    expect(button?.disabled).toBe(true);
+    expect(button.disabled).toBe(true);
     await act(async () => {
       resolveRotation({
         source: { id: "clips-source", provider: "clips" },
@@ -190,17 +190,17 @@ it("shows the existing failure state and allows retrying a failed rotation", asy
       );
     });
     const button = [...host.querySelectorAll("button")].find((item) =>
-      item.textContent?.includes("sources.rotateIngestToken"),
+      item.textContent.includes("sources.rotateIngestToken"),
     );
-    expect(button).toBeDefined();
+    if (!button) throw new Error("Missing rotation button");
     await act(async () => {
-      button?.click();
+      button.click();
     });
     expect(host.textContent).toContain("sources.actionFailedTitle");
     expect(document.querySelector("#ingest-handoff-ingest-token")).toBeNull();
-    expect(button?.disabled).toBe(false);
+    expect(button.disabled).toBe(false);
     await act(async () => {
-      button?.click();
+      button.click();
     });
     expect(fixture.rotate).toHaveBeenCalledTimes(2);
     expect(
@@ -229,11 +229,15 @@ it("offers rotation only for configured ingest sources and displays the returned
       );
     });
     const buttons = [...host.querySelectorAll("button")].filter((button) =>
-      button.textContent?.includes("sources.rotateIngestToken"),
+      button.textContent.includes("sources.rotateIngestToken"),
     );
     expect(buttons).toHaveLength(1);
+    const button = buttons.find((item) =>
+      item.textContent.includes("sources.rotateIngestToken"),
+    );
+    if (!button) throw new Error("Missing rotation button");
     await act(async () => {
-      buttons[0].click();
+      button.click();
     });
     expect(fixture.rotate).toHaveBeenCalledWith({ sourceId: "clips-source" });
     expect(

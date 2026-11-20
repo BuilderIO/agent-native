@@ -40,6 +40,7 @@ import {
   assertValidSourceConfig,
   mergeSourceConfigJson,
   sourceConfigJsonSchema,
+  sourceConfigUnchanged,
 } from "./_source-config.js";
 
 function objectRecord(value: unknown): Record<string, unknown> {
@@ -70,6 +71,17 @@ export default defineAction({
     const access = await assertAccess("brain-source", args.id, "editor");
     const applyUpdate = async (existing: typeof access.resource) => {
       const mergedConfig = mergeSourceConfigJson(args.config, args.configJson);
+      if (
+        [args.config, mergedConfig].some(
+          (submitted) =>
+            submitted !== undefined &&
+            ["sourceKey", "ingestTokenHash"].some((key) =>
+              Object.prototype.hasOwnProperty.call(submitted, key),
+            ),
+        )
+      ) {
+        await assertAccess("brain-source", args.id, "admin");
+      }
       let config =
         mergedConfig && Object.keys(mergedConfig).length
           ? mergedConfig
@@ -191,11 +203,11 @@ export default defineAction({
         )
           await invalidateGoogleSourceAudiences(existing.id);
         updates.configJson = nextConfigJson;
-        if (typeof nextConfig.sourceKey === "string") {
-          updates.sourceKey = nextConfig.sourceKey;
+        if (typeof config?.sourceKey === "string") {
+          updates.sourceKey = config.sourceKey;
         }
-        if (typeof nextConfig.ingestTokenHash === "string") {
-          updates.ingestTokenHash = nextConfig.ingestTokenHash;
+        if (typeof config?.ingestTokenHash === "string") {
+          updates.ingestTokenHash = config.ingestTokenHash;
         }
       }
       if (args.cursor !== undefined) {
@@ -216,44 +228,46 @@ export default defineAction({
               objectRecord(config.zoom),
             )
           : undefined;
-      if (
+      const save = async (db: ReturnType<typeof getDb>) => {
+        const saved = await db
+          .update(schema.brainSources)
+          .set(updates)
+          .where(
+            updates.configJson === undefined
+              ? eq(schema.brainSources.id, args.id)
+              : sourceConfigUnchanged(existing),
+          )
+          .returning();
+        const source = saved.find((row) => row.id === args.id);
+        if (!source)
+          fail("The source changed. Reload it and retry the update.", {
+            errorCode: "source_config_conflict",
+            statusCode: 409,
+          });
+        return source;
+      };
+      const source =
         zoomAdmin &&
         zoomChange &&
         (zoomChange.added.length ||
           zoomChange.removed.length ||
           zoomChange.changedSettings.length)
-      ) {
-        await getDb().transaction(async (tx) => {
-          const db = tx as unknown as ReturnType<typeof getDb>;
-          await db
-            .update(schema.brainSources)
-            .set(updates)
-            .where(eq(schema.brainSources.id, args.id));
-          await recordZoomAuditEvent(
-            {
-              orgId: existing.orgId,
-              sourceId: existing.id,
-              actorEmail: zoomAdmin.email,
-              event: "allowlist-changed",
-              detail: zoomChange,
-            },
-            db,
-          );
-        });
-      } else {
-        await getDb()
-          .update(schema.brainSources)
-          .set(updates)
-          .where(eq(schema.brainSources.id, args.id));
-      }
-      const savedSources = await getDb()
-        .select()
-        .from(schema.brainSources)
-        .where(eq(schema.brainSources.id, args.id))
-        .limit(1);
-      const source = savedSources.find((row) => row.id === args.id);
-      if (!source)
-        fail("Source is unavailable.", { errorCode: "source_unavailable" });
+          ? await getDb().transaction(async (tx) => {
+              const db = tx as unknown as ReturnType<typeof getDb>;
+              const saved = await save(db);
+              await recordZoomAuditEvent(
+                {
+                  orgId: existing.orgId,
+                  sourceId: existing.id,
+                  actorEmail: zoomAdmin.email,
+                  event: "allowlist-changed",
+                  detail: zoomChange,
+                },
+                db,
+              );
+              return saved;
+            })
+          : await save(getDb());
       return { source: serializeSource(source) };
     };
     if (isGoogleSourceProvider(access.resource.provider)) {

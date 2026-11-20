@@ -19,19 +19,26 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: mocks.eq }));
+vi.mock("drizzle-orm", () => ({
+  eq: mocks.eq,
+  and: vi.fn(() => "where"),
+  isNull: vi.fn(() => "null"),
+}));
 
 const set = vi.fn();
-const where = vi.fn();
+const returning = vi.fn();
+const where = vi.fn(() => ({ returning }));
 const update = vi.fn(() => ({ set }));
-const limit = vi.fn();
-const selectWhere = vi.fn(() => ({ limit }));
-const from = vi.fn(() => ({ where: selectWhere }));
-const select = vi.fn(() => ({ from }));
-
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ update, select }),
-  schema: { brainSources: { id: "brainSources.id" } },
+  getDb: () => ({ update }),
+  schema: {
+    brainSources: {
+      id: "brainSources.id",
+      configJson: "configJson",
+      sourceKey: "sourceKey",
+      ingestTokenHash: "ingestTokenHash",
+    },
+  },
 }));
 
 vi.mock("../server/lib/brain.js", () => mocks);
@@ -58,7 +65,9 @@ describe("rotate-source-ingest-token", () => {
     };
     mocks.assertAccess.mockResolvedValue({ resource: source });
     set.mockReturnValue({ where });
-    limit.mockResolvedValue([{ ...source, ingestTokenHash: "stored-hash" }]);
+    returning.mockResolvedValue([
+      { ...source, ingestTokenHash: "stored-hash" },
+    ]);
 
     await expect(action.run({ sourceId: source.id })).resolves.toEqual({
       source: { id: source.id },
@@ -94,7 +103,7 @@ describe("rotate-source-ingest-token", () => {
     mocks.parseJson.mockReturnValueOnce({ sourceKey: "legacy-clips" });
     mocks.parseJson.mockReturnValueOnce({ sourceKey: "legacy-clips" });
     set.mockReturnValue({ where });
-    limit.mockResolvedValue([{ id: "source-generic" }]);
+    returning.mockResolvedValue([{ id: "source-generic" }]);
 
     await expect(
       action.run({ sourceId: "source-generic" }),

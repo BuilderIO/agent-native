@@ -6,7 +6,10 @@ export function sourceKeyFor(source: {
 }) {
   const columnValue = source.sourceKey?.trim();
   if (columnValue) return columnValue;
-  const config = parseJson<Record<string, unknown>>(source.configJson, {});
+  const config = parseJson<Record<string, unknown> | null>(
+    source.configJson,
+    {},
+  );
   const configValue = config?.sourceKey;
   return typeof configValue === "string" && configValue.trim()
     ? configValue.trim()
