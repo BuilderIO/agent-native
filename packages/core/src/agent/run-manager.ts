@@ -42,6 +42,7 @@ import {
 } from "./execution-fence.js";
 import {
   AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  resolvePrivateSafeError,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
 } from "./run-errors.js";
 import {
@@ -633,14 +634,6 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
     !isTerminalRunEvent(event)
   );
 }
-
-const PRIVATE_RESUME_FAILED_MESSAGE =
-  "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.";
-
-const PRIVATE_SAFE_ERROR_DETAILS: ReadonlyMap<string, string> = new Map([
-  ["private_history_unrecoverable", PRIVATE_RESUME_FAILED_MESSAGE],
-  ["tool_call_journal_unreadable", PRIVATE_RESUME_FAILED_MESSAGE],
-]);
 
 /**
  * A tool result with no later assistant text is an unfinished turn, not a
@@ -2562,7 +2555,6 @@ export function startRun(
         : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
-        !privateTurn &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
         !(
@@ -2591,7 +2583,7 @@ export function startRun(
         eventPersistenceFailure && finalStatus !== "aborted"
           ? "error:run_event_persistence_failed"
           : privateTurn && terminalEvent?.type === "error"
-            ? "error:private_content_omitted"
+            ? `error:${resolvePrivateSafeError(terminalEvent.errorCode)?.errorCode ?? "private_content_omitted"}`
             : terminalReasonForRun(
                 finalStatus,
                 terminalEvent,
@@ -2923,14 +2915,13 @@ export function startRun(
             .map(({ event }) => event)
             .reverse()
             .find((event) => event.type === "error")?.errorCode;
-          const safeDetail = reportedCode
-            ? PRIVATE_SAFE_ERROR_DETAILS.get(reportedCode)
-            : undefined;
-          errorCode =
-            reportedCode && safeDetail
-              ? reportedCode
-              : "private_content_omitted";
-          errorDetail = safeDetail ?? "Private content omitted";
+          const safeError = resolvePrivateSafeError(reportedCode);
+          errorCode = safeError
+            ? safeError.errorCode
+            : "private_content_omitted";
+          errorDetail = safeError
+            ? safeError.message
+            : "Private content omitted";
         }
         for (let i = diagnosticEvents.length - 1; !privateRun && i >= 0; i--) {
           const ev = diagnosticEvents[i].event as {

@@ -738,6 +738,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "제공업체가 HTML 오류 페이지를 반환했습니다.",
   "errorMessages.providerNetwork":
     "모델 제공업체에 연결할 수 없습니다. 연결을 확인한 후 다시 시도하세요.",
+  "errorMessages.emailVerificationRequired":
+    "연결된 AI 제공업체 계정 또는 스페이스에서 조건에 맞는 이메일 주소를 인증한 후 다시 시도하세요.",
   "errorMessages.providerRateLimit":
     "현재 모델 제공업체가 이 채팅의 요청 속도를 제한하고 있습니다. 잠시 후 다시 시도하세요.",
   "errorMessages.providerTransientRejection":
@@ -1267,7 +1269,7 @@ const messages: ToolkitAgentChatTranslation = {
     "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "errorMessages.invalidAttachmentNamed":
     "모델 제공업체가 지원되지 않는 형식 또는 크기 때문에 {{name}}을(를) 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 형식을 사용하거나 관련 텍스트를 붙여 넣은 뒤 다시 시도하세요.",
-  "recovery.resendVerificationEmail": "인증 이메일 다시 보내기",
+  "recovery.resendVerificationEmail": "앱 계정 인증 이메일 다시 보내기",
   "recovery.sendingVerificationEmail": "보내는 중...",
   "recovery.verificationEmailRequested":
     "인증 이메일을 요청했습니다. 받은편지함과 스팸 폴더를 확인하세요.",
