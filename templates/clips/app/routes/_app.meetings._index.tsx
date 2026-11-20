@@ -53,14 +53,12 @@ import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCalendarConnect } from "@/hooks/use-calendar-connect";
 import enMessages from "@/i18n/en-US";
-import { isCalendarConnectionComplete } from "@/lib/calendar-connection";
-import { startCalendarOAuth } from "@/lib/calendar-oauth";
 import {
   buildMeetingHistoryQuery,
   MEETING_HISTORY_PAGE_SIZE,
 } from "@/lib/meeting-history-query";
-import { PopupBlockedError } from "@/lib/popup-blocked";
 import { shortcutLabel } from "@/lib/utils";
 
 export function meta() {
@@ -639,46 +637,6 @@ export default function MeetingsIndexRoute() {
     { enabled: isSearching, retry: false },
   );
 
-  const [isRefreshingCalendar, setIsRefreshingCalendar] = useState(false);
-  const [isCalendarConnectionInFlight, setIsCalendarConnectionInFlight] =
-    useState(false);
-  const calendarConnectionInFlightRef = useRef(false);
-  const handleCalendarConnected = useCallback(
-    async (completedAccountId: string, expectedAccountId?: string) => {
-      setIsRefreshingCalendar(true);
-      try {
-        let connected = false;
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-          const result = await accounts.refetch();
-          connected = isCalendarConnectionComplete(
-            result.data?.accounts ?? [],
-            completedAccountId,
-            expectedAccountId,
-          );
-          if (connected) break;
-          await new Promise((resolve) => window.setTimeout(resolve, 500));
-        }
-        if (connected) {
-          await Promise.all([history.refetch(), agendaQuery.refetch()]);
-          toast.success(t("meetingsRoute.calendarConnected"));
-        }
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : "Couldn't refresh your calendar",
-        );
-      } finally {
-        setIsRefreshingCalendar(false);
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-calendar-accounts"],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-meetings"],
-        });
-      }
-    },
-    [accounts, agendaQuery, history, queryClient, t],
-  );
-
   const historyMeetings: Meeting[] = useMemo(
     () => (history.data?.pages ?? []).flatMap((page) => page?.meetings ?? []),
     [history.data],
@@ -706,6 +664,8 @@ export default function MeetingsIndexRoute() {
 
   const calendarAccounts: CalendarAccount[] = accounts.data?.accounts ?? [];
   const hasCalendar = calendarAccounts.length > 0;
+  const { connect: connectCalendar, isConnecting: isCalendarBusy } =
+    useCalendarConnect(calendarAccounts);
 
   const handleCalendarDisconnected = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -715,32 +675,6 @@ export default function MeetingsIndexRoute() {
       queryKey: ["action", "list-calendar-accounts"],
     });
   }, [queryClient]);
-
-  const handleStartCalendarOAuth = useCallback(
-    (expectedAccountId?: string) => {
-      if (calendarConnectionInFlightRef.current) return;
-      calendarConnectionInFlightRef.current = true;
-      setIsCalendarConnectionInFlight(true);
-      void startCalendarOAuth(expectedAccountId)
-        .then((result) => {
-          if (result) {
-            return handleCalendarConnected(result.accountId, expectedAccountId);
-          }
-        })
-        .catch((err: Error) =>
-          toast.error(
-            err instanceof PopupBlockedError
-              ? t("clipsSettings.popupBlocked")
-              : err.message,
-          ),
-        )
-        .finally(() => {
-          calendarConnectionInFlightRef.current = false;
-          setIsCalendarConnectionInFlight(false);
-        });
-    },
-    [handleCalendarConnected, t],
-  );
 
   const isLoading = accounts.isLoading || history.isLoading;
 
@@ -764,7 +698,6 @@ export default function MeetingsIndexRoute() {
   const reconnectAccountId =
     calendarAccounts.find((account) => account.status === "needs-reauth")?.id ??
     calendarErrors.find((error) => error.needsReauth)?.accountId;
-  const isCalendarBusy = isCalendarConnectionInFlight || isRefreshingCalendar;
 
   const nothingAtAll =
     historyMeetings.length === 0 && agendaMeetings.length === 0;
@@ -779,7 +712,7 @@ export default function MeetingsIndexRoute() {
         query={query}
         onQueryChange={setQuery}
         calendarAccounts={calendarAccounts}
-        onConnect={handleStartCalendarOAuth}
+        onConnect={connectCalendar}
         onDisconnected={handleCalendarDisconnected}
         isCalendarBusy={isCalendarBusy || accounts.isLoading}
       />
@@ -806,7 +739,7 @@ export default function MeetingsIndexRoute() {
         ) : !hasCalendar && nothingAtAll && !isSearching ? (
           <div className="flex min-h-full w-full flex-1 p-5">
             <ConnectCalendarEmptyState
-              onConnect={handleStartCalendarOAuth}
+              onConnect={connectCalendar}
               isPending={isCalendarBusy}
             />
           </div>
@@ -814,7 +747,7 @@ export default function MeetingsIndexRoute() {
           <div className="flex min-h-full w-full flex-1 flex-col p-5">
             {needsCalendarReauth && (
               <CalendarReauthBanner
-                onReconnect={() => handleStartCalendarOAuth(reconnectAccountId)}
+                onReconnect={() => connectCalendar(reconnectAccountId)}
                 isPending={isCalendarBusy}
               />
             )}
@@ -887,7 +820,7 @@ export default function MeetingsIndexRoute() {
                     <AgendaCard meetings={agendaSorted} />
                   ) : !hasCalendar ? (
                     <ConnectCalendarEmptyState
-                      onConnect={handleStartCalendarOAuth}
+                      onConnect={connectCalendar}
                       isPending={isCalendarBusy}
                     />
                   ) : (
