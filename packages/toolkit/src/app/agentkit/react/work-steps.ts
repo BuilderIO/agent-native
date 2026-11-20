@@ -548,8 +548,9 @@ function jsonText(text: string): boolean {
 
 /** A failed call's reason on one line: its HTTP status, or its first sentence. */
 function outputReason(output: unknown): string | undefined {
-  if (typeof output !== "string" || !output.trim()) return undefined;
-  if (!jsonText(output)) return output.trim();
+  if (typeof output === "string" && !jsonText(output)) {
+    return output.trim() || undefined;
+  }
   const record = inputRecord(output);
   return (
     firstString(record, ["error", "message"]) ??

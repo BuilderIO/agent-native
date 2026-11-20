@@ -1433,6 +1433,13 @@ describe("agentWorkFailureReason", () => {
     expect(reason('{"message":"Denied"}')).toBe("Denied");
     expect(reason('{"ok":false,"code":"x"}')).toBe(undefined);
     expect(reason("[1, 2]")).toBe(undefined);
+    const parsed = (output: unknown) =>
+      agentWorkFailureReason(call("c", "x", {}, { status: "failed", output }));
+    expect(parsed({ error: "Rate limited." })).toBe("Rate limited");
+    expect(parsed({ error: { message: "Page not found." } })).toBe(
+      "Page not found",
+    );
+    expect(parsed({ ok: false })).toBe(undefined);
   });
 
   it("keeps a plain error that only starts like JSON as the reason", () => {
