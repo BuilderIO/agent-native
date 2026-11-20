@@ -413,7 +413,12 @@ describe("upsertContentRow", () => {
     });
     expect(
       await failure(upsertContentRow({ identity, deps: twice.deps }, input)),
-    ).toMatchObject({ errorCode: "content_connection_ambiguous" });
+    ).toMatchObject({
+      errorCode: "content_connection_ambiguous",
+      message: expect.stringContaining(
+        "Only the owner can fix it: in their own account,",
+      ),
+    });
   });
 
   it("tells a saved connection it cannot reach, or a failed lookup, from no connection at all", async () => {
@@ -424,6 +429,9 @@ describe("upsertContentRow", () => {
       errorCode: "content_connection_unavailable",
       sideEffect: "none",
       retryable: true,
+      message: expect.stringMatching(
+        /^The workflow's owner has a saved Content connection.*Only the owner can fix it: in their own account,/,
+      ),
     });
 
     const broken = content();

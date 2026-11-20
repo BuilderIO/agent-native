@@ -196,14 +196,15 @@ async function ownerConnection(
   }
   if (saved.length > 1) {
     failWorkflowAction({
-      message: `The workflow's owner has connected Content ${saved.length} times, so which one to write to is unclear. They keep one connection and remove the others.`,
+      message: `The workflow's owner has connected Content ${saved.length} times, so which one to write to is unclear. Only the owner can fix it: in their own account, keep one connection and remove the others.`,
       errorCode: "content_connection_ambiguous",
       statusCode: 409,
     });
   }
   if (!reachable[0]) {
     failWorkflowAction({
-      message: CONTENT_UNREACHABLE,
+      message:
+        "The workflow's owner has a saved Content connection, but Factory could not reach it or it lacks the tools this step needs. Only the owner can fix it: in their own account, Settings, Integrations, sign in to Content again if it asks.",
       errorCode: "content_connection_unavailable",
       statusCode: 424,
       retryable: true,
