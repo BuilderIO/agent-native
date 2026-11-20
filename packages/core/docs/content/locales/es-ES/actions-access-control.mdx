@@ -208,6 +208,8 @@ Ante `approval_required`, la UI de chat muestra un control de **Aprobar / Denega
 
 `approvedToolCalls` es un campo de la petición de chat (`AgentChatRequest.approvedToolCalls`). Las claves que no están presentes en él permanecen pausadas. Aprobar una llamada nunca aprueba ninguna otra llamada. Como la clave se direcciona por contenido, una aprobación solo autoriza esa llamada exacta con esos argumentos exactos. Si el modelo propone después un envío diferente, eso se convierte en una clave nueva y necesita su propia aprobación nueva.
 
+El turno reenviado también lleva el id de la solicitud pendiente de la llamada en `approvedToolCallAskIds`. El servidor ejecuta la llamada solo mientras esa solicitud siga pendiente para el mismo usuario y el mismo hilo, así que una clave por sí sola no aprueba nada, y solo las páginas de la propia app pueden transmitir una aprobación mediante `agentNative.submitChat`.
+
 ### De principio a fin {#flow}
 
 <Diagram id="doc-block-2nor1g" title="La interrupción de aprobación" summary={"Una llamada con guarda pausa el turno antes de que se dispare run(). La aprobación reenvía el turno llevando la clave de la llamada. Solo entonces ocurre el efecto secundario."}>

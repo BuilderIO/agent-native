@@ -25,6 +25,7 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import { registerDbSyncQueryClient } from "./tool-done-refresh.js";
 import {
   bumpChangeVersion,
   bumpActiveLocalChangeVersions,
@@ -246,7 +247,9 @@ export function acquireCollabPollBoost(): () => void {
   };
 }
 const processedRunToolEvents = new WeakSet<Event>();
+const runToolEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
 const processedRunEndEvents = new WeakSet<Event>();
+const runEndEventClients = new WeakMap<Event, WeakSet<QueryClient>>();
 const processedExplicitRefreshEvents = new WeakSet<Event>();
 const explicitRefreshClients = new WeakMap<Event, WeakSet<QueryClient>>();
 
@@ -277,6 +280,7 @@ type PollResponse = {
   cursor?: string;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
+  unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
 };
 
 type SyncCursor = {
@@ -487,6 +491,7 @@ type SyncBroadcast =
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
   | { type: "resync" }
+  | { type: "unreadable" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -1107,6 +1112,8 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "unreadable") {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       } else if (frame?.type === "resync") {
         this.cursorRef = { ...INITIAL_SYNC_CURSOR };
         for (const sub of this.subscribers.values()) sub.onResync?.();
@@ -1335,6 +1342,10 @@ class SyncTransport {
       if (this.authFailureUntil > 0) {
         this.authFailureUntil = 0;
         this.connectEvents();
+      }
+      if (data.unreadable?.length) {
+        for (const sub of this.subscribers.values()) sub.onResync?.();
+        this.broadcast({ type: "unreadable" });
       }
       const events = data.events ?? [];
       const responseCursor = decodeSyncCursor(data.cursor);
@@ -2077,9 +2088,27 @@ export function useDbSync(
       event: Event,
       events: SyncEvent[],
       processedEvents: WeakSet<Event>,
+      invalidatedClients: WeakMap<Event, WeakSet<QueryClient>>,
     ) => {
       if (events.length === 0) return;
+      const hasCustomFilter = Boolean(
+        actionInvalidatePredicateRef.current ||
+        ignoreSourceRef.current ||
+        suppressActionInvalidationForRef.current?.length,
+      );
       if (processedEvents.has(event)) {
+        if (queryClient) {
+          let clients = invalidatedClients.get(event);
+          if (!clients) {
+            clients = new WeakSet<QueryClient>();
+            invalidatedClients.set(event, clients);
+          }
+          if (hasCustomFilter || !clients.has(queryClient)) {
+            if (!hasCustomFilter) clients.add(queryClient);
+            queueInvalidateBatch(events);
+            return;
+          }
+        }
         for (const syncEvent of events) onEventRef.current?.(syncEvent);
         return;
       }
@@ -2104,6 +2133,14 @@ export function useDbSync(
       }
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
+      }
+      if (queryClient && !hasCustomFilter) {
+        let clients = invalidatedClients.get(event);
+        if (!clients) {
+          clients = new WeakSet<QueryClient>();
+          invalidatedClients.set(event, clients);
+        }
+        clients.add(queryClient);
       }
       queueInvalidateBatch(events);
     };
@@ -2166,7 +2203,12 @@ export function useDbSync(
         );
         sideEffectToolsByTab.set(tabId, tools);
       }
-      applyRunEvents(event, events, processedRunToolEvents);
+      applyRunEvents(
+        event,
+        events,
+        processedRunToolEvents,
+        runToolEventClients,
+      );
     };
     const handleRunStatus = (event: Event) => {
       const detail = (
@@ -2231,9 +2273,13 @@ export function useDbSync(
           eventsForTool(tool, true, failed, browserTabId),
         ),
         processedRunEndEvents,
+        runEndEventClients,
       );
     };
 
+    const releaseDbSyncClient = queryClient
+      ? registerDbSyncQueryClient(queryClient)
+      : undefined;
     window.addEventListener("agent-native:tool-done", handleRunToolDone);
     window.addEventListener("agentNative.chatRunning", handleRunStatus);
     const handleExplicitRefresh = (event: Event) => {
@@ -2275,6 +2321,7 @@ export function useDbSync(
     }
 
     return () => {
+      releaseDbSyncClient?.();
       window.removeEventListener("agent-native:tool-done", handleRunToolDone);
       window.removeEventListener("agentNative.chatRunning", handleRunStatus);
       window.removeEventListener(

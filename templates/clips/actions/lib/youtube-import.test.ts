@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   ssrfSafeFetch: vi.fn(),
   insertValues: vi.fn(),
   writeAppState: vi.fn(),
-  writeAppStateForCurrentTab: vi.fn(),
+  navigateAfterWrite: vi.fn(),
   trackRecordingCreated: vi.fn(),
   validateRecordingScope: vi.fn(),
 }));
@@ -16,8 +16,7 @@ vi.mock("@agent-native/core/action", () => ({
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
-  writeAppStateForCurrentTab: (...args: unknown[]) =>
-    mocks.writeAppStateForCurrentTab(...args),
+  navigateAfterWrite: (...args: unknown[]) => mocks.navigateAfterWrite(...args),
 }));
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mocks.ssrfSafeFetch(...args),
@@ -106,10 +105,13 @@ describe("importYouTubeVideo", () => {
       importMode: "embed",
       framesAvailable: false,
     });
-    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
-      view: "recording",
-      recordingId: "rec-youtube",
-    });
+    expect(mocks.navigateAfterWrite).toHaveBeenCalledWith(
+      {
+        view: "recording",
+        recordingId: "rec-youtube",
+      },
+      { ctx: { userEmail: "owner@example.com" } },
+    );
   });
 
   it("keeps a Short's portrait shape", async () => {

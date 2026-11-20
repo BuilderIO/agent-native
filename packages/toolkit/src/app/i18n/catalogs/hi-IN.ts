@@ -696,6 +696,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
   "errorMessages.gatewayInternalError":
     "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
+  "errorMessages.modelRefusal":
+    "मैं इस अनुरोध में मदद नहीं कर सकता। किसी दूसरे सवाल में मदद कर सकता हूँ।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
   "errorMessages.creditsLimitReached": "आपने अपने AI क्रेडिट की सीमा पूरी कर ली है।",
@@ -731,6 +733,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "प्रदाता ने HTML त्रुटि पेज लौटाया।",
   "errorMessages.providerNetwork":
     "मॉडल प्रदाता तक पहुँचा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से प्रयास करें।",
+  "errorMessages.emailVerificationRequired":
+    "कनेक्ट किए गए AI प्रदाता के खाते या स्पेस में योग्य ईमेल पते की पुष्टि करें, फिर दोबारा प्रयास करें।",
   "errorMessages.providerRateLimit":
     "मॉडल प्रदाता अभी इस चैट की अनुरोध दर सीमित कर रहा है। कुछ देर रुकें, फिर से प्रयास करें।",
   "errorMessages.providerTransientRejection":
@@ -1251,7 +1255,7 @@ const messages: ToolkitAgentChatTranslation = {
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
   "errorMessages.invalidAttachmentNamed":
     "मॉडल प्रदाता ने {{name}} को अस्वीकार कर दिया क्योंकि इसका फ़ॉर्मैट या आकार समर्थित नहीं है। छवियों को छोटे PNG, JPEG, GIF या WebP के रूप में निर्यात करें। दस्तावेज़ों के लिए समर्थित फ़ॉर्मैट इस्तेमाल करें या संबंधित पाठ चिपकाकर फिर कोशिश करें।",
-  "recovery.resendVerificationEmail": "सत्यापन ईमेल फिर से भेजें",
+  "recovery.resendVerificationEmail": "ऐप खाते का सत्यापन ईमेल फिर से भेजें",
   "recovery.sendingVerificationEmail": "भेजा जा रहा है...",
   "recovery.verificationEmailRequested":
     "सत्यापन ईमेल का अनुरोध किया गया। अपना इनबॉक्स और स्पैम फ़ोल्डर देखें।",

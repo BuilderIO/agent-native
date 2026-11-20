@@ -1649,6 +1649,7 @@ const enUS = {
     heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
+    suggestEdit: "Suggest edit",
     pasteLink: "Paste link...",
     apply: "Apply",
     plainText: "Plain text",
@@ -2215,6 +2216,8 @@ const enUS = {
       "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
+    workspaceReferenceProtected:
+      "Workspace references are protected and cannot be changed as pages.",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",
     failedPermanentDeletePage: "Failed to permanently delete page",
     failedMovePage: "Failed to move page",

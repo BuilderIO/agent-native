@@ -4,7 +4,10 @@ const { writeAppStateForCurrentTab } = vi.hoisted(() => ({
   writeAppStateForCurrentTab: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppStateForCurrentTab,
 }));
 

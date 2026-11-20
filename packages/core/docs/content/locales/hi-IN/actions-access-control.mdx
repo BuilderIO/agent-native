@@ -207,6 +207,8 @@ export default defineAction({
 
 `approvedToolCalls` chat request पर एक field है (`AgentChatRequest.approvedToolCalls`)। जो keys इसमें मौजूद नहीं हैं वे रुकी रहती हैं। एक कॉल को अनुमोदित करना किसी अन्य कॉल को कभी अनुमोदित नहीं करता। क्योंकि key content-addressed है, एक अनुमोदन केवल उन्हीं exact arguments के साथ उस exact कॉल को अधिकृत करता है। अगर मॉडल बाद में कोई अलग send प्रस्तावित करता है, तो वह एक नई key बन जाती है और उसे अपना खुद का नया अनुमोदन चाहिए होता है।
 
+दोबारा भेजे गए turn में call की pending ask id भी `approvedToolCallAskIds` में होती है। Server call को तभी चलाता है जब वह ask उसी user और thread के लिए अब भी pending हो, इसलिए अकेली key कुछ भी approve नहीं करती, और `agentNative.submitChat` के ज़रिए approval सिर्फ़ app के अपने pages ही भेज सकते हैं।
+
 ### शुरू से अंत तक {#flow}
 
 <Diagram id="doc-block-2nor1g" title="अनुमोदन व्यवधान" summary={"एक गेटेड कॉल run() के चलने से पहले turn को रोक देती है। अनुमोदन कॉल की key ले जाते हुए turn को फिर से issue करता है। तभी side effect होता है।"}>

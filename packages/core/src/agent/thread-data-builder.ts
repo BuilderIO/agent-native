@@ -49,9 +49,11 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
+import { resolvePrivateSafeError } from "./run-errors.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
+  ASSISTANT_RUN_DURATION_METADATA_KEY,
   isContinuationTerminalReason,
   isUnknownWriteCause,
 } from "./types.js";
@@ -104,8 +106,6 @@ type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
-
-export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 
@@ -245,6 +245,41 @@ export function containsInlineAttachmentPayload(value: unknown): boolean {
   return visit(value);
 }
 
+/**
+ * The last event a user's browser had shown when they pressed Stop, as their
+ * Stop request reported it. A stopped reply keeps none of the prose streamed
+ * after it, so a reload ends where the live view did. Tool calls and results
+ * stay: their effects happened either way.
+ */
+export function userStopShownThroughSeq(
+  events: Iterable<RunEvent>,
+): number | undefined {
+  for (const { event } of events) {
+    if (
+      event.type === "done" &&
+      event.reason === "user" &&
+      typeof event.shownThroughSeq === "number"
+    ) {
+      return event.shownThroughSeq;
+    }
+  }
+  return undefined;
+}
+
+/** Prose a stopped reply leaves out because its user never saw it. */
+export function isStreamedAfterStop(
+  { seq, event }: RunEvent,
+  shownThroughSeq: number | undefined,
+): boolean {
+  return (
+    shownThroughSeq !== undefined &&
+    seq > shownThroughSeq &&
+    (event.type === "text" ||
+      event.type === "thinking" ||
+      event.type === "clear")
+  );
+}
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
@@ -317,6 +352,7 @@ export function buildAssistantMessage(
   } | null = null;
   let endedAtInternalContinuationBoundary = false;
   let userStoppedRun = false;
+  let runDurationMs = options.runDurationMs;
 
   // Content length at the last auto_continue; the separator belongs only to a
   // text delta that lands directly on that tail, not after reasoning or tools.
@@ -354,8 +390,14 @@ export function buildAssistantMessage(
   ) {
     lastNonClearIndex -= 1;
   }
+  const shownThroughSeq = userStopShownThroughSeq(events);
 
-  for (const [index, { event }] of events.entries()) {
+  for (const [index, runEvent] of events.entries()) {
+    const { event } = runEvent;
+    if (event.type === "done" && event.durationMs !== undefined) {
+      runDurationMs = event.durationMs;
+    }
+    if (isStreamedAfterStop(runEvent, shownThroughSeq)) continue;
     if (event.type === "clear") {
       if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content, event.allText === true);
@@ -366,7 +408,9 @@ export function buildAssistantMessage(
       event.omitFromPersistedHistory === true &&
       event.type !== "tool_start" &&
       event.type !== "tool_done" &&
-      event.type !== "approval_required"
+      event.type !== "approval_required" &&
+      event.type !== "auto_continue" &&
+      !(event.type === "error" && resolvePrivateSafeError(event.errorCode))
     ) {
       continue;
     }
@@ -617,29 +661,38 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
+      const isPrivateError = event.omitFromPersistedHistory === true;
+      const safePrivateError = isPrivateError
+        ? resolvePrivateSafeError(event.errorCode)
+        : null;
+      const effectiveErrorText = isPrivateError
+        ? (safePrivateError?.message ?? "Private content omitted")
+        : event.error;
+      const effectiveErrorCode = isPrivateError
+        ? safePrivateError?.errorCode
+        : event.errorCode;
+      const effectiveDetails = isPrivateError ? undefined : event.details;
       const normalized = normalizeChatError(
-        event.omitFromPersistedHistory === true
-          ? "Private content omitted"
-          : event.error,
-        event.errorCode,
+        effectiveErrorText,
+        effectiveErrorCode,
       );
       runError = {
         message: normalized.message,
-        ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-        ...((event.details ?? normalized.details)
-          ? { details: event.details ?? normalized.details }
+        ...(effectiveErrorCode ? { errorCode: effectiveErrorCode } : {}),
+        ...((effectiveDetails ?? normalized.details)
+          ? { details: effectiveDetails ?? normalized.details }
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
       const missingProvider =
-        event.errorCode === "missing_api_key" ||
-        event.errorCode === "missing_credentials" ||
+        effectiveErrorCode === "missing_api_key" ||
+        effectiveErrorCode === "missing_credentials" ||
         /no llm provider(?: key)? (?:is connected|was found)/i.test(
-          `${event.error}\n${normalized.message}`,
+          `${effectiveErrorText}\n${normalized.message}`,
         );
       if (!missingProvider) {
         appendText(
-          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(effectiveErrorText, isPrivateError ? undefined : event.upgradeUrl, effectiveErrorCode)}`,
         );
       }
       continue;
@@ -673,11 +726,11 @@ export function buildAssistantMessage(
   }
   if (runId) custom.foldedRunIds = [runId];
   if (
-    typeof options.runDurationMs === "number" &&
-    Number.isFinite(options.runDurationMs) &&
-    options.runDurationMs >= 0
+    typeof runDurationMs === "number" &&
+    Number.isFinite(runDurationMs) &&
+    runDurationMs >= 0
   ) {
-    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
+    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = runDurationMs;
   }
   if (continued) custom.continued = true;
   if (userStoppedRun) custom.userStopped = true;
@@ -719,10 +772,17 @@ export interface SteeredRunSegment {
  * written after it. A run without one is exactly `buildAssistantMessage`.
  */
 export function buildAssistantTurnSegments(
-  events: RunEvent[],
+  runEvents: RunEvent[],
   runId?: string,
   options: BuildAssistantMessageOptions = {},
 ): { assistant: AssistantMessage | null; steered: SteeredRunSegment[] } {
+  const shownThroughSeq = userStopShownThroughSeq(runEvents);
+  const events =
+    shownThroughSeq === undefined
+      ? runEvents
+      : runEvents.filter(
+          (entry) => !isStreamedAfterStop(entry, shownThroughSeq),
+        );
   const boundaries = events.flatMap((entry, index) =>
     entry.event.type === "user_message" ? [{ index, event: entry.event }] : [],
   );

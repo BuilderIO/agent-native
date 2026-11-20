@@ -650,6 +650,20 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("uses the terminal event duration when projecting the saved reply", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Answer." } },
+        { seq: 1, event: { type: "done", durationMs: 5_027 } },
+      ],
+      "run-timed",
+      { runDurationMs: 19_193 },
+    );
+    expect(message?.metadata).toMatchObject({
+      custom: { agentNativeRunDurationMs: 5_027 },
+    });
+  });
+
   it("persists typed artifact receipts with the completed tool part", () => {
     const artifacts = [
       {
@@ -7459,5 +7473,144 @@ describe("private run projections survive snapshot sanitizing", () => {
         { privateActionNames: new Set(["private-action"]) },
       ),
     ).not.toThrow();
+  });
+
+  it("projects private auto_continue and allowlisted private errors safely without leaking raw details", () => {
+    const continued = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "text",
+            text: "Visible step",
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "text",
+            text: "private draft body",
+            omitFromPersistedHistory: true,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "auto_continue",
+            reason: "stream_ended",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-continue",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-private-continue",
+      },
+    );
+    expect(continued?.content).toEqual([
+      { type: "text", text: "Visible step" },
+    ]);
+    expect(continued?.metadata).toMatchObject({
+      custom: { continued: true },
+    });
+    expect(JSON.stringify(continued)).not.toContain("private draft body");
+
+    const allowedWithPriorText = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Visible prelude" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "raw secret error",
+            errorCode: "private_history_unrecoverable",
+            details: "secret stack trace",
+            upgradeUrl: "https://example.test/secret-upgrade",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-allowed-error",
+    );
+    expect(allowedWithPriorText?.status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(allowedWithPriorText?.metadata.custom).toMatchObject({
+      runError: {
+        errorCode: "private_history_unrecoverable",
+        message:
+          "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      },
+    });
+    expect(allowedWithPriorText?.content).toEqual([
+      {
+        type: "text",
+        text: "Visible prelude\n\nError: I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      },
+    ]);
+    const allowedJson = JSON.stringify(allowedWithPriorText);
+    expect(allowedJson).not.toContain("raw secret error");
+    expect(allowedJson).not.toContain("secret stack trace");
+    expect(allowedJson).not.toContain("secret-upgrade");
+
+    const allowedStandalone = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "error",
+            error: "raw secret error",
+            errorCode: "write_tool_outcome_unknown",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-allowed-standalone",
+    );
+    expect(allowedStandalone?.content).toEqual([
+      {
+        type: "text",
+        text: "Error: I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
+      },
+    ]);
+
+    const blockedPrivateError = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "error",
+            error: "No LLM provider is connected: raw secret key",
+            errorCode: "missing_credentials",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ],
+      "run-private-blocked-error",
+    );
+    expect(blockedPrivateError).toBeNull();
+
+    const publicMissingCredentials = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "checking..." } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "Credentials missing",
+            errorCode: "missing_credentials",
+          },
+        },
+      ],
+      "run-public-missing-credentials",
+    );
+    expect(publicMissingCredentials?.content).toEqual([
+      { type: "text", text: "checking..." },
+    ]);
+    expect(publicMissingCredentials?.metadata.custom).toMatchObject({
+      runError: { errorCode: "missing_credentials" },
+    });
   });
 });

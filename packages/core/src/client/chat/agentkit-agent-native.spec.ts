@@ -10704,6 +10704,78 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("keeps partial replies and shows a persisted failure through the run only", async () => {
+    const threadId = "thread-gateway-failure";
+    const runId = "run-gateway-failure";
+    const message =
+      "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "failed", runId });
+        }
+        return json({
+          id: threadId,
+          runLifecycles: {
+            queriedRunIds: [runId],
+            runs: [
+              {
+                id: runId,
+                status: "errored",
+                startedAt: 1,
+                completedAt: 2,
+                errorCode: "builder_gateway_error",
+                terminalReason: "error:builder_gateway_error",
+                abortReason: null,
+              },
+            ],
+          },
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "assistant-partial-reply",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "text",
+                      text: `Checked the available data.\n\nError: ${message}\n\n[Start new chat](agent-native:new-chat)`,
+                    },
+                  ],
+                  status: { type: "incomplete", reason: "error" },
+                  metadata: {
+                    runId,
+                    custom: {
+                      runError: { errorCode: "builder_gateway_error", message },
+                    },
+                  },
+                },
+              },
+            ],
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+    expect(snapshot?.messages).toContainEqual(
+      expect.objectContaining({
+        id: "assistant-partial-reply",
+        parts: [{ type: "text", text: "Checked the available data." }],
+      }),
+    );
+    expect(snapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: runId,
+        error: expect.objectContaining({
+          code: "builder_gateway_error",
+          message,
+        }),
+      }),
+    );
+    await transport.dispose();
+  });
+
   it("restores each durable assistant message from a multi-message run", async () => {
     const threadId = "thread-multiple-durable-assistant-messages";
     const runId = "run-multiple-durable-assistant-messages";

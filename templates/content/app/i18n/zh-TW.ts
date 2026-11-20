@@ -468,6 +468,7 @@ const overrides = {
     heading6: "標題 6",
     link: "連結",
     comment: "評論",
+    suggestEdit: "建議修改",
     pasteLink: "貼上連結...",
     apply: "應用",
     plainText: "純文字",
@@ -2278,6 +2279,7 @@ const overrides = {
     discardFailedCreatePageDescription:
       "這會清除待處理的建立與未儲存的草稿。如果頁面已儲存，仍會保留在你的工作區。",
     failedDeletePage: "刪除頁面失敗",
+    workspaceReferenceProtected: "工作區參照受到保護，無法作為頁面變更。",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",
     failedMovePage: "行動頁面失敗",

@@ -1,4 +1,11 @@
 import {
+  parse as parseHtmlDocument,
+  serialize as serializeHtml,
+  type DefaultTreeAdapterTypes,
+  type Token,
+} from "parse5";
+
+import {
   PLAN_CONTENT_VERSION,
   createPlanBlockId,
   exceedsPlanBlockDepth,
@@ -566,29 +573,88 @@ export function sanitizeDiagramHtml(value: string): string {
     .replace(/\bdata\s*:\s*(?:text\/html|image\/svg\+xml)/gi, "");
 }
 
-const STORED_HTML_FORBIDDEN_ELEMENT =
-  /<(script|iframe|object|embed|applet|portal|frameset|frame)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi;
+const STORED_HTML_FORBIDDEN_ELEMENTS = new Set([
+  "script",
+  "iframe",
+  "object",
+  "embed",
+  "applet",
+  "portal",
+  "frame",
+  "frameset",
+  "noscript",
+  "math",
+  "base",
+  "form",
+]);
+const STORED_HTML_URL_ATTRS = new Set([
+  "href",
+  "xlink:href",
+  "src",
+  "action",
+  "formaction",
+  "data",
+  "background",
+  "poster",
+  "ping",
+  "values",
+  "from",
+  "to",
+  "by",
+]);
+const STORED_HTML_FORBIDDEN_ATTR =
+  /^(?:on|:on|x-bind:on|x-on:|@)|^(?::style|x-bind:style|srcdoc)$/;
+const STORED_HTML_MAX_PASSES = 4;
 
-const STORED_HTML_FORBIDDEN_TAG =
-  /<\/?\s*(?:script|iframe|object|embed|applet|portal|frame|frameset)\b[^>]*>/gi;
+function isAllowedStoredHtmlAttr(attr: Token.Attribute): boolean {
+  const name = (
+    attr.prefix ? `${attr.prefix}:${attr.name}` : attr.name
+  ).toLowerCase();
+  if (STORED_HTML_FORBIDDEN_ATTR.test(name)) return false;
+  if (!STORED_HTML_URL_ATTRS.has(name)) return true;
+  const urls = name === "values" ? attr.value.split(";") : [attr.value];
+  return !urls.some(hasUnsafeUrl);
+}
+
+function isMetaRefresh(element: DefaultTreeAdapterTypes.Element): boolean {
+  return (
+    element.tagName.toLowerCase() === "meta" &&
+    element.attrs.some(
+      (attr) =>
+        attr.name.toLowerCase() === "http-equiv" &&
+        attr.value.trim().toLowerCase() === "refresh",
+    )
+  );
+}
+
+function sanitizeStoredHtmlChildren(
+  parent: DefaultTreeAdapterTypes.ParentNode,
+): void {
+  parent.childNodes = parent.childNodes.filter((child) => {
+    if (!("tagName" in child)) return true;
+    if (
+      STORED_HTML_FORBIDDEN_ELEMENTS.has(child.tagName.toLowerCase()) ||
+      isMetaRefresh(child)
+    ) {
+      return false;
+    }
+    child.attrs = child.attrs.filter(isAllowedStoredHtmlAttr);
+    sanitizeStoredHtmlChildren(child);
+    if ("content" in child) sanitizeStoredHtmlChildren(child.content);
+    return true;
+  });
+}
 
 export function sanitizeStoredPlanHtml(value: string): string {
   let out = value;
-  for (let i = 0; i < 4; i += 1) {
-    const next = out.replace(STORED_HTML_FORBIDDEN_ELEMENT, "");
-    if (next === out) break;
+  for (let pass = 0; pass < STORED_HTML_MAX_PASSES; pass += 1) {
+    const document = parseHtmlDocument(out);
+    sanitizeStoredHtmlChildren(document);
+    const next = serializeHtml(document);
+    if (next === out) return next;
     out = next;
   }
-  return out
-    .replace(STORED_HTML_FORBIDDEN_TAG, "")
-    .replace(FORBIDDEN_ATTR, "")
-    .replace(FORBIDDEN_BOUND_ATTR, "")
-    .replace(URL_ATTR, (match, doubleQuoted, singleQuoted, bare) =>
-      hasUnsafeUrl(doubleQuoted ?? singleQuoted ?? bare ?? "") ? "" : match,
-    )
-    .replace(/\bjava\s*script\s*:/gi, "")
-    .replace(/\bvb\s*script\s*:/gi, "")
-    .replace(/\bdata\s*:\s*text\/html/gi, "");
+  throw new Error("Stored plan HTML did not settle after sanitizing.");
 }
 
 const TAILWIND_THEME_COLORS =

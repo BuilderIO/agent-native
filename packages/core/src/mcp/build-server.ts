@@ -27,6 +27,7 @@ import type { ActionMcpToolAnnotations, ActionRunContext } from "../action.js";
 import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isReversibleWriteInlineApprovalAction,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isValidTimezone } from "../agent/runtime-context.js";
@@ -502,6 +503,12 @@ export interface MCPRequestMeta {
   turnGrant?: string;
   /** The request runs in agent work, so no turn grant may apply. */
   turnGrantExcluded?: boolean;
+  /**
+   * Optional browser tab ID from `x-agent-native-browser-tab` for tab-scoped
+   * application state reads and writes. Kept on `browserTabTarget` (never
+   * `run.browserTabId`) so the call does not impersonate an open editor tab.
+   */
+  browserTabId?: string;
   /** Origin verified at the HTTP boundary for a page-grant review link. */
   approvalOrigin?: string;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
@@ -4000,7 +4007,7 @@ export async function createMCPServerForRequest(
   ): Promise<T> {
     // Only a signed-in person has browser tabs for a call to act on.
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
-      ? createBrowserTabTargetSlot()
+      ? createBrowserTabTargetSlot(requestMeta?.browserTabId)
       : undefined;
     const authUserId = await resolveCallerAuthUserId();
     const result = await runWithMcpChatTurnCall(
@@ -4042,9 +4049,8 @@ export async function createMCPServerForRequest(
     ctx: ServerContext,
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
-    // A turn-grant write is approved on the app's own review page, never in
-    // the client, so the link opens on the origin the page minted it from.
-    if (requiresTurnGrantPageApproval(name)) {
+    const inlineFormOnly = isReversibleWriteInlineApprovalAction(actions[name]);
+    if (requiresTurnGrantPageApproval(name) && !inlineFormOnly) {
       const origin = requestMeta?.resolveEmbedRequestOrigin?.();
       return actionApprovalReviewResult(
         review,
@@ -4072,7 +4078,10 @@ export async function createMCPServerForRequest(
       (elicitation.form !== undefined || elicitation.url === undefined);
     const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
     // The SDK requires an absolute URL for URL elicitation.
-    const offersUrl = elicitation?.url !== undefined && URL.canParse(reviewUrl);
+    const offersUrl =
+      !inlineFormOnly &&
+      elicitation?.url !== undefined &&
+      URL.canParse(reviewUrl);
     const mode =
       offersUrl && (MCP_APPROVAL_PROMPT_PREFERENCE === "url" || !offersForm)
         ? "url"
@@ -4080,6 +4089,17 @@ export async function createMCPServerForRequest(
           ? "form"
           : undefined;
     if (mode === undefined) {
+      if (inlineFormOnly) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${name} requires inline approval because approvals are turned on, and this client cannot display an inline approval form. Confirm the action in the app or turn off approvals in Settings.`,
+            },
+          ],
+          isError: true,
+        };
+      }
       return actionApprovalReviewResult(
         review,
         "unprompted",
@@ -4092,7 +4112,7 @@ export async function createMCPServerForRequest(
       review,
       ownerEmail: effectiveIdentity?.userEmail,
       mode,
-      reviewUrl,
+      ...(inlineFormOnly ? {} : { reviewUrl }),
     });
     if (mode === "url") {
       const requestState = await codec.mint(

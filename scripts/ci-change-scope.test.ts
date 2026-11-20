@@ -1402,7 +1402,6 @@ test("routes Design pin attestation inputs to core regression", () => {
   assert.deepEqual(config.designCanvasBroadWorkflowShards, [
     "ai-sidebar-loopback",
     "music-app-workflow",
-    "home-system-selection",
     "landing-page-build",
     "autolayout-vertical-center-trailing",
   ]);
@@ -2103,12 +2102,7 @@ test("Design core and broad selectors stay independently scoped", () => {
     );
   }
 
-  const homeSelection = classifyChangedPaths([
-    "templates/design/e2e/home-system-selection.spec.ts",
-  ]);
-  assert.deepEqual(homeSelection.designCanvasBroadWorkflowShards, [
-    "home-system-selection",
-  ]);
+  // oracle-change: the Home system-selection spec and its shard were removed with Creative context
   assert.deepEqual(
     classifyChangedPaths([
       "templates/design/app/components/design/EditPanel.document-colors.test.tsx",
@@ -2135,9 +2129,6 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const broadWorkflowArtifacts = step("Upload Design E2E artifacts");
   const landingPageWorkflow = step(
     "Run landing-page build workflow regression",
-  );
-  const homeSystemSelection = step(
-    "Run Home design-system selection regressions",
   );
   const verticalAutoLayoutWorkflow = step(
     "Run vertical auto-layout held-guide regression",
@@ -2386,41 +2377,12 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     ),
     "the landing-page matrix cell must retain its Design E2E traces and results",
   );
-  assert.equal(
-    homeSystemSelection.match(/^        if: (.+)$/m)?.[1],
-    "matrix.shard == 'home-system-selection'",
-  );
   assert.match(
     workflow,
-    /^  design-canvas-broad-workflows:\n(?:.*\n){4}    timeout-minutes: \$\{\{ matrix\.shard == 'home-system-selection' && 40 \|\| \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
-    "the Home workflow job must leave setup and artifact headroom after the long Playwright step",
+    /^  design-canvas-broad-workflows:\n(?:.*\n){4}    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    "the broad workflow job must leave setup and artifact headroom after the long Playwright step",
   );
-  assert.match(
-    homeSystemSelection,
-    /^        timeout-minutes: 28$/m,
-    "Home system-selection coverage must fit global setup, webServer startup, three tests, and loopback startup",
-  );
-  assert.ok(
-    homeSystemSelection.includes(
-      "E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
-    ),
-    "the Home lane must use the broad Design run ID for retry detection and artifacts",
-  );
-  assert.ok(
-    homeSystemSelection.includes('E2E_AI_SIDEBAR_LOOPBACK: "1"'),
-    "the Home composer tests must opt in to the deterministic loopback provider",
-  );
-  assert.ok(
-    homeSystemSelection.includes(
-      "pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on",
-    ),
-    "the Home lane must run the dedicated Home project serially with traces",
-  );
-  assert.doesNotMatch(
-    homeSystemSelection,
-    /vertical auto-layout|autolayout-drag/,
-    "Home selection must not carry the slow auto-layout regression",
-  );
+
   assert.match(
     verticalAutoLayoutWorkflow,
     /^        if: \$\{\{ matrix\.shard == 'autolayout-vertical-center-trailing' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/autolayout-drag-drop-matrix\.spec\.ts'\) \}\}$/m,
@@ -2635,7 +2597,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     broadJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'home-system-selection' && 40 \|\| \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
+    /^    timeout-minutes: \$\{\{ \(matrix\.shard == 'music-app-workflow' \|\| matrix\.shard == 'landing-page-build'\) && 35 \|\| 30 \}\}$/m,
     "broad Design jobs must leave headroom outside the setup-aware test steps",
   );
   const stepTimeout = Number(
@@ -3490,7 +3452,7 @@ test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
     ["pnpm-lock.yaml"],
     [],
     process.cwd(),
-    ["templates/design/e2e/home-system-selection.spec.ts"],
+    ["templates/design/e2e/interaction-landing-page-build.spec.ts"],
   );
   assert.equal(
     fullRunWithDeletedShard.checks.design_canvas_broad_workflows,
@@ -3499,10 +3461,42 @@ test("a deleted Design E2E path runs only changed-spec diagnostics", () => {
   assert.deepEqual(fullRunWithDeletedShard.designCanvasBroadWorkflowShards, [
     "ai-sidebar-loopback",
     "music-app-workflow",
-    "landing-page-build",
     "autolayout-vertical-center-trailing",
   ]);
 });
+
+test(
+  "CI names only E2E specs that exist",
+  { skip: process.env.CI_CHANGE_SCOPE_COLD_FIXTURE === "1" },
+  () => {
+    const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+    const missing: string[] = [];
+    for (const step of workflow.split("\n      - name: ")) {
+      const directory = step.match(/^\s+working-directory: (\S+)$/m)?.[1];
+      if (!directory) continue;
+      for (const [spec] of step.matchAll(
+        /(?<![\w./-])e2e\/[\w.-]+\.spec\.ts/g,
+      )) {
+        if (!existsSync(join(directory, spec))) {
+          missing.push(`.github/workflows/ci.yml: ${directory}/${spec}`);
+        }
+      }
+    }
+    for (const source of [
+      ".github/workflows/ci.yml",
+      "scripts/ci-change-scope.ts",
+    ]) {
+      // source-read-ok: the spec paths CI and the classifier name are the subject, checked against the tree
+      const text = readFileSync(source, "utf8");
+      for (const [spec] of text.matchAll(
+        /(?:templates|packages)\/[\w-]+\/e2e\/[\w.-]+\.spec\.ts/g,
+      )) {
+        if (!existsSync(spec)) missing.push(`${source}: ${spec}`);
+      }
+    }
+    assert.deepEqual(missing, []);
+  },
+);
 
 test("a non-empty selector with only deleted specs resolves to a no-op", () => {
   const removed = "templates/design/e2e/removed-by-this-change.spec.ts";
@@ -3515,32 +3509,6 @@ test("a non-empty selector with only deleted specs resolves to a no-op", () => {
       filteredSpecs: [],
     },
   );
-});
-
-test("filters loopback-only Home specs from default changed-spec selection", () => {
-  const home = "templates/design/e2e/home-system-selection.spec.ts";
-  const regular = "templates/design/e2e/interaction-selection.spec.ts";
-  const selector = JSON.stringify([home, regular]);
-  const resolve = (includeLoopbackOnlySpecs: boolean) =>
-    resolveDesignE2ESpecs(selector, {
-      isFile: () => true,
-      readFile: () => "",
-      includeLoopbackOnlySpecs,
-    });
-
-  assert.deepEqual(resolve(false), {
-    existingSpecs: ["e2e/interaction-selection.spec.ts"],
-    removedSpecs: [],
-    filteredSpecs: ["e2e/home-system-selection.spec.ts"],
-  });
-  assert.deepEqual(resolve(true), {
-    existingSpecs: [
-      "e2e/home-system-selection.spec.ts",
-      "e2e/interaction-selection.spec.ts",
-    ],
-    removedSpecs: [],
-    filteredSpecs: [],
-  });
 });
 
 test("keeps runnable specs while excluding deleted paths from the same selector", () => {
@@ -4155,7 +4123,14 @@ test("selects Brain evals only for Core code in its runtime dependency surface",
     "templates/brain/actions/run-demo-eval.ts",
     "templates/brain/actions/run-retrieval-eval.ts",
     "templates/brain/server/lib/demo.ts",
+    "templates/brain/server/lib/audiences.ts",
+    "templates/brain/server/lib/intelligence.ts",
+    "templates/brain/server/lib/knowledge-access.ts",
+    "templates/brain/server/lib/knowledge-provenance.ts",
+    "templates/brain/server/lib/knowledge-provenance.integration.test.ts",
+    "templates/brain/server/lib/knowledge-write.postgres.integration.test.ts",
     "templates/brain/server/lib/search.ts",
+    "templates/brain/server/plugins/db.ts",
     "packages/core/src/action.ts",
     "packages/core/src/db/client.ts",
     "packages/core/src/search/index.ts",
