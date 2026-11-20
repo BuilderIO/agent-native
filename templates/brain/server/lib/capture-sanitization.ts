@@ -678,13 +678,6 @@ function safeSourceIdentity(
   );
 }
 
-/**
- * Finds restricted transcript lines so one sensitive remark does not
- * discard the meeting. It only proposes a transcript for the unchanged
- * whole-capture pipeline, together with Jev's verdict on exactly that text so
- * the pipeline cannot re-ask and get a different answer. When lines cannot be
- * separated, it returns the last rejected text and verdict.
- */
 async function withholdRestrictedTranscriptLines(
   input: CaptureSanitizationInput,
 ): Promise<{
@@ -867,7 +860,6 @@ export async function sanitizeCaptureForStorage(
       ? null
       : (prior ?? 0) + withheldNow;
   const withheldPassages = count !== null && count > 0 ? count : null;
-  // Partial captures cannot retain arbitrary metadata that might point at the original.
   const metadata: Record<string, unknown> = {
     captureSanitization: {
       sanitizedBeforeStorage: true,

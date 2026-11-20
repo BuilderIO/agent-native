@@ -1185,11 +1185,13 @@ export async function commitPreparedCaptureWithWarnings(
         scoped,
       );
       if (existingRevision !== null) {
-        const [current] = await scoped
-          .select()
-          .from(schema.brainRawCaptures)
-          .where(eq(schema.brainRawCaptures.id, captureId))
-          .limit(1);
+        const current = firstRow(
+          await scoped
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, captureId))
+            .limit(1),
+        );
         if (!current || stableJson(current) !== existingRevision)
           throw new BrainCaptureConcurrentError();
       }
@@ -1250,13 +1252,15 @@ export async function commitPreparedCaptureWithWarnings(
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
-  const [capture] = await db
-    .select()
-    .from(schema.brainRawCaptures)
-    .where(eq(schema.brainRawCaptures.id, captureId))
-    .limit(1);
+  const capture = firstRow(
+    await db
+      .select()
+      .from(schema.brainRawCaptures)
+      .where(eq(schema.brainRawCaptures.id, captureId))
+      .limit(1),
+  );
+  if (!capture) throw new BrainCaptureConcurrentError();
   const matchesWrite =
-    capture &&
     capture.kind === values.kind &&
     capture.contentHash === nextContentHash &&
     capture.metadataJson === nextMetadataJson &&
@@ -1745,22 +1749,25 @@ export async function recordBlockedCapture(input: {
   const locatorHmac = await sha256Hex(
     `${input.source.id}\0${input.values.externalId ?? (await contentHash(input.values.content))}`,
   );
-  const [prior] = await db
-    .select({
-      id: schema.brainSensitivityEvents.id,
-      quarantineBlobHandle: schema.brainSensitivityEvents.quarantineBlobHandle,
-    })
-    .from(schema.brainSensitivityEvents)
-    .where(
-      and(
-        eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
-        eq(
-          schema.brainSensitivityEvents.policyVersion,
-          input.decision.policyVersion,
+  const prior = firstRow(
+    await db
+      .select({
+        id: schema.brainSensitivityEvents.id,
+        quarantineBlobHandle:
+          schema.brainSensitivityEvents.quarantineBlobHandle,
+      })
+      .from(schema.brainSensitivityEvents)
+      .where(
+        and(
+          eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
+          eq(
+            schema.brainSensitivityEvents.policyVersion,
+            input.decision.policyVersion,
+          ),
         ),
-      ),
-    )
-    .limit(1);
+      )
+      .limit(1),
+  );
   let disposition: "suppressed" | "quarantined" =
     input.decision.disposition === "suppressed" ? "suppressed" : "quarantined";
   let quarantineBlobHandle: string | null = null;
@@ -1842,11 +1849,13 @@ export async function recordBlockedCapture(input: {
         await capturePublishesResources(existingId, db),
         async (scoped, effects) => {
           await lockCaptureRows([existingId], scoped);
-          const [current] = await scoped
-            .select()
-            .from(schema.brainRawCaptures)
-            .where(eq(schema.brainRawCaptures.id, existingId))
-            .limit(1);
+          const current = firstRow(
+            await scoped
+              .select()
+              .from(schema.brainRawCaptures)
+              .where(eq(schema.brainRawCaptures.id, existingId))
+              .limit(1),
+          );
           if (!current || stableJson(current) !== existingRevision)
             throw new BrainCaptureConcurrentError();
           await writeSensitivityEvent(scoped);

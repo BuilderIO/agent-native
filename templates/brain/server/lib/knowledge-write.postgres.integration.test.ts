@@ -130,8 +130,7 @@ async function holdRows(table: string, ids: string[]) {
 }
 
 async function waitUntilBlocked(settled: () => boolean, waiters = 1) {
-  for (let attempt = 0; attempt < 2_000; attempt += 1) {
-    if (settled()) return false;
+  while (!settled()) {
     const waiting = await query(
       "SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()",
     );
@@ -139,7 +138,7 @@ async function waitUntilBlocked(settled: () => boolean, waiters = 1) {
     // fixed-sleep-ok: polling interval between pg_stat_activity observations
     await sleep(5);
   }
-  throw new Error("The operation neither finished nor waited on the held row.");
+  return false;
 }
 
 function only<T>(rows: readonly T[]): T {

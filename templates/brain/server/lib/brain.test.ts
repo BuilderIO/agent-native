@@ -1435,7 +1435,9 @@ describe("Brain knowledge quality gates", () => {
         withheldPassages: 1,
         metadata: { passageQuarantine: { version: 1, withheldPassages: 1 } },
       });
-      expect(JSON.stringify(result.capture?.metadata)).not.toContain(externalId);
+      expect(JSON.stringify(result.capture?.metadata)).not.toContain(
+        externalId,
+      );
     }
     expect(stored.externalId).toBe(externalId);
   });
@@ -1478,7 +1480,7 @@ describe("Brain knowledge quality gates", () => {
     const second = await createCapture(input);
     expect(second.id).toBe(first.id);
     expect(mocks.rows.captures).toHaveLength(1);
-    expect(mocks.rows.captures[0].externalId).toBe(input.externalId);
+    expect(mocks.rows.captures[0]?.externalId).toBe(input.externalId);
     const result = await getCaptureAction.run({
       id: first.id,
       includeRawContent: true,

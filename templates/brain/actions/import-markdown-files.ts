@@ -217,7 +217,7 @@ export default defineAction({
           }
         }
         const withheldPassages = withheldPassageCount(
-          parseCaptureMetadata(capture.metadataJson ?? null),
+          parseCaptureMetadata(capture.metadataJson),
           source.provider,
           capture.kind,
         );

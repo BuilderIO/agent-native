@@ -170,7 +170,7 @@ describe("import-markdown-files", () => {
       withheldPassages: 1,
       passageQuarantine: { version: 1, withheldPassages: 1 },
     });
-    expect(mocks.createCapture.mock.calls[0][0].kind).toBe("transcript");
+    expect(mocks.createCapture.mock.calls[0]?.[0].kind).toBe("transcript");
     expect(stored?.content).toContain("Roadmap launch");
     expect(stored?.content).toContain("customer launch");
     expect(stored?.content).not.toContain("salary");
@@ -186,8 +186,8 @@ describe("import-markdown-files", () => {
       enqueueDistillation: false,
     });
     const document = await action.run(documentArgs);
-    expect(mocks.createCapture.mock.calls[1][0].kind).toBe("document");
-    expect(document.files[0].status).toBe("blocked");
+    expect(mocks.createCapture.mock.calls[1]?.[0].kind).toBe("document");
+    expect(document.files[0]?.status).toBe("blocked");
   });
 
   it("does not report a different persisted kind as an imported document", async () => {
