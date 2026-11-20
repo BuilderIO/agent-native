@@ -1765,12 +1765,29 @@ const memorySessions = new Set<(account: string | null) => void>();
 export function setDesktopMemoryAccount(rawAccount: string | null): void {
   const account = rawAccount?.trim().toLowerCase() || null;
   currentMemoryAccount = account;
-  for (const [file, owner] of memoryOwnerFiles) {
+  const failures: unknown[] = [];
+  for (const [file, owner] of [...memoryOwnerFiles]) {
     if (owner === account) continue;
-    fs.rmSync(file, { force: true });
-    memoryOwnerFiles.delete(file);
+    try {
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+    } catch (error) {
+      failures.push(error);
+    }
   }
-  for (const rebind of [...memorySessions]) rebind(account);
+  for (const rebind of [...memorySessions]) {
+    try {
+      rebind(account);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures,
+      "Could not fully switch the shared memory account",
+    );
+  }
 }
 
 export function sweepStaleMemoryOwnerFiles(): void {
@@ -1838,6 +1855,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     try {
       const target = path.join(desktopMemoryDir(), encodeURIComponent(owner));
       fs.mkdirSync(target, { recursive: true });
+      fs.mkdirSync(memoryDir, { recursive: true });
       fs.symlinkSync(
         target,
         path.join(memoryDir, encodeURIComponent(owner)),
@@ -1858,7 +1876,13 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
         });
       }
     } catch (error) {
-      console.error("[desktop-chat] Could not revoke the memory root:", error);
+      const failures = [error];
+      try {
+        fs.rmSync(memoryDir, { recursive: true, force: true });
+      } catch (rootError) {
+        failures.push(rootError);
+      }
+      throw new AggregateError(failures, "Could not revoke the memory root");
     }
   };
   if (account) grant(account);
@@ -1915,10 +1939,13 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
   const rebind = (next: string | null) => {
     if (released) return;
     if (!next) {
-      revoke();
-      account = null;
-      watcher?.close();
-      watcher = undefined;
+      try {
+        revoke();
+      } finally {
+        account = null;
+        watcher?.close();
+        watcher = undefined;
+      }
       return;
     }
     if (account && account !== next) {

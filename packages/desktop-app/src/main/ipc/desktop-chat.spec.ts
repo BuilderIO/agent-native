@@ -1561,6 +1561,56 @@ describe("desktop Pi extension memory prompt", () => {
     }
   });
 
+  it("still revokes every session when clearing a prompt file fails", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    await vi.waitFor(() => expect(existsSync(session.file)).toBe(true));
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === session.file) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    try {
+      expect(() => setDesktopMemoryAccount("b@example.test")).toThrow(
+        AggregateError,
+      );
+    } finally {
+      rm.mockRestore();
+    }
+    expect(readdirSync(root)).toEqual([]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("fails closed when a session's link cannot be removed", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    const link = path.join(root, encodeURIComponent("a@example.test"));
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === link) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    try {
+      expect(() => setDesktopMemoryAccount(null)).toThrow(AggregateError);
+    } finally {
+      rm.mockRestore();
+    }
+    expect(existsSync(link)).toBe(false);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
   it("gives a session started before sign-in access once an account binds", async () => {
     seedAccounts();
     noteDesktopBuilderRelayOwner("no-account");

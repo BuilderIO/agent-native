@@ -152,19 +152,53 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-async function breakStaleLock(lockPath: string): Promise<void> {
+type LockSnapshot = { ino: number; mtimeMs: number; text: string };
+
+async function readLock(lockPath: string): Promise<LockSnapshot | null> {
+  let handle: fs.promises.FileHandle | undefined;
   try {
-    const [stat, text] = await Promise.all([
-      fs.promises.stat(lockPath),
-      fs.promises.readFile(lockPath, "utf8"),
-    ]);
-    const pid = Number.parseInt(text, 10);
-    const dead = !Number.isInteger(pid) || !isProcessAlive(pid);
-    if (dead && Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+    handle = await fs.promises.open(lockPath, "r");
+    const { ino, mtimeMs } = await handle.stat();
+    return { ino, mtimeMs, text: await handle.readFile("utf8") };
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
+function isStaleLock(lock: LockSnapshot): boolean {
+  const pid = Number.parseInt(lock.text, 10);
+  const dead = !Number.isInteger(pid) || !isProcessAlive(pid);
+  return dead && Date.now() - lock.mtimeMs > LOCK_STALE_MS;
+}
+
+async function breakStaleLock(lockPath: string): Promise<void> {
+  const judged = await readLock(lockPath);
+  if (!judged || !isStaleLock(judged)) return;
+  const reclaimPath = `${lockPath}.reclaim`;
+  try {
+    await (await fs.promises.open(reclaimPath, "wx")).close();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+    throw error;
+  }
+  try {
+    const current = await readLock(lockPath);
+    if (
+      current &&
+      current.ino === judged.ino &&
+      current.mtimeMs === judged.mtimeMs &&
+      current.text === judged.text &&
+      isStaleLock(current)
+    ) {
       await fs.promises.unlink(lockPath);
     }
-  } catch (error) {
-    if (!isMissingPathError(error)) throw error;
+  } finally {
+    await fs.promises.unlink(reclaimPath).catch((error) => {
+      if (!isMissingPathError(error)) throw error;
+    });
   }
 }
 

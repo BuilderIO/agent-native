@@ -316,6 +316,51 @@ describe("shared-memory", () => {
       expect(fs.existsSync(file)).toBe(false);
     });
 
+    it("does not unlink a lock that a rival replaced after it was judged stale", async () => {
+      const file = setup("rival");
+      const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+      fs.writeFileSync(`${file}.lock`, `${dead} 1`);
+      const old = new Date(Date.now() - 60_000);
+      fs.utimesSync(`${file}.lock`, old, old);
+      const realOpen = fs.promises.open.bind(fs.promises);
+      const open = vi
+        .spyOn(fs.promises, "open")
+        .mockImplementation(async (target, ...rest) => {
+          if (String(target) === `${file}.lock.reclaim`) {
+            fs.unlinkSync(`${file}.lock`);
+            fs.writeFileSync(`${file}.lock`, `${process.pid} ${Date.now()}`);
+          }
+          return (realOpen as (...a: unknown[]) => Promise<never>)(
+            target,
+            ...rest,
+          );
+        });
+      try {
+        await expect(
+          writeSharedPersonalMemory(owner, "memory/rival.md", "x", Date.now()),
+        ).rejects.toBeInstanceOf(MemoryLockTimeoutError);
+      } finally {
+        open.mockRestore();
+      }
+      expect(fs.readFileSync(`${file}.lock`, "utf8")).toMatch(
+        new RegExp(`^${process.pid} `),
+      );
+      expect(fs.existsSync(`${file}.lock.reclaim`)).toBe(false);
+    });
+
+    it("never breaks a held reclaim lock", async () => {
+      const file = setup("reclaim");
+      const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+      fs.writeFileSync(`${file}.lock`, `${dead} 1`);
+      const old = new Date(Date.now() - 60_000);
+      fs.utimesSync(`${file}.lock`, old, old);
+      fs.writeFileSync(`${file}.lock.reclaim`, "");
+      await expect(
+        writeSharedPersonalMemory(owner, "memory/reclaim.md", "x", Date.now()),
+      ).rejects.toBeInstanceOf(MemoryLockTimeoutError);
+      expect(fs.existsSync(`${file}.lock.reclaim`)).toBe(true);
+    });
+
     it("does not break an old lock whose process is still alive", async () => {
       const file = setup("alive");
       fs.writeFileSync(`${file}.lock`, `${process.pid} 1`);
