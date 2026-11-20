@@ -81,16 +81,37 @@ export default defineAction({
         )
       ) {
         await assertAccess("brain-source", args.id, "admin");
+        const storedConfig = parseJson<Record<string, unknown>>(
+          existing.configJson,
+          {},
+        );
+        const legacy =
+          existing.sourceKey === null && existing.ingestTokenHash === null;
         for (const key of ["sourceKey", "ingestTokenHash"] as const) {
-          if (
+          const submitted =
             mergedConfig &&
-            Object.prototype.hasOwnProperty.call(mergedConfig, key) &&
+            Object.prototype.hasOwnProperty.call(mergedConfig, key);
+          if (
+            submitted &&
             mergedConfig[key] !== null &&
             typeof mergedConfig[key] !== "string"
           ) {
             fail("Source credentials must be strings or null.", {
               errorCode: "invalid_source_config",
             });
+          }
+          if (
+            !submitted &&
+            !legacy &&
+            (storedConfig[key] ?? null) !== existing[key]
+          ) {
+            fail(
+              "Source credentials are inconsistent. Submit both credential fields to update them.",
+              {
+                errorCode: "source_config_conflict",
+                statusCode: 409,
+              },
+            );
           }
         }
       }
@@ -214,7 +235,8 @@ export default defineAction({
             Object.prototype.hasOwnProperty.call(config, key),
           )
         ) {
-          const legacy = existing.sourceKey === null && existing.ingestTokenHash === null;
+          const legacy =
+            existing.sourceKey === null && existing.ingestTokenHash === null;
           for (const key of ["sourceKey", "ingestTokenHash"] as const) {
             if (Object.prototype.hasOwnProperty.call(config, key)) {
               updates[key] = config[key];

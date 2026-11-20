@@ -317,6 +317,7 @@ it.each(["sourceKey", "ingestTokenHash"] as const)(
         }),
       })
       .where(eq(schema.brainSources.id, "legacy-ingest"));
+    expect((await sendIngest("legacy-key", oldToken)).status).toBe(200);
     const patch =
       field === "sourceKey"
         ? { sourceKey: "new-key" }
@@ -405,45 +406,169 @@ it.each(["sourceKey", "ingestTokenHash"] as const)(
 );
 
 it.each([
-  { field: "ingestTokenHash", jsonValue: null },
-  { field: "ingestTokenHash", jsonValue: undefined },
-  { field: "ingestTokenHash", jsonValue: "different-hash" },
-  { field: "sourceKey", jsonValue: null },
-  { field: "sourceKey", jsonValue: undefined },
-  { field: "sourceKey", jsonValue: "different-key" },
-] as const)("does not reactivate an indexed credential when JSON $field is $jsonValue", async ({ field, jsonValue }) => {
-  await seedSharedIngestSource();
-  const oldToken = "example-old-token";
-  const newToken = "example-new-token";
-  const oldHash = await sha256Hex(oldToken);
-  const newHash = await sha256Hex(newToken);
-  const config = { sourceKey: "indexed-key", ingestTokenHash: oldHash, [field]: jsonValue };
-  await database.update(schema.brainSources).set({ sourceKey: "indexed-key", ingestTokenHash: oldHash, configJson: JSON.stringify(config) }).where(eq(schema.brainSources.id, "legacy-ingest"));
-  expect((await sendIngest("indexed-key", oldToken)).status).toBe(404);
-  const patch = field === "ingestTokenHash" ? { sourceKey: "new-key" } : { ingestTokenHash: newHash };
-  await asUser(qaEmail, () => updateSource.run({ id: "legacy-ingest", config: patch }));
-  expect((await sendIngest(field === "sourceKey" ? "indexed-key" : "new-key", field === "sourceKey" ? newToken : oldToken)).status).toBe(404);
-  const saved = await readIngestSource();
-  expect(saved[field]).toBe(field === "sourceKey" ? "indexed-key" : oldHash);
-  expect(JSON.parse(saved.configJson)[field]).toBe(jsonValue);
-});
+  { field: "ingestTokenHash", jsonValue: null, clearColumn: false },
+  { field: "ingestTokenHash", jsonValue: undefined, clearColumn: false },
+  { field: "ingestTokenHash", jsonValue: "different-hash", clearColumn: false },
+  { field: "ingestTokenHash", jsonValue: "stale-hash", clearColumn: true },
+  { field: "sourceKey", jsonValue: null, clearColumn: false },
+  { field: "sourceKey", jsonValue: undefined, clearColumn: false },
+  { field: "sourceKey", jsonValue: "different-key", clearColumn: false },
+  { field: "sourceKey", jsonValue: "stale-key", clearColumn: true },
+] as const)(
+  "rejects an edit when untouched $field disagrees with its indexed column",
+  async ({ field, jsonValue, clearColumn }) => {
+    await seedSharedIngestSource();
+    const oldToken = "example-old-token";
+    const newToken = "example-new-token";
+    const oldHash = await sha256Hex(oldToken);
+    const newHash = await sha256Hex(newToken);
+    const config = {
+      sourceKey: "indexed-key",
+      ingestTokenHash: oldHash,
+      [field]: jsonValue,
+    };
+    await database
+      .update(schema.brainSources)
+      .set({
+        sourceKey: "indexed-key",
+        ingestTokenHash: oldHash,
+        [field]: clearColumn
+          ? null
+          : field === "sourceKey"
+            ? "indexed-key"
+            : oldHash,
+        configJson: JSON.stringify(config),
+      })
+      .where(eq(schema.brainSources.id, "legacy-ingest"));
+    const before = await readIngestSource();
+    expect((await sendIngest("indexed-key", oldToken)).status).toBe(404);
+    const patch =
+      field === "ingestTokenHash"
+        ? { sourceKey: "new-key" }
+        : { ingestTokenHash: newHash };
+    await expect(
+      asUser(qaEmail, () =>
+        updateSource.run({
+          id: "legacy-ingest",
+          title: "Must not save",
+          config: patch,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "source_config_conflict",
+      statusCode: 409,
+    });
+    expect(await readIngestSource()).toEqual(before);
+    expect(
+      (
+        await sendIngest(
+          field === "sourceKey" ? "indexed-key" : "new-key",
+          field === "sourceKey" ? newToken : oldToken,
+        )
+      ).status,
+    ).toBe(404);
+  },
+);
 
-it("preserves authoritative indexed credentials when editing the other field", async () => {
+it.each(["sourceKey", "ingestTokenHash"] as const)(
+  "preserves coherent indexed credentials when editing %s",
+  async (field) => {
+    await seedSharedIngestSource();
+    const token = "example-token";
+    const newToken = "example-new-token";
+    const hash = await sha256Hex(token);
+    const newHash = await sha256Hex(newToken);
+    await database
+      .update(schema.brainSources)
+      .set({
+        sourceKey: "current-key",
+        ingestTokenHash: hash,
+        configJson: JSON.stringify({
+          sourceKey: "current-key",
+          ingestTokenHash: hash,
+        }),
+      })
+      .where(eq(schema.brainSources.id, "legacy-ingest"));
+    expect((await sendIngest("current-key", token)).status).toBe(200);
+    const patch =
+      field === "sourceKey"
+        ? { sourceKey: "new-key" }
+        : { ingestTokenHash: newHash };
+    await asUser(qaEmail, () =>
+      updateSource.run({ id: "legacy-ingest", config: patch }),
+    );
+    const saved = await readIngestSource();
+    const key = field === "sourceKey" ? "new-key" : "current-key";
+    const expectedHash = field === "sourceKey" ? hash : newHash;
+    expect(saved.sourceKey).toBe(key);
+    expect(saved.ingestTokenHash).toBe(expectedHash);
+    expect(JSON.parse(saved.configJson)).toMatchObject({
+      sourceKey: key,
+      ingestTokenHash: expectedHash,
+    });
+    expect(
+      (await sendIngest(key, field === "sourceKey" ? token : newToken)).status,
+    ).toBe(200);
+    expect((await sendIngest("current-key", token)).status).toBe(404);
+  },
+);
+
+it("allows an admin to explicitly replace both inconsistent credentials", async () => {
   await seedSharedIngestSource();
-  const token = "example-token";
+  const token = "example-replacement-token";
   const hash = await sha256Hex(token);
   await database
     .update(schema.brainSources)
-    .set({ sourceKey: "current-key", ingestTokenHash: hash })
+    .set({ sourceKey: "indexed-key", ingestTokenHash: "indexed-hash" })
     .where(eq(schema.brainSources.id, "legacy-ingest"));
   await asUser(qaEmail, () =>
-    updateSource.run({ id: "legacy-ingest", config: { sourceKey: "new-key" } }),
+    updateSource.run({
+      id: "legacy-ingest",
+      config: { sourceKey: "replacement-key", ingestTokenHash: hash },
+    }),
   );
   const saved = await readIngestSource();
+  expect(saved.sourceKey).toBe("replacement-key");
   expect(saved.ingestTokenHash).toBe(hash);
-  expect(JSON.parse(saved.configJson).ingestTokenHash).toBe(hash);
-  expect((await sendIngest("new-key", token)).status).toBe(200);
+  expect(JSON.parse(saved.configJson)).toMatchObject({
+    sourceKey: "replacement-key",
+    ingestTokenHash: hash,
+  });
+  expect((await sendIngest("replacement-key", token)).status).toBe(200);
 });
+
+it.each([
+  { column: "indexed-key", jsonValue: null },
+  { column: "indexed-key", jsonValue: "different-key" },
+  { column: null, jsonValue: "stale-key" },
+] as const)(
+  "rejects token rotation when the source key representations disagree",
+  async ({ column, jsonValue }) => {
+    await seedSharedIngestSource();
+    const hash = await sha256Hex("example-token");
+    await database
+      .update(schema.brainSources)
+      .set({
+        sourceKey: column,
+        ingestTokenHash: hash,
+        configJson: JSON.stringify({
+          sourceKey: jsonValue,
+          ingestTokenHash: hash,
+        }),
+      })
+      .where(eq(schema.brainSources.id, "legacy-ingest"));
+    const before = await readIngestSource();
+    await expect(
+      asUser(qaEmail, () =>
+        rotateSourceIngestToken.run({ sourceId: "legacy-ingest" }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "source_config_conflict",
+      statusCode: 409,
+    });
+    expect(await readIngestSource()).toEqual(before);
+  },
+);
 
 it("does not copy stale legacy credentials over authoritative columns during an ordinary edit", async () => {
   await seedSharedIngestSource();
