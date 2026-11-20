@@ -16,6 +16,7 @@ import {
 import {
   ACTION_EXECUTION_KEY,
   actionExecutionStorage,
+  currentActionOriginCaller,
   endInvocationEvidence,
   holdInvocationEvidence,
   noteObservedWrite,
@@ -49,7 +50,12 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
+import {
+  buildAgentNavigationKeptResult,
+  isAgentNavigationRefusedError,
+} from "./application-state/navigate-write-guard.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
+import type { RecordActionAuditInput } from "./audit/record.js";
 import type { ActionAuditConfig } from "./audit/types.js";
 import {
   assertRegisteredActionAccess,
@@ -106,7 +112,11 @@ export type {
   ActionReceiptProvenance,
   CommitActionOptions,
 } from "./action-receipt.js";
-export { ACTION_EXECUTION_KEY, withoutWriteObservation };
+export {
+  ACTION_EXECUTION_KEY,
+  currentActionOriginCaller,
+  withoutWriteObservation,
+};
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -245,6 +255,12 @@ export interface ActionRunContext {
   toolCallId?: string;
   /** Marks calls made after a private action in this agent turn. */
   omitFromPersistedHistory?: true;
+  /**
+   * Set by the MCP script ledger on a script's write: the call's audit input
+   * comes here instead of the best-effort audit log, and the ledger delivers
+   * the row once it knows whether the write committed.
+   */
+  deferAudit?: (audit: RecordActionAuditInput) => void;
   /**
    * Present only for a private tool on a server run with a protected model
    * dispatch boundary. Register read-only scope checks before reading private
@@ -1020,13 +1036,141 @@ export type ActionOutputResult<
       | StandardSchemaV1.InferInput<TOutputSchema>
       | (TStrategy extends "fallback" ? undefined : never);
 
-export type ActionUserTurn = "read" | "approval";
+/** An action's MCP decision; `mcpTool` on the action documents each value. */
+export type ActionMcpTool = boolean | "search";
+
+/** Whether `mcpTool` serves the action to external agents, listed or found
+ *  through `tool-search`. */
+export function isMcpToolServed(mcpTool: ActionMcpTool | undefined): boolean {
+  return mcpTool === true || mcpTool === "search";
+}
+
+/**
+ * `"direct"` contract: the action must declare `needsApproval` as a function,
+ * and it must not set `requiresUserTurn`. Over MCP the call is refused
+ * without an admitted user-turn grant; with one, the predicate is asked about
+ * that exact call and the call runs at once only on an answer of `false`.
+ * `true`, a throw, a rejection or any other value sends it to the review page.
+ * Agent runs, A2A and nested calls never carry the grant. The predicate must
+ * read verified current state when ownership or guests matter:
+ *
+ *   defineAction({
+ *     userTurn: "direct",
+ *     schema: z.object({ eventId: z.string(), guests: z.array(z.string()).default([]) }),
+ *     needsApproval: async ({ eventId, guests }, ctx) => {
+ *       if (guests.length > 0) return true;
+ *       const event = await findEventForOwner(eventId, ctx?.userEmail);
+ *       return event === undefined || event.guestCount > 0;
+ *     },
+ *     run: ...
+ *   });
+ */
+export type ActionUserTurn = "read" | "approval" | "direct";
 
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
   destructiveHint: boolean;
   openWorldHint: boolean;
   idempotentHint?: boolean;
+}
+
+/**
+ * Where a write's own receipt for one call is kept: the receipt the action
+ * commits in the same transaction as its change. The store holds one record
+ * per `scope` and `idempotencyKey`; `payloadDigest` tells whether the
+ * record there is for this call.
+ */
+export interface McpScriptReceiptLocator {
+  /** The resource the receipt belongs to, such as a database id. */
+  scope: string;
+  idempotencyKey: string;
+  /** A digest of the call's canonical payload, so a reused key with other
+   *  arguments is not taken for this call. */
+  payloadDigest: string;
+}
+
+export type McpScriptReconcileResult =
+  | { status: "committed"; receipt: unknown }
+  | { status: "absent" };
+
+export type McpScriptFenceResult =
+  | { status: "committed"; receipt: unknown }
+  | { status: "fenced" };
+
+/**
+ * What a write must say for a script to call it. The script ledger records
+ * the locator before the call runs, so whatever happens to the process after,
+ * `reconcile` can tell whether the write committed. The action awaits all
+ * of its database work before it returns or throws, so a call that fails
+ * with no effect has nothing left that could commit.
+ */
+export interface McpScriptWriteContract<TArgs = unknown> {
+  /** The most rows this call can change, from its validated arguments. A row
+   *  named twice counts twice. Reserved against the script's budget before
+   *  the call runs. */
+  rowBound(args: TArgs): number;
+  /** The receipt this call commits, from its validated arguments. A call
+   *  without an idempotency key has no locator, so it must throw. */
+  receiptLocator(args: TArgs): McpScriptReceiptLocator;
+  /** Reads the receipt as the caller, in the caller's request context, and
+   *  changes nothing. `absent` must mean the transaction that would have
+   *  stored it has not committed. A refusal stored by `fence` is `absent`.
+   *  A record under the key with another `payloadDigest` must throw. */
+  reconcile(
+    locator: McpScriptReceiptLocator,
+  ): Promise<McpScriptReconcileResult>;
+  /**
+   * Closes the key for good unless the write already committed, as the
+   * caller, in the caller's request context. Recovery calls it before it
+   * records a lost write as not applied, so the write can never commit after.
+   *
+   * It must first try to store a refusal under the key, with an insert that
+   * leaves any record already there as it is (in SQL, `INSERT … ON CONFLICT
+   * DO NOTHING`), then read back what holds the key in a new statement:
+   * `fenced` only once a refusal is committed there, `committed` for this
+   * call's receipt, and a throw for anything else, including a record with
+   * another `payloadDigest`. Reading first and storing after can miss a
+   * receipt that commits in between.
+   *
+   * For the refusal to hold, the write stores its receipt with a plain
+   * insert in the transaction that makes its change, never an upsert or an
+   * insert that ignores conflicts, and lets a failed insert fail the whole
+   * transaction. A refusal is never overwritten or deleted. It may go only
+   * with its scope, once nothing can bring that scope back, so a write still
+   * running never finds the key free. A later call with a refused key is
+   * refused and changes nothing.
+   */
+  fence(locator: McpScriptReceiptLocator): Promise<McpScriptFenceResult>;
+  /** A call can remove or overwrite data the caller cannot get back. */
+  destructive: boolean;
+}
+
+export function isMcpScriptWriteContract(
+  value: unknown,
+): value is McpScriptWriteContract {
+  if (typeof value !== "object" || value === null) return false;
+  const contract = value as Record<string, unknown>;
+  return (
+    typeof contract.rowBound === "function" &&
+    typeof contract.receiptLocator === "function" &&
+    typeof contract.reconcile === "function" &&
+    typeof contract.fence === "function" &&
+    typeof contract.destructive === "boolean"
+  );
+}
+
+function frozenMcpScriptWriteContract(
+  contract: McpScriptWriteContract,
+): McpScriptWriteContract {
+  const { rowBound, receiptLocator, reconcile, fence, destructive } = contract;
+  return Object.freeze({
+    rowBound: (args: unknown) => rowBound.call(contract, args),
+    receiptLocator: (args: unknown) => receiptLocator.call(contract, args),
+    reconcile: (locator: McpScriptReceiptLocator) =>
+      reconcile.call(contract, locator),
+    fence: (locator: McpScriptReceiptLocator) => fence.call(contract, locator),
+    destructive,
+  });
 }
 
 interface DefineActionWithSchema<
@@ -1070,6 +1214,9 @@ interface DefineActionWithSchema<
   /** Returns an embed start URL that another app on its own origin minted
    *  for the caller, which the MCP server keeps instead of re-minting. */
   opensAnotherAppEmbed?: boolean;
+  /** Marks a write action whose explicit job is opening a view in the UI when
+   *  called by an agent without `intent: "open"`. Ignored on `readOnly` actions. */
+  allowsAgentNavigation?: boolean;
   agentTool?: boolean;
   /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
    *  A2A action surface, which shares the same policy).
@@ -1089,6 +1236,10 @@ interface DefineActionWithSchema<
    *    a template delete its hand-maintained `connectorCatalog` name list.
    *    Paired with `agentTool: false` it makes the action MCP-only — external
    *    agents get it, the app's own agent does not.
+   *  - `"search"` — served to external agents but left out of `tools/list`, so
+   *    the list stays short. `tool-search` finds it and the `call-tool` tool
+   *    runs it, with the same checks as a listed tool; it does not activate
+   *    the connector tier. The full catalog lists it like any other.
    *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
    *    whether it is advertised up front or found through `tool-search`.
    *
@@ -1099,14 +1250,20 @@ interface DefineActionWithSchema<
    *  that an action ending the in-app agent's turn is in-app only by default,
    *  because the user's answer flows back through the in-app chat that an
    *  external caller is not on. */
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** Lets an MCP connection on the script catalog call this action from
-   *  `run-script`. Nothing is scriptable by default. `"read"` is the only
-   *  value, and `defineAction` throws when the action is not read-only by
-   *  `isMcpReadOnlyTool` or asks for approval, so the declaration can never
-   *  loosen what the action really does. */
-  mcpScript?: "read";
+   *  `run-script`. Nothing is scriptable by default. `defineAction` throws
+   *  when `"read"` is set on an action that is not read-only by
+   *  `isMcpReadOnlyTool`, or either value on one that asks for approval, so
+   *  the declaration can never loosen what the action really does. `"write"`
+   *  needs `mcpScriptWrite`, and scripts reach it only where the app turns on
+   *  `mcp.scriptWrites`. */
+  mcpScript?: "read" | "write";
+  /** Required with `mcpScript: "write"`, and refused without it. */
+  mcpScriptWrite?: McpScriptWriteContract<
+    StandardSchemaV1.InferOutput<TSchema>
+  >;
   deferLoading?: boolean;
   /** Words and short phrases a user says for this action that its name and
    *  description do not: "auto-archive rule", "canned reply", "reschedule".
@@ -1127,8 +1284,12 @@ interface DefineActionWithSchema<
   readOnly?: boolean;
   /** Lets a verified user turn from an outside MCP client use the app page's
    *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
-   *  for writes that still need the person's approval on the review page.
-   *  Absent means no grant; it is never inferred from `readOnly`. Advertised
+   *  for writes that still need the person's approval on the review page,
+   *  `"direct"` for writes that need an admitted grant and then run at once
+   *  when the `needsApproval` predicate (required, a function) returns
+   *  exactly `false` for that call; any other answer, a throw included,
+   *  sends the call to the review page. Absent means no grant; it is never
+   *  inferred from `readOnly`. Advertised
    *  in the MCP tool listing as `_meta["agent-native/userTurn"]`. */
   userTurn?: ActionUserTurn;
   /** Over MCP, refuse this action unless the call carries an admitted user
@@ -1275,11 +1436,15 @@ interface DefineActionWithParams<
   /** Returns an embed start URL that another app on its own origin minted
    *  for the caller, which the MCP server keeps instead of re-minting. */
   opensAnotherAppEmbed?: boolean;
+  /** Marks a write action whose explicit job is opening a view in the UI when
+   *  called by an agent without `intent: "open"`. Ignored on `readOnly` actions. */
+  allowsAgentNavigation?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** See `mcpScript` on the schema form above. */
-  mcpScript?: "read";
+  mcpScript?: "read" | "write";
+  mcpScriptWrite?: McpScriptWriteContract<InferParams<TParams>>;
   deferLoading?: boolean;
   /** See `searchHints` on the schema form above. */
   searchHints?: readonly string[];
@@ -1288,8 +1453,12 @@ interface DefineActionWithParams<
   readOnly?: boolean;
   /** Lets a verified user turn from an outside MCP client use the app page's
    *  short-lived turn grant for this action: `"read"` for reads, `"approval"`
-   *  for writes that still need the person's approval on the review page.
-   *  Absent means no grant; it is never inferred from `readOnly`. Advertised
+   *  for writes that still need the person's approval on the review page,
+   *  `"direct"` for writes that need an admitted grant and then run at once
+   *  when the `needsApproval` predicate (required, a function) returns
+   *  exactly `false` for that call; any other answer, a throw included,
+   *  sends the call to the review page. Absent means no grant; it is never
+   *  inferred from `readOnly`. Advertised
    *  in the MCP tool listing as `_meta["agent-native/userTurn"]`. */
   userTurn?: ActionUserTurn;
   /** Over MCP, refuse this action unless the call carries an admitted user
@@ -1357,9 +1526,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly requiresSignedInBrowser?: boolean;
   readonly opensAnotherAppEmbed?: boolean;
   readonly agentTool?: boolean;
-  readonly mcpTool?: boolean;
+  readonly mcpTool?: ActionMcpTool;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
-  readonly mcpScript?: "read";
+  readonly mcpScript?: "read" | "write";
+  readonly mcpScriptWrite?: McpScriptWriteContract;
   readonly deferLoading?: boolean;
   readonly searchHints?: readonly string[];
   readonly eagerInputStreaming?: boolean;
@@ -1522,6 +1692,15 @@ export function defineAction<
 >;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
+  if (
+    options.userTurn === "direct" &&
+    (typeof options.needsApproval !== "function" ||
+      options.requiresUserTurn === true)
+  ) {
+    throw new Error(
+      'defineAction: userTurn: "direct" needs a needsApproval predicate (a function) that decides each call, and no requiresUserTurn; a direct write always needs an admitted grant.',
+    );
+  }
   if (options.requiresUserTurn === true && options.userTurn !== "approval") {
     throw new Error(
       'defineAction: requiresUserTurn needs userTurn: "approval"; without it no MCP call could ever run the action.',
@@ -1695,6 +1874,8 @@ export function defineAction(options: any) {
     if (frame) {
       frame.writes = callReadOnly !== true;
       frame.emitsChange = options.changeEvents !== false;
+      frame.allowsAgentNavigation =
+        options.allowsAgentNavigation === true && callReadOnly !== true;
     }
     // What the call has done so far: whether a write entered its handler in
     // it or in a call nested in it. Without a frame nothing tracks that, so
@@ -1730,6 +1911,7 @@ export function defineAction(options: any) {
         nested = ctx !== undefined && f.context === ctx;
       }
       if (!nested) actionName = ctx?.actionName;
+      frame.isNavigateAction = actionName === "navigate";
     }
     let ran = false;
     try {
@@ -1739,6 +1921,17 @@ export function defineAction(options: any) {
         ? await checkOutput(output, { actionName, effect: effect() })
         : output;
     } catch (thrown) {
+      if (
+        !ran &&
+        frame?.isNavigateAction &&
+        isAgentNavigationRefusedError(thrown) &&
+        thrown.reason !== "read-only-action"
+      ) {
+        return buildAgentNavigationKeptResult(
+          thrown.reason,
+          thrown.currentView,
+        );
+      }
       const error = readableFailure(thrown);
       // Raised by this handler, not passed up through a nested call's
       // boundary, with no nested write entered.
@@ -1806,8 +1999,10 @@ export function defineAction(options: any) {
       : undefined;
   const agentTool: boolean | undefined =
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
-  const mcpTool: boolean | undefined =
-    typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const mcpTool: ActionMcpTool | undefined =
+    typeof options.mcpTool === "boolean" || options.mcpTool === "search"
+      ? options.mcpTool
+      : undefined;
   const mcpAnnotations: ActionMcpToolAnnotations | undefined =
     options.mcpAnnotations === undefined
       ? undefined
@@ -1826,24 +2021,34 @@ export function defineAction(options: any) {
             );
           })();
   const mcpScript = (() => {
-    if (options.mcpScript === undefined) return undefined;
-    if (options.mcpScript !== "read") {
-      throw new TypeError('mcpScript must be "read" when it is set.');
+    if (options.mcpScript === undefined) {
+      if (options.mcpScriptWrite !== undefined) {
+        throw new TypeError('mcpScriptWrite needs mcpScript: "write".');
+      }
+      return undefined;
     }
-    if (
-      !isMcpReadOnlyTool({
-        readOnly: readOnly === true,
-        ...(options.planMode === undefined
-          ? {}
-          : { planMode: options.planMode }),
-        ...(mcpAnnotations === undefined ? {} : { mcpAnnotations }),
-      })
-    ) {
+    const mode: unknown = options.mcpScript;
+    if (mode !== "read" && mode !== "write") {
+      throw new TypeError(
+        'mcpScript must be "read" or "write" when it is set.',
+      );
+    }
+    const isRead = isMcpReadOnlyTool({
+      readOnly: readOnly === true,
+      ...(options.planMode === undefined ? {} : { planMode: options.planMode }),
+      ...(mcpAnnotations === undefined ? {} : { mcpAnnotations }),
+    });
+    if (mode === "read" && !isRead) {
       throw new TypeError(
         'mcpScript: "read" requires a read-only action: readOnly: true, no planMode effect other than "read", and no readOnlyHint: false.',
       );
     }
-    if (mcpAnnotations?.destructiveHint === true) {
+    if (mode === "write" && isRead) {
+      throw new TypeError(
+        'mcpScript: "write" is for an action that changes data; a read-only action declares mcpScript: "read".',
+      );
+    }
+    if (mode === "read" && mcpAnnotations?.destructiveHint === true) {
       throw new TypeError(
         'mcpScript: "read" cannot be set on an action annotated destructiveHint: true.',
       );
@@ -1854,10 +2059,21 @@ export function defineAction(options: any) {
       options.publicAgent?.isConsequential === true
     ) {
       throw new TypeError(
-        'mcpScript: "read" cannot be set on an action that asks for approval or is consequential.',
+        `mcpScript: "${mode}" cannot be set on an action that asks for approval or is consequential.`,
       );
     }
-    return "read" as const;
+    if (mode === "read") {
+      if (options.mcpScriptWrite !== undefined) {
+        throw new TypeError('mcpScriptWrite needs mcpScript: "write".');
+      }
+      return "read" as const;
+    }
+    if (!isMcpScriptWriteContract(options.mcpScriptWrite)) {
+      throw new TypeError(
+        'mcpScript: "write" needs mcpScriptWrite with rowBound, receiptLocator, reconcile and fence functions and a boolean destructive.',
+      );
+    }
+    return "write" as const;
   })();
   const deferLoading: boolean | undefined =
     typeof options.deferLoading === "boolean"
@@ -1954,9 +2170,16 @@ export function defineAction(options: any) {
       ? { opensAnotherAppEmbed: true }
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
-    ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(mcpTool !== undefined ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(mcpScript ? { mcpScript } : {}),
+    ...(mcpScript === "write"
+      ? {
+          mcpScriptWrite: frozenMcpScriptWriteContract(
+            options.mcpScriptWrite as McpScriptWriteContract,
+          ),
+        }
+      : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(searchHints ? { searchHints } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"
@@ -1966,7 +2189,9 @@ export function defineAction(options: any) {
       ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
       : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
-    ...(options.userTurn === "read" || options.userTurn === "approval"
+    ...(options.userTurn === "read" ||
+    options.userTurn === "approval" ||
+    options.userTurn === "direct"
       ? { userTurn: options.userTurn }
       : {}),
     ...(options.requiresUserTurn === true ? { requiresUserTurn: true } : {}),
@@ -2062,27 +2287,27 @@ export function defineAction(options: any) {
 
 export function isActionExposedToExternalAgents(entry: {
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   endsTurn?: boolean;
   uiOnly?: boolean;
 }): boolean {
   if (entry.uiOnly === true) return false;
   if (entry.endsTurn === true) {
-    return entry.mcpTool === true;
+    return isMcpToolServed(entry.mcpTool);
   }
-  return typeof entry.mcpTool === "boolean"
-    ? entry.mcpTool
-    : entry.agentTool !== false;
+  return entry.mcpTool === undefined
+    ? entry.agentTool !== false
+    : isMcpToolServed(entry.mcpTool);
 }
 
 export function isActionHiddenFromEveryAgentSurface(entry: {
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   uiOnly?: boolean;
 }): boolean {
   return (
     entry.uiOnly === true ||
-    (entry.agentTool === false && entry.mcpTool !== true)
+    (entry.agentTool === false && !isMcpToolServed(entry.mcpTool))
   );
 }
 
@@ -2165,13 +2390,13 @@ function wrapRunWithAudit(
       ]);
       const omitFromPersistedHistory =
         actionIsPrivate || ctx?.omitFromPersistedHistory === true;
+      const {
+        target: _omittedTarget,
+        summary: _omittedSummary,
+        ...kept
+      } = auditConfig ?? {};
       const effectiveAuditConfig = omitFromPersistedHistory
-        ? {
-            ...(auditConfig ?? {}),
-            recordInputs: false,
-            target: undefined,
-            summary: undefined,
-          }
+        ? { ...kept, recordInputs: false }
         : auditConfig;
       const call = {
         config: effectiveAuditConfig,
@@ -2179,21 +2404,21 @@ function wrapRunWithAudit(
         ctx,
         attribution: auditAttribution(ctx),
       };
-      await recordActionAudit(
-        threw
-          ? {
-              ...call,
-              status: "error",
-              error: omitFromPersistedHistory
-                ? new Error("Private content omitted")
-                : error,
-            }
-          : {
-              ...call,
-              status: "success",
-              ...(!omitFromPersistedHistory ? { result } : {}),
-            },
-      );
+      const audit: RecordActionAuditInput = threw
+        ? {
+            ...call,
+            status: "error",
+            error: omitFromPersistedHistory
+              ? new Error("Private content omitted")
+              : error,
+          }
+        : {
+            ...call,
+            status: "success",
+            ...(!omitFromPersistedHistory ? { result } : {}),
+          };
+      if (ctx?.deferAudit) ctx.deferAudit(audit);
+      else await recordActionAudit(audit);
     } catch {
       // Recorder failed to load/run — never affect the action.
     }
@@ -2712,11 +2937,20 @@ export function describeToolParameterSignature(
  * `actionCallIntent`, the call also carries its classification and the action
  * it was classified for.
  */
+function extractNavigationIntent(args: unknown): string | undefined {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return undefined;
+  }
+  const intent = (args as { intent?: unknown }).intent;
+  return typeof intent === "string" ? intent : undefined;
+}
+
 interface PreparedRun {
   readonly schema: StandardSchemaV1 | undefined;
   readonly value: unknown;
   readonly key?: object;
   readonly intent?: PreparedActionCall;
+  readonly navigationIntent?: string;
 }
 
 const preparedRuns = new WeakMap<object, PreparedRun>();
@@ -2874,6 +3108,12 @@ function wrapRunWithExecutionBoundary(
     frame.key = key;
     frame.boundaryPending = false;
     frame.handlerEntered = false;
+    const rawNavigationIntent =
+      extractNavigationIntent(args) ??
+      preparedRunFor(ctx, args)?.navigationIntent;
+    if (rawNavigationIntent !== undefined) {
+      frame.navigationIntent = rawNavigationIntent;
+    }
     const state: ActionExecutionState = {
       frame,
       failures: parent?.failures ?? new WeakMap(),
@@ -3065,7 +3305,14 @@ async function validatedActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (ctx) preparedRuns.set(ctx, { schema, value });
+  const navigationIntent = extractNavigationIntent(args);
+  if (ctx) {
+    preparedRuns.set(ctx, {
+      schema,
+      value,
+      ...(navigationIntent !== undefined ? { navigationIntent } : {}),
+    });
+  }
   return value;
 }
 
@@ -3109,6 +3356,7 @@ const preparedIntents = new WeakMap<
     readonly schema: StandardSchemaV1 | undefined;
     readonly key?: object;
     readonly snapshot: unknown;
+    readonly navigationIntent?: string;
   }
 >();
 
@@ -3129,6 +3377,7 @@ export async function actionCallIntent(
     "~standard" in entry.schema
       ? (entry.schema as StandardSchemaV1)
       : undefined;
+  const rawNavigationIntent = extractNavigationIntent(input);
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
     const repaired = getStrictToolInputValidator(entry)
@@ -3166,8 +3415,25 @@ export async function actionCallIntent(
     schema,
     ...(key !== null && typeof key === "object" ? { key } : {}),
     snapshot: snapshot.value,
+    ...(rawNavigationIntent !== undefined
+      ? { navigationIntent: rawNavigationIntent }
+      : {}),
   });
   return intent;
+}
+
+/**
+ * Whether `call` was prepared for `entry`'s action. An entry
+ * `defineAction` didn't make carries no identity to compare, so it passes.
+ */
+export function preparedCallIsFor(
+  call: PreparedActionCall,
+  entry: object,
+): boolean {
+  const prepared = preparedIntents.get(call);
+  if (!prepared) return false;
+  const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  return key !== null && typeof key === "object" ? prepared.key === key : true;
 }
 
 /**
@@ -3185,6 +3451,11 @@ export function preparedCallArguments(call: PreparedActionCall): unknown {
   return copyActionArguments(prepared.snapshot);
 }
 
+async function isNoApprovalsForCall(ctx: ActionRunContext): Promise<boolean> {
+  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
+  return isNoApprovalsMode(ctx.userEmail);
+}
+
 /**
  * Whether `call` needs a person's approval before it runs, by the action's
  * `needsApproval`. Every surface that can run an action decides with this, so
@@ -3200,12 +3471,45 @@ export async function preparedCallNeedsApproval(
   ctx: ActionRunContext,
 ): Promise<boolean> {
   const gate = entry.needsApproval;
-  if (typeof gate !== "function") return gate === true;
+  if (typeof gate !== "function" && gate !== true) return false;
+  if (await isNoApprovalsForCall(ctx)) return false;
+  if (typeof gate !== "function") return true;
   try {
     return Boolean(await gate(preparedCallArguments(call), ctx));
   } catch {
     // coercion-ok: a predicate that cannot decide fails closed and asks.
     return true;
+  }
+}
+
+/**
+ * Whether the action's `needsApproval` predicate clears `call` of review: only
+ * an answer of exactly `false` (or no-approvals mode). Anything else, a throw
+ * or a non-boolean included, leaves the call to review, so a direct write
+ * never runs on a predicate that could not decide.
+ */
+export async function preparedCallClearsReview(
+  entry: {
+    needsApproval?:
+      | boolean
+      | ((args: never, ctx?: ActionRunContext) => unknown);
+  },
+  call: PreparedActionCall,
+  ctx: ActionRunContext,
+): Promise<boolean> {
+  if (await isNoApprovalsForCall(ctx)) return true;
+  const gate = entry.needsApproval;
+  if (typeof gate !== "function") return false;
+  try {
+    return (
+      (await (gate as (args: unknown, ctx?: ActionRunContext) => unknown)(
+        preparedCallArguments(call),
+        ctx,
+      )) === false
+    );
+  } catch {
+    // coercion-ok: a predicate that cannot decide leaves the call to review.
+    return false;
   }
 }
 
@@ -3260,6 +3564,9 @@ export function runPreparedActionCall(
     value: args,
     ...(prepared.key ? { key: prepared.key } : {}),
     intent: call,
+    ...(prepared.navigationIntent !== undefined
+      ? { navigationIntent: prepared.navigationIntent }
+      : {}),
   });
   return outcome
     ? runActionWithExecutionOutcome(

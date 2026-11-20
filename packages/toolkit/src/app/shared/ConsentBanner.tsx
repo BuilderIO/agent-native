@@ -20,13 +20,15 @@ const DEFAULT_PRIVACY_POLICY_HREF = "https://www.agent-native.com/privacy";
  */
 export function ConsentBanner({
   privacyPolicyHref = DEFAULT_PRIVACY_POLICY_HREF,
+  automaticPrompt = true,
 }: {
   privacyPolicyHref?: string;
+  automaticPrompt?: boolean;
 }) {
   const t = useT();
   const open = useSyncExternalStore(
     subscribeConsent,
-    shouldShowConsentBanner,
+    () => shouldShowConsentBanner(automaticPrompt),
     () => false,
   );
   const [managing, setManaging] = useState(false);

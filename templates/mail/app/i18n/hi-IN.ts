@@ -798,6 +798,10 @@ const messages = {
     contacts: {
       noContactSelected: "कोई कॉन्टैक्ट चयनित नहीं",
     },
+    readingPane: {
+      empty: "कोई ईमेल चयनित नहीं",
+      resizeList: "ईमेल सूची का आकार बदलें",
+    },
   },
   agent: {
     emptyState: "अपने emails के बारे में कुछ भी पूछें",
@@ -899,6 +903,10 @@ const messages = {
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",
+    reading: "पढ़ना",
+    readingPane: "रीडिंग पेन",
+    readingPaneSaveFailed: "रीडिंग पेन सेटिंग सहेजी नहीं जा सकी।",
+    readingPaneLoadFailed: "रीडिंग पेन सेटिंग लोड नहीं की जा सकी।",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },

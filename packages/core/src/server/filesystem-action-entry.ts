@@ -91,7 +91,9 @@ export function preserveActionFlags(
     out.access = entry.access as Flag<"access">;
   }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
-  if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (typeof entry.mcpTool === "boolean" || entry.mcpTool === "search") {
+    out.mcpTool = entry.mcpTool;
+  }
   if (isMcpAnnotations(entry.mcpAnnotations)) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
@@ -130,7 +132,11 @@ export function preserveActionFlags(
     out.opensAnotherAppEmbed = true;
   }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
-  if (entry.userTurn === "read" || entry.userTurn === "approval") {
+  if (
+    entry.userTurn === "read" ||
+    entry.userTurn === "approval" ||
+    entry.userTurn === "direct"
+  ) {
     out.userTurn = entry.userTurn;
   }
   if (entry.requiresUserTurn === true) out.requiresUserTurn = true;

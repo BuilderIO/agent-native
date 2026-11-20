@@ -24,7 +24,6 @@ export interface A2ACallerAuth {
 
 export async function resolveA2ACallerAuth(options?: {
   expiresIn?: string | number;
-  includeGoogleToken?: boolean;
   audience?: string | string[];
   userIdentityOnly?: boolean;
 }): Promise<A2ACallerAuth> {
@@ -50,10 +49,6 @@ export async function resolveA2ACallerAuth(options?: {
     if (!token || apiKeyAttempts.includes(token)) return;
     apiKeyAttempts.push(token);
   };
-  // A workspace with no domain has nothing a peer app can bind it to (org IDs
-  // are local to each app's database), so its members send their own
-  // identity without a workspace claim. The peer runs the call in the user's
-  // personal scope instead of rejecting an unsigned request.
   if (
     userEmail &&
     !isOrgMemberDelegation &&
@@ -100,10 +95,6 @@ export async function resolveA2ACallerAuth(options?: {
     );
   }
 
-  if (options?.includeGoogleToken) {
-    await attachGoogleTokenMetadata(metadata, userEmail);
-  }
-
   return {
     apiKey: apiKeyAttempts[0],
     ...(apiKeyAttempts.length > 1
@@ -115,21 +106,4 @@ export async function resolveA2ACallerAuth(options?: {
     orgSecret,
     metadata,
   };
-}
-
-async function attachGoogleTokenMetadata(
-  metadata: Record<string, unknown>,
-  userEmail: string | undefined,
-): Promise<void> {
-  if (process.env.NODE_ENV !== "production" || !userEmail) return;
-
-  try {
-    const { listOAuthAccountsByOwner } =
-      await import("../oauth-tokens/store.js");
-    const accounts = await listOAuthAccountsByOwner("google", userEmail);
-    const tokens = accounts[0]?.tokens;
-    if (tokens?.access_token) {
-      metadata.googleToken = tokens.access_token;
-    }
-  } catch {}
 }

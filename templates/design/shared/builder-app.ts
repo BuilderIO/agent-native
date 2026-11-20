@@ -142,11 +142,7 @@ export function buildMigrationSeed(params: {
 
   const brandKitBlock =
     brandKitSummary && brandKitSummary.trim()
-      ? [
-          "",
-          "## Brand Kit / Design System tokens",
-          brandKitSummary.trim(),
-        ].join("\n")
+      ? ["", "## Brand Kit tokens", brandKitSummary.trim()].join("\n")
       : "";
 
   const omittedFilesNote =

@@ -2,6 +2,7 @@ import { runMigrations } from "@agent-native/core/db";
 import {
   searchIndexMigration,
   semanticSearchMigration,
+  semanticVectorStoreMigration,
 } from "@agent-native/core/search";
 
 import { documentSearchIndex } from "../db/index.js";
@@ -1791,6 +1792,15 @@ export const runContentMigrations = runMigrations(
       version: 139,
       name: "search-embeddings-documents",
     }),
+    semanticVectorStoreMigration({
+      version: 140,
+      name: "search-vectors-1024",
+    }),
+    {
+      version: 141,
+      name: "content-comment-attachments",
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
+    },
   ],
   { table: "content_migrations" },
 );

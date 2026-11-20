@@ -294,13 +294,14 @@ export function aiSdkPartToEngineEvents(
 
 function finishReasonToStopReason(
   reason: unknown,
-): "end_turn" | "tool_use" | "max_tokens" | "stop_sequence" | "error" {
+): Extract<EngineEvent, { type: "stop" }>["reason"] {
   switch (reason) {
     case "tool-calls":
       return "tool_use";
     case "length":
       return "max_tokens";
     case "content-filter":
+      return "refusal";
     case "error":
       return "error";
     default:

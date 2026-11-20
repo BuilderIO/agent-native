@@ -9,6 +9,8 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/store.js";
+import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   describeBearerCredentialRefusal,
@@ -55,6 +57,7 @@ import {
   MCP_ROUTE_PREFIXES,
   joinMcpRoute,
 } from "./route-paths.js";
+import { recoverScriptWrites } from "./script-writes.js";
 import {
   hasUserTurnActions,
   isAgentTurnGrantContext,
@@ -132,9 +135,11 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
       .toLowerCase() === "script" || requestsScriptCatalogByQuery(event);
   const basePath = getConfiguredAppBasePath();
   const turnGrant = getRequestHeader(event, MCP_TURN_GRANT_HEADER);
+  const browserTabId = readBrowserTabIdHeader(event);
   return {
     origin,
     ...(turnGrant !== undefined ? { turnGrant } : {}),
+    ...(browserTabId ? { browserTabId } : {}),
     ...(isAgentTurnGrantContext() ? { turnGrantExcluded: true } : {}),
     ...(basePath ? { basePath } : {}),
     target,
@@ -610,6 +615,17 @@ export function mountMCP(
       "",
     );
   }
+  const scriptLedgerAppId = mcpApprovalAppId(config);
+  registerRecurringSweepHandler(
+    `mcp-script-ledger:${scriptLedgerAppId}`,
+    async ({ deadlineAt }) => {
+      await recoverScriptWrites({
+        appId: scriptLedgerAppId,
+        actions: config.productionActions ?? config.actions,
+        deadlineAt,
+      });
+    },
+  );
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(
       routePath,

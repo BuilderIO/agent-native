@@ -18,3 +18,20 @@ export function setMailWebviewBackgroundThrottling(
   if (contents?.getType() !== "webview") return;
   contents.setBackgroundThrottling(target.active !== false);
 }
+
+export function setWebviewBackgroundThrottling(
+  request: unknown,
+  getWebContents: (id: number) => BackgroundThrottlingContents | undefined,
+): void {
+  if (typeof request !== "object" || request === null) return;
+  const { webContentsId, throttle } = request as {
+    webContentsId?: unknown;
+    throttle?: unknown;
+  };
+  if (typeof webContentsId !== "number" || typeof throttle !== "boolean") {
+    return;
+  }
+  const contents = getWebContents(webContentsId);
+  if (contents?.getType() !== "webview") return;
+  contents.setBackgroundThrottling(throttle);
+}

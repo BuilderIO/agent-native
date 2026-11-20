@@ -947,7 +947,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "errorMessages.invalidAttachmentNamed":
     "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
-  "recovery.resendVerificationEmail": "Bestätigungs-E-Mail erneut senden",
+  "recovery.resendVerificationEmail":
+    "Bestätigungs-E-Mail für das App-Konto erneut senden",
   "recovery.sendingVerificationEmail": "Wird gesendet...",
   "recovery.verificationEmailRequested":
     "Bestätigungs-E-Mail angefordert. Prüfe Posteingang und Spam-Ordner.",
@@ -1027,6 +1028,9 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.searchKeys": "Schlüssel suchen...",
   "secrets.usePersonalKey":
     "Stattdessen einen persönlichen Schlüssel verwenden",
+  "secrets.testing": "Wird getestet…",
+  "secrets.cannotCheckAlone":
+    "Dieser Schlüssel lässt sich nicht einzeln prüfen",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
   "setup.addKeyInSettings": "Einen Schlüssel in den Einstellungen hinzufügen",
@@ -1439,6 +1443,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "Fehler: {{message}}",
   "errorMessages.gatewayInternalError":
     "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
+  "errorMessages.modelRefusal":
+    "Bei dieser Anfrage kann ich nicht helfen. Bei einer anderen Frage helfe ich dir gern.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
   "errorMessages.creditsLimitReached": "Du hast dein KI-Credit-Limit erreicht.",
@@ -1476,6 +1482,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Anbieter hat eine HTML-Fehlerseite zurückgegeben.",
   "errorMessages.providerNetwork":
     "Der Modellanbieter konnte nicht erreicht werden. Prüfe deine Verbindung und versuche es erneut.",
+  "errorMessages.emailVerificationRequired":
+    "Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
   "errorMessages.providerRateLimit":
     "Der Modellanbieter begrenzt diesen Chat derzeit. Warte einen Moment und versuche es dann erneut.",
   "errorMessages.providerTransientRejection":

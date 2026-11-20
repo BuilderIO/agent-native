@@ -8,6 +8,7 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -85,6 +86,7 @@ import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import {
   createFrameworkSCIMIdentity,
   frameworkOrgBridgePlugin,
+  resolveFrameworkSSOUser,
 } from "../org/scim-provisioning.js";
 import {
   enforceSignupAdmission,
@@ -153,6 +155,7 @@ import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+import { keepRunnerSessionExpiry } from "./runner-session-label.js";
 import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
 import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
 
@@ -208,6 +211,17 @@ export {
   resolveAuthLoginModeFromReadiness,
   type AuthLoginMode,
 } from "./auth-login-mode.js";
+
+const magicLinkIssuedTokenHookStorage = new AsyncLocalStorage<
+  (email: string, token: string) => Promise<void>
+>();
+
+export function runWithMagicLinkIssuedTokenHook<T>(
+  hook: (email: string, token: string) => Promise<void>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return magicLinkIssuedTokenHookStorage.run(hook, run);
+}
 
 const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
 // Signup delivery holds its transaction, connection, and per-address lock.
@@ -1445,6 +1459,7 @@ export interface BetterAuthInternalAdapter {
       name?: string;
       image?: string | null;
       emailVerified?: boolean;
+      twoFactorEnabled?: boolean | null;
       onboardingRole?: string | null;
       createdAt?: Date | string;
     };
@@ -1494,7 +1509,7 @@ export interface BetterAuthInternalAdapter {
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
-    override?: { expiresAt?: Date },
+    override?: { expiresAt?: Date; userAgent?: string; ipAddress?: string },
     overrideAll?: boolean,
   ) => Promise<{ token: string }>;
   deleteSession: (token: string) => Promise<void>;
@@ -1640,6 +1655,15 @@ export async function replaceUnverifiedCredentialWithGoogle(input: {
         "The unverified credential identity changed before Google linking",
       );
     }
+
+    await tx.execute({
+      sql: 'DELETE FROM "session" WHERE user_id = ?',
+      args: [input.userId],
+    });
+    await tx.execute({
+      sql: "DELETE FROM sessions WHERE LOWER(email) = LOWER(?)",
+      args: [input.email],
+    });
 
     const updated = await tx.execute({
       sql: 'UPDATE "user" SET email_verified = ?, updated_at = ? WHERE id = ? AND email = ? AND email_verified = ?',
@@ -2277,6 +2301,14 @@ async function createBetterAuthInstance(
   );
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
+  if (
+    enterpriseAuthAdaptersBuilt &&
+    (access.sso.enabled || access.scim.enabled)
+  ) {
+    enterprisePlugins.push(
+      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
+    );
+  }
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
     const { sso } = await loadOptionalPeer(
       "@better-auth/sso",
@@ -2285,23 +2317,11 @@ async function createBetterAuthInstance(
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
-        resolveUser: async ({ providerUser }, context) => {
-          const existing = await context.database.findOne<{
-            id: string;
-          }>({
-            model: "user",
-            where: [
-              {
-                field: "email",
-                value: providerUser.email.trim().toLowerCase(),
-                mode: "insensitive",
-              },
-            ],
-          });
-          return existing
-            ? { action: "link", userId: existing.id, profile: "preserve" }
-            : { action: "continue" };
-        },
+        resolveUser: ({ providerId, providerUser }, context) =>
+          resolveFrameworkSSOUser(
+            { providerId, email: providerUser.email },
+            context.database,
+          ),
         provisionUserOnEveryLogin: true,
         provisionUser: async ({ user }) => {
           await autoJoinDomainMatchingOrgs(user.email, {
@@ -2332,9 +2352,6 @@ async function createBetterAuthInstance(
         "AUTH_SCIM_CREDENTIAL_HASH_SECRET (or BETTER_AUTH_SECRET) must contain at least 32 characters when SCIM is enabled",
       );
     }
-    enterprisePlugins.push(
-      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
-    );
     enterprisePlugins.push(
       scim({
         connections: [],
@@ -2381,6 +2398,24 @@ async function createBetterAuthInstance(
           urlPath,
           urlQueryKeys,
         });
+      }
+      if (typeof token === "string" && token) {
+        const hook = magicLinkIssuedTokenHookStorage.getStore();
+        if (hook) {
+          try {
+            await hook(email, token);
+          } catch (error) {
+            console.warn(
+              "[agent-native][magic-link] failed to record Builder signup challenge:",
+              error instanceof Error ? error.name : typeof error,
+            );
+            const { captureError } = await import("./capture-error.js");
+            captureError(error, {
+              route: "magic-link",
+              tags: { phase: "builder-signup-challenge" },
+            });
+          }
+        }
       }
       const deliveredMagicLinkUrl =
         desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;
@@ -2686,6 +2721,10 @@ async function createBetterAuthInstance(
               await import("../org/context.js");
             await bootstrapAdminOrganization(email);
           },
+        },
+        update: {
+          before: async (session, context) =>
+            keepRunnerSessionExpiry(session, context),
         },
       },
       user: {

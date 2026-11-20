@@ -134,6 +134,9 @@ describe("meeting pill with the real AgentKit chat", () => {
 
     expect(errors).toEqual([]);
     expect(host.querySelector(".pill-agentkit-chat")).not.toBeNull();
+    const composer = host.querySelector(".pill-agentkit-composer");
+    expect(composer?.innerHTML).toContain("Ask anything");
+    expect(composer?.innerHTML).not.toContain("Placeholder");
   });
 
   it("unmounts under the language provider alone", async () => {

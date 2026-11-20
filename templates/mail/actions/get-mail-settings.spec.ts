@@ -51,4 +51,15 @@ describe("get-mail-settings action", () => {
       }),
     );
   });
+
+  it("reports the reading pane on unless it was turned off", async () => {
+    await expect(action.run({})).resolves.toEqual(
+      expect.objectContaining({ readingPane: true }),
+    );
+
+    mocks.getUserSetting.mockResolvedValue({ previewPane: "off" });
+    await expect(action.run({})).resolves.toEqual(
+      expect.objectContaining({ readingPane: false }),
+    );
+  });
 });

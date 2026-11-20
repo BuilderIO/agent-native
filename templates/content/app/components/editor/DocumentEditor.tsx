@@ -454,6 +454,7 @@ import {
   type DocumentReconcileRecoveryState,
   type ReconcileRecoveryDraft,
   type ReconcileSaveBase,
+  type UnsentReconcileSave,
 } from "./useDocumentReconcileRecovery";
 import {
   canProjectAcceptedSuggestion,
@@ -509,8 +510,9 @@ export function observeAcceptedCanonicalSettlement(args: {
 
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
+  fromSelectionToolbar = false,
 ) {
-  return capturedSelection == null;
+  return capturedSelection == null && !fromSelectionToolbar;
 }
 
 export function restoreCapturedEditorSelection(
@@ -2523,6 +2525,7 @@ type DocumentUpdates = {
  */
 export function liveCopyBodySaveResult(args: {
   titleSaved: boolean;
+  writtenTitle?: string;
   bodyAcknowledged: boolean;
   writePathConfirmed: boolean;
   stillWritesThroughLiveCopy: boolean;
@@ -2532,8 +2535,25 @@ export function liveCopyBodySaveResult(args: {
   if (!args.stillWritesThroughLiveCopy)
     return { contentPersisted: false, outcome: "superseded" };
   if (!args.bodyAcknowledged || !args.writePathConfirmed)
-    return { contentPersisted: false, outcome: "pending_collaboration_flush" };
+    return {
+      contentPersisted: false,
+      outcome: "pending_collaboration_flush",
+      ...(args.writtenTitle !== undefined
+        ? { writtenTitle: args.writtenTitle }
+        : {}),
+      ...(!args.titleSaved ? { titleRefused: true as const } : {}),
+    };
   return { contentPersisted: args.titleSaved };
+}
+
+export function reconcileSaveOutcome(
+  result: DocumentSaveResult,
+): boolean | UnsentReconcileSave {
+  if (result.outcome !== "pending_collaboration_flush" || result.titleRefused)
+    return result.contentPersisted;
+  return result.writtenTitle === undefined
+    ? { unsent: true }
+    : { unsent: true, writtenTitle: result.writtenTitle };
 }
 
 /**
@@ -3644,7 +3664,7 @@ function PageEditorSessionBody({
     (
       draft: ReconcileRecoveryDraft,
       base?: ReconcileSaveBase,
-    ) => Promise<boolean>
+    ) => Promise<boolean | UnsentReconcileSave>
   >(async () => false);
   const reconcileRetainRef = useRef<
     (draft: ReconcileRecoveryDraft) => Promise<void>
@@ -5017,6 +5037,7 @@ function PageEditorSessionBody({
       options: DocumentSaveOptions,
     ): Promise<DocumentSaveResult> => {
       let titleSaved = true;
+      let writtenTitle: string | undefined;
       const titleSave = liveCopyTitleSave({
         title,
         lastSavedTitle: lastSavedTitleRef.current.title,
@@ -5054,6 +5075,7 @@ function PageEditorSessionBody({
         ) {
           titleSaved = false;
         } else {
+          writtenTitle = title;
           adoptConfirmedSaveWatermarks({
             saved,
             savedAt: saved.updatedAt,
@@ -5071,6 +5093,7 @@ function PageEditorSessionBody({
       const writePathConfirmed = await liveCopyWritePath.confirmed();
       return liveCopyBodySaveResult({
         titleSaved,
+        ...(writtenTitle !== undefined ? { writtenTitle } : {}),
         bodyAcknowledged,
         writePathConfirmed,
         stillWritesThroughLiveCopy: bodyWritesThroughLiveCopyRef.current,
@@ -8061,7 +8084,7 @@ function PageEditorSessionBody({
   ]);
 
   const handleSuggestionModeChange = useCallback(
-    async (next: boolean) => {
+    async (next: boolean, { fromSelectionToolbar = false } = {}) => {
       if (next) {
         if (!canSuggest || startingSuggestionRef.current) return;
         const initialSelection = pageActionsSelectionRef.current;
@@ -8102,7 +8125,10 @@ function PageEditorSessionBody({
             return;
           }
           if (
-            !shouldResumeSelectedSuggestionFromPageActions(initialSelection)
+            !shouldResumeSelectedSuggestionFromPageActions(
+              initialSelection,
+              fromSelectionToolbar,
+            )
           ) {
             if (
               !startSuggestionDraft(readyDocument, undefined, initialSelection)
@@ -8156,6 +8182,14 @@ function PageEditorSessionBody({
     canResume: documentFresh && canSuggest && (!canEdit || editorCanEdit),
     resume: resumeSuggestionMode,
   });
+
+  const handleSuggestEdit = useCallback(
+    (selection: VisualEditorSelectionSnapshot | null) => {
+      pageActionsSelectionRef.current = selection;
+      void handleSuggestionModeChange(true, { fromSelectionToolbar: true });
+    },
+    [handleSuggestionModeChange],
+  );
 
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
@@ -8436,8 +8470,8 @@ function PageEditorSessionBody({
       recovery: ReconcileRecoveryDraft,
       reconcileBase?: ReconcileSaveBase,
       telemetryOrigin?: "recovery",
-    ) => {
-      if (!editorCanEdit) return false;
+    ): Promise<DocumentSaveResult> => {
+      if (!editorCanEdit) return { contentPersisted: false };
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
       // A draft saved against a reviewed body was written over that body:
@@ -8489,7 +8523,7 @@ function PageEditorSessionBody({
           telemetryOrigin,
         },
       );
-      return result.contentPersisted;
+      return result;
     },
     [
       authoredContentBase,
@@ -8498,8 +8532,8 @@ function PageEditorSessionBody({
       queueDocumentSave,
     ],
   );
-  reconcileSaveRef.current = (draft, base) =>
-    handleContentSaveNow(draft, base, "recovery");
+  reconcileSaveRef.current = async (draft, base) =>
+    reconcileSaveOutcome(await handleContentSaveNow(draft, base, "recovery"));
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
     queueRecoveryDraftRetention(
       localTitle,
@@ -8695,10 +8729,12 @@ function PageEditorSessionBody({
       )
         return "unchanged";
       authoredContentBaseRef.current.edited(newContent);
-      return (await handleContentSaveNow({
-        localTitle: localTitleRef.current,
-        localDraft: newContent,
-      }))
+      return (
+        await handleContentSaveNow({
+          localTitle: localTitleRef.current,
+          localDraft: newContent,
+        })
+      ).contentPersisted
         ? "persisted"
         : "failed";
     },
@@ -8918,6 +8954,7 @@ function PageEditorSessionBody({
   const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
   const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
   const agentSlotRef = useRef<HTMLDivElement>(null);
+  const agentHeadSlotRef = useRef<HTMLDivElement>(null);
   // The panel head's tool slot; Discussion portals its controls there.
   const [pagePanelHeadTools, setPagePanelHeadTools] =
     useState<HTMLDivElement | null>(null);
@@ -9209,7 +9246,11 @@ function PageEditorSessionBody({
   // A row preview's sheet covers the page's panel, so the agent stays there
   // and the preview's own panel holds Discussion and Info.
   const agent = useAgentPanelState();
-  const showAgentTab = useAgentPanelSlot(agentSlotRef, host === "page");
+  const showAgentTab = useAgentPanelSlot(
+    agentSlotRef,
+    host === "page",
+    agentHeadSlotRef,
+  );
   const agentInPanel = showAgentTab && agent.inPanel;
   const utilityPanelTab = documentPagePanelTab({
     agentInPanel: false,
@@ -12320,6 +12361,11 @@ function PageEditorSessionBody({
                                 onComment={
                                   canComment ? handleComment : undefined
                                 }
+                                onSuggestEdit={
+                                  canSuggest && !mcpDirectoryWidgetReadOnly
+                                    ? handleSuggestEdit
+                                    : undefined
+                                }
                                 onBlockComment={
                                   canComment ? handleBlockComment : undefined
                                 }
@@ -12514,6 +12560,7 @@ function PageEditorSessionBody({
           spacerRef={pagePanelSpacerRef}
           headingRef={pagePanelHeadingRef}
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          agentHeadSlotRef={host === "page" ? agentHeadSlotRef : undefined}
           headToolsRef={setPagePanelHeadTools}
           onClose={() => handlePagePanelChange(null)}
         >

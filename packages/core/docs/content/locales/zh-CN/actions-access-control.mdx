@@ -206,6 +206,8 @@ export default defineAction({
 
 `approvedToolCalls` 是聊天请求上的一个字段(`AgentChatRequest.approvedToolCalls`)。不在这个字段中出现的键,会一直保持暂停状态。批准一次调用,永远不会批准任何其他调用。因为这个键是按内容寻址的,所以一次批准只会授权那一次确切的调用,连同那些确切的参数。如果模型之后提议一次不同的发送,那会产生一个新的键,需要一次全新的批准。
 
+重新发出的轮次还会在 `approvedToolCallAskIds` 中携带该调用待处理请求的 id。只有当该请求对同一用户和同一线程仍处于待处理状态时，服务器才会运行该调用，因此仅凭键无法批准任何操作，并且只有应用自身的页面可以通过 `agentNative.submitChat` 转发批准。
+
 ### 端到端流程 {#flow}
 
 <Diagram id="doc-block-2nor1g" title="批准中断" summary={"一次被门控的调用,会在 run() 触发之前暂停这个 turn。批准会重新发出这个 turn,并携带这次调用的键。只有到那时,副作用才会发生。"}>

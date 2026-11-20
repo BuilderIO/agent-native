@@ -722,6 +722,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "エラー：{{message}}",
   "errorMessages.gatewayInternalError":
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
+  "errorMessages.modelRefusal":
+    "そのリクエストにはお応えできません。別の質問であればお手伝いできます。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
   "errorMessages.creditsLimitReached": "AIクレジットの上限に達しました。",
@@ -758,6 +760,8 @@ const messages: ToolkitAgentChatTranslation = {
     "プロバイダーから HTML のエラーページが返されました。",
   "errorMessages.providerNetwork":
     "モデルプロバイダーに接続できませんでした。接続を確認して再試行してください。",
+  "errorMessages.emailVerificationRequired":
+    "接続されている AI プロバイダーのアカウントまたはスペースで、条件を満たすメールアドレスを認証してから再試行してください。",
   "errorMessages.providerRateLimit":
     "現在、モデルプロバイダーがこのチャットのリクエスト数を制限しています。少し待ってから再試行してください。",
   "errorMessages.providerTransientRejection":
@@ -1289,7 +1293,7 @@ const messages: ToolkitAgentChatTranslation = {
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
   "errorMessages.invalidAttachmentNamed":
     "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
-  "recovery.resendVerificationEmail": "確認メールを再送信",
+  "recovery.resendVerificationEmail": "アプリアカウントの確認メールを再送信",
   "recovery.sendingVerificationEmail": "送信中...",
   "recovery.verificationEmailRequested":
     "確認メールの送信をリクエストしました。受信トレイと迷惑メールフォルダーを確認してください。",
@@ -1364,6 +1368,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必須",
   "secrets.searchKeys": "キーを検索...",
   "secrets.usePersonalKey": "代わりに個人用キーを使用",
+  "secrets.testing": "テスト中…",
+  "secrets.cannotCheckAlone": "このキーは単独では確認できません",
   "selection.attached": "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",
