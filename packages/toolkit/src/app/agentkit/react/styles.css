@@ -3403,12 +3403,7 @@
   }
 
   .agentkit-work-source-failure-text {
-    display: -webkit-box;
     min-inline-size: 0;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
     overflow-wrap: anywhere;
   }
 

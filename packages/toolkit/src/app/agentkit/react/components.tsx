@@ -2262,11 +2262,17 @@ function workSourceIcon(kind: AgentWorkSourceKind): ReactNode {
   }
 }
 
+const WORK_SOURCE_FAILURE_NAME_LIMIT = 80;
+
 function workSourceFailureLabel(
   failure: AgentWorkSourceFailure,
   labels: AgentKitLabels,
 ): string {
-  const name = readableText(failure.text);
+  const text = readableText(failure.text);
+  const name =
+    text.length > WORK_SOURCE_FAILURE_NAME_LIMIT
+      ? `${text.slice(0, WORK_SOURCE_FAILURE_NAME_LIMIT).trimEnd()}…`
+      : text;
   if (name) {
     const template =
       failure.kind === "search"

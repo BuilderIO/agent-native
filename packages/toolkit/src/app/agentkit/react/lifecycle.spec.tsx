@@ -3517,6 +3517,72 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("shows a failure's whole reason and cuts a long name", async () => {
+    const threadId = "thread-sources-long-failure";
+    const runId = "run-sources-long-failure";
+    const query = "quarterly revenue by region and product line ".repeat(5);
+    const reason =
+      "The workspace search index is rebuilding after the nightly import and accepts queries again once every shared folder has been indexed";
+    const search: AgentToolCall = {
+      id: "tool-search",
+      name: "search-records",
+      input: { query },
+      output: `Error running search-records: ${reason}`,
+      status: "failed",
+    };
+    const started: AgentEvent = {
+      id: `event-${search.id}`,
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-08-31T00:00:01.000Z",
+      type: "tool.started",
+      toolCall: { ...search, status: "running" },
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [search.id]: search },
+      events: [started],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 1,
+          startedAt: "2026-08-31T00:00:00.000Z",
+          completedAt: "2026-08-31T00:00:02.000Z",
+        },
+      },
+    };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const failure = tree.container.querySelector(
+      "[data-agentkit-work-sources] .agentkit-work-source-failure",
+    );
+    const name = query.trim().slice(0, 80).trimEnd();
+    expect(
+      failure?.querySelector(".agentkit-work-source-failure-label")
+        ?.textContent,
+    ).toBe(`Couldn't search for ${name}…`);
+    expect(
+      failure?.querySelector(".agentkit-work-source-failure-reason")
+        ?.textContent,
+    ).toBe(reason);
+    await tree.unmount();
+  });
+
   it("drops a failed read that a later segment of the run reads", async () => {
     const threadId = "thread-sources-later-segment";
     const runId = "run-sources-later-segment";
