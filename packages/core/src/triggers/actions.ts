@@ -607,7 +607,10 @@ async function existingTargetsHost(
   if (!context?.userEmail) return false;
   const resourceId =
     typeof args.resource_id === "string" ? args.resource_id : undefined;
-  const path = typeof args.path === "string" ? args.path.trim() : undefined;
+  const path =
+    args.action === "run-now" && typeof args.path === "string"
+      ? args.path.trim()
+      : undefined;
   const name = typeof args.name === "string" ? args.name : undefined;
   const scope = optionalAutomationScope(args.scope);
   const orgId = context.orgId ?? getRequestOrgId();

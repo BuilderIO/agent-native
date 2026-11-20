@@ -708,6 +708,24 @@ describe("manage-automations approval for paired-computer targets", () => {
     ).toBe(false);
   });
 
+  it("looks up an update target by name, not path", async () => {
+    mocks.authorizeAutomationRunNow.mockResolvedValueOnce({
+      resource: { content: "---\nschedule: ''\n---\n\nGo." },
+    });
+    await gate({
+      action: "update",
+      name: "nightly",
+      path: "jobs/other.md",
+      instructions: "New.",
+    });
+    expect(mocks.authorizeAutomationRunNow).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: "nightly" }),
+    );
+    expect(mocks.authorizeAutomationRunNow).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ path: expect.anything() }),
+    );
+  });
+
   it("keeps asking outside callers and disables persistent approval", async () => {
     expect(await gate({ action: "delete" }, { caller: "mcp" })).toBe(true);
     expect(await gate({ action: "list" }, { caller: "mcp" })).toBe(false);
