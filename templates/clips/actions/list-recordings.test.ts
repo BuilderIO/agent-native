@@ -179,6 +179,10 @@ vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(),
 }));
 
+import {
+  activeUploadFromContent,
+  uploadedFromContent,
+} from "../server/lib/content-uploads.js";
 import action, {
   mergeViewCounts,
   resolveListRecordingMedia,
@@ -562,5 +566,48 @@ describe("list-recordings made by", () => {
         madeByAgent: null,
       }),
     ]);
+  });
+});
+
+describe("list-recordings Library source", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function countConditions(args: Record<string, unknown>) {
+    await action.run(
+      action.schema.parse({ view: "library", countOnly: true, ...args }),
+    );
+    const [where] = mockCountWhere.mock.calls[0] as unknown as [
+      { conditions: unknown[] },
+    ];
+    return where.conditions;
+  }
+
+  it("leaves Content uploads out of Library by default", async () => {
+    const conditions = await countConditions({});
+    expect(conditions).toContainEqual({
+      kind: "not",
+      value: uploadedFromContent(),
+    });
+    expect(conditions).not.toContainEqual(activeUploadFromContent());
+  });
+
+  it("lists only Content uploads when the source asks for them", async () => {
+    const conditions = await countConditions({ source: "content" });
+    expect(conditions).toContainEqual(activeUploadFromContent());
+    expect(conditions).not.toContainEqual({
+      kind: "not",
+      value: uploadedFromContent(),
+    });
+  });
+
+  it("lists both kinds when the source is all", async () => {
+    const conditions = await countConditions({ source: "all" });
+    expect(conditions).not.toContainEqual(activeUploadFromContent());
+    expect(conditions).not.toContainEqual({
+      kind: "not",
+      value: uploadedFromContent(),
+    });
   });
 });

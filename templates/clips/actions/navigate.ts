@@ -65,6 +65,12 @@ export default defineAction({
         .string()
         .optional()
         .describe("Library search term (sets ?q=… on library/space)"),
+      filters: z
+        .string()
+        .optional()
+        .describe(
+          "For view=library: the Library's filter, written as the query of a Library link, such as source=content or source=all&r=madeBy:equals:agent. See list-recordings' filters for the fields.",
+        ),
       panel: z
         .enum([
           "comments",
@@ -106,6 +112,7 @@ export default defineAction({
     if (args.folderId) nav.folderId = args.folderId;
     if (args.shareId) nav.shareId = args.shareId;
     if (args.search) nav.search = args.search;
+    if (args.filters) nav.filters = args.filters;
     if (args.panel) nav.panel = args.panel;
     if (args.atMs != null) nav.atMs = args.atMs;
     if (path) nav.path = path;

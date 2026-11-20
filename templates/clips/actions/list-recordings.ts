@@ -28,9 +28,13 @@ import {
 import {
   activeUploadFromContent,
   contentPageUrls,
-  uploadedFromContent,
   uploadFromTrashedPage,
 } from "../server/lib/content-uploads.js";
+import {
+  filterLibraryRecordings,
+  librarySourceCondition,
+  librarySources,
+} from "../server/lib/library-filter.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
@@ -42,6 +46,10 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
+import {
+  readLibraryFilter,
+  withLibrarySource,
+} from "../shared/library-filters.js";
 import { transcriptHasTextSql } from "./lib/transcript-text.js";
 
 // A calendar date (2026-10-25) or a date-time with its offset
@@ -178,6 +186,19 @@ export const listRecordingsSchema = z.object({
     .describe(
       "Only recordings a person made (in Clips' apps or a Content page) or an agent made (through Clips' tools, its chat, MCP or A2A). Recordings from before Clips began recording this have madeBy null, so either value leaves them out.",
     ),
+  source: z
+    .enum(["clips", "content", "all"])
+    .optional()
+    .describe(
+      "For view library without a folder: where the recordings came from. clips, the default, leaves out recordings uploaded from Agent-Native Content pages; content lists only those, each with contentPageUrl; all lists both.",
+    ),
+  filters: z
+    .string()
+    .max(4000)
+    .optional()
+    .describe(
+      "For view library without a folder: the Library's filter, written as the query of a Library link, such as source=all&r=madeBy:equals:agent&r=created:is_within:past_7_days. source is clips, content or all; match=any makes one rule enough; each r=field:operator:values adds a rule. Fields: madeBy (person, agent), created (a date, today, or a range like past_7_days, read in the user's time zone), sharing (private, org, public, shared, not_shared), length (under_1m, 1_to_5m, 5_to_20m, over_20m), tag, transcript (is_checked or is_unchecked). With countOnly, also returns the count beside every option and the tags in use.",
+    ),
   sort: z
     .enum(["recent", "views", "oldest"])
     .default("recent")
@@ -205,11 +226,24 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, whether a person or an agent made it, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, whether a person or an agent made it, where it came from, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. Library leaves out Clips uploaded from Agent-Native Content pages unless source or filters asks for them; each such Clip has `contentPageUrl`. The from-content view lists those uploads wherever they're filed, for older callers. For the exact list the user sees in Library, pass the filters from their Library link.",
   schema: listRecordingsSchema,
   http: { method: "GET" },
   run: async (args, ctx) => {
     const db = getDb();
+    const libraryFilter =
+      args.view === "library" && args.folderId == null
+        ? args.source
+          ? withLibrarySource(
+              readLibraryFilter(args.filters ?? ""),
+              args.source,
+            )
+          : readLibraryFilter(args.filters ?? "")
+        : null;
+    const filterInMemory =
+      libraryFilter !== null &&
+      (libraryFilter.items.length > 0 ||
+        (args.countOnly === true && args.filters != null));
 
     const whereClauses = [
       recordingExpiryQuery(ctx?.userEmail ?? getRequestUserEmail()).available,
@@ -235,12 +269,6 @@ export default defineAction({
 
     const orgId = await getActiveOrganizationId();
 
-    // Library = "Your personal recordings in the active org". `accessFilter`
-    // admits all owner rows regardless of org, so library must add both the
-    // owner-email and current-org predicates to scope correctly. A Clip
-    // uploaded from a Content page is never in Library's own list, and lists
-    // under From Content, or in a folder or space someone moved it into, only
-    // while its page isn't in Trash; one linked into a page stays in Library.
     if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
       if (email) {
@@ -253,8 +281,9 @@ export default defineAction({
       }
       if (args.view === "from-content") {
         whereClauses.push(activeUploadFromContent());
-      } else if (args.folderId == null) {
-        whereClauses.push(not(uploadedFromContent()));
+      } else if (libraryFilter && !filterInMemory) {
+        const source = librarySourceCondition(libraryFilter);
+        if (source) whereClauses.push(source);
       }
     }
 
@@ -369,14 +398,6 @@ export default defineAction({
       );
     }
 
-    if (args.countOnly) {
-      const totalRows = await db
-        .select({ count: sql<number>`COUNT(1)` })
-        .from(schema.recordings)
-        .where(and(...whereClauses));
-      return { recordings: [], total: Number(totalRows[0]?.count ?? 0) };
-    }
-
     const countedViewerCount = sql<number>`(
       SELECT COUNT(1)
       FROM ${schema.recordingViewers}
@@ -404,6 +425,37 @@ export default defineAction({
         : args.sort === "views"
           ? [desc(viewCountOrder), desc(schema.recordings.createdAt)]
           : [desc(schema.recordings.createdAt)];
+
+    const filtered =
+      libraryFilter && filterInMemory
+        ? await filterLibraryRecordings({
+            where: whereClauses,
+            state: libraryFilter,
+            orderBy,
+          })
+        : null;
+
+    if (args.countOnly) {
+      if (filtered) {
+        return {
+          recordings: [],
+          total: filtered.counts.matching,
+          counts: filtered.counts,
+          tags: filtered.tags,
+        };
+      }
+      const totalRows = await db
+        .select({ count: sql<number>`COUNT(1)` })
+        .from(schema.recordings)
+        .where(and(...whereClauses));
+      return { recordings: [], total: Number(totalRows[0]?.count ?? 0) };
+    }
+
+    const pageIds = filtered
+      ? filtered.ids.slice(args.offset, args.offset + args.limit)
+      : null;
+    if (pageIds?.length === 0) return { recordings: [] };
+    if (pageIds) whereClauses.push(inArray(schema.recordings.id, pageIds));
 
     const rows = await db
       .select({
@@ -465,7 +517,14 @@ export default defineAction({
       .where(and(...whereClauses))
       .orderBy(...orderBy)
       .limit(args.limit)
-      .offset(args.offset);
+      .offset(pageIds ? 0 : args.offset);
+    if (pageIds) {
+      const order = new Map(pageIds.map((id, index) => [id, index]));
+      rows.sort(
+        (a, b) =>
+          (order.get(a.recording.id) ?? 0) - (order.get(b.recording.id) ?? 0),
+      );
+    }
 
     const ids = rows.map((r) => r.recording.id);
     const ownerProfilesPromise = getUserProfiles(
@@ -512,7 +571,8 @@ export default defineAction({
         ])
       : Promise.resolve(null);
     const contentPagesPromise =
-      args.view === "from-content"
+      args.view === "from-content" ||
+      (libraryFilter && librarySources(libraryFilter).includes("content"))
         ? contentPageUrls(ids)
         : Promise.resolve(new Map<string, string>());
     const [ownerProfiles, tagRows, viewRows, contentPages] = await Promise.all([
@@ -585,7 +645,7 @@ export default defineAction({
         ...resolveListRecordingMedia(r, args.includeMedia),
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
-        ...(args.view === "from-content"
+        ...(contentPages.has(r.id)
           ? { contentPageUrl: contentPages.get(r.id) ?? null }
           : {}),
       };
