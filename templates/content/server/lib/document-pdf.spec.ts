@@ -322,6 +322,79 @@ describe("document PDF layout", () => {
 
     expect(measured).toBeLessThan(4000 * 3);
   });
+
+  it("keeps a heading with a following heading that wraps onto two lines", () => {
+    const wrapped = Array.from({ length: 10 }, () => "wrapped").join(" ");
+    for (let leads = 18; leads <= 32; leads++) {
+      const { textOf } = recordLayout(
+        "Title",
+        [
+          ...Array.from({ length: leads }, () => "Lead"),
+          "## First",
+          "# " + wrapped,
+          "Body",
+        ].join("\n\n"),
+      );
+
+      expect(textOf("Body").page).toBe(textOf("First").page);
+    }
+  });
+
+  it("starts a callout's bar beside a code block that opens it", () => {
+    const tab = String.fromCharCode(9);
+    for (let leads = 20; leads <= 40; leads++) {
+      const { ops, textOf } = recordLayout(
+        "Title",
+        [
+          ...Array.from({ length: leads }, () => "Lead"),
+          ["<callout>", tab + "~~~", tab + "x", tab + "~~~", "</callout>"].join(
+            "\n",
+          ),
+        ].join("\n\n"),
+      );
+
+      const barPages = ops.flatMap((op) =>
+        op.kind === "line" && op.y1 !== op.y2 ? [op.page] : [],
+      );
+      expect(barPages.length).toBeGreaterThan(0);
+      expect(barPages.filter((page) => page !== textOf("x").page)).toEqual([]);
+    }
+  });
+
+  it("keeps deeply nested lists with wide numbers inside the page", () => {
+    const tab = String.fromCharCode(9);
+    const { texts, measure } = recordLayout(
+      "Nested",
+      Array.from(
+        { length: 15 },
+        (_, level) => tab.repeat(level) + "10000. Item",
+      ).join("\n"),
+    );
+
+    expect(texts.filter((op) => op.text === "10000.")).toHaveLength(15);
+    for (const op of texts) {
+      expect(op.x).toBeGreaterThanOrEqual(54);
+      expect(op.x + measure(op.text, op.font)).toBeLessThanOrEqual(612 - 54);
+    }
+  });
+
+  it("doesn't add a blank line for spaces before a line break", () => {
+    const plain = recordLayout("Spaces", "a<br>b");
+    const spaced = recordLayout("Spaces", "a" + " ".repeat(200) + "<br>b");
+
+    expect(spaced.textOf("b").y - spaced.textOf("a").y).toBe(
+      plain.textOf("b").y - plain.textOf("a").y,
+    );
+  });
+
+  it("matches the title against an opening heading typed with a combining accent", () => {
+    const accent = String.fromCharCode(0x301);
+    const { texts } = recordLayout("Café", "# Cafe" + accent + "\n\nBody");
+
+    expect(
+      texts.filter((op) => op.text.normalize("NFC") === "Café"),
+    ).toHaveLength(1);
+  });
 });
 
 describe("renderDocumentPdf", () => {
@@ -358,5 +431,19 @@ describe("renderDocumentPdf", () => {
     expect(() => renderDocumentPdf({ title: "中文", content: "Body" })).toThrow(
       PdfUnsupportedTextError,
     );
+  });
+
+  it("draws a letter typed with a combining accent, in prose, code and long words", () => {
+    const word = "cafe" + String.fromCharCode(0x301);
+    expect(() =>
+      renderDocumentPdf({
+        title: "Accents",
+        content: [
+          word + " and `" + word + "`",
+          ["~~~", word, "~~~"].join("\n"),
+          word.repeat(40),
+        ].join("\n\n"),
+      }),
+    ).not.toThrow();
   });
 });

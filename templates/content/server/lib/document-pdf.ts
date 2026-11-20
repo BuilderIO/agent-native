@@ -47,6 +47,7 @@ const BODY_SIZE = 11;
 const LINE_HEIGHT = 1.5;
 const BLOCK_GAP = 4;
 const INDENT = 18;
+const MIN_TEXT_WIDTH = 72;
 const CODE_SIZE = 9.5;
 const TABLE_SIZE = 9.5;
 const ITALIC_SKEW = 0.2;
@@ -333,6 +334,7 @@ class PdfLayout {
     const lines: Line[] = [];
     let pieces: Piece[] = [];
     let lineWidth = 0;
+    let wrapNext = false;
     const hasText = () => pieces.some((piece) => !piece.space);
     const finish = () => {
       let last = lastOf(pieces);
@@ -368,6 +370,7 @@ class PdfLayout {
     for (const inline of inlines) {
       if (inline.kind === "break") {
         finish();
+        wrapNext = false;
         continue;
       }
       const font = fontFor(inline.style, size, bold);
@@ -375,11 +378,15 @@ class PdfLayout {
         if (!token) continue;
         const tokenWidth = this.canvas.measure(token, font);
         if (!token.trim()) {
-          if (lineWidth + tokenWidth <= width) add(token, inline.style, font);
-          else if (hasText()) finish();
+          if (!wrapNext && lineWidth + tokenWidth <= width) {
+            add(token, inline.style, font);
+          } else if (hasText()) {
+            wrapNext = true;
+          }
           continue;
         }
-        if (lineWidth + tokenWidth > width) {
+        if (wrapNext || lineWidth + tokenWidth > width) {
+          wrapNext = false;
           if (hasText()) {
             finish();
           } else {
@@ -473,7 +480,7 @@ class PdfLayout {
       size?: number;
       bold?: boolean;
       color?: Rgb;
-      keep?: number;
+      keep?: number | undefined;
     },
     onFirstLine?: FirstLine,
   ) {
@@ -533,7 +540,7 @@ class PdfLayout {
     this.canvas.setPage(endPage);
   }
 
-  private codeBlock(source: string, box: Box) {
+  private codeBlock(source: string, box: Box, onFirstLine?: FirstLine) {
     const font: PdfFont = {
       mono: true,
       bold: false,
@@ -560,6 +567,7 @@ class PdfLayout {
       rows.push(row);
     }
     this.room(lineHeight + padding * 2);
+    onFirstLine?.(this.y, lineHeight + padding * 2);
     this.canvas.fill(box.x, this.y, box.width, padding, CODE_FILL);
     this.y += padding;
     for (const [index, row] of rows.entries()) {
@@ -580,7 +588,7 @@ class PdfLayout {
     this.y += padding;
   }
 
-  private list(node: PMNode, box: Box) {
+  private list(node: PMNode, box: Box, onFirstLine?: FirstLine) {
     const items = node.content ?? [];
     const start = Number(node.attrs?.start);
     const first = Number.isInteger(start) ? start : 1;
@@ -597,10 +605,13 @@ class PdfLayout {
           ? BULLETS.charAt(box.depth % BULLETS.length)
           : "",
     );
-    const indent = markers.reduce(
-      (widest, marker) =>
-        Math.max(widest, this.canvas.measure(marker, font) + 6),
-      INDENT,
+    const widths = markers.map((marker) => this.canvas.measure(marker, font));
+    const indent = Math.max(
+      Math.min(
+        widths.reduce((widest, width) => Math.max(widest, width + 6), INDENT),
+        box.width - MIN_TEXT_WIDTH,
+      ),
+      0,
     );
     const inner: Box = {
       ...box,
@@ -611,14 +622,15 @@ class PdfLayout {
     items.forEach((item, index) => {
       if (index > 0) this.gap(2);
       const marker = itemAt(markers, index) ?? "";
+      const width = itemAt(widths, index) ?? 0;
       const checked =
         node.type === "taskList" ? Boolean(item.attrs?.checked) : null;
       this.blocks(item.content ?? [], inner, (top, lineHeight) => {
+        if (index === 0) onFirstLine?.(top, lineHeight);
         if (checked !== null) {
           this.checkbox(box.x + 3, top + (lineHeight - 8) / 2, checked);
           return;
         }
-        const width = this.canvas.measure(marker, font);
         this.canvas.text(
           marker,
           box.x + indent - 6 - width,
@@ -658,7 +670,7 @@ class PdfLayout {
     this.canvas.line(x, y + size, x, y, MUTED, 0.8);
   }
 
-  private table(node: PMNode, box: Box) {
+  private table(node: PMNode, box: Box, onFirstLine?: FirstLine) {
     const rows = node.content ?? [];
     const columns = rows.reduce(
       (widest, row) => Math.max(widest, row.content?.length ?? 0),
@@ -688,6 +700,7 @@ class PdfLayout {
         1,
       );
       this.room(lineHeight + padding * 2);
+      if (rowIndex === 0) onFirstLine?.(this.y, lineHeight + padding * 2);
       let segmentTop = this.y;
       const borders = (bottom: number) => {
         this.canvas.line(
@@ -733,17 +746,24 @@ class PdfLayout {
     });
   }
 
-  private keepAfter(nodes: readonly PMNode[], index: number) {
+  private keepAfter(nodes: readonly PMNode[], index: number, box: Box) {
+    const most = (this.bottom - MARGIN) / 2;
     let height = BODY_SIZE * LINE_HEIGHT * 2;
     let offset = 1;
     let next = itemAt(nodes, index + offset);
-    while (next?.type === "heading") {
+    while (next?.type === "heading" && height < most) {
       const size = headingSize(next);
-      height += size * (LINE_HEIGHT + 0.6) + 2 + BLOCK_GAP;
+      const lines = this.breakLines(
+        inlinesOf(next.content, PLAIN),
+        box.width,
+        size,
+        true,
+      ).length;
+      height += size * (Math.max(lines, 1) * LINE_HEIGHT + 0.6) + 2 + BLOCK_GAP;
       offset += 1;
       next = itemAt(nodes, index + offset);
     }
-    return Math.min(height, (this.bottom - MARGIN) / 2);
+    return Math.min(height, most);
   }
 
   private block(
@@ -770,41 +790,56 @@ class PdfLayout {
       this.paragraph(
         inlinesOf(node.content, PLAIN),
         shifted,
-        { size, bold: true, keep: keep ?? BODY_SIZE * LINE_HEIGHT * 2 },
+        { size, bold: true, keep },
         onFirstLine,
       );
       this.y += 2;
       return;
     }
-    this.room(BODY_SIZE * LINE_HEIGHT);
-    onFirstLine?.(this.y, BODY_SIZE * LINE_HEIGHT);
+    const bare = () => {
+      this.room(BODY_SIZE * LINE_HEIGHT);
+      onFirstLine?.(this.y, BODY_SIZE * LINE_HEIGHT);
+    };
+    const alongside =
+      (first: FirstLine): FirstLine =>
+      (top, lineHeight) => {
+        first(top, lineHeight);
+        onFirstLine?.(top, lineHeight);
+      };
     if (
       node.type === "bulletList" ||
       node.type === "orderedList" ||
       node.type === "taskList"
     ) {
-      this.list(node, shifted);
+      this.list(node, shifted, onFirstLine);
     } else if (node.type === "blockquote") {
       this.withBar(shifted, RULE, (inner, first) =>
-        this.blocks(node.content ?? [], { ...inner, color: QUOTE }, first),
+        this.blocks(
+          node.content ?? [],
+          { ...inner, color: QUOTE },
+          alongside(first),
+        ),
       );
     } else if (node.type === "notionCallout") {
       this.withBar(
         shifted,
         namedColor(node.attrs?.color) ?? RULE,
-        (inner, first) => this.blocks(node.content ?? [], inner, first),
+        (inner, first) =>
+          this.blocks(node.content ?? [], inner, alongside(first)),
       );
     } else if (node.type === "codeBlock") {
       this.codeBlock(
         (node.content ?? []).map((child) => child.text ?? "").join(""),
         shifted,
+        onFirstLine,
       );
     } else if (
       node.type === "notionBlockAtom" &&
       node.attrs?.tagName === "equation"
     ) {
-      this.codeBlock(atomText(node), shifted);
+      this.codeBlock(atomText(node), shifted, onFirstLine);
     } else if (node.type === "horizontalRule") {
+      bare();
       this.gap(6);
       this.canvas.line(
         shifted.x,
@@ -816,7 +851,7 @@ class PdfLayout {
       );
       this.y += 6;
     } else if (node.type === "table") {
-      this.table(node, shifted);
+      this.table(node, shifted, onFirstLine);
     } else if (node.type === "notionToggle") {
       const content = node.content ?? [];
       const first = itemAt(content, 0);
@@ -835,22 +870,30 @@ class PdfLayout {
           ? (HEADING_SIZES.get(level) ?? BODY_SIZE)
           : null;
       if (title.length) {
-        this.paragraph(title, shifted, size ? { size, bold: true } : {});
+        this.paragraph(
+          title,
+          shifted,
+          size ? { size, bold: true } : {},
+          onFirstLine,
+        );
       }
       if (children.length) {
-        this.blocks(children, {
-          ...shifted,
-          x: shifted.x + INDENT,
-          width: shifted.width - INDENT,
-        });
+        this.blocks(
+          children,
+          { ...shifted, x: shifted.x + INDENT, width: shifted.width - INDENT },
+          title.length ? undefined : onFirstLine,
+        );
       }
+      if (!title.length && !children.length) bare();
     } else if (node.type === "localMdxComponent") {
       const children: unknown = node.attrs?.children;
       if (typeof children === "string" && children.trim()) {
-        this.blocks(nfmToDoc(children).content, shifted);
+        this.blocks(nfmToDoc(children).content, shifted, onFirstLine);
+      } else {
+        bare();
       }
     } else if (node.content?.length) {
-      this.blocks(node.content, shifted);
+      this.blocks(node.content, shifted, onFirstLine);
     } else {
       const text = placeholderText(node);
       if (text) {
@@ -870,7 +913,10 @@ class PdfLayout {
           ],
           shifted,
           {},
+          onFirstLine,
         );
+      } else {
+        bare();
       }
     }
   }
@@ -882,7 +928,7 @@ class PdfLayout {
         node,
         box,
         index === 0 ? onFirstLine : undefined,
-        node.type === "heading" ? this.keepAfter(nodes, index) : undefined,
+        node.type === "heading" ? this.keepAfter(nodes, index, box) : undefined,
       );
     });
     if (!nodes.length) {
@@ -918,8 +964,9 @@ export function layoutDocumentPdf(
   input: { title: string; content: string | null | undefined },
   canvas: PdfCanvas,
 ) {
-  const title = input.title.replace(/\s+/g, " ").trim() || "Untitled";
-  const body = nfmToDoc(input.content ?? "").content;
+  const title =
+    input.title.normalize("NFC").replace(/\s+/g, " ").trim() || "Untitled";
+  const body = nfmToDoc((input.content ?? "").normalize("NFC")).content;
   const first = itemAt(body, 0);
   const titled =
     first?.type === "heading" &&
@@ -1026,7 +1073,7 @@ export function renderDocumentPdf(input: {
   const hasGlyph = glyphCheck(doc.getFont().metadata);
   const characters = new Map<string, string>();
   const drawable = (text: string) =>
-    Array.from(text.normalize("NFC"), (character) => {
+    Array.from(text, (character) => {
       let kept = characters.get(character);
       if (kept === undefined) {
         kept = drawableCharacter(
