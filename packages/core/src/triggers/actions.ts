@@ -599,7 +599,7 @@ function setsExecutionTarget(args: Record<string, unknown>): boolean {
   });
 }
 
-async function runNowTargetsHost(
+async function existingTargetsHost(
   args: Record<string, unknown>,
   context: ActionRunContext | undefined,
   appId?: string,
@@ -623,8 +623,8 @@ async function runNowTargetsHost(
     const { meta } = parseJobResource(access.resource.content);
     return Boolean(meta.executionHostId?.trim());
   } catch {
-    // coercion-ok: run-now reports its own lookup failure
-    return false;
+    // coercion-ok: an unreadable target asks for approval
+    return true;
   }
 }
 
@@ -644,10 +644,13 @@ export function createAutomationToolEntries(
           return true;
         }
         if (args.action === "define" || args.action === "update") {
-          return setsExecutionTarget(args);
+          if (setsExecutionTarget(args)) return true;
+          return args.action === "update"
+            ? existingTargetsHost(args, context, appId)
+            : false;
         }
         if (args.action === "run-now") {
-          return runNowTargetsHost(args, context, appId);
+          return existingTargetsHost(args, context, appId);
         }
         return false;
       },

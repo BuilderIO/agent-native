@@ -3596,6 +3596,44 @@ describe("integrations plugin routes", () => {
     expect(handleWebhookMock).toHaveBeenCalledTimes(0);
   });
 
+  it("returns a retryable 503 when the channel membership lookup fails", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true, ownerOrgId: "org-a" },
+      owner: "admin@example.test",
+    } as never);
+    isOrgMemberMock.mockRejectedValue(new Error("lookup failed"));
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "status",
+        senderId: "UQA",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      resolveExecutionContext: async () => ({
+        ownerEmail: "member@example.test",
+        orgId: "org-a",
+        principalType: "user" as const,
+      }),
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(503);
+    expect(handleWebhookMock).toHaveBeenCalledTimes(0);
+  });
+
   it("runs a webhook for a member of the channel's organization", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true, ownerOrgId: "org-a" },

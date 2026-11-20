@@ -3798,6 +3798,7 @@ export function createIntegrationsPlugin(
               : storedChannelOrgId;
           if (channelOrgId) {
             let permitted = true;
+            let lookupFailed = false;
             const runOwner = executionContext.ownerEmail.trim().toLowerCase();
             const isUserRun =
               executionContext.principalType === "user" ||
@@ -3827,7 +3828,11 @@ export function createIntegrationsPlugin(
                 `[integrations] ${platform} channel organization check failed:`,
                 err,
               );
-              permitted = false;
+              lookupFailed = true;
+            }
+            if (lookupFailed) {
+              setResponseStatus(event, 503);
+              return "unavailable";
             }
             if (!permitted) {
               console.warn(

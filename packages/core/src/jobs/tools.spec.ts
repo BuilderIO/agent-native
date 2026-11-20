@@ -1397,6 +1397,13 @@ describe("manage-jobs tool", () => {
 });
 
 describe("manage-jobs approval", () => {
+  beforeEach(() => {
+    resourceGetByPathMock.mockReset();
+    resourceGetByPathMock.mockResolvedValue(null);
+    getRequestUserEmailMock.mockReturnValue("alice@example.com");
+    getRequestOrgIdMock.mockReturnValue("org-1");
+  });
+
   const gate = (args: Record<string, unknown>) => {
     const needsApproval = createJobTools("mail")["manage-jobs"].needsApproval;
     if (typeof needsApproval !== "function") throw new Error("no gate");
@@ -1425,6 +1432,38 @@ describe("manage-jobs approval", () => {
     ).toBe(false);
     expect(await gate({ action: "list" })).toBe(false);
     expect(await gate({ action: "delete", name: "a" })).toBe(false);
+  });
+
+  it("asks when updating a job that already has an execution host", async () => {
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "r1",
+      owner: SHARED_OWNER,
+      path: "jobs/a.md",
+      content:
+        "---\nschedule: '0 9 * * *'\nexecutionHostId: host-1\n---\n\nGo.",
+    });
+    expect(
+      await gate({ action: "update", name: "a", instructions: "New." }),
+    ).toBe(true);
+  });
+
+  it("does not ask when updating a plain job with only instructions", async () => {
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "r1",
+      owner: SHARED_OWNER,
+      path: "jobs/a.md",
+      content: "---\nschedule: '0 9 * * *'\n---\n\nGo.",
+    });
+    expect(
+      await gate({ action: "update", name: "a", instructions: "New." }),
+    ).toBe(false);
+  });
+
+  it("asks when the existing job cannot be read", async () => {
+    resourceGetByPathMock.mockRejectedValueOnce(new Error("boom"));
+    expect(
+      await gate({ action: "update", name: "a", instructions: "New." }),
+    ).toBe(true);
   });
 
   it("never offers persistent approval", () => {

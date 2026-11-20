@@ -661,6 +661,9 @@ describe("manage-automations approval for paired-computer targets", () => {
 
   it("does not ask for define or update without an execution target", async () => {
     expect(await gate({ action: "define", name: "digest" })).toBe(false);
+    mocks.authorizeAutomationRunNow.mockResolvedValueOnce({
+      resource: { content: "---\nschedule: ''\n---\n\nGo." },
+    });
     expect(
       await gate({ action: "update", name: "digest", execution_host_id: null }),
     ).toBe(false);
@@ -678,6 +681,31 @@ describe("manage-automations approval for paired-computer targets", () => {
       resource: { content: "---\nschedule: ''\n---\n\nGo." },
     });
     expect(await gate({ action: "run-now", resource_id: "r1" })).toBe(false);
+  });
+
+  it("asks for run-now when the target cannot be read", async () => {
+    mocks.authorizeAutomationRunNow.mockRejectedValueOnce(new Error("boom"));
+    expect(await gate({ action: "run-now", resource_id: "r1" })).toBe(true);
+  });
+
+  it("asks for update of a host-bound automation even without host fields", async () => {
+    mocks.authorizeAutomationRunNow.mockResolvedValueOnce({
+      resource: {
+        content: "---\nschedule: ''\nexecutionHostId: host-1\n---\n\nGo.",
+      },
+    });
+    expect(
+      await gate({ action: "update", resource_id: "r1", instructions: "New." }),
+    ).toBe(true);
+  });
+
+  it("does not ask for update of a non-host automation with only instructions", async () => {
+    mocks.authorizeAutomationRunNow.mockResolvedValueOnce({
+      resource: { content: "---\nschedule: ''\n---\n\nGo." },
+    });
+    expect(
+      await gate({ action: "update", resource_id: "r1", instructions: "New." }),
+    ).toBe(false);
   });
 
   it("keeps asking outside callers and disables persistent approval", async () => {
