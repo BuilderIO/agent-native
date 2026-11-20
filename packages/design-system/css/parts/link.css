@@ -1,0 +1,99 @@
+/*
+ * Part: link
+ *
+ *   <a class="link" data-underline="auto|always|hover|none"
+ *      [data-weight="light|regular|medium|semibold|bold"]
+ *      [data-trim="normal|start|end|both"] [data-truncate]
+ *      [data-wrap="wrap|nowrap|pretty|balance"]
+ *      [data-color="accent|gray|danger|warning|success|info"]
+ *      [data-high-contrast]>
+ *
+ * Radix Themes' link: text in the scale's text step, with its size and the
+ * other text props from text.css. `underline` decides when the underline
+ * shows; `auto` shows it on hover, and always where the link is drawn in
+ * step 12 (in high contrast, or uncolored inside an element that sets a
+ * color) or sits in a paragraph, where color alone can't mark it. Focus draws the system's ring in place of the underline. Rendered
+ * as a button through `render`, it keeps the link's look.
+ */
+
+@layer components {
+  .link {
+    color: var(--accent-text);
+    text-decoration-line: none;
+    text-decoration-style: solid;
+    text-decoration-thickness: min(2px, max(1px, 0.05em));
+    text-underline-offset: calc(0.025em + 2px);
+    text-decoration-color: color-mix(
+      in oklab,
+      var(--accent-a5),
+      var(--gray-a6)
+    );
+  }
+
+  button.link {
+    appearance: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: inherit;
+  }
+
+  .link:is(:any-link, button) {
+    cursor: pointer;
+  }
+
+  .link:is(:disabled, [data-disabled]) {
+    cursor: not-allowed;
+  }
+
+  /* ---- underline ---- */
+
+  /*
+   * Underline and color rules sit in :where() at one class's weight, so
+   * focus, which drops the underline for the ring, always wins.
+   */
+  .link:where([data-underline="always"]) {
+    text-decoration-line: underline;
+  }
+
+  @media (hover: hover) {
+    .link:where([data-underline="auto"], [data-underline="hover"]):hover {
+      text-decoration-line: underline;
+    }
+  }
+
+  .link:where([data-high-contrast]),
+  :where([data-color]) .link:where(:not([data-color])) {
+    color: var(--accent-12);
+  }
+
+  :where(p) .link:where([data-underline="auto"]),
+  .link:where([data-underline="auto"][data-high-contrast]),
+  :where([data-color]) .link:where([data-underline="auto"]:not([data-color])) {
+    text-decoration-line: underline;
+    text-decoration-color: var(--accent-a8);
+  }
+
+  /* A filled code that is the whole link already reads as one. */
+  .link:where(:has(.code:not([data-variant="ghost"]):only-child)) {
+    text-decoration-color: transparent;
+  }
+
+  /* ---- focus ---- */
+
+  .link:focus-visible {
+    border-radius: calc(0.07em * var(--radius-factor));
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+    text-decoration-line: none;
+  }
+
+  @media (pointer: coarse) {
+    .link:is(:any-link, button):active:not(:focus-visible, [data-popup-open]) {
+      outline: 0.75em solid var(--accent-a4);
+      outline-offset: -0.6em;
+    }
+  }
+}

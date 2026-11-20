@@ -1190,15 +1190,11 @@ export async function run(
     if (context?.send) {
       const callerEmail = getRequestUserEmail();
 
-      const a2aMetadata: Record<string, unknown> = {};
-      if (callerEmail) a2aMetadata.userEmail = callerEmail;
-
       let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
       callerOrgId = orgId;
       if (orgId && !agent.auth) {
         callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
-        if (callerOrgDomain) a2aMetadata.orgDomain = callerOrgDomain;
         callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
       }
 
