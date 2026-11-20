@@ -29,6 +29,9 @@ import { prepareScreenshotPage } from "./screenshot-readiness.js";
 
 const DEFAULT_WIDTH_PX = 1440;
 const MAX_CAPTURE_PIXELS = 40_000_000;
+const MAX_CONCURRENT_CAPTURES = 2;
+
+let activeCaptures = 0;
 
 export function fitsCapturePixelBudget(
   pageAreaCssPx: number,
@@ -290,68 +293,79 @@ export async function renderScreenPng(
     );
   }
 
-  let browser: import("@playwright/test").Browser;
-  try {
-    browser = await launchChromium((await importPlaywright()).chromium);
-  } catch (error) {
-    console.warn("[design-screen-capture] no browser to render with", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    fail("Design can't render screens right now. Try again in a minute.", {
-      errorCode: "design_screen_render_unavailable",
-      statusCode: 503,
-    });
+  if (activeCaptures >= MAX_CONCURRENT_CAPTURES) {
+    fail(
+      "Design is taking pictures of other screens right now. Try again in a minute.",
+      { errorCode: "design_screen_render_busy", statusCode: 503 },
+    );
   }
+  activeCaptures += 1;
   try {
-    for (const deviceScaleFactor of [2, 1]) {
-      signal?.throwIfAborted();
-      const context = await browser.newContext({
-        viewport: { width: widthPx, height: Math.round(widthPx * 0.625) },
-        deviceScaleFactor,
+    let browser: import("@playwright/test").Browser;
+    try {
+      browser = await launchChromium((await importPlaywright()).chromium);
+    } catch (error) {
+      console.warn("[design-screen-capture] no browser to render with", {
+        error: error instanceof Error ? error.message : String(error),
       });
-      try {
-        await context.addInitScript(
-          "globalThis.__name = globalThis.__name || function (value) { return value; };",
-        );
-        const requests = await routeAllowedRenderRequests(context);
-        await context.routeWebSocket("**/*", () => {});
-        const page = await context.newPage();
-        await prepareScreenshotPage(page, degradeWideColorsInHtml(html));
-        const pageArea = Number(
-          await page.evaluate(() => {
-            const root = document.documentElement;
-            const body = document.body;
-            return (
-              Math.max(root.scrollWidth, body.scrollWidth) *
-              Math.max(root.scrollHeight, body.scrollHeight)
-            );
-          }),
-        );
-        const png = fitsCapturePixelBudget(pageArea, deviceScaleFactor)
-          ? await page.screenshot({
-              type: "png",
-              fullPage: true,
-              timeout: 30_000,
-            })
-          : null;
-        if (requests.blockedNavigations.length > 0) {
-          fail(
-            "This screen moves the page away from itself while it loads, so it can't be captured.",
-            { errorCode: "design_screen_navigated_away", statusCode: 422 },
-          );
-        }
-        if (png && png.length <= DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES) {
-          return png;
-        }
-      } finally {
-        await context.close().catch(() => {});
-      }
+      fail("Design can't render screens right now. Try again in a minute.", {
+        errorCode: "design_screen_render_unavailable",
+        statusCode: 503,
+      });
     }
+    try {
+      for (const deviceScaleFactor of [2, 1]) {
+        signal?.throwIfAborted();
+        const context = await browser.newContext({
+          viewport: { width: widthPx, height: Math.round(widthPx * 0.625) },
+          deviceScaleFactor,
+        });
+        try {
+          await context.addInitScript(
+            "globalThis.__name = globalThis.__name || function (value) { return value; };",
+          );
+          const requests = await routeAllowedRenderRequests(context);
+          await context.routeWebSocket("**/*", () => {});
+          const page = await context.newPage();
+          await prepareScreenshotPage(page, degradeWideColorsInHtml(html));
+          const pageArea = Number(
+            await page.evaluate(() => {
+              const root = document.documentElement;
+              const body = document.body;
+              return (
+                Math.max(root.scrollWidth, body.scrollWidth) *
+                Math.max(root.scrollHeight, body.scrollHeight)
+              );
+            }),
+          );
+          const png = fitsCapturePixelBudget(pageArea, deviceScaleFactor)
+            ? await page.screenshot({
+                type: "png",
+                fullPage: true,
+                timeout: 30_000,
+              })
+            : null;
+          if (requests.blockedNavigations.length > 0) {
+            fail(
+              "This screen moves the page away from itself while it loads, so it can't be captured.",
+              { errorCode: "design_screen_navigated_away", statusCode: 422 },
+            );
+          }
+          if (png && png.length <= DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES) {
+            return png;
+          }
+        } finally {
+          await context.close().catch(() => {});
+        }
+      }
+    } finally {
+      await browser.close().catch(() => {});
+    }
+    fail(
+      "This screen is too long to pin as one picture. Capture it at a narrower width, or split it into shorter screens.",
+      { errorCode: "design_screen_too_large", statusCode: 413 },
+    );
   } finally {
-    await browser.close().catch(() => {});
+    activeCaptures -= 1;
   }
-  fail(
-    "This screen is too long to pin as one picture. Capture it at a narrower width, or split it into shorter screens.",
-    { errorCode: "design_screen_too_large", statusCode: 413 },
-  );
 }

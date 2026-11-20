@@ -289,6 +289,25 @@ describe("renderScreenPng", () => {
     expect(scales).toEqual([2, 1]);
     expect(screenshot).not.toHaveBeenCalled();
   });
+  it("takes two screens at a time and asks a third to try again", async () => {
+    const { screenshot } = fakeBrowser(1440 * 6000);
+    let finish: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    screenshot.mockImplementation(async () => {
+      await held;
+      return Buffer.alloc(100);
+    });
+    const first = renderScreenPng(tallScreen, 1440);
+    const second = renderScreenPng(tallScreen, 1440);
+    await expect(renderScreenPng(tallScreen, 1440)).rejects.toMatchObject({
+      errorCode: "design_screen_render_busy",
+    });
+    finish();
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    await expect(renderScreenPng(tallScreen, 1440)).resolves.toHaveLength(100);
+  });
 });
 
 describe("fitsCapturePixelBudget", () => {
