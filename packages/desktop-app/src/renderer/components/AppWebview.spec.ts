@@ -2085,7 +2085,7 @@ describe("AppWebview soft client-side navigation", () => {
       });
 
       await act(async () => {
-        resolvers[0]?.(undefined);
+        resolvers[0]?.(false);
         await Promise.resolve();
       });
       expect(setAttributeCalls).toEqual([]);
