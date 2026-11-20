@@ -29,6 +29,18 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 
 const { getIssueEvents } = await import("./sentry");
 
+function summarizeOutcome(
+  settled: { value: unknown } | { error: Error },
+): { value: unknown } | { timedOutAfterMs: number } | { error: string } {
+  if ("value" in settled) return { value: settled.value };
+  const timeout = /^Provider API request timed out after (\d+)ms/.exec(
+    settled.error.message,
+  );
+  return timeout
+    ? { timedOutAfterMs: Number(timeout[1]) }
+    : { error: settled.error.message };
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -106,14 +118,9 @@ describe("Sentry issue events provider timeout", () => {
       await fetchStarted;
       await vi.advanceTimersByTimeAsync(discoveryDelay + 10_000);
       const settled = await outcome;
-      if (succeeds) {
-        expect(settled).toEqual({ value: events });
-      } else {
-        expect(settled).toEqual({ error: expect.any(Error) });
-        expect("error" in settled && settled.error?.message).toContain(
-          "Provider API request timed out after 8000ms",
-        );
-      }
+      expect(summarizeOutcome(settled)).toEqual(
+        succeeds ? { value: events } : { timedOutAfterMs: 8000 },
+      );
     },
   );
 
@@ -168,14 +175,9 @@ describe("Sentry issue events provider timeout", () => {
       await fetchStarted;
       await vi.advanceTimersByTimeAsync(delay);
       const settled = await outcome;
-      if (succeeds) {
-        expect(settled).toEqual({ value: events });
-      } else {
-        expect(settled).toEqual({ error: expect.any(Error) });
-        expect("error" in settled && settled.error?.message).toContain(
-          "Provider API request timed out after 20000ms",
-        );
-      }
+      expect(summarizeOutcome(settled)).toEqual(
+        succeeds ? { value: events } : { timedOutAfterMs: 20000 },
+      );
     },
   );
 });
