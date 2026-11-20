@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  canContributeToOrgSpace,
   contentSpaceRoleForOrgRole,
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
@@ -127,7 +128,7 @@ export default defineAction({
           memberships.some(
             (membership) =>
               membership.orgId === row.space.orgId &&
-              ["owner", "admin", "member"].includes(membership.role),
+              canContributeToOrgSpace(membership.role),
           ),
         catalogItemId: row.mapping.databaseItemId,
         catalogDocumentId: row.mapping.documentId,

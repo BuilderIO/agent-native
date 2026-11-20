@@ -59,20 +59,12 @@ function asOrgRole(role: string): OrgRole | null {
     : null;
 }
 
-/**
- * The role an organization member holds in its organization space. Managing
- * the space (folder sources, imports, Trash purges) is managing the
- * organization, so it takes the framework's organization-admin check, as the
- * other apps' organization settings do. Pages in the space stay on framework
- * sharing: no organization role opens a private page.
- */
 export function contentSpaceRoleForOrgRole(role: string): ContentSpaceRole {
   const orgRole = asOrgRole(role);
   if (orgRole === "owner") return "owner";
   return canManageOrg(orgRole) ? "editor" : "viewer";
 }
 
-/** Whether an organization member can add pages to its organization space. */
 export function canContributeToOrgSpace(role: string): boolean {
   return orgRoleAtLeast(asOrgRole(role), "member");
 }

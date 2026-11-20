@@ -284,8 +284,14 @@ export async function reconcileContentFilesMemberships(
   const email = normalizeContentSpaceEmail(userEmail);
   const memberships = await listContentOrganizationMemberships(email);
   const personalSpaceId = personalContentSpaceId(email);
-  // An organization space's pages are filed by people who can see them: no
-  // organization role reaches another member's private page.
+  const canOpen = (orgId: string) =>
+    accessFilter(
+      schema.documents,
+      schema.documentShares,
+      { userEmail: email, orgId },
+      "viewer",
+      { includePublic: true },
+    );
   const orgSpaces = new Map<string, string>();
   for (const membership of memberships) {
     const spaceId = organizationContentSpaceId(membership.orgId);
@@ -312,18 +318,27 @@ export async function reconcileContentFilesMemberships(
           isNull(schema.documents.spaceId),
         ),
       );
-    if (personalLegacyDocuments.length) {
-      await tx
+    const assignLegacyDocuments = async (
+      spaceId: string,
+      documentIds: string[],
+    ) => {
+      if (!documentIds.length) return;
+      const assigned = await tx
         .update(schema.documents)
-        .set({ spaceId: personalSpaceId, updatedAt: now })
+        .set({ spaceId, updatedAt: now })
         .where(
-          inArray(
-            schema.documents.id,
-            personalLegacyDocuments.map((row: any) => row.id),
+          and(
+            inArray(schema.documents.id, documentIds),
+            isNull(schema.documents.spaceId),
           ),
-        );
-      result.assignedSpaces += personalLegacyDocuments.length;
-    }
+        )
+        .returning({ id: schema.documents.id });
+      result.assignedSpaces += assigned.length;
+    };
+    await assignLegacyDocuments(
+      personalSpaceId,
+      personalLegacyDocuments.map((row: any) => row.id),
+    );
     for (const [orgId, orgSpaceId] of orgSpaces) {
       const legacyDocuments = await tx
         .select({ id: schema.documents.id })
@@ -332,40 +347,32 @@ export async function reconcileContentFilesMemberships(
           and(
             eq(schema.documents.orgId, orgId),
             isNull(schema.documents.spaceId),
-            or(
-              eq(schema.documents.ownerEmail, email),
-              eq(schema.documents.visibility, "org"),
-              eq(schema.documents.visibility, "public"),
-            ),
+            canOpen(orgId),
           ),
         );
-      if (!legacyDocuments.length) continue;
-      await tx
-        .update(schema.documents)
-        .set({ spaceId: orgSpaceId, updatedAt: now })
-        .where(
-          inArray(
-            schema.documents.id,
-            legacyDocuments.map((row: any) => row.id),
-          ),
-        );
-      result.assignedSpaces += legacyDocuments.length;
+      await assignLegacyDocuments(
+        orgSpaceId,
+        legacyDocuments.map((row: any) => row.id),
+      );
     }
 
-    const accessibleDocuments = await tx
-      .select()
-      .from(schema.documents)
-      .where(inArray(schema.documents.spaceId, accessibleSpaceIds));
-    const documents = accessibleDocuments.filter((document: any) => {
-      if (document.spaceId === personalSpaceId) {
-        return normalizeContentSpaceEmail(document.ownerEmail) === email;
-      }
-      return (
-        normalizeContentSpaceEmail(document.ownerEmail) === email ||
-        document.visibility === "org" ||
-        document.visibility === "public"
-      );
-    });
+    const documents = (
+      await tx
+        .select()
+        .from(schema.documents)
+        .where(
+          or(
+            eq(schema.documents.spaceId, personalSpaceId),
+            ...[...orgSpaces].map(([orgId, orgSpaceId]) =>
+              and(eq(schema.documents.spaceId, orgSpaceId), canOpen(orgId)),
+            ),
+          ),
+        )
+    ).filter(
+      (document: any) =>
+        document.spaceId !== personalSpaceId ||
+        normalizeContentSpaceEmail(document.ownerEmail) === email,
+    );
     const filesDatabases = await tx
       .select()
       .from(schema.contentDatabases)

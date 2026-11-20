@@ -982,26 +982,28 @@ describe("Content space provisioning", () => {
     for (const [role, email] of Object.entries(people)) {
       await addMember(`space-roles-${role}`, orgId, email, role);
     }
-    await runWithRequestContext({ userEmail: people.owner }, () =>
-      provisionContentSpaces(getDb(), people.owner),
-    );
     const spaceId = organizationContentSpaceId(orgId);
 
-    for (const [orgRole, spaceRole, canManage] of [
-      ["owner", "owner", true],
-      ["admin", "editor", true],
-      ["member", "viewer", false],
+    for (const [orgRole, spaceRole, managing] of [
+      ["owner", "owner", "owner"],
+      ["admin", "editor", "editor"],
+      ["member", "viewer", 403],
     ] as const) {
       await runWithRequestContext({ userEmail: people[orgRole] }, async () => {
+        await provisionContentSpaces(getDb(), people[orgRole]);
         await expect(
           resolveContentSpaceAccess(spaceId, "contributor"),
         ).resolves.toMatchObject({ role: spaceRole });
-        const manage = resolveContentSpaceAccess(spaceId, "editor");
-        if (canManage) {
-          await expect(manage).resolves.toMatchObject({ role: spaceRole });
-        } else {
-          await expect(manage).rejects.toMatchObject({ statusCode: 403 });
-        }
+        await expect(
+          resolveContentSpaceAccess(spaceId, "editor").then(
+            (access) => access.role,
+            (error) => error.statusCode,
+          ),
+        ).resolves.toBe(managing);
+        const listed = await listContentSpacesAction.run({});
+        expect(
+          listed.spaces.find((space) => space.id === spaceId),
+        ).toMatchObject({ role: spaceRole, canCreateDatabase: true });
       });
     }
   });
@@ -1154,6 +1156,55 @@ describe("Content space provisioning", () => {
       expect(listed.documents.map((document) => document.id)).not.toContain(id);
       expect(favoriteIds).not.toContain(id);
     }
+  });
+
+  it("does not pin another member's private legacy favorite for an organization admin", async () => {
+    const orgId = "org-favorites-admin";
+    const admin = "favorites-org-admin@example.com";
+    const member = "favorites-private-member@example.com";
+    await addOrganization(orgId, "Favorites Admin", admin);
+    await addMember("favorites-admin-admin", orgId, admin, "admin");
+    await addMember("favorites-admin-member", orgId, member);
+    await runWithRequestContext({ userEmail: member }, () =>
+      provisionContentSpaces(getDb(), member),
+    );
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: "favorites-admin-private",
+        ownerEmail: member,
+        orgId,
+        spaceId: organizationContentSpaceId(orgId),
+        title: "Member's private favorite",
+        isFavorite: 1,
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const adminProvisioned = await runWithRequestContext(
+      { userEmail: admin },
+      () => provisionContentSpaces(getDb(), admin),
+    );
+
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseItems.databaseId,
+              adminProvisioned.favoritesDatabaseId,
+            ),
+            eq(
+              schema.contentDatabaseItems.documentId,
+              "favorites-admin-private",
+            ),
+          ),
+        ),
+    ).resolves.toHaveLength(0);
   });
 
   it("lists favorites across every authorized organization", async () => {

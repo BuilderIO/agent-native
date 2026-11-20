@@ -1379,11 +1379,13 @@ describe("Content Files membership reconciliation", () => {
       );
   });
 
-  it("leaves another member's private legacy page for its owner to file, even when an organization admin reconciles", async () => {
+  it("files another member's private legacy page only for people it is shared with, never for an organization role", async () => {
     const orgId = "files-admin-org";
     const admin = "files-org-admin@example.com";
     const member = "files-private-member@example.com";
     const pageId = "member-private-legacy-org";
+    const sharedPageId = "member-shared-legacy-org";
+    const pageIds = [pageId, sharedPageId];
     await getDbExec().execute({
       sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
       args: [orgId, "Admin Org", admin, Date.now()],
@@ -1407,60 +1409,84 @@ describe("Content Files membership reconciliation", () => {
       );
     }
     const now = new Date().toISOString();
-    await getDb().insert(schema.documents).values({
-      id: pageId,
-      ownerEmail: member,
-      orgId,
-      spaceId: null,
-      title: "Member's private page",
-      content: "",
-      description: "",
-      position: 0,
-      isFavorite: 0,
-      hideFromSearch: 0,
-      visibility: "private",
+    await getDb()
+      .insert(schema.documents)
+      .values(
+        pageIds.map((id) => ({
+          id,
+          ownerEmail: member,
+          orgId,
+          spaceId: null,
+          title: id,
+          content: "",
+          description: "",
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb().insert(schema.documentShares).values({
+      id: "member-shared-legacy-org-admin-share",
+      resourceId: sharedPageId,
+      principalType: "user",
+      principalId: admin,
+      role: "viewer",
+      createdBy: member,
       createdAt: now,
-      updatedAt: now,
     });
     const spaceId = organizationContentSpaceId(orgId);
     const filesDatabase = await getFilesDatabase(spaceId);
-    const readPage = async () => {
+    const readSpaceId = async (id: string) => {
       const [page] = await getDb()
-        .select()
+        .select({ spaceId: schema.documents.spaceId })
         .from(schema.documents)
-        .where(eq(schema.documents.id, pageId));
-      return page;
+        .where(eq(schema.documents.id, id));
+      return page?.spaceId;
     };
-    const readFilesItems = () =>
-      getDb()
-        .select()
-        .from(schema.contentDatabaseItems)
-        .where(
-          and(
-            eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
-            eq(schema.contentDatabaseItems.documentId, pageId),
-          ),
-        );
+    const countFilesItems = async (id: string) =>
+      (
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
+              eq(schema.contentDatabaseItems.documentId, id),
+            ),
+          )
+      ).length;
 
     await runWithRequestContext({ userEmail: admin }, () =>
       reconcileContentFilesMemberships(getDb(), admin),
     );
-    await expect(readPage()).resolves.toMatchObject({ spaceId: null });
-    await expect(readFilesItems()).resolves.toHaveLength(0);
+    expect(await readSpaceId(pageId)).toBeNull();
+    expect(await countFilesItems(pageId)).toBe(0);
+    expect(await readSpaceId(sharedPageId)).toBe(spaceId);
+    expect(await countFilesItems(sharedPageId)).toBe(1);
 
     await runWithRequestContext({ userEmail: member }, () =>
       reconcileContentFilesMemberships(getDb(), member),
     );
-    await expect(readPage()).resolves.toMatchObject({ spaceId });
-    await expect(readFilesItems()).resolves.toHaveLength(1);
+    expect(await readSpaceId(pageId)).toBe(spaceId);
+    expect(await countFilesItems(pageId)).toBe(1);
 
     await runWithRequestContext({ userEmail: admin }, () =>
       reconcileContentFilesMemberships(getDb(), admin),
     );
-    await expect(readFilesItems()).resolves.toHaveLength(1);
+    expect(await countFilesItems(pageId)).toBe(1);
+
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(inArray(schema.contentDatabaseItems.documentId, pageIds));
+    await getDb()
+      .delete(schema.documentShares)
+      .where(inArray(schema.documentShares.resourceId, pageIds));
     await getDb()
       .delete(schema.documents)
-      .where(eq(schema.documents.id, pageId));
+      .where(inArray(schema.documents.id, pageIds));
   });
 
   it("assigns personal and organization legacy pages to their canonical Files databases", async () => {

@@ -402,9 +402,6 @@ export async function provisionContentSpaces(
               inArray(schema.documents.spaceId, accessibleSpaceIds),
             ),
           );
-      const roleByOrgId = new Map(
-        memberships.map((membership) => [membership.orgId, membership.role]),
-      );
       const visibleLegacyFavorites = legacyFavorites.filter((document) => {
         if (!document.orgId) {
           return normalizeContentSpaceEmail(document.ownerEmail) === email;
@@ -412,9 +409,7 @@ export async function provisionContentSpaces(
         return (
           normalizeContentSpaceEmail(document.ownerEmail) === email ||
           document.visibility === "org" ||
-          document.visibility === "public" ||
-          roleByOrgId.get(document.orgId) === "owner" ||
-          roleByOrgId.get(document.orgId) === "admin"
+          document.visibility === "public"
         );
       });
       if (visibleLegacyFavorites.length > 0) {
