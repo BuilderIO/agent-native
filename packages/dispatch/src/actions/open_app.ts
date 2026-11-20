@@ -123,7 +123,7 @@ const openAppResource = embedApp({
 
 export default defineAction({
   description:
-    "Show a found or created mail, event, document, or record when viewing it is the useful result. Returns a registered app route for the chat client to open beside the conversation.",
+    "Show the result in the app when the ask is to show, open, draft, chart, or review something: a mail or draft, a calendar day, a chart or dashboard, a document, or a record. Call it after reading or saving the data instead of answering with text alone. Returns a registered app route for the chat client to open beside the conversation.",
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,

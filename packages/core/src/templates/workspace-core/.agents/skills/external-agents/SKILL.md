@@ -257,7 +257,9 @@ catalog, included by the authenticated-read policy, or enabled by the explicit
 full-catalog opt-in before `tools/call` can execute it. Do not rely on
 action-specific `mcpApp` resources appearing in ChatGPT/Claude discovery by
 default; use `open_app` for the
-first-class app embed path. If a specific
+first-class app embed path. For "show", "open", "draft", "chart", calendar, or
+dashboard asks, call `open_app` after the read or save so the host opens the pane
+instead of drawing its own card. If a specific
 action truly must remain visible in that compact app-host catalog, set
 `mcpApp.compactCatalog: true` as a rare escape hatch.
 

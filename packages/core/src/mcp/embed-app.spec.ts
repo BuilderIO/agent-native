@@ -3317,3 +3317,23 @@ function renderMcpAppResourceHtml(
     ? resource.html(context)
     : resource.html;
 }
+
+describe("ChatGPT widget init window", () => {
+  it("signals the host it is ready without waiting for ui/initialize", async () => {
+    vi.useFakeTimers();
+    try {
+      const shell = await mountRestoredWidget(async () => ({}));
+      const readySignals = () =>
+        shell.hostMessages.mock.calls.filter(
+          (call: unknown[]) =>
+            (call[0] as { type?: string } | undefined)?.type ===
+            "agentNative.embeddedAppReady",
+        ).length;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readySignals()).toBeGreaterThan(0);
+      expect(shell.frame()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
