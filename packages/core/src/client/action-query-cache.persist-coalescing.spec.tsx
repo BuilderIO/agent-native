@@ -152,3 +152,29 @@ it("refuses the pending write when another tab's clear intent comes and goes wit
 
   expect(writes).toEqual([]);
 });
+
+it("saves the pending write as soon as a mutation succeeds, so a reload right after it restores the written state", async () => {
+  notify(0, NOTIFICATIONS);
+  window.dispatchEvent(new Event("agentNative:syncActivity"));
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(writes).toHaveLength(1);
+  expect(writes[0].clientState.queries).toHaveLength(NOTIFICATIONS);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+  expect(writes).toHaveLength(1);
+});
+
+it("saves the pending write when the page is hidden", async () => {
+  notify(0, NOTIFICATIONS);
+  window.dispatchEvent(new Event("pagehide"));
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(writes).toHaveLength(1);
+});
+
+it("does not write on a mutation signal with nothing pending", async () => {
+  window.dispatchEvent(new Event("agentNative:syncActivity"));
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+
+  expect(writes).toEqual([]);
+});

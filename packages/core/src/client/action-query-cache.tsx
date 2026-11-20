@@ -464,9 +464,31 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     typeof window.addEventListener === "function"
       ? window
       : undefined;
+  // A write that lands inside the save delay, followed by a reload, would
+  // otherwise restore the snapshot from before the write.
+  const flushPending = () => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    flush();
+  };
+  const flushWhenHidden = () => {
+    if (document.visibilityState === "hidden") flushPending();
+  };
   storageEvents?.addEventListener("storage", onStorage);
-  const stopWatchingStorage = () =>
+  storageEvents?.addEventListener("agentNative:syncActivity", flushPending);
+  storageEvents?.addEventListener("pagehide", flushPending);
+  if (typeof document !== "undefined")
+    document.addEventListener("visibilitychange", flushWhenHidden);
+  const stopWatchingStorage = () => {
     storageEvents?.removeEventListener("storage", onStorage);
+    storageEvents?.removeEventListener(
+      "agentNative:syncActivity",
+      flushPending,
+    );
+    storageEvents?.removeEventListener("pagehide", flushPending);
+    if (typeof document !== "undefined")
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+  };
 
   const flush = () => {
     timer = undefined;
