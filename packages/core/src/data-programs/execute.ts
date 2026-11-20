@@ -58,6 +58,7 @@ const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
 const NOT_SHAREABLE_RETRY_MS = 24 * 60 * 60 * 1000;
 const MIN_RUN_TIMEOUT_MS = 1_000;
+const VIEWER_CHECK_RESERVE_MS = 1_000;
 
 /**
  * `program_error` is an error the program's own code threw, and its message is
@@ -653,6 +654,8 @@ async function runSharedProgram(
   sharing: OrgSharing,
   deadline: number,
 ): Promise<DataProgramSuccess | null> {
+  const runTimeoutMs = deadline - Date.now() - VIEWER_CHECK_RESERVE_MS;
+  if (runTimeoutMs < MIN_RUN_TIMEOUT_MS) return null;
   const running = await recordDataProgramRun({
     programId: program.id,
     paramsHash: sharing.paramsHash,
@@ -668,7 +671,7 @@ async function runSharedProgram(
   const startedAt = Date.now();
   const outcome = await executeProgramCode(
     `${buildDataProgramPrelude(args.params)}\n${program.code}`,
-    deadline - startedAt,
+    runTimeoutMs,
     { ...args.ctx, credentialScope: "org" },
     args.evaluator,
     ledger,

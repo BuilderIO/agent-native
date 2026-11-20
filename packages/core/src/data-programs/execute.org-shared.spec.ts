@@ -448,7 +448,7 @@ describe("org-shared data program runs", () => {
 
     expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
     expect(sandbox).toHaveBeenCalledTimes(2);
-    expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBe(10_000);
+    expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBe(9_000);
     expect(sandbox.mock.calls[1]?.[0].timeoutMs).toBe(6_000);
   });
 
@@ -647,6 +647,37 @@ describe("org-shared data program runs", () => {
     expect(result).toMatchObject({ ok: true, rows: [{ refreshed: true }] });
     expect(sandbox).toHaveBeenCalledTimes(1);
     expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBe("org");
+  });
+
+  it("doesn't start or record an org-only run when checking the viewer left too little time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const expired = makeRun({
+      id: "dpr_expired",
+      startedAt: Date.now() - 600_000,
+      finishedAt: Date.now() - 600_000,
+      credentialUsesJson: JSON.stringify([orgToken]),
+    });
+    storeMocks.getLatestSuccessfulRun.mockResolvedValue(expired);
+    storeMocks.getLatestRun.mockResolvedValue(expired);
+    credentialMocks.resolveCredentialDetailed.mockImplementation(async () => {
+      vi.setSystemTime(Date.now() + 8_500);
+      return { value: "org-secret", scope: "org", scopeId: ORG };
+    });
+    const sandbox = mockSandbox(() => sandboxOutput([{ own: true }]));
+    const { runDataProgram } = await loadExecute();
+
+    const result = await runDataProgram({
+      programId: PROGRAM_ID,
+      ctx: { userEmail: VIEWER, orgId: ORG },
+      triggeredBy: "panel_view",
+      timeoutMs: 10_000,
+    });
+
+    expect(result).toMatchObject({ ok: true, rows: [{ own: true }] });
+    expect(sandbox).toHaveBeenCalledTimes(1);
+    expect(sandbox.mock.calls[0]?.[0].context?.credentialScope).toBeUndefined();
+    expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBe(1_500);
+    expect(storeMocks.recordDataProgramRun).toHaveBeenCalledTimes(1);
   });
 
   it("stops checking a viewer's credentials for the shared cache when the time limit runs out", async () => {
