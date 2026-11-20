@@ -2,4 +2,4 @@
 "@agent-native/dispatch": patch
 ---
 
-Avoid creating Slack channel scopes from unverified lookups, preserve existing scope restrictions, and classify single-channel guests correctly.
+Allow new Slack channel scopes to retry after temporary sender or conversation lookup failures without changing existing scope policies.

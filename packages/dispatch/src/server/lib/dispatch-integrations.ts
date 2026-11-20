@@ -222,7 +222,6 @@ async function resolveSlackSenderProfile(
     const data = (await res.json()) as {
       ok?: boolean;
       user?: {
-        id?: string;
         real_name?: string;
         name?: string;
         profile?: {
@@ -235,29 +234,24 @@ async function resolveSlackSenderProfile(
         is_stranger?: boolean;
       };
     };
-    const profile =
-      data.ok &&
-      data.user?.id === userId &&
-      typeof data.user.is_restricted === "boolean" &&
-      typeof data.user.is_ultra_restricted === "boolean" &&
-      (data.user.is_stranger === undefined ||
-        typeof data.user.is_stranger === "boolean")
-        ? {
-            email: data.user?.profile?.email?.trim().toLowerCase() || null,
-            name:
-              data.user?.profile?.real_name?.trim() ||
-              data.user?.profile?.display_name?.trim() ||
-              data.user?.real_name?.trim() ||
-              data.user?.name?.trim() ||
-              null,
-            trust:
-              data.user.is_stranger === true
-                ? ("external_shared" as const)
-                : data.user.is_restricted || data.user.is_ultra_restricted
-                  ? ("guest" as const)
-                  : ("trusted" as const),
-          }
-        : { email: null, name: null, trust: "unknown" as const };
+    const profile = data.ok
+      ? {
+          email: data.user?.profile?.email?.trim().toLowerCase() || null,
+          name:
+            data.user?.profile?.real_name?.trim() ||
+            data.user?.profile?.display_name?.trim() ||
+            data.user?.real_name?.trim() ||
+            data.user?.name?.trim() ||
+            null,
+          trust:
+            data.user?.is_stranger === true ||
+            data.user?.is_ultra_restricted === true
+              ? ("external_shared" as const)
+              : data.user?.is_restricted === true
+                ? ("guest" as const)
+                : ("trusted" as const),
+        }
+      : { email: null, name: null, trust: "unknown" as const };
     if (cacheKey && profile.trust !== "unknown") {
       slackProfileCache.set(cacheKey, {
         profile,
@@ -421,11 +415,7 @@ async function resolveSlackConversationTrust(
         is_mpim?: boolean;
       };
     };
-    if (
-      !data.ok ||
-      !data.channel ||
-      typeof data.channel.is_ext_shared !== "boolean"
-    ) {
+    if (!data.ok) {
       return { trust: "unknown", conversationType: "channel" };
     }
     return {
@@ -630,20 +620,13 @@ export async function resolveDispatchExecutionContext(
     );
   }
   if (!scope) throw new Error("Slack channel is not enabled for Agent-Native");
-  const policyContext = {
+  const decision = evaluateIntegrationScopePolicy(scope, {
     mentioned:
       incoming.triggerKind === "mention" ||
       incoming.triggerKind === "thread_reply",
-  };
-  for (const candidate of [
-    scope,
-    { ...scope, ...conversation },
-    { ...scope, trust: profile.trust },
-  ]) {
-    const decision = evaluateIntegrationScopePolicy(candidate, policyContext);
-    if (!decision.allowed) {
-      throw new Error(`Slack channel policy denied: ${decision.reason}`);
-    }
+  });
+  if (!decision.allowed) {
+    throw new Error(`Slack channel policy denied: ${decision.reason}`);
   }
   incoming.integrationScopeId = scope.id;
   if (scope.defaultModel) {
