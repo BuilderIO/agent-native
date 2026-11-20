@@ -148,6 +148,7 @@ vi.mock("../server/db/index.js", () => ({
       folderId: "recordings.folderId",
       archivedAt: "recordings.archivedAt",
       trashedAt: "recordings.trashedAt",
+      madeBy: "recordings.madeBy",
     }),
     recordingShares: "recordingShares",
     recordingContentBindings: {
@@ -469,5 +470,97 @@ describe("list-recordings folder scope", () => {
         ]),
       }),
     );
+  });
+});
+
+describe("list-recordings made by", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("keeps only recordings a person or an agent made", async () => {
+    await action.run(
+      action.schema.parse({
+        view: "library",
+        madeBy: "agent",
+        countOnly: true,
+      }),
+    );
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          { kind: "eq", column: "recordings.madeBy", value: "agent" },
+        ]),
+      }),
+    );
+  });
+
+  it("refuses anything but person or agent", () => {
+    expect(action.schema.safeParse({ madeBy: "robot" }).success).toBe(false);
+  });
+
+  it("returns who made each recording, and null where it wasn't recorded", async () => {
+    const recording = {
+      id: "rec-1",
+      title: "Agent upload",
+      titleSource: "default",
+      sourceAppName: null,
+      sourceWindowTitle: null,
+      description: "",
+      thumbnailUrl: null,
+      animatedThumbnailUrl: null,
+      durationMs: 1000,
+      editsJson: null,
+      status: "ready",
+      uploadProgress: null,
+      failureReason: null,
+      visibility: "private",
+      madeBy: "agent",
+      madeByAgent: "Claude",
+      hasPassword: 0,
+      expiresAt: null,
+      ownerEmail: "viewer@example.com",
+      folderId: null,
+      spaceIds: null,
+      createdAt: "2026-11-20T00:00:00.000Z",
+      updatedAt: "2026-11-20T00:00:00.000Z",
+      archivedAt: null,
+      trashedAt: null,
+      hasAudio: false,
+      hasCamera: false,
+      width: 1280,
+      height: 720,
+      videoUrl: null,
+      videoFormat: null,
+    };
+    mockRows.mockResolvedValueOnce([
+      { recording, transcriptStatus: null, transcriptHasText: 0 },
+      {
+        recording: {
+          ...recording,
+          id: "rec-old",
+          madeBy: null,
+          madeByAgent: null,
+        },
+        transcriptStatus: null,
+        transcriptHasText: 0,
+      },
+    ]);
+
+    const result = await action.run(action.schema.parse({ view: "library" }));
+
+    expect(result.recordings).toEqual([
+      expect.objectContaining({
+        id: "rec-1",
+        madeBy: "agent",
+        madeByAgent: "Claude",
+      }),
+      expect.objectContaining({
+        id: "rec-old",
+        madeBy: null,
+        madeByAgent: null,
+      }),
+    ]);
   });
 });

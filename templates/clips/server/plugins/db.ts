@@ -1442,6 +1442,12 @@ export const migrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS recording_tracks_recording_track_unique_idx
         ON recording_tracks (recording_id, track)`,
     },
+    {
+      version: 104,
+      name: "recording-made-by",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by TEXT;
+      ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by_agent TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );

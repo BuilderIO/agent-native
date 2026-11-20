@@ -34,6 +34,7 @@ import {
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
+import { RECORDING_MADE_BY } from "../server/lib/recording-made-by.js";
 import {
   countedViewCondition,
   getActiveOrganizationId,
@@ -171,6 +172,12 @@ export const listRecordingsSchema = z.object({
     .describe(
       "Leave this out unless the user asks about sharing: false is not a neutral default, it drops every recording you've shared. true: only your recordings whose share list names at least one person, group or org; false: only your recordings whose share list is empty. This reads the share list, not visibility, so an org or public recording can have an empty list; filter on visibility for that. Either value leaves out recordings you don't own.",
     ),
+  madeBy: z
+    .enum(RECORDING_MADE_BY)
+    .optional()
+    .describe(
+      "Only recordings a person made (in Clips' apps or a Content page) or an agent made (through Clips' tools, its chat, MCP or A2A). Recordings from before Clips began recording this have madeBy null, so either value leaves them out.",
+    ),
   sort: z
     .enum(["recent", "views", "oldest"])
     .default("recent")
@@ -198,7 +205,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, whether a person or an agent made it, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
   schema: listRecordingsSchema,
   http: { method: "GET" },
   run: async (args, ctx) => {
@@ -339,6 +346,10 @@ export default defineAction({
       whereClauses.push(inArray(schema.recordings.visibility, args.visibility));
     }
 
+    if (args.madeBy) {
+      whereClauses.push(eq(schema.recordings.madeBy, args.madeBy));
+    }
+
     // Who a recording is shared with is the owner's to see, so this filter
     // only ever matches the caller's own recordings.
     if (args.hasShares !== undefined) {
@@ -414,6 +425,8 @@ export default defineAction({
           failureReason: schema.recordings.failureReason,
           failureCode: schema.recordings.failureCode,
           visibility: schema.recordings.visibility,
+          madeBy: schema.recordings.madeBy,
+          madeByAgent: schema.recordings.madeByAgent,
           hasPassword: sql<number>`(
             CASE WHEN ${schema.recordings.password} IS NOT NULL
               AND ${schema.recordings.password} <> ''
@@ -549,6 +562,8 @@ export default defineAction({
         failureReason: r.failureReason,
         failureCode: r.failureCode,
         visibility: r.visibility,
+        madeBy: r.madeBy ?? null,
+        madeByAgent: r.madeByAgent ?? null,
         hasPassword: Number(r.hasPassword ?? 0) > 0,
         expiresAt: r.expiresAt,
         ownerEmail: r.ownerEmail,

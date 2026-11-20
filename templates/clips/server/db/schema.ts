@@ -195,8 +195,18 @@ export const recordings = table("recordings", {
   failureReason: text("failure_reason"),
   failureCode: text("failure_code"),
   recordingPlatform: text("recording_platform", {
-    enum: ["web", "desktop", "extension", "mobile", "import", "unknown"],
+    enum: [
+      "web",
+      "desktop",
+      "extension",
+      "mobile",
+      "import",
+      "agent",
+      "unknown",
+    ],
   }),
+  madeBy: text("made_by", { enum: ["person", "agent"] }),
+  madeByAgent: text("made_by_agent"),
   // Hex SHA-256 of the uploaded file's first megabyte (shared/source-fingerprint),
   // so an automatic retry of a file the owner already uploaded gets that clip
   // back instead of a second copy. Null for live recordings.
