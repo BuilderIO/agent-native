@@ -1900,6 +1900,7 @@ const overrides = {
     heading6: "Überschrift 6",
     link: "Link",
     comment: "Kommentar",
+    suggestEdit: "Änderung vorschlagen",
     pasteLink: "Link einfügen...",
     apply: "Anwenden",
     plainText: "Nur Text",
