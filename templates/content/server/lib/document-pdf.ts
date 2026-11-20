@@ -61,6 +61,7 @@ const INDENT = 18;
 const MIN_TEXT_WIDTH = 72;
 const CODE_SIZE = 9.5;
 const TABLE_SIZE = 9.5;
+const MIN_CELL_TEXT_WIDTH = 14;
 const ITALIC_SKEW = 0.2;
 const HEADING_SIZES = new Map([
   [1, 24],
@@ -694,6 +695,9 @@ class PdfLayout {
     const columnWidth = box.width / columns;
     const lineHeight = TABLE_SIZE * 1.4;
     const padding = 4;
+    if (columnWidth - padding * 2 < MIN_CELL_TEXT_WIDTH) {
+      throw new PdfTooLongError();
+    }
     rows.forEach((row, rowIndex) => {
       const cells = row.content ?? [];
       const cellLines = Array.from({ length: columns }, (_, column) => {

@@ -411,6 +411,21 @@ describe("document PDF layout", () => {
       PdfTooLongError,
     );
   });
+
+  it("refuses a table whose columns are too narrow for text, even with empty cells", () => {
+    const row = (columns: number, cell: string) =>
+      `| ${Array.from({ length: columns }, () => cell).join(" | ")} |`;
+    const table = (columns: number) =>
+      [
+        row(columns, "h"),
+        row(columns, "---"),
+        ...Array.from({ length: 20 }, () => row(columns, " ")),
+      ].join("\n");
+
+    expect(() => recordLayout("Wide", table(22))).not.toThrow();
+    expect(() => recordLayout("Wide", table(23))).toThrow(PdfTooLongError);
+    expect(() => recordLayout("Wide", table(400))).toThrow(PdfTooLongError);
+  });
 });
 
 describe("renderDocumentPdf", () => {
@@ -463,20 +478,19 @@ describe("renderDocumentPdf", () => {
     ).not.toThrow();
   });
 
-  it("refuses a table too wide to draw well before the page limit", () => {
+  it("stops drawing a table of narrow cells at the text limit, before the page limit", () => {
     const row = (cell: string) =>
-      `| ${Array.from({ length: 100 }, () => cell).join(" | ")} |`;
-    const table = (rows: number) =>
-      [
-        row("head"),
-        row("---"),
-        ...Array.from({ length: rows }, () => row("cell")),
-      ].join("\n");
-    const { pageCount } = recordLayout("Wide", table(400));
+      `| ${Array.from({ length: 20 }, () => cell).join(" | ")} |`;
+    const table = [
+      row("head"),
+      row("---"),
+      ...Array.from({ length: 900 }, () => row("abcdefghijklmnopqrstuvwx")),
+    ].join("\n");
+    const { pageCount } = recordLayout("Narrow", table);
 
     expect(pageCount).toBeLessThan(PDF_MAX_PAGES);
     expect(() =>
-      renderDocumentPdf({ title: "Wide", content: table(400) }),
+      renderDocumentPdf({ title: "Narrow", content: table }),
     ).toThrow(PdfTooLongError);
   });
 });
