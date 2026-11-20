@@ -3137,6 +3137,7 @@ export function ComboRenderer({
   colors,
   yFormatter,
   barKeys,
+  stacked,
   panel,
   onDatumClick,
 }: {
@@ -3146,6 +3147,7 @@ export function ComboRenderer({
   colors: string[];
   yFormatter?: ChartValueFormatter | undefined;
   barKeys: string[];
+  stacked?: boolean;
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler | undefined;
 }) {
@@ -3285,6 +3287,7 @@ export function ComboRenderer({
                 yAxisId={seriesAxisId(dualAxis, key)}
                 fill={colors[i % colors.length]}
                 radius={[4, 4, 0, 0]}
+                stackId={stacked ? "stack" : undefined}
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
                 {...chartSeriesClickProps(

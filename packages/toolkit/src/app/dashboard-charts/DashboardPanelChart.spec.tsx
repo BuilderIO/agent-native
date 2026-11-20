@@ -108,6 +108,78 @@ describe("DashboardPanelChart", () => {
     },
   );
 
+  it("stacks combo bars under a target line on its own axis and groups them by default", async () => {
+    const rows = [
+      { day: "2026-10-11", north: 30, south: 20, target: 500 },
+      { day: "2026-10-12", north: 40, south: 30, target: 1000 },
+    ];
+    const config = {
+      xKey: "day",
+      yKeys: ["north", "south", "target"],
+      barKeys: ["north", "south"],
+      rightYKeys: ["target"],
+    };
+    const rectangles = () =>
+      [...container.querySelectorAll(".recharts-bar-rectangle path")].map(
+        (path) => ({
+          x: Number(path.getAttribute("x")),
+          y: Number(path.getAttribute("y")),
+          width: Number(path.getAttribute("width")),
+          height: Number(path.getAttribute("height")),
+        }),
+      );
+
+    await render(
+      <DashboardPanelChart
+        panel={panel("combo", { ...config, stacked: true })}
+        rows={rows}
+      />,
+    );
+    const stacked = rectangles();
+    expect(stacked).toHaveLength(4);
+    const [northFirst, northSecond, southFirst] = stacked;
+    if (!northFirst || !northSecond || !southFirst)
+      throw new Error("Missing bars");
+    expect(northFirst.height).toBeGreaterThan(0);
+    expect(southFirst.height).toBeGreaterThan(0);
+    expect(northFirst.x).toBeCloseTo(southFirst.x);
+    expect(northFirst.width).toBeCloseTo(southFirst.width);
+    expect(southFirst.y + southFirst.height).toBeCloseTo(northFirst.y);
+    const targetLine = container
+      .querySelector(".recharts-line-curve")
+      ?.getAttribute("d");
+    const points = targetLine?.match(/^M([\d.]+),([\d.]+)L([\d.]+),([\d.]+)$/);
+    if (!points) throw new Error("Missing target line");
+    const [, x1, y1, x2, y2] = points.map(Number);
+    const grid = [
+      ...container.querySelectorAll(".recharts-cartesian-grid-horizontal line"),
+    ].map((line) => Number(line.getAttribute("y1")));
+    expect(grid).toHaveLength(2);
+    const [top, bottom] = grid;
+    if (top === undefined || bottom === undefined)
+      throw new Error("Missing chart grid");
+    expect(container.querySelectorAll(".recharts-yAxis")).toHaveLength(2);
+    expect(x1).toBeCloseTo(northFirst.x + northFirst.width / 2);
+    expect(x2).toBeCloseTo(northSecond.x + northSecond.width / 2);
+    expect(y1).toBeCloseTo((top + bottom) / 2);
+    expect(y2).toBeCloseTo(top);
+
+    await render(
+      <DashboardPanelChart panel={panel("combo", config)} rows={rows} />,
+    );
+    const grouped = rectangles();
+    expect(grouped).toHaveLength(4);
+    const [groupNorth, , groupSouth] = grouped;
+    if (!groupNorth || !groupSouth) throw new Error("Missing grouped bars");
+    expect(groupNorth.x).not.toBeCloseTo(groupSouth.x);
+    expect(groupNorth.y + groupNorth.height).toBeCloseTo(
+      groupSouth.y + groupSouth.height,
+    );
+    expect(
+      container.querySelector(".recharts-line-curve")?.getAttribute("d"),
+    ).toBe(targetLine);
+  });
+
   it("dashes the day the rows were read as unfinished, not today", async () => {
     const line = panel("line", { xKey: "day", yKeys: ["people"] });
     await render(<DashboardPanelChart panel={line} rows={DAYS} />);
