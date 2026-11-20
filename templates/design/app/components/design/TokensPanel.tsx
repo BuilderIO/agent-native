@@ -19,8 +19,6 @@ import {
 import {
   IconBorderRadius,
   IconBrush,
-  IconChevronDown,
-  IconChevronRight,
   IconDownload,
   IconLetterCase,
   IconPalette,
@@ -56,12 +54,12 @@ import {
   DESIGN_TOKEN_IMPORT_MAX_FILES,
   DESIGN_TOKEN_IMPORT_MAX_TOTAL_BYTES,
 } from "../../../shared/design-token-import-limits";
-import {
-  LAYER_ROW_GEOMETRY_CLASS,
-  LayerRowIndentSlots,
-  layerRowIndentCount,
-} from "./LayersPanel";
 import { TokenColorPicker } from "./TokenColorPicker";
+import {
+  TREE_GRID_ROW_CLASS,
+  TreeGridChevron,
+  TreeGridLead,
+} from "./TreeGridRow";
 
 interface IndexDesignTokensResult {
   designId: string;
@@ -281,14 +279,14 @@ function TokenRow({
   return (
     <div
       className={cn(
-        "group rounded-[4px]",
-        LAYER_ROW_GEOMETRY_CLASS,
+        "group",
+        TREE_GRID_ROW_CLASS,
         editing
           ? "bg-[var(--design-editor-selection-color)] text-foreground"
           : "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
       )}
     >
-      <LayerRowIndentSlots count={layerRowIndentCount(1)} />
+      <TreeGridLead depth={1} />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <TokenLeadingVisual
           type={token.type}
@@ -367,24 +365,13 @@ function TokenGroupSection({
         onClick={() => setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
         className={cn(
-          "w-full cursor-default rounded-[4px] text-left text-foreground/90 outline-none hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-          LAYER_ROW_GEOMETRY_CLASS,
+          "w-full cursor-default text-start text-foreground/90 outline-none hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--design-focus-ring-color)]",
+          TREE_GRID_ROW_CLASS,
         )}
       >
-        <LayerRowIndentSlots
-          count={layerRowIndentCount(0)}
-          control={
-            <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-              {collapsed ? (
-                <IconChevronRight
-                  className="!size-3 rtl:-scale-x-100"
-                  strokeWidth={1.8}
-                />
-              ) : (
-                <IconChevronDown className="!size-3" strokeWidth={1.8} />
-              )}
-            </span>
-          }
+        <TreeGridLead
+          depth={0}
+          chevron={<TreeGridChevron expanded={!collapsed} />}
         />
         <span className="flex min-w-0 flex-1 items-center gap-2">
           <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -566,8 +553,8 @@ function DraftTokenRow({
   return (
     <div
       className={cn(
-        "rounded-[4px] bg-[var(--design-editor-selection-color)] text-foreground",
-        LAYER_ROW_GEOMETRY_CLASS,
+        "bg-[var(--design-editor-selection-color)] text-foreground",
+        TREE_GRID_ROW_CLASS,
       )}
       onBlur={(event) => {
         if (
@@ -579,7 +566,7 @@ function DraftTokenRow({
         onCommit();
       }}
     >
-      <LayerRowIndentSlots count={layerRowIndentCount(1)} />
+      <TreeGridLead depth={1} />
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <TokenLeadingVisual type={draft.type} value={draft.value} />
         <Input
@@ -1085,12 +1072,13 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
         {isLoading && (
-          <div className="px-1.5">
+          <div>
             {[1, 2, 3, 4, 5].map((i) => (
               <div
                 key={i}
-                className={cn(LAYER_ROW_GEOMETRY_CLASS, "gap-2")}
-                style={{ paddingInlineStart: i === 1 ? undefined : "58px" }}
+                className={cn(TREE_GRID_ROW_CLASS, "gap-2")}
+                // Group rows' icons sit at 40px, token rows' one level in.
+                style={{ paddingInlineStart: i === 1 ? "40px" : "64px" }}
               >
                 <div className="size-4 shrink-0 animate-pulse rounded bg-muted/40" />
                 <div
@@ -1121,7 +1109,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         )}
 
         {!isLoading && groups.length > 0 && (
-          <div className="px-1.5">
+          <div>
             {groups.map((section) => (
               <TokenGroupSection
                 key={section.group}

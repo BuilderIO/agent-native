@@ -37,14 +37,15 @@ const CHROME_FIXTURE = `<!doctype html>
   </body>
 </html>`;
 
+// oracle-change: the File tab grid gives section heads 40px, their buttons 24px, and chrome glyphs Radix's 15px
 const APP_GEOMETRY_CONTRACT = {
-  layersHeaderHeight: 28,
+  layersHeaderHeight: 40,
   layerRowHeight: 32,
-  layerActionSize: 20,
-  layerIconSize: 12,
+  layerActionSize: 24,
+  layerIconSize: 15,
   layerRowIconSize: 16,
   layerChevronSize: 16,
-  layerChevronGlyphSize: 12,
+  layerChevronGlyphSize: 15,
   layerIndentWidth: 24,
   autoLayoutSectionHeaderHeight: 40,
   autoLayoutSectionPadding: 8,

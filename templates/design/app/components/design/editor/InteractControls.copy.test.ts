@@ -36,11 +36,12 @@ const TRANSLATED = {
 };
 
 describe("Interact screen picker copy", () => {
-  it("calls the control a screen picker in English", () => {
+  // oracle-change: Screens became Pages in UI copy, so the picker reads Page; the keys keep `screen` and still reject route keys
+  it("calls the control a page picker in English", () => {
     const copy = interactCopy(enUS);
-    expect(copy.screen).toBe("Screen");
-    expect(copy.noScreens).toMatch(/screens/i);
-    expect(copy.unknownScreen).toMatch(/screen/i);
+    expect(copy.screen).toBe("Page");
+    expect(copy.noScreens).toMatch(/pages/i);
+    expect(copy.unknownScreen).toMatch(/page/i);
     for (const key of ["route", "noPages", "unknownPage"]) {
       expect(Object.keys(copy)).not.toContain(key);
     }
