@@ -9650,7 +9650,7 @@ export async function runAgentLoop(opts: {
               }
             : {
                 message:
-                  "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+                  "The model returned an empty response, even after retrying. Try again, or pick a different model from the model menu.",
                 errorCode: "empty_final_response",
               };
         const keptDraft = finalGuardKeptDraft.current;
