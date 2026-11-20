@@ -435,12 +435,19 @@ export const InlineReplyComposer = forwardRef<
     </>
   );
 
+  const addAttachments = (draftId: string, added: ComposeAttachment[]) => {
+    const latest = draftRef.current;
+    if (latest.id !== draftId) return;
+    const attachments = [...(latest.attachments ?? []), ...added];
+    draftRef.current = { ...latest, attachments };
+    onUpdate(draftId, { attachments });
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (files.length === 0) return;
+    const draftId = draft.id;
     try {
-      const attachments = await uploadFiles(files);
-      const existing = draft.attachments ?? [];
-      onUpdate(draft.id, { attachments: [...existing, ...attachments] });
+      addAttachments(draftId, await uploadFiles(files));
     } catch (error) {
       toastUploadFailure(
         error,
@@ -473,10 +480,7 @@ export const InlineReplyComposer = forwardRef<
   };
 
   const handleAttachContentPage = (attachment: ComposeAttachment) => {
-    const latest = draftRef.current;
-    if (latest.id !== draft.id) return;
-    const existing = latest.attachments ?? [];
-    onUpdate(latest.id, { attachments: [...existing, attachment] });
+    addAttachments(draft.id, [attachment]);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {

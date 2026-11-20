@@ -798,12 +798,21 @@ export function ComposeModal({
     onUpdate(activeId, partial);
   };
 
+  const addAttachments = (draftId: string, added: ComposeAttachment[]) => {
+    const draft = draftsRef.current.find((item) => item.id === draftId);
+    if (!draft) return;
+    const attachments = [...(draft.attachments ?? []), ...added];
+    draftsRef.current = draftsRef.current.map((item) =>
+      item.id === draftId ? { ...item, attachments } : item,
+    );
+    onUpdate(draftId, { attachments });
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
+    const draftId = activeId;
     try {
-      const attachments = await uploadFiles(files);
-      const existing = activeDraft.attachments ?? [];
-      onUpdate(activeId, { attachments: [...existing, ...attachments] });
+      addAttachments(draftId, await uploadFiles(files));
     } catch (error) {
       toastUploadFailure(
         error,
@@ -836,10 +845,7 @@ export function ComposeModal({
   };
 
   const handleAttachContentPage = (attachment: ComposeAttachment) => {
-    const draft = draftsRef.current.find((item) => item.id === activeId);
-    if (!draft) return;
-    const existing = draft.attachments ?? [];
-    onUpdate(draft.id, { attachments: [...existing, attachment] });
+    if (activeId) addAttachments(activeId, [attachment]);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
