@@ -1181,7 +1181,7 @@ describe("Content space provisioning", () => {
     }
   });
 
-  it("does not pin another member's private legacy favorite for an organization admin", async () => {
+  it("pins another member's private legacy favorite for an organization admin only when it is shared with them", async () => {
     const orgId = "org-favorites-admin";
     const admin = "favorites-org-admin@example.com";
     const member = "favorites-private-member@example.com";
@@ -1194,40 +1194,46 @@ describe("Content space provisioning", () => {
     const now = new Date().toISOString();
     await getDb()
       .insert(schema.documents)
-      .values({
-        id: "favorites-admin-private",
-        ownerEmail: member,
-        orgId,
-        spaceId: organizationContentSpaceId(orgId),
-        title: "Member's private favorite",
-        isFavorite: 1,
-        visibility: "private",
-        createdAt: now,
-        updatedAt: now,
-      });
+      .values(
+        ["favorites-admin-private", "favorites-admin-shared"].map((id) => ({
+          id,
+          ownerEmail: member,
+          orgId,
+          spaceId: organizationContentSpaceId(orgId),
+          title: "Member's private favorite",
+          isFavorite: 1,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb().insert(schema.documentShares).values({
+      id: "favorites-admin-shared-admin-share",
+      resourceId: "favorites-admin-shared",
+      principalType: "user",
+      principalId: admin,
+      role: "viewer",
+      createdBy: member,
+      createdAt: now,
+    });
 
     const adminProvisioned = await runWithRequestContext(
       { userEmail: admin },
       () => provisionContentSpaces(getDb(), admin),
     );
 
-    await expect(
-      getDb()
-        .select()
-        .from(schema.contentDatabaseItems)
-        .where(
-          and(
-            eq(
-              schema.contentDatabaseItems.databaseId,
-              adminProvisioned.favoritesDatabaseId,
-            ),
-            eq(
-              schema.contentDatabaseItems.documentId,
-              "favorites-admin-private",
-            ),
-          ),
+    const pinned = await getDb()
+      .select({ documentId: schema.contentDatabaseItems.documentId })
+      .from(schema.contentDatabaseItems)
+      .where(
+        eq(
+          schema.contentDatabaseItems.databaseId,
+          adminProvisioned.favoritesDatabaseId,
         ),
-    ).resolves.toHaveLength(0);
+      );
+    expect(pinned.map((item) => item.documentId)).toEqual([
+      "favorites-admin-shared",
+    ]);
   });
 
   it("lists favorites across every authorized organization", async () => {
