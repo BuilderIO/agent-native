@@ -31,6 +31,7 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@jridgewell/trace-mapping": "0.3.31",
     "@noble/hashes": "^2.3.0",
+    "@radix-ui/react-icons": "^1.3.2",
     "@tabler/icons-react": "catalog:",
     "@tailwindcss/browser": "^4.3.3",
     "@tanstack/react-query": "^5.99.2",
