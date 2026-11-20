@@ -742,6 +742,16 @@ const editor = {
     duplicate: "Duplicar",
     delete: "Excluir",
     insertBelow: "Inserir bloco abaixo",
+    insertAbove: "Inserir bloco acima",
+    askAgent: "Perguntar ao agente",
+    columns: "Colunas",
+    syncedBlock: "Bloco sincronizado",
+    component: "Componente",
+    file: "Arquivo",
+    pdf: "PDF",
+    bookmark: "Favorito",
+    embed: "Incorporação",
+    tableOfContents: "Sumário",
     search: "Pesquisar ações...",
     noResults: "Nenhum resultado",
     block: "Bloco",
@@ -991,6 +1001,8 @@ const editor = {
     noFilesOrMedia: "Nenhum arquivo ou mídia",
     noMatchingOptions: "Nenhuma opção de correspondência",
     noMatchingPropertyTypes: "Nenhum tipo de propriedade correspondente",
+    typeChangeUnavailable:
+      "Não é possível alterar o tipo da propriedade para proteger os valores existentes.",
     notMappedToBuilder: "Não mapeado para o Builder.",
     onlyBlocksPropertyWarning:
       "Esta é a única propriedade de blocos presente neste tipo de objeto. Isso excluirá o conteúdo principal (corpo) de todos os objetos deste tipo.",
@@ -1083,6 +1095,10 @@ const editor = {
     fourColumns: "4 colunas",
     codeBlock: "Bloco de código",
     codeBlockDescription: "Trecho de código",
+    toggleHeading1: "Título recolhível 1",
+    toggleHeading2: "Título recolhível 2",
+    toggleHeading3: "Título recolhível 3",
+    toggleHeadingDescription: "Título que abre e fecha",
     collapsibleBlockDescription: "Bloco dobrável",
     database: "Coleção",
     databaseDescription: "Coleção embutida nesta página",
@@ -1174,6 +1190,12 @@ const editor = {
     agentLevelNote: "Agentes podem comentar",
     agentLevelNoteHint:
       "Agentes podem comentar nesta página. Altere isso em Compartilhar.",
+    agentLevelViewDescription:
+      "Podem ler esta página, mas não comentar, sugerir nem editar.",
+    agentLevelViewConfirm: "Agora os agentes só podem ler esta página.",
+    agentLevelViewNote: "Agentes só podem ver",
+    agentLevelViewNoteHint:
+      "Agentes só podem ver esta página. Altere isso em Compartilhar.",
     sendPageToAgent: "Enviar esta página para um agente",
     connectAgentOverMcp: "Conectar um agente por MCP",
     importingFromNotion: "Importando do Notion...",
@@ -1562,6 +1584,9 @@ const exactEnglish = {
       temporaryAgentLink: "Link temporário para agentes",
       privateLinkCanView: "Somente pessoas com acesso podem visualizar",
       publicLinkCanView: "Qualquer pessoa com o link pode visualizar",
+      publicSubPagesOne: "Esta página e sua subpágina",
+      publicSubPages: "Esta página e suas {{count}} subpáginas",
+      publicSubPagesMore: "Esta página e mais de {{count}} subpáginas",
       copiedAgentPrompt: "Instruções para o agente copiadas",
       couldNotCopyAgentPrompt:
         "Não foi possível copiar as instruções para o agente",
@@ -1867,10 +1892,17 @@ const overrides = {
     heading6: "Título 6",
     link: "Link",
     comment: "Comentário",
+    suggestEdit: "Sugerir alteração",
     pasteLink: "Cole o link...",
     apply: "Aplicar",
     plainText: "Texto sem formatação",
     searchLanguages: "Buscar linguagens...",
+    codeLanguageAuto: "Automático",
+    codeLanguage: "Linguagem do código",
+    noLanguagesFound: "Nenhuma linguagem encontrada",
+    copyCode: "Copiar código",
+    codeCopied: "Copiado",
+    wrapCodeLines: "Quebrar linhas",
     noBlocksFields:
       "Nenhum campo Blocks. Adicione um pelo menu de propriedades.",
     addBlockField: "Adicionar campo",
@@ -1891,6 +1923,18 @@ const overrides = {
       "Isso exclui “{{name}}” e o texto dele de todas as linhas desta coleção. Não é possível desfazer.",
     deleteBlockFieldBodyWarning:
       "“{{name}}” é o corpo da página, então o texto principal de cada linha também será excluído.",
+    blockFieldFrozen: "Congelado enquanto {{column}} for {{value}}",
+    blockFieldFrozenDescription:
+      "Uma regra desta coleção impede que qualquer um, pessoa ou agente, altere esta aba. Mude {{column}} para um valor diferente de {{value}} para editá-la.",
+    blockFieldFrozenByManagers:
+      "Congelado enquanto {{column}} for {{value}}. Só quem tem acesso total à coleção pode mudar isso.",
+    blockFieldFrozenSaveRefused:
+      "Esta aba está congelada, então sua edição não foi salva",
+    freezeBlockField: "Congelar enquanto…",
+    freezeBlockFieldWhile: "Enquanto {{column}} for",
+    freezeBlockFieldNoColumns:
+      "Adicione uma coluna de status ou de seleção para congelar por ela",
+    unfreezeBlockField: "Não congelar",
   },
   comments: {
     add: "Adicionar comentário...",
@@ -1930,6 +1974,18 @@ const overrides = {
     agentBadge: "Agente",
     addEmoji: "Adicionar emoji",
     mentionSomeone: "Mencionar alguém",
+    attachImage: "Adicionar imagem",
+    removeImage: "Remover imagem",
+    uploadingImage: "Enviando imagem…",
+    imageUploadFailed: "Não foi possível enviar a imagem. Tente de novo.",
+    imageTypeUnsupported:
+      "Um comentário aceita imagens PNG, JPEG, GIF ou WebP.",
+    imageTooLarge: "Cada imagem pode ter até 10 MB.",
+    imageLimit: "Um comentário comporta até {{count}} imagens.",
+    imagesNeedStorage:
+      "Imagens precisam de armazenamento privado de arquivos, que este espaço de trabalho não conectou.",
+    commentImages: "Imagens",
+    openImage: "Abrir imagem: {{name}}",
     mentionPeople: "Pessoas",
     mentionPeopleLoadFailed: "Não foi possível carregar as pessoas.",
     mentionAgents: "Agentes",

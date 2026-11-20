@@ -5,13 +5,17 @@ import {
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
-import { createError } from "h3";
+import { createError, type H3Event } from "h3";
 
 import { fail, isActionContractError } from "../action.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
+import { isUniqueViolation } from "../db/client.js";
 import { uploadFile } from "../file-upload/index.js";
+import { nameTaken, nextFreeName } from "../free-name/server.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
+import { canManageDeploymentWithoutOrg } from "../org/orgless-access.js";
+import { saveConflict, saveIfCurrent } from "../save-conflict/server.js";
 import { getSession } from "../server/auth.js";
 import {
   readBody,
@@ -32,6 +36,9 @@ import {
   getFrontmatterValue,
   getResourceKind,
   isRemoteAgentPath,
+  isSkillPath,
+  restorePathForTrashedSkill,
+  SKILL_TRASH_PREFIX,
   parseFrontmatter,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
@@ -42,21 +49,29 @@ import {
 } from "./metadata.js";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "./pack.js";
 import {
+  RESOURCE_CONTENT_RECORD,
+  resourceContentRevision,
+} from "./revision.js";
+import {
   resourceGet,
   resourceGetByPath,
   resourcePut,
   resourcePutIfAbsent,
   resourcePutIfCurrent,
+  resourcePutIfSnapshot,
   resourceDelete,
   resourceDeleteIfCurrent,
   resourceList,
   resourceListAccessible,
   resourceListOrganization,
   resourceMove,
+  resourceMoveIfCurrent,
+  resourceStoredPathsTaken,
   resourceEffectiveContext,
   ensurePersonalDefaults,
   canWriteLocalWorkspaceResourcePath,
   isLocalWorkspaceResourceId,
+  isSameLocalWorkspaceFile,
   isLegacyOrganizationWorkspaceFile,
   isLegacySharedResourceVisibleToOrganization,
   isWorkspaceResourceOwner,
@@ -65,6 +80,7 @@ import {
   sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
+  type Resource,
   type ResourceMeta,
 } from "./store.js";
 
@@ -117,6 +133,27 @@ function canReadOwner(
   );
 }
 
+function withContentRevision<R extends Pick<Resource, "content">>(resource: R) {
+  return { ...resource, revision: resourceContentRevision(resource) };
+}
+
+function isInheritedAppDefault(resource: ResourceMeta, orgId: string | null) {
+  return (
+    resource.owner === SHARED_OWNER &&
+    sharedResourceOwner(orgId) !== SHARED_OWNER &&
+    !isLegacyOrganizationWorkspaceFile(resource, orgId)
+  );
+}
+
+function withResourceInheritance<R extends ResourceMeta>(
+  resource: R,
+  orgId: string | null,
+) {
+  return isInheritedAppDefault(resource, orgId)
+    ? { ...resource, inheritedFromAppDefault: true as const }
+    : resource;
+}
+
 function resourceDownloadDisposition(path: string): string {
   const basename = path.replaceAll("\\", "/").split("/").pop()?.trim() || "";
   const filename = Array.from(basename)
@@ -158,8 +195,11 @@ async function assertCanEditShared(event: any): Promise<void> {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
   }
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return;
-  if (ctx.role === "owner" || ctx.role === "admin") return;
+  if (!ctx.orgId) {
+    if (canManageDeploymentWithoutOrg(session.email)) return;
+  } else if (ctx.role === "owner" || ctx.role === "admin") {
+    return;
+  }
   throw createError({
     statusCode: 403,
     message: "Only organization admins can edit organization files",
@@ -197,7 +237,10 @@ interface TreeNode {
   remoteAgentMeta?: RemoteAgentManifest;
 }
 
-function buildTree(resources: ResourceMeta[]): TreeNode[] {
+function buildTree(
+  resources: ResourceMeta[],
+  orgId: string | null,
+): TreeNode[] {
   const root: TreeNode[] = [];
 
   for (const res of resources) {
@@ -215,7 +258,7 @@ function buildTree(resources: ResourceMeta[]): TreeNode[] {
           path: currentPath,
           type: "file",
           kind: getResourceKind(res.path),
-          resource: res,
+          resource: withResourceInheritance(res, orgId),
         });
       } else {
         let folder = current.find(
@@ -263,7 +306,7 @@ export async function handleListResources(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  await ensurePersonalDefaults(email);
+  if (prefix !== SKILL_TRASH_PREFIX) await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
 
@@ -295,7 +338,7 @@ export async function handleGetResourceTree(event: any) {
     ? { includeAgentScratch: true, userEmail: email, orgId }
     : { userEmail: email, orgId };
 
-  await ensurePersonalDefaults(email);
+  if (query.seedDefaults !== "false") await ensurePersonalDefaults(email);
 
   let resources: ResourceMeta[];
 
@@ -323,7 +366,7 @@ export async function handleGetResourceTree(event: any) {
     );
   }
 
-  const tree = buildTree(resources);
+  const tree = buildTree(resources, orgId);
 
   await enrichTreeNodes(tree, orgId);
 
@@ -477,6 +520,11 @@ export async function handleGetResource(event: any) {
     setResponseHeader(event, "Content-Length", String(buf.length));
     setResponseHeader(event, "Cache-Control", "private, no-store");
     setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    setResponseHeader(
+      event,
+      "Content-Security-Policy",
+      "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'",
+    );
     if (wantsDownload) {
       setResponseHeader(
         event,
@@ -495,10 +543,10 @@ export async function handleGetResource(event: any) {
 
   if (isBinary) {
     const { content: _content, ...meta } = resource;
-    return { ...meta, content: "" };
+    return { ...withResourceInheritance(meta, orgId), content: "" };
   }
 
-  return resource;
+  return withContentRevision(withResourceInheritance(resource, orgId));
 }
 
 export async function handleCreateResource(event: any) {
@@ -566,7 +614,7 @@ export async function handleCreateResource(event: any) {
           );
           if (resource) {
             setResponseStatus(event, 201);
-            return resource;
+            return withContentRevision(resource);
           }
         }
 
@@ -598,7 +646,7 @@ export async function handleCreateResource(event: any) {
         });
         if (updated) {
           setResponseStatus(event, 200);
-          return updated;
+          return withContentRevision(updated);
         }
       }
       if (!nextPath) {
@@ -613,15 +661,38 @@ export async function handleCreateResource(event: any) {
     return { error: "Could not find an available path for this skill" };
   }
 
-  if (body.ifNotExists) {
-    const existing = await resourceGetByPath(owner, body.path);
-    if (existing) {
-      return existing;
-    }
-  }
-
   const writeOptions =
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+
+  if (body.ifNotExists) {
+    const organizationId = organizationIdFromResourceOwner(owner);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const existing =
+        (await resourceGetByPath(owner, body.path)) ??
+        (organizationId
+          ? await resourceGetByPath(SHARED_OWNER, body.path, {
+              orgId: organizationId,
+            })
+          : null);
+      if (existing) {
+        return withContentRevision(existing);
+      }
+      const created = await resourcePutIfAbsent(
+        owner,
+        body.path,
+        body.content ?? "",
+        body.mimeType,
+        writeOptions,
+      );
+      if (created) {
+        setResponseStatus(event, 201);
+        return withContentRevision(created);
+      }
+    }
+    setResponseStatus(event, 409);
+    return { error: "The file kept changing while it was created" };
+  }
+
   const resource = writeOptions
     ? await resourcePut(
         owner,
@@ -633,31 +704,135 @@ export async function handleCreateResource(event: any) {
     : await resourcePut(owner, body.path, body.content ?? "", body.mimeType);
 
   setResponseStatus(event, 201);
-  return resource;
+  return withContentRevision(resource);
+}
+
+/** How many numbered paths a rename refusal checks for a free one, and how many it asks the database about at once. */
+const FREE_PATH_LIMIT = 1000;
+const FREE_PATH_BATCH = 50;
+
+/**
+ * A free path next to `path` for a resource stored for `owner`: the file's
+ * name numbered the way `nextFreeName` numbers it ("notes/todo-2.md"), or
+ * for a skill its folder ("skills/review-2/SKILL.md"). Null when none of the
+ * paths it checks is free, or when no numbered path could be written: a
+ * local workspace file outside skills/ is one of a few fixed names
+ * (AGENTS.md, .mcp.json).
+ */
+async function freeResourcePath(
+  owner: string,
+  path: string,
+  localFiles: boolean,
+): Promise<string | null> {
+  if (localFiles && !path.startsWith("skills/")) return null;
+  const skillName = /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
+  const folder = path.slice(0, path.lastIndexOf("/") + 1);
+  const base = skillName ?? path.slice(folder.length);
+  const pathFor = (name: string) =>
+    skillName === undefined ? `${folder}${name}` : `skills/${name}/SKILL.md`;
+  // Local files are read one at a time, so the first free one ends the search
+  // before a file further on that can't be read.
+  const batchSize = localFiles ? 1 : FREE_PATH_BATCH;
+  const named = new Set([base]);
+  for (let checked = 0; checked < FREE_PATH_LIMIT; checked += batchSize) {
+    const names: string[] = [];
+    while (names.length < batchSize) {
+      const name = nextFreeName(base, named);
+      named.add(name);
+      names.push(name);
+    }
+    const taken = await suggestionPathsTaken(
+      owner,
+      names.map(pathFor),
+      localFiles,
+    );
+    const free = names.find((name) => !taken.has(pathFor(name)));
+    if (free) return pathFor(free);
+  }
+  return null;
+}
+
+/**
+ * Which numbered paths a suggestion leaves out. A local file that can't be
+ * read at one (a folder, a link, a file too big to read) isn't suggested,
+ * rather than failing the refusal the suggestion is for.
+ */
+async function suggestionPathsTaken(
+  owner: string,
+  paths: string[],
+  localFiles: boolean,
+): Promise<Set<string>> {
+  try {
+    return await resourceStoredPathsTaken(owner, paths, { localFiles });
+  } catch (error) {
+    if (!localFiles) throw error;
+    return new Set(paths);
+  }
+}
+
+/**
+ * The refusal for a rename onto a path another resource already has: a 409
+ * `name_taken` carrying a free path, in the shape actions send, so the
+ * browser reads it with `isNameTaken` the same way. Without a free path to
+ * offer, it's a plain 409. Nothing has been written.
+ */
+async function resourcePathTaken(
+  event: H3Event,
+  owner: string,
+  path: string,
+  localFiles: boolean,
+) {
+  const suggestion = await freeResourcePath(owner, path, localFiles);
+  setResponseStatus(event, 409);
+  if (!suggestion) {
+    return {
+      error: `A resource named "${path}" already exists. Rename or delete that one first.`,
+    };
+  }
+  const refusal = nameTaken("resource", path, suggestion);
+  return {
+    error: refusal.message,
+    errorCode: refusal.errorCode,
+    details: refusal.details,
+  };
 }
 
 export async function handleUpdateResource(event: any) {
-  const id = getRouterParam(event, "id") || event.context.params?.id;
-  if (!id) {
+  const requestedId = getRouterParam(event, "id") || event.context.params?.id;
+  if (!requestedId) {
     setResponseStatus(event, 400);
     return { error: "Resource ID is required" };
   }
 
   const email = await resolveEmail(event);
   const orgId = await resolveOrgId(event);
-  const existing = await resourceGet(id, { userEmail: email, orgId });
-  if (!existing) {
+  const found = await resourceGet(requestedId, { userEmail: email, orgId });
+  if (!found) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
   if (
-    !canReadOwner(existing.owner, email, orgId) ||
-    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+    !canReadOwner(found.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(found, orgId)
   ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
+  // A legacy shared resource's first save in an organization copies it
+  // there, and from then on the copy is the resource. A save sent to the
+  // shared one, from a tab opened before the copy or a resend whose response
+  // was lost, goes to the copy and is checked against it.
+  const activeSharedOwner = sharedResourceOwner(orgId);
+  const organizationCopy =
+    found.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER
+      ? await resourceGetByPath(activeSharedOwner, found.path, { orgId })
+      : null;
+  const existing =
+    organizationCopy && canReadOwner(organizationCopy.owner, email, orgId)
+      ? organizationCopy
+      : found;
+  const id = existing === found ? requestedId : existing.id;
   const isLocalWorkspaceResource =
     isWorkspaceResourceOwner(existing.owner) && isLocalWorkspaceResourceId(id);
   if (isWorkspaceResourceOwner(existing.owner) && !isLocalWorkspaceResource) {
@@ -672,8 +847,75 @@ export async function handleUpdateResource(event: any) {
   }
 
   const body = await readBody(event);
+  if (body.restoreSkill === true) {
+    const restorePath = restorePathForTrashedSkill(existing);
+    if (!restorePath) {
+      if (isSkillPath(existing.path)) return withContentRevision(existing);
+      setResponseStatus(event, 404);
+      return { error: "Trashed skill not found" };
+    }
+    const restored = await resourceMoveIfCurrent(existing, restorePath);
+    if (!restored) {
+      setResponseStatus(event, 409);
+      return {
+        error: "The skill changed or its restore path is already in use",
+      };
+    }
+    return withContentRevision(restored);
+  }
+  const expectedRevision: unknown = body.expectedRevision;
+  if (expectedRevision !== undefined && typeof expectedRevision !== "string") {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "expectedRevision must be the revision from your last read of this resource",
+    };
+  }
+  // A content save that sends the revision it read is refused when someone
+  // saved other content after that read, before anything is written or moved.
+  // A save without one still writes over whatever is there. Only content is
+  // checked, so a rename alone never conflicts.
+  const checksRevision =
+    expectedRevision !== undefined && typeof body.content === "string";
+  // True when this save is already there, as when a request is resent after
+  // its response was lost. Metadata is stored as sent when it's a string or
+  // null, and as JSON otherwise. An empty MIME type is stored as Markdown, and
+  // empty metadata reads back as null.
+  const isSameSaveOver = (resource: Resource) =>
+    resource.content === body.content &&
+    (body.mimeType === undefined ||
+      (body.mimeType || "text/markdown") === resource.mimeType) &&
+    (body.metadata === undefined ||
+      ((body.metadata === null || typeof body.metadata === "string"
+        ? body.metadata
+        : JSON.stringify(body.metadata)) || null) === resource.metadata);
+  // The move and the content write are separate statements, so a conflict
+  // found after the move would leave the resource renamed but not saved.
+  if (
+    checksRevision &&
+    body.path !== undefined &&
+    body.path !== existing.path
+  ) {
+    setResponseStatus(event, 400);
+    return {
+      error:
+        "Rename the resource and save its content in separate updates: rename it first, then send the content with expectedRevision.",
+    };
+  }
+  if (checksRevision) {
+    const revision = resourceContentRevision(existing);
+    if (expectedRevision !== revision && !isSameSaveOver(existing)) {
+      return contractErrorResponse(
+        event,
+        saveConflict(
+          RESOURCE_CONTENT_RECORD,
+          { content: existing.content },
+          revision,
+        ),
+      );
+    }
+  }
   const nextPath = body.path ?? existing.path;
-  const activeSharedOwner = sharedResourceOwner(orgId);
   const isLegacyOrganizationWorkspaceResource =
     existing.owner === SHARED_OWNER &&
     isLegacyOrganizationWorkspaceFile(existing, orgId);
@@ -701,16 +943,75 @@ export async function handleUpdateResource(event: any) {
       writeOptions,
     );
     if (!resource) {
+      if (nextPath !== existing.path) {
+        return resourcePathTaken(event, activeSharedOwner, nextPath, false);
+      }
+      // Another save made the copy since the look above, and the copy is the
+      // resource now. If it holds this save already, as when a resend's first
+      // try made it, the save is done.
+      const copy = await resourceGetByPath(activeSharedOwner, nextPath, {
+        orgId,
+      });
+      if (copy && isSameSaveOver(copy)) return withContentRevision(copy);
+      if (copy && checksRevision) {
+        return contractErrorResponse(
+          event,
+          saveConflict(
+            RESOURCE_CONTENT_RECORD,
+            { content: copy.content },
+            resourceContentRevision(copy),
+          ),
+        );
+      }
       setResponseStatus(event, 409);
       return { error: `A resource already exists at path "${nextPath}"` };
+    }
+    // The copy holds this save over the version read above. When someone
+    // saved the source after that read, take the copy back, so it doesn't
+    // hide their save, and refuse with what's there. If someone wrote the
+    // copy first, it stays, and it's what's there.
+    const takeCopyBack = async (source: Resource) => {
+      let current: Resource = source;
+      // The copy is deleted only if it's still as made, compared as a read
+      // sees it, and a read sees empty metadata as null.
+      const made =
+        resource.metadata === "" ? { ...resource, metadata: null } : resource;
+      if (!(await resourceDeleteIfCurrent(made))) {
+        current =
+          (await resourceGet(resource.id, { userEmail: email, orgId })) ??
+          source;
+      }
+      return contractErrorResponse(
+        event,
+        saveConflict(
+          RESOURCE_CONTENT_RECORD,
+          { content: current.content },
+          resourceContentRevision(current),
+        ),
+      );
+    };
+    // With the source gone, the copy is the only place this save is, so it
+    // stays.
+    const sourceNow = () => resourceGet(id, { userEmail: email, orgId });
+    if (checksRevision) {
+      const source = await sourceNow();
+      if (source && source.content !== existing.content) {
+        return takeCopyBack(source);
+      }
     }
     if (
       isLegacyOrganizationWorkspaceResource &&
       typeof existing.metadata === "string"
     ) {
-      await resourceDeleteIfCurrent(existing);
+      // The source goes only if it's still the version read, so a save to it
+      // after the check above is caught here.
+      const sourceDeleted = await resourceDeleteIfCurrent(existing);
+      if (!sourceDeleted && checksRevision) {
+        const source = await sourceNow();
+        if (source) return takeCopyBack(source);
+      }
     }
-    return resource;
+    return withContentRevision(resource);
   }
 
   if (
@@ -725,12 +1026,126 @@ export async function handleUpdateResource(event: any) {
     };
   }
 
+  const localFiles = isLocalWorkspaceResource;
+  if (
+    nextPath !== existing.path &&
+    localFiles &&
+    (await isSameLocalWorkspaceFile({
+      path: existing.path,
+      otherPath: nextPath,
+    }))
+  ) {
+    // The new path is this file again: in another letter case on a
+    // case-insensitive disk, or in another skill root's spelling. Writing it
+    // and then deleting the old path would delete the file.
+    setResponseStatus(event, 409);
+    return {
+      error: `"${nextPath}" names this same file, so it can't be renamed to it. To change only its letter case, rename it to another name first.`,
+    };
+  }
+  // A rename never writes over another resource. Moving a row onto a taken
+  // path trips the (path, owner) index, and for a local workspace file the
+  // write below would replace the file already there.
+  if (
+    nextPath !== existing.path &&
+    (
+      await resourceStoredPathsTaken(existing.owner, [nextPath], { localFiles })
+    ).has(nextPath)
+  ) {
+    return resourcePathTaken(event, existing.owner, nextPath, localFiles);
+  }
+
   if (!isLocalWorkspaceResource && body.path && body.path !== existing.path) {
-    await resourceMove(id, body.path);
+    try {
+      await resourceMove(id, body.path);
+    } catch (error) {
+      // Another write took the path between the check and the move.
+      if (!isUniqueViolation(error)) throw error;
+      return resourcePathTaken(event, existing.owner, body.path, false);
+    }
   }
 
   const writeOptions =
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+  if (isLocalWorkspaceResource && nextPath !== existing.path) {
+    // Write the new file only if nothing is there, so a file another write
+    // created after the check above is refused rather than replaced. Then
+    // delete the old one.
+    const moved = await resourcePutIfSnapshot({
+      previous: null,
+      owner: existing.owner,
+      path: nextPath,
+      content: body.content ?? existing.content,
+      mimeType: body.mimeType ?? existing.mimeType,
+      ...(writeOptions ? { options: writeOptions } : {}),
+    });
+    if (!moved) {
+      return resourcePathTaken(event, existing.owner, nextPath, true);
+    }
+    // The old file goes only if it's still the version just copied. If
+    // another write changed or removed it meanwhile, take the copy back, so
+    // the newer version isn't lost to a copy of the older one.
+    let oldDeleted: boolean;
+    try {
+      oldDeleted = await resourceDeleteIfCurrent(existing);
+    } catch (error) {
+      // The old file couldn't be deleted, so take the copy back too.
+      await resourceDeleteIfCurrent(moved.resource);
+      throw error;
+    }
+    if (!oldDeleted) {
+      await resourceDeleteIfCurrent(moved.resource);
+      setResponseStatus(event, 409);
+      return { error: "Resource changed before it could be renamed" };
+    }
+    return withContentRevision(moved.resource);
+  }
+  if (checksRevision) {
+    // Read again and write only over that same version, so a save that lands
+    // between the check above and this write is caught too. `seen.read` is the
+    // version saveIfCurrent read last, which it checks next.
+    const seen: { read: Resource; written: Resource | null } = {
+      read: existing,
+      written: null,
+    };
+    try {
+      const { current } = await saveIfCurrent({
+        record: RESOURCE_CONTENT_RECORD,
+        expectedRevision: expectedRevision as string,
+        read: async () => {
+          const resource = await resourceGet(id, { userEmail: email, orgId });
+          if (!resource) {
+            fail("Resource not found", {
+              errorCode: "resource_not_found",
+              statusCode: 404,
+            });
+          }
+          seen.read = resource;
+          return {
+            value: { content: resource.content },
+            revision: resourceContentRevision(resource),
+            resource,
+          };
+        },
+        write: async ({ resource }) => {
+          const written = await resourcePutIfSnapshot({
+            previous: resource,
+            owner: resource.owner,
+            path: resource.path,
+            content: body.content,
+            mimeType: body.mimeType ?? resource.mimeType,
+            ...(writeOptions ? { options: writeOptions } : {}),
+          });
+          seen.written = written?.resource ?? null;
+          return written !== null;
+        },
+        isSameSave: () => isSameSaveOver(seen.read),
+      });
+      return withContentRevision(seen.written ?? current.resource);
+    } catch (error) {
+      return contractErrorResponse(event, error);
+    }
+  }
   const resource = writeOptions
     ? await resourcePut(
         existing.owner,
@@ -745,11 +1160,8 @@ export async function handleUpdateResource(event: any) {
         body.content ?? existing.content,
         body.mimeType ?? existing.mimeType,
       );
-  if (isLocalWorkspaceResource && nextPath !== existing.path) {
-    await resourceDelete(id);
-  }
 
-  return resource;
+  return withContentRevision(resource);
 }
 
 export async function handleDeleteResource(event: any) {
@@ -791,11 +1203,7 @@ export async function handleDeleteResource(event: any) {
     await assertCanEditShared(event);
   }
 
-  if (
-    existing.owner === SHARED_OWNER &&
-    sharedResourceOwner(orgId) !== SHARED_OWNER &&
-    !isLegacyOrganizationWorkspaceFile(existing, orgId)
-  ) {
+  if (isInheritedAppDefault(existing, orgId)) {
     setResponseStatus(event, 403);
     return {
       error:
@@ -803,11 +1211,24 @@ export async function handleDeleteResource(event: any) {
     };
   }
 
-  const deleted =
-    existing.owner === SHARED_OWNER &&
-    sharedResourceOwner(orgId) !== SHARED_OWNER &&
-    isLegacyOrganizationWorkspaceFile(existing, orgId) &&
-    typeof existing.metadata === "string"
+  const trashSkill = getQuery(event).trashSkill === "true";
+  if (trashSkill && restorePathForTrashedSkill(existing)) return { ok: true };
+  if (trashSkill && (!isSkillPath(existing.path) || isLocalWorkspaceResource)) {
+    setResponseStatus(event, 400);
+    return { error: "Only stored skill files can be moved to Trash" };
+  }
+
+  const deleted = trashSkill
+    ? Boolean(
+        await resourceMoveIfCurrent(
+          existing,
+          `${SKILL_TRASH_PREFIX}${existing.id}/${existing.path}`,
+        ),
+      )
+    : existing.owner === SHARED_OWNER &&
+        sharedResourceOwner(orgId) !== SHARED_OWNER &&
+        isLegacyOrganizationWorkspaceFile(existing, orgId) &&
+        typeof existing.metadata === "string"
       ? await resourceDeleteIfCurrent(existing)
       : isLocalWorkspaceResource
         ? await resourceDelete(id)
@@ -826,7 +1247,11 @@ export async function handleDeleteResource(event: any) {
   }
   if (!deleted) {
     setResponseStatus(event, 409);
-    return { error: "Resource changed before it could be deleted" };
+    return {
+      error: trashSkill
+        ? "Skill changed before it could be moved to Trash"
+        : "Resource changed before it could be deleted",
+    };
   }
   return { ok: true };
 }
@@ -856,8 +1281,12 @@ export async function handleUploadResource(event: any) {
   }
 
   const fileName = filePart.filename || "upload";
-  const path = pathPart?.data?.toString() || `/${fileName}`;
-  const shared = sharedPart?.data?.toString() === "true";
+  const path = pathPart?.data
+    ? Buffer.from(pathPart.data).toString("utf8") || `/${fileName}`
+    : `/${fileName}`;
+  const shared = sharedPart?.data
+    ? Buffer.from(sharedPart.data).toString("utf8") === "true"
+    : false;
   const mimeType = filePart.type || "application/octet-stream";
 
   if (filePart.type && !isAllowedUploadMimeType(filePart.type)) {
@@ -866,6 +1295,13 @@ export async function handleUploadResource(event: any) {
   }
   if (shared) {
     await assertCanEditShared(event);
+    // Without an organization the shared namespace is deployment-wide.
+    if (!(await getOrgContext(event)).orgId) {
+      throw createError({
+        statusCode: 403,
+        message: "Shared uploads require an organization",
+      });
+    }
   }
   const owner = await resolveOwner(event, shared);
 
@@ -906,7 +1342,7 @@ export async function handleUploadResource(event: any) {
   return resource;
 }
 
-function packHandlerError(event: any, err: unknown) {
+function contractErrorResponse(event: H3Event, err: unknown) {
   if (isActionContractError(err)) {
     setResponseStatus(event, err.statusCode);
     return {
@@ -936,7 +1372,7 @@ export async function handleExportResourcePack(event: any) {
       caller: "http",
     });
   } catch (err) {
-    return packHandlerError(event, err);
+    return contractErrorResponse(event, err);
   }
 }
 
@@ -969,6 +1405,6 @@ export async function handleImportResourcePack(event: any) {
         errorCode: "invalid_action_request_body",
       };
     }
-    return packHandlerError(event, err);
+    return contractErrorResponse(event, err);
   }
 }

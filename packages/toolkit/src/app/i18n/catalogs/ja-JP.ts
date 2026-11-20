@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "他のユーザーを招待できるのは管理者だけです。招待について管理者に相談するか、あなたも管理者にしてもらってください。",
   "settingsApiKeys.approvedOrigins": "承認済みオリジン",
   "settingsApiKeys.originsHint":
     "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",
@@ -720,6 +722,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "エラー：{{message}}",
   "errorMessages.gatewayInternalError":
     "エージェントが応答する前にモデルゲートウェイで内部エラーが発生しました。少し待ってから再試行し、繰り返す場合は下のエラー ID を伝えてください。",
+  "errorMessages.modelRefusal":
+    "そのリクエストにはお応えできません。別の質問であればお手伝いできます。",
   "errorMessages.gatewayNoDetails":
     "モデルゲートウェイからエラーの詳細が返されず、チャットを復旧できませんでした。少し待ってから再試行し、繰り返し発生する場合は新しいチャットを開始してください。",
   "errorMessages.creditsLimitReached": "AIクレジットの上限に達しました。",
@@ -1362,6 +1366,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "必須",
   "secrets.searchKeys": "キーを検索...",
   "secrets.usePersonalKey": "代わりに個人用キーを使用",
+  "secrets.testing": "テスト中…",
+  "secrets.cannotCheckAlone": "このキーは単独では確認できません",
   "selection.attached": "選択範囲の {{formattedCount}} 文字を添付しました",
   "selection.attached_other":
     "選択範囲の {{formattedCount}} 文字を添付しました",
@@ -1527,6 +1533,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "公開",
   "share.publicDescription": "リンクを知っているすべてのユーザーが閲覧可能",
   "share.remove": "削除",
+  "share.removeInvitee": "{{email}} を削除",
   "share.role": "役割",
   "share.searching": "検索中...",
   "share.share": "共有",
@@ -1550,6 +1557,10 @@ const messages: ToolkitAgentChatTranslation = {
     "新しいメンバーを含む、{{organization}} のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
   "share.confirmOrganizationAction": "組織と共有",
   "share.confirmOrganizationSharing": "共有しています...",
+  "share.confirmPublicTitle": "リンクを知っている全員と共有しますか？",
+  "share.confirmPublicDescription":
+    "リンクを知っている人は、組織外の人も含め、これを開いて中身をすべて見られるようになります。この設定は後で変更できます。",
+  "share.confirmPublicAction": "一般公開する",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
@@ -1573,6 +1584,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
   "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
+  "tool.agentApprovalTitle": "{{agent}} で承認が必要です",
+  "tool.agentApprovalReview": "{{agent}} で確認",
+  "tool.agentApprovalReturn":
+    "{{agent}} で承認してから、ここで続行してください。",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}} で承認しました。続けてください。",
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
@@ -2296,11 +2313,15 @@ const messages: ToolkitAgentChatTranslation = {
     "プレゼンテーション用に、このブラウザでサンプルデータを使用します。",
   "settingsShell.appGroup.labsFootnote":
     "これらの新しい不安定な機能にはバグがある可能性があります。",
+  "settingsShell.appGroup.labsHostDecided":
+    "この設定はあらかじめ決められているため、ここでは変更できません。",
   "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
   "settingsShell.appGroup.labsReadError":
     "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.labsShowAll": "すべてのLabs機能を表示",
+  "settingsShell.appGroup.labsUseDefault": "デフォルトを使用",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
   "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",
@@ -3045,6 +3066,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "スライドとデザインの画像を生成します。",
   "settingsInfra.whyEmbeddings":
     "セマンティック検索を改善します。キーワード検索はこれがなくても使えます。",
+  "settingsInfra.semanticSearch": "セマンティック検索",
+  "settingsInfra.semanticSearchOn":
+    "言葉だけでなく意味でもページを見つけます。ページのテキストと検索語は埋め込みのプロバイダーに送信されます。",
+  "settingsInfra.semanticSearchOff":
+    "オフ。検索は言葉の一致だけで、ページのテキストは埋め込みのプロバイダーに送信されません。",
+  "settingsInfra.semanticSearchUnknown":
+    "セマンティック検索がオンかどうかを読み取れませんでした。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "セマンティック検索をオンにしました。既存のページはバックグラウンドでインデックスされます。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "セマンティック検索をオフにしました。保存されていたページのベクトルは削除されました。",
+  "settingsInfra.semanticSearchSaveFailed":
+    "セマンティック検索を変更できませんでした。",
   "settingsInfra.designSystem": "デザインシステムインテリジェンス",
   "settingsInfra.whyDesignSystem":
     "生成したスライドとデザインをブランドに沿わせます。",
@@ -3783,6 +3817,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "音声チャットの設定を保存できませんでした。",
   "voice.dictation.cancelTranscription": "文字起こしをキャンセル",
+  "common.noData": "データがありません",
+  "common.rowsPerPage": "1ページあたりの行数:",
+  "dashboardMode.columnResizePersonal":
+    "ドラッグしてあなただけの列幅に変更します。ダブルクリックでリセットします。",
+  "dashboardMode.columnResizeShared": "ドラッグして全員の列幅を変更します",
+  "sessions.watchReplay": "リプレイを見る",
+  "sqlDashboard.calloutSeverityCritical": "重大",
+  "sqlDashboard.calloutSeverityInfo": "情報",
+  "sqlDashboard.calloutSeverityWarning": "警告",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} 件中、最初の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} 件中、最後の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} 件中、最新の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.collapseDescription": "説明を折りたたむ",
+  "sqlDashboard.columnFormat": "形式",
+  "sqlDashboard.columnFormatCurrency": "通貨",
+  "sqlDashboard.columnFormatDate": "日付",
+  "sqlDashboard.columnFormatDuration": "所要時間（秒）",
+  "sqlDashboard.columnFormatNumber": "数値",
+  "sqlDashboard.columnFormatPercent": "パーセント",
+  "sqlDashboard.columnFormatText": "プレーンテキスト",
+  "sqlDashboard.columnHide": "列を非表示",
+  "sqlDashboard.columnName": "列名",
+  "sqlDashboard.columnRename": "列の名前を変更",
+  "sqlDashboard.columnResize": "列の幅を変更",
+  "sqlDashboard.columnShow": '"{{name}}" を表示',
+  "sqlDashboard.columnShowHidden": "非表示の列を表示",
+  "sqlDashboard.drilldownChartPoints": "グラフのデータポイント",
+  "sqlDashboard.drilldownNextPage": "グラフのデータポイントの次のページ",
+  "sqlDashboard.drilldownPageRange":
+    "全{{total}}件中{{start}}～{{end}}件を表示",
+  "sqlDashboard.drilldownPreviousPage": "グラフのデータポイントの前のページ",
+  "sqlDashboard.expandDescription": "説明を展開する",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "完了",
+  "sqlDashboard.funnelLeft": "アプリを離脱",
+  "sqlDashboard.funnelLeftHere": "ここでアプリを離脱",
+  "sqlDashboard.funnelMovedOn": "どちらもせずに次へ",
+  "sqlDashboard.funnelOptional": "任意",
+  "sqlDashboard.funnelShown": "{{count}} 人に表示",
+  "sqlDashboard.funnelShownLabel": "表示",
+  "sqlDashboard.funnelSkipped": "スキップ",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}（改善）",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}}の{{previous}}から{{change}}減少",
+  "sqlDashboard.metricComparisonFlat": "{{period}}の{{previous}}から変化なし",
+  "sqlDashboard.metricComparisonNoChange": "変化なし",
+  "sqlDashboard.metricComparisonPoints": "{{value}}ポイント",
+  "sqlDashboard.metricComparisonPreviousPeriod": "前の期間",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}}の{{previous}}から{{change}}増加",
+  "sqlDashboard.metricComparisonVs": "{{period}}との比較",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}（悪化）",
+  "sqlDashboard.multiColumnSortHelp":
+    "クリックして並べ替え。Shiftキーを押しながらクリックすると別の並べ替えを追加できます。",
+  "sqlDashboard.noXValue": "値なし",
 };
 
 export default messages;

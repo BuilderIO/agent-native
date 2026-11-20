@@ -309,9 +309,7 @@ function trackAuth(
     const legacyProperties = {
       app,
       hostname: window.location.hostname,
-      ...(["design", "clips", "slides"].includes(app)
-        ? builderSignupTelemetry
-        : {}),
+      ...builderSignupTelemetry,
       ...properties,
     };
     const events: Array<{
@@ -673,17 +671,16 @@ export function AuthPage(props: AuthPageProps) {
     workspaceGatewayReturnOrigin,
     googleAuthMode,
     builderPreviewLocalDevEnabled,
+    builderSignupEnabled,
   } = props;
   const [builderSignup, setBuilderSignup] =
     React.useState<BuilderSignupAssignment | null>(
-      ["design", "clips", "slides"].includes(trackingApp)
-        ? null
-        : { status: "disabled" },
+      builderSignupEnabled ? null : { status: "disabled" },
     );
   const builderSignupRequest =
     React.useRef<Promise<BuilderSignupAssignment> | null>(null);
   React.useEffect(() => {
-    if (!["design", "clips", "slides"].includes(trackingApp)) return;
+    if (!builderSignupEnabled) return;
     builderSignupTelemetry = {};
     let disposed = false;
     builderSignupRequest.current ??= getBuilderSignupAssignment();
@@ -705,7 +702,7 @@ export function AuthPage(props: AuthPageProps) {
     return () => {
       disposed = true;
     };
-  }, [trackingApp]);
+  }, [builderSignupEnabled, trackingApp]);
   const [localePreference, setLocalePreference] = React.useState("system");
   const [locale, setLocale] = React.useState(defaultLocale);
   const [browserLocationReady, setBrowserLocationReady] = React.useState(false);
@@ -716,7 +713,8 @@ export function AuthPage(props: AuthPageProps) {
   React.useEffect(() => {
     if (
       builderSignup?.status !== "assigned" ||
-      !["signup", "magicLink", "googleOnly"].includes(view) ||
+      (!["signup", "magicLink", "googleOnly"].includes(view) &&
+        !(view === "login" && showGoogle)) ||
       builderSignupExposure.current === builderSignup.id
     )
       return;
@@ -727,12 +725,11 @@ export function AuthPage(props: AuthPageProps) {
       experiment_variant: builderSignup.variant,
       assignment_id: builderSignup.id,
     };
-    trackAuth(
-      trackingApp,
-      "auth.builder_signup_experiment_exposed",
-      builderSignupTelemetry,
-    );
-  }, [builderSignup, trackingApp, view]);
+    trackAuth(trackingApp, "auth.builder_signup_experiment_exposed", {
+      ...builderSignupTelemetry,
+      exposure_view: view,
+    });
+  }, [builderSignup, showGoogle, trackingApp, view]);
 
   const [messages, setMessages] = React.useState<Record<string, Notice>>({});
   const [submitting, setSubmitting] = React.useState<string | null>(null);
@@ -1532,7 +1529,7 @@ export function AuthPage(props: AuthPageProps) {
       if (
         builderSignup?.status !== "assigned" ||
         builderSignup.variant !== "automatic" ||
-        view === "login"
+        (view === "login" && method !== "google")
       )
         return undefined;
       try {
@@ -1603,32 +1600,45 @@ export function AuthPage(props: AuthPageProps) {
       stopNativeOAuth();
     }
     const authUrl = googleAuthUrlPath();
-    const mobileAuth = startMobileGoogleAuth(authUrl, oauthTarget);
-    if (mobileAuth) {
-      stopOAuthPolling();
-      const showRetry = () => {
-        if (flowId !== oauthFlowId.current) return;
-        setGoogleBusy(false);
-        setNotice("google", { kind: "error", text: t("googleNeverFinished") });
-      };
-      oauthBusyBoundTimer.current = window.setTimeout(
-        showRetry,
-        OAUTH_EXCHANGE_BUSY_BOUND_MS,
+    if (typeof window !== "undefined" && window.__agentNativeMobileOAuth) {
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
+      const mobileAuthUrl = new URL(authUrl, window.location.origin);
+      if (attemptId) {
+        mobileAuthUrl.searchParams.set("builder_signup_attempt", attemptId);
+      }
+      const mobileAuth = startMobileGoogleAuth(
+        mobileAuthUrl.toString(),
+        oauthTarget,
       );
-      try {
-        const result = await mobileAuth;
-        if (flowId !== oauthFlowId.current) return;
-        if (result === "signed-in") finishOAuthExchange(target);
-        else {
+      if (mobileAuth) {
+        stopOAuthPolling();
+        const showRetry = () => {
+          if (flowId !== oauthFlowId.current) return;
+          setGoogleBusy(false);
+          setNotice("google", {
+            kind: "error",
+            text: t("googleNeverFinished"),
+          });
+        };
+        oauthBusyBoundTimer.current = window.setTimeout(
+          showRetry,
+          OAUTH_EXCHANGE_BUSY_BOUND_MS,
+        );
+        try {
+          const result = await mobileAuth;
+          if (flowId !== oauthFlowId.current) return;
+          if (result === "signed-in") finishOAuthExchange(target);
+          else {
+            stopOAuthPolling();
+            showRetry();
+          }
+        } catch {
+          if (flowId !== oauthFlowId.current) return;
           stopOAuthPolling();
           showRetry();
         }
-      } catch {
-        if (flowId !== oauthFlowId.current) return;
-        stopOAuthPolling();
-        showRetry();
+        return;
       }
-      return;
     }
     if (flow === "redirect" && !nativeDesktop) {
       const params = new URLSearchParams({
@@ -2493,11 +2503,15 @@ export function AuthPage(props: AuthPageProps) {
     </div>
   ) : null;
   const builderLegalNote =
-    view !== "login" &&
+    (view !== "login" || showGoogle) &&
     builderSignup?.status === "assigned" &&
     builderSignup.variant === "automatic" ? (
       <span>
-        {t("builderSignupDisclosure")}{" "}
+        {t(
+          view === "login"
+            ? "builderSignupNewAccountDisclosure"
+            : "builderSignupDisclosure",
+        )}{" "}
         <a
           href="https://www.builder.io/legal/terms"
           target="_blank"
@@ -3116,6 +3130,9 @@ export function AuthPage(props: AuthPageProps) {
                 {t("backToMagicLink")}
               </button>
             </p>
+          ) : null}
+          {view === "login" && showGoogle && builderLegalNote ? (
+            <p className="legal-note">{builderLegalNote}</p>
           ) : null}
         </form>
         <form

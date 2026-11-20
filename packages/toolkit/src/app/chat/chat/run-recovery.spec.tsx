@@ -388,6 +388,44 @@ describe("run recovery surfaces", () => {
     ).toBeNull();
   });
 
+  it("offers only a retry for credit limits where commercial surfaces are hidden", async () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      billing: { commercialSurfaces: "hide" },
+    });
+    const onRetry = vi.fn();
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "You've reached your AI credits limit.",
+              errorCode: "credits-limit-daily",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "The agent run failed before it finished.",
+    );
+    expect(container.textContent).not.toMatch(/credit|invite/i);
+    expect(container.querySelector("a")).toBeNull();
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    await act(async () => retry!.click());
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("resends a verification email and confirms the request", async () => {
     window.history.replaceState(
       null,
@@ -660,6 +698,46 @@ describe("run recovery surfaces", () => {
     expect(copied).toContain("Details:\nattempted_runs: run-1");
     expect(copied).not.toContain("secret");
     window.history.replaceState(null, "", "/");
+  });
+
+  it("starts a new chat from the failure link and shows the error once", async () => {
+    const onDismiss = vi.fn();
+    const newChat = vi.fn();
+    window.addEventListener("agent-chat:new-chat", newChat, { once: true });
+    try {
+      await act(async () => {
+        root.render(
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "Error: Gateway unavailable.\n\n[Start new chat](agent-native:new-chat)",
+              details: "Gateway unavailable.",
+              errorCode: "builder_gateway_error",
+              runId: "run-failed",
+            }}
+            onRetry={vi.fn()}
+            onDismiss={onDismiss}
+          />,
+        );
+      });
+      const link = container.querySelector<HTMLAnchorElement>(
+        'a[href="agent-native:new-chat"]',
+      );
+      expect(link?.textContent).toBe("Start new chat");
+      expect(container.textContent).not.toContain("[Start new chat]");
+      const details = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Details",
+      );
+      await act(async () => details?.click());
+      expect(
+        container.textContent.match(/Gateway unavailable\./g),
+      ).toHaveLength(1);
+      await act(async () => link?.click());
+      expect(newChat).toHaveBeenCalledOnce();
+      expect(onDismiss).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("agent-chat:new-chat", newChat);
+    }
   });
 
   it("keeps recovery actions compact in a narrow chat panel", async () => {

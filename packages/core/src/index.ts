@@ -57,7 +57,7 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
-export { isOutsideAgentCall } from "./action-caller.js";
+export { isAgentCaller, isOutsideAgentCall } from "./action-caller.js";
 export * from "./user-profile/index.js";
 export {
   embedApp,
@@ -270,6 +270,7 @@ export {
   getUserUsageCents,
   calculateCost,
   usageBillingForEngine,
+  deploymentUsageBilling,
   builderCreditsFromCostCents,
   BUILDER_AGENT_CREDIT_MARGIN_MULTIPLIER,
   BUILDER_AGENT_CREDITS_PER_USD,

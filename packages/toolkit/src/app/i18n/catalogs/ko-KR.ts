@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsOrg.inviteAdminExplanation":
+    "관리자만 다른 사람을 초대할 수 있습니다. 관리자에게 초대를 도와달라고 요청하거나 나도 관리자로 지정해 달라고 요청하세요.",
   "settingsApiKeys.approvedOrigins": "승인된 출처",
   "settingsApiKeys.originsHint":
     "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",
@@ -699,6 +701,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "오류: {{message}}",
   "errorMessages.gatewayInternalError":
     "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
+  "errorMessages.modelRefusal":
+    "그 요청은 도와드릴 수 없습니다. 다른 질문에 대해서는 도와드릴 수 있습니다.",
   "errorMessages.gatewayNoDetails":
     "모델 게이트웨이가 오류 세부 정보를 반환하지 않아 채팅을 복구할 수 없습니다. 잠시 후 다시 시도하고, 문제가 계속되면 새 채팅을 시작하세요.",
   "errorMessages.creditsLimitReached": "AI 크레딧 한도에 도달했습니다.",
@@ -1339,6 +1343,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.required": "필수",
   "secrets.searchKeys": "키 검색...",
   "secrets.usePersonalKey": "대신 개인 키 사용",
+  "secrets.testing": "테스트 중…",
+  "secrets.cannotCheckAlone": "이 키는 단독으로 확인할 수 없습니다",
   "selection.attached": "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
   "selection.attached_other":
     "선택한 내용의 {{formattedCount}}자가 첨부되었습니다",
@@ -1498,6 +1504,7 @@ const messages: ToolkitAgentChatTranslation = {
   "share.public": "공개",
   "share.publicDescription": "링크가 있는 모든 사용자가 볼 수 있음",
   "share.remove": "제거",
+  "share.removeInvitee": "{{email}} 제거",
   "share.role": "역할",
   "share.searching": "검색 중...",
   "share.share": "공유",
@@ -1521,6 +1528,10 @@ const messages: ToolkitAgentChatTranslation = {
     "새 구성원을 포함한 {{organization}}의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
   "share.confirmOrganizationAction": "조직과 공유",
   "share.confirmOrganizationSharing": "공유하는 중...",
+  "share.confirmPublicTitle": "링크가 있는 모든 사용자와 공유할까요?",
+  "share.confirmPublicDescription":
+    "조직 외부 사용자를 포함해 링크가 있는 모든 사용자가 이 항목을 열고 모든 내용을 볼 수 있습니다. 나중에 변경할 수 있습니다.",
+  "share.confirmPublicAction": "공개로 공유",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
@@ -1544,6 +1555,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}}에게 요청 중...",
   "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
+  "tool.agentApprovalTitle": "{{agent}}에서 승인이 필요합니다",
+  "tool.agentApprovalReview": "{{agent}}에서 검토",
+  "tool.agentApprovalReturn": "{{agent}}에서 승인한 후 여기에서 계속하세요.",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}}에서 승인했습니다. 계속해 주세요.",
   "tool.failedWithoutDetails": "오류 세부 정보가 없습니다.",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",
@@ -2254,11 +2270,15 @@ const messages: ToolkitAgentChatTranslation = {
     "프레젠테이션을 위해 이 브라우저에서 샘플 데이터를 사용합니다.",
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
+  "settingsShell.appGroup.labsHostDecided":
+    "이 설정은 이미 정해져 있어 여기서 변경할 수 없습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
   "settingsShell.appGroup.labsReadError":
     "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.labsShowAll": "모든 Labs 기능 표시",
+  "settingsShell.appGroup.labsUseDefault": "기본값 사용",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   "settingsShell.appGroup.mcpAppCards": "채팅 앱의 앱 카드",
@@ -2995,6 +3015,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "슬라이드와 디자인용 이미지를 생성합니다.",
   "settingsInfra.whyEmbeddings":
     "의미 기반 검색을 개선합니다. 키워드 검색은 이것 없이도 작동합니다.",
+  "settingsInfra.semanticSearch": "의미 기반 검색",
+  "settingsInfra.semanticSearchOn":
+    "단어뿐 아니라 의미로도 페이지를 찾습니다. 페이지 텍스트와 검색어는 임베딩 제공업체로 전송됩니다.",
+  "settingsInfra.semanticSearchOff":
+    "꺼짐. 검색은 단어만 찾으며, 페이지 텍스트는 임베딩 제공업체로 전송되지 않습니다.",
+  "settingsInfra.semanticSearchUnknown":
+    "의미 기반 검색이 켜져 있는지 확인할 수 없습니다.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "의미 기반 검색이 켜졌습니다. 기존 페이지는 백그라운드에서 색인됩니다.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "의미 기반 검색이 꺼졌습니다. 저장된 페이지 벡터가 삭제되었습니다.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "의미 기반 검색을 변경할 수 없습니다.",
   "settingsInfra.designSystem": "디자인 시스템 인텔리전스",
   "settingsInfra.whyDesignSystem":
     "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",
@@ -3717,6 +3750,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "음성 채팅 설정을 저장할 수 없습니다.",
   "voice.dictation.cancelTranscription": "받아쓰기 취소",
+  "common.noData": "데이터 없음",
+  "common.rowsPerPage": "페이지당 행:",
+  "dashboardMode.columnResizePersonal":
+    "드래그하면 나에게만 크기가 바뀝니다. 더블클릭하면 초기화됩니다.",
+  "dashboardMode.columnResizeShared": "드래그하면 모두에게 크기가 바뀝니다",
+  "sessions.watchReplay": "리플레이 보기",
+  "sqlDashboard.calloutSeverityCritical": "심각",
+  "sqlDashboard.calloutSeverityInfo": "정보",
+  "sqlDashboard.calloutSeverityWarning": "경고",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}}개 중 처음 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}}개 중 마지막 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}}개 중 최신 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.collapseDescription": "설명 접기",
+  "sqlDashboard.columnFormat": "형식",
+  "sqlDashboard.columnFormatCurrency": "통화",
+  "sqlDashboard.columnFormatDate": "날짜",
+  "sqlDashboard.columnFormatDuration": "소요 시간(초)",
+  "sqlDashboard.columnFormatNumber": "숫자",
+  "sqlDashboard.columnFormatPercent": "백분율",
+  "sqlDashboard.columnFormatText": "일반 텍스트",
+  "sqlDashboard.columnHide": "열 숨기기",
+  "sqlDashboard.columnName": "열 이름",
+  "sqlDashboard.columnRename": "열 이름 바꾸기",
+  "sqlDashboard.columnResize": "열 크기 조절",
+  "sqlDashboard.columnShow": '"{{name}}" 표시',
+  "sqlDashboard.columnShowHidden": "숨긴 열 표시",
+  "sqlDashboard.drilldownChartPoints": "차트 데이터 포인트",
+  "sqlDashboard.drilldownNextPage": "차트 데이터 포인트 다음 페이지",
+  "sqlDashboard.drilldownPageRange":
+    "총 {{total}}개 중 {{start}}–{{end}}개 표시",
+  "sqlDashboard.drilldownPreviousPage": "차트 데이터 포인트 이전 페이지",
+  "sqlDashboard.expandDescription": "설명 펼치기",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "완료",
+  "sqlDashboard.funnelLeft": "앱을 떠남",
+  "sqlDashboard.funnelLeftHere": "여기서 앱을 떠남",
+  "sqlDashboard.funnelMovedOn": "둘 다 하지 않고 넘어감",
+  "sqlDashboard.funnelOptional": "선택 사항",
+  "sqlDashboard.funnelShown": "{{count}}명에게 표시",
+  "sqlDashboard.funnelShownLabel": "표시됨",
+  "sqlDashboard.funnelSkipped": "건너뜀",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}(개선)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} {{previous}} 대비 {{change}} 감소",
+  "sqlDashboard.metricComparisonFlat": "{{period}} {{previous}} 대비 변화 없음",
+  "sqlDashboard.metricComparisonNoChange": "변화 없음",
+  "sqlDashboard.metricComparisonPoints": "{{value}}%p",
+  "sqlDashboard.metricComparisonPreviousPeriod": "이전 기간",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} {{previous}} 대비 {{change}} 증가",
+  "sqlDashboard.metricComparisonVs": "{{period}} 대비",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}(악화)",
+  "sqlDashboard.multiColumnSortHelp":
+    "클릭하여 정렬합니다. Shift 키를 누른 채 클릭하면 다른 정렬을 추가합니다.",
+  "sqlDashboard.noXValue": "값 없음",
 };
 
 export default messages;

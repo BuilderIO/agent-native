@@ -90,6 +90,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -153,6 +154,7 @@ import {
 import {
   documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
+  useCollectionRefusesNewProperties,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
   useDeleteDocumentProperty,
@@ -1197,10 +1199,12 @@ export function DocumentProperties({
         </CollapsedProperties>
       ) : null}
 
-      {showSchemaRows && databaseId ? (
+      {showSchemaRows &&
+      databaseId &&
+      !(loaded && data.canAddProperties === false) ? (
         // Add property, drawn on expectation, holds its place even before any
         // Property answer, and can't be used until this viewer's rights are
-        // confirmed.
+        // confirmed. A collection that refuses new properties drops it.
         <div className="contents" inert={!canManageSchema || undefined}>
           <AddProperty
             databaseDocumentId={databaseDocumentId ?? documentId}
@@ -1844,13 +1848,10 @@ export function PropertyManagementPopover({
     await configureProperty({ description: nextDescription });
   }
 
-  async function updateType(nextType: DocumentPropertyType) {
+  function updateType(nextType: DocumentPropertyType) {
     if (nextType === property.definition.type) return;
-    await configureProperty({
-      type: nextType,
-      options: defaultPropertyOptions(nextType),
-    });
-    setOpen(false);
+    const label = t("editor.properties.typeChangeUnavailable");
+    reportWriteFailure(new Error(label), { label });
   }
 
   async function updateVisibility(nextVisibility: DocumentPropertyVisibility) {
@@ -2210,7 +2211,7 @@ export function PropertyManagementPopover({
                         disabled={disabled}
                         onSelect={(event) => {
                           event.preventDefault();
-                          void updateType(propertyType);
+                          updateType(propertyType);
                         }}
                       >
                         <span className="flex-1">
@@ -4442,7 +4443,16 @@ function OptionValueEditor({
   );
 }
 
-export function AddProperty({
+/** Nothing on a system collection such as Files, which refuses new properties. */
+export function AddProperty(props: ComponentProps<typeof AddPropertyPicker>) {
+  const refused = useCollectionRefusesNewProperties(
+    props.databaseDocumentId ?? props.documentId,
+    props.databaseId,
+  );
+  return refused ? null : <AddPropertyPicker {...props} />;
+}
+
+function AddPropertyPicker({
   documentId,
   databaseDocumentId = documentId,
   databaseId,

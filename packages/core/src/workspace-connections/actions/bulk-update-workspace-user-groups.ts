@@ -7,6 +7,7 @@ import {
 } from "../groups.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Add or remove multiple workspace members from one reusable user group. Only workspace owners and admins can change group membership.",
   schema: z.object({

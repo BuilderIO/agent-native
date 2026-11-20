@@ -25,6 +25,7 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   AGENT_CALL_FAILURE_REASON_KEYS,
   createAgentNativeChatRuntime as createAgentNativeChatRuntimeImpl,
   createHttpAgentChatRuntime,
@@ -278,6 +279,166 @@ describe("createHttpAgentChatRuntime", () => {
 
     await turn.cancel?.({ reason: "user" });
     expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/cancel");
+  });
+
+  it("tells the server on Stop the last event it handed on, and hands on no more", async () => {
+    const encoder = new TextEncoder();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const send = (event: unknown) =>
+      stream.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller;
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": "run-runtime",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    const events = turn.events[Symbol.asyncIterator]();
+
+    send({
+      type: "message-start",
+      message: { id: "m1", role: "assistant", content: [] },
+      seq: 0,
+    });
+    send({
+      type: "message-delta",
+      messageId: "m1",
+      delta: { type: "text", text: "One," },
+      seq: 1,
+    });
+    expect((await events.next()).value).toMatchObject({
+      type: "message-start",
+    });
+    expect((await events.next()).value).toMatchObject({
+      type: "message-delta",
+    });
+    send({
+      type: "message-delta",
+      messageId: "m1",
+      delta: { type: "text", text: " two," },
+      seq: 2,
+    });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/abort");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      reason: "user",
+      shownThroughSeq: 1,
+    });
+    expect((await events.next()).done).toBe(true);
+  });
+
+  it("tells the server it showed nothing when it stops before the first event", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse([]))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+  });
+
+  it("sends no cutoff after an event without a sequence number", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "message-start",
+            message: { id: "m1", role: "assistant", content: [] },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    await turn.events[Symbol.asyncIterator]().next();
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1][1]?.body)),
+    ).not.toHaveProperty("shownThroughSeq");
+  });
+
+  it("doesn't count a server event as shown until all it maps to is handed on", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "text", text: "One,", seq: 0 }]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+      mapEvent: (event) => [
+        {
+          type: "message-start",
+          message: { id: "m1", role: "assistant", content: [] },
+        },
+        {
+          type: "message-delta",
+          messageId: "m1",
+          delta: {
+            type: "text",
+            text: String((event as { text?: unknown }).text),
+          },
+        },
+      ],
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    const events = turn.events[Symbol.asyncIterator]();
+    expect((await events.next()).value).toMatchObject({
+      type: "message-start",
+    });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+    expect((await events.next()).done).toBe(true);
   });
 
   it("closes an unconsumed response stream without cancelling its run", async () => {
@@ -1624,6 +1785,30 @@ describe("createAgentNativeChatRuntime", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("sends the browser's time zone with a chat turn", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/agent-engine/status")
+        ? jsonResponse({ configured: true, chatEligible: true })
+        : sseResponse([{ type: "done" }]),
+    );
+    const apiUrl = "/_agent-native/agent-chat";
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl,
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    await drain(
+      (await session.startTurn({ prompt: "When is my next meeting?" })).events,
+    );
+
+    const chatRequest = fetchMock.mock.calls.find(
+      ([input]) => String(input) === apiUrl,
+    )?.[1];
+    expect(new Headers(chatRequest?.headers).get("x-user-timezone")).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
   });
 
   it("checks AI readiness before posting a new turn", async () => {
@@ -4413,7 +4598,7 @@ describe("createAgentNativeChatRuntime", () => {
             },
           ],
         },
-        { type: "done" },
+        { type: "done", durationMs: 5_027 },
       ]),
     );
     const runtime = createAgentNativeChatRuntime({
@@ -4468,6 +4653,7 @@ describe("createAgentNativeChatRuntime", () => {
     expect(events.at(-2)).toMatchObject({
       type: "message-done",
       message: {
+        metadata: { custom: { agentNativeRunDurationMs: 5_027 } },
         content: [
           {
             type: "reasoning",
@@ -5387,6 +5573,12 @@ describe("createAgentNativeChatRuntime", () => {
         activeTaskId: "remote-task-1",
       },
     });
+    // Progress replaces the participant, so it keeps the task the call named.
+    expect(events[3]).toMatchObject({
+      type: "participant",
+      operation: "update",
+      participant: { status: "working", activeTaskId: "remote-task-1" },
+    });
     expect(events[4]).toMatchObject({
       type: "activity",
       activity: {
@@ -5766,6 +5958,80 @@ describe("createAgentNativeChatRuntime", () => {
         metadata: { terminalCode: "permanent_precondition" },
       },
     });
+  });
+
+  it("shows an approval card for a peer call paused on approval in its app", async () => {
+    const approval = {
+      id: "approval-1",
+      tool: "delete-deck",
+      url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-1",
+          taskId: "task-child",
+          approval,
+          seq: 1,
+        },
+        // Without a task to continue, or with a link that is not a web page,
+        // the call shows only its paused row.
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-no-task",
+          approval,
+          seq: 2,
+        },
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-script",
+          taskId: "task-script",
+          approval: { ...approval, url: "javascript:alert(1)" },
+          seq: 3,
+        },
+        // A later call on the same task that finds the approval still pending.
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-2",
+          taskId: "task-child",
+          approval,
+          seq: 4,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Ask" }))
+        .events,
+    );
+    const widgets = events.filter((event) => event.type === "widget");
+
+    const card = (callId: string) => ({
+      operation: "create",
+      widget: {
+        id: "Slides:approval:approval-1",
+        kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+        state: "ready",
+        data: { agent: "Slides", ...approval, taskId: "task-child", callId },
+      },
+    });
+    // Both calls write the same card, each naming itself as the waiting call.
+    expect(widgets).toHaveLength(2);
+    expect(widgets[0]).toMatchObject(card("call-1"));
+    expect(widgets[1]).toMatchObject(card("call-2"));
   });
 
   it("surfaces native and MCP action renderers as composable widgets", async () => {

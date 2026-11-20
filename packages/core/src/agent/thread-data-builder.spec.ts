@@ -650,6 +650,20 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("uses the terminal event duration when projecting the saved reply", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Answer." } },
+        { seq: 1, event: { type: "done", durationMs: 5_027 } },
+      ],
+      "run-timed",
+      { runDurationMs: 19_193 },
+    );
+    expect(message?.metadata).toMatchObject({
+      custom: { agentNativeRunDurationMs: 5_027 },
+    });
+  });
+
   it("persists typed artifact receipts with the completed tool part", () => {
     const artifacts = [
       {
@@ -3824,6 +3838,45 @@ describe("mergeThreadDataForClientSave", () => {
     );
 
     expect(merged.agentKit.widgets).toEqual([incomingWidget]);
+  });
+
+  describe("a peer approval card", () => {
+    const run = (n: number) => ({
+      id: `run-${n}`,
+      threadId: "thread-1",
+      status: "completed",
+      startedAt: `2026-11-16T23:1${n}:00.000Z`,
+      activeMessageId: `assistant-${n}`,
+      lastSequence: 10,
+    });
+    const card = (n: number) => ({
+      messageId: `assistant-${n}`,
+      widget: {
+        id: "Slides:approval:approval-1",
+        kind: "agent-native/agent-call-approval",
+        data: {
+          agent: "Slides",
+          id: "approval-1",
+          tool: "delete-deck",
+          url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+          taskId: "task-child",
+          callId: `call-${n}`,
+        },
+      },
+    });
+    const merge = (existing: number, incoming: number) =>
+      mergeThreadDataForClientSave(
+        { agentKit: { runs: [run(existing)], widgets: [card(existing)] } },
+        { agentKit: { runs: [run(incoming)], widgets: [card(incoming)] } },
+      ).agentKit.widgets;
+
+    it("takes a later run's rewrite for the call still waiting", () => {
+      expect(merge(1, 2)).toEqual([card(2)]);
+    });
+
+    it("keeps the newer card when an older run's save arrives late", () => {
+      expect(merge(2, 1)).toEqual([card(2)]);
+    });
   });
 
   it("keeps run status from the highest sequence across stale snapshots", () => {
@@ -7370,5 +7423,55 @@ describe("private run projections survive snapshot sanitizing", () => {
       new Set(["private-action"]),
     );
     expect(hasPrivateRunProjections(sanitized, ["run-1"])).toBe(true);
+  });
+
+  it("keeps the span of omission-range events when redacting a private run", () => {
+    const repo = {
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        toolCalls: [
+          {
+            id: "tool-1",
+            name: "private-action",
+            runId: "run-1",
+            output: "secret",
+          },
+        ],
+        events: [
+          {
+            id: "run-1:1",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 1,
+            occurredAt: "2026-11-19T00:00:00.000Z",
+            type: "run.started",
+          },
+          {
+            id: "run-1:2",
+            threadId: "thread-1",
+            runId: "run-1",
+            sequence: 2,
+            occurredAt: "2026-11-19T00:00:00.000Z",
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { sourceType: "reasoning.delta", lastSequence: 44 },
+          },
+        ],
+      },
+    };
+    const sanitized = sanitizeThreadDataForPrivateActions(
+      JSON.parse(JSON.stringify(repo)),
+      new Set(["private-action"]),
+    ) as typeof repo;
+    expect(sanitized.agentKit.events[1]?.payload).toEqual({ lastSequence: 44 });
+    expect(JSON.stringify(sanitized)).not.toContain("reasoning.delta");
+    expect(JSON.stringify(sanitized)).not.toContain("secret");
+    expect(() =>
+      mergeThreadDataForClientSave(
+        { messages: [], agentKit: { events: [] } },
+        JSON.parse(JSON.stringify(repo)),
+        { privateActionNames: new Set(["private-action"]) },
+      ),
+    ).not.toThrow();
   });
 });

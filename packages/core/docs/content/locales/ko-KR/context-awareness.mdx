@@ -18,7 +18,7 @@ description: "사용자가 보고 있는 내용을 에이전트가 아는 방법
 6가지 패턴으로 이 문제를 해결할 수 있습니다.
 
 1. **탐색 상태** -- UI는 경로가 변경될 때마다 애플리케이션 상태에 `navigation` 키를 씁니다.
-2. **현재 URL** -- 프레임워크는 에이전트가 쿼리 매개변수를 보고 편집할 수 있도록 `__url__`를 작성합니다.
+2. **현재 URL** -- 프레임워크는 에이전트가 페이지 경로와 앱이 선언한 쿼리 매개변수를 보고 편집할 수 있도록 `__url__`를 작성합니다.
 3. **선택 상태** -- 사용자가 의미 있는 항목에 초점을 맞추거나 선택하거나 다중 선택하면 UI는 `selection` 키를 작성합니다.
 4. **`view-screen`** -- 애플리케이션 상태를 읽고, 상황별 데이터를 가져오고, 사용자가 보는 내용의 스냅샷을 반환하는 작업
 5. **신속한 전달** -- UI는 클릭이 상담원 차례가 되어야 할 때 통화 `sendToAgentChat()`를 제어합니다.
@@ -91,7 +91,7 @@ description: "사용자가 보고 있는 내용을 에이전트가 아는 방법
 | 레이어                                 | 소유자              | 사용                                                               |
 | -------------------------------------- | ------------------- | ------------------------------------------------------------------ |
 | `navigation` 앱 상태 키                | UI                  | 의미론적 경로 상태: 현재 보기, 열린 레코드, 활성 탭, 안정적인 ID   |
-| `__url__` 앱 상태 키                   | 프레임워크 UI       | 현재 경로 이름, 검색 문자열, 해시 및 구문 분석된 URL 쿼리 매개변수 |
+| `__url__` 앱 상태 키                   | 프레임워크 UI       | 현재 경로 이름, 해시 및 URL 쿼리 매개변수(선언된 키의 값만 보여줌) |
 | `__set_url__` 앱 상태 키               | 에이전트/프레임워크 | `set-search-params` 및 `set-url-path`의 원샷 URL 편집              |
 | `selection` 앱 상태 키                 | UI                  | 지속 가능한 의미 선택: 행, 블록, 도형, 자산, 메시지                |
 | `pending-selection-context` 앱 상태 키 | UI / `AgentPanel`   | 다음 채팅 차례에 첨부된 일회성 선택 텍스트(보통 Cmd+I)             |
@@ -146,6 +146,8 @@ searchParams:
 </current-url>
 ```
 
+에이전트는 경로와 해시, 그리고 앱이 선언한 키에 대한 쿼리 값만 볼 수 있습니다. `AgentSidebar`에 `urlQueryKeys`를 전달하세요(정확한 이름과 `prefix*` 패턴 사용 가능, 이 예시는 `["f_*", "q"]`를 선언합니다). 그 밖의 키는 이름이 그대로 유지되며, 값은 `<redacted>`로 표시됩니다.
+
 이는 공유 가능한 필터 상태에 대한 표준 레이어입니다. 사용자가 URL를 복사하고 동일한 필터링된 목록으로 돌아올 수 있는 경우 필터는 쿼리 문자열에 속합니다. 에이전트는 내장된 `set-search-params` 도구를 사용하여 해당 필터를 변경할 수 있습니다.
 
 ```text
@@ -154,7 +156,7 @@ set-search-params({ "params": { "f_region": "east", "q": null } })
 
 `view-screen`가 올바른 데이터를 가져오거나 요약하는 데 도움이 되는 의미론적 별칭에만 `navigation`를 사용하세요. 대시보드는 `navigation.dashboardId`를 유지하고 `__url__.searchParams`는 `f_region`, `f_dateStart` 및 `q`를 소유할 수 있습니다.
 
-`view-screen`가 더 풍부한 스냅샷을 반환하면 중요한 URL 필터를 친숙한 `activeFilters` 개체에 복사할 수 있습니다.
+`view-screen`가 더 풍부한 스냅샷을 반환하면 중요한 URL 필터를 친숙한 `activeFilters` 개체에 복사할 수 있습니다. 같은 정리된 `__url__`를 읽으므로 해당 키도 `urlQueryKeys`에 선언하세요.
 
 ```ts
 const url = (await readAppState("__url__")) as {
@@ -358,6 +360,18 @@ UI 측에서는 이 키를 직접 폴링하거나 삭제하지 않습니다. 경
 변경됩니다. 채팅이 스트리밍되는 동안 도착할 수 있는 명령의 경우 경로를 커밋하세요.
 포장 대신 `navigate(path, { replace: true, flushSync: true })` 사용
 보기 전환 시 주소 표시줄과 표시되는 페이지가 함께 유지됩니다.
+
+### 에이전트는 사용자의 화면을 유지합니다 {#agent-keeps-view}
+
+사용자의 화면은 사용자가 무언가를 보여 달라고 했을 때만 바뀝니다. 이는 내장 채팅, MCP나 WebMCP를 통한 외부 에이전트, A2A를 통한 피어 등 모든 에이전트에 적용됩니다(`@agent-native/core`의 `isAgentCaller(ctx)`).
+
+- 읽기는 절대 이동하지 않습니다. 에이전트 호출 중에 `navigate`를 쓰는 읽기 전용 작업은 앱 상태 저장소에서 거부됩니다.
+- 쓰기는 기본적으로 화면을 옮기지 않습니다. `intent: "open"` 없이 `navigate`를 쓰는 에이전트 쓰기는 거부됩니다. `intent`가 `"open"`이 아닐 때 이동을 깔끔하게 건너뛰려면 `@agent-native/core/application-state`의 `navigateAfterWrite(navigation, { ctx, intent })`를 호출하고, UI를 여는 전용 작업에는 `allowsAgentNavigation: true`를 설정합니다.
+- 항목 하나를 열려면 `intent: "open"`이 필요합니다. `createNavigateAction()`과 앱 상태 저장소는 별도 앱 코드 없이 항목 ID 필드(`id`, `*Id`)와 상세 경로에 대해 이를 기본 적용합니다. 직접 판별이 필요할 때만 `createNavigateAction()`에 `isDetailView`를 넘깁니다.
+
+```ts
+export const navigate = createNavigateAction();
+```
 
 ## useNavigationState 후크 {#use-navigation-state}
 

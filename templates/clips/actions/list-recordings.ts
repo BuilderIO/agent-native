@@ -169,7 +169,7 @@ export const listRecordingsSchema = z.object({
       z.boolean().optional(),
     )
     .describe(
-      "true: only your recordings whose share list names at least one person, group or org; false: only your recordings whose share list is empty. This reads the share list, not visibility, so an org or public recording can have an empty list; filter on visibility for that. Either value leaves out recordings you don't own.",
+      "Leave this out unless the user asks about sharing: false is not a neutral default, it drops every recording you've shared. true: only your recordings whose share list names at least one person, group or org; false: only your recordings whose share list is empty. This reads the share list, not visibility, so an org or public recording can have an empty list; filter on visibility for that. Either value leaves out recordings you don't own.",
     ),
   sort: z
     .enum(["recent", "views", "oldest"])
@@ -190,6 +190,13 @@ export const listRecordingsSchema = z.object({
 });
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
+  readOnly: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
   schema: listRecordingsSchema,

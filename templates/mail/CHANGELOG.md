@@ -3,6 +3,30 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-14
+
+### Fixed
+
+- Mailbox updates now refresh for the account that owns them.
+
+## 2026-11-13
+
+### Fixed
+
+- Mail opens reliably in embedded views without a first-run page error
+
+## 2026-11-12
+
+### Fixed
+
+- Forwarding a message with attachments, or reopening a saved draft that has them, no longer fails with Failed to save draft
+
+## 2026-11-11
+
+### Fixed
+
+- Links to an email from an agent or chat open that email instead of the inbox list.
+
 ## 2026-11-09
 
 ### Improved
@@ -14,6 +38,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Hovering an email action shows its name and shortcut, and keys now follow Superhuman: Space pages, X selects, Enter replies all in an open email, ? asks the agent, and Shift+U opens Unread.
+
+## 2026-11-07
+
+### Fixed
+
+- Gmail's copy of a draft now matches Mail's when you and the agent edit it at the same time, instead of sometimes keeping the edit that lost.
 
 ## 2026-11-05
 

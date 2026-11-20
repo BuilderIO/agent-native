@@ -7,6 +7,7 @@ import {
   AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
   appendAgentChatContextToMessage,
   claimAgentChatOpenRequest,
   claimAgentChatSubmit,
@@ -23,6 +24,7 @@ import {
   reportAgentChatSubmitTarget,
   setAgentChatContextItem,
   type AgentChatContextItem,
+  type AgentChatSubmitResult,
 } from "@agent-native/core/client/agent-chat";
 import { type EngineModelGroup } from "@agent-native/core/client/agent-chat";
 import {
@@ -938,8 +940,8 @@ export interface MultiTabAssistantChatHeaderProps {
   closeAllTabs: () => void;
   clearActiveTab: () => void;
   /** Open the history popover */
-  showHistory?: boolean;
-  toggleHistory?: () => void;
+  showHistory?: boolean | undefined;
+  toggleHistory?: (() => void) | undefined;
   /** Number of open tabs (useful for triggering scroll on tab count change) */
   tabCount: number;
 }
@@ -1325,6 +1327,10 @@ export function MultiTabAssistantChat({
     Map<string, { top: number; atBottom: boolean }>
   >(new Map());
   const visibleTabId = contentHidden ? null : activeThreadId;
+  const onSettledChange = props.onSettledChange;
+  useEffect(() => {
+    if (contentHidden) onSettledChange?.(true);
+  }, [contentHidden, onSettledChange]);
   useBrowserLayoutEffect(() => {
     if (!visibleTabId) return;
     const saved = transcriptScrollRef.current.get(visibleTabId);
@@ -1599,14 +1605,19 @@ export function MultiTabAssistantChat({
             (candidate) =>
               candidate.configured && candidate.engine === currentModelEngine,
           ) ?? availableModels.find((candidate) => candidate.configured);
-        const preferred =
-          group &&
-          group.engine === currentModelEngine &&
-          group.models.includes(defaultModel)
+        const engine = group && discoveredModelEngines[group.engine];
+        if (engine) {
+          const hasCurrentModel =
+            engine.name === currentModelEngine &&
+            (engine.supportedModels.includes(defaultModel) ||
+              engine.acceptsCustomModels ||
+              engine.preserveCustomModels);
+          const preferred = hasCurrentModel
             ? defaultModel
-            : group && discoveredModelEngines[group.engine]?.defaultModel;
-        if (group && preferred && group.models.includes(preferred)) {
-          selection = { model: preferred, engine: group.engine };
+            : engine.defaultModel;
+          if (hasCurrentModel || engine.selectableModels?.includes(preferred)) {
+            selection = { model: preferred, engine: engine.name };
+          }
         }
       }
       return resolveModelSelection(selection, availableModels, catalogDefault);
@@ -2636,6 +2647,31 @@ export function MultiTabAssistantChat({
       } = parsed;
       const requestedTabId = parsed.tabId;
       const { requestMode } = parsed;
+      const source = event.source as Window | null;
+      if (
+        submit &&
+        submitMessageId &&
+        source &&
+        source !== window &&
+        event.origin === window.location.origin &&
+        source.parent === window
+      ) {
+        const onResult = (resultEvent: Event) => {
+          const { detail } = resultEvent as CustomEvent<AgentChatSubmitResult>;
+          if (detail.submitMessageId !== submitMessageId) return;
+          cleanup();
+          source.postMessage(
+            { type: "agentNative.submitChatResult", data: detail },
+            event.origin,
+          );
+        };
+        const cleanup = () => {
+          window.clearTimeout(timer);
+          window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+        };
+        const timer = window.setTimeout(cleanup, 30_000);
+        window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      }
 
       // Make sure the sidebar is visible to show the response, unless the
       // caller explicitly opted out or it's a background send.
@@ -4217,6 +4253,11 @@ export function MultiTabAssistantChat({
                   branchNavigation={getBranchNavigation(tabId)}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
+                  composerDefaultModelLabel={
+                    threadModelRef.current.has(tabId) || persistedModelSelection
+                      ? undefined
+                      : props.composerDefaultModelLabel
+                  }
                   selectedEffort={
                     modelSelection?.effort ?? DEFAULT_REASONING_EFFORT
                   }
@@ -4238,9 +4279,8 @@ export function MultiTabAssistantChat({
                   composerDisabled={
                     props.composerDisabled || Boolean(parentMap[tabId])
                   }
-                  composerSubmissionDisabled={
-                    props.composerSubmissionDisabled || modelSelectionPending
-                  }
+                  composerSubmissionDisabled={props.composerSubmissionDisabled}
+                  composerModelSelectionPending={modelSelectionPending}
                   composerDisabledPlaceholder={
                     props.composerDisabled
                       ? props.composerDisabledPlaceholder

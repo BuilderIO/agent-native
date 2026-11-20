@@ -53,6 +53,12 @@ export interface ChangeEvent {
   [k: string]: unknown;
 }
 
+type ChangeVisibilityTarget = Pick<
+  ChangeEvent,
+  "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+> &
+  Partial<Pick<ChangeEvent, "source" | "key">>;
+
 export interface TransactionalChange {
   persist(transaction: DbExec): Promise<ChangeEvent>;
   isPersisted(): boolean;
@@ -98,7 +104,14 @@ export const POLL_CHANGE_EVENT = "poll-change";
 
 const ACCESS_CACHE_TTL_MS = 30_000;
 const ACCESS_CACHE_DENY_TTL_MS = 5_000;
-const ACCESS_CACHE_MAX = 500;
+const ACCESS_CACHE_MAX = 5_000;
+const ACCESS_PRIME_LIMIT = 250;
+const ACCESS_RETRY_LIMIT = 8;
+const ACCESS_CHECKS_AT_ONCE = 8;
+const ACCESS_IN_FLIGHT_MAX = 1_000;
+const ACCESS_SINGLE_CHECK_ROOM = 250;
+const ACCESS_CHECK_TIMEOUT_MS = 30_000;
+const ACCESS_CHECK_TIMEOUTS_MAX = 2;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -132,6 +145,73 @@ function timestampValue(value: unknown): number {
   if (Number.isFinite(numeric)) return numeric;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseDurableEventRow(row: {
+  id?: unknown;
+  version?: unknown;
+  event_json?: unknown;
+  owner?: unknown;
+  org_id?: unknown;
+  resource_type?: unknown;
+  resource_id?: unknown;
+}): { rawVersion: number; rowId: string; event: ChangeEvent | null } {
+  const rawVersion = timestampValue(row.version);
+  const rowId = typeof row.id === "string" ? row.id : "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(String(row.event_json));
+  } catch {
+    return { rawVersion, rowId, event: null };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { rawVersion, rowId, event: null };
+  }
+  const parsedRecord = parsed as Record<string, unknown>;
+  if (
+    typeof parsedRecord.source !== "string" ||
+    typeof parsedRecord.type !== "string"
+  ) {
+    return { rawVersion, rowId, event: null };
+  }
+  const parsedEvent = parsed as ChangeEvent;
+  const {
+    owner: _eventOwner,
+    orgId: _eventOrgId,
+    resourceType: _eventResourceType,
+    resourceId: _eventResourceId,
+    ...safeEvent
+  } = parsedEvent;
+  const event: ChangeEvent = {
+    ...safeEvent,
+    version: rawVersion || parsedEvent.version,
+    ...(typeof row.owner === "string"
+      ? { owner: row.owner }
+      : row.owner === undefined && typeof parsedEvent.owner === "string"
+        ? { owner: parsedEvent.owner }
+        : {}),
+    ...(typeof row.org_id === "string"
+      ? { orgId: row.org_id }
+      : row.org_id === undefined && typeof parsedEvent.orgId === "string"
+        ? { orgId: parsedEvent.orgId }
+        : {}),
+    ...(typeof row.resource_type === "string"
+      ? { resourceType: row.resource_type }
+      : row.resource_type === undefined &&
+          typeof parsedEvent.resourceType === "string"
+        ? { resourceType: parsedEvent.resourceType }
+        : {}),
+    ...(typeof row.resource_id === "string"
+      ? { resourceId: row.resource_id }
+      : row.resource_id === undefined &&
+          typeof parsedEvent.resourceId === "string"
+        ? { resourceId: parsedEvent.resourceId }
+        : {}),
+    ...(rowId || typeof parsedEvent.cursorId === "string"
+      ? { cursorId: rowId || parsedEvent.cursorId }
+      : {}),
+  };
+  return { rawVersion, rowId, event };
 }
 
 function sqlWatermarkValue(value: unknown): string | number | undefined {
@@ -420,7 +500,46 @@ async function readExtensionTargetsForRows(
   );
 }
 
-export type ChangeVisibility = "visible" | "hidden" | "pending" | "unreadable";
+export type ChangeVisibility =
+  | "visible"
+  | "hidden"
+  | "foreign"
+  | "pending"
+  | "unreadable";
+
+type AccessDecision = boolean | "foreign" | "unreadable";
+function logUnreadable(
+  resourceType: unknown,
+  resourceId: unknown,
+  cause: string,
+  error?: unknown,
+): void {
+  const record =
+    error && typeof error === "object"
+      ? (error as { name?: unknown; code?: unknown })
+      : undefined;
+  const safe = (value: unknown) =>
+    typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(value)
+      ? value
+      : undefined;
+  console.error("[agent-native] sync event unreadable", {
+    resourceType:
+      typeof resourceType === "string" && !resourceType.includes("@")
+        ? resourceType
+        : null,
+    resourceId:
+      typeof resourceId === "string" && !resourceId.includes("@")
+        ? resourceId
+        : null,
+    cause,
+    ...(cause === "threw"
+      ? {
+          errorName: safe(record?.name) ?? "Unknown",
+          ...(safe(record?.code) ? { errorCode: safe(record?.code) } : {}),
+        }
+      : {}),
+  });
+}
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -451,6 +570,24 @@ export type ChangeReadResult = {
   cursorLimited?: boolean;
   /** Set when the read stopped at an event whose access check is unresolved. */
   accessPending?: boolean;
+  unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
+};
+
+type UnreadableAt = {
+  cursor: SyncCursor;
+  type: "access-unavailable" | "unknown-scope";
+};
+function unreadableSignals(
+  entries: UnreadableAt[],
+): Pick<ChangeReadResult, "unreadable"> {
+  const types = [...new Set(entries.map((entry) => entry.type))];
+  return types.length ? { unreadable: types.map((type) => ({ type })) } : {};
+}
+
+type AccessRead = {
+  checking: Set<string>;
+  blockedOn: Set<Promise<void>>;
+  unreadableCursors: UnreadableAt[];
 };
 
 export type AccessResolver = (
@@ -464,13 +601,162 @@ const defaultResolveAccess: AccessResolver = async (
   resourceId,
   ctx,
 ) => {
+  const { getShareableResource } = await import("../sharing/registry.js");
+  if (!getShareableResource(resourceType)) return "foreign";
   const { resolveAccess } = await import("../sharing/access.js");
   return resolveAccess(resourceType, resourceId, ctx);
 };
 
+/**
+ * Answers which of `resourceIds` the user may see. A resolver may also report
+ * answers through `answered` as they arrive, so a read can pass those
+ * resources before the slowest of the rest is checked. One that checks its
+ * resources in turns reports each turn's resources through `starting` before
+ * it checks them, so a missed deadline counts only against resources whose
+ * checks started, and stops when `starting` returns false: none of its
+ * answers count any more. One that never calls `starting` has started them
+ * all.
+ */
+export type ManyAccessResolver = (
+  resourceType: string,
+  resourceIds: string[],
+  ctx: { userEmail: string; orgId: string | undefined },
+  answered?: (resourceId: string, allowed: boolean) => void,
+  starting?: (resourceIds: readonly string[]) => boolean | void,
+) => Promise<ReadonlySet<string> | "foreign">;
+
+const defaultResolveAccessMany: ManyAccessResolver = async (
+  resourceType,
+  resourceIds,
+  ctx,
+  answered,
+  starting,
+) => {
+  const { getShareableResource } = await import("../sharing/registry.js");
+  const { hasHostAccessResolver, resolveAccessMany } =
+    await import("../sharing/access.js");
+  if (
+    !getShareableResource(resourceType) &&
+    !hasHostAccessResolver(resourceType)
+  )
+    return "foreign";
+  const accessCtx = {
+    userEmail: ctx.userEmail,
+    ...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
+  };
+  if (!hasHostAccessResolver(resourceType)) {
+    const access = await resolveAccessMany(
+      resourceType,
+      resourceIds,
+      accessCtx,
+      {
+        skipResourceBody: true,
+      },
+    );
+    return new Set(access.keys());
+  }
+  return checkEachResource(
+    resourceIds,
+    async (resourceId) =>
+      (await resolveAccessMany(resourceType, [resourceId], accessCtx)).has(
+        resourceId,
+      ),
+    answered,
+    starting,
+  );
+};
+
+function resolveOneWith(resolveAccessMany: ManyAccessResolver): AccessResolver {
+  return async (resourceType, resourceId, ctx) => {
+    const result = await resolveAccessMany(resourceType, [resourceId], ctx);
+    return result === "foreign"
+      ? "foreign"
+      : result.has(resourceId)
+        ? true
+        : null;
+  };
+}
+
+function resolveEachWith(resolveAccess: AccessResolver): ManyAccessResolver {
+  return (resourceType, resourceIds, ctx, answered, starting) =>
+    checkEachResource(
+      resourceIds,
+      async (resourceId) =>
+        (await resolveAccess(resourceType, resourceId, ctx)) != null,
+      answered,
+      starting,
+    );
+}
+
+async function checkEachResource(
+  resourceIds: string[],
+  check: (resourceId: string) => Promise<boolean>,
+  answered: ((resourceId: string, allowed: boolean) => void) | undefined,
+  starting: ((resourceIds: readonly string[]) => boolean | void) | undefined,
+): Promise<ReadonlySet<string>> {
+  const visible = new Set<string>();
+  const failures: unknown[] = [];
+  for (
+    let start = 0;
+    start < resourceIds.length;
+    start += ACCESS_CHECKS_AT_ONCE
+  ) {
+    const group = resourceIds.slice(start, start + ACCESS_CHECKS_AT_ONCE);
+    if (starting?.(group) === false) break;
+    await Promise.all(
+      group.map(async (resourceId) => {
+        try {
+          const allowed = await check(resourceId);
+          if (allowed) visible.add(resourceId);
+          answered?.(resourceId, allowed);
+        } catch (error) {
+          failures.push(error);
+        }
+      }),
+    );
+    if (failures.length > 0) break;
+  }
+  if (failures.length > 0) {
+    throw new Error(`${failures.length} access checks failed`, {
+      cause: failures[0],
+    });
+  }
+  return visible;
+}
+
+function resourceNeedingAccessCheck(
+  event: Pick<
+    ChangeEvent,
+    "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+  >,
+  normalizedUserEmail: string,
+): { resourceType: string; resourceId: string } | undefined {
+  if (!event.resourceType || !event.resourceId) return undefined;
+  if (
+    typeof event.owner === "string" &&
+    event.owner.trim().toLowerCase() === normalizedUserEmail
+  ) {
+    return undefined;
+  }
+  if (event.visibility === "public") return undefined;
+  return { resourceType: event.resourceType, resourceId: event.resourceId };
+}
+
 export interface AppSyncStateOptions {
   getDb?: () => DbExec;
+  /**
+   * Checks one resource. Defaults to the sharing layer's check, or, when only
+   * `resolveAccessMany` is given, to a batch of one through it.
+   */
   resolveAccess?: AccessResolver;
+  /**
+   * Checks many resources of one type in one go. Defaults to the sharing
+   * layer's batch check, or, when only `resolveAccess` is given, to one
+   * `resolveAccess` call per resource. Given with `resolveAccess`, it must
+   * make the same decisions: a read asks one or the other about a resource,
+   * depending on how it reaches it.
+   */
+  resolveAccessMany?: ManyAccessResolver;
   deterministicEventIds?: boolean;
   dbAssignedVersions?: boolean;
   accessAllowTtlMs?: number;
@@ -479,6 +765,7 @@ export interface AppSyncStateOptions {
 export class AppSyncState {
   private readonly getDb: () => DbExec;
   private readonly resolveAccessFn: AccessResolver;
+  private readonly resolveAccessManyFn: ManyAccessResolver;
   private readonly deterministicEventIds: boolean;
   private readonly dbAssignedVersions: boolean;
   private recordChain: Promise<void> = Promise.resolve();
@@ -516,22 +803,34 @@ export class AppSyncState {
 
   private readonly accessCache = new Map<
     string,
-    { allowed: boolean | "unreadable"; checkedAt: number }
+    { allowed: AccessDecision; checkedAt: number }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
+  private readonly accessTimeouts = new Map<string, number>();
+  private accessChecksRunning = 0;
+  private accessGeneration = 0;
   private readonly accessInvalidationEpoch = new Map<string, number>();
   private readonly accessAllowTtlMs: number;
 
   constructor(options: AppSyncStateOptions = {}) {
     this.getDb = options.getDb ?? getDbExec;
-    this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
+    this.resolveAccessFn =
+      options.resolveAccess ??
+      (options.resolveAccessMany
+        ? resolveOneWith(options.resolveAccessMany)
+        : defaultResolveAccess);
+    this.resolveAccessManyFn =
+      options.resolveAccessMany ??
+      (options.resolveAccess
+        ? resolveEachWith(options.resolveAccess)
+        : defaultResolveAccessMany);
     this.deterministicEventIds = options.deterministicEventIds ?? false;
     this.dbAssignedVersions = options.dbAssignedVersions ?? false;
     this.accessAllowTtlMs = options.accessAllowTtlMs ?? ACCESS_CACHE_TTL_MS;
     this.pollEmitter.setMaxListeners(0);
   }
 
-  private accessCacheTtl(allowed: boolean | "unreadable"): number {
+  private accessCacheTtl(allowed: AccessDecision): number {
     return allowed === true ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
   }
 
@@ -858,13 +1157,17 @@ export class AppSyncState {
     for (const key of Array.from(this.accessInFlight.keys())) {
       if (key.endsWith(suffix)) this.accessInFlight.delete(key);
     }
+    for (const key of Array.from(this.accessTimeouts.keys())) {
+      if (key.endsWith(suffix)) this.accessTimeouts.delete(key);
+    }
   }
 
   private setAccessCache(
     key: string,
-    allowed: boolean | "unreadable",
+    allowed: AccessDecision,
     now: number,
   ): void {
+    this.accessTimeouts.delete(key);
     this.accessCache.delete(key);
     this.accessCache.set(key, { allowed, checkedAt: now });
     if (this.accessCache.size > ACCESS_CACHE_MAX) {
@@ -885,37 +1188,251 @@ export class AppSyncState {
     orgId: string | undefined,
   ): void {
     if (this.accessInFlight.has(key)) return;
+    if (
+      this.accessChecksRunning >=
+      ACCESS_IN_FLIGHT_MAX + ACCESS_SINGLE_CHECK_ROOM
+    ) {
+      return;
+    }
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
-    let settled = false;
-    const check = retainRequestDbPoolScope(
-      (async () => {
+    const work = retainRequestDbPoolScope(
+      Promise.resolve().then(async () => {
+        let allowed: AccessDecision;
         try {
-          const access = await this.resolveAccessFn(resourceType, resourceId, {
+          const result = await this.resolveAccessFn(resourceType, resourceId, {
             userEmail,
             orgId,
           });
-          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-            return;
-          }
-          this.setAccessCache(key, access != null, Date.now());
-        } catch {
-          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-            return;
-          }
-          this.setAccessCache(key, "unreadable", Date.now());
-        } finally {
-          settled = true;
-          this.accessInFlight.delete(key);
+          allowed = result === "foreign" ? "foreign" : result != null;
+        } catch (error) {
+          logUnreadable(resourceType, resourceId, "threw", error);
+          allowed = "unreadable";
         }
-      })(),
+        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+          return;
+        }
+        if (this.accessInFlight.get(key) !== check) return;
+        this.setAccessCache(key, allowed, Date.now());
+      }),
     );
-    if (!settled) this.accessInFlight.set(key, check);
+    this.countRunningAccessWork(1, work);
+    const check = this.trackAccessCheck([key], work);
+  }
+
+  private countRunningAccessWork(count: number, work: Promise<void>): void {
+    const generation = this.accessGeneration;
+    this.accessChecksRunning += count;
+    const ended = () => {
+      if (this.accessGeneration === generation) {
+        this.accessChecksRunning -= count;
+      }
+    };
+    void work.then(ended, ended);
+  }
+
+  private endAccessCheck(key: string, check: Promise<void> | undefined): void {
+    if (this.accessInFlight.get(key) === check) this.accessInFlight.delete(key);
+  }
+
+  private primeAccessChecks(
+    events: Iterable<ChangeEvent | null>,
+    userEmail: string,
+    orgId: string | undefined,
+    checking: AccessRead["checking"] = new Set(),
+  ): void {
+    const normalizedUserEmail = userEmail.trim().toLowerCase();
+    const now = Date.now();
+    const keysByType = new Map<string, Map<string, string>>();
+    const room = ACCESS_IN_FLIGHT_MAX - this.accessChecksRunning;
+    let started = 0;
+    for (const event of events) {
+      if (checking.size >= ACCESS_PRIME_LIMIT) break;
+      if (!event) continue;
+      const resource = resourceNeedingAccessCheck(event, normalizedUserEmail);
+      if (!resource) continue;
+      const key = accessCacheKey(
+        normalizedUserEmail,
+        orgId,
+        resource.resourceType,
+        resource.resourceId,
+      );
+      if (checking.has(key)) continue;
+      if (this.accessInFlight.has(key)) {
+        checking.add(key);
+        continue;
+      }
+      const cached = this.accessCache.get(key);
+      if (
+        cached &&
+        now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
+      )
+        continue;
+      if (started >= room) break;
+      started++;
+      checking.add(key);
+      let keys = keysByType.get(resource.resourceType);
+      if (!keys) {
+        keys = new Map();
+        keysByType.set(resource.resourceType, keys);
+      }
+      keys.set(resource.resourceId, key);
+    }
+    for (const [resourceType, keys] of keysByType) {
+      this.scheduleAccessChecks(resourceType, keys, normalizedUserEmail, orgId);
+    }
+  }
+
+  private scheduleAccessChecks(
+    resourceType: string,
+    keys: ReadonlyMap<string, string>,
+    userEmail: string,
+    orgId: string | undefined,
+  ): void {
+    const resolveMany = this.resolveAccessManyFn;
+    const epochs = new Map(
+      [...keys.keys()].map((resourceId) => [
+        resourceId,
+        this.accessInvalidationEpoch.get(
+          accessResourceKey(resourceType, resourceId),
+        ) ?? 0,
+      ]),
+    );
+    const cacheUnlessInvalidated = (
+      resourceId: string,
+      allowed: AccessDecision,
+    ) => {
+      const key = keys.get(resourceId);
+      const epoch =
+        this.accessInvalidationEpoch.get(
+          accessResourceKey(resourceType, resourceId),
+        ) ?? 0;
+      if (!key || epoch !== epochs.get(resourceId)) return;
+      if (this.accessInFlight.get(key) !== check) return;
+      this.setAccessCache(key, allowed, Date.now());
+      this.endAccessCheck(key, check);
+    };
+    const ids = [...keys.keys()];
+    const answeredIds = new Set<string>();
+    const answer = (resourceId: string, allowed: boolean) => {
+      answeredIds.add(resourceId);
+      cacheUnlessInvalidated(resourceId, allowed);
+    };
+    let startedKeys: Set<string> | undefined;
+    const starting = (resourceIds: readonly string[]): boolean => {
+      startedKeys ??= new Set();
+      for (const resourceId of resourceIds) {
+        const key = keys.get(resourceId);
+        if (key) startedKeys.add(key);
+      }
+      for (const key of keys.values()) {
+        if (this.accessInFlight.get(key) === check) return true;
+      }
+      return false;
+    };
+    const run = async () => {
+      try {
+        const visible = await resolveMany(
+          resourceType,
+          ids,
+          { userEmail, orgId },
+          answer,
+          starting,
+        );
+        for (const id of ids) {
+          if (!answeredIds.has(id)) {
+            if (visible === "foreign") cacheUnlessInvalidated(id, "foreign");
+            else answer(id, visible.has(id));
+          }
+        }
+      } catch {
+        const retried = ids
+          .filter((id) => !answeredIds.has(id))
+          .slice(0, ACCESS_RETRY_LIMIT);
+        if (!starting(retried)) return;
+        await Promise.all(
+          retried.map(async (id) => {
+            let allowed: AccessDecision;
+            try {
+              const result = await resolveMany(resourceType, [id], {
+                userEmail,
+                orgId,
+              });
+              allowed = result === "foreign" ? "foreign" : result.has(id);
+            } catch (error) {
+              logUnreadable(resourceType, id, "threw", error);
+              allowed = "unreadable";
+            }
+            cacheUnlessInvalidated(id, allowed);
+          }),
+        );
+      }
+    };
+    const work = retainRequestDbPoolScope(Promise.resolve().then(run));
+    this.countRunningAccessWork(keys.size, work);
+    const check = this.trackAccessCheck(
+      [...keys.values()],
+      work,
+      (key) => !startedKeys || startedKeys.has(key),
+    );
+  }
+
+  private trackAccessCheck(
+    keys: string[],
+    work: Promise<void>,
+    started: (key: string) => boolean = () => true,
+  ): Promise<void> {
+    const check: Promise<void> = Promise.resolve().then(async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let timedOut = false;
+      try {
+        timedOut = await Promise.race([
+          work.then(() => false),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(true), ACCESS_CHECK_TIMEOUT_MS);
+            (timer as { unref?: () => void }).unref?.();
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        for (const key of keys) {
+          if (
+            timedOut &&
+            this.accessInFlight.get(key) === check &&
+            started(key)
+          ) {
+            this.noteAccessTimeout(key);
+          }
+          this.endAccessCheck(key, check);
+        }
+      }
+    });
+    for (const key of keys) this.accessInFlight.set(key, check);
+    return check;
+  }
+
+  private noteAccessTimeout(key: string): void {
+    const missed = (this.accessTimeouts.get(key) ?? 0) + 1;
+    this.accessTimeouts.delete(key);
+    if (missed >= ACCESS_CHECK_TIMEOUTS_MAX) {
+      const [, , resourceType, ...resourceId] = key.split("|");
+      logUnreadable(resourceType, resourceId.join("|"), "timeout");
+      this.setAccessCache(key, "unreadable", Date.now());
+      return;
+    }
+    this.accessTimeouts.set(key, missed);
+    if (this.accessTimeouts.size > ACCESS_CACHE_MAX) {
+      const oldestKey = this.accessTimeouts.keys().next().value;
+      if (oldestKey !== undefined) this.accessTimeouts.delete(oldestKey);
+    }
   }
 
   __resetAccessCacheForTests(): void {
     this.accessCache.clear();
     this.accessInFlight.clear();
+    this.accessTimeouts.clear();
+    this.accessChecksRunning = 0;
+    this.accessGeneration++;
     this.accessInvalidationEpoch.clear();
   }
 
@@ -941,10 +1458,7 @@ export class AppSyncState {
    * Organization membership alone does not grant access to a resource-scoped event.
    */
   canSeeChangeForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: ChangeVisibilityTarget,
     userEmail: string,
     orgId: string | undefined,
   ): boolean {
@@ -974,19 +1488,25 @@ export class AppSyncState {
    * means the check did not finish.
    */
   async resolveChangeVisibilityForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: ChangeVisibilityTarget,
     userEmail: string,
     orgId: string | undefined,
     timeoutMs: number,
   ): Promise<ChangeVisibility> {
     const visibility = this.getChangeVisibilityForUser(event, userEmail, orgId);
-    if (visibility !== "pending" || !event.resourceType || !event.resourceId) {
-      return visibility;
-    }
-    const check = this.accessInFlight.get(
+    if (visibility !== "pending") return visibility;
+    const check = this.runningAccessCheck(event, userEmail, orgId);
+    if (check) await this.waitForAccessChecks([check], timeoutMs);
+    return this.getChangeVisibilityForUser(event, userEmail, orgId);
+  }
+
+  private runningAccessCheck(
+    event: Pick<ChangeEvent, "resourceType" | "resourceId">,
+    userEmail: string,
+    orgId: string | undefined,
+  ): Promise<void> | undefined {
+    if (!event.resourceType || !event.resourceId) return undefined;
+    return this.accessInFlight.get(
       accessCacheKey(
         userEmail.trim().toLowerCase(),
         orgId,
@@ -994,19 +1514,22 @@ export class AppSyncState {
         event.resourceId,
       ),
     );
-    if (check) await this.waitForAccessChecks([check], timeoutMs);
-    return this.getChangeVisibilityForUser(event, userEmail, orgId);
   }
 
   getChangeVisibilityForUser(
-    event: Pick<
-      ChangeEvent,
-      "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-    >,
+    event: ChangeVisibilityTarget,
     userEmail: string,
     orgId: string | undefined,
   ): ChangeVisibility {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
+    // Older settings notifications have no owner metadata. Their reserved user
+    // key must remain private when replayed from either memory or durable sync.
+    if (event.source === "settings" && event.key?.startsWith("u:")) {
+      const owner = /^u:([^:]+):/.exec(event.key)?.[1];
+      return owner?.trim().toLowerCase() === normalizedUserEmail
+        ? "visible"
+        : "hidden";
+    }
     if (event.visibility === "public") return "visible";
     if (!event.owner && !event.orgId && !event.resourceType) return "hidden";
     if (
@@ -1028,8 +1551,8 @@ export class AppSyncState {
         cached &&
         now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
       ) {
-        return cached.allowed === "unreadable"
-          ? "unreadable"
+        return cached.allowed === "unreadable" || cached.allowed === "foreign"
+          ? cached.allowed
           : cached.allowed
             ? "visible"
             : "hidden";
@@ -1302,6 +1825,7 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     cursor?: SyncCursor,
+    accessRead?: AccessRead,
   ): ChangeReadResult {
     const readCursor = cursor ?? { version: since, id: "" };
     if (
@@ -1315,30 +1839,42 @@ export class AppSyncState {
       };
     }
     const events: ChangeEvent[] = [];
+    const unreadable: UnreadableAt[] = [];
     let version = this.version;
     let lastCursor = readCursor;
-    for (const event of this.buffer) {
-      if (
-        cursor ? !isEventAfterCursor(event, readCursor) : event.version <= since
-      ) {
-        continue;
-      }
+    const unread = this.buffer.filter((event) =>
+      cursor ? isEventAfterCursor(event, readCursor) : event.version > since,
+    );
+    this.primeAccessChecks(unread, userEmail, orgId, accessRead?.checking);
+    for (const event of unread) {
       const visibility = this.getChangeVisibilityForUser(
         event,
         userEmail,
         orgId,
       );
-      if (visibility === "unreadable") throw new SyncEventReadError();
+      if (visibility === "unreadable") {
+        const entry: UnreadableAt = {
+          cursor: cursorForEvent(event),
+          type: "access-unavailable",
+        };
+        unreadable.push(entry);
+        accessRead?.unreadableCursors.push(entry);
+        lastCursor = cursorForEvent(event);
+        continue;
+      }
       if (visibility === "visible") {
         events.push(withoutSettingsKey(event));
         lastCursor = cursorForEvent(event);
         continue;
       }
       if (visibility === "pending") {
+        const check = this.runningAccessCheck(event, userEmail, orgId);
+        if (check) accessRead?.blockedOn.add(check);
         version = Math.max(since, event.version - 1);
         return {
           version,
           events,
+          ...unreadableSignals(unreadable),
           cursorLimited: true,
           accessPending: true,
           ...(cursor && lastCursor !== readCursor
@@ -1351,6 +1887,7 @@ export class AppSyncState {
     return {
       version,
       events,
+      ...unreadableSignals(unreadable),
       ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
         ? { cursor: encodeSyncCursor(lastCursor) }
         : {}),
@@ -1362,6 +1899,7 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     cursor?: SyncCursor,
+    accessRead?: AccessRead,
   ): Promise<ChangeReadResult> {
     if (syncEventsDisabled()) {
       return { version: this.version, events: [] };
@@ -1388,36 +1926,38 @@ export class AppSyncState {
     }
 
     try {
-      // Scope the fetch to rows that could ever be visible to this caller
-      // before paying to JSON.parse and visibility-check every deployment-wide
-      // event: deployment-global rows (no owner, no org), the caller's own
-      // rows, the caller's org's rows, and resource-scoped rows (access is
-      // decided below by the access-aware branch, which can grant a non-owner
-      // sharee, so resource-scoped rows must still flow through that check
-      // regardless of who owns them). A caller with no org passes a null
-      // `orgId` bind param, which makes `org_id = ?` match no row in both
-      // mirroring the `event.orgId && orgId` truthy check.
-      const result = await this.getDb().execute({
-        sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
+      const cursorArgs = [
+        cursor?.version ?? since,
+        cursor !== undefined,
+        cursor?.version ?? since,
+        cursor?.id ?? "",
+      ];
+      let result;
+      try {
+        result = await this.getDb().execute({
+          sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
               WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
-              AND (
-                (owner IS NULL AND org_id IS NULL AND event_json::jsonb ->> 'visibility' = 'public')
-                OR owner = ?
-                OR org_id = ?
-                OR resource_type IS NOT NULL
-              )
-            ORDER BY version ASC, id ASC LIMIT ?`,
-        args: [
-          cursor?.version ?? since,
-          cursor !== undefined,
-          cursor?.version ?? since,
-          cursor?.id ?? "",
-          userEmail,
-          orgId ?? null,
-          DURABLE_READ_LIMIT + 1,
-        ],
-      });
+              AND (event_json::jsonb ->> 'visibility' = 'public' OR lower(btrim(owner)) = ? OR org_id = ? OR resource_type IS NOT NULL)
+              ORDER BY version ASC, id ASC LIMIT ?`,
+          args: [
+            ...cursorArgs,
+            userEmail.trim().toLowerCase(),
+            orgId ?? null,
+            DURABLE_READ_LIMIT + 1,
+          ],
+        });
+      } catch (error) {
+        if (!isInvalidJsonCastError(error)) throw error;
+        logUnreadable(null, null, "invalid-json-cast");
+        result = await this.getDb().execute({
+          sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
+              WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
+              ORDER BY version ASC, id ASC LIMIT ?`,
+          args: [...cursorArgs, DURABLE_READ_LIMIT + 1],
+        });
+      }
       const events: ChangeEvent[] = [];
+      const unreadable: UnreadableAt[] = [];
       let version = Math.max(this.version, since);
       let lastDurableVersion = since;
       let lastCursor = readCursor;
@@ -1426,95 +1966,79 @@ export class AppSyncState {
         result.rows[DURABLE_READ_LIMIT]?.version,
       );
 
-      for (const row of rows) {
-        const rawVersion = timestampValue(row.version);
+      const parsedRows = rows.map(parseDurableEventRow);
+      this.primeAccessChecks(
+        parsedRows.map((row) => row.event),
+        userEmail,
+        orgId,
+        accessRead?.checking,
+      );
+
+      for (const [
+        index,
+        { rawVersion, rowId, event },
+      ] of parsedRows.entries()) {
         if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
         if (rawVersion > version) version = rawVersion;
-        const rowId = typeof row.id === "string" ? row.id : "";
         let rowCursor = rowId ? { version: rawVersion, id: rowId } : undefined;
-        let event: ChangeEvent | null = null;
-        try {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(String(row.event_json));
-          } catch {
-            throw new SyncEventReadError();
-          }
-          if (parsed && typeof parsed === "object") {
-            const parsedRecord = parsed as Record<string, unknown>;
-            if (
-              typeof parsedRecord.source !== "string" ||
-              typeof parsedRecord.type !== "string"
-            ) {
-              throw new SyncEventReadError();
-            }
-            const parsedEvent = parsed as ChangeEvent;
-            const {
-              owner: _eventOwner,
-              orgId: _eventOrgId,
-              resourceType: _eventResourceType,
-              resourceId: _eventResourceId,
-              ...safeEvent
-            } = parsedEvent;
-            event = {
-              ...safeEvent,
-              version: rawVersion || parsedEvent.version,
-              ...(typeof row.owner === "string"
-                ? { owner: row.owner }
-                : row.owner === undefined &&
-                    typeof parsedEvent.owner === "string"
-                  ? { owner: parsedEvent.owner }
-                  : {}),
-              ...(typeof row.org_id === "string"
-                ? { orgId: row.org_id }
-                : row.org_id === undefined &&
-                    typeof parsedEvent.orgId === "string"
-                  ? { orgId: parsedEvent.orgId }
-                  : {}),
-              ...(typeof row.resource_type === "string"
-                ? { resourceType: row.resource_type }
-                : row.resource_type === undefined &&
-                    typeof parsedEvent.resourceType === "string"
-                  ? { resourceType: parsedEvent.resourceType }
-                  : {}),
-              ...(typeof row.resource_id === "string"
-                ? { resourceId: row.resource_id }
-                : row.resource_id === undefined &&
-                    typeof parsedEvent.resourceId === "string"
-                  ? { resourceId: parsedEvent.resourceId }
-                  : {}),
-              ...(rowId || typeof parsedEvent.cursorId === "string"
-                ? {
-                    cursorId: rowId || parsedEvent.cursorId,
-                  }
-                : {}),
-            };
-          } else {
-            throw new SyncEventReadError();
-          }
-        } catch (error) {
-          if (error instanceof SyncEventReadError) throw error;
-          throw new SyncEventReadError();
+        if (!event) {
+          const row = rows[index];
+          logUnreadable(row?.resource_type, row?.resource_id, "missing-event");
+          const entry: UnreadableAt = {
+            cursor: rowCursor ?? { version: rawVersion, id: "" },
+            type: "unknown-scope",
+          };
+          unreadable.push(entry);
+          accessRead?.unreadableCursors.push(entry);
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
         }
         if (!rowCursor && typeof event.cursorId === "string") {
           rowCursor = { version: event.version, id: event.cursorId };
         }
 
+        const row = rows[index];
+        const scoped =
+          event.visibility === "public" ||
+          (typeof row?.owner === "string" &&
+            row.owner.trim().toLowerCase() ===
+              userEmail.trim().toLowerCase()) ||
+          (typeof row?.org_id === "string" && row.org_id === orgId) ||
+          typeof row?.resource_type === "string" ||
+          (row?.owner === undefined &&
+            row?.org_id === undefined &&
+            row?.resource_type === undefined);
+        if (!scoped) {
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
         const visibility = this.getChangeVisibilityForUser(
           event,
           userEmail,
           orgId,
         );
-        if (visibility === "unreadable") throw new SyncEventReadError();
+        if (visibility === "unreadable") {
+          const entry: UnreadableAt = {
+            cursor: rowCursor ?? { version: rawVersion, id: "" },
+            type: "access-unavailable",
+          };
+          unreadable.push(entry);
+          accessRead?.unreadableCursors.push(entry);
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
         if (visibility === "visible") {
           events.push(withoutSettingsKey(event));
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
         if (visibility === "pending") {
+          const check = this.runningAccessCheck(event, userEmail, orgId);
+          if (check) accessRead?.blockedOn.add(check);
           return {
             version: Math.max(since, event.version - 1),
             events,
+            ...unreadableSignals(unreadable),
             cursorLimited: true,
             accessPending: true,
             ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
@@ -1530,6 +2054,7 @@ export class AppSyncState {
           return {
             version: Math.max(since, lastDurableVersion),
             events,
+            ...unreadableSignals(unreadable),
             cursor: encodeSyncCursor(lastCursor),
             cursorLimited: result.rows.length > DURABLE_READ_LIMIT,
           };
@@ -1539,12 +2064,18 @@ export class AppSyncState {
           return {
             version: Math.max(since, boundaryVersion - 1),
             events: events.filter((event) => event.version < boundaryVersion),
+            ...unreadableSignals(
+              unreadable.filter(
+                (entry) => entry.cursor.version < boundaryVersion,
+              ),
+            ),
             cursorLimited: true,
           };
         }
         return {
           version: Math.max(since, lastDurableVersion),
           events,
+          ...unreadableSignals(unreadable),
           cursorLimited: true,
         };
       }
@@ -1552,6 +2083,7 @@ export class AppSyncState {
       return {
         version,
         events,
+        ...unreadableSignals(unreadable),
         ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
           ? { cursor: encodeSyncCursor(lastCursor) }
           : {}),
@@ -1559,7 +2091,10 @@ export class AppSyncState {
     } catch (error) {
       if (isMissingRelationError(error))
         throw new SyncEventsTableUnavailableError();
-      if (isInvalidJsonCastError(error)) throw new SyncEventReadError();
+      if (isInvalidJsonCastError(error)) {
+        logUnreadable(null, null, "invalid-json-cast");
+        throw new SyncEventReadError();
+      }
       throw error;
     }
   }
@@ -1571,12 +2106,18 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
+    const accessRead: AccessRead = {
+      checking: new Set(),
+      blockedOn: new Set(),
+      unreadableCursors: [],
+    };
     const first = await this.readCombinedChangesSinceForUser(
       since,
       userEmail,
       orgId,
       useDurableEvents,
       cursor,
+      accessRead,
     );
     // Only an unresolved access check is worth waiting for; a row-limit
     // truncation (also `cursorLimited`) is not blocked on one.
@@ -1587,9 +2128,9 @@ export class AppSyncState {
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
     // event now instead of one poll interval later.
-    if (this.accessInFlight.size > 0) {
+    if (accessRead.blockedOn.size > 0) {
       await this.waitForAccessChecks(
-        this.accessInFlight.values(),
+        accessRead.blockedOn,
         ACCESS_CHECK_WAIT_MS,
       );
     }
@@ -1600,6 +2141,7 @@ export class AppSyncState {
         orgId,
         useDurableEvents,
         cursor,
+        accessRead,
       );
     return result;
   }
@@ -1609,17 +2151,49 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     useDurableEvents: boolean,
-    cursor?: SyncCursor,
+    cursor: SyncCursor | undefined,
+    accessRead: AccessRead,
   ): Promise<ChangeReadResult> {
-    const memory = this.getChangesSinceForUser(since, userEmail, orgId, cursor);
-    if (!useDurableEvents) return memory;
+    const memoryRead: AccessRead = {
+      checking: accessRead.checking,
+      blockedOn: new Set(),
+      unreadableCursors: [],
+    };
+    const durableRead: AccessRead = {
+      checking: accessRead.checking,
+      blockedOn: new Set(),
+      unreadableCursors: [],
+    };
+    const blockOn = (read: AccessRead) => {
+      for (const check of read.blockedOn) accessRead.blockedOn.add(check);
+    };
+    const memory = this.getChangesSinceForUser(
+      since,
+      userEmail,
+      orgId,
+      cursor,
+      memoryRead,
+    );
+    if (!useDurableEvents) {
+      blockOn(memoryRead);
+      return memory;
+    }
 
     const durable = await this.getDurableChangesSinceForUser(
       since,
       userEmail,
       orgId,
       cursor,
+      durableRead,
     );
+    const unreadable = [
+      ...memoryRead.unreadableCursors,
+      ...durableRead.unreadableCursors,
+    ];
+    const sources = [
+      { result: memory, read: memoryRead },
+      { result: durable, read: durableRead },
+    ];
     const byIdentity = new Map<string, ChangeEvent>();
     for (const event of [...durable.events, ...memory.events]) {
       byIdentity.set(
@@ -1650,19 +2224,25 @@ export class AppSyncState {
         );
         // A check pending beyond the boundary the other read stopped at is
         // filtered out of this response, so waiting on it delivers nothing.
-        const accessPending = [memory, durable].some(
-          (result) =>
+        const pending = sources.filter(
+          ({ result }) =>
             result.accessPending &&
             compareSyncCursors(
               decodeSyncCursor(result.cursor) ?? cursor,
               boundary,
             ) <= 0,
         );
+        for (const { read } of pending) blockOn(read);
         return {
           version: boundary.version,
           cursor: encodeSyncCursor(boundary),
           cursorLimited: true,
-          ...(accessPending ? { accessPending } : {}),
+          ...unreadableSignals(
+            unreadable.filter(
+              (entry) => compareSyncCursors(entry.cursor, boundary) <= 0,
+            ),
+          ),
+          ...(pending.length > 0 ? { accessPending: true } : {}),
           events: events.filter(
             (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
           ),
@@ -1683,6 +2263,7 @@ export class AppSyncState {
       return {
         version: Math.max(memory.version, durable.version, since),
         events,
+        ...unreadableSignals(unreadable),
         ...(compareSyncCursors(responseCursor, cursor) > 0
           ? { cursor: encodeSyncCursor(responseCursor) }
           : {}),
@@ -1691,10 +2272,11 @@ export class AppSyncState {
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
       .map((result) => result.version);
-    const accessPending = [memory, durable].some(
-      (result) =>
+    const pending = sources.filter(
+      ({ result }) =>
         result.accessPending && result.version <= Math.min(...limitedVersions),
     );
+    for (const { read } of pending) blockOn(read);
     return {
       version:
         limitedVersions.length > 0
@@ -1706,8 +2288,15 @@ export class AppSyncState {
               (event) => event.version <= Math.min(...limitedVersions),
             )
           : events,
+      ...unreadableSignals(
+        unreadable.filter(
+          (entry) =>
+            !limitedVersions.length ||
+            entry.cursor.version <= Math.min(...limitedVersions),
+        ),
+      ),
       ...(limitedVersions.length > 0 ? { cursorLimited: true } : {}),
-      ...(accessPending ? { accessPending } : {}),
+      ...(pending.length > 0 ? { accessPending: true } : {}),
     };
   }
 
@@ -2116,10 +2705,7 @@ export function __resetCollabAccessCacheForTests(): void {
 }
 
 export function canSeeChangeForUser(
-  event: Pick<
-    ChangeEvent,
-    "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
-  >,
+  event: ChangeVisibilityTarget,
   userEmail: string,
   orgId: string | undefined,
 ): boolean {
@@ -2250,6 +2836,9 @@ export function createPollHandler(
       }
     } catch (error) {
       if (error instanceof SyncEventReadError) {
+        console.error("[agent-native] sync event read unavailable", {
+          requestId: getHttpRequestTelemetryId(event) ?? "unavailable",
+        });
         setResponseStatus(event, 409);
         return { error: error.code };
       }

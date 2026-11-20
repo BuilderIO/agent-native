@@ -15,7 +15,6 @@ export interface PendingGeneration {
   title?: string;
   source?: string;
   templateId?: string;
-  designSystemId?: string | null;
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];

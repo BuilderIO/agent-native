@@ -46,7 +46,9 @@ import {
 import { getAppConfig } from "../app-config/index.js";
 import {
   extractBearerToken,
+  signDispatchedTurnInitiator,
   verifyInternalToken,
+  type DispatchedTurnInitiatorClaim,
 } from "../integrations/internal-token.js";
 
 export const AGENT_CHAT_PROCESS_RUN_PATH =
@@ -167,6 +169,36 @@ export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
 
 /** Captured turn origin; durable workers do not restore loopback trust from this payload. */
 export const AGENT_CHAT_REQUEST_CONTEXT_FIELD = "__agentChatRequestContext";
+
+/**
+ * Signed proof, minted only by the foreground handler, that the turn a durable
+ * run continues was started interactively by its owner. A client can submit
+ * this field too, so the foreground handler always overwrites it.
+ */
+export const AGENT_CHAT_TURN_GRANT_FIELD = "__agentChatTurnGrant";
+
+/**
+ * Background-run marker key for the signed initiator the worker must resume
+ * as. The worker compares it with the stored turn initiator, so a row that
+ * changed after dispatch is refused rather than adopted.
+ */
+export const AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD =
+  "initiatorSignature";
+
+/**
+ * Marker fields carrying the signed initiator for `runId`. Empty without
+ * A2A_SECRET, where unsigned local dispatch is the trust boundary instead.
+ */
+export function backgroundRunInitiatorMarker(
+  runId: string,
+  initiator: DispatchedTurnInitiatorClaim | null | undefined,
+): { [AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD]?: string } {
+  if (!initiator || !hasConfiguredA2ASecret()) return {};
+  return {
+    [AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD]:
+      signDispatchedTurnInitiator(runId, initiator),
+  };
+}
 
 export function isHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;

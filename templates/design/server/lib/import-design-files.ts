@@ -15,6 +15,7 @@ import {
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../../shared/design-files.js";
+import type { ImportedDesignFile } from "../../shared/imported-design-file.js";
 import {
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
@@ -36,20 +37,7 @@ const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
 export const FRAME_GAP = 96;
 
-export interface ImportedDesignFile {
-  filename: string;
-  fileType: "html" | "css" | "jsx" | "asset";
-  content: string;
-  operationSource?: string;
-  source?: Record<string, unknown>;
-  preferredFrame?: {
-    title?: string;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-  };
-}
+export type { ImportedDesignFile };
 
 export interface SaveImportedDesignFilesInput {
   designId?: string;

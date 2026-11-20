@@ -594,6 +594,7 @@ export function FormBuilderPage() {
           </span>
           <Input
             size="sm"
+            dir="auto"
             value={localTitle}
             onChange={(e) => {
               setLocalTitle(e.target.value);
@@ -1009,6 +1010,7 @@ function BuilderContent({
           {/* Form header */}
           <div className="mb-6">
             <Input
+              dir="auto"
               value={localTitle}
               onChange={(e) => onTitleChange(e.target.value)}
               onFocus={() => (titleFocused.current = true)}
@@ -1018,6 +1020,7 @@ function BuilderContent({
               placeholder={t("builder.formTitlePlaceholder")}
             />
             <textarea
+              dir="auto"
               ref={descriptionRef}
               value={localDescription}
               onChange={(e) => onDescriptionChange(e.target.value)}
@@ -1625,6 +1628,7 @@ function SettingsEditor({
         </Label>
         <Input
           size="sm"
+          dir="auto"
           value={settings.submitText || t("builder.settings.defaultSubmitText")}
           onChange={(e) => update({ submitText: e.target.value })}
           className="text-sm"
@@ -1636,6 +1640,7 @@ function SettingsEditor({
           {t("builder.settings.successMessage")}
         </Label>
         <Textarea
+          dir="auto"
           value={
             settings.successMessage ||
             t("builder.settings.defaultSuccessMessage")

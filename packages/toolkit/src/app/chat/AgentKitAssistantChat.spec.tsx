@@ -23,7 +23,9 @@ import type {
   AgentMessage,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
+import { subscribeAgentChatComposerSubmit } from "@agent-native/core/client/agent-chat";
 import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
+import { AgentSelectToggle } from "@agent-native/toolkit/app/agent-select";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -39,11 +41,13 @@ import {
 } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+import type { Reference } from "../../composer/types.js";
 import {
   AgentCollaborationFeed,
   AgentInteractionItem,
 } from "../agentkit/react/components.js";
 import { AgentKitProvider } from "../agentkit/react/context.js";
+import { agentKitPendingSubmissions } from "../agentkit/react/pending-submissions.js";
 import {
   clearToolRenderersForTests,
   registerToolRenderer,
@@ -103,6 +107,7 @@ const chatMocks = vi.hoisted(() => ({
   failurePropsHistory: [] as unknown[],
   loopLimitProps: null as any,
   planCalloutProps: null as any,
+  useRealPlanCallout: false,
   failureError: { code: "test-error", message: "Run failed" } as any,
   failureCopies: 1,
   failureRunIds: ["run-1"] as string[],
@@ -141,6 +146,7 @@ const chatMocks = vi.hoisted(() => ({
   omitSnapshotPersistenceResult: false,
   snapshotPersistenceUnavailable: false,
   omitSuggestionsSlot: false,
+  dynamicSuggestionsLoading: false,
   runtime: { kind: "runtime" },
   transport: {
     kind: "transport",
@@ -196,6 +202,7 @@ vi.mock("../agentkit/react/index.js", async () => {
     useAgentKitControl,
     useAgentKitPendingSubmissions,
     useAgentKitSubmissionHoldsTurn,
+    useAgentKitSubmissionStarting,
     useAgentThread,
     useAgentThreadSelector,
   } = await import("../agentkit/react/context.js");
@@ -342,6 +349,10 @@ vi.mock("../agentkit/react/index.js", async () => {
     },
     useAgentKitSubmissionHoldsTurn: (threadId?: string) =>
       chatMocks.useRealChat ? useAgentKitSubmissionHoldsTurn(threadId) : false,
+    useAgentKitSubmissionStarting: (threadId?: string, requestId?: string) =>
+      chatMocks.useRealChat
+        ? useAgentKitSubmissionStarting(threadId, requestId)
+        : false,
     // Mirrors the hook's contract against the mocked thread and control.
     useAgentKitStopButton: (options: any) => {
       if (chatMocks.useRealChat) return useAgentKitStopButton(options);
@@ -410,6 +421,10 @@ vi.mock("../agentkit/react/index.js", async () => {
             requestComposerFocus: chatMocks.requestComposerFocus,
             slots: chatMocks.rootProps?.slots ?? {},
             controller: {
+              getSnapshot: () => ({
+                connection: "connected",
+                error: undefined,
+              }),
               getThread: () => chatMocks.readThread(),
               persistThreadSnapshot: (
                 threadId: string,
@@ -744,6 +759,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       return {
         suggestions: (options as { staticSuggestions?: string[] })
           .staticSuggestions,
+        isLoading: chatMocks.dynamicSuggestionsLoading,
       };
     },
     ExternalAgentNudge: () => null,
@@ -809,9 +825,11 @@ vi.mock("./chat/run-recovery.js", async (importOriginal) => {
       chatMocks.loopLimitProps = props;
       return null;
     },
-    PlanModeCallout: (props: unknown) => {
+    PlanModeCallout: (props: { onImplementPlan: () => void }) => {
       chatMocks.planCalloutProps = props;
-      return null;
+      return chatMocks.useRealPlanCallout
+        ? React.createElement(actual.PlanModeCallout, props)
+        : null;
     },
     getRequestModeMetadata: (message: any) => message?.metadata?.requestMode,
   };
@@ -1032,6 +1050,109 @@ async function flush() {
   });
 }
 
+describe("host composer input controls", () => {
+  it("disables attachment entry without disabling voice or the composer", async () => {
+    await mount(baseProps({ composerAttachmentsEnabled: false }));
+    expect(chatMocks.composerProps.attachmentsEnabled).toBe(false);
+    expect(chatMocks.chatProps.composerProps.attachmentsEnabled).toBe(false);
+    expect(chatMocks.composerProps.onAttachmentRequest).toBeUndefined();
+    expect(chatMocks.composerProps.voiceEnabled).toBe(true);
+    expect(chatMocks.composerProps.disabled).toBe(false);
+  });
+
+  it.each([undefined, true, false])(
+    "preserves staged context independently of picker visibility %s",
+    async (showContextPicker) => {
+      const item = {
+        key: "current-item",
+        title: "Selected item",
+        context: "Captured context",
+      };
+      const prepared = [{ ...item, context: "Revalidated context" }];
+      const context: AssistantChatComposerContext = {
+        menuItems: [
+          { id: "choose-item", label: "Choose item", onSelect: vi.fn() },
+        ],
+        contextItems: [item],
+        onRemoveContextItem: vi.fn(),
+        prepareSubmission: vi.fn(async () => prepared),
+        submissionAccepted: vi.fn(),
+      };
+      const Provider = ({
+        children,
+      }: AssistantChatComposerContextProviderProps) => children(context);
+      await mount(
+        baseProps({ showContextPicker, composerContextProvider: Provider }),
+      );
+      expect(chatMocks.composerProps.contextItems).toEqual([item]);
+      expect(chatMocks.composerProps.contextMenuItems).toBe(
+        showContextPicker === false ? undefined : context.menuItems,
+      );
+      const toolbarChildren = React.Children.toArray(
+        chatMocks.composerProps.toolbarSlot.props.children,
+      );
+      expect(
+        toolbarChildren.some(
+          (child) =>
+            React.isValidElement(child) && child.type === AgentSelectToggle,
+        ),
+      ).toBe(showContextPicker !== false);
+      await act(async () =>
+        chatMocks.composerProps.onSubmit("Use this item", [], [], {
+          intent: "immediate",
+          contextItems: chatMocks.composerProps.contextItems,
+        }),
+      );
+      expect(context.prepareSubmission).toHaveBeenCalledWith([item]);
+      expect(chatMocks.control.sendMessage.mock.calls[0]?.[0].text).toContain(
+        "Revalidated context",
+      );
+      expect(context.submissionAccepted).toHaveBeenCalledExactlyOnceWith(
+        prepared,
+      );
+    },
+  );
+
+  it("admits an app-owned turn with its staged context and references", async () => {
+    const item = {
+      key: "current-item",
+      title: "Selected item",
+      context: "Captured context",
+    };
+    const context: AssistantChatComposerContext = {
+      contextItems: [item],
+      onRemoveContextItem: vi.fn(),
+      prepareSubmission: vi.fn(async (items) => items),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const admitComposerMessage = vi.fn(async () => ({
+      threadId: "admitted-thread",
+    }));
+    await mount(
+      baseProps({ composerContextProvider: Provider, admitComposerMessage }),
+    );
+    const references: Reference[] = [
+      { type: "file", path: "reports/q3.csv", name: "q3.csv", source: "files" },
+    ];
+    await act(async () =>
+      chatMocks.composerProps.onSubmit("Use this item", [], references, {
+        intent: "immediate",
+        contextItems: chatMocks.composerProps.contextItems,
+      }),
+    );
+    expect(admitComposerMessage).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Captured context"),
+        references,
+      }),
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
 function baseProps(
   overrides: Partial<AgentKitAssistantChatProps> = {},
 ): AgentKitAssistantChatProps {
@@ -1089,6 +1210,7 @@ beforeEach(() => {
   chatMocks.failurePropsHistory = [];
   chatMocks.loopLimitProps = null;
   chatMocks.planCalloutProps = null;
+  chatMocks.useRealPlanCallout = false;
   chatMocks.failureError = { code: "test-error", message: "Run failed" };
   chatMocks.failureCopies = 1;
   chatMocks.failureRunIds = ["run-1"];
@@ -1137,6 +1259,7 @@ beforeEach(() => {
   chatMocks.omitSnapshotPersistenceResult = false;
   chatMocks.snapshotPersistenceUnavailable = false;
   chatMocks.omitSuggestionsSlot = false;
+  chatMocks.dynamicSuggestionsLoading = false;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
   chatMocks.control.queueMessage.mockReset().mockResolvedValue(undefined);
   chatMocks.control.resolveConnectionRequest
@@ -2111,6 +2234,65 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("announces a composer send before the agent client accepts it", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+    const submitted: string[] = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit(({ text }) => submitted.push(text)),
+    );
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Show my planner", [], [], {
+        intent: "immediate",
+        submissionId: "pending-bubble",
+      });
+    });
+
+    expect(submitted).toEqual(["Show my planner"]);
+  });
+
+  it("announces a message sent through the chat handle, but not a hidden one", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const submitted: string[] = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit(({ text }) => submitted.push(text)),
+    );
+
+    await act(async () => {
+      await ref.current?.sendMessage("Open my planner");
+      await ref.current?.sendMessage("Background note", undefined, {
+        hideUserMessage: true,
+      });
+    });
+
+    expect(submitted).toEqual(["Open my planner"]);
+  });
+
+  it("withdraws a send that is rejected before it reaches the thread", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("Failed before acceptance"),
+    );
+    const events: Array<{ id: string; withdrawn?: boolean; queued?: boolean }> =
+      [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    await act(async () => {
+      await ref.current?.sendMessage("Open my planner").catch(() => undefined);
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ queued: false });
+    expect(events[1]).toEqual({ id: events[0]?.id, text: "", withdrawn: true });
+  });
+
   it("shows attached files in the pending bubble and revokes their previews once it clears", async () => {
     const createObjectURL = vi.fn(() => "blob:preview-1");
     const revokeObjectURL = vi.fn();
@@ -2553,6 +2735,512 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  describe("Enter while the model choice is pending", () => {
+    async function mountPending(
+      overrides: Partial<AgentKitAssistantChatProps>,
+    ) {
+      const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+        runId: "run-1",
+      }));
+      chatMocks.useRealChat = true;
+      chatMocks.useRealRoot = true;
+      const client = await useRealComposer(startRun);
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      const render = async (next: Partial<AgentKitAssistantChatProps>) => {
+        await act(async () => {
+          root.render(
+            <React.StrictMode>
+              <AgentKitAssistantChat
+                {...baseProps({
+                  availableModels: [],
+                  composerModelSelectionPending: true,
+                  ...next,
+                })}
+              />
+            </React.StrictMode>,
+          );
+        });
+      };
+      await render(overrides);
+      return { client, startRun, render };
+    }
+    const pressEnter = () =>
+      container
+        .querySelector(".ProseMirror")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+    const sendButton = () =>
+      container.querySelector('[data-agent-composer-slot="send-button"]');
+
+    it("keeps the draft and acknowledges, then sends once with the resolved model", async () => {
+      const { client, startRun, render } = await mountPending({});
+      try {
+        await act(async () =>
+          chatMocks.composerProps.composerRef.current.setText(
+            "Show me revenue by region",
+          ),
+        );
+
+        await act(async () => pressEnter());
+
+        expect(startRun).not.toHaveBeenCalled();
+        expect(sendButton()?.getAttribute("aria-busy")).toBe("true");
+        expect(container.querySelector(".ProseMirror")?.textContent).toContain(
+          "Show me revenue by region",
+        );
+        expect(client.getThread(chatMocks.threadId).messages).toEqual([]);
+
+        await render({
+          composerModelSelectionPending: false,
+          selectedModel: "resolved-model",
+          selectedEngine: "resolved-engine",
+        });
+        await act(async () => {
+          await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
+        });
+
+        expect(JSON.stringify(startRun.mock.calls[0])).toContain(
+          "Show me revenue by region",
+        );
+        expect(JSON.stringify(startRun.mock.calls[0])).toContain(
+          "resolved-model",
+        );
+        expect(
+          client
+            .getThread(chatMocks.threadId)
+            .messages.filter((message) => message.role === "user"),
+        ).toHaveLength(1);
+        expect(
+          container.querySelector(".ProseMirror")?.textContent,
+        ).not.toContain("Show me revenue by region");
+      } finally {
+        await act(async () => client.shutdown());
+      }
+    });
+
+    it("sends nothing when the catalog fails and keeps the draft", async () => {
+      const { client, startRun, render } = await mountPending({});
+      try {
+        await act(async () =>
+          chatMocks.composerProps.composerRef.current.setText("Keep this"),
+        );
+        await act(async () => pressEnter());
+        await render({
+          composerModelSelectionPending: false,
+          modelListError: true,
+        });
+
+        expect(startRun).not.toHaveBeenCalled();
+        expect(sendButton()?.getAttribute("aria-busy")).not.toBe("true");
+        expect(container.querySelector(".ProseMirror")?.textContent).toContain(
+          "Keep this",
+        );
+      } finally {
+        await act(async () => client.shutdown());
+      }
+    });
+
+    it("drops the held Enter when the context scope changes", async () => {
+      const { client, startRun, render } = await mountPending({
+        contextScope: { type: "document", id: "doc-a" },
+      });
+      try {
+        await act(async () =>
+          chatMocks.composerProps.composerRef.current.setText("Summarize this"),
+        );
+        await act(async () => pressEnter());
+        await render({
+          contextScope: { type: "document", id: "doc-b" },
+          composerModelSelectionPending: false,
+          selectedModel: "resolved-model",
+        });
+
+        expect(startRun).not.toHaveBeenCalled();
+        expect(container.querySelector(".ProseMirror")?.textContent).toContain(
+          "Summarize this",
+        );
+      } finally {
+        await act(async () => client.shutdown());
+      }
+    });
+  });
+
+  it("keeps Thinking visible after the submitted message lands and before its run starts", async () => {
+    const start = Promise.withResolvers<{ runId: string }>();
+    const progress = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(() => start.promise, {
+      async *subscribeToRun({ threadId, runId }) {
+        await progress.promise;
+        yield {
+          id: "activity-started",
+          type: "activity.started",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-09-28T00:00:01.000Z",
+          activity: {
+            id: "checking-changes",
+            kind: "model",
+            label: "Checking changes",
+            status: "running",
+          },
+        };
+        await finish.promise;
+        yield {
+          id: "run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 2,
+          occurredAt: "2026-09-28T00:00:02.000Z",
+        };
+      },
+    });
+    const activityLabels = () =>
+      [
+        ...container.querySelectorAll(
+          "[data-agentkit-current-activity] .agent-running-shimmer",
+        ),
+      ].map((element) => element.textContent);
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Show me the latest changes"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      expect(send?.disabled).toBe(false);
+      await act(async () => {
+        send?.click();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).messages.at(-1)?.role,
+          ).toBe("user"),
+        );
+      });
+      expect(container.textContent).toContain("Show me the latest changes");
+      expect(activityLabels()).toEqual(["agentChat.status.thinking"]);
+
+      await act(async () => {
+        start.resolve({ runId: "run-1" });
+        await vi.waitFor(() =>
+          expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+            "run-1",
+          ]),
+        );
+      });
+      expect(activityLabels()).toHaveLength(1);
+
+      await act(async () => {
+        progress.resolve();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).activities,
+          ).toHaveProperty("checking-changes"),
+        );
+      });
+      expect(activityLabels()).toEqual(["Checking changes"]);
+
+      await act(async () => {
+        finish.resolve();
+        await vi.waitFor(() =>
+          expect(
+            client.getThread(chatMocks.threadId).runs["run-1"]?.status,
+          ).toBe("completed"),
+        );
+      });
+      expect(activityLabels()).toEqual([]);
+    } finally {
+      await act(async () => {
+        start.resolve({ runId: "run-1" });
+        progress.resolve();
+        finish.resolve();
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=false for a new chat's first composer send and a later send after the previous run settles", async () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const firstFinished = Promise.withResolvers<void>();
+    const secondFinished = Promise.withResolvers<void>();
+    let runCount = 0;
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      runCount += 1;
+      return { runId: `run-${runCount}` };
+    });
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      async *subscribeToRun({ threadId, runId }) {
+        await (runId === "run-1"
+          ? firstFinished.promise
+          : secondFinished.promise);
+        yield {
+          id: `completed-${runId}`,
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+
+      await act(async () => composer.setText("Show my calendar"));
+      const clickSend = () => {
+        const button = container.querySelector<HTMLButtonElement>(
+          '[data-agent-composer-slot="send-button"]',
+        );
+        expect(button).not.toBeNull();
+        button?.click();
+      };
+      await act(async () => {
+        clickSend();
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
+      });
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Show my calendar",
+          threadId: chatMocks.threadId,
+          queued: false,
+        }),
+      ]);
+
+      await act(async () => {
+        firstFinished.resolve();
+        await vi.waitFor(() =>
+          expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([]),
+        );
+      });
+
+      await act(async () => composer.setText("Open my Q4 planning doc"));
+      await act(async () => {
+        clickSend();
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+      });
+      expect(events).toHaveLength(2);
+      expect(events[1]).toMatchObject({
+        text: "Open my Q4 planning doc",
+        threadId: chatMocks.threadId,
+        queued: false,
+      });
+    } finally {
+      firstFinished.resolve();
+      secondFinished.resolve();
+      await act(async () => {
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=true for a composer send made while a run is active", async () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const activeRunFinished = Promise.withResolvers<void>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-active",
+    }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text }) => ({
+        message: {
+          id: id ?? "queued-active",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+      async *subscribeToRun({ threadId, runId }) {
+        await activeRunFinished.promise;
+        yield {
+          id: "completed-active",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    try {
+      await client.sendMessage({
+        threadId: chatMocks.threadId,
+        text: "First turn",
+      });
+      expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+        "run-active",
+      ]);
+
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Also open mail"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      expect(send).not.toBeNull();
+      await act(async () => send?.click());
+
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Also open mail",
+          threadId: chatMocks.threadId,
+          queued: true,
+        }),
+      ]);
+    } finally {
+      activeRunFinished.resolve();
+      await act(async () => {
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=true for a second send made while the first send holds the turn", async () => {
+    const at = "2026-10-09T00:00:00.000Z";
+    const start = Promise.withResolvers<{ runId: string }>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(() => start.promise);
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id, threadId, text }) => ({
+        message: {
+          id: id ?? "queued-behind-starting",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+    });
+    const ref = createRef<AssistantChatHandle>();
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    let secondSend: Promise<AssistantChatSubmitResult> | undefined;
+    try {
+      await mount(baseProps({ showModelSelector: false }), ref);
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Show my calendar"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      expect(send).not.toBeNull();
+      await act(async () => {
+        send?.click();
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(1));
+      });
+
+      await act(async () => {
+        secondSend = ref.current?.sendMessage("And open my inbox");
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Show my calendar",
+          queued: false,
+        }),
+        expect.objectContaining({
+          text: "And open my inbox",
+          queued: true,
+        }),
+      ]);
+    } finally {
+      start.resolve({ runId: "run-1" });
+      await act(async () => {
+        await secondSend?.catch(() => undefined);
+        await client.shutdown();
+      });
+    }
+  });
+
+  it("announces queued=true when an earlier pending submission precedes a send's own submissionId", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(
+      () => new Promise<{ runId: string }>(() => undefined),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun);
+    const events: Array<{
+      text: string;
+      queued?: boolean;
+      threadId?: string | null;
+    }> = [];
+    onTestFinished(
+      subscribeAgentChatComposerSubmit((detail) => events.push(detail)),
+    );
+
+    const store = agentKitPendingSubmissions(client);
+    const earlier = store.begin(chatMocks.threadId, { text: "First turn" });
+    const own = store.begin(chatMocks.threadId, { text: "Second turn" });
+    try {
+      await mount(baseProps({ showModelSelector: false }));
+      await act(async () => {
+        void chatMocks.composerProps
+          .onSubmit("Second turn", [], [], {
+            intent: "immediate",
+            submissionId: own.id,
+          })
+          .catch(() => undefined);
+      });
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          text: "Second turn",
+          threadId: chatMocks.threadId,
+          queued: true,
+        }),
+      ]);
+    } finally {
+      own.end();
+      earlier.end();
+      await act(async () => {
+        await client.shutdown();
+      });
+    }
+  });
+
   it("queues a real composer submission while a run is active", async () => {
     const at = "2026-09-28T00:00:00.000Z";
     const activeRunFinished = Promise.withResolvers<void>();
@@ -2909,10 +3597,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
-  it("queues a draft sent before the first send's run registers", async () => {
+  it.each(["queues", "starts"])("%s a waiting draft", async (outcome) => {
     const at = "2026-10-24T00:00:00.000Z";
     const started = Promise.withResolvers<{ runId: string }>();
-    const startRun = vi.fn<AgentTransport["startRun"]>(() => started.promise);
+    const followup = Promise.withResolvers<{ runId: string }>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(() => followup.promise);
+    startRun.mockImplementationOnce(() => started.promise);
     const activeRunFinished = Promise.withResolvers<void>();
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
       async ({ id, threadId, text }) => ({
@@ -2960,7 +3650,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     let inFlight = 0;
     chatMocks.history = {
       get isSubmissionInFlight() {
-        return inFlight > 0;
+        return outcome === "queues" && inFlight > 0;
       },
       beginSubmission: vi.fn(async () => {
         inFlight += 1;
@@ -2971,6 +3661,35 @@ describe("AgentKitAssistantChat host behavior", () => {
         };
       }),
     };
+
+    async function verifyImmediateFollowup(reservationId: string) {
+      await act(async () => {
+        started.reject(new Error("First run failed to start"));
+        await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+      });
+      await flush();
+
+      const thread = client.getThread(chatMocks.threadId);
+      expect(thread.activeRunIds).toEqual([]);
+      expect(queuedRows()).toEqual([]);
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(thread.messages.at(-1)).toMatchObject({
+        id: reservationId,
+        parts: [{ type: "text", text: "Also greet Lee." }],
+      });
+      expect(
+        Array.from(
+          container.querySelectorAll(
+            "[data-agentkit-current-activity] .agent-running-shimmer",
+          ),
+          (element) => element.textContent,
+        ),
+      ).toEqual(["agentChat.status.thinking"]);
+      await act(async () => followup.resolve({ runId: "run-follow-up" }));
+      expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+        "run-follow-up",
+      ]);
+    }
 
     try {
       await mount(baseProps({ showModelSelector: false }));
@@ -2993,6 +3712,13 @@ describe("AgentKitAssistantChat host behavior", () => {
       ]);
       expect(startRun).toHaveBeenCalledOnce();
 
+      const reservation = client.getThread(chatMocks.threadId)
+        .queuedMessages[0];
+      if (outcome === "starts") {
+        await verifyImmediateFollowup(reservation.id);
+        return;
+      }
+
       await act(async () => started.resolve({ runId: "run-active" }));
       await flush();
       await flush();
@@ -3008,6 +3734,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(inFlight).toBe(0);
     } finally {
       started.resolve({ runId: "run-active" });
+      followup.resolve({ runId: "run-follow-up" });
       activeRunFinished.resolve();
       await flush();
     }
@@ -3283,6 +4010,91 @@ describe("AgentKitAssistantChat host behavior", () => {
       ).toEqual([suggestion]);
     },
   );
+
+  it("wraps host suggestions onto more lines when asked", async () => {
+    seedFollowup();
+    await useRealComposer();
+    chatMocks.omitSuggestionsSlot = true;
+    await mount(baseProps({ suggestionLayout: "wrap" }));
+
+    const slot = container.querySelector(
+      "[data-agentkit-host-suggestions-slot]",
+    );
+    expect(slot?.getAttribute("data-agentkit-host-suggestions-layout")).toBe(
+      "wrap",
+    );
+    expect(
+      slot?.querySelector('[data-agent-suggestion-track="true"]')?.className,
+    ).toContain("flex-wrap");
+  });
+
+  describe("settling", () => {
+    it("says it has settled once its first suggestions are in", async () => {
+      chatMocks.dynamicSuggestionsLoading = true;
+      const onSettledChange = vi.fn();
+      const props = baseProps({
+        suggestionPlacement: "context-chips",
+        onSettledChange,
+      });
+      await mount(props);
+      expect(onSettledChange).toHaveBeenLastCalledWith(false);
+
+      chatMocks.dynamicSuggestionsLoading = false;
+      await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+      expect(onSettledChange).toHaveBeenLastCalledWith(true);
+    });
+
+    it("waits for a restored thread", async () => {
+      chatMocks.history = { isRestoring: true };
+      const onSettledChange = vi.fn();
+      await mount(baseProps({ onSettledChange }));
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it("waits to hear whether it can chat", async () => {
+      chatMocks.readiness = {
+        canChat: false,
+        missing: false,
+        state: "unknown",
+      };
+      const onSettledChange = vi.fn();
+      await mount(baseProps({ onSettledChange }));
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it("does not wait for suggestions it shows only after the agent replies", async () => {
+      chatMocks.dynamicSuggestionsLoading = true;
+      const onSettledChange = vi.fn();
+      await mount(
+        baseProps({
+          suggestionPlacement: "context-chips",
+          suggestionVisibility: "after-agent-response",
+          onSettledChange,
+        }),
+      );
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(true);
+    });
+
+    it("does not wait for suggestions it will not show", async () => {
+      chatMocks.dynamicSuggestionsLoading = true;
+      const onSettledChange = vi.fn();
+      await mount(
+        baseProps({ suggestionPlacement: "hidden", onSettledChange }),
+      );
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(true);
+    });
+
+    it("leaves it to the chat in view", async () => {
+      const onSettledChange = vi.fn();
+      await mount(baseProps({ isActiveComposer: false, onSettledChange }));
+
+      expect(onSettledChange).not.toHaveBeenCalled();
+    });
+  });
 
   it("disables host suggestions while async submission is pending", async () => {
     const suggestion = seedFollowup();
@@ -4361,6 +5173,24 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   // A host that asks for filled after-composer cards
   // gets "filled" plus the stacked track; every other host keeps "pill".
+  it("forwards a host's stacked layout and starter renderer to the empty-state bar", async () => {
+    chatMocks.renderEmptyState = true;
+    const renderEmptyStateSuggestion = vi.fn(() => null);
+    await mount(
+      baseProps({
+        suggestions: ["Review schedule"],
+        suggestionPlacement: "empty-state",
+        emptyStateSuggestionsLayout: "stacked",
+        renderEmptyStateSuggestion,
+      }),
+    );
+
+    expect(chatMocks.suggestionBarProps.layout).toBe("stacked");
+    expect(chatMocks.suggestionBarProps.renderSuggestion).toBe(
+      renderEmptyStateSuggestion,
+    );
+  });
+
   it("forwards the filled variant to the after-composer suggestion bar", async () => {
     chatMocks.renderEmptyState = true;
     await mount(
@@ -8038,6 +8868,1052 @@ describe("AgentKitAssistantChat host behavior", () => {
     const request = calls.at(-1)?.[0] as any;
     expect(request.text).toBe("Implement the plan.");
     expect(request.options.mode).toBe("act");
+  });
+
+  it("reports a rejected Implement Plan submission when sending is disabled", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "1. Back up. 2. Migrate." }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerSubmissionDisabled: true }), ref);
+
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await flush();
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('[data-notice="queue-failed"]')?.textContent,
+    ).toContain("agentChat.error.failed");
+    expect(chatMocks.planCalloutProps).not.toBeNull();
+  });
+
+  it("does not duplicate the setup card when implementing a plan requires setup", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "1. Back up. 2. Migrate." }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      Object.assign(new Error("Setup required"), {
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        state: "missing",
+      }),
+    );
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await flush();
+
+    expect(
+      container.querySelector('[data-testid="builder-setup-card"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[data-notice="queue-failed"]')).toBeNull();
+  });
+
+  it("shows only the recovery card when the server refuses plan implementation for setup", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const startRun = vi.fn<AgentTransport["startRun"]>().mockRejectedValue(
+      Object.assign(new Error("Private setup refusal details"), {
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        status: 403,
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun);
+    const onSetupRequired = vi.fn();
+    window.addEventListener("agent-chat:missing-api-key", onSetupRequired);
+    onTestFinished(() =>
+      window.removeEventListener("agent-chat:missing-api-key", onSetupRequired),
+    );
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    await act(async () => {
+      ref.current?.implementPlan();
+      await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="builder-setup-card"]'),
+      ).not.toBeNull(),
+    );
+    await flush();
+
+    expect(client.getThread(chatMocks.threadId).messages.at(-1)?.status).toBe(
+      "error",
+    );
+    expect(onSetupRequired).toHaveBeenCalledOnce();
+    expect(chatMocks.setupCardProps.onRetry).toEqual(expect.any(Function));
+    expect(container.querySelector('[data-notice="queue-failed"]')).toBeNull();
+    expect(container.textContent).not.toContain(
+      "Private setup refusal details",
+    );
+  });
+
+  it("reports a setup rejection when no setup card is visible", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      Object.assign(new Error("Setup required"), {
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        state: "missing",
+      }),
+    );
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ showMissingApiKeySetup: false }), ref);
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await flush();
+    expect(
+      container.querySelector('[data-testid="builder-setup-card"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-notice="queue-failed"]')?.textContent,
+    ).toContain("agentChat.error.failed");
+  });
+
+  it.each([
+    ["failed", new Error("Plan send failed")],
+    [
+      "rejected",
+      Object.assign(new Error("Plan send expired"), {
+        code: "submission_expired",
+      }),
+    ],
+  ])(
+    "does not show a %s plan submission from a previous thread",
+    async (_kind, error) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "1. Back up. 2. Migrate." }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      const pending = Promise.withResolvers<void>();
+      chatMocks.control.sendMessage.mockReturnValueOnce(pending.promise);
+      const props = baseProps();
+      const ref = createRef<AssistantChatHandle>();
+      await mount(props, ref);
+
+      await act(async () => {
+        ref.current?.implementPlan();
+      });
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+
+      chatMocks.threadId = "thread-2";
+      chatMocks.thread.messages = [];
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat {...props} threadId="thread-2" ref={ref} />,
+        );
+      });
+      await act(async () => {
+        pending.reject(error);
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it.each(
+    (
+      [
+        [
+          "tab",
+          { tabId: "tab-2", contextScope: { type: "document", id: "doc-1" } },
+        ],
+        [
+          "context type",
+          { tabId: "tab-1", contextScope: { type: "design", id: "doc-1" } },
+        ],
+        [
+          "context id",
+          { tabId: "tab-1", contextScope: { type: "document", id: "doc-2" } },
+        ],
+      ] as const
+    ).flatMap(([label, changed]) => [
+      [label, changed, new Error("Private failure")] as const,
+      [
+        label,
+        changed,
+        Object.assign(new Error("Expired"), { code: "submission_expired" }),
+      ] as const,
+    ]),
+  )(
+    "does not show an old plan submission failure after changing %s",
+    async (_label, changed, error) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "1. Back up. 2. Migrate." }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      const pending = Promise.withResolvers<undefined>();
+      chatMocks.control.sendMessage.mockReturnValueOnce(pending.promise);
+      const props = baseProps({
+        tabId: "tab-1",
+        contextScope: { type: "document", id: "doc-1" },
+      });
+      const ref = createRef<AssistantChatHandle>();
+      await mount(props, ref);
+      await act(async () => {
+        ref.current?.implementPlan();
+      });
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat {...props} {...changed} ref={ref} />,
+        );
+      });
+      await act(async () => {
+        pending.reject(error);
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    [
+      "tab",
+      { tabId: "tab-2", contextScope: { type: "document", id: "doc-1" } },
+    ],
+    [
+      "context type",
+      { tabId: "tab-1", contextScope: { type: "design", id: "doc-1" } },
+    ],
+    [
+      "context id",
+      { tabId: "tab-1", contextScope: { type: "document", id: "doc-2" } },
+    ],
+  ] as const)(
+    "clears an existing plan failure when changing %s",
+    async (_label, changed) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "Plan" }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      chatMocks.control.sendMessage.mockRejectedValueOnce(
+        new Error("Private failure"),
+      );
+      const props = baseProps({
+        tabId: "tab-1",
+        contextScope: { type: "document", id: "doc-1" },
+      });
+      const ref = createRef<AssistantChatHandle>();
+      await mount(props, ref);
+      await act(async () => {
+        ref.current?.implementPlan();
+      });
+      await vi.waitFor(() =>
+        expect(
+          container.querySelector('[data-notice="queue-failed"]'),
+        ).not.toBeNull(),
+      );
+
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat {...props} {...changed} ref={ref} />,
+        );
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it.each(["composer", "imperative"] as const)(
+    "clears an existing plan failure after a successful %s submission",
+    async (kind) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "Plan" }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      chatMocks.control.sendMessage.mockRejectedValueOnce(
+        new Error("Private failure"),
+      );
+      const ref = createRef<AssistantChatHandle>();
+      await mount(baseProps(), ref);
+      await act(async () => {
+        ref.current?.implementPlan();
+      });
+      await vi.waitFor(() =>
+        expect(
+          container.querySelector('[data-notice="queue-failed"]'),
+        ).not.toBeNull(),
+      );
+
+      let imperativeResult: unknown;
+      await act(async () => {
+        if (kind === "composer") {
+          await chatMocks.composerProps.onSubmit("Continue", [], [], {
+            intent: "immediate",
+          });
+        } else {
+          imperativeResult = await ref.current?.sendMessage("Continue");
+        }
+      });
+      expect(imperativeResult).toEqual(
+        kind === "composer" ? undefined : { status: "submitted" },
+      );
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    new Error("Older failure"),
+    Object.assign(new Error("Older expired submission"), {
+      code: "submission_expired",
+    }),
+  ])(
+    "ignores an older plan failure after a newer plan succeeds",
+    async (error) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "Plan" }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      const pending = Promise.withResolvers<undefined>();
+      chatMocks.control.sendMessage.mockReturnValueOnce(pending.promise);
+      const ref = createRef<AssistantChatHandle>();
+      await mount(baseProps(), ref);
+      await act(async () => {
+        ref.current?.implementPlan();
+        await vi.waitFor(() =>
+          expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce(),
+        );
+      });
+      await act(async () => {
+        ref.current?.implementPlan();
+        await vi.waitFor(() =>
+          expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2),
+        );
+      });
+      await act(async () => {
+        pending.reject(error);
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it.each([
+    [
+      "tab",
+      { tabId: "tab-2", contextScope: { type: "document", id: "doc-1" } },
+    ],
+    [
+      "context",
+      { tabId: "tab-1", contextScope: { type: "document", id: "doc-2" } },
+    ],
+  ] as const)(
+    "does not show an old queued failure after changing %s",
+    async (_label, changed) => {
+      const pending = Promise.withResolvers<undefined>();
+      chatMocks.control.queueMessage.mockReturnValueOnce(pending.promise);
+      const props = baseProps({
+        tabId: "tab-1",
+        contextScope: { type: "document", id: "doc-1" },
+      });
+      const ref = createRef<AssistantChatHandle>();
+      await mount(props, ref);
+      let queued: Promise<unknown> | undefined;
+      await act(async () => {
+        queued = ref.current
+          ?.queueMessage("Queue earlier work")
+          .catch((error) => error);
+        await vi.waitFor(() =>
+          expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce(),
+        );
+      });
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat {...props} {...changed} ref={ref} />,
+        );
+      });
+      await act(async () => {
+        pending.reject(new Error("Old queued failure"));
+        await queued;
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it.each(["composer", "imperative"] as const)(
+    "ignores an older plan failure after a newer %s submission succeeds",
+    async (kind) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "Plan" }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      const pending = Promise.withResolvers<undefined>();
+      chatMocks.control.sendMessage.mockReturnValueOnce(pending.promise);
+      const ref = createRef<AssistantChatHandle>();
+      await mount(baseProps(), ref);
+      await act(async () => {
+        ref.current?.implementPlan();
+        await vi.waitFor(() =>
+          expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce(),
+        );
+      });
+      await act(async () => {
+        if (kind === "composer")
+          await chatMocks.composerProps.onSubmit("Continue", [], [], {
+            intent: "immediate",
+          });
+        else await ref.current?.sendMessage("Continue");
+      });
+      await act(async () => {
+        pending.reject(new Error("Older failure"));
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it.each(
+    (["plan", "queue"] as const).flatMap((earlier) =>
+      (
+        [
+          "disabled queue",
+          "invalid queue",
+          "unavailable composer",
+          "unavailable send",
+          "unavailable recovery",
+          "expired send",
+        ] as const
+      ).map((later) => [earlier, later] as const),
+    ),
+  )(
+    "reports an earlier %s failure after a later %s",
+    async (earlier, later) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "Plan" }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      const beginSubmission = vi.fn(
+        async (): Promise<(() => void) | null> => () => {},
+      );
+      chatMocks.history = { beginSubmission };
+      const pending = Promise.withResolvers<undefined>();
+      if (earlier === "plan") {
+        chatMocks.control.sendMessage.mockReturnValueOnce(pending.promise);
+      } else {
+        chatMocks.control.queueMessage.mockReturnValueOnce(pending.promise);
+      }
+      const props = baseProps();
+      const ref = createRef<AssistantChatHandle>();
+      await mount(props, ref);
+      let queued: Promise<unknown> | undefined;
+      await act(async () => {
+        if (earlier === "plan") {
+          ref.current?.implementPlan();
+        } else {
+          queued = ref.current
+            ?.queueMessage("Earlier work")
+            .catch((error) => error);
+        }
+        await vi.waitFor(() =>
+          expect(
+            earlier === "plan"
+              ? chatMocks.control.sendMessage
+              : chatMocks.control.queueMessage,
+          ).toHaveBeenCalledOnce(),
+        );
+      });
+      await act(async () => {
+        if (later === "disabled queue") {
+          root.render(
+            <AgentKitAssistantChat
+              {...props}
+              composerSubmissionDisabled
+              ref={ref}
+            />,
+          );
+        }
+      });
+      if (later.startsWith("unavailable"))
+        beginSubmission.mockResolvedValueOnce(null);
+      const rejectedResult = (reason: string) => ({
+        status: "fulfilled",
+        value: { status: "rejected", reason },
+      });
+      const threw = { status: "rejected", reason: expect.any(Error) };
+      const laterAttempts = {
+        "disabled queue": [
+          () => ref.current?.queueMessage("Later work"),
+          rejectedResult("submission-unavailable"),
+        ],
+        "invalid queue": [
+          () => ref.current?.queueMessage("Later work", ["invalid-image"]),
+          threw,
+        ],
+        "unavailable composer": [
+          () =>
+            chatMocks.composerProps.onSubmit("Later work", [], [], {
+              intent: "immediate",
+            }),
+          threw,
+        ],
+        "unavailable send": [
+          () => ref.current?.sendMessage("Later work"),
+          rejectedResult("submission-unavailable"),
+        ],
+        "unavailable recovery": [
+          () => ref.current?.sendRecoveryMessage("Later work", "continue"),
+          rejectedResult("submission-unavailable"),
+        ],
+        "expired send": [
+          () =>
+            ref.current?.sendMessage("Later work", undefined, {
+              submissionExpiresAt: 1,
+            }),
+          rejectedResult("submission-expired"),
+        ],
+      } satisfies Record<typeof later, [() => unknown, unknown]>;
+      const [attempt, expected] = laterAttempts[later];
+      let settled: PromiseSettledResult<unknown>[] = [];
+      await act(async () => {
+        settled = await Promise.allSettled([attempt()]);
+      });
+      expect(settled[0]).toEqual(expected);
+      await act(async () => {
+        pending.reject(new Error("Earlier failure"));
+        await queued;
+      });
+      await vi.waitFor(() =>
+        expect(
+          container.querySelector('[data-notice="queue-failed"]'),
+        ).not.toBeNull(),
+      );
+    },
+  );
+
+  it.each(["send", "recovery"] as const)(
+    "supersedes an earlier queue failure when a deferred %s starts",
+    async (kind) => {
+      const pending = Promise.withResolvers<undefined>();
+      chatMocks.control.queueMessage.mockReturnValueOnce(pending.promise);
+      const props = baseProps();
+      const ref = createRef<AssistantChatHandle>();
+      await mount(props, ref);
+      let queued: Promise<unknown> | undefined;
+      await act(async () => {
+        queued = ref.current
+          ?.queueMessage("Earlier work")
+          .catch((error) => error);
+        await vi.waitFor(() =>
+          expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce(),
+        );
+      });
+      chatMocks.history = { isRestoring: true };
+      await act(async () => {
+        root.render(<AgentKitAssistantChat {...props} ref={ref} />);
+      });
+      await act(async () => {
+        const result =
+          kind === "send"
+            ? await ref.current?.sendMessage("Deferred work")
+            : await ref.current?.sendRecoveryMessage(
+                "Deferred work",
+                "continue",
+              );
+        expect(result).toEqual({ status: "submitted" });
+      });
+      await act(async () => {
+        pending.reject(new Error("Earlier queue failure"));
+        await queued;
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps a later plan ticket when an earlier send acquires its lock afterwards", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const lock = Promise.withResolvers<() => void>();
+    const pendingPlan = Promise.withResolvers<undefined>();
+    chatMocks.history = {
+      beginSubmission: vi
+        .fn()
+        .mockReturnValueOnce(lock.promise)
+        .mockResolvedValue(() => {}),
+    };
+    chatMocks.control.sendMessage.mockReturnValueOnce(pendingPlan.promise);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    let olderSend: ReturnType<AssistantChatHandle["sendMessage"]> | undefined;
+    await act(async () => {
+      olderSend = ref.current?.sendMessage("Earlier work");
+      ref.current?.implementPlan();
+      await vi.waitFor(() =>
+        expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce(),
+      );
+    });
+    await act(async () => {
+      lock.resolve(() => {});
+      await olderSend;
+    });
+    await act(async () => {
+      pendingPlan.reject(new Error("Later plan failure"));
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull(),
+    );
+  });
+
+  it("ignores an older queued failure after a newer plan succeeds", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const pending = Promise.withResolvers<undefined>();
+    chatMocks.control.queueMessage.mockReturnValueOnce(pending.promise);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    let queued: Promise<unknown> | undefined;
+    await act(async () => {
+      queued = ref.current
+        ?.queueMessage("Queue earlier work")
+        .catch((error) => error);
+      await vi.waitFor(() =>
+        expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce(),
+      );
+    });
+    await act(async () => {
+      ref.current?.implementPlan();
+      await vi.waitFor(() =>
+        expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce(),
+      );
+    });
+    await act(async () => {
+      pending.reject(new Error("Older queue failure"));
+      await queued;
+    });
+    expect(container.querySelector('[data-notice="queue-failed"]')).toBeNull();
+  });
+
+  it.each(["tab", "thread"] as const)(
+    "reports a pending plan failure after returning to its %s",
+    async (kind) => {
+      chatMocks.thread.messages = [
+        {
+          id: "plan-reply",
+          role: "assistant",
+          createdAt: new Date().toISOString(),
+          parts: [{ type: "text", text: "Plan" }],
+          metadata: { requestMode: "plan" },
+        },
+      ];
+      const pending = Promise.withResolvers<undefined>();
+      chatMocks.control.sendMessage.mockReturnValueOnce(pending.promise);
+      const props = baseProps({ tabId: "tab-1" });
+      const ref = createRef<AssistantChatHandle>();
+      await mount(props, ref);
+      await act(async () => {
+        ref.current?.implementPlan();
+        await vi.waitFor(() =>
+          expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce(),
+        );
+      });
+      await act(async () => {
+        if (kind === "thread") chatMocks.threadId = "thread-2";
+        root.render(
+          <AgentKitAssistantChat
+            {...props}
+            {...(kind === "tab"
+              ? { tabId: "tab-2" }
+              : { threadId: "thread-2" })}
+            ref={ref}
+          />,
+        );
+      });
+      await act(async () => {
+        ref.current?.implementPlan();
+        await vi.waitFor(() =>
+          expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2),
+        );
+      });
+      await act(async () => {
+        if (kind === "thread") chatMocks.threadId = "thread-1";
+        root.render(<AgentKitAssistantChat {...props} ref={ref} />);
+      });
+      await act(async () => {
+        pending.reject(new Error("Earlier scope failure"));
+      });
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull();
+    },
+  );
+
+  it("keeps a newer plan failure when an older submission succeeds in the same scope", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const pending = Promise.withResolvers<undefined>();
+    chatMocks.control.sendMessage
+      .mockRejectedValueOnce(new Error("First failure"))
+      .mockReturnValueOnce(pending.promise)
+      .mockRejectedValueOnce(new Error("Newer failure"));
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull(),
+    );
+
+    let olderSubmission:
+      | ReturnType<AssistantChatHandle["sendMessage"]>
+      | undefined;
+    await act(async () => {
+      olderSubmission = ref.current?.sendMessage("Continue");
+      await vi.waitFor(() =>
+        expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2),
+      );
+    });
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await vi.waitFor(() =>
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(3),
+    );
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull(),
+    );
+    await act(async () => {
+      pending.resolve(undefined);
+      await olderSubmission;
+    });
+    const notice = container.querySelector('[data-notice="queue-failed"]');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain("agentChat.error.failed");
+  });
+
+  it("keeps a newer plan failure when an older queued submission succeeds", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const pending = Promise.withResolvers<undefined>();
+    chatMocks.control.sendMessage
+      .mockRejectedValueOnce(new Error("First failure"))
+      .mockRejectedValueOnce(new Error("Newer failure"));
+    chatMocks.control.queueMessage.mockReturnValueOnce(pending.promise);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull(),
+    );
+    let olderQueue: ReturnType<AssistantChatHandle["queueMessage"]> | undefined;
+    await act(async () => {
+      olderQueue = ref.current?.queueMessage("Queue earlier work");
+      await vi.waitFor(() =>
+        expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce(),
+      );
+    });
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await vi.waitFor(() =>
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2),
+    );
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull(),
+    );
+    await act(async () => {
+      pending.resolve(undefined);
+      await olderQueue;
+    });
+    const notice = container.querySelector('[data-notice="queue-failed"]');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain("agentChat.error.failed");
+  });
+
+  it("keeps the new scope's failure when an older submission succeeds", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const pending = Promise.withResolvers<undefined>();
+    chatMocks.control.sendMessage
+      .mockRejectedValueOnce(new Error("First failure"))
+      .mockReturnValueOnce(pending.promise)
+      .mockRejectedValueOnce(new Error("New scope failure"));
+    const props = baseProps({
+      tabId: "tab-1",
+      contextScope: { type: "document", id: "doc-1" },
+    });
+    const ref = createRef<AssistantChatHandle>();
+    await mount(props, ref);
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull(),
+    );
+    let olderSubmission:
+      | ReturnType<AssistantChatHandle["sendMessage"]>
+      | undefined;
+    await act(async () => {
+      olderSubmission = ref.current?.sendMessage("Continue");
+      await vi.waitFor(() =>
+        expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2),
+      );
+    });
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} tabId="tab-2" ref={ref} />);
+    });
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await vi.waitFor(() =>
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(3),
+    );
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector('[data-notice="queue-failed"]'),
+      ).not.toBeNull(),
+    );
+    await act(async () => {
+      pending.resolve(undefined);
+      await olderSubmission;
+    });
+    expect(
+      container.querySelector('[data-notice="queue-failed"]'),
+    ).not.toBeNull();
+  });
+
+  it("shows a generic error for an otherwise silent plan failure without exposing its details", async () => {
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "Plan" }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("private provider details"),
+    );
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => {
+      ref.current?.implementPlan();
+    });
+    await flush();
+    expect(
+      container.querySelector('[data-notice="queue-failed"]')?.textContent,
+    ).toContain("agentChat.error.failed");
+    expect(container.textContent).not.toContain("private provider details");
+  });
+
+  it("handles a retryable Implement Plan start failure without an unhandled rejection", async () => {
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (error: unknown) => {
+      unhandledRejections.push(error);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+    onTestFinished(() => {
+      process.off("unhandledRejection", onUnhandledRejection);
+    });
+    chatMocks.thread.messages = [
+      {
+        id: "plan-reply",
+        role: "assistant",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "text", text: "1. Back up. 2. Migrate." }],
+        metadata: { requestMode: "plan" },
+      },
+    ];
+    const secondStart = Promise.withResolvers<{ runId: string }>();
+    const startRun = vi
+      .fn<AgentTransport["startRun"]>()
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error("Thread history cannot be verified. Retry shortly."),
+          { status: 409, code: "thread_history_unavailable", retryable: true },
+        ),
+      )
+      .mockReturnValueOnce(secondStart.promise);
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    chatMocks.useRealPlanCallout = true;
+    const client = await useRealComposer(startRun);
+    const loadThread = vi.spyOn(client, "loadThread");
+    await mount(baseProps());
+    const implementButton = () =>
+      container.querySelector<HTMLButtonElement>(
+        ".agent-plan-mode-callout button",
+      );
+    expect(implementButton()?.textContent).toContain(
+      "agentChat.plan.implement",
+    );
+
+    await act(async () => {
+      implementButton()?.click();
+    });
+    await flush();
+
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain(
+      "Thread history cannot be verified. Retry shortly.",
+    );
+    expect(implementButton()?.textContent).toContain(
+      "agentChat.plan.implement",
+    );
+    expect(container.querySelector('[data-notice="queue-failed"]')).toBeNull();
+    const reconnect = container.querySelector<HTMLButtonElement>(
+      '[data-error-code="thread_history_unavailable"] button',
+    );
+    expect(reconnect?.textContent).toContain("agentChat.common.reconnect");
+    loadThread.mockClear();
+    await act(async () => {
+      reconnect?.click();
+      await vi.waitFor(() => expect(loadThread).toHaveBeenCalled());
+    });
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(implementButton()?.textContent).toContain(
+      "agentChat.plan.implement",
+    );
+    await act(async () => {
+      implementButton()?.click();
+      await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+      secondStart.reject(
+        Object.assign(new Error("Retry failed after reconnect."), {
+          status: 409,
+          code: "thread_history_unavailable",
+          retryable: true,
+        }),
+      );
+    });
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Retry failed after reconnect."),
+    );
+    await flush();
+    expect(container.querySelector('[data-notice="queue-failed"]')).toBeNull();
+    expect(unhandledRejections).toEqual([]);
   });
 
   it("offers to carry out a reloaded plan reply that carries no mode of its own", async () => {

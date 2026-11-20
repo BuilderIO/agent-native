@@ -6,7 +6,6 @@
  *
  *   1. Asset Library     — selection-aware asset insertion (ships now).
  *   2. Token Auditor     — reads token usage across the design and flags clashes.
- *   3. Motion Presets    — one-click motion preset application.
  *
  * These are FIRST-PARTY extensions described as static metadata — they do not
  * live in the extensions SQL table (they are capabilities of the design app,
@@ -153,63 +152,16 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     ],
     slotId: "design.editor.inspector",
   },
-
-  {
-    id: "design.motion-presets",
-    name: "Motion Presets",
-    description:
-      "One-click animation presets (fade-in, slide-up, pulse, bounce, spin) that " +
-      "apply to the selected node via the motion timeline.  Preview is live; " +
-      "inline edits save as managed CSS, and supported localhost React/JSX " +
-      "targets can be written back through the consented source bridge.",
-    icon: "PlayerPlay",
-    availability: "available",
-    availabilityNote:
-      "Motion preview is available for all source types. apply-motion-edit " +
-      "writes inline HTML and can write version-checked, supported localhost " +
-      "React/JSX targets after explicit write consent. Other localhost formats " +
-      "and Fusion source writes are unavailable.",
-    capabilities: [
-      {
-        id: "preview",
-        label: "Preview motion preset (scrub, no write)",
-        status: "available",
-        reason:
-          "Preview sends a motion-preview bridge message — no DB / collab write.",
-      },
-      {
-        id: "apply",
-        label: "Persist keyframes to managed CSS (apply-motion-edit)",
-        status: "available",
-        reason:
-          "Saves inline timelines to managed HTML or writes supported localhost React/JSX targets after a target proof, bridge version check, and explicit user write consent.",
-      },
-      {
-        id: "write-source",
-        label: "Generic source-file writeback",
-        status: "preview-only",
-        reason:
-          "Generic extension source writes remain gated. The dedicated apply-motion-edit path supports only proven, version-checked localhost React/JSX targets after explicit write consent; other localhost formats and Fusion source writes are unavailable.",
-      },
-    ],
-    actions: [
-      "get-motion-timeline",
-      "apply-motion-edit",
-      "remove-motion-timeline",
-    ],
-    slotId: "design.editor.inspector",
-  },
 ];
 
 export default defineAction({
   description: `
 List the first-party Design Studio extensions with their capability and availability status.
 
-Returns the four built-in extensions:
+Returns the three built-in extensions:
   1. Asset Library     — native components, media, and Figma imports (available now).
   2. Shader Fills      — GPU shader fill previews (preview-only; apply is gated).
   3. Token Auditor     — token usage reads + edits (available; source write-back planned).
-  4. Motion Presets    — one-click animation presets (available; version-checked, consented writes to supported localhost React/JSX targets).
 
 Each entry includes the actions that power it so the agent can call them directly.
 Use run-design-extension-action to dispatch an action through the extension surface.

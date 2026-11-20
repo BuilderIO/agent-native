@@ -1,15 +1,18 @@
 import { recordChange } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import {
   type DashboardRecord,
   getDashboard,
   assertDashboardEditable,
-  assertDashboardMutationApplied,
-  dashboardWritableFilter,
+  updateDashboardState,
 } from "./dashboards-store.js";
+import type {
+  GuardedCommitHook,
+  GuardedStoreOptions,
+} from "./guarded-writes.js";
 
 export type DashboardFolderScope = "personal" | "shared";
 
@@ -66,6 +69,7 @@ export async function createDashboardFolder(
   name: string,
   scope: DashboardFolderScope,
   ctx: DashboardFolderContext,
+  onCommit?: GuardedCommitHook,
 ): Promise<DashboardFolderRecord> {
   const trimmedName = name.trim();
   if (!trimmedName) throw new Error("folder name is required");
@@ -75,15 +79,23 @@ export async function createDashboardFolder(
   const id = crypto.randomUUID();
   const now = nowIso();
   const folderOrgId = scope === "shared" ? ctx.orgId : null;
-  await (getDb() as any).insert(schema.dashboardFolders).values({
-    id,
-    name: trimmedName,
-    scope,
-    createdAt: now,
-    updatedAt: now,
-    ownerEmail: ctx.email,
-    orgId: folderOrgId,
-    visibility: scope === "shared" ? "org" : "private",
+  await getDb().transaction(async (tx) => {
+    await tx.insert(schema.dashboardFolders).values({
+      id,
+      name: trimmedName,
+      scope,
+      createdAt: now,
+      updatedAt: now,
+      ownerEmail: ctx.email,
+      orgId: folderOrgId,
+      visibility: scope === "shared" ? "org" : "private",
+    });
+    await onCommit?.(tx, {
+      targetId: id,
+      before: null,
+      after: now,
+      changed: true,
+    });
   });
   recordChange({
     source: "dashboard-folders",
@@ -126,6 +138,7 @@ export async function assignDashboardToFolder(
   dashboardId: string,
   folderId: string | null,
   ctx: DashboardFolderContext,
+  guard?: GuardedStoreOptions,
 ): Promise<DashboardRecord> {
   const dashboard = await getDashboard(dashboardId, ctx);
   if (!dashboard) throw new Error("dashboard not found or inaccessible");
@@ -150,25 +163,16 @@ export async function assignDashboardToFolder(
     }
   }
 
-  const mutation = await (getDb() as any)
-    .update(schema.dashboards)
-    .set({ folderId, updatedAt: nowIso(), updatedBy: ctx.email })
-    .where(
-      and(eq(schema.dashboards.id, dashboardId), dashboardWritableFilter()),
-    );
-  assertDashboardMutationApplied(mutation, dashboardId);
-  recordChange({
-    source: "dashboards",
-    type: "change",
-    key: dashboardId,
-    ...((dashboard.visibility === "org" && dashboard.orgId
-      ? { orgId: dashboard.orgId }
-      : { owner: dashboard.ownerEmail }) as {
-      owner?: string;
-      orgId?: string;
-    }),
-  });
-  const updated = await getDashboard(dashboardId, ctx);
-  if (!updated) throw new Error("dashboard disappeared after folder update");
+  const updated = await updateDashboardState(
+    dashboardId,
+    ctx,
+    {
+      role: "editor",
+      patch: (current) =>
+        (current.folderId ?? null) === folderId ? null : { folderId },
+    },
+    guard,
+  );
+  if (!updated) throw new Error("dashboard disappeared before folder update");
   return updated;
 }

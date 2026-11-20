@@ -12,6 +12,7 @@ import { revokeOrgServiceToken } from "../connect-store.js";
 import { requireServiceTokenCaller } from "./service-token-access.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Revoke one of your organization's service tokens by id (get ids from list-org-service-tokens). The token stops working immediately. Every call needs the user's approval. Org owner/admin only. Idempotent.",
   schema: z.object({

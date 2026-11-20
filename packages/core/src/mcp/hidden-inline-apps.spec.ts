@@ -43,7 +43,7 @@ beforeAll(async () => {
 
 describe("explicit connector inline apps", () => {
   it(
-    "advertises each inline tool on the default production catalog, with a UI resource only for a scoped widget target",
+    "advertises each inline tool on the default production catalog with its UI resource",
     async () => {
       vi.stubEnv("AGENT_MODE", "production");
       vi.stubEnv("AGENT_PROD_CODE_EXECUTION", "off");
@@ -59,23 +59,15 @@ describe("explicit connector inline apps", () => {
             fullSurface: false,
             inlineMcpApps: true,
           });
-          // An embedApp card needs an embed session scoped to one target, so
-          // it is offered only when the app declares a widget target for it.
-          const widgetTargets = config.directoryProfile?.widgetTargets ?? {};
+          // oracle-change: every inline card now carries its UI resource, so the
+          // branch asserting none for cards without a widget target is gone.
+          // Outside a directory listing such a card opens the full app.
           catalogs[app.appId] = INLINE_ACTIONS[app.appId]!.map((name) => {
             const tool = tools.find((candidate) => candidate.name === name);
             expect(tool, `${app.appId}/${name}`).toBeDefined();
-            if (Object.hasOwn(widgetTargets, name)) {
-              expect(tool?._meta?.ui, `${app.appId}/${name}`).toMatchObject({
-                resourceUri: expect.stringMatching(/^ui:\/\//),
-              });
-            } else {
-              expect(
-                (tool?._meta?.ui as { resourceUri?: unknown } | undefined)
-                  ?.resourceUri,
-                `${app.appId}/${name}`,
-              ).toBeUndefined();
-            }
+            expect(tool?._meta?.ui, `${app.appId}/${name}`).toMatchObject({
+              resourceUri: expect.stringMatching(/^ui:\/\//),
+            });
             return tool;
           });
         }

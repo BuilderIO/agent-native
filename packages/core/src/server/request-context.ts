@@ -1,5 +1,6 @@
 import type { AgentActionScope } from "../agent/types.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
+import { registerBackgroundWorkerProbe } from "../provider-api/interactive-scope.js";
 import type { ContextStatus } from "../shared/context-status.js";
 import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -166,6 +167,11 @@ export interface RequestContext {
   credentialScope?: "org";
   /** Storage-only org selection; null prevents an active-org fallback. */
   builderStorageCredentialOrgId?: string | null;
+  /**
+   * Personal runs only: the org whose AI provider keys back `userEmail` alone
+   * when they have none. `orgId` must stay unset so data and sharing stay personal.
+   */
+  providerKeyOrg?: { orgId: string; userEmail: string };
   /** Provenance set only after a stored org service token is verified. */
   verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
@@ -185,6 +191,8 @@ export interface RequestContext {
    * not satisfy account-backed auth or inherit the ticket owner's privileges.
    */
   authCapability?: string;
+  /** Ticket identity for a signed embed capability; never a user identity. */
+  capabilitySessionId?: string;
   timezone?: string;
   /** Date calculation default, not a detected or persistable user preference. */
   dateTimezoneFallback?: "UTC";
@@ -227,6 +235,12 @@ export interface RequestContext {
   /** True only when this server received the request directly on 127.0.0.1. */
   isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
+  /**
+   * Inbound webhook verification runs as the channel config owner, but a
+   * signing secret must come from the deployment or the owner's workspace,
+   * never from a row the owner can write for themselves alone.
+   */
+  skipUserScopeSecrets?: boolean;
   integration?: {
     taskId: string;
     attempts?: number;
@@ -675,6 +689,13 @@ export function getRequestAuthCapability(): string | undefined {
   return store.authCapability;
 }
 
+export function getRequestCapabilitySessionId(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.capabilitySessionId) markAuthContextAccess(store);
+  return store.capabilitySessionId;
+}
+
 export function getRequestIsLoopback(): boolean {
   return als.getStore()?.isLoopbackRequest === true;
 }
@@ -748,3 +769,7 @@ export function ensureRequestRunContext(): RequestRunContext | undefined {
   if (!store.run) store.run = {};
   return store.run;
 }
+
+registerBackgroundWorkerProbe(
+  () => getRequestRunContext()?.isBackgroundWorker === true,
+);

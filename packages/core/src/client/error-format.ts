@@ -16,6 +16,7 @@ import {
   isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
+import { commercialSurfacesHidden } from "./app-config.js";
 import {
   RUN_FAILED_MESSAGE,
   RUN_INTERRUPTED_MESSAGE,
@@ -114,10 +115,12 @@ export function formatChatErrorText(
   upgradeUrl?: string,
   errorCode?: string,
 ): string {
+  // Where commercial surfaces are hidden, no error offers credits or plans.
+  const offerUrl = commercialSurfacesHidden() ? undefined : upgradeUrl;
   const normalized = normalizeChatError(errorMessage, errorCode);
   if (normalized.message === CREDITS_LIMIT_REACHED_MESSAGE) {
-    return upgradeUrl && isSafeUpgradeUrl(upgradeUrl)
-      ? `${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`
+    return offerUrl && isSafeUpgradeUrl(offerUrl)
+      ? `${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${offerUrl})`
       : normalized.message;
   }
   if (
@@ -136,10 +139,10 @@ export function formatChatErrorText(
   ) {
     return `Error: ${normalized.message}\n\n[${START_NEW_CHAT_LABEL}](${NEW_CHAT_ACTION_HREF})`;
   }
-  if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
+  if (!offerUrl || !isSafeUpgradeUrl(offerUrl)) {
     return `Error: ${normalized.message}`;
   }
-  return `Error: ${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${upgradeUrl})`;
+  return `Error: ${normalized.message}\n\n[${ADD_CREDITS_IN_BUILDER_LABEL}](${offerUrl})`;
 }
 
 export interface NormalizedChatError {
@@ -436,6 +439,7 @@ export function normalizeChatError(
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const credential = chatCredentialState(text, code);
+  const rejectedRequest = isRejectedRequestErrorCode(code);
 
   if (credential?.kind === "exhausted") {
     return { message: CREDITS_LIMIT_REACHED_MESSAGE };
@@ -462,7 +466,7 @@ export function normalizeChatError(
 
   if (
     code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
-    isBuilderGatewayInternalErrorMessage(text)
+    (!rejectedRequest && isBuilderGatewayInternalErrorMessage(text))
   ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
   }
@@ -552,7 +556,7 @@ export function normalizeChatError(
     };
   }
 
-  if (isRejectedRequestErrorCode(code) && !isContextOverflowMessage(text)) {
+  if (rejectedRequest && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE

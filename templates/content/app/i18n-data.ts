@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
@@ -867,6 +868,8 @@ const editorPropertiesMessages = {
   noFilesOrMedia: "No files or media",
   noMatchingOptions: "No matching options",
   noMatchingPropertyTypes: "No matching property types",
+  typeChangeUnavailable:
+    "Property type changes are unavailable to protect existing values.",
   notMappedToBuilder: "Not mapped to Builder.",
   onlyBlocksPropertyWarning:
     "This is the only blocks property present in this object type. This will delete the main content (body) for all objects of this type.",
@@ -1108,6 +1111,9 @@ const editorToolbarMessages = {
   temporaryAgentLink: "Temporary agent link",
   privateLinkCanView: "Only people with access can view",
   publicLinkCanView: "Anyone with the link can view",
+  publicSubPagesOne: "This page and its sub-page",
+  publicSubPages: "This page and its {{count}} sub-pages",
+  publicSubPagesMore: "This page and more than {{count}} sub-pages",
   copiedAgentPrompt: "Agent prompt copied",
   couldNotCopyAgentPrompt: "Could not copy agent prompt",
   agentPrompt:
@@ -1167,6 +1173,11 @@ const editorToolbarMessages = {
   agentLevelUpdateFailed: "Couldn't change what agents can do here.",
   agentLevelNote: "Agents can comment",
   agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  agentLevelViewDescription:
+    "Can read this page. Can't comment, suggest or edit.",
+  agentLevelViewConfirm: "Agents can now only read this page.",
+  agentLevelViewNote: "Agents can only view",
+  agentLevelViewNoteHint: "Agents can only view this page. Change it in Share.",
   sendPageToAgent: "Send this page to an agent",
   connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",
@@ -1298,6 +1309,10 @@ const editorSlashMessages = {
   todoListDescription: "Checklist items",
   toggle: "Toggle",
   toggleDescription: "Notion-style toggle line",
+  toggleHeading1: "Toggle heading 1",
+  toggleHeading2: "Toggle heading 2",
+  toggleHeading3: "Toggle heading 3",
+  toggleHeadingDescription: "Heading that opens and closes",
   turnInto: "Turn into",
   video: "Video",
   videoDescription: "Upload or embed video",
@@ -1605,6 +1620,16 @@ const enUS = {
       duplicate: "Duplicate",
       delete: "Delete",
       insertBelow: "Insert block below",
+      insertAbove: "Insert block above",
+      askAgent: "Ask agent",
+      columns: "Columns",
+      syncedBlock: "Synced block",
+      component: "Component",
+      file: "File",
+      pdf: "PDF",
+      bookmark: "Bookmark",
+      embed: "Embed",
+      tableOfContents: "Table of contents",
       search: "Search actions...",
       noResults: "No results",
       block: "Block",
@@ -1624,10 +1649,17 @@ const enUS = {
     heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
+    suggestEdit: "Suggest edit",
     pasteLink: "Paste link...",
     apply: "Apply",
     plainText: "Plain text",
     searchLanguages: "Search languages...",
+    codeLanguageAuto: "Auto",
+    codeLanguage: "Code language",
+    noLanguagesFound: "No languages found",
+    copyCode: "Copy code",
+    codeCopied: "Copied",
+    wrapCodeLines: "Wrap lines",
     noBlocksFields: "No Blocks fields. Add one from the property menu.",
     noDocumentSelected: "No document selected",
     registryBlockLoadError: "Could not load {{type}} block: {{message}}",
@@ -1716,6 +1748,17 @@ const enUS = {
       "This deletes “{{name}}” and its text from every row in this collection. You can't undo this.",
     deleteBlockFieldBodyWarning:
       "“{{name}}” is the page body, so every row's main text is deleted too.",
+    blockFieldFrozen: "Frozen while {{column}} is {{value}}",
+    blockFieldFrozenDescription:
+      "A rule on this collection stops anyone, person or agent, from changing this tab. Move {{column}} off {{value}} to edit it.",
+    blockFieldFrozenByManagers:
+      "Frozen while {{column}} is {{value}}. Only people with full access to the collection can change this.",
+    blockFieldFrozenSaveRefused:
+      "This tab is frozen, so your edit wasn't saved",
+    freezeBlockField: "Freeze while…",
+    freezeBlockFieldWhile: "While {{column}} is",
+    freezeBlockFieldNoColumns: "Add a status or select column to freeze by",
+    unfreezeBlockField: "Don't freeze",
     title: "Title",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
@@ -1899,6 +1942,17 @@ const enUS = {
     agentBadge: "Agent",
     addEmoji: "Add emoji",
     mentionSomeone: "Mention someone",
+    attachImage: "Add image",
+    removeImage: "Remove image",
+    uploadingImage: "Uploading image…",
+    imageUploadFailed: "Couldn't upload the image. Try again.",
+    imageTypeUnsupported: "A comment takes PNG, JPEG, GIF or WebP images.",
+    imageTooLarge: "Each image can be up to 10 MB.",
+    imageLimit: "A comment holds up to {{count}} images.",
+    imagesNeedStorage:
+      "Images need private file storage, which this workspace hasn't connected.",
+    commentImages: "Images",
+    openImage: "Open image: {{name}}",
     mentionPeople: "People",
     mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
@@ -2254,6 +2308,7 @@ const enUS = {
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
+  analyticsChart: analyticsChartMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2318,6 +2373,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     trash: enUS.trash,
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
+    analyticsChart: enUS.analyticsChart,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2839,6 +2895,7 @@ function mergeMessagesForLocale(
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
+    analyticsChart: analyticsChartMessagesByLocale[locale],
   };
 }
 

@@ -9,8 +9,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutate: vi.fn() }),
 }));
 
+import type {
+  DashboardAnnotations,
+  SqlDashboardConfig,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { useAnnotationEditing } from "./annotation-editing";
-import type { DashboardAnnotations, SqlDashboardConfig } from "./types";
 
 const dashboard: SqlDashboardConfig = { name: "Setup", panels: [] };
 type AnnotationChange = (next: DashboardAnnotations) => void;

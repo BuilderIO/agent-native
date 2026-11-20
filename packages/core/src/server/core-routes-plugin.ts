@@ -50,6 +50,7 @@ import {
 } from "../agent/loop-settings.js";
 import {
   createBuilderSignupExperiment,
+  builderSignupClientFailureExperimentId,
   setBuilderSignupVerifiedStarter,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
@@ -84,6 +85,7 @@ import {
 } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
+import { scrubUrl } from "../client/url-scrub.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import {
   getDbExec,
@@ -283,6 +285,7 @@ import {
   createChatGPTSubscriptionOAuthCallbackHandler,
   createChatGPTSubscriptionOAuthStartHandler,
 } from "./chatgpt-subscription-oauth.js";
+import { getClientIp } from "./client-ip.js";
 import {
   resolveCoreRoutesMcpOptions,
   type CoreRoutesMcpOptions,
@@ -323,6 +326,8 @@ import {
 import { getMissingDeploySettings } from "./deploy-settings.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import {
+  BUILDER_SIGNUP_EXPERIMENT_PATH,
+  awaitFrameworkReadyWithinDeadline,
   FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
   type H3AppShim,
@@ -1480,30 +1485,11 @@ function normalizeWaitlistRateLimitPart(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function getBuilderWaitlistClientIp(event: H3Event): string | undefined {
-  const trusted =
-    getHeader(event, "x-nf-client-connection-ip") ??
-    getHeader(event, "cf-connecting-ip") ??
-    getHeader(event, "true-client-ip") ??
-    getHeader(event, "x-real-ip");
-  if (trusted && trusted.trim()) return trusted.trim();
-
-  const forwardedFor = getHeader(event, "x-forwarded-for");
-  const forwardedClientIp = forwardedFor?.split(",")[0]?.trim();
-  if (forwardedClientIp) return forwardedClientIp;
-
-  try {
-    return getRequestIP(event) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function getBuilderWaitlistRateLimitKeys(
   event: H3Event,
   email: string,
 ): string[] {
-  const clientIp = getBuilderWaitlistClientIp(event);
+  const clientIp = getClientIp(event);
   return [
     `email:${normalizeWaitlistRateLimitPart(email)}`,
     `ip:${normalizeWaitlistRateLimitPart(clientIp ?? "unknown")}`,
@@ -1604,10 +1590,14 @@ export function buildBuilderWaitlistFormPayload(
   sessionEmail: string,
   body: BuilderWaitlistBody,
 ) {
+  // The page URL comes from the browser, or from the Referer when it sent none;
+  // its query and hash can hold a token the form has no use for.
   const appUrl =
-    cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
-    cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
-    getOrigin(event);
+    scrubUrl(
+      cleanBuilderWaitlistText(body.pageUrl ?? body.appUrl, 2000) ??
+        cleanBuilderWaitlistText(getHeader(event, "referer"), 2000) ??
+        getOrigin(event),
+    ) ?? "";
   const source =
     cleanBuilderWaitlistText(body.source, 100) ?? BUILDER_WAITLIST_FORM_SOURCE;
   const template = normalizeBuilderWaitlistTemplate(body.template);
@@ -2711,7 +2701,7 @@ export async function activateBuilderAccount(
       BUILDER_UPSTREAM_FAILURE_STATUS,
       "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       "provision_failed",
-      undefined,
+      "provision_failed",
       {
         upstream_response_received: provisioningError?.upstreamStatus != null,
         upstream_status: provisioningError?.upstreamStatus ?? null,
@@ -3407,6 +3397,21 @@ export function createCoreRoutesPlugin(
       resolveInit = resolve;
       rejectInit = reject;
     });
+    let resolveBuilderSignupReady: () => void = () => {};
+    let rejectBuilderSignupReady: (error: unknown) => void = () => {};
+    let builderSignupReadySettled = false;
+    const builderSignupReadyPromise = new Promise<void>((resolve, reject) => {
+      resolveBuilderSignupReady = () => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        resolve();
+      };
+      rejectBuilderSignupReady = (error: unknown) => {
+        if (builderSignupReadySettled) return;
+        builderSignupReadySettled = true;
+        reject(error);
+      };
+    });
     trackPluginInit(nitroApp, initPromise, {
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
       // Liveness and BYOA auth routes are mounted before the DB-dependent
@@ -3422,6 +3427,48 @@ export function createCoreRoutesPlugin(
         "/.well-known/openai-apps-challenge",
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
+    });
+    trackPluginInit(nitroApp, builderSignupReadyPromise, {
+      paths: [BUILDER_SIGNUP_EXPERIMENT_PATH],
+    });
+    const builderSignupExperiment = createBuilderSignupExperiment({
+      getSession,
+      sameOrigin: isSameOriginConnect,
+      activate: async (event, session, owner) => {
+        const authorization = await authorizeBuilderConnectScope(
+          event,
+          session.email,
+          null,
+        );
+        if ("deny" in authorization)
+          return { ok: false, code: authorization.deny.reason };
+        const result = await activateBuilderAccount(event, {
+          ownerEmail: session.email,
+          session,
+          provisioningToken: signBuilderProvisioningToken(
+            session.email,
+            session.token ?? "",
+          ),
+          requestedScope: null,
+          member: authorization.member,
+          connectAttemptId: null,
+          tracking: getBuilderSignupTrackingIdentity(),
+          newAccountOnly: true,
+          signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+        });
+        if (result.ok) return result;
+        return {
+          ok: false,
+          code: result.code ?? result.reason,
+          message: result.message,
+        };
+      },
+
+      reconcile: reconcileBuilderSignupActivation,
+    });
+    setBuilderSignupVerifiedStarter(async (event, session) => {
+      await awaitFrameworkReadyWithinDeadline(builderSignupReadyPromise);
+      return builderSignupExperiment.startVerifiedSignup(event, session);
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
@@ -4357,6 +4404,7 @@ export function createCoreRoutesPlugin(
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
         const signupConnectError = await getBuilderSignupConnectError(
+          event,
           ownerContext.session?.userId,
         );
         const provisioningToken =
@@ -5121,42 +5169,11 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      const builderSignupExperiment = createBuilderSignupExperiment({
-        getSession,
-        sameOrigin: isSameOriginConnect,
-        activate: async (event, session, owner) => {
-          const authorization = await authorizeBuilderConnectScope(
-            event,
-            session.email,
-            null,
-          );
-          if ("deny" in authorization)
-            return { ok: false, code: authorization.deny.reason };
-          return activateBuilderAccount(event, {
-            ownerEmail: session.email,
-            session,
-            provisioningToken: signBuilderProvisioningToken(
-              session.email,
-              session.token ?? "",
-            ),
-            requestedScope: null,
-            member: authorization.member,
-            connectAttemptId: null,
-            tracking: getBuilderSignupTrackingIdentity(),
-            newAccountOnly: true,
-            signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
-          });
-        },
-
-        reconcile: reconcileBuilderSignupActivation,
-      });
-      setBuilderSignupVerifiedStarter(
-        builderSignupExperiment.startVerifiedSignup,
-      );
       getH3App(nitroApp).use(
-        `${P}/auth/builder-signup-experiment`,
+        BUILDER_SIGNUP_EXPERIMENT_PATH,
         builderSignupExperiment.handler,
       );
+      resolveBuilderSignupReady();
 
       getH3App(nitroApp).use(
         `${P}/builder/provision`,
@@ -6421,6 +6438,13 @@ export function createCoreRoutesPlugin(
               ...(browserSessionId ? { sessionId: browserSessionId } : {}),
               telemetryOrigin: "client" as const,
             };
+            const builderSignupExperimentId =
+              builderSignupClientFailureExperimentId(
+                event,
+                validation.name as string,
+              );
+            if (builderSignupExperimentId)
+              Object.assign(trackingSource, { builderSignupExperimentId });
             const trackClientEvent = () =>
               track(validation.name as string, properties, trackingSource);
             if (isFirstRunOnboardingEvent) {
@@ -7147,6 +7171,7 @@ export function createCoreRoutesPlugin(
       // every in-flight request on it returns a bare 502. `rejectInit` already
       // routes this failure to the readiness gate, which answers the affected
       // paths with a retryable 503 instead.
+      rejectBuilderSignupReady(error);
       rejectInit(error);
     }
   };

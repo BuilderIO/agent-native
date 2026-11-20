@@ -14,9 +14,11 @@ import {
   decodeOAuthState,
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
+  oauthCallbackOwner,
   resolveOAuthOwner,
   resolveSecret,
   createOAuthSession,
+  recordBuilderSignupBinding,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
@@ -66,6 +68,7 @@ type CalendarOAuthStateOptions = {
   returnUrl?: string;
   flowId?: string;
   desktopVerifierHash?: string;
+  builderSignupAttemptId?: string;
   desktopBrowserBindingHash?: string;
 };
 
@@ -322,6 +325,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       desktop,
       mobile,
       addAccount: calendarConnect,
+      builderSignupAttemptId:
+        !calendarConnect && typeof q.builder_signup_attempt === "string"
+          ? q.builder_signup_attempt.slice(0, 128)
+          : undefined,
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
@@ -411,6 +418,7 @@ export const handleGoogleCallback = defineEventHandler(
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
+        state,
       );
 
       if (!addAccount) {
@@ -438,6 +446,21 @@ export const handleGoogleCallback = defineEventHandler(
             },
           },
         );
+
+        if (isNewUser && sessionToken) {
+          await recordBuilderSignupBinding(
+            event,
+            state.builderSignupAttemptId,
+            "google",
+            identity.email,
+            {
+              email: identity.email,
+              token: sessionToken,
+              ...(identity.name ? { name: identity.name } : {}),
+              emailVerified: true,
+            },
+          );
+        }
 
         if (flowId && sessionToken) {
           if (!state.desktopVerifierHash) {
@@ -670,10 +693,10 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         });
       }
 
-      const { redirectUri, owner: stateOwner } = state;
+      const { redirectUri } = state;
       const stateOrgId = getCalendarOAuthStateOrgId(state);
 
-      const ownerEmail = session?.email || stateOwner;
+      const ownerEmail = oauthCallbackOwner(session?.email, state);
       if (!ownerEmail) {
         return oauthErrorPage("Session expired. Please log in again.");
       }

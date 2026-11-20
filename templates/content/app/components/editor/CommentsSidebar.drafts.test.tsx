@@ -327,7 +327,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "editor.sourceComponent.previewUnavailable": "Preview unavailable",
     })[key] ?? key,
 }));
-vi.mock("@agent-native/toolkit/app/review", () => ({
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
   CommentBody: ({ body }: { body: string }) => <>{body.trimEnd()}</>,
 }));
 vi.mock("@agent-native/core/client/review", () => ({
@@ -426,8 +429,9 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenuContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-  DropdownMenuGroup: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
+  // Keeps the data attributes Discussion's Filter menu is found by.
+  DropdownMenuGroup: ({ children, ...props }: ComponentProps<"div">) => (
+    <div {...props}>{children}</div>
   ),
   DropdownMenuLabel: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
@@ -437,12 +441,11 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     children,
     disabled,
     onSelect,
-  }: {
-    children: ReactNode;
-    disabled?: boolean;
-    onSelect?: () => void;
+    ...props
+  }: Omit<ComponentProps<"button">, "onSelect"> & {
+    onSelect?: (event: { preventDefault: () => void }) => void;
   }) => (
-    <button disabled={disabled} onClick={onSelect}>
+    <button {...props} disabled={disabled} onClick={onSelect}>
       {children}
     </button>
   ),

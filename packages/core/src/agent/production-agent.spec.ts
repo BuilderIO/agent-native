@@ -899,11 +899,9 @@ describe("private action history persistence", () => {
         expect(JSON.stringify(input)).not.toContain(body);
         expect(input.args).toEqual({});
         expect(input).not.toHaveProperty("result");
-        expect(input.config).toMatchObject({
-          recordInputs: false,
-          target: undefined,
-          summary: undefined,
-        });
+        expect(input.config).toMatchObject({ recordInputs: false });
+        expect(input.config).not.toHaveProperty("target");
+        expect(input.config).not.toHaveProperty("summary");
       }
     } finally {
       audit.mockRestore();
@@ -969,10 +967,21 @@ describe("resolveAgentModelSelection", () => {
     expect(
       resolveAgentModelSelection({
         requestModel: "gpt-5-6-terra",
+        configuredModel: "claude-sonnet-5-5",
         storedModel: "gpt-5-6-sol",
         defaultModel,
       }),
     ).toEqual({ model: "gpt-5-6-terra", source: "request" });
+  });
+
+  it("uses the deployment's Claude model ahead of the app and Builder defaults", () => {
+    expect(
+      resolveAgentModelSelection({
+        configuredModel: "claude-sonnet-5-5",
+        storedModel: "gpt-5-6-sol",
+        defaultModel: BUILDER_MODEL_CONFIG.defaultModel,
+      }),
+    ).toEqual({ model: "claude-sonnet-5-5", source: "configured" });
   });
 
   it("treats auto as a sentinel and uses the stored AN default", () => {
@@ -7322,6 +7331,88 @@ describe("createProductionAgentHandler", () => {
     },
   );
 
+  it("requires the approval's ask id even when the paused call is in history", async () => {
+    const input = { to: "other@example.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-key-only");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const runAction = vi.fn(async () => "sent");
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved.",
+          approvedToolCalls: [approvalKey],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-key-only",
+                  name: "send-email",
+                  input,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-key-only",
+                  toolName: "send-email",
+                  toolInput: JSON.stringify(input),
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (result instanceof ReadableStream) {
+        await new Response(result).text();
+      }
+
+      expect(event.res.status).toBe(409);
+      expect(result).toEqual({
+        error: "The agent run failed.",
+        code: "approved_tool_call_not_pending",
+        retryable: false,
+      });
+      expect(runAction).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+    }
+  });
+
   it("fails explicitly when an approved call is missing from structured history", async () => {
     const engine = engineWithUncalledStream();
     const handler = createProductionAgentHandler({
@@ -8417,6 +8508,14 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
+    const approvalId =
+      "agent-tool-approval-00000000-0000-4000-8000-000000000001";
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-publish");
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: "thread-publish", threadData: "{}" } as never);
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -8443,7 +8542,9 @@ describe("createProductionAgentHandler", () => {
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                   message: "Approved. Continue.",
+                  threadId: "thread-publish",
                   approvedToolCalls: [approvalKey],
+                  approvedToolCallAskIds: [approvalId],
                   structuredHistory: [
                     {
                       role: "assistant",
@@ -8453,6 +8554,7 @@ describe("createProductionAgentHandler", () => {
                           id: "call-publish",
                           name: "publish",
                           input,
+                          approvalAskId: approvalId,
                         },
                       ],
                     },
@@ -8466,6 +8568,7 @@ describe("createProductionAgentHandler", () => {
                           toolInput: "{}",
                           content: "Awaiting human approval.",
                           approvalPause: true,
+                          approvalAskId: approvalId,
                         },
                       ],
                     },
@@ -8499,6 +8602,8 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
+      resolveApproval.mockRestore();
+      resolveThreadAccess.mockRestore();
     }
   });
 
@@ -22958,7 +23063,11 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(seenMessages.at(-1)).toContain("output-token cap");
+    expect(seenMessages.at(-1)).toContain(
+      JSON.stringify(
+        `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: The previous LLM call ended without an answer.`,
+      ),
+    );
     expect(guard).toHaveBeenCalledTimes(1);
     expect(guard.mock.calls[0]?.[0]).toMatchObject({
       requestText: "go",
@@ -23484,7 +23593,7 @@ describe("runAgentLoop", () => {
       finalResponseGuard: guard,
     });
 
-    expect(seenReasoningEfforts).toEqual(["medium", "low", "minimal"]);
+    expect(seenReasoningEfforts).toEqual(["medium", "low", "low"]);
     expect(guard).toHaveBeenCalledTimes(1);
     expect(guard.mock.calls[0]?.[0].requestText).toBe("hello");
     expect(events).toContainEqual({
@@ -23602,6 +23711,82 @@ describe("runAgentLoop", () => {
     expect(errorEvents).toHaveLength(1);
     expect(errorEvents[0].error).toMatch(/empty response/i);
   });
+
+  it.each(["end_turn", "max_tokens"] as const)(
+    "reduces Luna’s automatic Builder reasoning after a %s with no answer",
+    async (stopReason) => {
+      const model = "gpt-6-luna";
+      const streamCalls: EngineStreamOptions[] = [];
+      const sentUserText: Array<string | undefined> = [];
+      const engine: AgentEngine = {
+        name: "builder",
+        label: "Builder",
+        defaultModel: model,
+        supportedModels: [model],
+        capabilities: {
+          thinking: true,
+          promptCaching: true,
+          vision: true,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(opts): AsyncIterable<EngineEvent> {
+          streamCalls.push(opts);
+          sentUserText.push(
+            opts.messages.at(-1)?.content.find((part) => part.type === "text")
+              ?.text,
+          );
+          if (streamCalls.length === 3 && opts.reasoningEffort === "low") {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Web is the largest channel." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+            return;
+          }
+          yield { type: "stop", reason: stopReason };
+        },
+      };
+      const send = vi.fn();
+
+      await runAgentLoop({
+        engine,
+        model,
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: {},
+        send,
+        signal: new AbortController().signal,
+        maxOutputTokens: 64_000,
+      });
+
+      expect(streamCalls.map((opts) => opts.maxOutputTokens)).toEqual([
+        64_000, 128_000, 128_000,
+      ]);
+      expect(streamCalls.map((opts) => opts.reasoningEffort)).toEqual([
+        undefined,
+        "low",
+        "low",
+      ]);
+      expect(sentUserText[0]).toBe("go");
+      const expectedNote =
+        stopReason === "max_tokens"
+          ? "reached the model output-token cap"
+          : "ended without an answer";
+      expect(sentUserText.slice(1)).toEqual([
+        expect.stringContaining(expectedNote),
+        expect.stringContaining(expectedNote),
+      ]);
+      expect(send).toHaveBeenCalledWith({
+        type: "text",
+        text: "Web is the largest channel.",
+      });
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "error" }),
+      );
+    },
+  );
 
   it("bounds empty max-token turns without stepping reasoning effort down", async () => {
     const seenOpts: EngineStreamOptions[] = [];
@@ -24244,6 +24429,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "done",
         eventId: expect.any(String),
         seq: expect.any(Number),
@@ -24306,6 +24492,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "error",
         eventId: expect.any(String),
         seq: expect.any(Number),
@@ -24389,6 +24576,7 @@ describe("runAgentLoop", () => {
       expect(events).toContainEqual({
         type: "agent_call",
         agent: "Alpha",
+        agentCallId: expect.any(String),
         status: "error",
         eventId: expect.any(String),
         seq: expect.any(Number),

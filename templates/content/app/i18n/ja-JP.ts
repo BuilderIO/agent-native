@@ -733,6 +733,16 @@ const editor = {
     duplicate: "複製",
     delete: "削除",
     insertBelow: "下にブロックを挿入",
+    insertAbove: "上にブロックを挿入",
+    askAgent: "エージェントに聞く",
+    columns: "列",
+    syncedBlock: "同期ブロック",
+    component: "コンポーネント",
+    file: "ファイル",
+    pdf: "PDF",
+    bookmark: "ブックマーク",
+    embed: "埋め込み",
+    tableOfContents: "目次",
     search: "操作を検索...",
     noResults: "結果がありません",
     block: "ブロック",
@@ -978,6 +988,8 @@ const editor = {
     noFilesOrMedia: "ファイルやメディアがありません",
     noMatchingOptions: "一致するオプションはありません",
     noMatchingPropertyTypes: "一致するプロパティ タイプがありません",
+    typeChangeUnavailable:
+      "既存の値を保護するため、プロパティの種類は変更できません。",
     notMappedToBuilder: "ビルダーにマッピングされていません。",
     onlyBlocksPropertyWarning:
       "これは、このオブジェクト タイプに存在する唯一のブロック プロパティです。これにより、このタイプのすべてのオブジェクトのメイン コンテンツ (本文) が削除されます。",
@@ -1070,6 +1082,10 @@ const editor = {
     fourColumns: "4列",
     codeBlock: "コードブロック",
     codeBlockDescription: "コードスニペット",
+    toggleHeading1: "トグル見出し 1",
+    toggleHeading2: "トグル見出し 2",
+    toggleHeading3: "トグル見出し 3",
+    toggleHeadingDescription: "開閉できる見出し",
     collapsibleBlockDescription: "折りたたみ可能なブロック",
     database: "コレクション",
     databaseDescription: "このページ内のインラインコレクション",
@@ -1160,6 +1176,13 @@ const editor = {
     agentLevelNote: "エージェントはコメント可",
     agentLevelNoteHint:
       "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    agentLevelViewDescription:
+      "このページを閲覧できます。コメント、提案、編集はできません。",
+    agentLevelViewConfirm:
+      "エージェントはこのページの閲覧のみできるようになりました。",
+    agentLevelViewNote: "エージェントは閲覧のみ",
+    agentLevelViewNoteHint:
+      "エージェントはこのページを閲覧のみできます。「シェアする」から変更できます。",
     sendPageToAgent: "このページをエージェントに送信",
     connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",
@@ -1538,6 +1561,9 @@ const exactEnglish = {
       temporaryAgentLink: "一時的なエージェントリンク",
       privateLinkCanView: "アクセス権のある人だけが閲覧できます",
       publicLinkCanView: "リンクを知っている人は誰でも閲覧できます",
+      publicSubPagesOne: "このページとそのサブページ",
+      publicSubPages: "このページと{{count}}件のサブページ",
+      publicSubPagesMore: "このページと{{count}}件を超えるサブページ",
       copiedAgentPrompt: "エージェント用指示をコピーしました",
       couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
       agentPrompt:
@@ -1833,10 +1859,17 @@ const overrides = {
     heading6: "見出し 6",
     link: "リンク",
     comment: "コメント",
+    suggestEdit: "編集を提案",
     pasteLink: "リンクを貼り付け...",
     apply: "適用",
     plainText: "プレーンテキスト",
     searchLanguages: "言語を検索...",
+    codeLanguageAuto: "自動",
+    codeLanguage: "コードの言語",
+    noLanguagesFound: "言語が見つかりません",
+    copyCode: "コードをコピー",
+    codeCopied: "コピーしました",
+    wrapCodeLines: "行を折り返す",
     noBlocksFields:
       "Blocks フィールドがありません。プロパティメニューから追加してください。",
     addBlockField: "フィールドを追加",
@@ -1855,6 +1888,18 @@ const overrides = {
       "このコレクションのすべての行から「{{name}}」とそのテキストが削除されます。元に戻すことはできません。",
     deleteBlockFieldBodyWarning:
       "「{{name}}」はページ本文のため、すべての行の本文も削除されます。",
+    blockFieldFrozen: "{{column}} が {{value}} の間は固定",
+    blockFieldFrozenDescription:
+      "このコレクションのルールにより、人もエージェントもこのタブを変更できません。編集するには {{column}} を {{value}} 以外に変更してください。",
+    blockFieldFrozenByManagers:
+      "{{column}} が {{value}} の間は固定されます。変更できるのは、コレクションへのフルアクセス権を持つユーザーだけです。",
+    blockFieldFrozenSaveRefused:
+      "このタブは固定されているため、編集は保存されませんでした",
+    freezeBlockField: "固定する条件…",
+    freezeBlockFieldWhile: "{{column}} が次の値の間",
+    freezeBlockFieldNoColumns:
+      "固定の条件にするステータス列または選択列を追加してください",
+    unfreezeBlockField: "固定しない",
   },
   comments: {
     add: "コメントを追加...",
@@ -1894,6 +1939,19 @@ const overrides = {
     agentBadge: "エージェント",
     addEmoji: "絵文字を追加",
     mentionSomeone: "メンションする",
+    attachImage: "画像を追加",
+    removeImage: "画像を削除",
+    uploadingImage: "画像をアップロード中…",
+    imageUploadFailed:
+      "画像をアップロードできませんでした。もう一度お試しください。",
+    imageTypeUnsupported:
+      "コメントに添付できるのは PNG、JPEG、GIF、WebP の画像です。",
+    imageTooLarge: "画像は 1 枚あたり 10 MB までです。",
+    imageLimit: "1 つのコメントに添付できる画像は {{count}} 枚までです。",
+    imagesNeedStorage:
+      "画像にはプライベートなファイルストレージが必要ですが、このワークスペースでは接続されていません。",
+    commentImages: "画像",
+    openImage: "画像を開く: {{name}}",
     mentionPeople: "メンバー",
     mentionPeopleLoadFailed: "メンバーを読み込めませんでした。",
     mentionAgents: "エージェント",

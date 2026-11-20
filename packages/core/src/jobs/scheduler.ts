@@ -1,5 +1,6 @@
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { getCurrentTurnEventsForThread } from "../agent/run-store.js";
+import { automationRunScopeContext } from "../automations/service.js";
 import { withDbExec, type DbExec } from "../db/client.js";
 import {
   ensureTable as ensureResourcesTable,
@@ -338,7 +339,8 @@ async function processRecurringJobsWithLease(
                     }),
                 )
               : null;
-          if (recovery?.state === "active") continue;
+          if (recovery?.state === "active" || recovery?.state === "other-app")
+            continue;
           if (recovery?.state === "resume") {
             dueJobCandidates.push({
               key: `${resource.owner}:${resource.path}`,
@@ -995,16 +997,7 @@ async function resumeRecoveredPauses(
         identity.ok &&
         (
           await checkBackgroundAutomationCredentials(
-            {
-              ownerEmail: identity.identity.userEmail,
-              orgId: identity.identity.orgId,
-              ...(identity.identity.orgScope === "personal"
-                ? { orgScope: "personal" as const }
-                : {}),
-              ...(identity.identity.defaultAgentEngineScope === "deployment"
-                ? { defaultAgentEngineScope: "deployment" as const }
-                : {}),
-            },
+            identity.identity,
             deps,
             meta.model,
           )
@@ -1376,12 +1369,7 @@ async function executeJob(
   }
 
   const requestContext = {
-    ...(identity.identity.orgScope === "personal"
-      ? { orgScope: "personal" as const }
-      : {}),
-    ...(identity.identity.defaultAgentEngineScope === "deployment"
-      ? { defaultAgentEngineScope: "deployment" as const }
-      : {}),
+    ...automationRunScopeContext(identity.identity),
     ...(meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
       ? {
           isIntegrationCaller: true as const,

@@ -617,6 +617,38 @@ describe("route-state client helpers", () => {
     ).toBe(false);
   });
 
+  it("consumes a local tool navigation command on refresh without waiting for polling", async () => {
+    const { fetchMock, state } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const commands: unknown[] = [];
+    function Harness() {
+      useSemanticNavigationState({
+        state: { view: "editor" },
+        browserTabId: "tab-local-refresh",
+        commandRefetchInterval: false,
+        onCommand: (command) => commands.push(command),
+      });
+      return null;
+    }
+    const rendered = renderWithQueryClient(<Harness />);
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+    state["navigate:tab-local-refresh"] = { path: "/settings" };
+    state["navigate:other-tab"] = { path: "/other" };
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agentNative:refresh-data"));
+      await flush();
+    });
+    await act(flush);
+    // The consumed command's delete goes out on the tick after it's read.
+    await act(flush);
+    expect(commands).toEqual([{ path: "/settings" }]);
+    expect(state["navigate:tab-local-refresh"]).toBeUndefined();
+    expect(state["navigate:other-tab"]).toEqual({ path: "/other" });
+  });
+
   it("reads the first available command key and deletes the consumed command", async () => {
     const { deletes, fetchMock } = makeAppStateFetch({
       "navigate:tab-1": { view: "thread", threadId: "thread-2", _writeId: "a" },
@@ -821,6 +853,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/market-research/_agent-native/poll",
         assign,
@@ -877,6 +911,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/risk/chat/thread-1",
         assign,
@@ -933,6 +969,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      addEventListener: window.addEventListener.bind(window),
+      removeEventListener: window.removeEventListener.bind(window),
       location: {
         pathname: "/risk/register",
         assign,

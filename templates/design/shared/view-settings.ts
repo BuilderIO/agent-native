@@ -26,9 +26,47 @@ export const DEFAULT_VIEW_SETTINGS: ViewSettings = {
   commentsHidden: false,
 };
 
-// A missing record or key is a user who never changed it, so it takes the
-// default; a stored value of the wrong type throws instead of being reset.
-export function parseStoredViewSettings(stored: unknown): ViewSettings {
-  const partial = viewSettingsSchema.partial().parse(stored ?? {});
-  return { ...DEFAULT_VIEW_SETTINGS, ...partial };
+// Older editor tabs still read and update these fields.
+export const storedViewSettingsSchema = viewSettingsSchema.extend({
+  tweaksPanelOpen: z.boolean(),
+  tweaksPanelCollapsed: z.boolean(),
+  tweaksPanelPosition: z.object({ x: z.number(), y: z.number() }),
+});
+
+const LEGACY_PANEL_DEFAULTS = {
+  tweaksPanelOpen: true,
+  tweaksPanelCollapsed: false,
+  tweaksPanelPosition: { x: 16, y: 64 },
+};
+
+export function parseStoredViewSettings(
+  stored: unknown,
+): z.infer<typeof storedViewSettingsSchema> {
+  const current = viewSettingsSchema.partial().parse(stored ?? {});
+  const legacy = z
+    .object({
+      tweaksPanelOpen: storedViewSettingsSchema.shape.tweaksPanelOpen.catch(
+        LEGACY_PANEL_DEFAULTS.tweaksPanelOpen,
+      ),
+      tweaksPanelCollapsed:
+        storedViewSettingsSchema.shape.tweaksPanelCollapsed.catch(
+          LEGACY_PANEL_DEFAULTS.tweaksPanelCollapsed,
+        ),
+      tweaksPanelPosition:
+        storedViewSettingsSchema.shape.tweaksPanelPosition.catch(
+          LEGACY_PANEL_DEFAULTS.tweaksPanelPosition,
+        ),
+    })
+    .parse(stored ?? {});
+  return {
+    pixelGrid: current.pixelGrid ?? DEFAULT_VIEW_SETTINGS.pixelGrid,
+    snapToPixelGrid:
+      current.snapToPixelGrid ?? DEFAULT_VIEW_SETTINGS.snapToPixelGrid,
+    rulers: current.rulers ?? DEFAULT_VIEW_SETTINGS.rulers,
+    multiplayerCursors:
+      current.multiplayerCursors ?? DEFAULT_VIEW_SETTINGS.multiplayerCursors,
+    commentsHidden:
+      current.commentsHidden ?? DEFAULT_VIEW_SETTINGS.commentsHidden,
+    ...legacy,
+  };
 }

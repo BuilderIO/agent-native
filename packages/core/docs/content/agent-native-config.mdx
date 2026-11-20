@@ -111,6 +111,7 @@ configuration portion of `agent-native.json`:
 | `instructions.development`           | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                                                                                           |
 | `translations.locales`               | `string[]`                                                        | Lists the locales the app intentionally ships. `en-US` remains the source locale.                                                                                                                                                                                 |
 | `changelog.enabled`                  | `boolean`                                                         | Enables the app changelog workflow and lets agents create user-facing entries.                                                                                                                                                                                    |
+| `billing.commercialSurfaces`         | `"show"` or `"hide"`                                              | `"hide"` removes credit units and amounts, plan upgrades, free-credit offers, and referral rewards from the UI and usage APIs; dollar and token usage still show. Defaults to `"show"`.                                                                           |
 | `harness`                            | `boolean` or `{ runtimes: string[] }`                             | Enables the hosted tools-only harness, optionally narrowed to `claude-code`, `codex`, `pi`, or `opencode`. See [Harness Agents](/docs/harness-agents).                                                                                                            |
 
 ## Deterministic environment aliases
@@ -139,6 +140,7 @@ upper snake case and join segments with underscores:
 | `instructions.development`           | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`            |
 | `translations.locales`               | `AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES`                |
 | `changelog.enabled`                  | `AGENT_NATIVE_CONFIG_CHANGELOG_ENABLED`                   |
+| `billing.commercialSurfaces`         | `AGENT_NATIVE_CONFIG_BILLING_COMMERCIAL_SURFACES`         |
 | `harness`                            | `AGENT_NATIVE_CONFIG_HARNESS`                             |
 | `harness.runtimes`                   | `AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES`                    |
 

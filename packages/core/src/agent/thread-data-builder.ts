@@ -50,7 +50,12 @@ import type {
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
-import { isContinuationTerminalReason, isUnknownWriteCause } from "./types.js";
+import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
+  ASSISTANT_RUN_DURATION_METADATA_KEY,
+  isContinuationTerminalReason,
+  isUnknownWriteCause,
+} from "./types.js";
 import type {
   AgentChatAttachment,
   AgentChatSteeredUserMessage,
@@ -100,8 +105,6 @@ type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
-
-export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 
@@ -241,6 +244,41 @@ export function containsInlineAttachmentPayload(value: unknown): boolean {
   return visit(value);
 }
 
+/**
+ * The last event a user's browser had shown when they pressed Stop, as their
+ * Stop request reported it. A stopped reply keeps none of the prose streamed
+ * after it, so a reload ends where the live view did. Tool calls and results
+ * stay: their effects happened either way.
+ */
+export function userStopShownThroughSeq(
+  events: Iterable<RunEvent>,
+): number | undefined {
+  for (const { event } of events) {
+    if (
+      event.type === "done" &&
+      event.reason === "user" &&
+      typeof event.shownThroughSeq === "number"
+    ) {
+      return event.shownThroughSeq;
+    }
+  }
+  return undefined;
+}
+
+/** Prose a stopped reply leaves out because its user never saw it. */
+export function isStreamedAfterStop(
+  { seq, event }: RunEvent,
+  shownThroughSeq: number | undefined,
+): boolean {
+  return (
+    shownThroughSeq !== undefined &&
+    seq > shownThroughSeq &&
+    (event.type === "text" ||
+      event.type === "thinking" ||
+      event.type === "clear")
+  );
+}
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
@@ -313,6 +351,7 @@ export function buildAssistantMessage(
   } | null = null;
   let endedAtInternalContinuationBoundary = false;
   let userStoppedRun = false;
+  let runDurationMs = options.runDurationMs;
 
   // Content length at the last auto_continue; the separator belongs only to a
   // text delta that lands directly on that tail, not after reasoning or tools.
@@ -350,8 +389,14 @@ export function buildAssistantMessage(
   ) {
     lastNonClearIndex -= 1;
   }
+  const shownThroughSeq = userStopShownThroughSeq(events);
 
-  for (const [index, { event }] of events.entries()) {
+  for (const [index, runEvent] of events.entries()) {
+    const { event } = runEvent;
+    if (event.type === "done" && event.durationMs !== undefined) {
+      runDurationMs = event.durationMs;
+    }
+    if (isStreamedAfterStop(runEvent, shownThroughSeq)) continue;
     if (event.type === "clear") {
       if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content, event.allText === true);
@@ -669,11 +714,11 @@ export function buildAssistantMessage(
   }
   if (runId) custom.foldedRunIds = [runId];
   if (
-    typeof options.runDurationMs === "number" &&
-    Number.isFinite(options.runDurationMs) &&
-    options.runDurationMs >= 0
+    typeof runDurationMs === "number" &&
+    Number.isFinite(runDurationMs) &&
+    runDurationMs >= 0
   ) {
-    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
+    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = runDurationMs;
   }
   if (continued) custom.continued = true;
   if (userStoppedRun) custom.userStopped = true;
@@ -715,10 +760,17 @@ export interface SteeredRunSegment {
  * written after it. A run without one is exactly `buildAssistantMessage`.
  */
 export function buildAssistantTurnSegments(
-  events: RunEvent[],
+  runEvents: RunEvent[],
   runId?: string,
   options: BuildAssistantMessageOptions = {},
 ): { assistant: AssistantMessage | null; steered: SteeredRunSegment[] } {
+  const shownThroughSeq = userStopShownThroughSeq(runEvents);
+  const events =
+    shownThroughSeq === undefined
+      ? runEvents
+      : runEvents.filter(
+          (entry) => !isStreamedAfterStop(entry, shownThroughSeq),
+        );
   const boundaries = events.flatMap((entry, index) =>
     entry.event.type === "user_message" ? [{ index, event: entry.event }] : [],
   );
@@ -2572,6 +2624,39 @@ function prefersApprovalReplaySnapshot(
   );
 }
 
+/** A saved AgentKit widget, as much of it as the merge reads. */
+interface AgentKitWidgetEntry {
+  messageId?: unknown;
+  widget?: { kind?: unknown };
+}
+
+// A peer's approval card keeps one id per approval, and each call that finds
+// the approval still waiting rewrites it with that call. The rewrite from a
+// later run wins, or the card stays tied to a call the person already settled.
+function prefersNewerApprovalCard(
+  existing: AgentKitWidgetEntry | undefined,
+  incoming: AgentKitWidgetEntry | undefined,
+  existingMessageRunIds: Map<string, string>,
+  incomingMessageRunIds: Map<string, string>,
+  existingRuns: unknown,
+  incomingRuns: unknown,
+): boolean {
+  if (incoming?.widget?.kind !== AGENT_CALL_APPROVAL_WIDGET_KIND) return false;
+  const runIdOf = (
+    entry: AgentKitWidgetEntry | undefined,
+    runIds: Map<string, string>,
+  ) =>
+    typeof entry?.messageId === "string"
+      ? runIds.get(entry.messageId)
+      : undefined;
+  return isIncomingToolCallRunNewer(
+    { runId: runIdOf(existing, existingMessageRunIds) },
+    { runId: runIdOf(incoming, incomingMessageRunIds) },
+    existingRuns,
+    incomingRuns,
+  );
+}
+
 function incomingRunIsNotProvenNewer(
   existing: any,
   incoming: any,
@@ -2732,6 +2817,16 @@ function mergeAgentKitHistoryArray(
           existingRuns,
           incomingRuns,
         );
+      const preferNewerApprovalCard =
+        kind === "widget" &&
+        prefersNewerApprovalCard(
+          merged[index],
+          entry,
+          existingMessageRunIds,
+          incomingMessageRunIds,
+          existingRuns,
+          incomingRuns,
+        );
       const preferCurrentMessageId =
         kind === "message" &&
         textIndex !== undefined &&
@@ -2742,7 +2837,12 @@ function mergeAgentKitHistoryArray(
           incomingRuns,
           existingRuns,
         );
-      if (preferIncoming || preferApprovedReplay || preferCurrentMessageId) {
+      if (
+        preferIncoming ||
+        preferApprovedReplay ||
+        preferNewerApprovalCard ||
+        preferCurrentMessageId
+      ) {
         merged[index] =
           kind === "toolCall"
             ? withToolCallMessageIdFallback(entry, merged[index])
@@ -4468,8 +4568,25 @@ function omitPrivateSnapshotContent(
     typeof (metadata?.runId ?? custom?.runId) === "string"
       ? { runId: metadata?.runId ?? custom?.runId }
       : {}),
+    ...privateOmissionRangeSpan(record),
     omitFromPersistedHistory: true,
   };
+}
+
+function privateOmissionRangeSpan(
+  record: Record<string, unknown>,
+): { payload: { lastSequence: number } } | Record<string, never> {
+  if (record.type !== "x-agent-native.persisted-event-omission-range") {
+    return {};
+  }
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {};
+  }
+  const lastSequence = (payload as Record<string, unknown>).lastSequence;
+  return typeof lastSequence === "number" && Number.isSafeInteger(lastSequence)
+    ? { payload: { lastSequence } }
+    : {};
 }
 
 function collectPrivateSnapshotContextForRepos(

@@ -5,7 +5,16 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { hideAnalysis, unhideAnalysis } from "../server/lib/dashboards-store";
+import {
+  hideAnalysis,
+  requireAnalysisAccess,
+  unhideAnalysis,
+} from "../server/lib/dashboards-store";
+import {
+  expectedUpdatedAtArg,
+  guardWrite,
+  idempotencyKeyArg,
+} from "../server/lib/guarded-writes";
 import { cliBoolean } from "./schema-helpers";
 
 function resolveScope() {
@@ -20,19 +29,40 @@ export default defineAction({
     "Hide or unhide a saved ad-hoc analysis by ID. Hidden analyses stay " +
     "openable by direct link and searchable, but they are omitted from regular " +
     "analysis lists. When an unowned cleanup analysis is unhidden, the current " +
-    "user becomes its owner.",
+    "user becomes its owner. External MCP clients have no hard delete; this is " +
+    "how they delete an analysis.",
   schema: z.object({
     id: z.string().describe("The analysis ID"),
     hidden: cliBoolean
       .optional()
       .default(true)
       .describe("true = hide (default), false = unhide"),
+    expectedUpdatedAt: expectedUpdatedAtArg("analysis"),
+    idempotencyKey: idempotencyKeyArg,
   }),
-  run: async (args) => {
+  mcpTool: true,
+  run: async (args, actionContext) => {
     const ctx = resolveScope();
-    const analysis = args.hidden
-      ? await hideAnalysis(args.id, ctx)
-      : await unhideAnalysis(args.id, ctx);
+    const guard = guardWrite({
+      action: "hide-analysis",
+      target: { kind: "analysis", id: args.id },
+      caller: actionContext?.caller,
+      scope: ctx,
+      idempotencyKey: args.idempotencyKey,
+      expectedUpdatedAt: args.expectedUpdatedAt,
+      request: { hidden: args.hidden },
+    });
+    guard.requireKey();
+    guard.requireFence();
+    const write = args.hidden ? hideAnalysis : unhideAnalysis;
+    const outcome = await guard.run(
+      () =>
+        requireAnalysisAccess(args.id, ctx, args.hidden ? "editor" : "viewer"),
+      () =>
+        guard.active ? write(args.id, ctx, guard.store) : write(args.id, ctx),
+    );
+    if ("replayed" in outcome) return { id: args.id, ...outcome.replayed };
+    const analysis = outcome.written;
     if (!analysis) {
       throw new Error(
         `Analysis "${args.id}" not found (or you don't have access).`,
@@ -44,6 +74,7 @@ export default defineAction({
       hiddenAt: analysis.hiddenAt,
       hiddenBy: analysis.hiddenBy,
       ownerEmail: analysis.ownerEmail,
+      ...guard.resultFields(analysis),
       message: args.hidden
         ? `Analysis "${analysis.name}" hidden from regular lists.`
         : `Analysis "${analysis.name}" is visible in regular lists.`,
