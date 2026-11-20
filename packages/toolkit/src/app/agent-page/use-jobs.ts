@@ -2,7 +2,8 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useQueryClient, type Query } from "@tanstack/react-query";
+import { useMutationState, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import type {
   ScheduledTriggerState,
@@ -293,22 +294,59 @@ export function useScheduledTriggerState(): ScheduledTriggerState {
   return { kind: "loading" };
 }
 
+function usePendingRecurringJobs(scope?: JobsScope) {
+  return useMutationState<ManageJobInput>({
+    filters: {
+      mutationKey: scope ? ["recurring-job", scope] : ["recurring-job"],
+      status: "pending",
+    },
+    select: (mutation) => mutation.state.variables as ManageJobInput,
+  });
+}
+
+function applyPendingJobs<T extends RecurringJob | Automation>(
+  data: T[] | undefined,
+  pending: ManageJobInput[],
+): T[] | undefined {
+  if (!data) return data;
+  return pending.reduce((items, variables) => {
+    if (variables.operation === "delete") {
+      return items.filter((item) => !matchesLocator(item, variables));
+    }
+    return items.map((item) =>
+      matchesLocator(item, variables)
+        ? { ...item, ...optimisticJobPatch(variables) }
+        : item,
+    );
+  }, data);
+}
+
 export function useRecurringJobs(scope: JobsScope) {
-  return useActionQuery<RecurringJob[]>(
+  const query = useActionQuery<RecurringJob[]>(
     "list-recurring-jobs",
     recurringParams(scope),
     { staleTime: 5_000 },
   );
+  const pending = usePendingRecurringJobs(scope);
+  const data = useMemo(
+    () => applyPendingJobs(query.data, pending),
+    [query.data, pending],
+  );
+  return { ...query, data };
 }
 
 export function useAutomations(scope?: JobsScope) {
-  return useActionQuery<Automation[]>(
+  const query = useActionQuery<Automation[]>(
     "list-automations",
     scope ? automationParams(scope) : {},
-    {
-      staleTime: 5_000,
-    },
+    { staleTime: 5_000 },
   );
+  const pending = usePendingRecurringJobs(scope);
+  const data = useMemo(
+    () => applyPendingJobs(query.data, pending),
+    [query.data, pending],
+  );
+  return { ...query, data };
 }
 
 export function useAutomationEvents() {
@@ -343,100 +381,13 @@ export function useManageRecurringJob(scope: JobsScope) {
     { deleted?: boolean; resourceId?: string; name: string; enabled?: boolean },
     ManageJobInput
   >("manage-recurring-job", {
-    onMutate: async (variables) => {
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey }),
-        queryClient.cancelQueries({ queryKey: automationsKey }),
-      ]);
-      const previous = queryClient.getQueryData<RecurringJob[]>(queryKey);
-      const previousAutomations =
-        queryClient.getQueryData<Automation[]>(automationsKey);
-      queryClient.setQueryData<RecurringJob[]>(queryKey, (current) => {
-        if (!current) return current;
-        if (variables.operation === "delete") {
-          return current.filter((job) => !matchesLocator(job, variables));
-        }
-        return current.map((job) =>
-          matchesLocator(job, variables)
-            ? { ...job, ...optimisticJobPatch(variables) }
-            : job,
-        );
+    mutationKey: ["recurring-job", scope],
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey, exact: true });
+      void queryClient.invalidateQueries({
+        queryKey: automationsKey,
+        exact: true,
       });
-      queryClient.setQueryData<Automation[]>(automationsKey, (current) => {
-        if (!current) return current;
-        if (variables.operation === "delete") {
-          return current.filter(
-            (automation) => !matchesLocator(automation, variables),
-          );
-        }
-        return current.map((automation) =>
-          matchesLocator(automation, variables)
-            ? { ...automation, ...optimisticJobPatch(variables) }
-            : automation,
-        );
-      });
-      // Query revisions advance even when structural sharing retains equal data.
-      const jobsQuery = queryClient
-        .getQueryCache()
-        .find({ queryKey, exact: true });
-      const automationsQuery = queryClient
-        .getQueryCache()
-        .find({ queryKey: automationsKey, exact: true });
-      return {
-        previous,
-        previousAutomations,
-        jobsQuery,
-        jobsRevision: jobsQuery?.state.dataUpdateCount,
-        automationsQuery,
-        automationsRevision: automationsQuery?.state.dataUpdateCount,
-      };
-    },
-    onError: (_error, _variables, context) => {
-      const rollback = context as
-        | {
-            previous?: RecurringJob[];
-            previousAutomations?: Automation[];
-            jobsQuery?: Query;
-            jobsRevision?: number;
-            automationsQuery?: Query;
-            automationsRevision?: number;
-          }
-        | undefined;
-      if (!rollback) return;
-      const restore = (
-        key: typeof queryKey | typeof automationsKey,
-        previous: RecurringJob[] | Automation[] | undefined,
-        query: Query | undefined,
-        revision: number | undefined,
-      ) => {
-        const current = queryClient
-          .getQueryCache()
-          .find({ queryKey: key, exact: true });
-        if (
-          current &&
-          current === query &&
-          current.state.dataUpdateCount === revision
-        ) {
-          if (previous !== undefined) queryClient.setQueryData(key, previous);
-        } else {
-          void queryClient.invalidateQueries({ queryKey: key, exact: true });
-        }
-      };
-      restore(
-        queryKey,
-        rollback.previous,
-        rollback.jobsQuery,
-        rollback.jobsRevision,
-      );
-      restore(
-        automationsKey,
-        rollback.previousAutomations,
-        rollback.automationsQuery,
-        rollback.automationsRevision,
-      );
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
     },
   });
 }

@@ -101,15 +101,16 @@ function listRecurringJobs(
     const automation = byId.get(job.id);
     return {
       kind: "recurring",
-      resource: automation
-        ? {
-            ...job,
-            lastRun: automation.lastRun,
-            lastCheck: automation.lastCheck,
-            lastStatus: automation.lastStatus,
-            lastError: automation.lastError,
-          }
-        : job,
+      resource:
+        automation && !(job.lastStatus === "paused" && !job.enabled)
+          ? {
+              ...job,
+              lastRun: automation.lastRun,
+              lastCheck: automation.lastCheck,
+              lastStatus: automation.lastStatus,
+              lastError: automation.lastError,
+            }
+          : job,
       triggerType: "schedule",
       canRunNow: job.capabilities?.canOperate ?? job.canUpdate,
     };
