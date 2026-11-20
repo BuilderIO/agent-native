@@ -151,7 +151,14 @@ async function assertInspectorHeader(page: Page): Promise<void> {
   const header = panel.locator("[data-design-inspector-header]");
   await expect(header).toHaveCount(1);
   const panelGeometry = await readGeometry(panel);
-  expect((await readGeometry(header)).y).toBeCloseTo(panelGeometry.y, 0);
+  // oracle-change: the right column head (Comments, Share) now sits above the inspector header, so the header starts below it.
+  const columnHead = await readGeometry(
+    page.locator('[data-design-chrome-region="right-toolbar"]').first(),
+  );
+  expect((await readGeometry(header)).y).toBeCloseTo(
+    panelGeometry.y + columnHead.height,
+    0,
+  );
 
   const grids = await panel
     .locator(
@@ -476,8 +483,8 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
     .first();
   const separatorGeometry = await readGeometry(separator);
   const currentPanelGeometry = await readGeometry(rightPanel);
-  const topBarGeometry = await readGeometry(
-    page.locator("[data-design-top-bar]"),
+  const rightHeadGeometry = await readGeometry(
+    page.locator('[data-design-chrome-region="right-toolbar"]').first(),
   );
   const leftShellGeometry = await readGeometry(
     page.locator('[data-design-chrome-region="left-shell"]'),
@@ -487,21 +494,15 @@ test("keeps Design chrome geometry stable at compact and wide inspector widths",
       .locator('[data-design-chrome-region="left-header"]')
       .filter({ visible: true }),
   );
-  const zoneGeometry = await readGeometry(
-    page.locator("[data-design-top-bar-inspector-zone]"),
-  );
-  // The 48px line runs over the canvas and inspector columns only; the rail
-  // and left panel share its top row.
-  expect(topBarGeometry.y).toBe(0);
-  expect(topBarGeometry.height).toBe(48);
+  // oracle-change: the editor top bar is gone. Both column heads are 48px and start at the top edge; the right head spans the right column.
   expect(leftShellGeometry.y).toBe(0);
   expect(leftHeaderGeometry.y).toBe(0);
   expect(leftHeaderGeometry.height).toBe(48);
-  expect(topBarGeometry.x).toBe(leftShellGeometry.x + leftShellGeometry.width);
-  expect(currentPanelGeometry.y).toBe(topBarGeometry.height);
-  expect(zoneGeometry.x).toBeLessThanOrEqual(currentPanelGeometry.x + 1);
-  expect(zoneGeometry.x + zoneGeometry.width).toBeCloseTo(
-    topBarGeometry.x + topBarGeometry.width - 8,
+  expect(rightHeadGeometry.y).toBe(0);
+  expect(rightHeadGeometry.height).toBe(48);
+  expect(currentPanelGeometry.y).toBeCloseTo(rightHeadGeometry.y, 0);
+  expect(rightHeadGeometry.x + rightHeadGeometry.width).toBeCloseTo(
+    currentPanelGeometry.x + currentPanelGeometry.width,
     0,
   );
   const targetPanelWidth = 320;

@@ -69,7 +69,7 @@ test("an Interact markup preview carries the theme, links and tweaks bridges and
     );
 
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   await page.waitForURL(
     (url) =>
@@ -95,7 +95,7 @@ test("an Interact markup preview carries the theme, links and tweaks bridges and
       "data-agent-native-preview-theme-bridge",
     ]);
 
-  await page.locator('[data-design-top-bar] [data-design-mode="edit"]').click();
+  await page.locator('[data-design-bottom-toolbar] button[aria-label="Edit"]').click();
   await page.waitForURL(
     (url) =>
       url.searchParams.get("editorView") === "overview" &&
@@ -157,7 +157,7 @@ test("an Interact URL screen is a plain frame: the editor hands it no bridge", a
   // The editor posts a page its state once it loads, so a message that has
   // arrived shows the page was reachable; the bridge install is never among them.
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   const interact = page.frameLocator(INTERACT_FRAME);
   await expect(interact.locator("#title")).toHaveText("Running app");

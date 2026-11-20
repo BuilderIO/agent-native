@@ -137,7 +137,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     "the versioned mirror-only save intentionally returns a conflict",
   );
   app.allowFailure(
-    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    /^error toast This page changed elsewhere\. Your last edit was not saved\.$/,
     "the conflict is reported to the user",
   );
   const uploadTimeline: Array<Record<string, unknown>> = [];
@@ -346,9 +346,10 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     const screens = layers.locator('[role="treeitem"][aria-level="1"]');
     await expect(screens).toHaveCount(2);
 
+    // A page is picked from the Pages list; its Layers row follows the selection.
     const selectScreen = async (name: "Screen A" | "Screen B") => {
       const row = screens.filter({ hasText: name });
-      await row.locator("[data-layer-row-button]").click();
+      await page.locator("[data-screen-row]").filter({ hasText: name }).click();
       await expect(row).toHaveAttribute("aria-selected", "true");
       return row;
     };
@@ -507,7 +508,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     }
     await expect(
       page.getByText(
-        "This screen changed elsewhere. Your last edit was not saved.",
+        "This page changed elsewhere. Your last edit was not saved.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -707,7 +708,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     "the versioned mirror-only save intentionally returns a conflict",
   );
   app.allowFailure(
-    /^error toast This screen changed elsewhere\. Your last edit was not saved\.$/,
+    /^error toast This page changed elsewhere\. Your last edit was not saved\.$/,
     "the conflict is reported to the user",
   );
   const marker = "Screen A source updated during active upload";
@@ -928,23 +929,21 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       screenAShell.locator("iframe[data-design-preview-iframe]").first(),
     ).toBeVisible();
     await page
-      .locator('[data-design-top-bar] [data-design-mode="interact"]')
+      .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
       .click();
     await expect(screenAShell).toHaveAttribute(
       "data-screen-interact-mode",
       "true",
     );
     // Interact has no Exit button of its own: the mode switch is the way back.
-    const modeSwitch = page.locator(
-      "[data-design-top-bar] [data-design-mode-switch]",
-    );
+    const modeSwitch = page.locator("[data-design-bottom-toolbar]");
     await expect(
-      modeSwitch.locator('[data-design-mode="interact"]'),
+      modeSwitch.locator('button[aria-label="Interact"]'),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
-      modeSwitch.locator('[data-design-mode="edit"]'),
+      modeSwitch.locator('button[aria-label="Edit"]'),
     ).toHaveAttribute("aria-pressed", "false");
-    await expect(modeSwitch.locator('[data-design-mode="edit"]')).toBeEnabled();
+    await expect(modeSwitch.locator('button[aria-label="Edit"]')).toBeEnabled();
     await expect(
       page.locator(`[data-screen-shell][data-frame-id="${screenBId}"]`),
     ).toHaveAttribute("data-screen-interact-mode", "false");
@@ -1058,7 +1057,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
     expect(fileUpdateBody.skippedStaleMirror).not.toBe(true);
     await expect(
       page.getByText(
-        "This screen changed elsewhere. Your last edit was not saved.",
+        "This page changed elsewhere. Your last edit was not saved.",
         { exact: true },
       ),
     ).toBeVisible();
@@ -1315,7 +1314,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     );
     await screenAShell.locator("[data-frame-title]").first().dblclick();
     await page
-      .locator('[data-design-top-bar] [data-design-mode="interact"]')
+      .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
       .click();
     await expect(screenAShell).toHaveAttribute(
       "data-screen-interact-mode",
@@ -1408,7 +1407,8 @@ test("accepted Screen-root image upload persists and renders its source", async 
       .getByRole("tree", { name: "Layers" })
       .locator('[role="treeitem"][aria-level="1"]')
       .filter({ hasText: "Screen A" });
-    await reloadedScreenARow.locator("[data-layer-row-button]").click();
+    // oracle-change: a page is picked from the Pages list now; its Layers row only follows the selection.
+    await page.locator("[data-screen-row]").filter({ hasText: "Screen A" }).click();
     await expect(reloadedScreenARow).toHaveAttribute("aria-selected", "true");
     const reloadedScreenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
@@ -1419,7 +1419,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     await expect(reloadedScreenTitle).toBeVisible({ timeout: 30_000 });
     await reloadedScreenTitle.dblclick();
     await page
-      .locator('[data-design-top-bar] [data-design-mode="interact"]')
+      .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
       .click();
     const reloadedFrame = page.frameLocator(screenAIframeSelector);
     await expect
