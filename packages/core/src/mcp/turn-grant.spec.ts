@@ -16,6 +16,9 @@ import { z } from "zod";
 const browser = vi.hoisted(() => ({
   email: "viewer@example.test" as string | null,
 }));
+const getSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(async () => null),
+);
 vi.mock("../server/auth.js", async (original) => ({
   ...(await original<typeof import("../server/auth.js")>()),
   getBrowserCookieSession: async (
@@ -38,7 +41,7 @@ vi.mock("../deploy/route-discovery.js", async (original) => ({
 }));
 vi.mock("../settings/store.js", async (original) => ({
   ...(await original<typeof import("../settings/store.js")>()),
-  getSetting: async () => null,
+  getSetting: getSettingMock,
 }));
 vi.mock("../extensions/url-safety.js", () => ({
   createSsrfSafeDispatcher: async () => undefined,
@@ -179,6 +182,8 @@ afterAll(async () => {
 beforeEach(async () => {
   await getDbExec().execute("DELETE FROM mcp_action_approvals");
   browser.email = OWNER;
+  getSettingMock.mockReset();
+  getSettingMock.mockResolvedValue(null);
   resetAppConfigForTests();
   defineAppConfig({ app: { url: ORIGIN } });
   resetMcpChatTurnAppsForTests();
@@ -912,6 +917,46 @@ describe("userTurn: direct", () => {
     });
     expect(JSON.stringify(result)).toMatch(reviewLink);
     expect(ran).toBe(0);
+  });
+
+  it("skips review for direct and approval-only MCP calls when no-approvals is on, and still reviews when off or unreadable", async () => {
+    getSettingMock.mockResolvedValue({ enabled: true });
+    const directOn = await call(await seed(), {
+      guests: ["a@example.test"],
+    });
+    expect(seen(directOn)).toEqual({ granted: true, interactive: true });
+    expect(JSON.stringify(directOn)).not.toMatch(/mcp\/approvals/);
+    expect(runs).toBe(1);
+
+    for (const name of ["update-item", "send-item"]) {
+      const approvalOn = await rpc(await seed(), { name });
+      expect(seen(approvalOn)).toEqual({ granted: true, interactive: true });
+      expect(JSON.stringify(approvalOn)).not.toMatch(/mcp\/approvals/);
+    }
+
+    getSettingMock.mockResolvedValue({ enabled: false });
+    const directOff = await call(await seed(), {
+      guests: ["a@example.test"],
+    });
+    expect(JSON.stringify(directOff)).toMatch(reviewLink);
+    expect(runs).toBe(1);
+
+    for (const name of ["update-item", "send-item"]) {
+      const approvalOff = await rpc(await seed(), { name });
+      expect(JSON.stringify(approvalOff)).toMatch(reviewLink);
+    }
+
+    getSettingMock.mockRejectedValue(new Error("settings unreadable"));
+    const directUnreadable = await call(await seed(), {
+      guests: ["a@example.test"],
+    });
+    expect(JSON.stringify(directUnreadable)).toMatch(reviewLink);
+    expect(runs).toBe(1);
+
+    const approvalUnreadable = await rpc(await seed(), {
+      name: "update-item",
+    });
+    expect(JSON.stringify(approvalUnreadable)).toMatch(reviewLink);
   });
 });
 

@@ -26,6 +26,7 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useChatThreads,
+  subscribeAgentChatComposerSubmit,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
@@ -36,7 +37,7 @@ import {
   useFeatureFlagState,
   type FeatureFlagState,
 } from "@agent-native/core/client/feature-flags";
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import type { AgentRun } from "@agent-native/core/progress/types";
@@ -102,6 +103,12 @@ import { toast } from "sonner";
 
 import { useIsMobile } from "../../hooks/use-mobile";
 import {
+  chatFirstPaneSignature,
+  planChatFirstAppRoute,
+  type ChatFirstAppRouteAnswer,
+  type ChatFirstAppRouteRecord,
+} from "../../lib/chat-first-app-route";
+import {
   delegatedAppFromToolStart,
   visibleChatFirstSurfaceTabId,
 } from "../../lib/chat-first-pane";
@@ -159,6 +166,7 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import {
+  usePrefetchChatFirstEmbedSession,
   WorkspaceAppChatRail,
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
@@ -283,6 +291,7 @@ export interface DispatchLayoutProps extends DispatchSidebarBrandProps {
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 // With nothing pinned, the sidebar suggests this many apps; All apps has the rest.
 const CHAT_FIRST_RAIL_SUGGESTED_APPS = 3;
+const CHAT_FIRST_ROUTE_TIMEOUT_MS = 6_000;
 const NO_CHAT_FIRST_APPS: ChatFirstAppItem[] = [];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
@@ -1323,12 +1332,14 @@ export function renderChatFirstAppSurfaceTab({
   loading,
   isMobileSurface,
   copy,
+  placement = "main",
 }: {
   registration: ChatFirstAppRegistration | null;
   embedPath: string;
   loading: boolean;
   isMobileSurface: boolean;
   copy: ChatFirstCopy;
+  placement?: ChatFirstAppSurfacePlacement;
 }): ReactNode {
   if (!registration) {
     return (
@@ -1364,7 +1375,7 @@ export function renderChatFirstAppSurfaceTab({
         url: registration.url,
       }}
       embedPath={embedPath}
-      chatSidebar={!isMobileSurface}
+      chatSidebar={!isMobileSurface && placement === "main"}
       copy={copy}
     />
   );
@@ -1413,7 +1424,18 @@ function DispatchLayout({
     location.pathname,
     useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
   );
-  const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
+  const [sentNewChat, setSentNewChat] = useState<{
+    locationKey: string;
+    threadId: string;
+    submitId: string;
+  } | null>(null);
+  const pathThreadId = threadIdFromPath(localPathname);
+  const chatFirstSurfaceScope =
+    pathThreadId ??
+    (isChatRoute && sentNewChat?.locationKey === location.key
+      ? sentNewChat.threadId
+      : null) ??
+    "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
   );
@@ -1434,6 +1456,35 @@ function DispatchLayout({
   const chatFirstMode =
     extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const chatFirstHasActiveChat = chatFirstSurfaceScope !== "new";
+  const newChatLocationKey =
+    chatFirstMode && isChatRoute && !pathThreadId ? location.key : null;
+  useEffect(() => {
+    if (newChatLocationKey === null) return;
+    return subscribeAgentChatComposerSubmit((detail) => {
+      if (detail.withdrawn) {
+        setSentNewChat((current) =>
+          current?.locationKey === newChatLocationKey &&
+          current.submitId === detail.id
+            ? null
+            : current,
+        );
+        return;
+      }
+      const threadId = detail.threadId;
+      if (!threadId) return;
+      setSentNewChat((current) =>
+        current?.locationKey === newChatLocationKey &&
+        current.threadId === threadId &&
+        current.submitId === detail.id
+          ? current
+          : { locationKey: newChatLocationKey, threadId, submitId: detail.id },
+      );
+    });
+  }, [newChatLocationKey]);
+  useEffect(() => {
+    if (!pathThreadId) return;
+    setSentNewChat((current) => (current ? null : current));
+  }, [pathThreadId]);
   useEffect(() => {
     if (!electronEmbedded || typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -1630,6 +1681,11 @@ function DispatchLayout({
   const pendingChatFirstOpenAppRef = useRef<ChatFirstOpenAppDetail | null>(
     null,
   );
+  const provisionalChatFirstTabRef = useRef<{
+    scope: string;
+    appId: string;
+    tabId: string;
+  } | null>(null);
   const previousChatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
   const activeChatFirstSurfaceTab = useMemo(
@@ -1706,6 +1762,7 @@ function DispatchLayout({
     (
       pane: DispatchChatFirstPane,
       placement: ChatFirstAppSurfacePlacement = "side",
+      provisional = false,
     ) => {
       if (placement === "side" && !chatFirstHasActiveChat) {
         pendingChatFirstOpenAppRef.current = {
@@ -1727,11 +1784,32 @@ function DispatchLayout({
       const app = chatFirstAppRegistrations.find(
         (candidate) => candidate.id === pane.appId,
       );
+      let tabId = chatFirstSurfaceTabId(
+        "app",
+        `${pane.appId}:${pane.path ?? pane.view ?? "/"}`,
+      );
+      const earlier = provisionalChatFirstTabRef.current;
+      provisionalChatFirstTabRef.current = null;
+      if (
+        earlier &&
+        earlier.scope === chatFirstSurfaceScope &&
+        earlier.tabId !== tabId &&
+        chatFirstSurfaceTabsStore
+          .getSnapshot()
+          .tabs.some((tab) => tab.id === earlier.tabId)
+      ) {
+        if (!provisional && earlier.appId === pane.appId) tabId = earlier.tabId;
+        else chatFirstSurfaceTabsStore.close(earlier.tabId);
+      }
+      if (provisional) {
+        provisionalChatFirstTabRef.current = {
+          scope: chatFirstSurfaceScope,
+          appId: pane.appId,
+          tabId,
+        };
+      }
       chatFirstSurfaceTabsStore.open({
-        id: chatFirstSurfaceTabId(
-          "app",
-          `${pane.appId}:${pane.path ?? pane.view ?? "/"}`,
-        ),
+        id: tabId,
         kind: "app",
         title: app?.name ?? pane.appId,
         appId: pane.appId,
@@ -1744,6 +1822,7 @@ function DispatchLayout({
     },
     [
       chatFirstAppRegistrations,
+      chatFirstSurfaceScope,
       chatFirstSurfaceTabsStore,
       chatFirstHasActiveChat,
       persistChatFirstPane,
@@ -1965,7 +2044,12 @@ function DispatchLayout({
   ]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || chatFirstPaneHydratedRef.current) {
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      chatFirstPaneHydratedRef.current
+    ) {
       return;
     }
     chatFirstPaneHydratedRef.current = true;
@@ -1989,7 +2073,14 @@ function DispatchLayout({
   }, [chatFirstMode, chatFirstPane, chatFirstSurfaceScope, isChatRoute]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || !pendingChatFirstPaneRestore) return;
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      !pendingChatFirstPaneRestore
+    ) {
+      return;
+    }
     if (chatFirstPane) {
       setPendingChatFirstPaneRestore(null);
       return;
@@ -2109,6 +2200,158 @@ function DispatchLayout({
     chatFirstConnectedAppsQuery.isError,
     resolveChatFirstOpenApp,
   ]);
+
+  const prefetchChatFirstEmbedSession = usePrefetchChatFirstEmbedSession();
+  const chatFirstPaneAppId =
+    visibleChatFirstSurfaceTab?.kind === "app"
+      ? visibleChatFirstSurfaceTab.appId
+      : activeChatFirstSurfaceTab?.kind === "app"
+        ? activeChatFirstSurfaceTab.appId
+        : undefined;
+  const chatFirstRouteSendRef = useRef<{ seq: number; id: string | null }>({
+    seq: 0,
+    id: null,
+  });
+  const chatFirstRoutedPaneRef = useRef<{
+    seq: number;
+    chat: string | null;
+    sentPane: string;
+    pane: DispatchChatFirstPane;
+  } | null>(null);
+  const chatFirstRouteLatest = {
+    onChatRoute: chatFirstMode && isChatRoute,
+    scope: chatFirstSurfaceScope,
+    tabsStore: chatFirstSurfaceTabsStore,
+    shownAppId: chatFirstPaneAppId ?? null,
+    registrations: chatFirstAppRegistrations,
+    openPane: openChatFirstPane,
+    prefetch: prefetchChatFirstEmbedSession,
+  };
+  const chatFirstRouteLatestRef = useRef(chatFirstRouteLatest);
+  chatFirstRouteLatestRef.current = chatFirstRouteLatest;
+  const applyChatFirstRoutedPane = useCallback(() => {
+    const routed = chatFirstRoutedPaneRef.current;
+    if (!routed) return;
+    const now = chatFirstRouteLatestRef.current;
+    if (now.onChatRoute && now.scope === "new") return;
+    chatFirstRoutedPaneRef.current = null;
+    if (
+      !now.onChatRoute ||
+      routed.seq !== chatFirstRouteSendRef.current.seq ||
+      (routed.chat !== null && routed.chat !== now.scope) ||
+      chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== routed.sentPane
+    ) {
+      return;
+    }
+    now.openPane(routed.pane, "side", true);
+  }, []);
+  useEffect(() => {
+    applyChatFirstRoutedPane();
+  }, [applyChatFirstRoutedPane, chatFirstSurfaceScope, isChatRoute]);
+  useEffect(() => {
+    if (!chatFirstMode || !isChatRoute) return;
+    return subscribeAgentChatComposerSubmit((detail) => {
+      const current = chatFirstRouteSendRef.current;
+      if (detail.withdrawn) {
+        if (detail.id === current.id) {
+          chatFirstRouteSendRef.current = { seq: current.seq + 1, id: null };
+          chatFirstRoutedPaneRef.current = null;
+        }
+        return;
+      }
+      const sent = chatFirstRouteLatestRef.current;
+      const chat =
+        detail.threadId ?? (sent.scope === "new" ? null : sent.scope);
+      if (sent.scope !== "new" && chat !== sent.scope) return;
+      const seq = current.seq + 1;
+      chatFirstRouteSendRef.current = { seq, id: detail.id };
+      chatFirstRoutedPaneRef.current = null;
+      provisionalChatFirstTabRef.current = null;
+      if (detail.queued) return;
+      const sentPane = chatFirstPaneSignature(sent.tabsStore.getSnapshot());
+      const started = performance.now();
+      void callAction(
+        "route-app-intent",
+        {
+          text: detail.text.slice(0, 4000),
+          ...(sent.shownAppId ? { openApp: sent.shownAppId } : {}),
+          ...(detail.previousTurn ? { previousTurn: detail.previousTurn } : {}),
+        },
+        { timeoutMs: CHAT_FIRST_ROUTE_TIMEOUT_MS },
+      )
+        .then(
+          (result) => result as ChatFirstAppRouteAnswer,
+          (error: unknown): ChatFirstAppRouteAnswer | "timeout" =>
+            (error as { timedOut?: unknown } | null)?.timedOut === true
+              ? "timeout"
+              : { status: "failed", reason: "route_call_rejected" },
+        )
+        .then((answer) => {
+          const now = chatFirstRouteLatestRef.current;
+          const leftChat =
+            !now.onChatRoute ||
+            (now.scope === "new"
+              ? sent.scope !== "new"
+              : chat !== null && now.scope !== chat);
+          const stale =
+            seq !== chatFirstRouteSendRef.current.seq ||
+            leftChat ||
+            chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== sentPane;
+          const plan = planChatFirstAppRoute({
+            answer,
+            installedApp: (app, object) => {
+              const objectPath = object?.objectId?.startsWith("/")
+                ? object.objectId
+                : undefined;
+              const resolution = resolveChatFirstAppTarget(
+                {
+                  app,
+                  ...(object?.url ? { url: object.url } : {}),
+                  ...(!object?.url && objectPath ? { path: objectPath } : {}),
+                },
+                now.registrations,
+                { currentOrigin: window.location.origin },
+              );
+              return resolution.status === "ready" ? resolution.target : null;
+            },
+            isDispatchApp: isDispatchWorkspaceAppId,
+            shownAppId: now.shownAppId,
+            stale,
+          });
+          console.info("[chat-first-route]", {
+            route:
+              answer !== "timeout" && answer.status === "ok"
+                ? answer.app
+                : "unrouted",
+            outcome: answer === "timeout" ? "timeout" : answer.status,
+            plan,
+            latencyMs: Math.round(performance.now() - started),
+            ...(answer !== "timeout" && answer.latencyMs !== undefined
+              ? { hostedLatencyMs: answer.latencyMs }
+              : {}),
+          } satisfies ChatFirstAppRouteRecord);
+          if (plan.kind !== "open") return;
+          const pane: DispatchChatFirstPane = plan.target;
+          const registration = now.registrations.find(
+            (candidate) => candidate.id === pane.appId,
+          );
+          if (registration) {
+            now.prefetch(
+              {
+                id: registration.id,
+                name: registration.name ?? registration.id,
+                path: registration.path ?? null,
+                homePath: registration.homePath ?? null,
+                url: registration.url ?? null,
+              },
+              pane.path ?? registration.path ?? "/",
+            );
+          }
+          chatFirstRoutedPaneRef.current = { seq, chat, sentPane, pane };
+          applyChatFirstRoutedPane();
+        });
+    });
+  }, [applyChatFirstRoutedPane, chatFirstMode, isChatRoute]);
 
   useEffect(() => {
     const target = chatFirstSessionWatch.target;
@@ -2283,6 +2526,7 @@ function DispatchLayout({
         return renderChatFirstAppSurfaceTab({
           registration,
           embedPath: tab.path ?? registration?.path ?? "/",
+          placement: tab.placement ?? "main",
           loading:
             !registration &&
             (chatFirstWorkspaceAppsLoading || chatFirstConnectedAppsLoading),

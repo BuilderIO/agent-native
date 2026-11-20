@@ -937,7 +937,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "errorMessages.invalidAttachmentNamed":
     "O provedor do modelo rejeitou {{name}} porque o formato ou o tamanho não é compatível. Para imagens, exporte um PNG, JPEG, GIF ou WebP menor; para documentos, use um formato compatível ou cole o texto relevante e tente novamente.",
-  "recovery.resendVerificationEmail": "Reenviar e-mail de verificação",
+  "recovery.resendVerificationEmail":
+    "Reenviar e-mail de verificação da conta do aplicativo",
   "recovery.sendingVerificationEmail": "Enviando...",
   "recovery.verificationEmailRequested":
     "E-mail de verificação solicitado. Confira sua caixa de entrada e a pasta de spam.",
@@ -1431,6 +1432,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "Erro: {{message}}",
   "errorMessages.gatewayInternalError":
     "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
+  "errorMessages.modelRefusal":
+    "Não posso ajudar com esse pedido. Posso ajudar com outra pergunta.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
   "errorMessages.creditsLimitReached":
@@ -1468,6 +1471,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "O provedor retornou uma página de erro HTML.",
   "errorMessages.providerNetwork":
     "Não foi possível acessar o provedor do modelo. Verifique sua conexão e tente novamente.",
+  "errorMessages.emailVerificationRequired":
+    "Verifique um endereço de e-mail elegível na conta ou no espaço do provedor de IA conectado e tente novamente.",
   "errorMessages.providerRateLimit":
     "O provedor do modelo está limitando temporariamente este chat. Aguarde um momento e tente novamente.",
   "errorMessages.providerTransientRejection":

@@ -60,7 +60,10 @@ import {
 } from "./action-failure-circuit.js";
 import { fetchActionGet } from "./action-get-batch.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
-import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
+import {
+  advanceMutationEpoch,
+  requestActionCacheFlush,
+} from "./action-query-cache-mutation.js";
 import {
   claimActionQueryForeground,
   finishActionQueryOpening,
@@ -109,6 +112,7 @@ import {
   onSessionIdentityPublished,
   subscribeSessionScope,
 } from "./session-identity.js";
+import { retainFallbackToolDoneRefresh } from "./tool-done-refresh.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 import { reportWriteFailure } from "./write-failure-event.js";
 
@@ -304,6 +308,8 @@ export interface ActionFetchOptions {
 
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
+  onPrivateError?: (metadata: PrivateActionErrorMetadata) => void;
+  privateErrorSchema?: PrivateActionMutationOptions["privateErrorSchema"];
   visibleOnly?: boolean;
   uiCapabilityRetry?: boolean;
   /** A GET that may share one request with the other GETs in its tick. */
@@ -819,13 +825,24 @@ async function performActionFetch<T>(
 
     throwIfAborted(outerSignal);
     if (options?.privateInput) {
-      // Private callers need the HTTP completion signal, never a response body.
-      // In particular, a reflected input must not become a public error/result.
-      void res.body?.cancel().catch(() => {});
+      if (res.ok) {
+        void res.body?.cancel().catch(() => {});
+        return undefined as T;
+      }
       if (res.status === 401) recheckSessionAfterUnauthorized();
       if (res.status === 403) forgetUiActionCapability();
-      if (!res.ok) throw privateMutationError();
-      return undefined as T;
+      const schema = options.privateErrorSchema;
+      if (schema) {
+        const body: unknown = await Promise.race([res.json(), timedOutSignal]);
+        const validation = schema.safeParse(body);
+        if (validation.success) options.onPrivateError?.(validation.data);
+      } else if (res.body) {
+        await Promise.race([
+          res.body.pipeTo(new WritableStream()),
+          timedOutSignal,
+        ]);
+      }
+      throw privateMutationError();
     }
 
     if (
@@ -1833,6 +1850,7 @@ export function useActionQuery<
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
   const queryClient = useQueryClient();
+  useEffect(() => retainFallbackToolDoneRefresh(queryClient), [queryClient]);
   const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
   const surfaceOptions = useRef({ restOptions, callerEnabled, canFetch });
@@ -2104,7 +2122,7 @@ function trackCallOnError<D, V>(
 
 /**
  * Private writes accept inputs only at invocation. They do not create a
- * TanStack mutation, expose input callbacks, or return/store response bodies.
+ * TanStack mutation, expose input callbacks, or return/store raw response bodies.
  * The action must separately disable tools, input auditing and persistence.
  */
 export interface PrivateActionMutationOptions {
@@ -2115,8 +2133,20 @@ export interface PrivateActionMutationOptions {
   timeoutMs?: number;
   resources?: readonly string[];
   skipActionQueryInvalidation?: boolean;
+  privateErrorSchema?: {
+    safeParse: (
+      input: unknown,
+    ) =>
+      | { success: true; data: PrivateActionErrorMetadata }
+      | { success: false };
+  };
   onSuccess?: () => unknown;
   onError?: (error: Error) => unknown;
+}
+
+interface PrivateActionErrorMetadata {
+  errorCode: string;
+  details?: Record<string, unknown>;
 }
 
 export interface PrivateActionMutationResult<V> {
@@ -2222,11 +2252,19 @@ function serializePrivateInput(value: unknown): string | undefined {
   return JSON.stringify(value);
 }
 
-function privateMutationError(cancelled = false): Error {
+function privateMutationError(
+  cancelled = false,
+  status?: number,
+  metadata?: PrivateActionErrorMetadata,
+): Error {
   const error = new Error(
     cancelled ? "Private action cancelled." : "Private action failed.",
   );
   if (cancelled) error.name = "AbortError";
+  if (status !== undefined) Object.assign(error, { status });
+  if (metadata) Object.assign(error, { errorCode: metadata.errorCode });
+  if (metadata?.details !== undefined)
+    Object.assign(error, { details: metadata.details });
   return Object.freeze(error);
 }
 
@@ -2273,17 +2311,25 @@ function usePrivateInputMutation<V>(
     const opts = current.options;
     const scope = currentSessionScope();
     const privateScope = currentPrivateActionScope();
+    const sessionUnavailable =
+      typeof currentSessionIdentity() !== "string" ||
+      !privateScope ||
+      isEmbedAuthActive();
     if (
       !mounted.current ||
       !opts ||
       !hasPrivateMutationFlags(opts) ||
-      typeof currentSessionIdentity() !== "string" ||
-      !privateScope ||
-      isEmbedAuthActive() ||
+      sessionUnavailable ||
       active.current
     ) {
       params = undefined as V;
-      throw privateMutationError();
+      throw privateMutationError(
+        false,
+        undefined,
+        sessionUnavailable
+          ? { errorCode: "private_action_session_unavailable" }
+          : undefined,
+      );
     }
     const invocation = { controller: new AbortController(), scope };
     active.current = invocation;
@@ -2297,6 +2343,8 @@ function usePrivateInputMutation<V>(
       config.current.actionName === current.actionName;
     setState({ status: "pending", error: null });
     let body: string | undefined;
+    let rejectedStatus: number | undefined;
+    let rejectedMetadata: PrivateActionErrorMetadata | undefined;
     try {
       try {
         body = serializePrivateInput(params);
@@ -2314,6 +2362,14 @@ function usePrivateInputMutation<V>(
         {
           serializedBody: body,
           privateInput: true,
+          ...(opts.privateErrorSchema
+            ? {
+                privateErrorSchema: opts.privateErrorSchema,
+                onPrivateError: (metadata: PrivateActionErrorMetadata) => {
+                  rejectedMetadata = metadata;
+                },
+              }
+            : {}),
           headers: {
             [PRIVATE_ACTION_SCOPE_HEADER]:
               privateActionScopeHeader(privateScope),
@@ -2325,6 +2381,7 @@ function usePrivateInputMutation<V>(
           uiOnly: true,
           retryUiCapability: false,
           onResponse: (response) => {
+            if (response.status >= 400) rejectedStatus = response.status;
             outcome.markerFailed =
               response.headers.get(ACTION_CHANGE_MARKER_HEADER) ===
               ACTION_CHANGE_MARKER_FAILED;
@@ -2341,19 +2398,26 @@ function usePrivateInputMutation<V>(
       if (typeof window !== "undefined")
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       if (!valid()) throw privateMutationError(true);
+      let refetched: Promise<void> | undefined;
       if (!opts.skipActionQueryInvalidation || outcome.markerFailed) {
         if (!advanceMutationEpoch())
           revokeActionQueryCacheForClient(queryClient);
-        void queryClient.invalidateQueries(
+        refetched = queryClient.invalidateQueries(
           actionQueryInvalidation(opts.resources),
         );
       }
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
+      void Promise.allSettled([refetched]).then(requestActionCacheFlush);
       setState({ status: "success", error: null });
     } catch {
-      const error = privateMutationError(!valid());
+      const isCurrent = valid();
+      const error = privateMutationError(
+        !isCurrent,
+        isCurrent ? rejectedStatus : undefined,
+        isCurrent ? rejectedMetadata : undefined,
+      );
       if (valid()) {
         setState({ status: "error", error });
         // Callback failures must not carry a reflected input to the caller.
@@ -2656,10 +2720,11 @@ function useNormalActionMutation<
       } catch {
         console.warn("Action mutation projection observer failed");
       }
+      let refetched: Promise<void> | undefined;
       if (!skipActionQueryInvalidation) {
         if (!advanceMutationEpoch())
           revokeActionQueryCacheForClient(queryClient);
-        void invalidateForegroundActionQueries(
+        refetched = invalidateForegroundActionQueries(
           queryClient,
           actionQueryInvalidation(
             mutationContext
@@ -2669,12 +2734,16 @@ function useNormalActionMutation<
           interactive,
         );
       }
-      return onSuccess?.(
+      const result = onSuccess?.(
         data,
         variables,
         onMutateResult,
         mutationContext as MutationFunctionContext,
       );
+      void Promise.allSettled([result, refetched]).then(
+        requestActionCacheFlush,
+      );
+      return result;
     },
   });
 

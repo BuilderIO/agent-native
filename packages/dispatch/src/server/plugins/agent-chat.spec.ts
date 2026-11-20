@@ -186,4 +186,21 @@ describe("Dispatch agent chat plugin", () => {
       "opens as an unsaved draft in the app",
     );
   });
+
+  it("routes domain work to workspace apps instead of third-party tools", async () => {
+    await import("./agent-chat.js");
+
+    const options = mocks.createAgentChatPlugin.mock.calls[0]?.[0] as {
+      systemPrompt?: string;
+    };
+    expect(options.systemPrompt).toContain(
+      "Prefer the workspace app that owns a domain over a connected third-party tool",
+    );
+    expect(options.systemPrompt).toContain(
+      "go to the owning app's agent so the item opens beside the chat as an unsaved draft",
+    );
+    expect(options.systemPrompt).toContain(
+      "use navigate to open the page, then summarize what it shows",
+    );
+  });
 });

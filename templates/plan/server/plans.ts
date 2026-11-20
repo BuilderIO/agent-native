@@ -873,7 +873,7 @@ async function loadPlanBundleForAuthorizedPlan(
       sourceUrl: plan.sourceUrl,
       sourceAuthorName: plan.sourceAuthorName,
       sourceAuthorLogin: plan.sourceAuthorLogin,
-      html: plan.html,
+      html: plan.html ? sanitizeStoredPlanHtml(plan.html) : plan.html,
       markdown: plan.markdown,
       content: parsePlanContent(plan.content),
       createdAt: plan.createdAt,
