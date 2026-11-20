@@ -44,6 +44,23 @@ type ImportedMarkdownResult =
 const markdownFileSchema = z.object({
   path: z.string().trim().min(1).max(2_000),
   content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
+  kind: z
+    .enum(["document", "transcript"])
+    .optional()
+    .describe("Mark a file as a transcript explicitly; defaults to document."),
+  capturedAt: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe(
+      "Capture time as an ISO 8601 datetime with timezone, when known.",
+    ),
+  participants: z
+    .array(z.string().trim().min(1).max(200))
+    .max(100)
+    .optional()
+    .describe(
+      "Participant labels, not access grants; privacy screening removes these labels from stored metadata.",
+    ),
 });
 
 function normalizeMarkdownPath(value: string) {
@@ -175,11 +192,17 @@ export default defineAction({
             sourceId: source.id,
             externalId: `markdown:${normalizedPath}`,
             title: normalizedPath,
-            kind: "document",
+            kind: file.input.kind ?? "document",
             content: file.input.content,
+            ...(file.input.capturedAt
+              ? { capturedAt: file.input.capturedAt }
+              : {}),
             metadata: {
               path: normalizedPath,
               sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+              ...(file.input.participants?.length
+                ? { participants: file.input.participants }
+                : {}),
             },
           },
         );

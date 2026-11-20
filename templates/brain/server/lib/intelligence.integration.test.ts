@@ -96,6 +96,7 @@ import askBrainAction from "../../actions/ask-brain.js";
 import getEntityGraphAction from "../../actions/get-entity-graph.js";
 import getKnowledge from "../../actions/get-knowledge.js";
 import getPilotReport from "../../actions/get-pilot-report.js";
+import importMarkdownFiles from "../../actions/import-markdown-files.js";
 import listIntelligenceAction from "../../actions/list-intelligence.js";
 import listKnowledgeAction from "../../actions/list-knowledge.js";
 import readPrioritiesAction from "../../actions/read-priorities.js";
@@ -152,6 +153,9 @@ beforeAll(async () => {
   }
   await client.exec(
     "CREATE UNIQUE INDEX audience_principal_unique ON brain_audience_members (audience_id, principal_type, principal_id)",
+  );
+  await client.exec(
+    "CREATE UNIQUE INDEX capture_audience_unique ON brain_capture_audiences (capture_id, audience_id)",
   );
   harness.db = new Proxy(database, {
     get(target, property, receiver) {
@@ -299,6 +303,80 @@ function input() {
 }
 
 describe("evidence-backed intelligence", () => {
+  it.each(["org", "private"] as const)(
+    "imports per-file provenance with screened metadata and the %s source audience",
+    async (visibility) => {
+      await database
+        .update(schema.brainSources)
+        .set({ visibility })
+        .where(eq(schema.brainSources.id, "source-a"));
+      const result = await importMarkdownFiles.run({
+        sourceId: "source-a",
+        files: [
+          {
+            path: "meeting.md",
+            content: "Avery: The product launch is approved.",
+            kind: "transcript",
+            capturedAt: "2026-05-20T15:00:00.000Z",
+            participants: ["Avery", "Jordan"],
+          },
+        ],
+        enqueueDistillation: false,
+      });
+      expect(result.files).toEqual([
+        expect.objectContaining({ status: "imported" }),
+      ]);
+      expect(result.summary).toMatchObject({
+        imported: 1,
+        failed: 0,
+        blocked: 0,
+      });
+      const capture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.externalId, "markdown:meeting.md")),
+      );
+      expect(capture).toMatchObject({
+        kind: "transcript",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+      });
+      expect(JSON.parse(capture.metadataJson)).toMatchObject({
+        participantsCount: 2,
+      });
+      expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
+        "participants",
+      );
+      const audience = first(
+        await database
+          .select()
+          .from(schema.brainAudiences)
+          .innerJoin(
+            schema.brainCaptureAudiences,
+            eq(
+              schema.brainCaptureAudiences.audienceId,
+              schema.brainAudiences.id,
+            ),
+          )
+          .where(eq(schema.brainCaptureAudiences.captureId, capture.id)),
+      );
+      expect(audience.brain_audiences.kind).toBe(
+        visibility === "org" ? "org" : "restricted",
+      );
+      const members = await database
+        .select()
+        .from(schema.brainAudienceMembers)
+        .where(
+          eq(
+            schema.brainAudienceMembers.audienceId,
+            audience.brain_audiences.id,
+          ),
+        );
+      expect(
+        members.map((member) => [member.principalType, member.principalId]),
+      ).toEqual(visibility === "org" ? [["org", "qa-org"]] : [["user", email]]);
+    },
+  );
   async function seedStaleCandidates(
     count: number,
     dueDate: string | null = "2020-01-01",
@@ -685,6 +763,55 @@ describe("evidence-backed intelligence", () => {
     expect(brief.highConfidence.map((entry) => entry.id)).toEqual([item.id]);
     expect((await readPriorities()).highConfidence).toEqual([]);
   });
+
+  it("keeps an unambiguous transcript speaker with the exact evidence quote", async () => {
+    const content =
+      "Avery: Atlas is approved for launch.\nJordan: Plan the rollout.";
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ kind: "transcript", content })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const { item } = await writeIntelligence({
+      ...input(),
+      owner: null,
+      dueDate: null,
+      ownershipConfidence: "ambiguous",
+      entities: [],
+      evidence: [
+        { captureId: "capture-a", quote: "Atlas is approved for launch." },
+      ],
+    });
+    expect(first(item.evidence).quote).toBe(
+      "Avery: Atlas is approved for launch.",
+    );
+    expect(content.includes(first(item.evidence).quote)).toBe(true);
+  });
+
+  it.each([
+    {
+      kind: "transcript" as const,
+      content: "Avery: Launch approved.\nJordan: Launch approved.",
+    },
+    { kind: "document" as const, content: "Decision: Launch approved." },
+    { kind: "transcript" as const, content: "Launch approved." },
+  ])(
+    "does not infer a speaker from ambiguous or non-transcript evidence",
+    async ({ kind, content }) => {
+      await database
+        .update(schema.brainRawCaptures)
+        .set({ kind, content })
+        .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      const { item } = await writeIntelligence({
+        ...input(),
+        owner: null,
+        dueDate: null,
+        ownershipConfidence: "ambiguous",
+        entities: [],
+        evidence: [{ captureId: "capture-a", quote: "Launch approved." }],
+      });
+      expect(first(item.evidence).quote).toBe("Launch approved.");
+    },
+  );
 
   it("rejects fabricated quotes, entities and explicit owners", async () => {
     await expect(

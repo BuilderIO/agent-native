@@ -107,6 +107,46 @@ describe("import-markdown-files", () => {
     });
   });
 
+  it("accepts per-file transcript provenance without changing the source audience", async () => {
+    const schema = (
+      action as unknown as {
+        schema: { parse: (value: unknown) => Parameters<typeof action.run>[0] };
+      }
+    ).schema;
+    const args = schema.parse({
+      sourceId: "source-1",
+      files: [
+        {
+          path: "meetings/launch.md",
+          content: "Avery: The launch is approved.",
+          kind: "transcript",
+          capturedAt: "2026-05-20T15:00:00.000Z",
+          participants: ["Avery", "Jordan"],
+        },
+        { path: "docs/plan.md", content: "Plan" },
+      ],
+      enqueueDistillation: false,
+    });
+    await action.run(args);
+
+    expect(mocks.createCapture).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        kind: "transcript",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+        metadata: expect.objectContaining({
+          participants: ["Avery", "Jordan"],
+        }),
+      }),
+    );
+    expect(mocks.createCapture.mock.calls[0]?.[0]).not.toHaveProperty(
+      "audience",
+    );
+    expect(mocks.createCapture.mock.calls[1]?.[0]).toMatchObject({
+      kind: "document",
+    });
+  });
+
   it("imports plain text files and records their format", async () => {
     await action.run({
       sourceId: "source-1",

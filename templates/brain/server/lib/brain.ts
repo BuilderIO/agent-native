@@ -1891,6 +1891,20 @@ export async function validateEvidenceWithContent(
     if (!access.capture.content.includes(quote)) {
       throw new EvidenceQuoteMismatchError(item.captureId);
     }
+    let evidenceQuote = quote;
+    if (access.capture.kind === "transcript" && !quote.includes("\n")) {
+      const index = access.capture.content.indexOf(quote);
+      const lineStart = access.capture.content.lastIndexOf("\n", index - 1) + 1;
+      const prefix = access.capture.content.slice(lineStart, index);
+      const attributed = `${prefix}${quote}`;
+      if (
+        access.capture.content.indexOf(quote, index + 1) === -1 &&
+        /^[\p{L}][\p{L}\p{M}\p{N} ._'’-]{0,79}:\s+[^\n]*$/u.test(prefix) &&
+        attributed.length <= 2000
+      ) {
+        evidenceQuote = attributed;
+      }
+    }
     content.set(item.captureId, access.capture.content);
     const metadata = parseJson<Record<string, unknown>>(
       access.capture.metadataJson,
@@ -1903,7 +1917,7 @@ export async function validateEvidenceWithContent(
       captureId: item.captureId,
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
-      quote,
+      quote: evidenceQuote,
       note: item.note,
       timestampMs: item.timestampMs,
     };
