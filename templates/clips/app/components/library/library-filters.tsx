@@ -71,7 +71,7 @@ export function useLibraryFilter(): LibraryFilter {
   const navigate = useNavigate();
   const onSearchChange = useCallback(
     (search: string, { replace }: { replace: boolean }) => {
-      navigate(
+      void navigate(
         { pathname: location.pathname, search, hash: location.hash },
         { replace },
       );
@@ -137,10 +137,14 @@ function useLibraryFilterFields(
       libraryFilterFields(labels, tagOptions).map((field) => ({
         ...field,
         icon: FIELD_ICONS[field.id],
-        options: field.options?.map((option) => ({
-          ...option,
-          icon: OPTION_ICONS[`${field.id}:${option.id}`],
-        })),
+        ...(field.options
+          ? {
+              options: field.options.map((option) => ({
+                ...option,
+                icon: OPTION_ICONS[`${field.id}:${option.id}`],
+              })),
+            }
+          : {}),
       })),
     [labels, tagOptions],
   );

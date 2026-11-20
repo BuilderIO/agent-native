@@ -214,7 +214,7 @@ export function withLibrarySource(
 export interface LibraryFilterCounts {
   matching: number;
   hiddenByPinned: number;
-  options: Record<string, Record<string, number>>;
+  options: Partial<Record<string, Record<string, number>>>;
 }
 
 export interface LibraryFilterResult {

@@ -125,6 +125,6 @@ export async function filterLibraryRecordings({
       hasTranscript: Number(row.hasTranscript) > 0,
     })),
     state,
-    { today: filterToday(timeZone), timeZone },
+    { today: filterToday(timeZone), ...(timeZone ? { timeZone } : {}) },
   );
 }
