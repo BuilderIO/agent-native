@@ -3859,7 +3859,6 @@ export async function resourceDeleteByPath(
   if (!existing) {
     const mirrored = await readMirroredMemory(owner, path);
     if (mirrored.state === "deleted") {
-      // A retry after a delete left a tombstoned file behind: remove it now.
       if (!(await removeTombstonedSharedFile(owner, path))) return false;
       emitResourceDelete(`shared-memory:${owner}:${path}`, path, owner);
       return true;

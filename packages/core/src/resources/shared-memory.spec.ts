@@ -225,7 +225,8 @@ describe("shared-memory", () => {
     process.env.AGENT_NATIVE_MEMORY_DIR = dir;
     const owner = "alice@example.com";
     const resourcePath = "memory/leftover.md";
-    const filePath = resolveSharedMemoryFilePath(dir, owner, resourcePath)!;
+    const filePath = resolveSharedMemoryFilePath(dir, owner, resourcePath);
+    if (!filePath) throw new Error("unresolved memory path");
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, "stale");
     const mtime = Math.floor(fs.statSync(filePath).mtimeMs);
