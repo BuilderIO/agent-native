@@ -508,7 +508,7 @@ describe("run recovery surfaces", () => {
     );
     const resendButton = Array.from(container.querySelectorAll("button")).find(
       (button) =>
-        button.textContent?.includes("Resend app account verification email"),
+        button.textContent.includes("Resend app account verification email"),
     );
     expect(resendButton).toBeTruthy();
 
@@ -553,7 +553,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       Array.from(container.querySelectorAll("button"))
         .find((button) =>
-          button.textContent?.includes("Resend app account verification email"),
+          button.textContent.includes("Resend app account verification email"),
         )
         ?.click();
       await Promise.resolve();
