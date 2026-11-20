@@ -371,16 +371,45 @@ export function parseGitHubSource(
   };
 }
 
+const SAFE_SOURCE_REF = /^[A-Za-z0-9._/-]+$/;
+
+export function assertSafeSourceRef(ref: string | undefined): void {
+  if (ref === undefined) return;
+  if (ref.startsWith("-") || !SAFE_SOURCE_REF.test(ref)) {
+    throw new Error(`Invalid source ref: ${ref}`);
+  }
+}
+
+export function shimSpawnTarget(
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): [string, string[], boolean] {
+  if (platform !== "win32") return [command, args, false];
+  const quoted = args.map((arg) => {
+    if (/["%]/.test(arg)) {
+      throw new Error(
+        `Cannot run ${command} on Windows: argument contains '"' or '%': ${arg}`,
+      );
+    }
+    return /[\s&|<>^()!]/.test(arg)
+      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
+      : arg;
+  });
+  return [[command, ...quoted].join(" "), [], true];
+}
+
 function runCommand(
   cmd: string,
   args: string[],
   options: RunCommandOptions = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
+    const [spawnCmd, spawnArgs, shell] = shimSpawnTarget(cmd, args);
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       stdio: "inherit",
-      shell: process.platform === "win32",
+      shell,
       env: process.env,
     });
     child.on("error", reject);
@@ -407,6 +436,8 @@ async function resolveSource(
       `Source does not exist and is not a GitHub source: ${source}`,
     );
   }
+
+  assertSafeSourceRef(github.ref);
 
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-"));
   const repoDir = path.join(tmpRoot, "repo");
