@@ -582,6 +582,211 @@ describe("Desktop identity activation", () => {
     );
   });
 
+  it("re-enables background throttling on the live guest when preload flips off, without remounting", () => {
+    const setWebviewBackgroundThrottling = vi.fn();
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: { setWebviewBackgroundThrottling },
+    });
+    root = createRoot(container);
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const render = (preload: boolean) =>
+      React.createElement(AppWebview, {
+        app,
+        appConfig,
+        isActive: true,
+        preload,
+        theme: "dark" as const,
+      });
+
+    act(() => {
+      root.render(render(true));
+    });
+    const webview = container.querySelector("webview");
+    if (!webview) throw new Error("webview not rendered");
+    Object.defineProperty(webview, "getWebContentsId", {
+      configurable: true,
+      value: () => 77,
+    });
+    expect(setWebviewBackgroundThrottling).not.toHaveBeenCalled();
+
+    act(() => {
+      root.render(render(false));
+    });
+
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledWith(77, true);
+    expect(container.querySelector("webview")).toBe(webview);
+
+    act(() => {
+      root.render(render(false));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+  });
+
+  it("throttles again when preload flips back on and waits for dom-ready on a detached guest", () => {
+    const setWebviewBackgroundThrottling = vi.fn();
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: { setWebviewBackgroundThrottling },
+    });
+    root = createRoot(container);
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const render = (preload: boolean) =>
+      React.createElement(AppWebview, {
+        app,
+        appConfig,
+        isActive: true,
+        preload,
+        theme: "dark" as const,
+      });
+
+    act(() => {
+      root.render(render(false));
+    });
+    const webview = container.querySelector("webview");
+    if (!webview) throw new Error("webview not rendered");
+    let attached = true;
+    Object.defineProperties(webview, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview.getAttribute("src") ?? "",
+      },
+    });
+    Object.defineProperty(webview, "getWebContentsId", {
+      configurable: true,
+      value: () => {
+        if (!attached) throw new Error("not attached");
+        return 5;
+      },
+    });
+
+    act(() => {
+      root.render(render(true));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenLastCalledWith(5, false);
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+
+    attached = false;
+    act(() => {
+      root.render(render(false));
+    });
+    act(() => {
+      root.render(render(true));
+    });
+    act(() => {
+      root.render(render(false));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+
+    attached = true;
+    act(() => {
+      webview.dispatchEvent(new Event("dom-ready"));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(2);
+    expect(setWebviewBackgroundThrottling).toHaveBeenLastCalledWith(5, true);
+    expect(container.querySelector("webview")).toBe(webview);
+  });
+
+  it("keeps retrying on dom-ready until the guest is attached, then stops", () => {
+    const setWebviewBackgroundThrottling = vi.fn();
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: { setWebviewBackgroundThrottling },
+    });
+    root = createRoot(container);
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const render = (preload: boolean) =>
+      React.createElement(AppWebview, {
+        app,
+        appConfig,
+        isActive: true,
+        preload,
+        theme: "dark" as const,
+      });
+
+    act(() => {
+      root.render(render(true));
+    });
+    const webview = container.querySelector("webview");
+    if (!webview) throw new Error("webview not rendered");
+    let attached = false;
+    Object.defineProperties(webview, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview.getAttribute("src") ?? "",
+      },
+      getWebContentsId: {
+        configurable: true,
+        value: () => {
+          if (!attached) throw new Error("not attached");
+          return 8;
+        },
+      },
+    });
+
+    act(() => {
+      root.render(render(false));
+    });
+    act(() => {
+      webview.dispatchEvent(new Event("dom-ready"));
+    });
+    expect(setWebviewBackgroundThrottling).not.toHaveBeenCalled();
+
+    attached = true;
+    act(() => {
+      webview.dispatchEvent(new Event("dom-ready"));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledWith(8, true);
+
+    act(() => {
+      webview.dispatchEvent(new Event("dom-ready"));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a remembered session gated until child synchronization completes", async () => {
     let resolveSynchronization!: (synchronized: boolean) => void;
     const ensureAppSession = vi.fn(
@@ -1864,7 +2069,9 @@ describe("AppWebview soft client-side navigation", () => {
       isBuiltIn: true,
     };
 
-    const executeJavaScript = vi.fn(async (_code: string) => true);
+    const executeJavaScript = vi.fn(
+      async (_code: string): Promise<boolean | undefined> => true,
+    );
     const setAttributeCalls: string[] = [];
 
     try {
@@ -1979,6 +2186,114 @@ describe("AppWebview soft client-side navigation", () => {
         expect(setAttributeCalls.length).toBe(1);
       });
       expect(setAttributeCalls[0]).toContain("/drafts");
+
+      executeJavaScript.mockImplementation(async () => undefined);
+      await act(async () => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark" as const,
+            urlPath: "/starred",
+            urlOpenSoft: true,
+            urlOpenNonce: 4,
+          }),
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(setAttributeCalls.length).toBe(2);
+      });
+      expect(setAttributeCalls[1]).toContain("/starred");
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("ignores a stale soft-navigation fallback that resolves after a newer navigation", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "Mail",
+      description: "Mail",
+      devPort: 3003,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      enabled: true,
+      mode: "prod" as const,
+      isBuiltIn: true,
+    };
+    const resolvers: Array<(value: boolean | undefined) => void> = [];
+    const executeJavaScript = vi.fn(
+      (code: string): Promise<boolean | undefined> =>
+        code.includes("/drafts")
+          ? new Promise((resolve) => resolvers.push(resolve))
+          : Promise.resolve(true),
+    );
+    const setAttributeCalls: string[] = [];
+    const render = (urlPath: string, urlOpenNonce: number) =>
+      React.createElement(AppWebview, {
+        app,
+        appConfig,
+        isActive: true,
+        theme: "dark" as const,
+        urlPath,
+        urlOpenSoft: true,
+        urlOpenNonce,
+      });
+
+    try {
+      act(() => {
+        root.render(render("/home", 0));
+      });
+      const webview = container.querySelector("webview") as
+        | (HTMLElement & { getURL?: () => string })
+        | null;
+      if (!webview) throw new Error("webview not rendered");
+      const originalSetAttribute = webview.setAttribute.bind(webview);
+      webview.setAttribute = (name: string, value: string) => {
+        if (name === "src") setAttributeCalls.push(value);
+        originalSetAttribute(name, value);
+      };
+      Object.defineProperty(webview, "getURL", {
+        configurable: true,
+        value: () => "https://mail.agent-native.com/home",
+      });
+      Object.defineProperty(webview, "executeJavaScript", {
+        configurable: true,
+        value: executeJavaScript,
+      });
+      Object.defineProperty(webview, "getWebContentsId", {
+        configurable: true,
+        value: () => 1,
+      });
+      act(() => {
+        webview.dispatchEvent(new Event("did-finish-load"));
+      });
+
+      await act(async () => {
+        root.render(render("/drafts", 1));
+      });
+      expect(resolvers.length).toBe(1);
+
+      await act(async () => {
+        root.render(render("/sent", 2));
+      });
+
+      await act(async () => {
+        resolvers[0]?.(false);
+        await Promise.resolve();
+      });
+      expect(setAttributeCalls).toEqual([]);
     } finally {
       act(() => {
         root.unmount();
