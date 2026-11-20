@@ -32,9 +32,7 @@ export {
 export const navigationIntentSchema = z
   .literal(NAVIGATION_OPEN_INTENT)
   .optional()
-  .describe(
-    'Set to "open" only when the user asked to open or show this item. Leave it out otherwise; the user\'s current view stays put.',
-  );
+  .describe('Pass "open" only when the user asked to open or show an item.');
 
 export type DetailViewPredicate = (
   navigation: Record<string, unknown>,

@@ -53,13 +53,13 @@ const VIEW_ALIASES = new Map([
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view, dashboard, analysis, extension, Analytics session recording, Monitoring tab (uptime checks, public status pages, or captured errors), or Analytics agent-admin surface. For filter changes (dashboard filter query params like ?f_date=... or session filters like ?range=30d&q=signup), use the framework-level `set-search-params` tool instead of this action.",
+    "Navigate to a view, dashboard, analysis, extension, session recording, Monitoring tab, or agent-admin surface. For URL filter params, use `set-search-params` instead.",
   schema: z.object({
     view: z
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, event-catalog, performance, monitoring, agents, semantic-layer (alias: data-dictionary), data-sources (alias: source-status), settings). event-catalog and performance (per-route Web Vitals and request percentiles) require the Sessions triage Lab.",
+        "View (ask, adhoc, analyses, extensions, sessions, event-catalog, performance, monitoring, agents, semantic-layer, data-sources, settings).",
       ),
     dashboardId: z.string().optional().describe("Dashboard ID to open"),
     dashboardName: z
