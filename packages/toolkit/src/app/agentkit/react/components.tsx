@@ -5100,6 +5100,7 @@ export function AgentConnectionRequestCard({
     request.status === "connected" ||
     request.status === "declined" ||
     request.status === "failed";
+  const connecting = resolution.pending || request.status === "connecting";
   const providerName =
     providerLabel?.trim() || titleCaseProvider(request.provider);
   const adminRequired = request.reason === "admin_required";
@@ -5146,7 +5147,7 @@ export function AgentConnectionRequestCard({
           <ActionButton
             emphasis="outline"
             size="compact"
-            disabled={resolution.pending}
+            disabled={connecting}
             onPress={() => resolve("decline")}
           >
             {labels.connectionNotNow}
@@ -5155,13 +5156,11 @@ export function AgentConnectionRequestCard({
             className="agentkit-primary-button"
             intent="primary"
             size="compact"
-            disabled={
-              resolution.pending || (!onConnectionRequest && !onConnect)
-            }
-            pending={resolution.pending}
+            disabled={connecting || (!onConnectionRequest && !onConnect)}
+            pending={connecting}
             onPress={() => resolve("connect")}
           >
-            {resolution.pending
+            {connecting
               ? labels.connectionConnecting
               : retry
                 ? labels.connectionRetry
@@ -5173,8 +5172,8 @@ export function AgentConnectionRequestCard({
           <ActionButton
             emphasis="outline"
             size="compact"
-            disabled={resolution.pending}
-            pending={resolution.pending}
+            disabled={connecting}
+            pending={connecting}
             onPress={() => resolve("connect")}
           >
             {labels.connectionRetry}

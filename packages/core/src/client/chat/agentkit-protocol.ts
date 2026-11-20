@@ -1607,12 +1607,16 @@ export function createAgentKitProtocolAdapter(
     return aliasedRun;
   }
 
+  function runTurnId(run: ProtocolRun): string | undefined {
+    return run.turn.id ?? run.turn.requestTurnId;
+  }
+
   function findRunByTurnId(
     threadId: string,
     turnId: string,
   ): ProtocolRun | undefined {
     const owners = [...runs.values()].filter(
-      (run) => run.threadId === threadId && run.turn.id === turnId,
+      (run) => run.threadId === threadId && runTurnId(run) === turnId,
     );
     const activeOwners = owners.filter((run) => !isRunTerminal(run));
     if (activeOwners.length > 1) {
@@ -1677,7 +1681,7 @@ export function createAgentKitProtocolAdapter(
       (run) =>
         run.threadId === threadId &&
         !isRunTerminal(run) &&
-        Boolean(run.turn.id),
+        Boolean(runTurnId(run)),
     );
     const candidate = candidates[0];
     const resolvedSessionId = sessionId ?? candidate?.session.id;
@@ -1695,7 +1699,9 @@ export function createAgentKitProtocolAdapter(
     if (state.status === "missing" || !state.turnId) return { read };
 
     const current = findRun(threadId, runtimeRunId);
-    if (current?.turn.id === state.turnId) return { owner: current, read };
+    if (current && runTurnId(current) === state.turnId) {
+      return { owner: current, read };
+    }
 
     const pendingQueuePromotion = pendingQueuePromotionRuns.get(
       JSON.stringify([threadId, state.turnId]),
@@ -1704,10 +1710,10 @@ export function createAgentKitProtocolAdapter(
       try {
         const runId = await pendingQueuePromotion;
         const owner = findRun(threadId, runId);
-        if (owner?.turn.id === state.turnId) {
+        if (owner && runTurnId(owner) === state.turnId) {
           const currentOwner = findRun(threadId, runtimeRunId);
           if (currentOwner) {
-            return currentOwner.turn.id === state.turnId
+            return runTurnId(currentOwner) === state.turnId
               ? { owner: currentOwner, read }
               : { read };
           }
@@ -1723,10 +1729,10 @@ export function createAgentKitProtocolAdapter(
       (run) =>
         run.threadId === threadId &&
         !isRunTerminal(run) &&
-        Boolean(run.turn.id),
+        Boolean(runTurnId(run)),
     );
     const owners = currentCandidates.filter(
-      (run) => run.turn.id === state.turnId,
+      (run) => runTurnId(run) === state.turnId,
     );
     if (owners.length !== 1) return { read };
     const owner = owners[0];
@@ -4031,10 +4037,102 @@ export function createAgentKitProtocolAdapter(
     })();
   }
 
+  function eventForSubscribedRun(
+    event: AgentEvent,
+    subscribedRunId: string,
+  ): AgentEvent {
+    if (event.runId === subscribedRunId) return event;
+    if (event.type === "tool.started" || event.type === "tool.updated") {
+      return {
+        ...event,
+        runId: subscribedRunId,
+        toolCall:
+          event.toolCall.runId === undefined
+            ? event.toolCall
+            : { ...event.toolCall, runId: subscribedRunId },
+      };
+    }
+    if (
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
+    ) {
+      return {
+        ...event,
+        runId: subscribedRunId,
+        activity:
+          event.activity.runId === undefined
+            ? event.activity
+            : { ...event.activity, runId: subscribedRunId },
+      };
+    }
+    if (
+      event.type === "task.created" ||
+      event.type === "task.updated" ||
+      event.type === "task.completed"
+    ) {
+      return {
+        ...event,
+        runId: subscribedRunId,
+        task:
+          event.task.runId === undefined
+            ? event.task
+            : { ...event.task, runId: subscribedRunId },
+      };
+    }
+    if (
+      event.type === "task-group.created" ||
+      event.type === "task-group.updated" ||
+      event.type === "task-group.completed"
+    ) {
+      return {
+        ...event,
+        runId: subscribedRunId,
+        taskGroup:
+          event.taskGroup.runId === undefined
+            ? event.taskGroup
+            : { ...event.taskGroup, runId: subscribedRunId },
+      };
+    }
+    if (event.type === "artifact.created") {
+      return {
+        ...event,
+        runId: subscribedRunId,
+        artifact:
+          event.artifact.runId === undefined
+            ? event.artifact
+            : { ...event.artifact, runId: subscribedRunId },
+      };
+    }
+    if (event.type === "suggestions.updated") {
+      return {
+        ...event,
+        runId: subscribedRunId,
+        suggestions: event.suggestions.map((suggestion) =>
+          suggestion.runId === undefined
+            ? suggestion
+            : { ...suggestion, runId: subscribedRunId },
+        ),
+      };
+    }
+    if (event.type === "action.started") {
+      return {
+        ...event,
+        runId: subscribedRunId,
+        invocation:
+          event.invocation.runId === undefined
+            ? event.invocation
+            : { ...event.invocation, runId: subscribedRunId },
+      };
+    }
+    return { ...event, runId: subscribedRunId };
+  }
+
   async function* readRun(
     run: ProtocolRun,
     afterSequence = 0,
     signal?: AbortSignal,
+    subscribedRunId = run.runId,
   ): AsyncGenerator<AgentEvent> {
     run.activeReaders += 1;
     touchRun(run);
@@ -4061,7 +4159,7 @@ export function createAgentKitProtocolAdapter(
               `AgentKit run ${run.runId} is missing retained sequence ${nextSequence - 1}.`,
             );
           }
-          yield event;
+          yield eventForSubscribedRun(event, subscribedRunId);
           cursor.through = nextSequence - 1;
           wakeWaitingStop();
         }
@@ -4302,7 +4400,7 @@ export function createAgentKitProtocolAdapter(
       }
       touchRun(run);
       ensurePump(run);
-      yield* readRun(run, input.afterSequence, input.signal);
+      yield* readRun(run, input.afterSequence, input.signal, input.runId);
     },
     async getRun(input) {
       pruneRetainedRuns();
@@ -4742,8 +4840,8 @@ export function createAgentKitProtocolAdapter(
     transport.continueRun = async (input) => {
       if (disposed) throw new Error("The AgentKit adapter is disposed.");
       pruneRetainedRuns();
-      const local = runs.get(input.runId);
-      if (local && local.threadId !== input.threadId) {
+      const local = findRun(input.threadId, input.runId);
+      if (!local && runs.has(input.runId)) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
       }
       const session = local?.session ?? (await getSession(input.threadId));
@@ -4924,8 +5022,7 @@ export function createAgentKitProtocolAdapter(
             throw new Error("The AgentKit run is already terminal.");
           }
           delete run.pendingConnectionRequestId;
-          run.turn = nextTurn;
-          indexRun(run, nextTurn.runId);
+          setResumedRuntimeTurn(run, nextTurn);
           run.phase = transition(run.phase, { type: "continuationResumed" });
           update(input.response.status);
           append(run, { type: "run.status", status: "running" });

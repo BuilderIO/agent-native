@@ -268,4 +268,105 @@ describe("continuation a person chose", () => {
       continueRefused: "continue_unavailable",
     });
   });
+
+  it("resets the unattended auto-continue budget after a person chooses Continue", async () => {
+    const { thread, turn, run } = await timeLimitStop();
+    let stopped = run;
+    for (let n = 1; n <= MAX_AUTO_CONTINUES_PER_TURN; n += 1) {
+      const { tryClaimRunSlot } = await freshRunStore();
+      const next = `${run}-c${n}`;
+      const slot = await tryClaimRunSlot(thread, next, undefined, {
+        turnId: turn,
+        dispatchMode: "foreground",
+        continueOf: { runId: stopped, trigger: "auto" },
+      });
+      expect(slot.claimed, `auto ${n}`).toBe(true);
+      await stopAtTimeLimit(next);
+      stopped = next;
+    }
+
+    const { tryClaimRunSlot: claimCapped } = await freshRunStore();
+    expect(
+      await claimCapped(thread, `${run}-capped`, undefined, {
+        turnId: turn,
+        dispatchMode: "foreground",
+        continueOf: { runId: stopped, trigger: "auto" },
+      }),
+    ).toEqual({
+      claimed: false,
+      activeRunId: null,
+      continueRefused: "auto_continue_cap_reached",
+    });
+
+    const { tryClaimRunSlot: claimManual } = await freshRunStore();
+    const manualId = `${run}-manual`;
+    expect(
+      await claimManual(thread, manualId, undefined, {
+        turnId: turn,
+        dispatchMode: "foreground",
+        continueOf: { runId: stopped, trigger: "manual" },
+      }),
+    ).toEqual({ claimed: true, activeRunId: null });
+    await stopAtTimeLimit(manualId);
+
+    stopped = manualId;
+    for (let n = 1; n <= MAX_AUTO_CONTINUES_PER_TURN; n += 1) {
+      const { tryClaimRunSlot } = await freshRunStore();
+      const next = `${run}-m-c${n}`;
+      const slot = await tryClaimRunSlot(thread, next, undefined, {
+        turnId: turn,
+        dispatchMode: "foreground",
+        continueOf: { runId: stopped, trigger: "auto" },
+      });
+      expect(slot.claimed, `post-manual auto ${n}`).toBe(true);
+      await stopAtTimeLimit(next);
+      stopped = next;
+    }
+
+    const { tryClaimRunSlot: claimSecondCap } = await freshRunStore();
+    expect(
+      await claimSecondCap(thread, `${run}-m-over`, undefined, {
+        turnId: turn,
+        dispatchMode: "foreground",
+        continueOf: { runId: stopped, trigger: "auto" },
+      }),
+    ).toEqual({
+      claimed: false,
+      activeRunId: null,
+      continueRefused: "auto_continue_cap_reached",
+    });
+  });
+
+  it("orders same-millisecond continuations deterministically by continuation_order", async () => {
+    const { thread, turn, run } = await timeLimitStop();
+    const { tryClaimRunSlot } = await freshRunStore();
+    const next = `${run}-same-ms`;
+    const slot = await tryClaimRunSlot(thread, next, undefined, {
+      turnId: turn,
+      dispatchMode: "foreground",
+      continueOf: { runId: run, trigger: "auto" },
+    });
+    expect(slot.claimed).toBe(true);
+    await stopAtTimeLimit(next);
+
+    const sameStartedAt = Date.now();
+    await (
+      await pglite.prepare(
+        `UPDATE agent_runs SET started_at = ? WHERE thread_id = ? AND turn_id = ?`,
+      )
+    ).run(sameStartedAt, thread, turn);
+
+    const { tryClaimRunSlot: claimFollowup } = await freshRunStore();
+    const followup = await claimFollowup(
+      thread,
+      `${run}-same-ms-2`,
+      undefined,
+      {
+        turnId: turn,
+        dispatchMode: "foreground",
+        continueOf: { runId: next, trigger: "auto" },
+      },
+    );
+    expect(followup).toEqual({ claimed: true, activeRunId: null });
+  });
 });

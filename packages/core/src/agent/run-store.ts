@@ -2468,45 +2468,67 @@ export async function tryClaimRunSlot(
     // stop start one run and the count of continuations stays exact.
     if (continueOf) {
       const turnRuns = await tx.execute({
-        sql: `SELECT id, status, terminal_reason, completed_at,
-                     COUNT(auto_continue_of) OVER () AS auto_continues,
-                     MIN(started_at) OVER () AS turn_started_at,
-                     EXISTS (
-                       SELECT 1 FROM agent_runs later
-                       WHERE later.thread_id = ?
-                         AND COALESCE(later.turn_id, later.id) <> ?
-                         AND later.started_at > agent_runs.started_at
-                     ) AS later_turn_started
+        sql: `SELECT id, status, terminal_reason, started_at, completed_at, auto_continue_of
               FROM agent_runs
               WHERE thread_id = ? AND turn_id = ?
                 AND dispatch_mode IS DISTINCT FROM 'turn-abort'
-              ORDER BY started_at DESC LIMIT 1`,
-        args: [threadId, turnId, threadId, turnId],
+              ORDER BY COALESCE(continuation_order, 0) ASC, started_at ASC`,
+        args: [threadId, turnId],
       });
-      const row = turnRuns.rows[0] as
-        | {
-            id: string;
-            status: string;
-            terminal_reason: string | null;
-            completed_at: number | string | null;
-            auto_continues: number | string;
-            turn_started_at: number | string;
-            later_turn_started: boolean | string;
-          }
-        | undefined;
-      const turn = row
+      const rows = turnRuns.rows as Array<{
+        id: string;
+        status: string;
+        terminal_reason: string | null;
+        started_at: number | string;
+        completed_at: number | string | null;
+        auto_continue_of: string | null;
+      }>;
+      const newestRow = rows.at(-1);
+      let anchorIndex = -1;
+      for (let i = rows.length - 1; i >= 0; i -= 1) {
+        if (rows[i]?.auto_continue_of == null) {
+          anchorIndex = i;
+          break;
+        }
+      }
+      const autoContinues = rows
+        .slice(anchorIndex + 1)
+        .filter((entry) => entry.auto_continue_of != null).length;
+      const anchorRow = anchorIndex >= 0 ? rows[anchorIndex] : rows[0];
+      const turn = newestRow
         ? {
             newest: {
-              id: row.id,
-              status: row.status,
-              terminalReason: row.terminal_reason,
+              id: newestRow.id,
+              status: newestRow.status,
+              terminalReason: newestRow.terminal_reason,
               completedAt:
-                row.completed_at === null ? null : Number(row.completed_at),
+                newestRow.completed_at === null
+                  ? null
+                  : Number(newestRow.completed_at),
             },
-            autoContinues: Number(row.auto_continues),
-            startedAt: Number(row.turn_started_at),
+            autoContinues,
+            startedAt: Number(anchorRow.started_at),
           }
         : null;
+      let laterTurnStarted = false;
+      if (continueOf.trigger === "manual" && newestRow) {
+        const laterCheck = await tx.execute({
+          sql: `SELECT EXISTS (
+                  SELECT 1 FROM agent_runs later
+                  WHERE later.thread_id = ?
+                    AND COALESCE(later.turn_id, later.id) <> ?
+                    AND later.started_at > ?
+                ) AS later_turn_started`,
+          args: [threadId, turnId, Number(newestRow.started_at)],
+        });
+        const flag = (
+          laterCheck.rows[0] as
+            | { later_turn_started?: boolean | string | number }
+            | undefined
+        )?.later_turn_started;
+        laterTurnStarted =
+          flag === true || flag === "t" || flag === 1 || flag === "1";
+      }
       const admission =
         continueOf.trigger === "auto"
           ? admitAutoContinue({
@@ -2517,9 +2539,7 @@ export async function tryClaimRunSlot(
           : admitManualContinue({
               turn,
               stoppedRunId: continueOf.runId,
-              laterTurnStarted:
-                row?.later_turn_started === true ||
-                row?.later_turn_started === "t",
+              laterTurnStarted,
             });
       if (!admission.admit) {
         return {

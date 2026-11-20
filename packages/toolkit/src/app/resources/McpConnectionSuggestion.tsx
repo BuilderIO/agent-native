@@ -342,6 +342,7 @@ export function McpConnectionSuggestion({
       return;
     }
 
+    oauthStartingRef.current = false;
     saveMcpConnectionResume(variant === "response" ? contextText : text);
     setQuickConnectIntegrationId(integration.id);
     setDialogOpen(true);
@@ -432,6 +433,7 @@ export function McpConnectionSuggestion({
           setDialogOpen(open);
           if (!open) {
             if (!oauthStartingRef.current) clearMcpConnectionResume();
+            oauthStartingRef.current = false;
             setQuickConnectIntegrationId(null);
             setConnecting(false);
           }
@@ -447,18 +449,26 @@ export function McpConnectionSuggestion({
           onOAuthStart
             ? async (url) => {
                 oauthStartingRef.current = true;
-                await onOAuthStart(url);
+                try {
+                  await onOAuthStart(url);
+                } catch (cause) {
+                  oauthStartingRef.current = false;
+                  throw cause;
+                }
               }
             : undefined
         }
         onCreated={() => {
+          setConnecting(false);
           setDismissedAtById((current) => ({
             ...current,
             [integration.id]: Date.now(),
           }));
           saveMcpConnectionResume(variant === "response" ? contextText : text);
           notifyMcpConnectionComplete();
-          onConnected?.();
+          void Promise.resolve(onConnected?.()).catch((cause: unknown) => {
+            setError(cause instanceof Error ? cause.message : String(cause));
+          });
         }}
         integrations={integrations}
       />

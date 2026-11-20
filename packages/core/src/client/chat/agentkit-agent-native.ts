@@ -3775,8 +3775,15 @@ export function createAgentNativeAgentKitTransport(
         (id) => id !== runId && completedRunIds.has(id),
       );
     };
+    const activeRuntimeRunId =
+      discoveredRun && typeof activeStatus.runId === "string"
+        ? activeStatus.runId
+        : undefined;
     const runs = runsWithAssistantHistory
-      .filter((entry) => entry.id !== discoveredRun?.id)
+      .filter(
+        (entry) =>
+          entry.id !== discoveredRun?.id && entry.id !== activeRuntimeRunId,
+      )
       .map((run) => {
         if (
           (["queued", "running"].includes(run.status) ||

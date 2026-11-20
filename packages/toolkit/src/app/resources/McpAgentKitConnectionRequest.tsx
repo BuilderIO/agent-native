@@ -321,7 +321,10 @@ export function McpAgentKitConnectionRequestCard({
           detail ?? `Continue after connecting ${provider}.`,
           target,
         );
-        navigateToMcpOAuthStart(url);
+        if (!navigateToMcpOAuthStart(url)) {
+          clearMcpConnectionResume();
+          throw new Error(t("mcpIntegrations.connectionError"));
+        }
       }}
     />
   );

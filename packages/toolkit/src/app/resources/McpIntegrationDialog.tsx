@@ -462,7 +462,10 @@ export function McpIntegrationDialog({
     }
     void Promise.resolve()
       .then(() => onOAuthStart(oauthUrl))
-      .then(() => onOpenChange(false))
+      .then(() => {
+        setBusy(false);
+        onOpenChange(false);
+      })
       .catch((cause: unknown) => {
         setBusy(false);
         setError(formatMcpServerError(cause));

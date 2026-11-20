@@ -947,6 +947,33 @@ describe("Cards", () => {
     );
   });
 
+  it("disables actions and shows connecting label while request status is connecting", async () => {
+    const thread = createAgentThreadState("thread-connection-connecting");
+    const store = observableController(snapshotOf(thread));
+    const onConnect = vi.fn();
+    await render(
+      <AgentKitProvider controller={store.controller} threadId={thread.id}>
+        <AgentConnectionRequestCard
+          request={{
+            id: "connection-connecting",
+            provider: "linear",
+            reason: "connect",
+            status: "connecting",
+          }}
+          runId="run-1"
+          onConnect={onConnect}
+        />
+      </AgentKitProvider>,
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.disabled).toBe(true);
+    expect(buttons[1]?.disabled).toBe(true);
+    expect(buttons[1]?.textContent).toContain("Connecting…");
+    buttons[1]?.click();
+    expect(onConnect).not.toHaveBeenCalled();
+  });
+
   it("exposes exclusive approval choices as a labelled radio group", async () => {
     const thread = createAgentThreadState("thread-approval");
     const store = observableController(snapshotOf(thread));

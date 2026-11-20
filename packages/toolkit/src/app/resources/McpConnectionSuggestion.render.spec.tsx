@@ -8,6 +8,12 @@ const mcpMocks = vi.hoisted(() => ({
   isMcpServersPending: vi.fn(() => false),
   useCreateMcpServer: vi.fn(),
   useMcpServers: vi.fn(),
+  lastDialogProps: null as null | {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    onOAuthStart?: (url: string) => void | Promise<void>;
+    onCreated?: () => void;
+  },
 }));
 
 vi.mock("../shared/index.js", () => ({
@@ -28,11 +34,23 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("./McpIntegrationDialogDeferred.js", () => ({
-  McpIntegrationDialogDeferred: () => null,
+  McpIntegrationDialogDeferred: (props: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    onOAuthStart?: (url: string) => void | Promise<void>;
+    onCreated?: () => void;
+  }) => {
+    mcpMocks.lastDialogProps = props;
+    return null;
+  },
 }));
 
 vi.mock("@agent-native/core/client/resources/use-mcp-servers", () => mcpMocks);
 
+import {
+  clearMcpConnectionResume,
+  getPendingMcpConnectionResume,
+} from "@agent-native/core/client/resources/mcp-connection-resume";
 import {
   DEFAULT_MCP_INTEGRATIONS,
   type DefaultMcpIntegration,
@@ -260,5 +278,115 @@ describe("McpConnectionSuggestion render", () => {
     expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
       null,
     );
+  });
+
+  it("resets oauthStartingRef after a failed onOAuthStart so closing clears resume and unlocks Connect", async () => {
+    clearMcpConnectionResume();
+    const onOAuthStart = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Popup blocked"));
+
+    act(() => {
+      root.render(
+        <McpConnectionSuggestion
+          text="Connect Notion"
+          requestedByAgent
+          integrations={[integration]}
+          onOAuthStart={onOAuthStart}
+        />,
+      );
+    });
+
+    const connectBtn = container.querySelector<HTMLButtonElement>(
+      "[data-mcp-connection-suggestion] button:not([aria-label])",
+    );
+    if (!connectBtn) throw new Error("Missing connect button");
+    expect(connectBtn.disabled).toBe(false);
+
+    await act(async () => connectBtn.click());
+    expect(connectBtn.disabled).toBe(true);
+    expect(getPendingMcpConnectionResume()).not.toBeNull();
+
+    await expect(
+      mcpMocks.lastDialogProps?.onOAuthStart?.("https://example.test/oauth"),
+    ).rejects.toThrow("Popup blocked");
+
+    await act(async () => mcpMocks.lastDialogProps?.onOpenChange?.(false));
+
+    expect(connectBtn.disabled).toBe(false);
+    expect(getPendingMcpConnectionResume()).toBeNull();
+  });
+
+  it("resets oauthStartingRef on dialog close so a subsequent cancelled attempt clears resume", async () => {
+    clearMcpConnectionResume();
+    const onOAuthStart = vi.fn(async () => undefined);
+
+    act(() => {
+      root.render(
+        <McpConnectionSuggestion
+          text="Connect Notion"
+          requestedByAgent
+          integrations={[integration]}
+          onOAuthStart={onOAuthStart}
+        />,
+      );
+    });
+
+    const connectBtn = container.querySelector<HTMLButtonElement>(
+      "[data-mcp-connection-suggestion] button:not([aria-label])",
+    );
+    if (!connectBtn) throw new Error("Missing connect button");
+
+    await act(async () => connectBtn.click());
+    await act(async () => {
+      await mcpMocks.lastDialogProps?.onOAuthStart?.(
+        "https://example.test/oauth",
+      );
+    });
+    await act(async () => mcpMocks.lastDialogProps?.onOpenChange?.(false));
+    expect(getPendingMcpConnectionResume()).not.toBeNull();
+
+    await act(async () => connectBtn.click());
+    await act(async () => mcpMocks.lastDialogProps?.onOpenChange?.(false));
+    expect(getPendingMcpConnectionResume()).toBeNull();
+    expect(connectBtn.disabled).toBe(false);
+  });
+
+  it("resets connecting state when onCreated fires without unmounting", async () => {
+    vi.useFakeTimers();
+    const start = new Date("2026-10-01T00:00:00.000Z").getTime();
+    vi.setSystemTime(start);
+    const onConnected = vi.fn();
+    act(() => {
+      root.render(
+        <McpConnectionSuggestion
+          text="Connect Notion"
+          requestedByAgent
+          integrations={[integration]}
+          onConnected={onConnected}
+        />,
+      );
+    });
+
+    const connectBtn = container.querySelector<HTMLButtonElement>(
+      "[data-mcp-connection-suggestion] button:not([aria-label])",
+    );
+    if (!connectBtn) throw new Error("Missing connect button");
+    await act(async () => connectBtn.click());
+    expect(connectBtn.disabled).toBe(true);
+
+    await act(async () => {
+      mcpMocks.lastDialogProps?.onCreated?.();
+    });
+    expect(onConnected).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      vi.advanceTimersByTime(7 * 24 * 60 * 60 * 1000);
+    });
+    const reappearedBtn = container.querySelector<HTMLButtonElement>(
+      "[data-mcp-connection-suggestion] button:not([aria-label])",
+    );
+    expect(reappearedBtn).not.toBeNull();
+    expect(reappearedBtn?.disabled).toBe(false);
   });
 });

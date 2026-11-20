@@ -4151,7 +4151,7 @@ describe("createAgentKitProtocolAdapter", () => {
       ),
     ).toHaveLength(1);
     expect(new Set(replayed.map((event) => event.runId))).toEqual(
-      new Set(["protocol-after-approval"]),
+      new Set(["runtime-after-approval"]),
     );
     await initialIterator.return?.();
   });
@@ -4224,7 +4224,7 @@ describe("createAgentKitProtocolAdapter", () => {
     });
     expect(successorEvent).toMatchObject({
       done: false,
-      value: { runId },
+      value: { runId: "runtime-after-queue" },
     });
     await successorIterator.return?.();
     releaseInitialStream();
@@ -5070,9 +5070,15 @@ describe("createAgentKitProtocolAdapter", () => {
     ]);
 
     expect(startTurn).toHaveBeenCalledOnce();
+    expect(
+      await transport.getRun?.({
+        threadId: "thread-1",
+        runId: "runtime-successor",
+      }),
+    ).toMatchObject({ id: runId });
     expect(restoredStart).toMatchObject({
       done: false,
-      value: { runId, type: "run.started" },
+      value: { runId: "runtime-successor", type: "run.started" },
     });
     await restoredIterator.return?.();
     await transport.dispose();

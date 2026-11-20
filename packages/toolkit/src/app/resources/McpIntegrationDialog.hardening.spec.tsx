@@ -260,4 +260,32 @@ describe("legacy integration setup routing", () => {
     expect(mocks.oauth).not.toHaveBeenCalled();
     expect(mocks.create).not.toHaveBeenCalled();
   });
+
+  it("resets busy state after custom onOAuthStart resolves", async () => {
+    const linear = DEFAULT_MCP_INTEGRATIONS.find(
+      (entry) => entry.id === "linear",
+    );
+    if (!linear) throw new Error("Missing linear integration");
+    const onOAuthStart = vi.fn(async () => undefined);
+    await render({
+      integrations: [linear],
+      initialIntegrationId: "linear",
+      oauthReady: true,
+      onOAuthStart,
+    });
+    const submit = document.querySelector<HTMLButtonElement>(
+      'button[type="submit"]',
+    );
+    if (!submit) throw new Error("Missing submit button");
+    expect(submit.disabled).toBe(false);
+
+    await act(async () => submit.click());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(onOAuthStart).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledWith(false);
+    expect(submit.disabled).toBe(false);
+  });
 });
