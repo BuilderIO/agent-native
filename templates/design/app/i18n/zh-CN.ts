@@ -1014,6 +1014,12 @@ export default {
       collapse: "收起侧边栏",
       expand: "展开侧边栏",
     },
+    leftTabs: {
+      label: "侧边栏",
+      agent: "代理",
+      file: "文件",
+      library: "库",
+    },
     columnHead: {
       comments: "评论",
       unreadComments: "未读评论",

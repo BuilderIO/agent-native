@@ -43,6 +43,12 @@ import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import {
+  isLeftPanelTab,
+  LEFT_PANEL_TABS,
+  type LeftPanelTab,
+  showsLeftPanelTabs,
+} from "../left-panel-tabs";
+import {
   DEFAULT_LEFT_SIDEBAR_WIDTH,
   LEFT_SIDEBAR_MAX_WIDTH,
   LEFT_SIDEBAR_MIN_WIDTH,
@@ -54,7 +60,7 @@ import {
 } from "../types";
 
 export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
-  ["file", "tokens"],
+  ["file", "library"],
 );
 
 // The editor re-renders on every selection while the chat stays mounted, so
@@ -121,6 +127,7 @@ export function renderLeftSidebar({
     detectedFigmaComposerLink,
     isVisualEditSurface,
     shellMode,
+    mode,
   } = editorCore;
   const {
     activeLeftPanel: storedLeftPanel,
@@ -174,13 +181,11 @@ export function renderLeftSidebar({
   const disabledPanels = initialGenerationChromeLimited
     ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
     : undefined;
-  // Placeholder switch until the Agent | File | Library tabs land in this
-  // slot; it keeps the panels reachable now that the rail is gone.
-  const panelSwitchItems: Array<{ panel: DesignLeftPanel; label: string }> = [
-    { panel: "agent", label: t("designEditor.leftRail.agent") },
-    { panel: "file", label: t("designEditor.leftRail.layers") },
-    { panel: "tokens", label: t("designEditor.leftRail.tokens") },
-  ];
+  const leftPanelTabLabels: Record<LeftPanelTab, string> = {
+    agent: t("designEditor.leftTabs.agent"),
+    file: t("designEditor.leftTabs.file"),
+    library: t("designEditor.leftTabs.library"),
+  };
   const whatsNewLabel = t("designEditor.columnHead.whatsNew");
 
   return (
@@ -207,37 +212,39 @@ export function renderLeftSidebar({
               </div>
               {minimalUiToggle}
             </div>
-            <div
-              data-design-left-tabs-slot
-              className="flex h-[var(--design-row-height)] shrink-0 items-center px-[calc(var(--design-baseline-unit)*2)]"
-            >
-              <Tabs
-                value={activeLeftPanel}
-                onValueChange={(value) => {
-                  const panel = value as DesignLeftPanel;
-                  if (disabledPanels?.has(panel)) return;
-                  setActiveLeftPanel(panel);
-                }}
-                className="w-full"
+            {showsLeftPanelTabs(mode) ? (
+              <div
+                data-design-left-tabs
+                className="flex h-[var(--design-row-height)] shrink-0 items-center px-[calc(var(--design-baseline-unit)*2)]"
               >
-                <TabsList
-                  aria-label={t("designEditor.leftRail.label")}
-                  className="grid h-[var(--design-control-height)] w-full auto-cols-fr grid-flow-col p-px"
+                <Tabs
+                  value={activeLeftPanel}
+                  onValueChange={(value) => {
+                    if (!isLeftPanelTab(value)) return;
+                    if (disabledPanels?.has(value)) return;
+                    setActiveLeftPanel(value);
+                  }}
+                  className="w-full"
                 >
-                  {panelSwitchItems.map((item) => (
-                    <TabsTrigger
-                      key={item.panel}
-                      value={item.panel}
-                      disabled={disabledPanels?.has(item.panel) ?? false}
-                      data-design-left-tab={item.panel}
-                      className="design-font-medium h-full px-2 py-0 text-xs"
-                    >
-                      {item.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-            </div>
+                  <TabsList
+                    aria-label={t("designEditor.leftTabs.label")}
+                    className="grid h-[var(--design-control-height)] w-full auto-cols-fr grid-flow-col rounded-md p-px"
+                  >
+                    {LEFT_PANEL_TABS.map((panel) => (
+                      <TabsTrigger
+                        key={panel}
+                        value={panel}
+                        disabled={disabledPanels?.has(panel) ?? false}
+                        data-design-left-tab={panel}
+                        className="design-focus-ring design-font-medium h-full min-w-0 rounded-[5px] px-2 py-0 text-xs leading-4 focus-visible:ring-0 focus-visible:ring-offset-0"
+                      >
+                        {leftPanelTabLabels[panel]}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+            ) : null}
             <div
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
@@ -388,7 +395,7 @@ export function renderLeftSidebar({
             <div
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
-                activeLeftPanel === "tokens" ? "flex" : "hidden",
+                activeLeftPanel === "library" ? "flex" : "hidden",
               )}
             >
               {id && canEditDesign && !shellMode ? (

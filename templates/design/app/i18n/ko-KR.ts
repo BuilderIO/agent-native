@@ -1029,6 +1029,12 @@ export default {
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
     },
+    leftTabs: {
+      label: "사이드 패널",
+      agent: "에이전트",
+      file: "파일",
+      library: "라이브러리",
+    },
     columnHead: {
       comments: "댓글",
       unreadComments: "읽지 않은 댓글",

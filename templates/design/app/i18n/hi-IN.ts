@@ -1026,6 +1026,12 @@ export default {
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
+    leftTabs: {
+      label: "साइड पैनल",
+      agent: "एजेंट",
+      file: "फ़ाइल",
+      library: "लाइब्रेरी",
+    },
     columnHead: {
       comments: "टिप्पणियाँ",
       unreadComments: "अपठित टिप्पणियाँ",

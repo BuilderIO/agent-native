@@ -1037,6 +1037,12 @@ export default {
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
     },
+    leftTabs: {
+      label: "Painel lateral",
+      agent: "Agente",
+      file: "Arquivo",
+      library: "Biblioteca",
+    },
     columnHead: {
       comments: "Comentários",
       unreadComments: "Comentários não lidos",

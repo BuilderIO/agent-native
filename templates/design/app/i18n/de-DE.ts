@@ -1052,6 +1052,12 @@ export default {
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
     },
+    leftTabs: {
+      label: "Seitenleiste",
+      agent: "Agent",
+      file: "Datei",
+      library: "Bibliothek",
+    },
     columnHead: {
       comments: "Kommentare",
       unreadComments: "Ungelesene Kommentare",

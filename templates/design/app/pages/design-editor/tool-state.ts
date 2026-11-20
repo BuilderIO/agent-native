@@ -13,6 +13,9 @@ export function normalizeDesignLeftPanel(
   if (value === "extensions") {
     return isDesignLeftPanelEnabled("tools") ? "tools" : undefined;
   }
+  // The Tokens panel became the Library tab; stored URLs, agent calls and
+  // application state may still say `tokens`.
+  if (value === "tokens") return "library";
   return isDesignLeftPanelEnabled(value) ? value : undefined;
 }
 

@@ -74,6 +74,11 @@ import {
   resolveInspectorWidth,
 } from "../inspector-width";
 import { scopedLayerStateId } from "../layer-state-scope";
+import {
+  DEFAULT_DESIGN_LEFT_PANEL,
+  nextDesignLeftPanel,
+  visibleLeftPanel,
+} from "../left-panel-tabs";
 import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../left-sidebar-width";
 import {
   getPendingVisualEditCount,
@@ -128,6 +133,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     cancelPendingStructureVerification,
     minimalUiByDefault,
     minimalUiLocked,
+    mode,
   } = editorCore;
 
   const hostChatGeneratingRef = useRef(false);
@@ -175,8 +181,24 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const stagedHandoffStartedRef = useRef<(() => void) | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
-  const [activeLeftPanel, setActiveLeftPanelState] =
-    useState<DesignLeftPanel | null>("file");
+  // Design remembers its own tab; Interact always shows the chat.
+  const [designLeftPanel, setDesignLeftPanel] =
+    useState<DesignLeftPanel | null>(DEFAULT_DESIGN_LEFT_PANEL);
+  const activeLeftPanel = visibleLeftPanel(mode, designLeftPanel);
+  const editorModeRef = useRef(mode);
+  editorModeRef.current = mode;
+  const setActiveLeftPanelState = useCallback(
+    (next: SetStateAction<DesignLeftPanel | null>) => {
+      setDesignLeftPanel((current) =>
+        nextDesignLeftPanel(
+          editorModeRef.current,
+          current,
+          typeof next === "function" ? next(current) : next,
+        ),
+      );
+    },
+    [],
+  );
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   // `threads` was the left rail's comments panel. Comments now open in the
   // right column in place of the inspector, so every caller that still asks

@@ -1293,6 +1293,12 @@ export default {
       collapse: "收合側邊欄",
       expand: "展開側邊欄",
     },
+    leftTabs: {
+      label: "側邊欄",
+      agent: "代理",
+      file: "檔案",
+      library: "資源庫",
+    },
     columnHead: {
       comments: "留言",
       unreadComments: "未讀留言",

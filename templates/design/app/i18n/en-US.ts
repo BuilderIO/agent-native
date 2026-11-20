@@ -962,6 +962,12 @@ export default {
       collapse: "Collapse sidebar",
       expand: "Expand sidebar",
     },
+    leftTabs: {
+      label: "Side panel",
+      agent: "Agent",
+      file: "File",
+      library: "Library",
+    },
     columnHead: {
       comments: "Comments",
       unreadComments: "Unread comments",
