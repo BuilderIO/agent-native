@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   BrainCaptureBlockedError,
+  BrainCaptureConcurrentError,
   createCaptureWithWarnings,
   ensureManualSource,
   getAccessibleSource,
@@ -195,6 +196,9 @@ export default defineAction({
             },
           },
         );
+        if (capture.kind !== (args.kind ?? "document")) {
+          throw new BrainCaptureConcurrentError();
+        }
         let distillation: "queued" | "existing" | "skipped" | "failed" =
           "skipped";
         let distillationError: string | undefined;
@@ -215,7 +219,7 @@ export default defineAction({
         const withheldPassages = withheldPassageCount(
           parseCaptureMetadata(capture.metadataJson ?? null),
           source.provider,
-          args.kind ?? "document",
+          capture.kind,
         );
         importedResults.push({
           path: normalizedPath,
@@ -239,6 +243,13 @@ export default defineAction({
             path: normalizedPath,
             status: "blocked",
             sensitivityReceipt: error.receipt,
+          });
+        } else if (error instanceof BrainCaptureConcurrentError) {
+          importedResults.push({
+            path: normalizedPath,
+            status: "failed",
+            error: error.message,
+            errorCode: "capture_concurrent",
           });
         } else if (error instanceof BrainClassifierUnavailableError) {
           importedResults.push({

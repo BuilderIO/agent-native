@@ -451,6 +451,7 @@ const messages = {
     manualImportTranscript: "會議逐字稿",
     chooseMarkdownFolder: "選取資料夾",
     importMarkdownFiles: "匯入文件",
+    manualImportConcurrent: "匯入時擷取內容已變更。請重新匯入。",
     manualImportScreeningUnavailable:
       "Brain 無法檢查這次匯入。內容未儲存，也未加入佇列。請在檢查服務可用後重試。",
     distillationHandoffCancelled: "蒸餾任務交接已在送達前取消。",

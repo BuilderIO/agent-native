@@ -262,6 +262,8 @@ function deterministicMeetingOutageFallback(
     decision.disposition !== "allowed" ||
     input.kind !== "transcript" ||
     !["granola", "clips"].includes(input.source.provider) ||
+    (input.source.provider === "granola" &&
+      input.content.includes(WITHHELD_MARKER)) ||
     !shouldSanitizeCaptureBeforeStorage(input) ||
     !hasSummarySection(decision.safeContent) ||
     PERSONAL_SIGNAL.test(decision.safeContent) ||
@@ -740,7 +742,7 @@ export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
   const screened =
-    ["zoom", "manual"].includes(input.source.provider) &&
+    ["zoom", "manual", "granola"].includes(input.source.provider) &&
     input.kind === "transcript"
       ? await withholdRestrictedTranscriptLines(input)
       : undefined;
@@ -753,21 +755,33 @@ export async function sanitizeCaptureForStorage(
     screened && input.metadata
       ? readWithheldPassages(input.metadata)
       : undefined;
+  const hadGap =
+    Boolean(screened) &&
+    input.content
+      .split(/\r?\n/)
+      .some((line) => line.trim() === WITHHELD_MARKER);
   if (
     result.decision?.disposition !== "allowed" ||
-    (!withheldNow && prior === undefined)
+    (!withheldNow && prior === undefined && !hadGap)
   )
     return result;
-  const withheldPassages = prior === null ? null : (prior ?? 0) + withheldNow;
+  const count =
+    prior === null || (prior === undefined && hadGap)
+      ? null
+      : (prior ?? 0) + withheldNow;
+  const withheldPassages = count !== null && count > 0 ? count : null;
+  // Partial captures cannot retain arbitrary metadata that might point at the original.
   const metadata: Record<string, unknown> = {
-    ...result.metadata,
+    captureSanitization: {
+      sanitizedBeforeStorage: true,
+      rawContentRetained: false,
+      disposition: "allowed",
+      policyVersion: BRAIN_SENSITIVITY_POLICY_VERSION,
+    },
     [input.source.provider === "zoom"
       ? "zoomPassageQuarantine"
       : "passageQuarantine"]: { version: 1, withheldPassages },
   };
-  // A link to the original could expose the withheld passages.
-  for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"])
-    delete metadata[key];
   return { ...result, metadata };
 }
 
@@ -864,7 +878,7 @@ async function sanitizeWholeCapture(
             {
               dropTranscriptLines: Boolean(input.metadata?.captureSanitization),
               preserveGaps:
-                ["zoom", "manual"].includes(input.source.provider) &&
+                ["zoom", "manual", "granola"].includes(input.source.provider) &&
                 input.kind === "transcript" &&
                 input.content.includes(WITHHELD_MARKER),
             },

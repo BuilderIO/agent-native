@@ -42,7 +42,10 @@ export function withheldPassageCount(
   provider: string,
   kind: string,
 ): number | null {
-  if (provider !== "zoom" && !(provider === "manual" && kind === "transcript"))
+  if (
+    provider !== "zoom" &&
+    !(kind === "transcript" && ["manual", "granola"].includes(provider))
+  )
     return 0;
   if (metadata === null) return null;
   const withheld = readWithheldPassages(metadata);

@@ -1102,7 +1102,7 @@ export async function commitPreparedCaptureWithWarnings(
           )
           .limit(1),
       );
-      if (raced) return { capture: raced };
+      if (raced) throw new BrainCaptureConcurrentError();
     }
     throw err;
   }
@@ -1235,6 +1235,15 @@ export async function commitPreparedCaptureWithWarnings(
     .from(schema.brainRawCaptures)
     .where(eq(schema.brainRawCaptures.id, captureId))
     .limit(1);
+  const matchesWrite =
+    capture &&
+    capture.kind === values.kind &&
+    capture.contentHash === nextContentHash &&
+    capture.metadataJson === nextMetadataJson &&
+    capture.sensitivityDisposition === "allowed";
+  const assertCurrentWrite = () => {
+    if (!matchesWrite) throw new BrainCaptureConcurrentError();
+  };
   const invalidationReason = derivedInputChanged
     ? "content-changed"
     : existing.audienceAclHash !== audience.aclHash
@@ -1242,7 +1251,10 @@ export async function commitPreparedCaptureWithWarnings(
       : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
         ? "sensitivity-changed"
         : null;
-  if (!invalidationReason) return { capture, ...warningsNow() };
+  if (!invalidationReason) {
+    assertCurrentWrite();
+    return { capture, ...warningsNow() };
+  }
   try {
     await enqueueCaptureInvalidation({
       captureId,
@@ -1278,6 +1290,7 @@ export async function commitPreparedCaptureWithWarnings(
       );
     }
   }
+  assertCurrentWrite();
   return { capture, ...warningsNow() };
 }
 
@@ -1289,6 +1302,13 @@ export interface BrainSensitivityReceipt {
   confidenceBand: BrainSensitivityDecision["confidenceBand"];
   policyVersion: string;
   expiresAt: string | null;
+}
+
+export class BrainCaptureConcurrentError extends Error {
+  constructor() {
+    super("Capture changed concurrently. Retry the import.");
+    this.name = "BrainCaptureConcurrentError";
+  }
 }
 
 export class BrainCaptureBlockedError extends Error {

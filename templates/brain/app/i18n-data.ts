@@ -490,6 +490,8 @@ const enUS = {
     manualImportTranscript: "Meeting transcripts",
     chooseMarkdownFolder: "Choose folder",
     importMarkdownFiles: "Import documents",
+    manualImportConcurrent:
+      "The capture changed during import. Retry the import.",
     manualImportScreeningUnavailable:
       "Brain could not screen this import. It was not stored or queued. Retry when screening is available.",
     distillationHandoffCancelled:
@@ -3300,6 +3302,7 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "نصوص اجتماعات",
       chooseMarkdownFolder: "اختيار مجلد",
       importMarkdownFiles: "استيراد المستندات",
+      manualImportConcurrent: "تغير الالتقاط أثناء الاستيراد. أعد المحاولة.",
       manualImportScreeningUnavailable:
         "تعذر على Brain فحص هذا الاستيراد. لم يتم حفظه أو وضعه في قائمة الانتظار. أعد المحاولة عند توفر الفحص.",
       distillationHandoffCancelled: "أُلغي تسليم مهمة الاستخلاص قبل إرسالها.",
@@ -3741,6 +3744,8 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "Besprechungstranskripte",
       chooseMarkdownFolder: "Ordner auswählen",
       importMarkdownFiles: "Dokumente importieren",
+      manualImportConcurrent:
+        "Die Erfassung wurde während des Imports geändert. Versuchen Sie es erneut.",
       manualImportScreeningUnavailable:
         "Brain konnte diesen Import nicht prüfen. Er wurde weder gespeichert noch eingereiht. Versuche es erneut, sobald die Prüfung verfügbar ist.",
       distillationHandoffCancelled:
@@ -4179,6 +4184,8 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "Transcripciones de reuniones",
       chooseMarkdownFolder: "Elegir carpeta",
       importMarkdownFiles: "Importar documentos",
+      manualImportConcurrent:
+        "La captura cambió durante la importación. Vuelve a intentarlo.",
       manualImportScreeningUnavailable:
         "Brain no pudo revisar esta importación. No se guardó ni se puso en cola. Inténtalo de nuevo cuando la revisión esté disponible.",
       distillationHandoffCancelled:
@@ -4622,6 +4629,8 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "Transcriptions de réunions",
       chooseMarkdownFolder: "Choisir un dossier",
       importMarkdownFiles: "Importer des documents",
+      manualImportConcurrent:
+        "La capture a changé pendant l’import. Réessayez.",
       manualImportScreeningUnavailable:
         "Brain n’a pas pu examiner cet import. Il n’a été ni enregistré ni mis en attente. Réessayez lorsque la vérification sera disponible.",
       distillationHandoffCancelled:
@@ -5030,6 +5039,7 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "बैठक के प्रतिलेख",
       chooseMarkdownFolder: "फ़ोल्डर चुनें",
       importMarkdownFiles: "दस्तावेज़ आयात करें",
+      manualImportConcurrent: "आयात के दौरान कैप्चर बदल गया। फिर से आयात करें।",
       manualImportScreeningUnavailable:
         "Brain इस आयात की जाँच नहीं कर सका। इसे न सहेजा गया और न ही कतार में रखा गया। जाँच उपलब्ध होने पर फिर से कोशिश करें।",
       distillationHandoffCancelled:
@@ -5454,6 +5464,8 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "会議の文字起こし",
       chooseMarkdownFolder: "フォルダーを選択",
       importMarkdownFiles: "ドキュメントをインポート",
+      manualImportConcurrent:
+        "インポート中にキャプチャが変更されました。もう一度お試しください。",
       manualImportScreeningUnavailable:
         "Brain はこのインポートを検査できませんでした。保存もキューへの追加もされていません。検査が利用可能になったら再試行してください。",
       distillationHandoffCancelled:
@@ -5871,6 +5883,8 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "회의 녹취록",
       chooseMarkdownFolder: "폴더 선택",
       importMarkdownFiles: "문서 가져오기",
+      manualImportConcurrent:
+        "가져오는 동안 캡처가 변경되었습니다. 다시 시도하세요.",
       manualImportScreeningUnavailable:
         "Brain에서 이 가져오기를 검사하지 못했습니다. 저장되거나 대기열에 추가되지 않았습니다. 검사를 사용할 수 있을 때 다시 시도하세요.",
       distillationHandoffCancelled:
@@ -6304,6 +6318,8 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "Transcrições de reuniões",
       chooseMarkdownFolder: "Escolher pasta",
       importMarkdownFiles: "Importar documentos",
+      manualImportConcurrent:
+        "A captura mudou durante a importação. Tente novamente.",
       manualImportScreeningUnavailable:
         "O Brain não conseguiu verificar esta importação. Ela não foi salva nem adicionada à fila. Tente novamente quando a verificação estiver disponível.",
       distillationHandoffCancelled:
@@ -6678,6 +6694,7 @@ const exactEnglishDebtOverrides: Partial<
       manualImportTranscript: "会议转录",
       chooseMarkdownFolder: "选择文件夹",
       importMarkdownFiles: "导入文档",
+      manualImportConcurrent: "导入时捕获内容发生变化。请重试。",
       manualImportScreeningUnavailable:
         "Brain 无法检查此次导入。内容未保存，也未加入队列。请在检查服务可用后重试。",
       distillationHandoffCancelled: "蒸馏任务交接已在送达前取消。",

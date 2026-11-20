@@ -40,8 +40,8 @@ Manual sources are push/import-driven and private by default. Use
 files; it preserves relative paths for deduplication and reports each file's
 import or privacy outcome. Files default to document captures; pass
 `kind: "transcript"` when every file in the batch is a meeting transcript.
-Manual transcripts use the same passage withholding and whole-capture privacy
-screen as Zoom. Imported partial files include a safe `passageQuarantine`
+Manual and Granola transcripts use the same passage withholding and whole-capture
+privacy screen as Zoom. Imported partial files include a safe `passageQuarantine`
 receipt and `withheldPassages` count; disclose incompleteness and never infer
 omitted text. Use the
 standard sharing actions to change a source to organization visibility or grant
@@ -159,7 +159,7 @@ sensitive title, a workspace rule, a transcript over Jev's length limit, or a
 screen that exceeds its call or time budget) is still quarantined whole.
 Withheld text is never stored, and partial captures drop links to the original.
 `metadata.zoomPassageQuarantine.withheldPassages` (Zoom) or
-`metadata.passageQuarantine.withheldPassages` (manual) counts the gaps and is
+`metadata.passageQuarantine.withheldPassages` (manual and Granola) counts the gaps and is
 returned as `withheldPassages` by `get-capture`, `list-captures`, and capture
 search results (`null` means the count is unknown, not zero). Disclose that
 such captures are incomplete and never reconstruct omitted text. A meeting that

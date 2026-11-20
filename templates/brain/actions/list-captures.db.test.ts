@@ -53,18 +53,20 @@ beforeAll(async () => {
 });
 afterAll(async () => db.close());
 
-it("reports incomplete manual transcripts and persisted Zoom receipts", async () => {
+it("reports incomplete manual and Granola transcripts and persisted Zoom receipts", async () => {
   await db.exec(`
-    INSERT INTO brain_sources (id,title,provider,status) VALUES ('zoom-source','Zoom','zoom','active');
+    INSERT INTO brain_sources (id,title,provider,status) VALUES ('zoom-source','Zoom','zoom','active'), ('granola-source','Granola','granola','active');
     INSERT INTO brain_raw_captures (id,source_id,title,kind,status,sensitivity_disposition,captured_at,metadata_json) VALUES
       ('manual-partial','source-260','Manual','transcript','queued','allowed','2026-01-01','{"passageQuarantine":{"version":1,"withheldPassages":2}}'),
       ('zoom-partial','zoom-source','Zoom','transcript','queued','allowed','2026-01-01','{"zoomPassageQuarantine":{"version":1,"withheldPassages":1}}'),
+      ('granola-partial','granola-source','Granola','transcript','queued','allowed','2026-01-01','{"passageQuarantine":{"version":1,"withheldPassages":3}}'),
       ('manual-unknown','source-260','Manual','transcript','queued','allowed','2026-01-01','{"passageQuarantine":{"version":1,"withheldPassages":"bad"}}');
-    INSERT INTO brain_capture_audiences (capture_id,audience_id) VALUES ('manual-partial','audience'),('zoom-partial','audience'),('manual-unknown','audience');
+    INSERT INTO brain_capture_audiences (capture_id,audience_id) VALUES ('manual-partial','audience'),('zoom-partial','audience'),('granola-partial','audience'),('manual-unknown','audience');
   `);
   for (const [id, count] of [
     ["manual-partial", 2],
     ["zoom-partial", 1],
+    ["granola-partial", 3],
     ["manual-unknown", null],
   ] as const) {
     const result = await listCaptures.run({

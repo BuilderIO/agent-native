@@ -2069,7 +2069,32 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
-  it("returns the raced-in capture when source/external unique insert conflicts", async () => {
+  it("does not report a competing same-path insert as the requested capture", async () => {
+    seedSource();
+    mocks.insertControls.error = Object.assign(new Error("insert failed"), {
+      code: "23505",
+    });
+    mocks.insertControls.beforeThrow = (_tableRef, row) => {
+      mocks.rows.captures.push({
+        ...row,
+        id: "competing-capture",
+        kind: "document",
+        content: "different content",
+      });
+    };
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning transcript",
+        kind: "transcript",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent|retry/i);
+  });
+
+  // oracle-change: a conflicting insert is not proof that this capture was saved.
+  it("rejects source/external unique insert conflicts for retry", async () => {
     seedSource();
     mocks.insertControls.error = new Error(
       "UNIQUE constraint failed: brain_raw_captures.source_id, brain_raw_captures.external_id",
@@ -2078,15 +2103,15 @@ describe("Brain knowledge quality gates", () => {
       mocks.rows.captures.push({ ...row, id: "capture-from-race" });
     };
 
-    const capture = await createCapture({
-      sourceId: "source-1",
-      externalId: "external-1",
-      title: "Planning note",
-      kind: "note",
-      content: "Decision: ship the beta on May 20.",
-    });
-
-    expect(capture.id).toBe("capture-from-race");
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning note",
+        kind: "note",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent.*retry/i);
     expect(mocks.rows.captures).toHaveLength(1);
   });
 
@@ -2099,15 +2124,15 @@ describe("Brain knowledge quality gates", () => {
       mocks.rows.captures.push({ ...row, id: "capture-from-postgres-race" });
     };
 
-    const capture = await createCapture({
-      sourceId: "source-1",
-      externalId: "external-1",
-      title: "Planning note",
-      kind: "note",
-      content: "Decision: ship the beta on May 20.",
-    });
-
-    expect(capture.id).toBe("capture-from-postgres-race");
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning note",
+        kind: "note",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent.*retry/i);
     expect(mocks.rows.captures).toHaveLength(1);
   });
 

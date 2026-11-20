@@ -471,6 +471,31 @@ describe("capture sanitization", () => {
     });
   });
 
+  it("does not use the Granola summary fallback after a passage was withheld", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      source: { ...baseInput.source, provider: "granola" },
+      sourceConfig: { sanitizeBeforeStorage: true },
+      settings: {
+        ...DEFAULT_BRAIN_SETTINGS,
+        privacyClassifierModel: "classifier-model",
+        privacyClassifierEngine: "classifier-engine",
+      },
+      content: [
+        "Summary",
+        "Decision: ship the API launch.",
+        "Transcript",
+        "[Speaker] Project launch is on track.",
+        "[Speaker] Her salary is private.",
+        "[Speaker] Product plans are ready.",
+        "[Speaker] Roadmap follows.",
+      ].join("\n"),
+    });
+    expect(result.decision?.disposition).not.toBe("allowed");
+    expect(result.content).not.toContain("salary");
+    expect(result.content).not.toContain("ship the API");
+  });
+
   it("keeps a summaryless Clips transcript quarantined during a classifier outage", async () => {
     const result = await sanitizeCaptureForStorage({
       ...baseInput,
@@ -824,6 +849,74 @@ describe("Zoom restricted-line withholding", () => {
     });
   });
 
+  it.each(["manual", "zoom"] as const)(
+    "does not lose an omission merged into an unreceipted gap (%s)",
+    async (provider) => {
+      mocks.classifyWithJev.mockImplementation(
+        judge(mentions("MEDICAL_LEAVE")),
+      );
+      const lines = withLine(6, "MEDICAL_LEAVE details", withLine(4, "[…]"));
+      const result = await sanitizeCaptureForStorage(
+        zoomInput(transcript(lines), {
+          source: { ...baseInput.source, provider },
+          metadata: { sourceUrl: "https://example.test/original" },
+        }),
+      );
+      expect(result.decision?.disposition).toBe("allowed");
+      expect(result.content).not.toContain("MEDICAL_LEAVE");
+      expect(
+        result.metadata[
+          provider === "zoom" ? "zoomPassageQuarantine" : "passageQuarantine"
+        ],
+      ).toEqual({ version: 1, withheldPassages: null });
+      expect(result.metadata.sourceUrl).toBeUndefined();
+    },
+  );
+
+  it("drops arbitrary metadata from partial transcripts", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
+        source: { ...baseInput.source, provider: "manual" as const },
+        metadata: {
+          originalUrl: "https://example.test/original",
+          recordingUrl: "https://example.test/recording",
+          nested: { link: "https://example.test/nested" },
+          description: "private original body",
+        },
+      }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(JSON.stringify(result.metadata)).not.toContain("example.test");
+    expect(JSON.stringify(result.metadata)).not.toContain(
+      "private original body",
+    );
+    expect(result.metadata.passageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
+  });
+
+  it("withholds Granola transcript passages but keeps the whole-capture veto", async () => {
+    mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
+    const source = { ...baseInput.source, provider: "granola" as const };
+    const content = transcript(withLine(20, "MEDICAL_LEAVE details"));
+    const result = await sanitizeCaptureForStorage(
+      zoomInput(content, { source }),
+    );
+    expect(result.decision?.disposition).toBe("allowed");
+    expect(result.content).toContain("update 30 -");
+    expect(result.content).not.toContain("MEDICAL_LEAVE");
+    expect(result.metadata.passageQuarantine).toEqual({
+      version: 1,
+      withheldPassages: 1,
+    });
+    const veto = await sanitizeCaptureForStorage(
+      zoomInput(content, { source, title: "password: fake-example" }),
+    );
+    expect(veto.decision?.disposition).not.toBe("allowed");
+  });
+
   it("withholds manual transcript passages and removes every source link", async () => {
     mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
     const result = await sanitizeCaptureForStorage(
@@ -905,11 +998,11 @@ describe("Zoom restricted-line withholding", () => {
     ).rejects.toBeInstanceOf(BrainClassifierUnavailableError);
   });
 
-  it("still quarantines a whole non-Zoom transcript", async () => {
+  it("still quarantines a whole Clips transcript", async () => {
     mocks.classifyWithJev.mockImplementation(judge(mentions("MEDICAL_LEAVE")));
     const result = await sanitizeCaptureForStorage(
       zoomInput(transcript(withLine(20, "MEDICAL_LEAVE details")), {
-        source: { ...baseInput.source, provider: "granola" as const },
+        source: { ...baseInput.source, provider: "clips" as const },
       }),
     );
     expect(result.decision?.disposition).not.toBe("allowed");

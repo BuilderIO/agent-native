@@ -2019,7 +2019,9 @@ function MarkdownImportDialog({
                         <span className="font-mono">{file.path}</span>:{" "}
                         {file.errorCode === "screening_unavailable"
                           ? t("sources.manualImportScreeningUnavailable")
-                          : (file.error ?? t("sources.manualImportBlocked"))}
+                          : file.errorCode === "capture_concurrent"
+                            ? t("sources.manualImportConcurrent")
+                            : (file.error ?? t("sources.manualImportBlocked"))}
                       </p>
                     ))}
                     {resultIssues.length > 5 ? (
