@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -60,6 +61,13 @@ export function resolveSharedMemoryFilePath(
   return resolved;
 }
 
+export class MemoryTombstoneError extends Error {}
+
+export type MirroredMemory =
+  | { state: "absent" }
+  | { state: "deleted"; deletedAt: number }
+  | { state: "present"; content: string; mtimeMs: number; size: number };
+
 function resolveTombstonePath(
   rootDir: string,
   owner: string,
@@ -69,48 +77,61 @@ function resolveTombstonePath(
   return filePath ? `${filePath}.deleted` : null;
 }
 
-export async function readSharedMemoryTombstone(
-  owner: string,
-  resourcePath: string,
-): Promise<number | null> {
-  const rootDir = getSharedMemoryDir();
-  if (!rootDir) return null;
-  const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
-  if (!tombstonePath) return null;
+async function writeAtomic(filePath: string, content: string): Promise<void> {
+  const temp = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  await fs.promises.writeFile(temp, content, "utf8");
+  await fs.promises.rename(temp, filePath);
+}
+
+async function readTombstone(tombstonePath: string): Promise<number | null> {
   try {
-    const deletedAt = Number(await fs.promises.readFile(tombstonePath, "utf8"));
-    if (!Number.isFinite(deletedAt)) {
-      throw new Error(`Unreadable memory tombstone: ${tombstonePath}`);
+    const text = (await fs.promises.readFile(tombstonePath, "utf8")).trim();
+    if (!/^\d+$/.test(text)) {
+      throw new MemoryTombstoneError(
+        `Invalid memory tombstone: ${tombstonePath}`,
+      );
     }
-    return deletedAt;
+    return Number(text);
   } catch (error) {
     if (isMissingPathError(error)) return null;
     throw error;
   }
 }
 
-export async function readSharedPersonalMemory(
+/**
+ * The one reader of mirrored memory. A tombstone at least as new as the file
+ * means the memory was deleted, whether or not the file is still there.
+ */
+export async function readMirroredMemory(
   owner: string,
   resourcePath: string,
-): Promise<{ content: string; mtimeMs: number; size: number } | null> {
-  const rootDir = getSharedMemoryDir();
-  if (!rootDir) return null;
+  rootDir: string | null = getSharedMemoryDir(),
+): Promise<MirroredMemory> {
+  if (!rootDir) return { state: "absent" };
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
-  if (!filePath) return null;
+  const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
+  if (!filePath || !tombstonePath) return { state: "absent" };
+  const deletedAt = await readTombstone(tombstonePath);
   try {
     const [stat, content] = await Promise.all([
       fs.promises.stat(filePath),
       fs.promises.readFile(filePath, "utf8"),
     ]);
-    if (!stat.isFile()) return null;
+    if (!stat.isFile()) return { state: "absent" };
+    if (deletedAt !== null && stat.mtimeMs <= deletedAt) {
+      return { state: "deleted", deletedAt };
+    }
     return {
+      state: "present",
       content,
-      mtimeMs: Math.floor(stat.mtimeMs),
+      mtimeMs: stat.mtimeMs,
       size: Buffer.byteLength(content, "utf8"),
     };
   } catch (error) {
-    if (isMissingPathError(error)) return null;
-    throw error;
+    if (!isMissingPathError(error)) throw error;
+    return deletedAt === null
+      ? { state: "absent" }
+      : { state: "deleted", deletedAt };
   }
 }
 
@@ -124,7 +145,7 @@ export async function writeSharedPersonalMemory(
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   if (!filePath) return;
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.promises.writeFile(filePath, content, "utf8");
+  await writeAtomic(filePath, content);
   const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
   if (tombstonePath) {
     await fs.promises.unlink(tombstonePath).catch((error) => {
@@ -172,11 +193,16 @@ export async function listSharedPersonalMemories(
       if (!entry.isFile() || !SAFE_MEMORY_FILE_PATTERN.test(entry.name)) {
         continue;
       }
-      const stat = await fs.promises.stat(path.join(ownerDir, entry.name));
+      const memory = await readMirroredMemory(
+        owner,
+        `${MEMORY_PREFIX}${entry.name}`,
+        rootDir,
+      );
+      if (memory.state !== "present") continue;
       results.push({
         path: `${MEMORY_PREFIX}${entry.name}`,
-        mtimeMs: Math.floor(stat.mtimeMs),
-        size: stat.size,
+        mtimeMs: memory.mtimeMs,
+        size: memory.size,
       });
     }
     return results;

@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 
 import type { AppConfig } from "@shared/app-registry";
-import { net, shell } from "electron";
+import { app, net, shell } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
 import { readCookieHeaderForUrl } from "../cookie-header";
@@ -1245,12 +1245,13 @@ describe("Builder relay owner handling", () => {
 });
 
 describe("desktop Pi extension memory prompt", () => {
-  async function startSession(ownerFile: string, dir: string) {
-    const file = path.join(dir, "ext.mjs");
+  async function startSession(promptFile: string) {
+    const file = path.join(
+      mkdtempSync(path.join("/tmp", "pi-ext-")),
+      "ext.mjs",
+    );
     writeFileSync(file, PI_TERMINAL_EXTENSION_SOURCE);
-    vi.stubEnv("AGENT_NATIVE_MEMORY_DIR", dir);
     vi.stubEnv("AGENT_NATIVE_TERMINAL_MCP_SERVERS", "{}");
-    vi.stubEnv("AGENT_NATIVE_MEMORY_OWNER_FILE", ownerFile);
     type Handler = (event: unknown) => { systemPrompt: string };
     const handlers = new Map<string, Handler>();
     const pi = new Proxy(
@@ -1261,63 +1262,51 @@ describe("desktop Pi extension memory prompt", () => {
     mod.default(pi);
     const handler = handlers.get("before_agent_start");
     return () => {
-      vi.stubEnv("AGENT_NATIVE_MEMORY_OWNER_FILE", ownerFile);
+      vi.stubEnv("AGENT_NATIVE_MEMORY_PROMPT_FILE", promptFile);
       return handler ? handler({ systemPrompt: "" }).systemPrompt : "";
     };
   }
 
-  async function promptFor(owner: string | undefined, dir: string) {
-    const ownerFile = path.join(dir, "owner-file");
-    if (owner === undefined) rmSync(ownerFile, { force: true });
-    else writeFileSync(ownerFile, owner);
-    return (await startSession(ownerFile, dir))();
+  function seedAccounts() {
+    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
+    vi.mocked(app.getPath).mockReturnValue(dir);
+    const accounts: Array<{ owner: string; text: string }> = [
+      { owner: "a@example.test", text: "ALICE-SECRET" },
+      { owner: "b@example.test", text: "BOB-SECRET" },
+    ];
+    for (const { owner, text } of accounts) {
+      const ownerDir = path.join(dir, "memory", encodeURIComponent(owner));
+      mkdirSync(ownerDir, { recursive: true });
+      writeFileSync(path.join(ownerDir, "MEMORY.md"), text);
+    }
+    return dir;
   }
 
   it("loads only the signed-in account's memory", async () => {
-    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
-    const accounts: Array<{ owner: string; text: string }> = [
-      { owner: "a@example.test", text: "ALICE-SECRET" },
-      { owner: "b@example.test", text: "BOB-SECRET" },
-    ];
-    for (const { owner, text } of accounts) {
-      mkdirSync(path.join(dir, encodeURIComponent(owner)), { recursive: true });
-      writeFileSync(
-        path.join(dir, encodeURIComponent(owner), "MEMORY.md"),
-        text,
-      );
-    }
-    const prompt = await promptFor("A@example.test", dir);
+    const dir = seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = (await startSession(session.file))();
     expect(prompt).toContain("ALICE-SECRET");
     expect(prompt).not.toContain("BOB-SECRET");
-    const none = await promptFor(undefined, dir);
-    expect(none).not.toContain("SECRET");
+    session.release();
+    setDesktopMemoryAccount(null);
+    const none = await bindDesktopSessionMemoryOwner();
+    expect((await startSession(none.file))()).not.toContain("SECRET");
+    none.release();
+    rmSync(dir, { recursive: true, force: true });
   });
 
-  function seedAccounts(dir: string) {
-    const accounts: Array<{ owner: string; text: string }> = [
-      { owner: "a@example.test", text: "ALICE-SECRET" },
-      { owner: "b@example.test", text: "BOB-SECRET" },
-    ];
-    for (const { owner, text } of accounts) {
-      mkdirSync(path.join(dir, encodeURIComponent(owner)), { recursive: true });
-      writeFileSync(
-        path.join(dir, encodeURIComponent(owner), "MEMORY.md"),
-        text,
-      );
-    }
-  }
-
   it("stops a running session's memory when the account switches", async () => {
-    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
-    seedAccounts(dir);
+    seedAccounts();
     setDesktopMemoryAccount("a@example.test");
-    const old = bindDesktopSessionMemoryOwner();
-    const oldPrompt = await startSession(old.file, dir);
+    const old = await bindDesktopSessionMemoryOwner();
+    const oldPrompt = await startSession(old.file);
     expect(oldPrompt()).toContain("ALICE-SECRET");
 
     setDesktopMemoryAccount("b@example.test");
-    const fresh = bindDesktopSessionMemoryOwner();
-    const freshPrompt = await startSession(fresh.file, dir);
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
 
     expect(oldPrompt()).not.toContain("SECRET");
     expect(freshPrompt()).toContain("BOB-SECRET");
@@ -1328,20 +1317,35 @@ describe("desktop Pi extension memory prompt", () => {
   });
 
   it("clears memory for running and new sessions on sign-out", async () => {
-    const dir = mkdtempSync(path.join("/tmp", "pi-memory-"));
-    seedAccounts(dir);
+    seedAccounts();
     setDesktopMemoryAccount("a@example.test");
-    const running = bindDesktopSessionMemoryOwner();
-    const runningPrompt = await startSession(running.file, dir);
+    const running = await bindDesktopSessionMemoryOwner();
+    const runningPrompt = await startSession(running.file);
     expect(runningPrompt()).toContain("ALICE-SECRET");
 
     noteDesktopBuilderRelayOwner("no-account");
-    const fresh = bindDesktopSessionMemoryOwner();
-    const freshPrompt = await startSession(fresh.file, dir);
+    const fresh = await bindDesktopSessionMemoryOwner();
+    const freshPrompt = await startSession(fresh.file);
 
     expect(runningPrompt()).not.toContain("SECRET");
     expect(freshPrompt()).not.toContain("SECRET");
     running.release();
     fresh.release();
+  });
+
+  it("injects nothing for a memory whose tombstone is newer than its file", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    writeFileSync(`${index}.deleted`, String(Date.now() + 60_000));
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    expect((await startSession(session.file))()).not.toContain("SECRET");
+    session.release();
+    setDesktopMemoryAccount(null);
   });
 });

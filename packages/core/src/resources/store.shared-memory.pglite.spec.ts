@@ -368,4 +368,72 @@ describe("personal memory shared across local apps", () => {
     );
     expect(rows).toEqual([]);
   });
+
+  it("skips a mirror write whose SQL revision is no longer current", async () => {
+    const dir = useMemoryDir();
+    const { resourcePut, resourcePutWithDb } = await import("./store.js");
+    const stale = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/guard.md",
+      "first",
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    await resourcePut(OWNER, "memory/guard.md", "second");
+    await stale.notifyAfterCommit();
+
+    expect(fs.readFileSync(sharedFile(dir, "guard.md"), "utf8")).toBe("second");
+  });
+
+  it("keeps a tombstone when a stale mirror write arrives after a delete", async () => {
+    const dir = useMemoryDir();
+    const { resourceDeleteByPath, resourcePutWithDb } =
+      await import("./store.js");
+    const stale = await resourcePutWithDb(
+      sharedClient,
+      OWNER,
+      "memory/late.md",
+      "late",
+    );
+    await resourceDeleteByPath(OWNER, "memory/late.md");
+    await stale.notifyAfterCommit();
+
+    expect(fs.existsSync(sharedFile(dir, "late.md"))).toBe(false);
+    expect(fs.existsSync(`${sharedFile(dir, "late.md")}.deleted`)).toBe(true);
+  });
+
+  it("orders at full precision, prefers SQL on a tie, and never moves updatedAt back", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const stored = await resourcePut(OWNER, "memory/order.md", "sql");
+    const file = sharedFile(dir, "order.md");
+    fs.writeFileSync(file, "tie");
+    const tie = new Date(stored.updatedAt);
+    fs.utimesSync(file, tie, tie);
+    await expect(
+      resourceGetByPath(OWNER, "memory/order.md"),
+    ).resolves.toMatchObject({ content: "sql" });
+
+    const sub = stored.updatedAt + 0.5;
+    fs.utimesSync(file, sub / 1000, sub / 1000);
+    const adopted = await resourceGetByPath(OWNER, "memory/order.md");
+    expect(adopted?.content).toBe("tie");
+    expect(adopted?.updatedAt).toBeGreaterThanOrEqual(stored.updatedAt);
+
+    await pglite.exec(
+      `UPDATE resources SET content = '# Memory Index', updated_at = ${stored.updatedAt + 600_000} WHERE owner = '${OWNER}'`,
+    );
+    fs.utimesSync(file, tie, tie);
+    const empty = await resourcePut(
+      OWNER,
+      "memory/MEMORY.md",
+      "# Memory Index",
+    );
+    fs.writeFileSync(
+      sharedFile(dir, "MEMORY.md"),
+      "# Memory Index\n- [x](x.md)\n",
+    );
+    const filled = await resourceGetByPath(OWNER, "memory/MEMORY.md");
+    expect(filled?.updatedAt).toBeGreaterThanOrEqual(empty.updatedAt);
+  });
 });

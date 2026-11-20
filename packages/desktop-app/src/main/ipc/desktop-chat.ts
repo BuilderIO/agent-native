@@ -11,6 +11,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
+import { readMirroredMemory } from "@agent-native/core/resources/shared-memory";
 import { createPtyWebSocketServer } from "@agent-native/core/terminal/pty-server";
 import {
   getDesktopVisibleApps,
@@ -359,26 +360,12 @@ export default function (pi) {
   }
 
   function readSharedPersonalMemoryPrompt() {
-    const rootDir = process.env.AGENT_NATIVE_MEMORY_DIR;
-    if (!rootDir) return "";
+    const promptFile = process.env.AGENT_NATIVE_MEMORY_PROMPT_FILE;
+    if (!promptFile) return "";
     try {
-      const fs = require("node:fs");
-      const path = require("node:path");
-      if (!fs.existsSync(rootDir)) return "";
-      const ownerFile = process.env.AGENT_NATIVE_MEMORY_OWNER_FILE;
-      if (!ownerFile || !fs.existsSync(ownerFile)) return "";
-      const owner = fs.readFileSync(ownerFile, "utf8").trim().toLowerCase();
-      if (!owner) return "";
-      const sections = [];
-      const indexPath = path.join(rootDir, encodeURIComponent(owner), "MEMORY.md");
-      if (fs.existsSync(indexPath)) {
-        const content = fs.readFileSync(indexPath, "utf8").trim();
-        if (content && content !== "# Memory Index") {
-          sections.push('<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n' + content + "\n</resource>");
-        }
-      }
-      return sections.length > 0 ? "\n\n" + sections.join("\n\n") : "";
+      return require("node:fs").readFileSync(promptFile, "utf8");
     } catch (error) {
+      if (error && error.code === "ENOENT") return "";
       console.error("[desktop-chat] Could not read shared memory:", error);
       return "";
     }
@@ -927,7 +914,7 @@ async function createDesktopTerminalSession(
   let piExtensionPath: string | undefined;
   let codexHome: string | undefined;
   let closed = false;
-  const memoryOwner = bindDesktopSessionMemoryOwner();
+  const memoryOwner = await bindDesktopSessionMemoryOwner();
   const close = async () => {
     if (closed) return;
     closed = true;
@@ -1015,8 +1002,8 @@ async function createDesktopTerminalSession(
         piExtensionPath,
       ),
       environment: {
-        AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
-        AGENT_NATIVE_MEMORY_OWNER_FILE: memoryOwner.file,
+        AGENT_NATIVE_MEMORY_DIR: desktopMemoryDir(),
+        AGENT_NATIVE_MEMORY_PROMPT_FILE: memoryOwner.file,
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
@@ -1777,19 +1764,41 @@ export function setDesktopMemoryAccount(account: string | null): void {
   }
 }
 
-export function bindDesktopSessionMemoryOwner(): {
+function desktopMemoryDir(): string {
+  return path.join(app.getPath("userData"), "memory");
+}
+
+async function renderMemoryPrompt(account: string): Promise<string> {
+  try {
+    const index = await readMirroredMemory(
+      account,
+      "memory/MEMORY.md",
+      desktopMemoryDir(),
+    );
+    const content = index.state === "present" ? index.content.trim() : "";
+    if (!content || content === "# Memory Index") return "";
+    return `\n\n<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n${content}\n</resource>`;
+  } catch (error) {
+    console.error("[desktop-chat] Could not read shared memory:", error);
+    return "";
+  }
+}
+
+export async function bindDesktopSessionMemoryOwner(): Promise<{
   file: string;
   release: () => void;
-} {
+}> {
   const file = path.join(
     app.getPath("userData"),
     "memory-owners",
     randomUUID(),
   );
-  if (currentMemoryAccount) {
+  const account = currentMemoryAccount;
+  const prompt = account ? await renderMemoryPrompt(account) : "";
+  if (account && prompt && currentMemoryAccount === account) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, currentMemoryAccount, { mode: 0o600 });
-    memoryOwnerFiles.set(file, currentMemoryAccount);
+    fs.writeFileSync(file, prompt, { mode: 0o600 });
+    memoryOwnerFiles.set(file, account);
   }
   return {
     file,

@@ -362,6 +362,7 @@
     "./resources": "./dist/resources/index.js",
     "./resources/store": "./dist/resources/store.js",
     "./resources/metadata": "./dist/resources/metadata.js",
+    "./resources/shared-memory": "./dist/resources/shared-memory.js",
     "./oauth-tokens": "./dist/oauth-tokens/index.js",
     "./secrets": "./dist/secrets/index.js",
     "./secrets/crypto": "./dist/secrets/crypto.js",

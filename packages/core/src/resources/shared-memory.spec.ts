@@ -8,7 +8,8 @@ import {
   deleteSharedPersonalMemory,
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
-  readSharedPersonalMemory,
+  MemoryTombstoneError,
+  readMirroredMemory,
   resolveSharedMemoryFilePath,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
@@ -83,28 +84,31 @@ describe("shared-memory", () => {
       "memory/wife-contact.md",
     ]);
 
-    const readIndex = await readSharedPersonalMemory(
+    const readIndex = await readMirroredMemory(
       "alice@example.com",
       "memory/MEMORY.md",
     );
-    expect(readIndex?.content).toContain("wife-contact.md");
+    expect(readIndex).toMatchObject({
+      state: "present",
+      content: expect.stringContaining("wife-contact.md"),
+    });
 
-    const readContact = await readSharedPersonalMemory(
+    const readContact = await readMirroredMemory(
       "alice@example.com",
       "memory/wife-contact.md",
     );
-    expect(readContact?.content).toContain("wife@example.com");
+    expect(readContact).toMatchObject({
+      state: "present",
+      content: expect.stringContaining("wife@example.com"),
+    });
 
     await deleteSharedPersonalMemory(
       "alice@example.com",
       "memory/wife-contact.md",
     );
     expect(
-      await readSharedPersonalMemory(
-        "alice@example.com",
-        "memory/wife-contact.md",
-      ),
-    ).toBeNull();
+      await readMirroredMemory("alice@example.com", "memory/wife-contact.md"),
+    ).toEqual({ state: "deleted", deletedAt: expect.any(Number) });
   });
 
   it("rejects traversal paths", () => {
@@ -148,5 +152,39 @@ describe("shared-memory", () => {
       "save-memory",
       "delete-memory",
     ]);
+  });
+
+  it("rejects an empty or non-numeric tombstone instead of reading it as 0", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    await writeSharedPersonalMemory("alice@example.com", "memory/t.md", "x");
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/t.md",
+    );
+    for (const text of ["", "  ", "abc", "-5", "1.5"]) {
+      fs.writeFileSync(`${file}.deleted`, text);
+      await expect(
+        readMirroredMemory("alice@example.com", "memory/t.md"),
+      ).rejects.toBeInstanceOf(MemoryTombstoneError);
+    }
+  });
+
+  it("writes tombstones atomically and keeps tied files deleted", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    await writeSharedPersonalMemory("alice@example.com", "memory/a.md", "x");
+    await deleteSharedPersonalMemory("alice@example.com", "memory/a.md");
+    const ownerDir = path.join(dir, encodeURIComponent("alice@example.com"));
+    expect(fs.readdirSync(ownerDir)).toEqual(["a.md.deleted"]);
+
+    fs.writeFileSync(path.join(ownerDir, "a.md"), "survivor");
+    const tombstone = path.join(ownerDir, "a.md.deleted");
+    const at = fs.statSync(path.join(ownerDir, "a.md")).mtimeMs;
+    fs.writeFileSync(tombstone, String(Math.ceil(at)));
+    await expect(
+      readMirroredMemory("alice@example.com", "memory/a.md"),
+    ).resolves.toMatchObject({ state: "deleted" });
   });
 });
