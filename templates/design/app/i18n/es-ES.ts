@@ -1041,6 +1041,13 @@ export default {
       collapse: "Contraer barra lateral",
       expand: "Expandir barra lateral",
     },
+    columnHead: {
+      comments: "Comentarios",
+      unreadComments: "Comentarios no leídos",
+      resizeLeftPanel: "Cambiar tamaño del panel izquierdo",
+      resizeInspector: "Cambiar tamaño del inspector",
+      whatsNew: "Novedades",
+    },
     breakpointBar: {
       base: "Base",
       editBaseWidth: "Editar ancho de base",
@@ -1292,6 +1299,7 @@ export default {
     templateSaved: "Plantilla guardada en la biblioteca",
     templateSaveFailed: "No se pudo guardar esta plantilla",
     appMenu: {
+      backToDashboard: "Volver al panel",
       file: "Archivo",
       preferences: "Preferencias",
       newDesign: "Nuevo diseño",

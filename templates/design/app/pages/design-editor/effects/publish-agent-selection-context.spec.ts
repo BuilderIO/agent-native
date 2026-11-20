@@ -54,6 +54,7 @@ function argsFor({
       content: "<!doctype html><html><body>Welcome</body></html>",
     } as Args["activeFile"],
     activeLeftPanel: null,
+    commentsPanelOpen: false,
     activeTool: "move" as Args["activeTool"],
     design: null,
     designDataJson: {},

@@ -4,10 +4,10 @@ import { AGENT_SIDEBAR_MIN_WIDTH } from "@agent-native/core/client/agent-sidebar
 // narrower column would clip the chat.
 export const DEFAULT_LEFT_SIDEBAR_WIDTH = AGENT_SIDEBAR_MIN_WIDTH;
 const LEFT_SIDEBAR_WIDTH_STEP = 8;
-const LEFT_SIDEBAR_MIN_WIDTH = AGENT_SIDEBAR_MIN_WIDTH;
-const LEFT_SIDEBAR_MAX_WIDTH = 416;
+export const LEFT_SIDEBAR_MIN_WIDTH = AGENT_SIDEBAR_MIN_WIDTH;
+export const LEFT_SIDEBAR_MAX_WIDTH = 416;
 
-// Layers, Agent, Tokens and Threads share one stored width and these limits, so
+// Every left panel tab shares one stored width and these limits, so
 // switching between them never moves the canvas edge.
 /** Width the left panel renders at for the stored width. */
 export function resolveLeftSidebarWidth(storedWidth: number): number {

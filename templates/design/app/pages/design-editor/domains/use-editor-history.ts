@@ -10,6 +10,7 @@ import {
   useRef,
   useMemo,
   type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
 } from "react";
 import * as Y from "yjs";
 
@@ -68,6 +69,10 @@ import {
   removeRecentUndoRedoOrderKinds,
 } from "../history";
 import { handleHostChatState } from "../host-chat-state";
+import {
+  DEFAULT_INSPECTOR_WIDTH,
+  resolveInspectorWidth,
+} from "../inspector-width";
 import { scopedLayerStateId } from "../layer-state-scope";
 import { DEFAULT_LEFT_SIDEBAR_WIDTH } from "../left-sidebar-width";
 import {
@@ -84,6 +89,12 @@ import {
   type PendingVisualStyleUndoEntry,
   shouldClearPendingLiveEditsAfterReload,
 } from "../pending-edits";
+import {
+  INSPECTOR_WIDTH_STORAGE_KEY,
+  LEFT_SIDEBAR_WIDTH_STORAGE_KEY,
+  readStoredSidebarWidth,
+  writeStoredSidebarWidth,
+} from "../sidebar-width-storage";
 import { type DesignLeftPanel } from "../types";
 import type { EditorCore } from "./use-editor-core";
 
@@ -164,15 +175,48 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const stagedHandoffStartedRef = useRef<(() => void) | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
-  const [activeLeftPanel, setActiveLeftPanel] =
+  const [activeLeftPanel, setActiveLeftPanelState] =
     useState<DesignLeftPanel | null>("file");
-  const collapseLeftPanel = useCallback(() => setActiveLeftPanel(null), []);
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
-    DEFAULT_LEFT_SIDEBAR_WIDTH,
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  // `threads` was the left rail's comments panel. Comments now open in the
+  // right column in place of the inspector, so every caller that still asks
+  // for `threads` (comment tool, thread focus, navigate, ?panel=) opens them
+  // there and leaves the left tab alone.
+  const setActiveLeftPanel = useCallback(
+    (next: SetStateAction<DesignLeftPanel | null>) => {
+      if (next === "threads") {
+        setCommentsPanelOpen(true);
+        return;
+      }
+      setActiveLeftPanelState(next);
+    },
+    [],
   );
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
+    () =>
+      readStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY) ??
+      DEFAULT_LEFT_SIDEBAR_WIDTH,
+  );
+  const [storedRightSidebarWidth, setRightSidebarWidth] = useState(
+    () =>
+      readStoredSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY) ??
+      DEFAULT_INSPECTOR_WIDTH,
+  );
+  const rightSidebarWidth = resolveInspectorWidth(storedRightSidebarWidth);
+  useEffect(() => {
+    writeStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY, leftSidebarWidth);
+  }, [leftSidebarWidth]);
+  useEffect(() => {
+    writeStoredSidebarWidth(
+      INSPECTOR_WIDTH_STORAGE_KEY,
+      storedRightSidebarWidth,
+    );
+  }, [storedRightSidebarWidth]);
   const [minimalUiRequested, setMinimalUi] = useState(minimalUiByDefault);
   const minimalUi = minimalUiRequested || minimalUiLocked;
+  // With no rail, a collapsed left panel would leave nothing to reopen it
+  // from; collapsing floats the file name as minimal UI's island instead.
+  const collapseLeftPanel = useCallback(() => setMinimalUi(true), []);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const leftSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);
@@ -1169,8 +1213,12 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     activeLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
+    commentsPanelOpen,
+    setCommentsPanelOpen,
     leftSidebarWidth,
+    setLeftSidebarWidth,
     rightSidebarWidth,
+    setRightSidebarWidth,
     minimalUi,
     setMinimalUi,
     isMobileViewport,

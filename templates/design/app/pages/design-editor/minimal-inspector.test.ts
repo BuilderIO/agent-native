@@ -51,44 +51,20 @@ describe("isRightInspectorVisible", () => {
     responsiveInteractActive: false,
     minimalUi: false,
     minimalInspectorHasSelection: false,
-    topBarVisible: true,
-    mode: "edit" as const,
-    canEdit: true,
   };
 
-  it("shows in Design for someone who can edit", () => {
+  it("shows in Design", () => {
     expect(isRightInspectorVisible(docked)).toBe(true);
   });
 
+  // oracle-change: with no top bar the right column head carries Comments and Share, so mode and edit access no longer decide whether the column shows
   it("is hidden in Interact", () => {
     expect(
       isRightInspectorVisible({
         ...docked,
-        mode: "interact",
         responsiveInteractActive: true,
       }),
     ).toBe(false);
-    expect(isRightInspectorVisible({ ...docked, mode: "interact" })).toBe(
-      false,
-    );
-  });
-
-  it("is hidden in Annotate rather than left as an empty column", () => {
-    expect(isRightInspectorVisible({ ...docked, mode: "comment" })).toBe(false);
-  });
-
-  it("is hidden for someone who cannot edit: Code and Comments tabs no longer give them one", () => {
-    expect(isRightInspectorVisible({ ...docked, canEdit: false })).toBe(false);
-  });
-
-  it("keeps the rail outside Design where the top bar is absent, because it carries the share controls", () => {
-    const withoutTopBar = { ...docked, topBarVisible: false };
-    expect(isRightInspectorVisible({ ...withoutTopBar, mode: "comment" })).toBe(
-      true,
-    );
-    expect(isRightInspectorVisible({ ...withoutTopBar, canEdit: false })).toBe(
-      true,
-    );
   });
 
   it("stays hidden when the host owns the chrome, on a phone, and with the UI hidden", () => {

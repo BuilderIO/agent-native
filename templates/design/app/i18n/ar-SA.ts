@@ -1019,6 +1019,13 @@ export default {
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
     },
+    columnHead: {
+      comments: "التعليقات",
+      unreadComments: "تعليقات غير مقروءة",
+      resizeLeftPanel: "تغيير حجم اللوحة اليسرى",
+      resizeInspector: "تغيير حجم أداة الفحص",
+      whatsNew: "ما الجديد",
+    },
     breakpointBar: {
       base: "الأساس",
       editBaseWidth: "تحرير عرض الأساس",
@@ -1256,6 +1263,7 @@ export default {
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
     appMenu: {
+      backToDashboard: "العودة إلى لوحة التحكم",
       file: "ملف",
       preferences: "التفضيلات",
       newDesign: "تصميم جديد",

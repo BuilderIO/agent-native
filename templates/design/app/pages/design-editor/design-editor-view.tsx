@@ -20,12 +20,13 @@ import {
 import { BreakpointDeviceControl } from "@/components/design/BreakpointBar";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
-import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
+import { InteractZoomControl } from "@/components/design/editor/InteractZoomControl";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { ShareLivePreview } from "@/components/design/ShareLivePreview";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -97,7 +98,6 @@ import {
 import { mergePresenceUsers } from "./presence-users";
 import { shouldDisableExportsUntilCanvasFramesExist } from "./selection-state";
 import { getDesignBottomToolbarMode } from "./tool-state";
-import { TOP_BAR_HEIGHT_PX, getTopBarModes, isTopBarVisible } from "./top-bar";
 import { type EditorMode } from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
@@ -110,10 +110,7 @@ import { renderProjectMenu } from "./view/project-menu";
 import { renderProjectTitleControl } from "./view/project-title-control";
 import { renderPromptPopovers } from "./view/prompt-popovers";
 import { renderPublishWaitlistControl } from "./view/publish-waitlist-control";
-import {
-  renderInteractFloatingBar,
-  renderInteractTopBarSlots,
-} from "./view/responsive-interact-toolbar";
+import { renderInteractFloatingBar } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
@@ -124,12 +121,6 @@ import { VisualEditWebMcp } from "./VisualEditWebMcp";
 /* i18n-ignore */
 /* i18n-ignore */
 /* i18n-ignore */
-
-// Mirrors `--design-chrome-rail-width` in app/global.css (7 baseline units ×
-// 8px). The rail is always-on chrome (not measured via a ref) so the very
-// first overview camera render — before any layout effect could measure the
-// DOM — already accounts for it; see chromeInsetLeft below.
-const DESIGN_CHROME_RAIL_WIDTH_PX = 56;
 
 function getActiveFileId(file: { id: string } | undefined): string | undefined {
   return file?.id;
@@ -215,6 +206,7 @@ export function renderDesignEditorView({
     setRuntimeLayerSnapshotRequest,
     pinMode,
     reviewFeedbackApplying,
+    reviewUnreadCount,
     pendingQuestions,
     pendingQuestionsTitle,
     pendingQuestionsDescription,
@@ -363,6 +355,9 @@ export function renderDesignEditorView({
     handleModeChange,
     handlePinToolToggle,
     handleScreenReload,
+    interactZoom,
+    interactZoomChoice,
+    handleInteractZoomChange,
     handleCloseKeyboardShortcuts,
   } = editorModes;
   const {
@@ -1093,79 +1088,64 @@ export function renderDesignEditorView({
       </div>
     ) : null;
 
-  const topBarVisible = isTopBarVisible({
-    embedded,
-    isVisualEditSurface,
-    minimalUi,
-    uiHidden,
-  });
-
-  // Minimal UI hides the top bar, so its floating right bar carries the same
-  // controls.
+  // The right column head; minimal UI and Interact float it as an island.
   const rightSidebarActions = renderRightSidebarActions({
     editorCore,
     editorHistory,
-    renderZoomControl,
     renderPendingNodeRewriteControl,
     publishWaitlistControl,
     presenceControl,
     reviewFeedbackControl,
     renderShareControl: (dense) =>
-      renderShareControl(
-        dense,
-        !topBarVisible ? nextStepShareActionEvent : undefined,
-      ),
+      renderShareControl(dense, nextStepShareActionEvent),
     localPreviewRow,
+    showCommentsToggle: Boolean(editorToolsAndVectors.reviewCommentsPanelProps),
+    reviewUnreadCount,
   });
+  const commentsPanel =
+    editorHistory.commentsPanelOpen &&
+    editorToolsAndVectors.reviewCommentsPanelProps ? (
+      <ReviewCommentsPanel
+        {...editorToolsAndVectors.reviewCommentsPanelProps}
+        onNewThread={() => {
+          // handlePinToolToggle turns comment mode off when it is already on.
+          if (!pinMode) handlePinToolToggle();
+        }}
+      />
+    ) : null;
 
-  const topBarControlsVisible = !initialGenerationChromeLimited;
-  // The mode switch used to live in the bottom toolbar, so it keeps that
-  // toolbar's gating.
-  const topBarShowsModes =
-    designBottomToolbarMode === "editor" && design && !questionFlowActive;
+  const chromeControlsVisible = !initialGenerationChromeLimited;
   // Leaving Interact for Design needs a fresh runtime layer snapshot, same
   // as the Interact bar's own Edit button.
-  const handleTopBarModeChange = (next: EditorMode) => {
+  const handleToolbarModeChange = (next: EditorMode) => {
     if (mode === "interact" && next === "edit") {
       setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
     }
     handleModeChange(next);
   };
-  const topBarActions = (
-    <>
-      <SaveStatusIndicator
-        unsavedChangeCount={unsavedChangeCount}
-        onRetry={retryUnsavedChanges}
+  const toolbarZoomControl =
+    !chromeControlsVisible ? null : responsiveInteractActive ? (
+      <InteractZoomControl
+        zoom={interactZoom}
+        choice={interactZoomChoice}
+        onChange={handleInteractZoomChange}
       />
-      {renderPendingNodeRewriteControl(isMobileViewport)}
-      {reviewFeedbackControl}
-      {publishWaitlistControl}
-      {renderShareControl(
-        true,
-        topBarVisible ? nextStepShareActionEvent : undefined,
-      )}
-    </>
-  );
+    ) : (
+      renderZoomControl("toolbar")
+    );
 
-  // Interact's device, theme and screen controls: in the top bar when it is
-  // docked, in a floating bar (with an Exit, since there is no mode switch)
-  // wherever the top bar is absent: minimal UI (which includes a widget), hidden
-  // UI, the visual-edit route.
+  // Interact's device, theme and screen controls float over the running page
+  // with an Exit; the toolbar's mode switch is the other way back.
   const interactControlArgs = {
     editorActiveScreenAndGeometry,
     editorModes,
     activeScreenId: activeFile?.id ?? null,
   };
-  const interactInTopBar = topBarVisible;
-  const interactTopBarSlots =
-    responsiveInteractActive && interactInTopBar
-      ? renderInteractTopBarSlots(interactControlArgs)
-      : null;
   // A URL screen in Design carries its route, Reload and Open in browser in
-  // the bar's centre, where Interact keeps its screen controls. It is a
+  // the same floating spot, where Interact keeps its screen controls. It is a
   // reading of the app's URL, not a picker.
   const activeUrlScreen =
-    mode === "edit" && topBarVisible && !responsiveInteractActive
+    mode === "edit" && !responsiveInteractActive && !minimalUi
       ? resolveUrlScreen({
           screen: overviewScreens.find(
             (screen) => screen.id === activeFile?.id,
@@ -1177,14 +1157,24 @@ export function renderDesignEditorView({
         })
       : null;
   const interactFloatingBar =
-    responsiveInteractActive && !interactInTopBar && !hostOwnsChrome
-      ? renderInteractFloatingBar(interactControlArgs)
-      : null;
+    hostOwnsChrome ? null : responsiveInteractActive ? (
+      renderInteractFloatingBar(interactControlArgs)
+    ) : activeUrlScreen ? (
+      <div
+        data-design-url-screen-floating
+        className="pointer-events-auto flex h-10 min-w-0 items-center rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-2 shadow-xl"
+      >
+        <UrlScreenControls
+          screen={activeUrlScreen}
+          onReload={handleScreenReload}
+        />
+      </div>
+    ) : null;
 
   const leftContentWidth = resolveLeftSidebarWidth(leftSidebarWidth);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   const leftChromeOverlayInset = leftSidebarVisible
-    ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`
+    ? `${leftContentWidth}px`
     : undefined;
   const minimalInspectorHasSelection = hasMinimalInspectorSelection({
     selectedElement,
@@ -1202,18 +1192,15 @@ export function renderDesignEditorView({
     responsiveInteractActive,
     minimalUi,
     minimalInspectorHasSelection,
-    topBarVisible,
-    mode,
-    canEdit: canEditActiveVisualScreen,
   });
   const questionFlowInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
     minimalUi,
   });
-  const chromeInsetLeft = leftSidebarVisible
-    ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
-    : 0;
+  // The left column is always-on chrome whose width is known up front, so the
+  // very first overview camera render already accounts for it.
+  const chromeInsetLeft = leftSidebarVisible ? leftContentWidth : 0;
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
   );
@@ -1428,44 +1415,7 @@ export function renderDesignEditorView({
           />
         </div>
       )}
-      <div
-        className="flex-1 flex overflow-hidden relative"
-        style={topBarVisible ? { paddingTop: TOP_BAR_HEIGHT_PX } : undefined}
-      >
-        {topBarVisible ? (
-          <EditorTopBar
-            mode={mode}
-            onModeChange={handleTopBarModeChange}
-            modes={getTopBarModes({
-              showsModes: Boolean(topBarShowsModes),
-            })}
-            leading={interactTopBarSlots?.leading}
-            center={
-              interactTopBarSlots?.center ??
-              (activeUrlScreen ? (
-                <UrlScreenControls
-                  screen={activeUrlScreen}
-                  onReload={handleScreenReload}
-                />
-              ) : null)
-            }
-            zoomControl={
-              topBarControlsVisible
-                ? (interactTopBarSlots?.zoomControl ??
-                  (!responsiveInteractActive
-                    ? renderZoomControl("topbar")
-                    : null))
-                : null
-            }
-            presence={topBarControlsVisible ? presenceControl : null}
-            actions={topBarControlsVisible ? topBarActions : null}
-            leftInset={chromeInsetLeft}
-            narrowLeftInset={
-              leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0
-            }
-            inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
-          />
-        ) : null}
+      <div className="flex-1 flex overflow-hidden relative">
         {renderLeftSidebar({
           editorCore,
           editorHistory,
@@ -1474,7 +1424,6 @@ export function renderDesignEditorView({
           editorCanvasAndScreens,
           editorLiveEditsAndPresence,
           editorContentAndComponents,
-          editorToolsAndVectors,
           editorSelectionAndStyles,
           editorClipboard,
           editorModes,
@@ -1486,15 +1435,20 @@ export function renderDesignEditorView({
           canApplyPendingVisualEditsWithAgent,
           projectMenu,
           projectTitleControl,
+          saveStatus: chromeControlsVisible ? (
+            <SaveStatusIndicator
+              unsavedChangeCount={unsavedChangeCount}
+              onRetry={retryUnsavedChanges}
+            />
+          ) : null,
           minimalUiToggle,
           leftContentWidth,
           leftSidebarVisible,
         })}
 
         {/* Interact shows no tools: the running app owns the surface and
-            nothing in it is selectable. The top bar's mode switch (the
-            floating bar's Exit in minimal UI, or Escape) is the way back; only
-            a shell with none of those keeps the switch here. */}
+            nothing in it is selectable, so the toolbar carries only the mode
+            switch and zoom there. */}
         {!hostOwnsChrome &&
           designBottomToolbarMode === "editor" &&
           design &&
@@ -1517,8 +1471,9 @@ export function renderDesignEditorView({
               onPen={handlePenTool}
               onCommentPin={handlePinToolToggle}
               canComment={canCommentDesign}
-              onModeChange={handleModeChange}
-              showModeTabs={!topBarVisible && !responsiveInteractActive}
+              onModeChange={handleToolbarModeChange}
+              showModeTabs
+              zoomControl={toolbarZoomControl}
             />
           )}
 
@@ -1599,11 +1554,11 @@ export function renderDesignEditorView({
           editorContentAndComponents,
           projectTitleControl,
           minimalUiToggle,
-          localPreviewRow,
           rightSidebarActions,
-          topBarVisible,
           interactFloatingBar,
           rightSidebarVisible,
+          floatingHeadAllowed: chromeControlsVisible,
+          commentsPanel,
           editPanelProps,
         })}
       </div>

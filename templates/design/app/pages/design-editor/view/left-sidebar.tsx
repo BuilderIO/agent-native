@@ -1,4 +1,7 @@
 import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { ReaderIcon } from "@radix-ui/react-icons";
 import { IconClipboard } from "@tabler/icons-react";
 import { memo, type ReactElement } from "react";
 import { Link } from "react-router";
@@ -7,18 +10,21 @@ import {
   AssetLibraryPanel,
   DesignExtensionsPanel,
 } from "@/components/design/DesignExtensionsPanel";
-import {
-  DesignWorkspaceRail,
-  INITIAL_GENERATION_DISABLED_LEFT_PANELS,
-} from "@/components/design/editor/DesignWorkspaceRail";
 import { LeftPanelHeader } from "@/components/design/editor/LeftPanelHeader";
 import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
+import { SidebarResizeHandle } from "@/components/design/editor/SidebarResizeHandle";
 import { FirstRunStart } from "@/components/design/FirstRunStart";
 import { LayersPanel } from "@/components/design/LayersPanel";
-import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import { DesignComposerContextProvider } from "@/components/editor/DesignComposerContextProvider";
 import { FigmaLinkComposerBubble } from "@/components/editor/FigmaLinkComposerBubble";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
@@ -36,8 +42,20 @@ import type { EditorLiveEditsAndPresence } from "../domains/use-editor-live-edit
 import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
-import type { EditorToolsAndVectors } from "../domains/use-editor-tools-and-vectors";
-import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "../types";
+import {
+  DEFAULT_LEFT_SIDEBAR_WIDTH,
+  LEFT_SIDEBAR_MAX_WIDTH,
+  LEFT_SIDEBAR_MIN_WIDTH,
+  snapLeftSidebarDragWidth,
+} from "../left-sidebar-width";
+import {
+  type DesignLeftPanel,
+  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
+} from "../types";
+
+export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
+  ["file", "tokens"],
+);
 
 // The editor re-renders on every selection while the chat stays mounted, so
 // its props must stay referentially stable for this memo to hold.
@@ -51,7 +69,6 @@ export function renderLeftSidebar({
   editorCanvasAndScreens,
   editorLiveEditsAndPresence,
   editorContentAndComponents,
-  editorToolsAndVectors,
   editorSelectionAndStyles,
   editorClipboard,
   editorModes,
@@ -63,6 +80,7 @@ export function renderLeftSidebar({
   canApplyPendingVisualEditsWithAgent,
   projectMenu,
   projectTitleControl,
+  saveStatus,
   minimalUiToggle,
   leftContentWidth,
   leftSidebarVisible,
@@ -74,7 +92,6 @@ export function renderLeftSidebar({
   editorCanvasAndScreens: EditorCanvasAndScreens;
   editorLiveEditsAndPresence: EditorLiveEditsAndPresence;
   editorContentAndComponents: EditorContentAndComponents;
-  editorToolsAndVectors: EditorToolsAndVectors;
   editorSelectionAndStyles: EditorSelectionAndStyles;
   editorClipboard: EditorClipboard;
   editorModes: EditorModes;
@@ -86,6 +103,7 @@ export function renderLeftSidebar({
   canApplyPendingVisualEditsWithAgent: boolean;
   projectMenu: ReactElement;
   projectTitleControl: ReactElement;
+  saveStatus: ReactElement | null;
   minimalUiToggle: ReactElement | null;
   leftContentWidth: number;
   leftSidebarVisible: boolean;
@@ -105,18 +123,21 @@ export function renderLeftSidebar({
     shellMode,
   } = editorCore;
   const {
-    activeLeftPanel,
+    activeLeftPanel: storedLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
     leftSidebarContentRef,
     layerPanelExpandedIds,
     setExpandedLayerIds,
+    setLeftSidebarWidth,
     startSidebarResize,
   } = editorHistory;
+  // Nothing collapses the column to zero width any more (collapsing enters
+  // minimal UI), so an absent panel shows the File panel.
+  const activeLeftPanel = storedLeftPanel ?? "file";
   const {
     canEditDesign,
     browserTabId,
-    pinMode,
     design,
     designDataReady,
     sourceMetadata,
@@ -126,13 +147,9 @@ export function renderLeftSidebar({
   const { initialGenerationChromeLimited, resolveAssetScreenPoint } =
     editorLiveEditsAndPresence;
   const { hoveredCodeLayerNode } = editorContentAndComponents;
-  const { reviewCommentsPanelProps } = editorToolsAndVectors;
   const { designExtensionContext } = editorSelectionAndStyles;
-  const {
-    handleSidebarScreenSelect,
-    handleSidebarScreenOverview,
-    handlePinToolToggle,
-  } = editorModes;
+  const { handleSidebarScreenSelect, handleSidebarScreenOverview } =
+    editorModes;
   const { layersPanelRef } = editorExportAndHandoff;
   const {
     designIsEmpty,
@@ -154,6 +171,18 @@ export function renderLeftSidebar({
 
   const showFirstRunStart = designIsEmpty && chatMessageCount === 0;
 
+  const disabledPanels = initialGenerationChromeLimited
+    ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
+    : undefined;
+  // Placeholder switch until the Agent | File | Library tabs land in this
+  // slot; it keeps the panels reachable now that the rail is gone.
+  const panelSwitchItems: Array<{ panel: DesignLeftPanel; label: string }> = [
+    { panel: "agent", label: t("designEditor.leftRail.agent") },
+    { panel: "file", label: t("designEditor.leftRail.layers") },
+    { panel: "tokens", label: t("designEditor.leftRail.tokens") },
+  ];
+  const whatsNewLabel = t("designEditor.columnHead.whatsNew");
+
   return (
     <>
       {leftSidebarVisible ? (
@@ -161,50 +190,60 @@ export function renderLeftSidebar({
           data-design-chrome-region="left-shell"
           className="absolute inset-y-0 left-0 z-[70] flex min-h-0 bg-[var(--design-editor-panel-bg)]"
         >
-          <DesignWorkspaceRail
-            showAccountMenu={!hostEmbeddedEditor && isSignedIn}
-            activePanel={activeLeftPanel}
-            disabledPanels={
-              initialGenerationChromeLimited
-                ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
-                : undefined
-            }
-            projectMenu={hostEmbeddedEditor ? null : projectMenu}
-            onPanelChange={(panel) => {
-              if (panel === null && initialGenerationChromeLimited) return;
-              setActiveLeftPanel(panel);
-            }}
-          />
           <div
             ref={leftSidebarContentRef}
-            aria-hidden={activeLeftPanel === null}
-            className={cn(
-              "flex min-h-0 max-w-[calc(100dvw-var(--design-chrome-rail-width))] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
-              activeLeftPanel === null &&
-                "pointer-events-none invisible border-r-0",
-            )}
-            style={{ width: activeLeftPanel ? leftContentWidth : 0 }}
+            data-design-left-column
+            className="relative flex min-h-0 max-w-[100dvw] shrink-0 flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] md:max-w-none"
+            style={{ width: leftContentWidth }}
           >
+            <div
+              data-design-chrome-region="left-header"
+              className="flex h-[var(--design-column-head-height)] shrink-0 items-center gap-[var(--design-baseline-half)] ps-[var(--design-baseline-unit)] pe-[var(--design-baseline-unit)]"
+            >
+              {hostEmbeddedEditor ? null : projectMenu}
+              <div className="flex min-w-0 flex-1 items-center gap-[var(--design-baseline-half)]">
+                <div className="min-w-0 shrink">{projectTitleControl}</div>
+                {saveStatus}
+              </div>
+              {minimalUiToggle}
+            </div>
+            <div
+              data-design-left-tabs-slot
+              className="flex h-[var(--design-row-height)] shrink-0 items-center px-[calc(var(--design-baseline-unit)*2)]"
+            >
+              <Tabs
+                value={activeLeftPanel}
+                onValueChange={(value) => {
+                  const panel = value as DesignLeftPanel;
+                  if (disabledPanels?.has(panel)) return;
+                  setActiveLeftPanel(panel);
+                }}
+                className="w-full"
+              >
+                <TabsList
+                  aria-label={t("designEditor.leftRail.label")}
+                  className="grid h-[var(--design-control-height)] w-full auto-cols-fr grid-flow-col p-px"
+                >
+                  {panelSwitchItems.map((item) => (
+                    <TabsTrigger
+                      key={item.panel}
+                      value={item.panel}
+                      disabled={disabledPanels?.has(item.panel) ?? false}
+                      data-design-left-tab={item.panel}
+                      className="design-font-medium h-full px-2 py-0 text-xs"
+                    >
+                      {item.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            </div>
             <div
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
                 activeLeftPanel === "file" ? "flex" : "hidden",
               )}
             >
-              <LeftPanelHeader>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  {projectTitleControl}
-                  {hostEmbeddedEditor ? null : (
-                    <Link
-                      to="/home"
-                      className="-mx-1 self-start rounded px-1 text-xs leading-4 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                    >
-                      {t("designEditor.fileMenu.allDesigns")}
-                    </Link>
-                  )}
-                </div>
-                {minimalUiToggle}
-              </LeftPanelHeader>
               <div className="min-h-0 flex-1">
                 <LayersPanel
                   ref={layersPanelRef}
@@ -368,23 +407,6 @@ export function renderLeftSidebar({
                 />
               )}
             </div>
-            <div
-              className={cn(
-                "min-h-0 flex-1 flex-col overflow-hidden",
-                activeLeftPanel === "threads" ? "flex" : "hidden",
-              )}
-            >
-              {/* Mounted only while open: the panel fetches every thread. */}
-              {activeLeftPanel === "threads" && reviewCommentsPanelProps ? (
-                <ReviewCommentsPanel
-                  {...reviewCommentsPanelProps}
-                  onNewThread={() => {
-                    // handlePinToolToggle turns comment mode off when it is already on.
-                    if (!pinMode) handlePinToolToggle();
-                  }}
-                />
-              ) : null}
-            </div>
             {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
               <>
                 <div
@@ -410,16 +432,53 @@ export function renderLeftSidebar({
                 </div>
               </>
             ) : null}
-          </div>
-          {activeLeftPanel ? (
+            {hostEmbeddedEditor ? null : (
+              <div
+                data-design-left-footer
+                className="flex h-[var(--design-section-height)] shrink-0 items-center gap-[var(--design-baseline-half)] px-[var(--design-baseline-unit)]"
+              >
+                {isSignedIn ? (
+                  <OrgSwitcher compact hideBuilderCreditNotice />
+                ) : null}
+                <div className="flex-1" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="icon-sm"
+                      className="design-focus-ring text-muted-foreground hover:text-foreground"
+                    >
+                      <Link to="/settings/whats-new" aria-label={whatsNewLabel}>
+                        <ReaderIcon
+                          className="design-ui-icon"
+                          aria-hidden="true"
+                        />
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{whatsNewLabel}</TooltipContent>
+                </Tooltip>
+                <FeedbackButton variant="icon" side="top" align="end" />
+              </div>
+            )}
             <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={t("layersPanel.title")}
-              className="absolute right-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
-              onPointerDown={(event) => startSidebarResize("left", event)}
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 end-0 z-[1] w-px bg-[var(--design-editor-panel-divider-color)]"
             />
-          ) : null}
+          </div>
+          <SidebarResizeHandle
+            edge="end"
+            label={t("designEditor.columnHead.resizeLeftPanel")}
+            width={leftContentWidth}
+            minWidth={LEFT_SIDEBAR_MIN_WIDTH}
+            maxWidth={LEFT_SIDEBAR_MAX_WIDTH}
+            onPointerDown={(event) => startSidebarResize("left", event)}
+            onWidthChange={(width) =>
+              setLeftSidebarWidth(snapLeftSidebarDragWidth(width))
+            }
+            onReset={() => setLeftSidebarWidth(DEFAULT_LEFT_SIDEBAR_WIDTH)}
+          />
         </div>
       ) : null}
     </>

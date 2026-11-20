@@ -1,30 +1,42 @@
+// oracle-change: the inspector actions row became the right column head; zoom moved to the bottom toolbar and presence no longer has its own leading row
 // @vitest-environment happy-dom
 
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
 import { renderRightSidebarActions } from "./right-sidebar-actions";
+
+function must<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("expected element is missing");
+  return value;
+}
 
 type ActionsArgs = Parameters<typeof renderRightSidebarActions>[0];
 
 function actionsArgs(overrides: Partial<ActionsArgs> = {}): ActionsArgs {
   return {
     editorCore: {
+      t: (key: string) => key,
       hostEmbeddedEditor: false,
       sessionResolved: true,
       isSignedIn: true,
     } as unknown as EditorCore,
-    editorHistory: { rightSidebarWidth: 240 } as unknown as EditorHistory,
-    renderZoomControl: () => <button data-slot="zoom">76%</button>,
+    editorHistory: {
+      rightSidebarWidth: 280,
+      commentsPanelOpen: false,
+      setCommentsPanelOpen: vi.fn(),
+    } as unknown as EditorHistory,
     renderPendingNodeRewriteControl: () => null,
     publishWaitlistControl: null,
     presenceControl: null,
     reviewFeedbackControl: null,
     renderShareControl: () => <button data-slot="share">Share</button>,
     localPreviewRow: null,
+    showCommentsToggle: true,
+    reviewUnreadCount: 0,
     ...overrides,
   };
 }
@@ -43,55 +55,46 @@ async function mount(element: ReactElement) {
 }
 
 const slot = (host: HTMLElement, name: string) =>
-  host.querySelector<HTMLElement>(`[data-slot="${name}"]`)!;
+  must(host.querySelector<HTMLElement>(`[data-slot="${name}"]`));
 
-// Presence, the waitlist CTA, and everything else that leads the Share row are
-// optional. The zoom field stays under whatever leads, and takes the lead's
-// place on the Share row when nothing does.
-describe("inspector actions row", () => {
-  it("renders the zoom and Share in one row container", async () => {
-    const { host, unmount } = await mount(
-      <>{renderRightSidebarActions(actionsArgs())}</>,
-    );
-    const row = host.querySelector(
-      '[data-design-chrome-region="right-toolbar-actions"]',
-    )!;
-    expect(row.contains(slot(host, "zoom"))).toBe(true);
-    expect(row.contains(slot(host, "share"))).toBe(true);
-    await unmount();
-  });
+const headRow = (host: HTMLElement) =>
+  must(
+    host.querySelector('[data-design-chrome-region="right-toolbar-actions"]'),
+  );
 
-  it("leaves the leading cluster empty when no presence leads the row", async () => {
-    const { host, unmount } = await mount(
-      <>{renderRightSidebarActions(actionsArgs())}</>,
-    );
-    const leading = host.querySelector("[data-design-right-toolbar-leading]")!;
-    expect(leading.childNodes).toHaveLength(0);
-    await unmount();
-  });
+const follows = (a: Element, b: Element) =>
+  Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-  it("keeps the presence control in the leading cluster", async () => {
+describe("right column head", () => {
+  it("puts Comments and Apply feedback at the start and presence, waitlist and Share at the end", async () => {
     const { host, unmount } = await mount(
       <>
         {renderRightSidebarActions(
           actionsArgs({
             presenceControl: <span data-slot="presence">AB</span>,
+            publishWaitlistControl: <button data-slot="waitlist">Join</button>,
+            reviewFeedbackControl: <button data-slot="feedback">Apply</button>,
           }),
         )}
       </>,
     );
-    const leading = host.querySelector("[data-design-right-toolbar-leading]")!;
-    expect(leading.contains(slot(host, "presence"))).toBe(true);
-    expect(leading.contains(slot(host, "zoom"))).toBe(false);
+    const row = headRow(host);
+    const comments = must(row.querySelector("[data-design-comments-toggle]"));
+    expect(comments).not.toBeNull();
+    expect(follows(comments, slot(host, "feedback"))).toBe(true);
+    expect(follows(slot(host, "feedback"), slot(host, "presence"))).toBe(true);
+    expect(follows(slot(host, "presence"), slot(host, "waitlist"))).toBe(true);
+    expect(follows(slot(host, "waitlist"), slot(host, "share"))).toBe(true);
     await unmount();
   });
 
-  it("fills the leading cluster with the waitlist CTA while signed out", async () => {
+  it("keeps the waitlist CTA in the head while signed out", async () => {
     const { host, unmount } = await mount(
       <>
         {renderRightSidebarActions(
           actionsArgs({
             editorCore: {
+              t: (key: string) => key,
               hostEmbeddedEditor: false,
               sessionResolved: true,
               isSignedIn: false,
@@ -101,12 +104,41 @@ describe("inspector actions row", () => {
         )}
       </>,
     );
-    const leading = host.querySelector("[data-design-right-toolbar-leading]")!;
-    expect(leading.contains(slot(host, "waitlist"))).toBe(true);
+    expect(headRow(host).contains(slot(host, "waitlist"))).toBe(true);
     await unmount();
   });
 
-  it("puts a local preview row after the leading and Share controls", async () => {
+  it("toggles the comments panel and marks unread comments", async () => {
+    const setCommentsPanelOpen = vi.fn();
+    const { host, unmount } = await mount(
+      <>
+        {renderRightSidebarActions(
+          actionsArgs({
+            editorHistory: {
+              rightSidebarWidth: 280,
+              commentsPanelOpen: false,
+              setCommentsPanelOpen,
+            } as unknown as EditorHistory,
+            reviewUnreadCount: 2,
+          }),
+        )}
+      </>,
+    );
+    const toggle = must(
+      host.querySelector<HTMLButtonElement>("[data-design-comments-toggle]"),
+    );
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(
+      toggle.querySelector("[data-design-comments-unread-dot]"),
+    ).not.toBeNull();
+    await act(async () => {
+      toggle.click();
+    });
+    expect(setCommentsPanelOpen).toHaveBeenCalledTimes(1);
+    await unmount();
+  });
+
+  it("puts a local preview row below the head", async () => {
     const { host, unmount } = await mount(
       <>
         {renderRightSidebarActions(
@@ -116,10 +148,8 @@ describe("inspector actions row", () => {
         )}
       </>,
     );
-    const row = host.querySelector(
-      '[data-design-chrome-region="right-toolbar-actions"]',
-    )!;
-    expect(row.contains(slot(host, "preview"))).toBe(true);
+    expect(headRow(host).contains(slot(host, "preview"))).toBe(false);
+    expect(follows(headRow(host), slot(host, "preview"))).toBe(true);
     await unmount();
   });
 });

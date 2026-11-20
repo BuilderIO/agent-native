@@ -1048,6 +1048,13 @@ export default {
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
     },
+    columnHead: {
+      comments: "Kommentare",
+      unreadComments: "Ungelesene Kommentare",
+      resizeLeftPanel: "Linkes Panel anpassen",
+      resizeInspector: "Inspektor anpassen",
+      whatsNew: "Neuigkeiten",
+    },
     breakpointBar: {
       base: "Basis",
       editBaseWidth: "Basisbreite bearbeiten",
@@ -1300,6 +1307,7 @@ export default {
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
     appMenu: {
+      backToDashboard: "Zurück zum Dashboard",
       file: "Datei",
       preferences: "Einstellungen",
       newDesign: "Neues Design",

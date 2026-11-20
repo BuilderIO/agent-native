@@ -1042,6 +1042,13 @@ export default {
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
     },
+    columnHead: {
+      comments: "Commentaires",
+      unreadComments: "Commentaires non lus",
+      resizeLeftPanel: "Redimensionner le panneau gauche",
+      resizeInspector: "Redimensionner l’inspecteur",
+      whatsNew: "Nouveautés",
+    },
     breakpointBar: {
       base: "Base",
       editBaseWidth: "Modifier la largeur de base",
@@ -1294,6 +1301,7 @@ export default {
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
     appMenu: {
+      backToDashboard: "Retour au tableau de bord",
       file: "Fichier",
       preferences: "Préférences",
       newDesign: "Nouveau design",

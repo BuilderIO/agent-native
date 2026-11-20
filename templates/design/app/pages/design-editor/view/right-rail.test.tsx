@@ -16,6 +16,11 @@ vi.mock("@/components/design/editor/AgentNativeMenuMark", () => ({
   AgentNativeMenuMark: () => <span data-slot="menu-mark" />,
 }));
 
+function must<T>(value: T | null | undefined): T {
+  if (value == null) throw new Error("expected element is missing");
+  return value;
+}
+
 type RailArgs = Parameters<typeof renderRightRail>[0];
 
 function railArgs(overrides: {
@@ -23,6 +28,7 @@ function railArgs(overrides: {
   rightSidebarVisible: boolean;
   minimalUi?: boolean;
   interactFloatingBar?: ReactElement | null;
+  commentsPanelOpen?: boolean;
 }): RailArgs {
   return {
     editorCore: {
@@ -35,18 +41,20 @@ function railArgs(overrides: {
       rightSidebarContentRef: { current: null },
       minimalUi: overrides.minimalUi ?? true,
       rightSidebarWidth: 240,
+      setRightSidebarWidth: vi.fn(),
       startSidebarResize: vi.fn(),
+      commentsPanelOpen: overrides.commentsPanelOpen ?? false,
     } as unknown as EditorHistory,
     editorContentAndComponents: {
       uiHidden: false,
     } as unknown as EditorContentAndComponents,
     projectTitleControl: <button data-slot="title">Product Launch</button>,
     minimalUiToggle: <button data-slot="minimal-toggle" />,
-    localPreviewRow: null,
     rightSidebarActions: <div data-slot="actions">Share</div>,
-    topBarVisible: false,
     interactFloatingBar: overrides.interactFloatingBar ?? null,
     rightSidebarVisible: overrides.rightSidebarVisible,
+    floatingHeadAllowed: true,
+    commentsPanel: <div data-slot="comments-panel" />,
     editPanelProps: {} as RailArgs["editPanelProps"],
   };
 }
@@ -160,6 +168,72 @@ describe("Interact floating bar in the right rail", () => {
       ),
     ).not.toBeNull();
     expect(host.querySelector("[data-design-minimal-ui]")).toBeNull();
+    await unmount();
+  });
+});
+
+describe("right column", () => {
+  it("puts the head above the inspector and a keyboard separator on its inner edge", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: true,
+            minimalUi: false,
+          }),
+        )}
+      </>,
+    );
+    const panel = must(
+      host.querySelector<HTMLElement>(
+        '[data-design-chrome-region="right-panel"]',
+      ),
+    );
+    expect(panel.querySelector('[data-slot="actions"]')).not.toBeNull();
+    expect(panel.querySelector('[data-slot="edit-panel"]')).not.toBeNull();
+    const handle = must(panel.querySelector('[role="separator"]'));
+    expect(handle.getAttribute("tabindex")).toBe("0");
+    expect(handle.getAttribute("aria-valuemin")).toBe("240");
+    expect(handle.getAttribute("aria-valuemax")).toBe("400");
+    await unmount();
+  });
+
+  it("shows Comments in place of the inspector while open", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: true,
+            minimalUi: false,
+            commentsPanelOpen: true,
+          }),
+        )}
+      </>,
+    );
+    expect(host.querySelector('[data-slot="comments-panel"]')).not.toBeNull();
+    expect(host.querySelector('[data-slot="edit-panel"]')).toBeNull();
+    await unmount();
+  });
+
+  it("floats the head where the column is absent outside minimal UI", async () => {
+    const { host, unmount } = await mount(
+      <>
+        {renderRightRail(
+          railArgs({
+            widgetEmbed: false,
+            rightSidebarVisible: false,
+            minimalUi: false,
+          }),
+        )}
+      </>,
+    );
+    expect(
+      host.querySelector(
+        '[data-design-floating-right-head] [data-slot="actions"]',
+      ),
+    ).not.toBeNull();
     await unmount();
   });
 });

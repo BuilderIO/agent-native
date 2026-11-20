@@ -1013,6 +1013,13 @@ export default {
       collapse: "收起侧边栏",
       expand: "展开侧边栏",
     },
+    columnHead: {
+      comments: "评论",
+      unreadComments: "未读评论",
+      resizeLeftPanel: "调整左侧面板大小",
+      resizeInspector: "调整检查器大小",
+      whatsNew: "新功能",
+    },
     breakpointBar: {
       base: "基础",
       editBaseWidth: "编辑基础宽度",
@@ -1243,6 +1250,7 @@ export default {
     templateSaved: "模板已保存到模板库",
     templateSaveFailed: "无法保存此模板",
     appMenu: {
+      backToDashboard: "返回仪表板",
       file: "文件",
       preferences: "偏好设置",
       newDesign: "新建设计",

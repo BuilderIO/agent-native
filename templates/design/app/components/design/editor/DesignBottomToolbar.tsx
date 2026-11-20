@@ -155,6 +155,7 @@ export function DesignBottomToolbar({
   canComment,
   onModeChange,
   showModeTabs,
+  zoomControl,
 }: {
   mode: EditorMode;
   activeTool: DesignTool;
@@ -176,13 +177,12 @@ export function DesignBottomToolbar({
   canComment: boolean;
   onModeChange: (mode: EditorMode) => void;
   /**
-   * The Interact / Design switch lives in the editor top bar, and in
-   * Interact's own floating bar where that bar is absent. Shells with neither
-   * (minimal UI, embedded chrome, the visual-edit route, hidden UI) still render
-   * this toolbar, so it carries the switch there. In Interact no tool applies,
-   * so the switch is all it shows.
+   * The Interact / Design switch sits at the toolbar's end. In Interact no
+   * tool applies, so the switch and zoom are all it shows.
    */
   showModeTabs: boolean;
+  /** The canvas zoom (Design) or the fit zoom (Interact), after the mode switch. */
+  zoomControl?: ReactNode;
 }) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
@@ -440,7 +440,7 @@ export function DesignBottomToolbar({
       onClick: () => onModeChange("interact"),
     },
   ];
-  if (groups.length === 0 && !showModeTabs) return null;
+  if (groups.length === 0 && !showModeTabs && !zoomControl) return null;
   return (
     <div
       data-design-bottom-toolbar
@@ -508,6 +508,16 @@ export function DesignBottomToolbar({
             ))}
           </div>
         </>
+      ) : null}
+
+      {zoomControl ? (
+        // The dock is dark in both themes, so the zoom trigger reads the dark tokens.
+        <div
+          data-design-toolbar-zoom
+          className="dark ms-1 flex shrink-0 items-center text-foreground"
+        >
+          {zoomControl}
+        </div>
       ) : null}
     </div>
   );
