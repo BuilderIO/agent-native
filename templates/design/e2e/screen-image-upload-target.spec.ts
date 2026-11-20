@@ -346,10 +346,9 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
     const screens = layers.locator('[role="treeitem"][aria-level="1"]');
     await expect(screens).toHaveCount(2);
 
-    // A page is picked from the Pages list; its Layers row follows the selection.
     const selectScreen = async (name: "Screen A" | "Screen B") => {
       const row = screens.filter({ hasText: name });
-      await page.locator("[data-screen-row]").filter({ hasText: name }).click();
+      await row.locator("[data-layer-row-button]").click();
       await expect(row).toHaveAttribute("aria-selected", "true");
       return row;
     };
@@ -406,7 +405,8 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
       has: page.getByRole("textbox", { name: "Image URL" }),
     });
     await expect(imagePicker).toBeVisible();
-    await page.getByRole("heading", { name: "Layers", exact: true }).click();
+    // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+    await page.keyboard.press("Escape");
     await expect(imagePicker).toBeHidden();
     const screenBRow = await selectScreen("Screen B");
     const screenBHtmlBefore = await readScreenHtml(page, designId, screenBId);
@@ -910,7 +910,8 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       has: page.getByRole("textbox", { name: "Image URL" }),
     });
     await expect(imagePicker).toBeVisible();
-    await page.getByRole("heading", { name: "Layers", exact: true }).click();
+    // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+    await page.keyboard.press("Escape");
     await expect(imagePicker).toBeHidden();
     const screenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
@@ -1307,7 +1308,8 @@ test("accepted Screen-root image upload persists and renders its source", async 
       has: page.getByRole("textbox", { name: "Image URL" }),
     });
     await expect(imagePicker).toBeVisible();
-    await page.getByRole("heading", { name: "Layers", exact: true }).click();
+    // oracle-change: the Layers heading is now a collapse toggle, so clicking it would hide the tree; Escape closes the picker without touching the Layers tree.
+    await page.keyboard.press("Escape");
     await expect(imagePicker).toBeHidden();
     const screenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,
@@ -1407,8 +1409,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
       .getByRole("tree", { name: "Layers" })
       .locator('[role="treeitem"][aria-level="1"]')
       .filter({ hasText: "Screen A" });
-    // oracle-change: a page is picked from the Pages list now; its Layers row only follows the selection.
-    await page.locator("[data-screen-row]").filter({ hasText: "Screen A" }).click();
+    await reloadedScreenARow.locator("[data-layer-row-button]").click();
     await expect(reloadedScreenARow).toHaveAttribute("aria-selected", "true");
     const reloadedScreenAShell = page.locator(
       `[data-screen-shell][data-frame-id="${screenAId}"]`,

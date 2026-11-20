@@ -922,13 +922,21 @@ export function renderDesignEditorView({
     />
   );
 
-  const reviewFeedbackControl =
-    canEditDesign && reviewAgentQueueCount > 0 ? (
+  // Compact (narrow inspector) keeps the count visible and moves the label
+  // into the accessible name and tooltip so the head never overflows.
+  const renderReviewFeedbackControl = (compact: boolean) => {
+    if (!canEditDesign || reviewAgentQueueCount <= 0) return null;
+    const label = reviewFeedbackApplying
+      ? t("review.applyingFeedback")
+      : t("review.applyFeedback", { count: reviewAgentQueueCount });
+    const button = (
       <Button
         type="button"
         variant="outline"
         size="sm"
-        className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
+        data-design-apply-feedback
+        aria-label={compact ? label : undefined}
+        className="design-focus-ring h-[var(--design-control-height)] min-w-0 shrink-0 gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
         onClick={handleApplyReviewFeedback}
         disabled={reviewFeedbackApplying}
       >
@@ -937,11 +945,21 @@ export function renderDesignEditorView({
         ) : (
           <IconMessageCircle className="size-3.5" />
         )}
-        {reviewFeedbackApplying
-          ? t("review.applyingFeedback")
-          : t("review.applyFeedback", { count: reviewAgentQueueCount })}
+        {compact ? (
+          <span aria-hidden="true">{reviewAgentQueueCount}</span>
+        ) : (
+          label
+        )}
       </Button>
-    ) : null;
+    );
+    if (!compact) return button;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    );
+  };
 
   const shareSegmentClassName =
     "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
@@ -972,8 +990,9 @@ export function renderDesignEditorView({
       return sessionResolved ? signedOutPersistenceActions : null;
     }
 
+    // The head's controls are 24px; Share and its joined Copy link follow.
     return (
-      <div className="flex items-center">
+      <div className="flex shrink-0 items-center [&_[data-slot=button-group]>button+button]:size-[var(--design-control-height)] [&_[data-slot=button-group]>button]:h-[var(--design-control-height)]">
         {canEditDesign && activeOverviewScreen?.sourceType === "localhost" ? (
           <ShareLivePreview
             key={activeOverviewScreen.id}
@@ -1000,7 +1019,10 @@ export function renderDesignEditorView({
           shareTabs={designShareTabs}
           sendTo={designShareSendTo}
           popoverClassName="z-[100010]"
-          triggerClassName={shareSegmentClassName}
+          triggerClassName={cn(
+            shareSegmentClassName,
+            "px-[var(--design-baseline-unit)] text-xs",
+          )}
         />
       </div>
     );
@@ -1095,7 +1117,7 @@ export function renderDesignEditorView({
     renderPendingNodeRewriteControl,
     publishWaitlistControl,
     presenceControl,
-    reviewFeedbackControl,
+    renderReviewFeedbackControl,
     renderShareControl: (dense) =>
       renderShareControl(dense, nextStepShareActionEvent),
     localPreviewRow,

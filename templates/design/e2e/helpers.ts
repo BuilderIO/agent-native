@@ -564,9 +564,18 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
     waitUntil: "domcontentloaded",
   });
   await waitForEditorBoot(page, startedAt);
-  const designMode = page.locator(EDIT_MODE_BUTTON);
-  await expect(designMode).toBeVisible();
-  await expect(designMode).toHaveAttribute("aria-pressed", "true");
+  // oracle-change: the mode switch moved from the top bar to the bottom toolbar, which a phone's open drawer hides (unchanged from main), so phones check the drawer instead.
+  // Below `md` the left panel opens as a drawer over the canvas and leaves the
+  // bottom toolbar (and its mode switch) out until it closes, as it covered
+  // the top bar's switch before; the open drawer is the booted state there.
+  if ((page.viewportSize()?.width ?? Infinity) < 768) {
+    await expect(page.locator("[data-design-left-column]")).toBeVisible();
+    await expect(page.locator(EDIT_MODE_BUTTON)).toHaveCount(0);
+  } else {
+    const designMode = page.locator(EDIT_MODE_BUTTON);
+    await expect(designMode).toBeVisible();
+    await expect(designMode).toHaveAttribute("aria-pressed", "true");
+  }
   await waitForDesignPreviewReady(page);
 }
 
@@ -742,7 +751,9 @@ export async function enterInteractView(
     "true",
   );
   await expect(
-    page.locator("[data-design-interact-floating-bar] [data-design-interact-route]"),
+    page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
   // Interact loads the page afresh with only its own bridges, so the preview
   // is a new iframe; the screen still has exactly one.

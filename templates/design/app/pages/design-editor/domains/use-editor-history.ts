@@ -1233,6 +1233,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     clearReloadedPendingLiveEdits,
     handleLiveScreenRuntimeReload,
     activeLeftPanel,
+    designLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
     commentsPanelOpen,

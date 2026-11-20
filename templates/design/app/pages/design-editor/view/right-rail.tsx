@@ -54,17 +54,22 @@ export function renderRightRail({
     setRightSidebarWidth,
     startSidebarResize,
     commentsPanelOpen,
+    isMobileViewport,
+    activeLeftPanel,
   } = editorHistory;
   const { uiHidden } = editorContentAndComponents;
   const showComments = commentsPanelOpen && commentsPanel !== null;
   // Interact has no inspector, but its head (Share, presence) must stay
   // reachable, so it floats top right like minimal UI's island.
+  // A phone's open left drawer covers the canvas, and the bottom toolbar with
+  // it; the head stays out of the way too, or it sits on the drawer's own head.
   const floatingHeadVisible =
     floatingHeadAllowed &&
     !minimalUi &&
     !rightSidebarVisible &&
     !hostOwnsChrome &&
-    !uiHidden;
+    !uiHidden &&
+    !(isMobileViewport && activeLeftPanel);
 
   return (
     <>
@@ -134,7 +139,9 @@ export function renderRightRail({
           data-design-minimal-ui
           className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
         >
-          <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
+          {/* Below md there is no room for Interact's bar between the two
+              islands, so it takes a row of its own under them. */}
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3 md:grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)]">
             <div
               data-design-minimal-bar="left"
               className="pointer-events-auto flex h-10 min-w-0 max-w-full items-center overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-1 shadow-xl"
@@ -145,7 +152,7 @@ export function renderRightRail({
             </div>
             <div
               data-design-minimal-bar="interact"
-              className="pointer-events-none flex min-w-0 justify-center"
+              className="pointer-events-none order-last col-span-2 flex min-w-0 justify-center md:order-none md:col-span-1"
             >
               {interactFloatingBar}
             </div>

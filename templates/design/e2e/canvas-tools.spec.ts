@@ -971,18 +971,28 @@ async function insertTextByDrag(
     "aria-pressed",
     "true",
   );
-  await dragBetween(
-    page,
-    {
-      x: cardBox.x + cardBox.width * 0.28,
-      y: cardBox.y + cardBox.height * 0.28,
-    },
-    {
-      x: cardBox.x + cardBox.width * 0.64,
-      y: cardBox.y + cardBox.height * 0.38,
-    },
-  );
+  // Mouse events carry whole pixels, so the drag lands on whole pixels too
+  // and callers can work out the size it draws.
+  await dragBetween(page, ...textDragPoints(cardBox));
   await replaceActiveText(page, text);
+}
+
+function textDragPoints(cardBox: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): [{ x: number; y: number }, { x: number; y: number }] {
+  return [
+    {
+      x: Math.round(cardBox.x + cardBox.width * 0.28),
+      y: Math.round(cardBox.y + cardBox.height * 0.28),
+    },
+    {
+      x: Math.round(cardBox.x + cardBox.width * 0.64),
+      y: Math.round(cardBox.y + cardBox.height * 0.38),
+    },
+  ];
 }
 
 async function waitForScreenDeletion(page: Page): Promise<void> {
@@ -1200,7 +1210,9 @@ test("top bar modes toggle the editor mode buttons", async ({ page }) => {
 
   await modeButton(page, "interact").click();
   await expect(
-    page.locator("[data-design-interact-floating-bar] [data-design-interact-route]"),
+    page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
   // oracle-change: Interact keeps the bottom toolbar for its mode switch and zoom; only the tool groups leave, and return with Design.
   const toolbarGroups = () =>
@@ -1230,15 +1242,15 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
   page,
 }) => {
   // oracle-change: the workspace rail is gone; the left column (File tab with the Layers panel) opens at its default width.
-  const leftBox = await page
-    .locator("[data-design-left-column]")
-    .boundingBox();
+  const leftBox = await page.locator("[data-design-left-column]").boundingBox();
   const layersBox = await page
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
   expect(leftBox?.width).toBe(DEFAULT_LEFT_SIDEBAR_WIDTH);
   expect(layersBox).not.toBeNull();
-  expect(Math.abs(layersBox!.x + layersBox!.width - (leftBox!.x + leftBox!.width))).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(layersBox!.x + layersBox!.width - (leftBox!.x + leftBox!.width)),
+  ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
     .locator("iframe[data-design-preview-iframe]")
@@ -2024,9 +2036,11 @@ test("drag text creates bounded text the size of the drag", async ({
 
   const primitive = await waitForTextPrimitive(page, "index.html", text);
   expect(primitive.display).toBe("flex");
+  // oracle-change: the expected size is the drag the mouse actually made. Mouse events truncate to whole pixels, and one pixel is over 3 canvas px at this zoom, so 36% x 10% of the card was only within 2px when the card happened to sit on a whole pixel (it moved when the top bar went away).
+  const [from, to] = textDragPoints(cardBox);
   const expected = {
-    width: (0.36 * cardBox.width) / scale,
-    height: (0.1 * cardBox.height) / scale,
+    width: (to.x - from.x) / scale,
+    height: (to.y - from.y) / scale,
   };
   expect(
     Math.abs(parseFloat(primitive.width) - expected.width),

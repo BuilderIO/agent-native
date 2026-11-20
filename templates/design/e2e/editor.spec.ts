@@ -81,10 +81,9 @@ test("editor renders the toolbar and the design iframe content", async ({
     ).toBeVisible();
   }
   await expect(toolbar.getByRole("button", { name: /agent/i })).toHaveCount(0);
-  await expect(toolbar.getByRole("button", { name: "Edit", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(
+    toolbar.getByRole("button", { name: "Edit", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(
     toolbar.getByRole("button", { name: "Interact", exact: true }),
   ).toHaveAttribute("aria-pressed", "false");
@@ -333,6 +332,18 @@ test("column heads are 48px and keep Share in the right head and zoom in the bot
       .locator("[data-design-toolbar-zoom]")
       .getByRole("button", { name: /^\d+%$/ }),
   ).toBeVisible();
+
+  // The head still fits at the inspector's 240px minimum.
+  await page.evaluate(() =>
+    localStorage.setItem("design.editor.inspectorWidth", "240"),
+  );
+  await page.reload();
+  await expect(rightHead).toBeVisible();
+  expect((await rightHead.boundingBox())!.width).toBeCloseTo(240, 0);
+  await expect(page.locator("[data-design-comments-toggle]")).toBeVisible();
+  expect(
+    await rightHead.evaluate((node) => node.scrollWidth - node.clientWidth),
+  ).toBeLessThanOrEqual(1);
 });
 
 test("screen overview adds, targets and removes breakpoints from the unified control and saves each set", async ({
