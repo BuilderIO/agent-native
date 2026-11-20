@@ -3968,7 +3968,7 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
 
 export function appendNfmBlocks(body: string, blocks: string): string {
   const kept = body.replace(/[\r\n]+$/, "");
-  return kept ? `${kept}\n${blocks}` : blocks;
+  return kept && kept !== "<empty-block/>" ? `${kept}\n${blocks}` : blocks;
 }
 
 /**

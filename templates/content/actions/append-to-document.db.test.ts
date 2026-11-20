@@ -136,6 +136,10 @@ describe("append-to-document", () => {
     const empty = await createPage("");
     await append(empty, "Moved paragraph.");
     expect(await body(empty)).toBe("Moved paragraph.");
+
+    const cleared = await createPage("<empty-block/>");
+    await append(cleared, "Moved paragraph.");
+    expect(await body(cleared)).toBe("Moved paragraph.");
   });
 
   it("joins a moved list to a list of the same kind that ends the page, as the stored form joins any two", async () => {

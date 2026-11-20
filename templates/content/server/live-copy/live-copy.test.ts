@@ -2584,6 +2584,16 @@ describe("the block menu's Move to, on a switched page", () => {
     });
   });
 
+  it("fills an empty page with the blocks, rather than adding them after its empty paragraph", async () => {
+    await switchedPage("append-empty", "");
+
+    await expect(append("append-empty", "Moved")).resolves.toBe(true);
+
+    await expect(page("append-empty")).resolves.toMatchObject({
+      content: "Moved",
+    });
+  });
+
   it("refuses a video whose id a commit gave the page after the move read it", async () => {
     const video = `<video src="https://example.com/a.mp4" id="video-shared01"></video>`;
     await switchedPage("append-video", "Keep");
