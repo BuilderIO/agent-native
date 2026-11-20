@@ -452,6 +452,13 @@
       "import": "./dist/app/feedback/index.js",
       "default": "./dist/app/feedback/index.js"
     },
+    "./app/filters": {
+      "types": "./dist/app/filters/index.d.ts",
+      "browser": "./dist/app/filters/index.js",
+      "development": "./dist/app/filters/index.js",
+      "import": "./dist/app/filters/index.js",
+      "default": "./dist/app/filters/index.js"
+    },
     "./app/integrations": {
       "types": "./dist/app/integrations/index.d.ts",
       "browser": "./dist/app/integrations/index.js",
