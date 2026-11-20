@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   reviewMentionPeople,
   useReviewMentionPeople,
-} from "./review-mention-people";
+} from "./review-mention-people.js";
 
 const mocks = vi.hoisted(() => ({
   useOrgMembers: vi.fn(),
