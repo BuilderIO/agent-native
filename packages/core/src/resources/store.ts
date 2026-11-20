@@ -49,6 +49,7 @@ import {
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
   MemoryMirrorRepairError,
+  MemoryMirrorStaleError,
   MemoryTombstoneError,
   MemoryWriteConflictError,
   readMirroredMemory,
@@ -392,9 +393,14 @@ export interface ResourceSnapshotWrite {
   >;
 }
 
-export interface ResourceSnapshotWriteResult {
+interface ResourceSnapshotWriteRecord {
   before: Resource | null;
   resource: Resource;
+}
+
+export interface ResourceSnapshotWriteResult extends ResourceSnapshotWriteRecord {
+  /** "conflict": a newer shared-file edit was adopted and `resource` holds it; "stale": the SQL write committed but the shared file may be out of date. */
+  mirror: "ok" | "stale" | "conflict";
 }
 
 function assertResourcePayloadIsSqlSafe(
@@ -2168,16 +2174,17 @@ async function assertNoNewerSharedEdit(
     sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
     args: [resource.owner, resource.path],
   });
-  if (rows[0]) {
-    await adoptSharedMemory(
-      resource.owner,
-      resource.path,
-      file,
-      rowToResource(rows[0]),
-    );
-  }
+  const adopted = rows[0]
+    ? await adoptSharedMemory(
+        resource.owner,
+        resource.path,
+        file,
+        rowToResource(rows[0]),
+      )
+    : null;
   throw new MemoryWriteConflictError(
     `${resource.path} was edited in the shared memory directory after this write's base revision; its content was kept and this write was not applied`,
+    adopted ? { content: adopted.content, updatedAt: adopted.updatedAt } : null,
   );
 }
 
@@ -2202,20 +2209,45 @@ async function mirrorMemoryUnlocked(resource: MirrorTarget): Promise<void> {
 
 const ROWLESS_MEMORY_BASE = { content: "", updatedAt: 0 };
 
-async function mirrorWriteReportingConflict(
+type MirrorOutcome =
+  | { status: "ok" }
+  | { status: "conflict"; error: MemoryWriteConflictError }
+  | { status: "stale"; error: unknown };
+
+async function mirrorWriteOutcome(
   resource: MirrorTarget,
   base: { content: string; updatedAt: number },
-  emitChange: () => void,
-): Promise<void> {
+): Promise<MirrorOutcome> {
   try {
     await mirrorMemoryIfCurrent(resource, base);
+    return { status: "ok" };
   } catch (error) {
     if (error instanceof MemoryWriteConflictError) {
-      emitChange();
-      throw error;
+      return { status: "conflict", error };
     }
     handleMirrorFailure(error);
+    return { status: "stale", error };
   }
+}
+
+async function mirrorPutOrThrow(
+  resource: Resource,
+  base: { content: string; updatedAt: number },
+  requestSource: ResourceWriteOptions["requestSource"],
+): Promise<void> {
+  const outcome = await mirrorWriteOutcome(resource, base);
+  if (outcome.status === "ok") return;
+  emitResourceChange(resource.id, resource.path, resource.owner, requestSource);
+  if (outcome.status === "conflict") throw outcome.error;
+  throw new MemoryMirrorStaleError(
+    `${resource.path} was saved but could not be mirrored to the shared memory directory; other apps may read an older copy`,
+    {
+      path: resource.path,
+      content: resource.content,
+      updatedAt: resource.updatedAt,
+    },
+    { cause: outcome.error },
+  );
 }
 
 async function dropTombstonedMemoryRow(
@@ -2664,7 +2696,7 @@ export async function resourcePutWithDb(
     value: resource,
     notifyAfterCommit: async () => {
       if (isPersonalMemoryResourcePath(owner, path)) {
-        await mirrorWriteReportingConflict(
+        await mirrorPutOrThrow(
           resource,
           typeof existingRow?.content === "string"
             ? {
@@ -2672,7 +2704,7 @@ export async function resourcePutWithDb(
                 updatedAt: Number(existingRow.updated_at),
               }
             : ROWLESS_MEMORY_BASE,
-          () => emitResourceChange(id, path, owner, options?.requestSource),
+          options?.requestSource,
         );
       }
       if (typeof existingRow?.content === "string") {
@@ -2810,9 +2842,7 @@ async function resourcePutIfAbsentInternal(
   });
   if (result.rowsAffected !== 1) return null;
 
-  if (emitChange) emitResourceChange(id, path, owner, options?.requestSource);
-
-  return {
+  const inserted: Resource = {
     id,
     path,
     owner,
@@ -2828,6 +2858,15 @@ async function resourcePutIfAbsentInternal(
     expiresAt,
     metadata,
   };
+  if (emitChange && isPersonalMemoryResourcePath(owner, path)) {
+    await mirrorPutOrThrow(
+      inserted,
+      ROWLESS_MEMORY_BASE,
+      options?.requestSource,
+    );
+  }
+  if (emitChange) emitResourceChange(id, path, owner, options?.requestSource);
+  return inserted;
 }
 
 export async function resourcePutIfCurrent(
@@ -2999,7 +3038,7 @@ function localWorkspaceResourceSnapshot(resource: Resource) {
 
 export async function resourcePutIfSnapshot(
   input: ResourceSnapshotWrite,
-): Promise<ResourceSnapshotWriteResult | null> {
+): Promise<ResourceSnapshotWriteRecord | null> {
   return resourcePutIfSnapshotInternal(input, true);
 }
 
@@ -3007,7 +3046,7 @@ async function resourcePutIfSnapshotInternal(
   input: ResourceSnapshotWrite,
   emitChange: boolean,
   clientOverride?: DbExec,
-): Promise<ResourceSnapshotWriteResult | null> {
+): Promise<ResourceSnapshotWriteRecord | null> {
   assertResourcePayloadIsSqlSafe(
     input.content,
     input.mimeType,
@@ -3197,11 +3236,11 @@ export async function resourcePutSnapshotBatchIfCurrent(
     throw new Error("Resource snapshot batches require database transactions.");
   }
 
-  let result: readonly ResourceSnapshotWriteResult[];
+  let result: readonly ResourceSnapshotWriteRecord[];
   try {
     result = await client.transaction(async (tx) => {
       await options?.beforeWrite?.(tx);
-      const written: ResourceSnapshotWriteResult[] = [];
+      const written: ResourceSnapshotWriteRecord[] = [];
       for (const write of writes) {
         const result = await resourcePutIfSnapshotInternal(write, false, tx);
         if (!result) throw SNAPSHOT_WRITE_CONFLICT;
@@ -3214,30 +3253,31 @@ export async function resourcePutSnapshotBatchIfCurrent(
     throw error;
   }
 
-  let conflict: MemoryWriteConflictError | undefined;
-  for (const [index, { before, resource }] of result.entries()) {
+  const results: ResourceSnapshotWriteResult[] = [];
+  for (const [index, entry] of result.entries()) {
+    const { before } = entry;
+    let { resource } = entry;
+    let mirror: ResourceSnapshotWriteResult["mirror"] = "ok";
     if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
-      try {
-        await mirrorWriteReportingConflict(
-          resource,
-          before
-            ? { content: before.content, updatedAt: before.updatedAt }
-            : ROWLESS_MEMORY_BASE,
-          () =>
-            emitResourceChange(
-              resource.id,
-              resource.path,
-              resource.owner,
-              writes[index]?.options?.requestSource,
-            ),
-        );
-      } catch (error) {
-        if (!(error instanceof MemoryWriteConflictError)) throw error;
-        conflict ??= error;
-        continue;
+      const outcome = await mirrorWriteOutcome(
+        resource,
+        before
+          ? { content: before.content, updatedAt: before.updatedAt }
+          : ROWLESS_MEMORY_BASE,
+      );
+      mirror = outcome.status;
+      if (outcome.status === "conflict" && outcome.error.adopted) {
+        const { content, updatedAt } = outcome.error.adopted;
+        resource = {
+          ...resource,
+          content,
+          updatedAt,
+          size: Buffer.byteLength(content, "utf8"),
+        };
       }
     }
-    if (before) {
+    results.push({ before, resource, mirror });
+    if (before && mirror !== "conflict") {
       await noteJobFrontmatterWrite({
         owner: resource.owner,
         orgId: organizationIdFromResourceOwner(resource.owner),
@@ -3254,8 +3294,7 @@ export async function resourcePutSnapshotBatchIfCurrent(
       writes[index]?.options?.requestSource,
     );
   }
-  if (conflict) throw conflict;
-  return result;
+  return results;
 }
 
 export async function resourcePutSnapshotPairIfCurrent(

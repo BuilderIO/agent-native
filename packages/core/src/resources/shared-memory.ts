@@ -63,7 +63,30 @@ export function resolveSharedMemoryFilePath(
 
 export class MemoryTombstoneError extends Error {}
 
-export class MemoryWriteConflictError extends Error {}
+export class MemoryWriteConflictError extends Error {
+  adopted: { content: string; updatedAt: number } | null;
+
+  constructor(
+    message: string,
+    adopted: { content: string; updatedAt: number } | null,
+  ) {
+    super(message);
+    this.adopted = adopted;
+  }
+}
+
+export class MemoryMirrorStaleError extends Error {
+  committed: { path: string; content: string; updatedAt: number };
+
+  constructor(
+    message: string,
+    committed: { path: string; content: string; updatedAt: number },
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.committed = committed;
+  }
+}
 
 export class MemoryMirrorRepairError extends Error {}
 

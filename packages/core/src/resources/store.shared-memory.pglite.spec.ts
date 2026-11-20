@@ -711,7 +711,8 @@ describe("personal memory shared across local apps", () => {
   it("reports a mirror that never settles as a typed repair error", async () => {
     useMemoryDir();
     const { resourcePutWithDb } = await import("./store.js");
-    const { MemoryMirrorRepairError } = await import("./shared-memory.js");
+    const { MemoryMirrorRepairError, MemoryMirrorStaleError } =
+      await import("./shared-memory.js");
     const first = await resourcePutWithDb(
       sharedClient,
       OWNER,
@@ -731,7 +732,10 @@ describe("personal memory shared across local apps", () => {
       });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      await first.notifyAfterCommit();
+      const failure = await first.notifyAfterCommit().catch((error) => error);
+      expect(failure).toBeInstanceOf(MemoryMirrorStaleError);
+      expect(failure.committed).toMatchObject({ path: "memory/churn.md" });
+      expect(failure.cause).toBeInstanceOf(MemoryMirrorRepairError);
       expect(logged).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(MemoryMirrorRepairError),
@@ -787,7 +791,6 @@ describe("personal memory shared across local apps", () => {
     const dir = useMemoryDir();
     const { resourcePut, resourcePutSnapshotBatchIfCurrent } =
       await import("./store.js");
-    const { MemoryWriteConflictError } = await import("./shared-memory.js");
     const a = await resourcePut(OWNER, "memory/batch-a.md", "a1");
     const b = await resourcePut(OWNER, "memory/batch-b.md", "b1");
     const file = sharedFile(dir, "batch-a.md");
@@ -795,13 +798,36 @@ describe("personal memory shared across local apps", () => {
     const later = new Date(a.updatedAt + 60_000);
     fs.utimesSync(file, later, later);
 
-    await expect(
-      resourcePutSnapshotBatchIfCurrent([
-        { previous: a, owner: OWNER, path: a.path, content: "a2" },
-        { previous: b, owner: OWNER, path: b.path, content: "b2" },
-      ]),
-    ).rejects.toBeInstanceOf(MemoryWriteConflictError);
+    const results = await resourcePutSnapshotBatchIfCurrent([
+      { previous: a, owner: OWNER, path: a.path, content: "a2" },
+      { previous: b, owner: OWNER, path: b.path, content: "b2" },
+    ]);
+    expect(results?.map((entry) => entry.mirror)).toEqual(["conflict", "ok"]);
+    expect(results?.[0]?.resource.content).toBe("a-external");
+    expect(results?.[1]?.resource.content).toBe("b2");
     expect(fs.readFileSync(file, "utf8")).toBe("a-external");
     expect(fs.readFileSync(sharedFile(dir, "batch-b.md"), "utf8")).toBe("b2");
+  });
+
+  it("mirrors a put-if-absent insert and clears the tombstone", async () => {
+    const dir = useMemoryDir();
+    const { resourceDeleteByPath, resourcePut, resourcePutIfAbsent } =
+      await import("./store.js");
+    await resourcePut(OWNER, "memory/revive.md", "old");
+    await resourceDeleteByPath(OWNER, "memory/revive.md");
+    expect(fs.existsSync(`${sharedFile(dir, "revive.md")}.deleted`)).toBe(true);
+
+    const created = await resourcePutIfAbsent(
+      OWNER,
+      "memory/revive.md",
+      "revived",
+    );
+    expect(created?.content).toBe("revived");
+    expect(fs.readFileSync(sharedFile(dir, "revive.md"), "utf8")).toBe(
+      "revived",
+    );
+    expect(fs.existsSync(`${sharedFile(dir, "revive.md")}.deleted`)).toBe(
+      false,
+    );
   });
 });
