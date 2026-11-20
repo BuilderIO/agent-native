@@ -171,8 +171,6 @@ async function assertInspectorHeader(page: Page): Promise<void> {
       }),
     );
   expect(grids.length).toBeGreaterThan(2);
-  // One shared grid: 8px of padding comes first, and every header spans the
-  // same width after that.
   // oracle-change: the panel's inner-edge hairline is now drawn above its content instead of as a 1px border, so it no longer pushes the grid 1px in.
   for (const grid of grids) {
     expect(grid.x).toBeCloseTo(panelGeometry.x + 8, 0);

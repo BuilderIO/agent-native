@@ -1278,8 +1278,9 @@ test("a newer sidebar Screen selection survives failed Screen deletion settlemen
     const homeSidebarRow = page
       .locator("[data-screen-row]")
       .filter({ hasText: "Home" });
-    // The overview has no current page row; a focused page's row is current.
-    const currentPageRow = page.locator('[data-screen-row][aria-current="page"]');
+    const currentPageRow = page.locator(
+      '[data-screen-row][aria-current="page"]',
+    );
     await homeSidebarRow.click();
     await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
     await expect(currentPageRow).toHaveCount(0);

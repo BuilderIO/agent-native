@@ -5,6 +5,7 @@ import {
   DOCKED_RIGHT_INSPECTOR_CLASSNAME,
   FLOATING_RIGHT_INSPECTOR_CLASSNAME,
   hasMinimalInspectorSelection,
+  isCommentsPanelShown,
   isRightInspectorVisible,
   rightInspectorCanvasInset,
   rightInspectorPanelClassName,
@@ -51,6 +52,7 @@ describe("isRightInspectorVisible", () => {
     responsiveInteractActive: false,
     minimalUi: false,
     minimalInspectorHasSelection: false,
+    commentsPanelShown: false,
   };
 
   it("shows in Design", () => {
@@ -103,6 +105,56 @@ describe("isRightInspectorVisible", () => {
         minimalInspectorHasSelection: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("isCommentsPanelShown", () => {
+  const shell = {
+    hostOwnsChrome: false,
+    isMobileViewport: false,
+    uiHidden: false,
+    initialGenerationChromeLimited: false,
+    minimalUi: false,
+    commentsPanelOpen: true,
+    commentsAvailable: true,
+  };
+
+  it("keeps the right column up in Interact and in minimal UI with nothing selected", () => {
+    expect(isCommentsPanelShown(shell)).toBe(true);
+    expect(isCommentsPanelShown({ ...shell, minimalUi: true })).toBe(true);
+    expect(
+      isRightInspectorVisible({
+        ...shell,
+        responsiveInteractActive: true,
+        minimalInspectorHasSelection: false,
+        commentsPanelShown: isCommentsPanelShown(shell),
+      }),
+    ).toBe(true);
+    expect(
+      isRightInspectorVisible({
+        ...shell,
+        minimalUi: true,
+        responsiveInteractActive: false,
+        minimalInspectorHasSelection: false,
+        commentsPanelShown: isCommentsPanelShown({ ...shell, minimalUi: true }),
+      }),
+    ).toBe(true);
+  });
+
+  it("is false where the right column cannot render", () => {
+    expect(isCommentsPanelShown({ ...shell, commentsPanelOpen: false })).toBe(
+      false,
+    );
+    expect(isCommentsPanelShown({ ...shell, commentsAvailable: false })).toBe(
+      false,
+    );
+    expect(isCommentsPanelShown({ ...shell, hostOwnsChrome: true })).toBe(
+      false,
+    );
+    expect(isCommentsPanelShown({ ...shell, uiHidden: true })).toBe(false);
+    expect(isCommentsPanelShown({ ...shell, isMobileViewport: true })).toBe(
+      false,
+    );
   });
 });
 

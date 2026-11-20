@@ -15,6 +15,7 @@ import {
   enterDirectMode,
   gotoEditor,
   installBridge,
+  must,
   pickFrameMode,
   selectByText,
   openAppMenuSubmenu,
@@ -971,8 +972,6 @@ async function insertTextByDrag(
     "aria-pressed",
     "true",
   );
-  // Mouse events carry whole pixels, so the drag lands on whole pixels too
-  // and callers can work out the size it draws.
   await dragBetween(page, ...textDragPoints(cardBox));
   await replaceActiveText(page, text);
 }
@@ -1247,9 +1246,10 @@ test("keyboard shortcuts dialog opens without remounting the overview iframe", a
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
   expect(leftBox?.width).toBe(DEFAULT_LEFT_SIDEBAR_WIDTH);
-  expect(layersBox).not.toBeNull();
+  const layers = must(layersBox, "Layers panel");
+  const left = must(leftBox, "left column");
   expect(
-    Math.abs(layersBox!.x + layersBox!.width - (leftBox!.x + leftBox!.width)),
+    Math.abs(layers.x + layers.width - (left.x + left.width)),
   ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
@@ -3593,10 +3593,14 @@ test("single-screen undo does not consume overview history", async ({
   await homeScreen.click();
   await expect(selectedLayerRow(page)).toContainText("Home");
   await modeButton(page, "interact").click();
-  // oracle-change: Interact has no Pages list, so the current-row check moves to the Interact screen shell.
+  // oracle-change: Interact has no Pages list, so the current-row check moves to the Interact screen shell, which must be Home.
   await expect(
     page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
   ).toHaveCount(1);
+  await expect(screenShell(page, "Home")).toHaveAttribute(
+    "data-screen-interact-mode",
+    "true",
+  );
 
   await pressPrimaryShortcut(page, "z");
   await page.waitForTimeout(300);
@@ -3604,8 +3608,7 @@ test("single-screen undo does not consume overview history", async ({
     aboutRectanglesBefore + 1,
   );
 
-  // oracle-change: the All screens row is gone, so the overview is entered from the View menu (from Design, not Interact) and its current-row check is dropped.
-  await modeButton(page, "edit").click();
+  // oracle-change: the All screens row is gone, so the overview is entered from Interact through the View menu and its current-row check is dropped.
   await openPageOverview(page);
   await expect(screenShell(page, "About")).toBeVisible();
   await pressPrimaryShortcut(page, "z");

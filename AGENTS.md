@@ -324,8 +324,8 @@ instructions, and application state.
 - Run oxfmt on modified source files.
 - Use shadcn/ui primitives for standard controls and dialogs. Do not build custom
   dropdowns/popovers/modals with absolute positioning.
-- Use Tabler Icons for UI icons, except Design, which uses Radix Icons
-  (`@radix-ui/react-icons`). Do not use emojis as first-party icons.
+- Use Tabler Icons for UI icons; Design uses Radix Icons
+  (`@radix-ui/react-icons`). No emojis as first-party icons.
 - No browser `alert`, `confirm`, or `prompt`; use shadcn dialogs.
 - Agent prompt inputs must use the shared composer stack:
   `AgentComposerFrame`, `PromptComposer`, and `TiptapComposer`.

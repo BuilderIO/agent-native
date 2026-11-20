@@ -5,6 +5,7 @@ import {
   EDIT_MODE_BUTTON,
   expandAllLayers,
   INTERACT_MODE_BUTTON,
+  must,
   openPageOverview,
   resetPersistedCanvasState,
 } from "./helpers";
@@ -150,6 +151,7 @@ test("agent rail stays inside a narrow viewport without the canvas toolbar cover
   await openFixture(app);
   const page = app.page;
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('[data-design-minimal-toggle="ui"]').click();
   await page
     .getByRole("tab", { name: enUS.designEditor.leftTabs.agent, exact: true })
     .click();
@@ -305,8 +307,8 @@ test("column heads are 48px and keep Share in the right head and zoom in the bot
   const rightHead = page.locator(
     '[data-design-chrome-region="right-toolbar-actions"]',
   );
-  const leftHeadBox = (await leftHead.boundingBox())!;
-  const rightHeadBox = (await rightHead.boundingBox())!;
+  const leftHeadBox = must(await leftHead.boundingBox(), "left head");
+  const rightHeadBox = must(await rightHead.boundingBox(), "right head");
   expect([leftHeadBox.y, leftHeadBox.height]).toStrictEqual([0, 48]);
   expect([rightHeadBox.y, rightHeadBox.height]).toStrictEqual([0, 48]);
   expect(rightHeadBox.x + rightHeadBox.width).toBeLessThanOrEqual(
@@ -316,10 +318,13 @@ test("column heads are 48px and keep Share in the right head and zoom in the bot
     page.getByRole("button", { name: "Add to Context" }),
   ).toHaveCount(0);
 
-  const shareBox = (await rightHead
-    .getByRole("button", { name: /^share(?: \(.+\))?$/i })
-    .first()
-    .boundingBox())!;
+  const shareBox = must(
+    await rightHead
+      .getByRole("button", { name: /^share(?: \(.+\))?$/i })
+      .first()
+      .boundingBox(),
+    "Share",
+  );
   expect(shareBox.x).toBeGreaterThanOrEqual(rightHeadBox.x - 1);
   expect(shareBox.x + shareBox.width).toBeLessThanOrEqual(
     rightHeadBox.x + rightHeadBox.width + 1,
@@ -333,13 +338,15 @@ test("column heads are 48px and keep Share in the right head and zoom in the bot
       .getByRole("button", { name: /^\d+%$/ }),
   ).toBeVisible();
 
-  // The head still fits at the inspector's 240px minimum.
   await page.evaluate(() =>
     localStorage.setItem("design.editor.inspectorWidth", "240"),
   );
   await page.reload();
   await expect(rightHead).toBeVisible();
-  expect((await rightHead.boundingBox())!.width).toBeCloseTo(240, 0);
+  expect(must(await rightHead.boundingBox(), "right head").width).toBeCloseTo(
+    240,
+    0,
+  );
   await expect(page.locator("[data-design-comments-toggle]")).toBeVisible();
   expect(
     await rightHead.evaluate((node) => node.scrollWidth - node.clientWidth),
@@ -384,8 +391,6 @@ test("screen overview adds, targets and removes breakpoints from the unified con
   });
   await expect(page.locator("[data-screen-card]")).toBeVisible();
   await openPageOverview(page);
-  // The Page section (where breakpoints live) shows for a selected page, so a
-  // row in the Pages list selects this one.
   // oracle-change: the All screens row is gone; selecting a page row in the Pages list shows the same breakpoint control.
   await page.locator("[data-screen-row]").first().click();
   const control = page.locator("[data-breakpoint-device-control]");
@@ -596,18 +601,13 @@ test("left sidebar switches between all screens and focused screens", async ({
   const homeScreen = sidebar
     .getByRole("button", { name: "Home", exact: true })
     .first();
-  // The overview has no current page row; a focused page marks its row current.
   await expect(currentPageRow).toHaveCount(0);
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
 
-  // A row focuses its page on the overview canvas: the page is selected and
-  // the overview stays up. Interact is what leaves the overview.
   await homeScreen.click();
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Home"]);
   await expect(currentPageRow).toHaveCount(0);
 
-  // Interact's left column is the chat alone, so the Pages list is not mounted
-  // there and no row can be marked current.
   // oracle-change: Interact has no Pages list, so the current-row check moves to the preview's screen shell.
   await page.locator(INTERACT_MODE_BUTTON).click();
   await expect(

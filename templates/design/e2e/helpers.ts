@@ -473,10 +473,6 @@ export async function expandAllLayers(page: Page): Promise<void> {
   }
 }
 
-/**
- * The Frame group's main button. It arms whichever of Frame and Page was used
- * last, so it is found by its group, not by a label.
- */
 export function frameToolButton(page: Page): Locator {
   return page
     .locator(
@@ -551,7 +547,11 @@ export async function openAppMenuSubmenu(
   await page.getByRole("menuitem", { name: submenu, exact: true }).hover();
 }
 
-/** The Edit and Interact switch at the end of the bottom toolbar. */
+export function must<T>(value: T | null | undefined, what: string): T {
+  if (value == null) throw new Error(`${what} is missing`);
+  return value;
+}
+
 export const EDIT_MODE_BUTTON =
   '[data-design-bottom-toolbar] button[aria-label="Edit"]';
 export const INTERACT_MODE_BUTTON =
@@ -564,18 +564,10 @@ export async function gotoEditor(page: Page, designId: string): Promise<void> {
     waitUntil: "domcontentloaded",
   });
   await waitForEditorBoot(page, startedAt);
-  // oracle-change: the mode switch moved from the top bar to the bottom toolbar, which a phone's open drawer hides (unchanged from main), so phones check the drawer instead.
-  // Below `md` the left panel opens as a drawer over the canvas and leaves the
-  // bottom toolbar (and its mode switch) out until it closes, as it covered
-  // the top bar's switch before; the open drawer is the booted state there.
-  if ((page.viewportSize()?.width ?? Infinity) < 768) {
-    await expect(page.locator("[data-design-left-column]")).toBeVisible();
-    await expect(page.locator(EDIT_MODE_BUTTON)).toHaveCount(0);
-  } else {
-    const designMode = page.locator(EDIT_MODE_BUTTON);
-    await expect(designMode).toBeVisible();
-    await expect(designMode).toHaveAttribute("aria-pressed", "true");
-  }
+  // oracle-change: the mode switch moved from the top bar to the bottom toolbar; phones boot with the left drawer closed, so every width checks the switch
+  const designMode = page.locator(EDIT_MODE_BUTTON);
+  await expect(designMode).toBeVisible();
+  await expect(designMode).toHaveAttribute("aria-pressed", "true");
   await waitForDesignPreviewReady(page);
 }
 
@@ -628,26 +620,22 @@ export async function waitForDesignPreviewReady(page: Page): Promise<void> {
   }
 }
 
-/**
- * Shows every page at once (the page overview). The Pages list has no row for
- * it; the app menu's View item toggles it, and its label names the view the
- * item switches to. Already in the overview, the menu closes and nothing else
- * changes.
- */
 export async function openPageOverview(page: Page): Promise<void> {
   await openAppMenuSubmenu(page, "View");
   const toOverview = page.getByRole("menuitem", {
     name: "Page overview",
     exact: true,
   });
-  if ((await toOverview.count()) > 0) {
+  const toCurrent = page.getByRole("menuitem", {
+    name: "Current page",
+    exact: true,
+  });
+  await expect(toOverview.or(toCurrent)).toBeVisible();
+  if (await toOverview.isVisible()) {
     await toOverview.click();
     await expect(toOverview).toHaveCount(0);
     return;
   }
-  await expect(
-    page.getByRole("menuitem", { name: "Current page", exact: true }),
-  ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
 }

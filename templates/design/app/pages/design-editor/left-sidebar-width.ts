@@ -7,8 +7,6 @@ const LEFT_SIDEBAR_WIDTH_STEP = 8;
 export const LEFT_SIDEBAR_MIN_WIDTH = AGENT_SIDEBAR_MIN_WIDTH;
 export const LEFT_SIDEBAR_MAX_WIDTH = 416;
 
-// Every left panel tab shares one stored width and these limits, so
-// switching between them never moves the canvas edge.
 /** Width the left panel renders at for the stored width. */
 export function resolveLeftSidebarWidth(storedWidth: number): number {
   return Math.max(

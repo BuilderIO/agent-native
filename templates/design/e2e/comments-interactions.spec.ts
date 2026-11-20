@@ -44,10 +44,6 @@ function threadPopover(page: Page) {
     .last();
 }
 
-/**
- * Opens the Comments panel from the right column head. A reload can restore it
- * already open, and the button toggles, so it is clicked only while closed.
- */
 async function openThreadsPanel(page: Page): Promise<void> {
   const commentsToggle = page.locator("[data-design-comments-toggle]");
   if ((await commentsToggle.getAttribute("aria-pressed")) !== "true") {

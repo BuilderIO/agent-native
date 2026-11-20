@@ -178,7 +178,6 @@ export interface LayersPanelLabels {
 export interface LayersPanelProps {
   screens?: LayersPanelFile[];
   activeScreenId?: string;
-  /** In the overview no single page is current. */
   screenOverviewActive?: boolean;
   files?: LayersPanelFile[];
   layers?: LayersPanelNode[];
@@ -2272,8 +2271,6 @@ const LayerRow = memo(function LayerRow({
             data-layer-toggles
             className={cn(
               "sticky end-0 z-10 ms-auto flex shrink-0 items-center bg-inherit",
-              // Shown on hover and also on the selected or focused row, so
-              // the toggles never depend on a pointer.
               node.locked || node.hidden || isSelected
                 ? "w-auto overflow-visible"
                 : "w-0 overflow-hidden group-focus-within:w-auto group-focus-within:overflow-visible group-hover:w-auto group-hover:overflow-visible",

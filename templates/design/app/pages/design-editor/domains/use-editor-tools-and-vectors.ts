@@ -79,6 +79,7 @@ import {
   getCreatedScreenNavigationPlan,
 } from "../created-screen-navigation";
 import { resolveUrlScreen } from "../derive/url-screen";
+import { pageHasWebMcpHost } from "../design-editor-shared";
 import {
   EMPTY_TEXT_CLEANUP_MAX_ATTEMPTS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
@@ -98,6 +99,8 @@ import {
   type ContentUndoStackTop,
 } from "../history";
 import { resolveScreenTitle } from "../interact-routes";
+import { agentPanelAvailable, visibleLeftPanel } from "../left-panel-tabs";
+import { isCommentsPanelShown } from "../minimal-inspector";
 import { getScreenFrameOriginCanvas } from "../overview-camera";
 import { blurActiveDesignEditableTarget } from "../png-export-render";
 import {
@@ -192,11 +195,17 @@ export function useEditorToolsAndVectors({
     setHoveredElement,
     activeFileId,
     setActiveFileId,
+    hostOwnsChrome,
+    hostEmbeddedEditor,
+    isVisualEditSurface,
   } = editorCore;
   const {
     activeLeftPanel,
     setActiveLeftPanel,
     commentsPanelOpen,
+    designLeftPanel,
+    minimalUi,
+    isMobileViewport,
     selectedLayerIdsState,
     setSelectedLayerIdsState,
     codeLayerOwnerByNodeIdRef,
@@ -273,11 +282,13 @@ export function useEditorToolsAndVectors({
     zoom,
     activeProjectionContent,
     selectedCodeLayerNode,
+    initialGenerationChromeLimited,
   } = editorLiveEditsAndPresence;
   const {
     applyLocalContentUpdate,
     applyFileContentUpdate,
     contentHistorySelectionAfterRef,
+    uiHidden,
   } = editorContentAndComponents;
 
   const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
@@ -1644,6 +1655,26 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const canChatWithAgent =
+    canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
+  const shownLeftPanel = visibleLeftPanel(
+    mode,
+    designLeftPanel,
+    agentPanelAvailable({
+      hostEmbeddedEditor,
+      isVisualEditSurface,
+      canChatWithAgent,
+    }),
+  );
+  const commentsPanelShown = isCommentsPanelShown({
+    commentsPanelOpen,
+    commentsAvailable: reviewCommentsPanelProps !== undefined,
+    hostOwnsChrome,
+    isMobileViewport,
+    uiHidden,
+    initialGenerationChromeLimited,
+    minimalUi,
+  });
   const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
   const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
   const agentSelectionScreens = useMemo(
@@ -1660,8 +1691,8 @@ export function useEditorToolsAndVectors({
       runPublishAgentSelectionContext({
         activeBreakpointWidthState,
         activeFile,
-        activeLeftPanel,
-        commentsPanelOpen,
+        activeLeftPanel: shownLeftPanel,
+        commentsPanelShown,
         activeTool,
         design,
         designDataJson,
@@ -1701,8 +1732,8 @@ export function useEditorToolsAndVectors({
       hoveredElement,
       mode,
       activeTool,
-      activeLeftPanel,
-      commentsPanelOpen,
+      shownLeftPanel,
+      commentsPanelShown,
       overviewSelectedScreenIds,
       viewMode,
       zoom,
@@ -1875,6 +1906,9 @@ export function useEditorToolsAndVectors({
     handleDispatchCommentToAgent,
     handleSendReviewThreadToAgent,
     reviewCommentsPanelProps,
+    canChatWithAgent,
+    shownLeftPanel,
+    commentsPanelShown,
     handleCreatePrimitive,
     handlePrimitiveCreated,
     handleOverviewCreatePrimitive,

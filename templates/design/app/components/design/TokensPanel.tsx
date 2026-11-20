@@ -1077,7 +1077,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
               <div
                 key={i}
                 className={cn(TREE_GRID_ROW_CLASS, "gap-2")}
-                // Group rows' icons sit at 40px, token rows' one level in.
                 style={{ paddingInlineStart: i === 1 ? "40px" : "64px" }}
               >
                 <div className="size-4 shrink-0 animate-pulse rounded bg-muted/40" />

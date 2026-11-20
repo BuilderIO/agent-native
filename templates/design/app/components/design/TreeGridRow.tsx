@@ -3,20 +3,12 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-// One grid for Pages, Layers and the Library: 32px rows padded 16px inline,
-// 24px per level, then a 16px chevron slot, 8px, a 16px icon slot, 8px and the
-// label. A level is exactly chevron + gap wide, so a child's chevron sits
-// under its parent's icon, and a section head's chevron sits on depth 0's.
 export const TREE_GRID_ROW_CLASS =
   "flex h-[var(--design-row-height)] min-w-0 items-center px-4 text-xs leading-4";
 
 export const TREE_GRID_ICON_SLOT_CLASS =
   "flex size-4 shrink-0 items-center justify-center";
 
-/**
- * The indent and chevron columns that start every row. `fit` lets the indents
- * shrink so a deep row keeps room for its name in a narrow panel.
- */
 export function TreeGridLead({
   depth,
   chevron,
@@ -25,7 +17,6 @@ export function TreeGridLead({
 }: {
   depth: number;
   chevron?: ReactNode;
-  /** The drop indicator lines up with the chevron column, so it omits it. */
   chevronSlot?: boolean;
   fit?: boolean;
 }) {
@@ -66,10 +57,6 @@ export function TreeGridChevron({ expanded }: { expanded: boolean }) {
   );
 }
 
-/**
- * A 40px section head (Pages, Layers) whose chevron sits on the rows' chevron
- * column. It sticks to the top of the list it heads.
- */
 export function TreeGridSectionHead({
   label,
   expanded,
@@ -83,7 +70,6 @@ export function TreeGridSectionHead({
   onExpandedChange: (expanded: boolean) => void;
   actions?: ReactNode;
   className?: string;
-  /** Rendered as `data-layers-panel-header` for tests and chrome geometry. */
   headerId?: string;
 }) {
   return (

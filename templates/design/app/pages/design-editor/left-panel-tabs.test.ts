@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentPanelAvailable,
   DEFAULT_DESIGN_LEFT_PANEL,
   isLeftPanelTab,
   nextDesignLeftPanel,
@@ -18,6 +19,25 @@ describe("left panel tabs", () => {
     );
   });
 
+  it("shows File in Interact when the viewer has no agent chat", () => {
+    expect(visibleLeftPanel("interact", "library", false)).toBe("file");
+    expect(visibleLeftPanel("edit", "library", false)).toBe("library");
+    expect(
+      agentPanelAvailable({
+        hostEmbeddedEditor: false,
+        isVisualEditSurface: false,
+        canChatWithAgent: false,
+      }),
+    ).toBe(false);
+    expect(
+      agentPanelAvailable({
+        hostEmbeddedEditor: false,
+        isVisualEditSurface: false,
+        canChatWithAgent: true,
+      }),
+    ).toBe(true);
+  });
+
   it("shows the tab row in Design and comment mode, not in Interact", () => {
     expect(showsLeftPanelTabs("edit")).toBe(true);
     expect(showsLeftPanelTabs("comment")).toBe(true);
@@ -25,7 +45,6 @@ describe("left panel tabs", () => {
   });
 
   it("keeps Design's tab across a trip to Interact", () => {
-    // Asking for the chat in Interact is already satisfied there.
     expect(nextDesignLeftPanel("interact", "library", "agent")).toBe("library");
     expect(visibleLeftPanel("edit", "library")).toBe("library");
   });

@@ -15,8 +15,6 @@ import {
   type DesignMenuItemVariant,
 } from "./menu-classes";
 
-// Same spec as ./dropdown-menu, over the toolkit context menu.
-
 export {
   ContextMenu,
   ContextMenuGroup,
@@ -101,8 +99,6 @@ const ContextMenuCheckboxItem = React.forwardRef<
 ContextMenuCheckboxItem.displayName =
   Toolkit.ContextMenuCheckboxItem.displayName;
 
-// The toolkit context menu's radio indicator is a fixed dot with no check
-// option; Design has no context-menu radio groups today.
 const ContextMenuRadioItem = React.forwardRef<
   React.ElementRef<typeof Toolkit.ContextMenuRadioItem>,
   React.ComponentPropsWithoutRef<typeof Toolkit.ContextMenuRadioItem>

@@ -98,6 +98,7 @@ import {
   INSPECTOR_WIDTH_STORAGE_KEY,
   LEFT_SIDEBAR_WIDTH_STORAGE_KEY,
   readStoredSidebarWidth,
+  storedSidebarWidthOr,
   writeStoredSidebarWidth,
 } from "../sidebar-width-storage";
 import { type DesignLeftPanel } from "../types";
@@ -181,7 +182,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const stagedHandoffStartedRef = useRef<(() => void) | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
-  // Design remembers its own tab; Interact always shows the chat.
   const [designLeftPanel, setDesignLeftPanel] =
     useState<DesignLeftPanel | null>(DEFAULT_DESIGN_LEFT_PANEL);
   const activeLeftPanel = visibleLeftPanel(mode, designLeftPanel);
@@ -200,10 +200,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     [],
   );
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
-  // `threads` was the left rail's comments panel. Comments now open in the
-  // right column in place of the inspector, so every caller that still asks
-  // for `threads` (comment tool, thread focus, navigate, ?panel=) opens them
-  // there and leaves the left tab alone.
   const setActiveLeftPanel = useCallback(
     (next: SetStateAction<DesignLeftPanel | null>) => {
       if (next === "threads") {
@@ -214,30 +210,29 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     },
     [],
   );
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(
-    () =>
-      readStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY) ??
+  const [leftSidebarWidth, setLeftSidebarWidthState] = useState(() =>
+    storedSidebarWidthOr(
+      readStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY),
       DEFAULT_LEFT_SIDEBAR_WIDTH,
+    ),
   );
-  const [storedRightSidebarWidth, setRightSidebarWidth] = useState(
-    () =>
-      readStoredSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY) ??
+  const [storedRightSidebarWidth, setRightSidebarWidthState] = useState(() =>
+    storedSidebarWidthOr(
+      readStoredSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY),
       DEFAULT_INSPECTOR_WIDTH,
+    ),
   );
   const rightSidebarWidth = resolveInspectorWidth(storedRightSidebarWidth);
-  useEffect(() => {
-    writeStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY, leftSidebarWidth);
-  }, [leftSidebarWidth]);
-  useEffect(() => {
-    writeStoredSidebarWidth(
-      INSPECTOR_WIDTH_STORAGE_KEY,
-      storedRightSidebarWidth,
-    );
-  }, [storedRightSidebarWidth]);
+  const setLeftSidebarWidth = useCallback((width: number) => {
+    setLeftSidebarWidthState(width);
+    writeStoredSidebarWidth(LEFT_SIDEBAR_WIDTH_STORAGE_KEY, width);
+  }, []);
+  const setRightSidebarWidth = useCallback((width: number) => {
+    setRightSidebarWidthState(width);
+    writeStoredSidebarWidth(INSPECTOR_WIDTH_STORAGE_KEY, width);
+  }, []);
   const [minimalUiRequested, setMinimalUi] = useState(minimalUiByDefault);
   const minimalUi = minimalUiRequested || minimalUiLocked;
-  // With no rail, a collapsed left panel would leave nothing to reopen it
-  // from; collapsing floats the file name as minimal UI's island instead.
   const collapseLeftPanel = useCallback(() => setMinimalUi(true), []);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const leftSidebarContentRef = useRef<HTMLDivElement | null>(null);
@@ -404,13 +399,20 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           leftSidebarWidth,
           rightSidebarContentRef,
           rightSidebarWidth,
-          setLeftSidebarWidth,
-          setRightSidebarWidth,
+          setLeftSidebarWidth: setLeftSidebarWidthState,
+          setRightSidebarWidth: setRightSidebarWidthState,
+          commitLeftSidebarWidth: setLeftSidebarWidth,
+          commitRightSidebarWidth: setRightSidebarWidth,
         },
         side,
         event,
       ),
-    [leftSidebarWidth, rightSidebarWidth],
+    [
+      leftSidebarWidth,
+      rightSidebarWidth,
+      setLeftSidebarWidth,
+      setRightSidebarWidth,
+    ],
   );
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -615,6 +617,20 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     mediaQuery.addEventListener("change", update);
     return () => mediaQuery.removeEventListener("change", update);
   }, []);
+  const minimalUiRequestedRef = useRef(minimalUiRequested);
+  minimalUiRequestedRef.current = minimalUiRequested;
+  const minimalUiBeforePhoneRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (isMobileViewport) {
+      minimalUiBeforePhoneRef.current = minimalUiRequestedRef.current;
+      setMinimalUi(true);
+      return;
+    }
+    const before = minimalUiBeforePhoneRef.current;
+    if (before === null) return;
+    minimalUiBeforePhoneRef.current = null;
+    setMinimalUi(before);
+  }, [isMobileViewport]);
   useEffect(() => {
     hasActiveSelectionRef.current =
       selectedElement !== null || selectedLayerIdsState.length > 0;

@@ -33,7 +33,6 @@ const designEditorToolSchema = z.enum([
 const retiredToolToMove = (value: unknown) =>
   value === "agent" || value === "draw" ? "move" : value;
 
-// The Tokens panel became the Library tab; `tokens` still opens it.
 const designLeftPanelSchema = z.preprocess(
   (value) => (value === "tokens" ? "library" : value),
   z.enum(["file", "agent", "library", "assets", "tools", "threads"]),

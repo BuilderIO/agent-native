@@ -43,10 +43,12 @@ import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorSelectionAndStyles } from "../domains/use-editor-selection-and-styles";
 import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 import {
+  agentPanelAvailable,
   isLeftPanelTab,
   LEFT_PANEL_TABS,
   type LeftPanelTab,
   showsLeftPanelTabs,
+  visibleLeftPanel,
 } from "../left-panel-tabs";
 import {
   DEFAULT_LEFT_SIDEBAR_WIDTH,
@@ -62,6 +64,9 @@ import {
 export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
   ["file", "library"],
 );
+
+const leftTabId = (panel: DesignLeftPanel) => `design-left-tab-${panel}`;
+const leftPanelId = (panel: DesignLeftPanel) => `design-left-panel-${panel}`;
 
 // The editor re-renders on every selection while the chat stays mounted, so
 // its props must stay referentially stable for this memo to hold.
@@ -130,7 +135,7 @@ export function renderLeftSidebar({
     mode,
   } = editorCore;
   const {
-    activeLeftPanel: storedLeftPanel,
+    designLeftPanel,
     setActiveLeftPanel,
     collapseLeftPanel,
     leftSidebarContentRef,
@@ -139,9 +144,25 @@ export function renderLeftSidebar({
     setLeftSidebarWidth,
     startSidebarResize,
   } = editorHistory;
-  // Nothing collapses the column to zero width any more (collapsing enters
-  // minimal UI), so an absent panel shows the File panel.
-  const activeLeftPanel = storedLeftPanel ?? "file";
+  const activeLeftPanel =
+    visibleLeftPanel(
+      mode,
+      designLeftPanel,
+      agentPanelAvailable({
+        hostEmbeddedEditor,
+        isVisualEditSurface,
+        canChatWithAgent: canApplyPendingVisualEditsWithAgent,
+      }),
+    ) ?? "file";
+  const tabsShown = showsLeftPanelTabs(mode);
+  const panelProps = (panel: DesignLeftPanel) =>
+    tabsShown && isLeftPanelTab(panel)
+      ? {
+          id: leftPanelId(panel),
+          role: "tabpanel",
+          "aria-labelledby": leftTabId(panel),
+        }
+      : { id: leftPanelId(panel) };
   const {
     canEditDesign,
     browserTabId,
@@ -211,7 +232,7 @@ export function renderLeftSidebar({
               </div>
               {minimalUiToggle}
             </div>
-            {showsLeftPanelTabs(mode) ? (
+            {tabsShown ? (
               <div
                 data-design-left-tabs
                 className="flex h-[var(--design-row-height)] shrink-0 items-center px-[calc(var(--design-baseline-unit)*2)]"
@@ -233,6 +254,8 @@ export function renderLeftSidebar({
                       <TabsTrigger
                         key={panel}
                         value={panel}
+                        id={leftTabId(panel)}
+                        aria-controls={leftPanelId(panel)}
                         disabled={disabledPanels?.has(panel) ?? false}
                         data-design-left-tab={panel}
                         className="design-focus-ring design-font-medium h-full min-w-0 rounded-[5px] px-2 py-0 text-xs leading-4 focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -245,6 +268,7 @@ export function renderLeftSidebar({
               </div>
             ) : null}
             <div
+              {...panelProps("file")}
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
                 activeLeftPanel === "file" ? "flex" : "hidden",
@@ -285,6 +309,7 @@ export function renderLeftSidebar({
               </div>
             </div>
             <div
+              {...panelProps("agent")}
               data-design-agent-panel
               className={cn(
                 "min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
@@ -391,6 +416,7 @@ export function renderLeftSidebar({
               </div>
             ) : null}
             <div
+              {...panelProps("library")}
               className={cn(
                 "min-h-0 flex-1 flex-col overflow-hidden",
                 activeLeftPanel === "library" ? "flex" : "hidden",
