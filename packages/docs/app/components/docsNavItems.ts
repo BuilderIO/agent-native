@@ -150,6 +150,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "supabase",
           },
           {
+            id: "database-prisma-postgres",
+            labelKey: "databasePrismaPostgres",
+            slug: "prisma-postgres",
+          },
+          {
             id: "database-aws-rds",
             labelKey: "databaseAwsRds",
             slug: "aws-rds",

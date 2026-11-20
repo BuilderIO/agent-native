@@ -128,6 +128,7 @@ describe("DocsSidebar", () => {
     expect(databaseGroup?.children?.map((item) => item.id)).toEqual([
       "database-neon",
       "database-supabase",
+      "database-prisma-postgres",
       "database-aws-rds",
       "database-cloud-sql",
       "database-azure-postgres",

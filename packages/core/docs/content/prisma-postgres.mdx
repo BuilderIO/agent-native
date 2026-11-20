@@ -1,0 +1,54 @@
+---
+title: "Prisma Postgres"
+description: "Connect an agent-native app to Prisma Postgres with a standard DATABASE_URL and pick the direct or pooled host for your runtime."
+search: "Prisma Postgres database connection string direct pooled host migrations"
+---
+
+# Prisma Postgres
+
+Prisma Postgres is a managed PostgreSQL service. It provides standard Postgres
+connection strings, so the app connects with `DATABASE_URL` and needs no extra
+packages.
+
+## Configure the app
+
+Copy the connection string for your database from the Prisma Console and set
+`DATABASE_URL` in the server environment:
+
+```bash
+DATABASE_URL=postgresql://user:password@db.prisma.io:5432/postgres?sslmode=require
+```
+
+The framework uses its standard Postgres driver for Prisma Postgres URLs. Do
+not add a second database client to the app. Prisma Postgres only accepts TLS
+connections, so keep `sslmode=require` in the URL.
+
+## Direct and pooled hosts
+
+Prisma Postgres serves the same database on two hosts. `db.prisma.io` is a
+direct connection, and `pooled.db.prisma.io` goes through a transaction-mode
+connection pooler. The rest of the connection string is identical.
+
+On a long-lived Node.js server, both hosts work for application traffic and
+for migrations.
+
+On serverless runtimes such as Vercel, Netlify, and AWS Lambda, use the direct
+host. The framework sets `idle_in_transaction_session_timeout` as a connection
+parameter on those runtimes, and the pooled host refuses connections that
+carry it with `Failed to connect to upstream database`. Each function instance
+then holds its own direct connections, so check the
+[connection budget](/docs/server-database#production) against your database's
+connection limit.
+
+## Migrations
+
+Run production migrations in the release or deployment step. Migrations run
+through either host, so one `DATABASE_URL` is enough. Follow the embedded
+migration guidance in the [database guide](/docs/server-database#migrations),
+and never run `drizzle-kit push` against a production database.
+
+## What's next
+
+- [Database](/docs/server-database) - schema, migrations, and connection rules
+- [Deployment](/docs/deployment) - choose a runtime and deployment preset
+- [Prisma Postgres connection pooling docs](https://www.prisma.io/docs/postgres/database/connection-pooling) - direct and pooled connection strings
