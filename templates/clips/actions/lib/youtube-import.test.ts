@@ -122,7 +122,7 @@ describe("importYouTubeVideo", () => {
     mocks.ssrfSafeFetch.mockResolvedValue(
       oembedResponse(200, { type: "video", width: 200, height: 150 }),
     );
-    mocks.recordingMadeBy.mockReturnValue({
+    mocks.recordingMadeBy.mockReturnValueOnce({
       madeBy: "agent",
       madeByAgent: "Claude",
     });
