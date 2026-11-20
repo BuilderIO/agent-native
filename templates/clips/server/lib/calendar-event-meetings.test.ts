@@ -4,6 +4,7 @@ const calendarMocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   readAppSecret: vi.fn(),
   refreshAccessTokenWithFallback: vi.fn(),
+  resolveDispatchCalendarAccessToken: vi.fn(),
   resolveGoogleOAuthCredentialCandidates: vi.fn(),
   writeAppSecret: vi.fn(),
 }));
@@ -55,6 +56,11 @@ vi.mock("./google-calendar-client.js", () => ({
   refreshAccessTokenWithFallback: calendarMocks.refreshAccessTokenWithFallback,
   resolveGoogleOAuthCredentialCandidates:
     calendarMocks.resolveGoogleOAuthCredentialCandidates,
+}));
+
+vi.mock("./dispatch-calendar-accounts.js", () => ({
+  resolveDispatchCalendarAccessToken:
+    calendarMocks.resolveDispatchCalendarAccessToken,
 }));
 
 vi.mock("./recordings.js", () => ({
@@ -304,6 +310,7 @@ describe("calendar access token refresh", () => {
 
   beforeEach(() => {
     calendarMocks.readAppSecret.mockReset();
+    calendarMocks.resolveDispatchCalendarAccessToken.mockReset();
     calendarMocks.refreshAccessTokenWithFallback.mockReset();
     calendarMocks.resolveGoogleOAuthCredentialCandidates.mockReset();
     calendarMocks.writeAppSecret.mockReset();
@@ -352,6 +359,27 @@ describe("calendar access token refresh", () => {
     await expect(resolveCalendarAccessToken(calendarAccount)).rejects.toBe(
       error,
     );
+  });
+
+  it("asks Dispatch for an account Dispatch manages, without reading Clips' secrets", async () => {
+    const dispatchAccount = {
+      ...calendarAccount,
+      email: "work@example.com",
+      accessTokenSecretRef: null,
+      refreshTokenSecretRef: null,
+      managedBy: "dispatch",
+    };
+    calendarMocks.resolveDispatchCalendarAccessToken.mockResolvedValue(
+      "hub-access-token",
+    );
+
+    await expect(resolveCalendarAccessToken(dispatchAccount)).resolves.toBe(
+      "hub-access-token",
+    );
+    expect(
+      calendarMocks.resolveDispatchCalendarAccessToken,
+    ).toHaveBeenCalledWith(dispatchAccount);
+    expect(calendarMocks.readAppSecret).not.toHaveBeenCalled();
   });
 
   it("returns null for a permanent refresh failure", async () => {

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   recordCalendarFetchError: vi.fn(),
   recordCalendarFetchSuccess: vi.fn(),
   resolveCalendarAccessToken: vi.fn(),
+  syncDispatchCalendarAccounts: vi.fn(),
   writeAppState: vi.fn(),
 }));
 
@@ -57,6 +58,14 @@ vi.mock("../server/lib/calendar-event-meetings.js", () => ({
   shouldMarkNeedsReauth: vi.fn(() => false),
 }));
 
+vi.mock("../server/lib/dispatch-calendar-accounts.js", () => ({
+  syncDispatchCalendarAccounts: mocks.syncDispatchCalendarAccounts,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "owner@example.com",
+}));
+
 vi.mock("../server/lib/google-calendar-client.js", () => ({
   listEvents: mocks.listEvents,
   pickJoinUrl: vi.fn(),
@@ -78,7 +87,29 @@ describe("sync-calendars calendar status writes", () => {
     mocks.recordCalendarFetchError.mockReset();
     mocks.recordCalendarFetchSuccess.mockReset();
     mocks.resolveCalendarAccessToken.mockReset();
+    mocks.syncDispatchCalendarAccounts.mockReset();
     mocks.writeAppState.mockReset();
+  });
+
+  it("refreshes the person's Dispatch accounts before syncing", async () => {
+    mocks.resolveCalendarAccessToken.mockResolvedValue("access-token");
+    mocks.listEvents.mockResolvedValue({ items: [] });
+
+    await action.run(action.schema.parse({}));
+
+    expect(mocks.syncDispatchCalendarAccounts).toHaveBeenCalledWith(
+      "owner@example.com",
+      { force: true },
+    );
+  });
+
+  it("leaves Dispatch accounts alone on an all-accounts sweep", async () => {
+    mocks.resolveCalendarAccessToken.mockResolvedValue("access-token");
+    mocks.listEvents.mockResolvedValue({ items: [] });
+
+    await action.run(action.schema.parse({ allAccounts: true }));
+
+    expect(mocks.syncDispatchCalendarAccounts).not.toHaveBeenCalled();
   });
 
   it("marks a null token as an explicit reauthentication failure", async () => {
