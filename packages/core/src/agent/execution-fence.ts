@@ -35,7 +35,7 @@ export class ExecutionFenceError extends Error {
 }
 
 export class StaleExecutionFenceError extends ExecutionFenceError {
-  constructor(fence: ExecutionFence) {
+  constructor(readonly fence: ExecutionFence) {
     super(
       "stale_execution_fence",
       `Execution lease generation ${fence.generation} for turn ${fence.turnId} is no longer current`,

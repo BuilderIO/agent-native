@@ -110,6 +110,7 @@ vi.mock("./run-store.js", () => ({
   ),
   renewTurnExecutionLease: vi.fn(() => Promise.resolve()),
   releaseTurnExecutionLease: vi.fn(() => Promise.resolve(true)),
+  isExecutionLeaseRevokedByAbort: vi.fn(() => Promise.resolve(false)),
   insertRunEvent: mockInsertRunEvent,
   // Row-by-row so per-event order, failure, and retry assertions still apply.
   insertRunEvents: vi.fn(
