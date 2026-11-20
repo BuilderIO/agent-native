@@ -405,6 +405,12 @@ const database = {
   failedToSavePagePreview: "Falha ao salvar prévia da página",
   failedToSaveView: "Falha ao salvar visualização",
   failedToUpdateCheckbox: "Falha ao atualizar caixa de seleção",
+  undoPropertyChangedSince:
+    "Não desfeito: esta propriedade mudou depois da sua edição",
+  redoPropertyChangedSince:
+    "Não refeito: esta propriedade mudou depois de desfazer",
+  undoPropertyFailed: "Não foi possível desfazer a alteração da propriedade",
+  redoPropertyFailed: "Não foi possível refazer a alteração da propriedade",
   failedToUpdateEverySelectedRow:
     "Falha ao atualizar todas as linhas selecionadas",
   filter: "Filtro",

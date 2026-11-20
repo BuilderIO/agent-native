@@ -422,11 +422,16 @@ export interface SetDocumentPropertyRequest {
   propertyId: string;
   value: DocumentPropertyValue;
   expectedBlocksFieldRevision?: number;
+  expectedGeneration?: number;
   /**
    * Client-only hint: titles for relation IDs, shown until the server's
    * resolved targets arrive. The action ignores it.
    */
   relationTargets?: DocumentPropertyRelationTarget[];
+}
+
+export interface SetDocumentPropertyResponse extends DocumentPropertiesResponse {
+  generation?: number;
 }
 
 export interface DuplicateDocumentPropertyRequest {
@@ -1536,6 +1541,7 @@ export interface UpdateDatabaseItemsResponse {
     itemId: string;
     documentId: string;
     success: boolean;
+    generation?: number;
     error?: string;
   }>;
 }
