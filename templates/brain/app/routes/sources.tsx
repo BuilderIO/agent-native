@@ -1,5 +1,6 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import {
+  actionErrorMessage as getActionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -2788,7 +2789,6 @@ export default function SourcesRoute() {
         connectionProvidersQuery.isError ||
         updateSource.isError ||
         createSource.isError ||
-        rotateSourceIngestToken.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ||
@@ -2797,6 +2797,28 @@ export default function SourcesRoute() {
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
               detail={t("sources.actionFailedDetail")}
+            />
+          </div>
+        ) : null}
+
+        {rotateSourceIngestToken.isError ? (
+          <div>
+            <EmptyActionState
+              title={t("sources.actionFailedTitle")}
+              detail={
+                rotateSourceIngestToken.error instanceof Error &&
+                hasErrorCode(
+                  rotateSourceIngestToken.error,
+                  "source_config_conflict",
+                ) &&
+                "status" in rotateSourceIngestToken.error &&
+                rotateSourceIngestToken.error.status === 409 &&
+                "cause" in rotateSourceIngestToken.error
+                  ? (getActionErrorMessage(
+                      rotateSourceIngestToken.error.cause,
+                    ) ?? t("sources.actionFailedDetail"))
+                  : t("sources.actionFailedDetail")
+              }
             />
           </div>
         ) : null}

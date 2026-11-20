@@ -5,7 +5,14 @@ const mocks = vi.hoisted(() => ({
   eq: vi.fn(() => "where"),
   nanoid: vi.fn(() => "new-token-material"),
   nowIso: vi.fn(() => "2026-07-22T00:00:00.000Z"),
-  parseJson: vi.fn(() => ({})),
+  parseJson: vi.fn((value: string | null | undefined, fallback: unknown) => {
+    if (!value) return fallback;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }),
   serializeSource: vi.fn((source) => ({ id: source.id })),
   sha256Hex: vi.fn(async (value: string) => `hash:${value}`),
   stableJson: vi.fn((value) => JSON.stringify(value)),
@@ -61,7 +68,8 @@ describe("rotate-source-ingest-token", () => {
       id: "source-clips",
       provider: "clips",
       sourceKey: "clips",
-      configJson: "{}",
+      ingestTokenHash: "old-hash",
+      configJson: '{"sourceKey":"clips","ingestTokenHash":"old-hash"}',
     };
     mocks.assertAccess.mockResolvedValue({ resource: source });
     set.mockReturnValue({ where });
@@ -97,11 +105,10 @@ describe("rotate-source-ingest-token", () => {
         id: "source-generic",
         provider: "generic",
         sourceKey: null,
+        ingestTokenHash: null,
         configJson: '{"sourceKey":"legacy-clips"}',
       },
     });
-    mocks.parseJson.mockReturnValueOnce({ sourceKey: "legacy-clips" });
-    mocks.parseJson.mockReturnValueOnce({ sourceKey: "legacy-clips" });
     set.mockReturnValue({ where });
     returning.mockResolvedValue([{ id: "source-generic" }]);
 
@@ -142,6 +149,7 @@ describe("rotate-source-ingest-token", () => {
         id: "source-clips",
         provider: "clips",
         sourceKey: null,
+        ingestTokenHash: null,
         configJson: "{}",
       },
     });

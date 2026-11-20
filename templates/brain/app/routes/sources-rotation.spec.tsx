@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { ActionError } from "@agent-native/core/client/use-action";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -12,7 +13,8 @@ const fixture = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: (name: string) => ({
     data:
       name === "list-sources"
@@ -46,14 +48,14 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
   useActionMutation: (name: string) => {
     const [isPending, setPending] = React.useState(false);
-    const [isError, setError] = React.useState(false);
+    const [error, setError] = React.useState<unknown>(null);
     const mutateAsync = async (variables: { sourceId: string }) => {
       setPending(true);
-      setError(false);
+      setError(null);
       try {
         return await fixture.rotate(variables);
       } catch (error) {
-        setError(true);
+        setError(error);
         throw error;
       } finally {
         setPending(false);
@@ -76,7 +78,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       mutateAsync:
         name === "rotate-source-ingest-token" ? mutateAsync : vi.fn(),
       isPending,
-      isError,
+      isError: error !== null,
+      error,
     };
   },
 }));
@@ -175,7 +178,13 @@ it("prevents overlapping rotations while a token is pending", async () => {
 
 it("shows the existing failure state and allows retrying a failed rotation", async () => {
   fixture.rotate.mockClear();
-  fixture.rotate.mockRejectedValueOnce(new Error("Rotation failed"));
+  const detail =
+    "The source key is inconsistent. Update the source credentials before rotating the token.";
+  const cause = Object.assign(
+    new Error(`Action rotate-source-ingest-token failed: ${detail}`),
+    { actionMessage: detail, errorCode: "source_config_conflict", status: 409 },
+  );
+  fixture.rotate.mockRejectedValueOnce(new ActionError(cause));
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -197,6 +206,7 @@ it("shows the existing failure state and allows retrying a failed rotation", asy
       button.click();
     });
     expect(host.textContent).toContain("sources.actionFailedTitle");
+    expect(host.textContent).toContain(detail);
     expect(document.querySelector("#ingest-handoff-ingest-token")).toBeNull();
     expect(button.disabled).toBe(false);
     await act(async () => {
@@ -212,6 +222,50 @@ it("shows the existing failure state and allows retrying a failed rotation", asy
     host.remove();
   }
 });
+
+it.each([
+  { status: 500, errorCode: "source_config_conflict" },
+  { status: 409, errorCode: "other_failure" },
+])(
+  "keeps unrelated rotation failures generic",
+  async ({ status, errorCode }) => {
+    fixture.rotate.mockClear();
+    const detail = "Sensitive server diagnostic";
+    const cause = Object.assign(new Error(detail), {
+      actionMessage: detail,
+      status,
+      errorCode,
+    });
+    fixture.rotate.mockRejectedValueOnce(new ActionError(cause));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <TooltipProvider>
+              <SourcesRoute />
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+      });
+      const button = [...host.querySelectorAll("button")].find((item) =>
+        item.textContent.includes("sources.rotateIngestToken"),
+      );
+      if (!button) throw new Error("Missing rotation button");
+      await act(async () => {
+        button.click();
+      });
+      expect(host.textContent).toContain("sources.actionFailedDetail");
+      expect(host.textContent).not.toContain(detail);
+      expect(document.querySelector("#ingest-handoff-ingest-token")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  },
+);
 
 it("offers rotation only for configured ingest sources and displays the returned identity and token", async () => {
   fixture.rotate.mockClear();
