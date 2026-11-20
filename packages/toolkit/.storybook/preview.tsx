@@ -57,7 +57,7 @@ const withStage: Decorator = (Story, { globals }) => {
         data-palette={brand ? PALETTE_ID : undefined}
         data-storybook-stage=""
       >
-        <div className="mx-auto flex max-w-[1120px] flex-col gap-4 px-8 py-10">
+        <div className="mx-auto max-w-[1120px] px-8 py-10">
           <Story />
         </div>
       </div>
