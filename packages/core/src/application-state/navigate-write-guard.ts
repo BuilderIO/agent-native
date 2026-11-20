@@ -179,9 +179,10 @@ function matchesDetailRoutePattern(
   const patternSegments = pattern.trim().split("/").filter(Boolean);
   if (patternSegments.length === 0) return false;
   for (let i = 0; i < patternSegments.length; i += 1) {
-    const part = patternSegments[i]!;
+    const part = patternSegments[i];
+    if (!part) return false;
     if (part === "*") {
-      return i < segments.length;
+      return true;
     }
     if (i >= segments.length) return false;
     if (part.startsWith(":")) {

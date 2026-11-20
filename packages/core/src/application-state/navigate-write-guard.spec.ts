@@ -111,6 +111,7 @@ describe("isDefaultDetailNavigation", () => {
     expect(
       isDefaultDetailNavigation({ path: "/admin/automations/auto-42" }),
     ).toBe(true);
+    expect(isDefaultDetailNavigation({ path: "/apps/mail" })).toBe(true);
     expect(isDefaultDetailNavigation({ path: "/apps/mail/inbox/item-1" })).toBe(
       true,
     );

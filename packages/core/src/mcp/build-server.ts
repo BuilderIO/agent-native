@@ -3975,8 +3975,6 @@ export async function createMCPServerForRequest(
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
     const inlineFormOnly = isReversibleWriteInlineApprovalAction(actions[name]);
-    // A turn-grant write is approved on the app's own review page, never in
-    // the client, except reversible writes that explicitly ask inline in a form.
     if (requiresTurnGrantPageApproval(name) && !inlineFormOnly) {
       const origin = requestMeta?.resolveEmbedRequestOrigin?.();
       return actionApprovalReviewResult(

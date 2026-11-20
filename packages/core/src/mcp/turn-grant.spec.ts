@@ -1012,7 +1012,6 @@ describe("reversible-write policy over MCP", () => {
   it("asks inline in an MCP form when approvals are explicitly on, and never emits a review-page link", async () => {
     getSettingMock.mockResolvedValue({ enabled: false });
 
-    // Without form elicitation capability, it refuses without emitting any review-page link.
     const noFormResult = await rpc(await seed(), {
       name: "save-draft",
       actions: reversibleActions,
@@ -1024,8 +1023,6 @@ describe("reversible-write policy over MCP", () => {
     ).toBeUndefined();
     expect(runs).toBe(0);
 
-    // With form elicitation capability, the server prompts inline via elicitation/create
-    // (form mode, never url/review-page) and runs the action once approved.
     const { Client, StreamableHTTPClientTransport } =
       await import("@modelcontextprotocol/client");
     const grant = await seed();
@@ -1072,13 +1069,16 @@ describe("reversible-write policy over MCP", () => {
     client.registerCapabilities({
       elicitation: { form: {}, url: {} },
     } as never);
-    client.setRequestHandler("elicitation/create", async (req: any) => {
-      elicitRequests.push(req.params);
-      return {
-        action: "accept" as const,
-        content: { decision: "approve" },
-      };
-    });
+    client.setRequestHandler(
+      "elicitation/create",
+      async (req: { params: Record<string, unknown> }) => {
+        elicitRequests.push(req.params);
+        return {
+          action: "accept" as const,
+          content: { decision: "approve" },
+        };
+      },
+    );
     await client.connect(transport);
     try {
       const approved = await client.callTool({
