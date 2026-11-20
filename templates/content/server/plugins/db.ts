@@ -1801,6 +1801,19 @@ export const runContentMigrations = runMigrations(
       name: "content-comment-attachments",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
     },
+    {
+      version: 142,
+      name: "content-analytics-chart-citations",
+      sql: `CREATE TABLE IF NOT EXISTS content_analytics_chart_citations (
+        document_id TEXT NOT NULL,
+        dashboard_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_analytics_chart_citation_unique
+        ON content_analytics_chart_citations (document_id, dashboard_id);
+      CREATE INDEX IF NOT EXISTS content_analytics_chart_citation_dashboard_idx
+        ON content_analytics_chart_citations (dashboard_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

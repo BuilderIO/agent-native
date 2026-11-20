@@ -540,6 +540,11 @@ data by hand. To refresh a chart, call it again with `purpose: "refresh"` and
 the chart's `id` from `get-document` as `blockId`, then replace the old tag
 with the new one.
 
+Saving the page records which dashboards its charts come from, so each
+dashboard's Cited in list in Analytics shows the page.
+`list-analytics-chart-citations` with a `dashboardId` lists the pages you can
+open that hold its charts.
+
 Who can open the page and who can open the dashboard can differ:
 
 - `needs_confirmation` means more people can open the page than the

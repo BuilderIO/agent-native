@@ -2192,6 +2192,14 @@ export default {
     more: "另外 {{count}} 則",
     flagLabel: "資料備註",
   },
+  citedIn: {
+    menu: "引用位置",
+    menuTooltip: "包含此儀表板圖表的 Content 頁面",
+    empty: "還沒有你能開啟的 Content 頁面包含此儀表板的圖表",
+    unavailable: "無法連線到 Content。請一分鐘後再試一次。",
+    untitledPage: "未命名",
+    more: "Content 只檢查了最近編輯的頁面，因此可能還有更多。",
+  },
   annotations: {
     menu: "標註",
     menuTooltip: "關鍵日期和資料備註",

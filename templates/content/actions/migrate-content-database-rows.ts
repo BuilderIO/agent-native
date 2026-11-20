@@ -7,6 +7,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { chunks } from "./_batch-utils.js";
@@ -765,6 +766,10 @@ export async function runMigration(
             throw new Error(
               `Rollback row ${prior.documentId} changed concurrently.`,
             );
+          await syncAnalyticsChartCitations(
+            tx as unknown as ReturnType<typeof getDb>,
+            { documentId: prior.documentId, after: version.content },
+          );
         }
         const ids = rollback.createdPropertyIds ?? [];
         if (ids.length) {

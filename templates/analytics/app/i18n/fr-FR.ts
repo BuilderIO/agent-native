@@ -2380,6 +2380,15 @@ export default {
     more: "+{{count}} de plus",
     flagLabel: "Notes sur les données",
   },
+  citedIn: {
+    menu: "Cité dans",
+    menuTooltip: "Pages Content contenant des graphiques de ce tableau de bord",
+    empty:
+      "Aucune page Content que vous pouvez ouvrir ne contient encore de graphiques de ce tableau de bord",
+    unavailable: "Impossible de joindre Content. Réessayez dans une minute.",
+    untitledPage: "Sans titre",
+    more: "Content n'a vérifié que les pages modifiées le plus récemment ; il peut y en avoir d'autres.",
+  },
   annotations: {
     menu: "Annotations",
     menuTooltip: "Dates clés et notes sur les données",
