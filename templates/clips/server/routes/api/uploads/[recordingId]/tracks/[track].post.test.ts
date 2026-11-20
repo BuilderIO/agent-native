@@ -103,6 +103,13 @@ vi.mock("../../../../../lib/recording-media-cleanup.js", () => ({
   deleteStoredMediaUrl: vi.fn(),
 }));
 
+vi.mock("../../../../../lib/recording-media-lifecycle.js", () => ({
+  withRecordingMediaProduction: async (
+    _input: unknown,
+    produce: () => Promise<unknown>,
+  ) => produce(),
+}));
+
 vi.mock("../../../../../lib/recording-tracks.js", async (original) => ({
   ...(await original<
     typeof import("../../../../../lib/recording-tracks.js")
@@ -140,7 +147,11 @@ vi.mock("../../../../../lib/video-storage.js", () => ({
 }));
 
 import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "../../../../../../shared/upload-interruption.js";
-import { MAX_RICH_BYTES_ENV } from "../../../../../../shared/upload-limits.js";
+import {
+  MAX_RICH_BYTES_ENV,
+  MAX_UPLOAD_BYTES,
+} from "../../../../../../shared/upload-limits.js";
+import { deleteStoredMediaUrl } from "../../../../../lib/recording-media-cleanup.js";
 import { trackStorageFilename } from "../../../../../lib/recording-tracks.js";
 import { handleTrackChunk } from "./[track].post";
 
@@ -153,6 +164,7 @@ function chunk(
     track?: string;
     contentType?: string;
     uploadGenerationId?: string;
+    isFinal?: boolean;
   } = {},
 ) {
   return {
@@ -163,6 +175,7 @@ function chunk(
       ...(overrides.uploadGenerationId
         ? { uploadGenerationId: overrides.uploadGenerationId }
         : {}),
+      ...(overrides.isFinal ? { isFinal: "1" } : {}),
     },
     headers: { "content-length": String(bytes) },
     body: Buffer.alloc(bytes, 7),
@@ -189,6 +202,7 @@ const pendingRedaction = JSON.stringify({
   ],
 });
 const trackName = expect.stringMatching(/^rec-1\.track-screen-[0-9a-f]{12}$/);
+const trackUrl = "https://storage.example.com/clips/rec-1.track-screen";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -217,6 +231,7 @@ beforeEach(() => {
       updatedMeta: { lastRange: range },
     }),
   );
+  provider.resumable.completeSession.mockResolvedValue(trackUrl);
   mocks.abort.mockResolvedValue(true);
 });
 
@@ -247,7 +262,7 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
     expect(provider.resumable.startSession).toHaveBeenCalledWith(
       trackName,
       "video/mp4",
-      20 * 1024 * 1024 * 1024,
+      MAX_UPLOAD_BYTES,
     );
     expect(
       provider.resumable.relayChunk.mock.calls.map(([, range]) => range),
@@ -264,6 +279,119 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
         lastRange: "bytes 4-9/*",
       },
     });
+  });
+
+  it("closes and completes a track's upload with its last chunk, at the track's size", async () => {
+    await send(chunk(0, 4, { uploadGenerationId: "gen-1" }));
+    provider.resumable.relayChunk.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+    });
+    expect(
+      (await send(chunk(1, 6, { uploadGenerationId: "gen-1", isFinal: true })))
+        .body,
+    ).toEqual({ ok: true, track: "screen", index: 1, bytesUploaded: 10 });
+
+    expect(
+      provider.resumable.relayChunk.mock.calls.map(([, range]) => range),
+    ).toEqual(["bytes 0-3/*", "bytes 4-9/10"]);
+    expect(provider.resumable.completeSession).toHaveBeenCalledTimes(1);
+    expect(mocks.state.get(sessionKey)).toMatchObject({
+      bytesUploaded: 10,
+      lastCommittedIndex: 1,
+      providerClosed: true,
+      meta: { completedUrl: trackUrl },
+    });
+    const after = await send(chunk(2, 4, { uploadGenerationId: "gen-1" }));
+    expect(after.status).toBe(409);
+    expect(provider.resumable.relayChunk).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves completing a closed track to finalize when storage won't complete it yet", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    provider.resumable.relayChunk.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+    });
+    provider.resumable.completeSession.mockRejectedValueOnce(
+      new Error("storage busy"),
+    );
+    const { status, body } = await send(
+      chunk(0, 4, { uploadGenerationId: "gen-1", isFinal: true }),
+    );
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ ok: true, bytesUploaded: 4 });
+    expect(mocks.state.get(sessionKey)).toMatchObject({ providerClosed: true });
+    expect(
+      (mocks.state.get(sessionKey) as { meta: Record<string, unknown> }).meta,
+    ).not.toHaveProperty("completedUrl");
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("closed but not completed"),
+      "storage busy",
+    );
+    warn.mockRestore();
+  });
+
+  it("deletes a track its last chunk closed, rather than cancelling it, when the track was dropped meanwhile", async () => {
+    await send(chunk(0, 4, { uploadGenerationId: "gen-1" }));
+    provider.resumable.relayChunk.mockImplementationOnce(async () => {
+      mocks.state.delete(sessionKey);
+      return { ok: true, status: 200 };
+    });
+    vi.mocked(deleteStoredMediaUrl).mockResolvedValueOnce(true);
+    const { status, body } = await send(
+      chunk(1, 4, { uploadGenerationId: "gen-1", isFinal: true }),
+    );
+    expect(status).toBe(409);
+    expect(body).toMatchObject({ tracksStopped: true });
+    expect(provider.resumable.completeSession).toHaveBeenCalledTimes(1);
+    expect(deleteStoredMediaUrl).toHaveBeenCalledWith(
+      trackUrl,
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
+    expect(mocks.abort).not.toHaveBeenCalled();
+  });
+
+  it("closes a track sent in one chunk", async () => {
+    provider.resumable.relayChunk.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+    });
+    const { status, body } = await send(
+      chunk(0, 3, {
+        track: "input",
+        contentType: "application/gzip",
+        uploadGenerationId: "gen-1",
+        isFinal: true,
+      }),
+    );
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      ok: true,
+      track: "input",
+      index: 0,
+      bytesUploaded: 3,
+    });
+    expect(provider.resumable.relayChunk.mock.calls[0]?.[1]).toBe(
+      "bytes 0-2/3",
+    );
+    expect(
+      mocks.state.get("resumable-session-rec-1-track-input"),
+    ).toMatchObject({ providerClosed: true });
+  });
+
+  it("keeps a last chunk storage didn't complete waiting to be sent again", async () => {
+    await send(chunk(0, 4, { uploadGenerationId: "gen-1" }));
+    const { status, body } = await send(
+      chunk(1, 6, { uploadGenerationId: "gen-1", isFinal: true }),
+    );
+    expect(status).toBe(502);
+    expect(body).toMatchObject({ retryable: true });
+    expect(mocks.state.get(sessionKey)).toMatchObject({
+      bytesUploaded: 4,
+      lastCommittedIndex: 0,
+    });
+    expect(mocks.state.get(sessionKey)).not.toHaveProperty("providerClosed");
   });
 
   it("acknowledges a chunk it already stored without storing it again", async () => {
@@ -599,6 +727,30 @@ describe("POST /api/uploads/:recordingId/tracks/:track", () => {
       "video/mp4",
       1024 * 1024 * 1024,
     );
+  });
+
+  it("stops tracks when one track reaches its upload's size", async () => {
+    mocks.state.set(sessionKey, {
+      providerId: "fake-storage",
+      sessionId: "upload-1",
+      meta: {
+        objectKey: "clips/rec-1.track-screen-abc",
+        uploadGenerationId: "gen-1",
+      },
+      bytesUploaded: MAX_UPLOAD_BYTES - 2,
+      lastCommittedIndex: 0,
+    });
+    const { status, body } = await send(
+      chunk(1, 4, { uploadGenerationId: "gen-1" }),
+    );
+    expect(status).toBe(413);
+    expect(body).toMatchObject({
+      tracksStopped: true,
+      bytesReceived: MAX_UPLOAD_BYTES - 2,
+      maxBytes: MAX_UPLOAD_BYTES,
+      error: expect.stringContaining("screen track"),
+    });
+    expect(provider.resumable.relayChunk).not.toHaveBeenCalled();
   });
 
   it("refuses a content type the track doesn't take", async () => {

@@ -1906,6 +1906,7 @@ const overrides = {
     heading6: "Titre 6",
     link: "Lien",
     comment: "Commentaire",
+    suggestEdit: "Suggérer une modification",
     pasteLink: "Coller le lien...",
     apply: "Appliquer",
     plainText: "Texte brut",
@@ -2099,6 +2100,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
+    workspaceReferenceProtected:
+      "Les références aux espaces de travail sont protégées et ne peuvent pas être modifiées comme des pages.",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",
     failedMovePage: "Échec du déplacement de la page",

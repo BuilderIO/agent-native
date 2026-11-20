@@ -2141,6 +2141,7 @@ const overrides = {
     heading6: "Encabezado 6",
     link: "Enlace",
     comment: "Comentario",
+    suggestEdit: "Sugerir cambio",
     pasteLink: "Pegar enlace...",
     apply: "Aplicar",
     plainText: "Texto sin formato",
@@ -2332,6 +2333,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Esto borra la creación pendiente y cualquier borrador sin guardar. Si la página ya se había guardado, seguirá en tu espacio de trabajo.",
     failedDeletePage: "No se pudo eliminar la página",
+    workspaceReferenceProtected:
+      "Las referencias de espacios de trabajo están protegidas y no se pueden modificar como páginas.",
     failedPermanentDeletePage: "No se pudo eliminar la página permanentemente",
     failedRestorePage: "No se pudo restaurar la página",
     failedMovePage: "No se pudo mover la página",

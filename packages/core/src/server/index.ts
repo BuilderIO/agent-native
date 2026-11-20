@@ -410,6 +410,10 @@ export {
 } from "./embedded.js";
 export {
   createThread,
+  registerChatThreadSharingPolicy,
+  getQueuedSubmissionReceipt,
+  mutateThreadQueuedMessages,
+  QueuedSubmissionAdmissionError,
   getThread,
   listThreads,
   searchThreads,
@@ -427,6 +431,7 @@ export {
   type ChatThreadListRow,
   type ListThreadsOptions,
 } from "../chat-threads/store.js";
+export { isAgentChatAiSetupReady } from "./agent-chat-ai-setup.js";
 export {
   createResourcesPlugin,
   defaultResourcesPlugin,
@@ -694,6 +699,7 @@ export {
   NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,
+  oauthCallbackOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,

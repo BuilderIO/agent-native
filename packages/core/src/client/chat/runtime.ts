@@ -14,6 +14,7 @@ import {
 } from "../../agent/auto-continue.js";
 import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
+  ASSISTANT_RUN_DURATION_METADATA_KEY,
   normalizeAgentActionScope,
   type A2APeerApproval,
   type AgentActionScope,
@@ -1274,17 +1275,29 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
         runId?: string;
       },
     ) => TEvent | readonly TEvent[] | null;
+    signal?: AbortSignal;
+    onEventSeq?: (seq: number | undefined) => void;
   },
 ): AsyncGenerator<TEvent> {
   const context = {
     sessionId: input.sessionId,
-    turnId: input.turnId,
-    runId: input.runId,
+    ...(input.turnId !== undefined ? { turnId: input.turnId } : {}),
+    ...(input.runId !== undefined ? { runId: input.runId } : {}),
   };
   const contentType = response.headers.get("content-type") ?? "";
   if (response.body && !contentType.includes("application/json")) {
     for await (const raw of readJsonEventStream(response.body)) {
-      for (const event of normalizeMappedEvents(input.mapEvent(raw, context))) {
+      if (input.signal?.aborted) return;
+      const seq = asRecord(raw)?.seq;
+      const eventSeq =
+        typeof seq === "number" && Number.isSafeInteger(seq) && seq >= 0
+          ? seq
+          : undefined;
+      const events = normalizeMappedEvents(input.mapEvent(raw, context));
+      if (events.length === 0) input.onEventSeq?.(eventSeq);
+      for (const [index, event] of events.entries()) {
+        if (input.signal?.aborted) return;
+        if (index === events.length - 1) input.onEventSeq?.(eventSeq);
         yield event;
       }
     }
@@ -1297,6 +1310,7 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
     input.sessionId,
     input.turnId,
   )) {
+    input.onEventSeq?.(undefined);
     for (const mapped of normalizeMappedEvents(
       input.mapEvent(event, context),
     )) {
@@ -1711,6 +1725,7 @@ export function createHttpAgentChatRuntime<
       } catch {
         // coercion-ok: an observer of a started turn must not stop it.
       }
+      let shownThroughSeq: number | undefined = -1;
       const events = (async function* () {
         let retryableFailure = false;
         try {
@@ -1719,6 +1734,11 @@ export function createHttpAgentChatRuntime<
             turnId,
             runId,
             mapEvent,
+            signal: controller.signal,
+            onEventSeq: (seq) => {
+              if (seq !== undefined) shownThroughSeq = seq;
+              else if (shownThroughSeq === -1) shownThroughSeq = undefined;
+            },
           })) {
             if (event.type === "error") {
               retryableFailure = isRetryableRuntimeFailure(event);
@@ -1751,6 +1771,7 @@ export function createHttpAgentChatRuntime<
         events,
         closeEvents,
         cancel: async (cancelInput) => {
+          const shownThrough = shownThroughSeq;
           closeEvents();
           if (!options.cancelEndpoint) return { status: "cancelled" };
           const endpoint =
@@ -1780,6 +1801,9 @@ export function createHttpAgentChatRuntime<
               runId,
               reason: cancelInput?.reason ?? "user",
               metadata: cancelInput?.metadata,
+              ...(shownThrough !== undefined
+                ? { shownThroughSeq: shownThrough }
+                : {}),
             }),
             signal: cancelInput?.abortSignal,
           });
@@ -5094,6 +5118,7 @@ function mapAgentNativeEvent(
   }
   if (ev.type === "done") {
     const userStoppedRun = ev.reason === "user";
+    const durationMs = ev.durationMs;
     const pendingTools = input.message.content.filter(
       (part) => part.type === "tool-call" && part.result === undefined,
     );
@@ -5178,7 +5203,9 @@ function mapAgentNativeEvent(
           > => part.type === "text" || part.type === "reasoning",
         )
         .map((part) => ({ ...part })),
-      ...(warning || input.message.omitFromPersistedHistory
+      ...(warning ||
+      input.message.omitFromPersistedHistory ||
+      durationMs !== undefined
         ? {
             metadata: {
               ...message.metadata,
@@ -5188,6 +5215,9 @@ function mapAgentNativeEvent(
                   ? { omitFromPersistedHistory: true }
                   : {}),
                 ...(warning ? { runWarning: warning } : {}),
+                ...(durationMs === undefined
+                  ? {}
+                  : { [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs }),
               },
             },
           }

@@ -3,6 +3,8 @@ import type { PersistedClient } from "@tanstack/query-persist-client-core";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { requestActionCacheFlush } from "./action-query-cache-mutation.js";
+
 const epochKey = "agent-native.action-query-cache.epoch";
 const intentPrefix = "agent-native.action-query-cache.clear-required:";
 const WRITE_DELAY_MS = 1_000;
@@ -148,6 +150,84 @@ it("refuses the pending write when another tab's clear intent comes and goes wit
     }),
   );
 
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+
+  expect(writes).toEqual([]);
+});
+
+it("saves the pending write as soon as a mutation succeeds, so a reload right after it restores the written state", async () => {
+  notify(0, NOTIFICATIONS);
+  requestActionCacheFlush();
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(writes).toHaveLength(1);
+  expect(writes[0].clientState.queries).toHaveLength(NOTIFICATIONS);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+  expect(writes).toHaveLength(1);
+});
+
+it("keeps coalescing sync activity, which fires on every run-event batch", async () => {
+  notify(0, NOTIFICATIONS);
+  window.dispatchEvent(new Event("agentNative:syncActivity"));
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(writes).toEqual([]);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
+  expect(writes).toHaveLength(1);
+});
+
+it("cancels the pending timer when it flushes, so a later change still waits the full delay", async () => {
+  notify(0, 1);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS / 2);
+  requestActionCacheFlush();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(writes).toHaveLength(1);
+
+  notify(1, 2);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS / 2 + 1);
+  expect(writes).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS);
+  expect(writes).toHaveLength(2);
+});
+
+it("saves the pending write when the document becomes hidden, not when it becomes visible", async () => {
+  let state: DocumentVisibilityState = "visible";
+  vi.spyOn(document, "visibilityState", "get").mockImplementation(() => state);
+  notify(0, NOTIFICATIONS);
+  document.dispatchEvent(new Event("visibilitychange"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(writes).toEqual([]);
+
+  state = "hidden";
+  document.dispatchEvent(new Event("visibilitychange"));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(writes).toHaveLength(1);
+});
+
+it("removes its flush listeners when the binding closes", async () => {
+  const windowRemove = vi.spyOn(window, "removeEventListener");
+  const documentRemove = vi.spyOn(document, "removeEventListener");
+
+  await cache.clearActionQueryCache(client);
+
+  const windowEvents = windowRemove.mock.calls.map(([type]) => type);
+  expect(windowEvents).toContain("agentNative:actionCacheFlush");
+  expect(windowEvents).toContain("pagehide");
+  expect(documentRemove.mock.calls.map(([type]) => type)).toContain(
+    "visibilitychange",
+  );
+});
+
+it("saves the pending write when the page is hidden", async () => {
+  notify(0, NOTIFICATIONS);
+  window.dispatchEvent(new Event("pagehide"));
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(writes).toHaveLength(1);
+});
+
+it("does not write on a mutation signal with nothing pending", async () => {
+  requestActionCacheFlush();
   await vi.advanceTimersByTimeAsync(WRITE_DELAY_MS * 2);
 
   expect(writes).toEqual([]);

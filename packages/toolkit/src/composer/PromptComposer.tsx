@@ -171,6 +171,14 @@ export interface PromptComposerProps {
   isReferenceTarget?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
+  /**
+   * Where the host's model choice stands. While `pending`, a send is held
+   * with the draft kept and sent once when the state becomes `ready`; `failed`
+   * releases the hold without sending.
+   */
+  modelSelectionState?: "pending" | "failed" | "ready";
+  /** Names the context a send belongs to; a held send is dropped when it changes. */
+  submissionScopeKey?: string;
   /** Require the Agent-Native readiness check for this agent chat composer. */
   requireAgentEngine?: boolean;
   /** Hide the local setup card when the host shows the same card beside the composer. */
@@ -224,6 +232,7 @@ export interface PromptComposerProps {
    * See TiptapComposer's modelTriggerNamesSelectionOnly: the picker keeps the connect rows.
    */
   modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
@@ -832,6 +841,8 @@ function PromptComposerInner({
   disabled,
   isReferenceTarget,
   submissionDisabled,
+  modelSelectionState = "ready",
+  submissionScopeKey,
   showMissingApiKeySetup = true,
   setupCardVisible: hostSetupCardVisible,
   onModelConnectionRequiredChange,
@@ -855,6 +866,7 @@ function PromptComposerInner({
   enterSubmitMode = "default",
   modelSelectorOpen,
   modelTriggerNamesSelectionOnly = false,
+  modelTriggerLabel,
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   dictationShortcut = false,
@@ -1042,8 +1054,14 @@ function PromptComposerInner({
       (engineState !== "configured" && modelListNeedsConnection));
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const [providerCheckPending, setProviderCheckPending] = useState(false);
+  const [providerSetupRequired, setProviderSetupRequired] = useState(false);
+  const ProviderSettingsLink = modelsAdapter.ProviderSettingsLink;
   const heldProviderDraftRef = useRef<ComposerDraftSnapshot | null>(null);
   const [heldProviderDraftRevision, setHeldProviderDraftRevision] = useState(0);
+  const [heldModel, setHeldModel] = useState<{
+    draft: ComposerDraftSnapshot;
+    scopeKey: string | undefined;
+  } | null>(null);
   const handleBuilderConnected = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -1088,9 +1106,14 @@ function PromptComposerInner({
     async (
       draft?: Parameters<NonNullable<PromptComposerProps["onBeforeSubmit"]>>[0],
     ) => {
+      if (modelSelectionState === "pending") {
+        if (draft) setHeldModel({ draft, scopeKey: submissionScopeKey });
+        return false;
+      }
       setProviderCheckPending(true);
       try {
         const state = await validateEngineBeforeSubmit();
+        setProviderSetupRequired(state === "missing");
         if (state === "missing") {
           if (draft) {
             heldProviderDraftRef.current = draft;
@@ -1109,8 +1132,36 @@ function PromptComposerInner({
         setProviderCheckPending(false);
       }
     },
-    [onBeforeSubmit, onDisabledClick, t, validateEngineBeforeSubmit],
+    [
+      modelSelectionState,
+      onBeforeSubmit,
+      onDisabledClick,
+      submissionScopeKey,
+      t,
+      validateEngineBeforeSubmit,
+    ],
   );
+  useEffect(() => {
+    if (engineState === "configured") setProviderSetupRequired(false);
+  }, [engineState]);
+  useEffect(() => {
+    if (!heldModel) return;
+    if (
+      isReferenceTarget === false ||
+      heldModel.scopeKey !== submissionScopeKey
+    ) {
+      setHeldModel(null);
+      return;
+    }
+    if (modelSelectionState === "pending") return;
+    setHeldModel(null);
+    if (modelSelectionState === "failed") return;
+    const target = localRef.current;
+    const current = target?.getDraftSnapshot?.();
+    if (current && sameComposerDraft(heldModel.draft, current)) {
+      void target?.submit?.();
+    }
+  }, [heldModel, isReferenceTarget, modelSelectionState, submissionScopeKey]);
   useEffect(() => {
     const held = heldProviderDraftRef.current;
     if (engineState !== "configured" || !held) return;
@@ -1224,6 +1275,17 @@ function PromptComposerInner({
             : undefined
         }
       >
+        {providerSetupRequired ? (
+          <ComposerNotice
+            role="alert"
+            noticeId="provider-setup-required"
+            actions={ProviderSettingsLink ? <ProviderSettingsLink /> : null}
+            onDismiss={() => setProviderSetupRequired(false)}
+            dismissLabel={t("agentChat.common.dismiss")}
+          >
+            {t("agentChat.setup.connectToChat")}
+          </ComposerNotice>
+        ) : null}
         {engineState === "unavailable" &&
         !setupCardVisible &&
         !engineNoticeDismissed ? (
@@ -1268,8 +1330,12 @@ function PromptComposerInner({
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled}
           enterSubmitMode={enterSubmitMode}
-          sendButtonDisabled={sendButtonDisabled || providerCheckPending}
-          sendButtonBusy={submitting || providerCheckPending}
+          sendButtonDisabled={
+            sendButtonDisabled || providerCheckPending || heldModel !== null
+          }
+          sendButtonBusy={
+            submitting || providerCheckPending || heldModel !== null
+          }
           submitting={submitting}
           willQueue={willQueue}
           queuesBehindSubmission={queuesBehindSubmission}
@@ -1351,6 +1417,7 @@ function PromptComposerInner({
           onModelSelectorOpenChange={onModelSelectorOpenChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
+          modelTriggerLabel={modelTriggerLabel}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}
           imageModelMenu={imageModelMenu}

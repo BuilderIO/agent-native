@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -35,6 +38,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional same-origin URL path to navigate to directly"),
+    intent: navigationIntentSchema,
   }),
   http: false,
   run: async (args) => {
