@@ -141,6 +141,13 @@ describe("Content page files", () => {
         readContentPageFile({ id: "plan-page", format: "pdf" }),
       ).rejects.toMatchObject({ errorCode: "content_file_incomplete" });
     }
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pdfFile, content: "JVBERi1=", size: 5 }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({ errorCode: "content_file_incomplete" });
   });
 
   it("refuses a file for another page or in another format", async () => {
@@ -231,6 +238,22 @@ describe("Content page files", () => {
       statusCode: 413,
       errorCode: "collection_export_limit_exceeded",
       message: expect.stringContaining("too many rows"),
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: This page has text a PDF can't show yet. (errorCode: document_file_pdf_text_unsupported)",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "document_file_pdf_text_unsupported",
+      message: expect.stringContaining("Attach it as Markdown"),
     });
   });
 

@@ -4,7 +4,6 @@ import path from "node:path";
 import { resolveOgFontFiles } from "@agent-native/core/server";
 import { jsPDF } from "jspdf";
 
-import { markdownWithTitle } from "../../shared/document-export.js";
 import { nfmToDoc, type PMMark, type PMNode } from "../../shared/nfm.js";
 
 export type Rgb = readonly [number, number, number];
@@ -126,8 +125,25 @@ const PLAIN: TextStyle = {
   href: null,
 };
 
+function itemAt<T>(items: readonly T[], index: number): T | undefined {
+  return index >= 0 && index < items.length ? items[index] : undefined;
+}
+
 function lastOf<T>(items: readonly T[]): T | undefined {
-  return items.length ? items[items.length - 1] : undefined;
+  return itemAt(items, items.length - 1);
+}
+
+function headingSize(node: PMNode) {
+  const level = Math.min(Math.max(Number(node.attrs?.level) || 1, 1), 6);
+  return HEADING_SIZES.get(level) ?? BODY_SIZE;
+}
+
+function plainText(nodes: readonly PMNode[] | undefined) {
+  return inlinesOf(nodes, PLAIN)
+    .map((inline) => (inline.kind === "text" ? inline.text : " "))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function namedColor(value: unknown): Rgb | null {
@@ -136,28 +152,20 @@ function namedColor(value: unknown): Rgb | null {
 }
 
 function linkUrl(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  try {
-    const url = new URL(value);
-    return ["http:", "https:", "mailto:"].includes(url.protocol)
-      ? url.href
-      : null;
-  } catch {
-    return null;
-  }
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  return ["http:", "https:", "mailto:"].includes(url.protocol)
+    ? url.href
+    : null;
 }
 
 function atomAttrs(node: PMNode): Record<string, unknown> {
   const raw: unknown = node.attrs?.attrsJson;
   if (typeof raw !== "string") return {};
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === "object"
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
+  const parsed: unknown = JSON.parse(raw);
+  return parsed && typeof parsed === "object"
+    ? (parsed as Record<string, unknown>)
+    : {};
 }
 
 function firstString(...values: unknown[]): string {
@@ -325,7 +333,7 @@ class PdfLayout {
     const lines: Line[] = [];
     let pieces: Piece[] = [];
     let lineWidth = 0;
-    let wrapped = false;
+    const hasText = () => pieces.some((piece) => !piece.space);
     const finish = () => {
       let last = lastOf(pieces);
       while (last?.space) {
@@ -360,43 +368,43 @@ class PdfLayout {
     for (const inline of inlines) {
       if (inline.kind === "break") {
         finish();
-        wrapped = false;
         continue;
       }
       const font = fontFor(inline.style, size, bold);
       for (const token of inline.text.replace(/\t/g, "    ").split(/(\s+)/)) {
         if (!token) continue;
+        const tokenWidth = this.canvas.measure(token, font);
         if (!token.trim()) {
-          if (!(wrapped && !pieces.length)) add(token, inline.style, font);
+          if (lineWidth + tokenWidth <= width) add(token, inline.style, font);
+          else if (hasText()) finish();
           continue;
         }
-        const tokenWidth = this.canvas.measure(token, font);
-        if (
-          lineWidth + tokenWidth > width &&
-          pieces.some((piece) => !piece.space)
-        ) {
-          finish();
-          wrapped = true;
+        if (lineWidth + tokenWidth > width) {
+          if (hasText()) {
+            finish();
+          } else {
+            pieces = [];
+            lineWidth = 0;
+          }
         }
         if (tokenWidth <= width) {
           add(token, inline.style, font);
-          wrapped = false;
           continue;
         }
         let chunk = "";
+        let chunkWidth = 0;
         for (const character of token) {
-          const next = chunk + character;
-          if (chunk && lineWidth + this.canvas.measure(next, font) > width) {
+          const characterWidth = this.canvas.measure(character, font);
+          if (chunk && lineWidth + chunkWidth + characterWidth > width) {
             add(chunk, inline.style, font);
             finish();
-            wrapped = true;
-            chunk = character;
-          } else {
-            chunk = next;
+            chunk = "";
+            chunkWidth = 0;
           }
+          chunk += character;
+          chunkWidth += characterWidth;
         }
         if (chunk) add(chunk, inline.style, font);
-        wrapped = false;
       }
     }
     if (pieces.length || !lines.length) finish();
@@ -465,7 +473,7 @@ class PdfLayout {
       size?: number;
       bold?: boolean;
       color?: Rgb;
-      keepWithNext?: boolean;
+      keep?: number;
     },
     onFirstLine?: FirstLine,
   ) {
@@ -477,8 +485,8 @@ class PdfLayout {
       size,
       Boolean(options.bold),
     );
-    if (options.keepWithNext && lines.length <= 3) {
-      this.room(lines.length * lineHeight + BODY_SIZE * LINE_HEIGHT * 2);
+    if (options.keep !== undefined && lines.length <= 3) {
+      this.room(lines.length * lineHeight + options.keep);
     }
     if (!lines.length) {
       this.room(lineHeight);
@@ -501,16 +509,22 @@ class PdfLayout {
     });
   }
 
-  private withBar(box: Box, color: Rgb, render: (inner: Box) => void) {
-    this.room(BODY_SIZE * LINE_HEIGHT);
-    const startPage = this.canvas.page;
-    const startY = this.y;
-    render({ ...box, x: box.x + 14, width: box.width - 14 });
+  private withBar(
+    box: Box,
+    color: Rgb,
+    render: (inner: Box, onFirstLine: FirstLine) => void,
+  ) {
+    const starts: Array<{ page: number; y: number }> = [];
+    render({ ...box, x: box.x + 14, width: box.width - 14 }, (top) => {
+      if (!starts.length) starts.push({ page: this.canvas.page, y: top });
+    });
+    const start = itemAt(starts, 0);
+    if (!start) return;
     const endPage = this.canvas.page;
     const endY = this.y;
-    for (let page = startPage; page <= endPage; page++) {
+    for (let page = start.page; page <= endPage; page++) {
       this.canvas.setPage(page);
-      const top = page === startPage ? startY : MARGIN;
+      const top = page === start.page ? start.y : MARGIN;
       const bottom = page === endPage ? endY : this.bottom;
       if (bottom > top) {
         this.canvas.line(box.x + 1.5, top, box.x + 1.5, bottom, color, 2.5);
@@ -532,21 +546,24 @@ class PdfLayout {
     const rows: string[] = [];
     for (const sourceLine of source.replace(/\t/g, "    ").split("\n")) {
       let row = "";
+      let rowWidth = 0;
       for (const character of sourceLine) {
-        if (row && this.canvas.measure(row + character, font) > width) {
+        const characterWidth = this.canvas.measure(character, font);
+        if (row && rowWidth + characterWidth > width) {
           rows.push(row);
-          row = character;
-        } else {
-          row += character;
+          row = "";
+          rowWidth = 0;
         }
+        row += character;
+        rowWidth += characterWidth;
       }
       rows.push(row);
     }
     this.room(lineHeight + padding * 2);
     this.canvas.fill(box.x, this.y, box.width, padding, CODE_FILL);
     this.y += padding;
-    for (const row of rows) {
-      this.room(lineHeight);
+    for (const [index, row] of rows.entries()) {
+      this.room(index === rows.length - 1 ? lineHeight + padding : lineHeight);
       this.canvas.fill(box.x, this.y, box.width, lineHeight, CODE_FILL);
       if (row) {
         this.canvas.text(
@@ -564,22 +581,36 @@ class PdfLayout {
   }
 
   private list(node: PMNode, box: Box) {
+    const items = node.content ?? [];
     const start = Number(node.attrs?.start);
-    let number = Number.isInteger(start) ? start : 1;
+    const first = Number.isInteger(start) ? start : 1;
+    const font: PdfFont = {
+      mono: false,
+      bold: false,
+      italic: false,
+      size: BODY_SIZE,
+    };
+    const markers = items.map((_, index) =>
+      node.type === "orderedList"
+        ? `${first + index}.`
+        : node.type === "bulletList"
+          ? BULLETS.charAt(box.depth % BULLETS.length)
+          : "",
+    );
+    const indent = markers.reduce(
+      (widest, marker) =>
+        Math.max(widest, this.canvas.measure(marker, font) + 6),
+      INDENT,
+    );
     const inner: Box = {
       ...box,
-      x: box.x + INDENT,
-      width: box.width - INDENT,
+      x: box.x + indent,
+      width: box.width - indent,
       depth: box.depth + 1,
     };
-    (node.content ?? []).forEach((item, index) => {
+    items.forEach((item, index) => {
       if (index > 0) this.gap(2);
-      const marker =
-        node.type === "orderedList"
-          ? `${number++}.`
-          : node.type === "bulletList"
-            ? BULLETS.charAt(box.depth % BULLETS.length)
-            : "";
+      const marker = itemAt(markers, index) ?? "";
       const checked =
         node.type === "taskList" ? Boolean(item.attrs?.checked) : null;
       this.blocks(item.content ?? [], inner, (top, lineHeight) => {
@@ -587,16 +618,10 @@ class PdfLayout {
           this.checkbox(box.x + 3, top + (lineHeight - 8) / 2, checked);
           return;
         }
-        const font: PdfFont = {
-          mono: false,
-          bold: false,
-          italic: false,
-          size: BODY_SIZE,
-        };
         const width = this.canvas.measure(marker, font);
         this.canvas.text(
           marker,
-          box.x + INDENT - 6 - width,
+          box.x + indent - 6 - width,
           top + (lineHeight - BODY_SIZE) / 2 + BODY_SIZE * 0.8,
           font,
           box.color,
@@ -635,7 +660,10 @@ class PdfLayout {
 
   private table(node: PMNode, box: Box) {
     const rows = node.content ?? [];
-    const columns = Math.max(0, ...rows.map((row) => row.content?.length ?? 0));
+    const columns = rows.reduce(
+      (widest, row) => Math.max(widest, row.content?.length ?? 0),
+      0,
+    );
     if (!columns) return;
     const columnWidth = box.width / columns;
     const lineHeight = TABLE_SIZE * 1.4;
@@ -643,7 +671,7 @@ class PdfLayout {
     rows.forEach((row, rowIndex) => {
       const cells = row.content ?? [];
       const cellLines = Array.from({ length: columns }, (_, column) => {
-        const cell: PMNode | undefined = cells[column];
+        const cell = itemAt(cells, column);
         const header =
           cell?.type === "tableHeader" ||
           (rowIndex === 0 && Boolean(node.attrs?.headerRow)) ||
@@ -655,7 +683,10 @@ class PdfLayout {
           header,
         );
       });
-      const lineCount = Math.max(1, ...cellLines.map((lines) => lines.length));
+      const lineCount = cellLines.reduce(
+        (most, lines) => Math.max(most, lines.length),
+        1,
+      );
       this.room(lineHeight + padding * 2);
       let segmentTop = this.y;
       const borders = (bottom: number) => {
@@ -675,14 +706,15 @@ class PdfLayout {
       };
       this.y += padding;
       for (let index = 0; index < lineCount; index++) {
-        if (this.y + lineHeight > this.bottom) {
+        const below = index === lineCount - 1 ? padding : 0;
+        if (this.y + lineHeight + below > this.bottom) {
           borders(this.y);
           this.canvas.addPage();
           this.y = MARGIN;
           segmentTop = this.y;
         }
         cellLines.forEach((lines, column) => {
-          const line: Line | undefined = lines[index];
+          const line = itemAt(lines, index);
           if (line) {
             this.drawLine(
               line,
@@ -701,28 +733,44 @@ class PdfLayout {
     });
   }
 
-  private block(node: PMNode, box: Box, onFirstLine?: FirstLine) {
+  private keepAfter(nodes: readonly PMNode[], index: number) {
+    let height = BODY_SIZE * LINE_HEIGHT * 2;
+    let offset = 1;
+    let next = itemAt(nodes, index + offset);
+    while (next?.type === "heading") {
+      const size = headingSize(next);
+      height += size * (LINE_HEIGHT + 0.6) + 2 + BLOCK_GAP;
+      offset += 1;
+      next = itemAt(nodes, index + offset);
+    }
+    return Math.min(height, (this.bottom - MARGIN) / 2);
+  }
+
+  private block(
+    node: PMNode,
+    box: Box,
+    onFirstLine?: FirstLine,
+    keep?: number,
+  ) {
     const indent = Number(node.attrs?.indent);
-    const shifted =
+    const shift =
       Number.isInteger(indent) && indent > 0
-        ? {
-            ...box,
-            x: box.x + indent * INDENT,
-            width: box.width - indent * INDENT,
-          }
-        : box;
+        ? Math.min(indent * INDENT, box.width / 2)
+        : 0;
+    const shifted = shift
+      ? { ...box, x: box.x + shift, width: box.width - shift }
+      : box;
     if (node.type === "paragraph") {
       this.paragraph(inlinesOf(node.content, PLAIN), shifted, {}, onFirstLine);
       return;
     }
     if (node.type === "heading") {
-      const level = Math.min(Math.max(Number(node.attrs?.level) || 1, 1), 6);
-      const size = HEADING_SIZES.get(level) ?? BODY_SIZE;
+      const size = headingSize(node);
       this.gap(size * 0.6);
       this.paragraph(
         inlinesOf(node.content, PLAIN),
         shifted,
-        { size, bold: true, keepWithNext: true },
+        { size, bold: true, keep: keep ?? BODY_SIZE * LINE_HEIGHT * 2 },
         onFirstLine,
       );
       this.y += 2;
@@ -737,12 +785,14 @@ class PdfLayout {
     ) {
       this.list(node, shifted);
     } else if (node.type === "blockquote") {
-      this.withBar(shifted, RULE, (inner) =>
-        this.blocks(node.content ?? [], { ...inner, color: QUOTE }),
+      this.withBar(shifted, RULE, (inner, first) =>
+        this.blocks(node.content ?? [], { ...inner, color: QUOTE }, first),
       );
     } else if (node.type === "notionCallout") {
-      this.withBar(shifted, namedColor(node.attrs?.color) ?? RULE, (inner) =>
-        this.blocks(node.content ?? [], inner),
+      this.withBar(
+        shifted,
+        namedColor(node.attrs?.color) ?? RULE,
+        (inner, first) => this.blocks(node.content ?? [], inner, first),
       );
     } else if (node.type === "codeBlock") {
       this.codeBlock(
@@ -768,16 +818,32 @@ class PdfLayout {
     } else if (node.type === "table") {
       this.table(node, shifted);
     } else if (node.type === "notionToggle") {
-      const summary = node.content?.[0];
-      const children = node.content?.slice(1) ?? [];
-      if (summary) {
-        this.paragraph(inlinesOf(summary.content, PLAIN), shifted, {});
+      const content = node.content ?? [];
+      const first = itemAt(content, 0);
+      const summary: unknown = node.attrs?.summary;
+      const title: Inline[] =
+        first?.type === "notionToggleSummary"
+          ? inlinesOf(first.content, PLAIN)
+          : typeof summary === "string" && summary.trim()
+            ? [{ kind: "text", text: summary, style: PLAIN }]
+            : [];
+      const children =
+        first?.type === "notionToggleSummary" ? content.slice(1) : content;
+      const level = Number(node.attrs?.headingLevel);
+      const size =
+        Number.isInteger(level) && level >= 1 && level <= 6
+          ? (HEADING_SIZES.get(level) ?? BODY_SIZE)
+          : null;
+      if (title.length) {
+        this.paragraph(title, shifted, size ? { size, bold: true } : {});
       }
-      this.blocks(children, {
-        ...shifted,
-        x: shifted.x + INDENT,
-        width: shifted.width - INDENT,
-      });
+      if (children.length) {
+        this.blocks(children, {
+          ...shifted,
+          x: shifted.x + INDENT,
+          width: shifted.width - INDENT,
+        });
+      }
     } else if (node.type === "localMdxComponent") {
       const children: unknown = node.attrs?.children;
       if (typeof children === "string" && children.trim()) {
@@ -812,7 +878,12 @@ class PdfLayout {
   blocks(nodes: readonly PMNode[], box: Box, onFirstLine?: FirstLine) {
     nodes.forEach((node, index) => {
       if (index > 0) this.gap(BLOCK_GAP);
-      this.block(node, box, index === 0 ? onFirstLine : undefined);
+      this.block(
+        node,
+        box,
+        index === 0 ? onFirstLine : undefined,
+        node.type === "heading" ? this.keepAfter(nodes, index) : undefined,
+      );
     });
     if (!nodes.length) {
       this.room(BODY_SIZE * LINE_HEIGHT);
@@ -847,9 +918,20 @@ export function layoutDocumentPdf(
   input: { title: string; content: string | null | undefined },
   canvas: PdfCanvas,
 ) {
-  const doc = nfmToDoc(markdownWithTitle(input.title, input.content));
+  const title = input.title.replace(/\s+/g, " ").trim() || "Untitled";
+  const body = nfmToDoc(input.content ?? "").content;
+  const first = itemAt(body, 0);
+  const titled =
+    first?.type === "heading" &&
+    Number(first.attrs?.level) === 1 &&
+    plainText(first.content).toLowerCase() === title.toLowerCase();
+  const heading: PMNode = {
+    type: "heading",
+    attrs: { level: 1 },
+    content: [{ type: "text", text: title }],
+  };
   const layout = new PdfLayout(canvas);
-  layout.blocks(doc.content, {
+  layout.blocks(titled ? body : [heading, ...body], {
     x: MARGIN,
     width: canvas.width - MARGIN * 2,
     color: TEXT,
@@ -863,8 +945,18 @@ const SANS_FILES = {
   normal: "LiberationSans-Regular.ttf",
   bold: "LiberationSans-Bold.ttf",
 } as const;
-const UNDRAWABLE =
-  /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\p{Variation_Selector}\p{Join_Control}]/gu;
+const RIGHT_TO_LEFT =
+  /[\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Adlam}]/u;
+const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
+const EMOJI_PART = /[\p{Emoji_Component}\p{Variation_Selector}]/u;
+const SPACE = /\p{Zs}/u;
+
+export class PdfUnsupportedTextError extends Error {
+  constructor() {
+    super("The page has text the PDF font can't show.");
+    this.name = "PdfUnsupportedTextError";
+  }
+}
 
 let sansFonts: Record<keyof typeof SANS_FILES, string> | undefined;
 
@@ -880,16 +972,29 @@ function loadSansFonts() {
   return sansFonts;
 }
 
-function drawable(text: string) {
-  return text.replace(UNDRAWABLE, (character) =>
-    (character.codePointAt(0) ?? 0) < 0x2190 &&
-    !/\p{Variation_Selector}|\p{Join_Control}/u.test(character)
-      ? character
-      : "",
-  );
+function glyphCheck(metadata: unknown) {
+  const lookup: unknown =
+    metadata && typeof metadata === "object" && "characterToGlyph" in metadata
+      ? metadata.characterToGlyph
+      : undefined;
+  if (typeof lookup !== "function") {
+    throw new Error("The PDF font has no character map.");
+  }
+  return (code: number) => Number(lookup.call(metadata, code)) > 0;
 }
 
-function monoSegments(text: string) {
+function drawableCharacter(character: string, hasGlyph: boolean) {
+  if (
+    RIGHT_TO_LEFT.test(character) ||
+    (!hasGlyph && WORD_CHARACTER.test(character) && !EMOJI_PART.test(character))
+  ) {
+    throw new PdfUnsupportedTextError();
+  }
+  if (hasGlyph) return character;
+  return SPACE.test(character) ? " " : "";
+}
+
+function monoSegments(text: string, drawable: (text: string) => string) {
   const segments: Array<{ text: string; mono: boolean }> = [];
   for (const character of text) {
     const code = character.codePointAt(0) ?? 0;
@@ -917,8 +1022,25 @@ export function renderDocumentPdf(input: {
   doc.setProperties({ title: input.title, creator: "Agent-Native Content" });
   const width = doc.internal.pageSize.getWidth();
   const height = doc.internal.pageSize.getHeight();
+  doc.setFont(SANS, "normal");
+  const hasGlyph = glyphCheck(doc.getFont().metadata);
+  const characters = new Map<string, string>();
+  const drawable = (text: string) =>
+    Array.from(text.normalize("NFC"), (character) => {
+      let kept = characters.get(character);
+      if (kept === undefined) {
+        kept = drawableCharacter(
+          character,
+          hasGlyph(character.codePointAt(0) ?? 0),
+        );
+        characters.set(character, kept);
+      }
+      return kept;
+    }).join("");
   const segments = (text: string, font: PdfFont) =>
-    font.mono ? monoSegments(text) : [{ text: drawable(text), mono: false }];
+    font.mono
+      ? monoSegments(text, drawable)
+      : [{ text: drawable(text), mono: false }];
   const selectFont = (font: PdfFont, mono: boolean) => {
     const style = mono
       ? `${font.bold ? "bold" : ""}${font.italic ? "italic" : ""}` || "normal"

@@ -277,6 +277,17 @@ describe("Content read-document-file", () => {
     });
   });
 
+  it("refuses a PDF of a page in a script the PDF font can't show", async () => {
+    await addDocument({ id: "tokyo-page", content: "東京の計画" });
+    await expect(read("tokyo-page", "pdf")).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "document_file_pdf_text_unsupported",
+    });
+    await expect(read("tokyo-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
+  });
+
   it("refuses a page too large to send back in one response", async () => {
     await addDocument({ id: "huge-page", content: "x".repeat(2_200_000) });
     await expect(read("huge-page")).rejects.toMatchObject({

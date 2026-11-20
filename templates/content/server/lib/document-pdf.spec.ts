@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   layoutDocumentPdf,
+  PdfUnsupportedTextError,
   renderDocumentPdf,
   type PdfCanvas,
   type PdfFont,
@@ -19,15 +20,18 @@ type Op =
       color: Rgb;
     }
   | { kind: "line"; page: number; y1: number; y2: number }
-  | { kind: "fill"; page: number; y: number; color: Rgb }
+  | { kind: "fill"; page: number; y: number; height: number; color: Rgb }
   | { kind: "link"; page: number; url: string };
 
 function recordLayout(title: string, content: string) {
   const ops: Op[] = [];
   let page = 1;
   let pageCount = 1;
-  const measure = (text: string, font: PdfFont) =>
-    text.length * font.size * 0.5;
+  let measured = 0;
+  const measure = (text: string, font: PdfFont) => {
+    measured += text.length;
+    return text.length * font.size * 0.5;
+  };
   const canvas: PdfCanvas = {
     width: 612,
     height: 792,
@@ -51,8 +55,8 @@ function recordLayout(title: string, content: string) {
     line: (_x1, y1, _x2, y2) => {
       ops.push({ kind: "line", page, y1, y2 });
     },
-    fill: (_x, y, _width, _height, color) => {
-      ops.push({ kind: "fill", page, y, color });
+    fill: (_x, y, _width, height, color) => {
+      ops.push({ kind: "fill", page, y, height, color });
     },
     link: (_x, _y, _width, _height, url) => {
       ops.push({ kind: "link", page, url });
@@ -70,7 +74,7 @@ function recordLayout(title: string, content: string) {
       );
     return found;
   };
-  return { ops, texts, textOf, pageCount, measure };
+  return { ops, texts, textOf, pageCount, measure, measured };
 }
 
 describe("document PDF layout", () => {
@@ -188,6 +192,136 @@ describe("document PDF layout", () => {
       }),
     );
   });
+
+  it("prints the page title as written, not as Markdown", () => {
+    const { textOf } = recordLayout("Report **literal**", "Body");
+
+    expect(textOf("Report **literal**").font.bold).toBe(true);
+  });
+
+  it("doesn't repeat a title the page already opens with", () => {
+    const { texts } = recordLayout("Plan", "# Plan\n\nBody");
+
+    expect(texts.filter((op) => op.text === "Plan")).toHaveLength(1);
+  });
+
+  it("shows a toggle's title, with its body indented under it", () => {
+    const tab = String.fromCharCode(9);
+    const { textOf } = recordLayout(
+      "Toggles",
+      [
+        "<details open>",
+        "<summary>Toggle title</summary>",
+        tab + "First paragraph",
+        tab + "Second paragraph",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(textOf("Toggle title").x).toBeLessThan(textOf("First paragraph").x);
+    expect(textOf("Second paragraph").y).toBeGreaterThan(
+      textOf("First paragraph").y,
+    );
+  });
+
+  it("keeps list numbers, leading spaces and deep indents inside the margins", () => {
+    const tab = String.fromCharCode(9);
+    const { texts, measure } = recordLayout(
+      "Margins",
+      [
+        "9. Nine",
+        "10. Ten",
+        "",
+        "a<br>" + " ".repeat(200) + "b",
+        "",
+        tab.repeat(29) + "deep",
+      ].join("\n"),
+    );
+
+    for (const op of texts) {
+      expect(op.x).toBeGreaterThanOrEqual(54);
+      expect(op.x + measure(op.text, op.font)).toBeLessThanOrEqual(612 - 54);
+    }
+    expect(texts.map((op) => op.text)).toEqual(
+      expect.arrayContaining(["10.", "b", "deep"]),
+    );
+  });
+
+  it("keeps a run of headings on the page with the text after them", () => {
+    for (let leads = 20; leads <= 40; leads++) {
+      const { textOf } = recordLayout(
+        "Title",
+        [
+          ...Array.from({ length: leads }, () => "Lead"),
+          "## Heading",
+          "# Following",
+          "Body",
+        ].join("\n\n"),
+      );
+
+      expect(textOf("Following").page).toBe(textOf("Heading").page);
+      expect(textOf("Body").page).toBe(textOf("Heading").page);
+    }
+  });
+
+  it("starts a callout's bar beside its first line", () => {
+    const tab = String.fromCharCode(9);
+    for (let leads = 20; leads <= 40; leads++) {
+      const { ops, textOf } = recordLayout(
+        "Title",
+        [
+          ...Array.from({ length: leads }, () => "Lead"),
+          "<callout>",
+          tab + "## Heading",
+          tab + "body",
+          "</callout>",
+        ].join("\n\n"),
+      );
+
+      const pages = new Set([textOf("Heading").page, textOf("body").page]);
+      const barPages = ops.flatMap((op) =>
+        op.kind === "line" && op.y1 !== op.y2 ? [op.page] : [],
+      );
+      expect(barPages.length).toBeGreaterThan(0);
+      expect(barPages.filter((page) => !pages.has(page))).toEqual([]);
+    }
+  });
+
+  it("keeps code and table backgrounds and borders above the bottom margin", () => {
+    for (let leads = 0; leads <= 30; leads += 3) {
+      const leadText = Array.from({ length: leads }, () => "Lead");
+      const { ops } = recordLayout(
+        "Title",
+        [
+          ...leadText,
+          ["~~~", ...Array.from({ length: 46 }, () => "X"), "~~~"].join("\n"),
+          "| " + Array.from({ length: 40 }, () => "X").join("<br>") + " |",
+          "| --- |",
+          "| y |",
+        ].join("\n\n"),
+      );
+
+      const lowest = Math.max(
+        ...ops.map((op) =>
+          op.kind === "fill"
+            ? op.y + op.height
+            : op.kind === "line"
+              ? Math.max(op.y1, op.y2)
+              : 0,
+        ),
+      );
+      expect(lowest).toBeLessThanOrEqual(792 - 54 + 0.001);
+    }
+  });
+
+  it("measures a long code line a character at a time", () => {
+    const { measured } = recordLayout(
+      "Code",
+      ["~~~", "x".repeat(4000), "~~~"].join("\n"),
+    );
+
+    expect(measured).toBeLessThan(4000 * 3);
+  });
 });
 
 describe("renderDocumentPdf", () => {
@@ -204,5 +338,25 @@ describe("renderDocumentPdf", () => {
     expect(raw).toContain("/FontFile2");
     expect(raw).toContain("/Title (Q3 plan)");
     expect(raw.match(/\/Type \/Page\b(?!s)/g)).toHaveLength(1);
+  });
+
+  it("leaves out emoji and symbols the font lacks, and keeps the rest", () => {
+    expect(() =>
+      renderDocumentPdf({
+        title: "Symbols",
+        content: "Done ✓ 👋🏽 1️⃣ → © — café",
+      }),
+    ).not.toThrow();
+  });
+
+  it("refuses text in scripts the font can't show", () => {
+    for (const content of ["before 中文 after", "שלום", "مرحبا", "हिन्दी"]) {
+      expect(() => renderDocumentPdf({ title: "Scripts", content })).toThrow(
+        PdfUnsupportedTextError,
+      );
+    }
+    expect(() => renderDocumentPdf({ title: "中文", content: "Body" })).toThrow(
+      PdfUnsupportedTextError,
+    );
   });
 });

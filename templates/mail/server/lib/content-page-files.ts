@@ -68,6 +68,11 @@ const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
         "That format doesn't fit this page: a page attaches as Markdown or PDF, a collection as CSV.",
       statusCode: 400,
     },
+    document_file_pdf_text_unsupported: {
+      message:
+        "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
+      statusCode: 422,
+    },
     collection_export_limit_exceeded: {
       message:
         "This collection has too many rows to attach. Export a narrower view from Content and attach the file instead.",
@@ -197,10 +202,8 @@ export async function readContentPageFile(args: {
 
 function decodeFile(content: string, encoding: "utf8" | "base64") {
   if (encoding === "utf8") return Buffer.from(content, "utf8");
-  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) {
-    return null;
-  }
-  return Buffer.from(content, "base64");
+  const data = Buffer.from(content, "base64");
+  return data.toString("base64") === content ? data : null;
 }
 
 const EXTENSION_BY_FORMAT: Record<ContentFileFormat, string> = {

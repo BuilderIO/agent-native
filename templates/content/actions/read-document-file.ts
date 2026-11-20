@@ -17,6 +17,8 @@ import searchDocuments from "./search-documents.js";
 const PAGE_SIZE = 30;
 export const DOCUMENT_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_RESULT_CHARS = 6_000_000;
+const PDF_TEXT_UNSUPPORTED =
+  "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.";
 
 const kindSchema = z.enum(["page", "collection"]);
 const formatSchema = z.enum(["markdown", "csv", "pdf"]);
@@ -298,9 +300,18 @@ export default defineAction({
       content = markdownWithTitle(title, doc.content);
       size = Buffer.byteLength(content, "utf8");
       if (format === "pdf" && size <= DOCUMENT_FILE_MAX_BYTES) {
-        const { renderDocumentPdf } =
+        const { PdfUnsupportedTextError, renderDocumentPdf } =
           await import("../server/lib/document-pdf.js");
-        const pdf = renderDocumentPdf({ title, content: doc.content });
+        let pdf: Buffer;
+        try {
+          pdf = renderDocumentPdf({ title, content: doc.content });
+        } catch (error) {
+          if (!(error instanceof PdfUnsupportedTextError)) throw error;
+          fail(PDF_TEXT_UNSUPPORTED, {
+            statusCode: 422,
+            errorCode: "document_file_pdf_text_unsupported",
+          });
+        }
         content = pdf.toString("base64");
         size = pdf.byteLength;
       }
