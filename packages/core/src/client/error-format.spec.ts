@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import germanMessages from "../../../toolkit/src/app/i18n/catalogs/de-DE.js";
 import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -35,6 +34,8 @@ function interpolate(
     "agentChat.errorMessages.providerAuthentication":
       "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
     "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
+    "agentChat.errorMessages.emailVerificationRequired":
+      "Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
     "agentChat.errorMessages.creditsLimitReached":
       "Du hast dein KI-Credit-Limit erreicht.",
     "agentChat.errorMessages.openBuilderSpaceSettings":
@@ -562,14 +563,7 @@ describe("localizeKnownChatErrorText", () => {
   it("localizes the provider email verification recovery message", () => {
     const message =
       "Error: Verify an eligible email address with the connected AI provider account or space, then retry.";
-    expect(
-      localizeKnownChatErrorText(message, (key, options) => {
-        const catalogKey = key.replace(/^agentChat\./, "");
-        return (
-          germanMessages[catalogKey] ?? String(options?.defaultValue ?? key)
-        ).replace("{{message}}", String(options?.message ?? ""));
-      }),
-    ).toBe(
+    expect(localizeKnownChatErrorText(message, interpolate)).toBe(
       "Fehler: Verifiziere eine geeignete E-Mail-Adresse beim verbundenen KI-Anbieterkonto oder -Space und versuche es dann erneut.",
     );
   });

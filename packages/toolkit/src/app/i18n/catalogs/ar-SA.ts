@@ -1281,7 +1281,8 @@ const messages: ToolkitAgentChatTranslation = {
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "errorMessages.invalidAttachmentNamed":
     "رفض موفّر النموذج {{name}} لأن تنسيقه أو حجمه غير مدعوم. صدّر الصور بحجم أصغر بصيغة PNG أو JPEG أو GIF أو WebP. للمستندات، استخدم تنسيقًا مدعومًا أو الصق النص ذي الصلة ثم أعد المحاولة.",
-  "recovery.resendVerificationEmail": "إعادة إرسال رسالة التحقق",
+  "recovery.resendVerificationEmail":
+    "إعادة إرسال رسالة التحقق من حساب التطبيق",
   "recovery.sendingVerificationEmail": "جارٍ الإرسال...",
   "recovery.verificationEmailRequested":
     "تم طلب رسالة التحقق. تحقق من صندوق الوارد ومجلد الرسائل غير المرغوب فيها.",

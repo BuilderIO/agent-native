@@ -937,7 +937,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "errorMessages.invalidAttachmentNamed":
     "O provedor do modelo rejeitou {{name}} porque o formato ou o tamanho não é compatível. Para imagens, exporte um PNG, JPEG, GIF ou WebP menor; para documentos, use um formato compatível ou cole o texto relevante e tente novamente.",
-  "recovery.resendVerificationEmail": "Reenviar e-mail de verificação",
+  "recovery.resendVerificationEmail":
+    "Reenviar e-mail de verificação da conta do aplicativo",
   "recovery.sendingVerificationEmail": "Enviando...",
   "recovery.verificationEmailRequested":
     "E-mail de verificação solicitado. Confira sua caixa de entrada e a pasta de spam.",

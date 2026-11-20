@@ -1196,7 +1196,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
   "errorMessages.invalidAttachmentNamed":
     "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
-  "recovery.resendVerificationEmail": "重新傳送驗證郵件",
+  "recovery.resendVerificationEmail": "重新傳送應用程式帳戶驗證郵件",
   "recovery.sendingVerificationEmail": "正在傳送...",
   "recovery.verificationEmailRequested":
     "已要求傳送驗證郵件。請檢查收件匣和垃圾郵件資料夾。",

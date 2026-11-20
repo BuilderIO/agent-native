@@ -1253,7 +1253,7 @@ const messages: ToolkitAgentChatTranslation = {
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
   "errorMessages.invalidAttachmentNamed":
     "मॉडल प्रदाता ने {{name}} को अस्वीकार कर दिया क्योंकि इसका फ़ॉर्मैट या आकार समर्थित नहीं है। छवियों को छोटे PNG, JPEG, GIF या WebP के रूप में निर्यात करें। दस्तावेज़ों के लिए समर्थित फ़ॉर्मैट इस्तेमाल करें या संबंधित पाठ चिपकाकर फिर कोशिश करें।",
-  "recovery.resendVerificationEmail": "सत्यापन ईमेल फिर से भेजें",
+  "recovery.resendVerificationEmail": "ऐप खाते का सत्यापन ईमेल फिर से भेजें",
   "recovery.sendingVerificationEmail": "भेजा जा रहा है...",
   "recovery.verificationEmailRequested":
     "सत्यापन ईमेल का अनुरोध किया गया। अपना इनबॉक्स और स्पैम फ़ोल्डर देखें।",

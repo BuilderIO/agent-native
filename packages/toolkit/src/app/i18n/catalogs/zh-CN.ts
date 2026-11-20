@@ -1192,7 +1192,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.continueUnavailable": "此运行已无法继续。发送消息以继续。",
   "errorMessages.invalidAttachmentNamed":
     "模型提供商拒绝了 {{name}}，因为其格式或大小不受支持。图像请导出为更小的 PNG、JPEG、GIF 或 WebP；文档请使用支持的格式，或粘贴相关文本后重试。",
-  "recovery.resendVerificationEmail": "重新发送验证邮件",
+  "recovery.resendVerificationEmail": "重新发送应用账户验证邮件",
   "recovery.sendingVerificationEmail": "正在发送...",
   "recovery.verificationEmailRequested":
     "已请求发送验证邮件。请检查收件箱和垃圾邮件文件夹。",

@@ -140,7 +140,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
         "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
         "agentChat.recovery.resendVerificationEmail":
-          "Resend verification email",
+          "Resend app account verification email",
         "agentChat.recovery.sendingVerificationEmail": "Sending...",
         "agentChat.recovery.verificationEmailRequested":
           "Verification email requested. Check your inbox and spam folder.",
@@ -453,7 +453,8 @@ describe("run recovery surfaces", () => {
     });
 
     const resendButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Resend verification email"),
+      (button) =>
+        button.textContent?.includes("Resend app account verification email"),
     );
     expect(resendButton).toBeTruthy();
 
@@ -497,7 +498,7 @@ describe("run recovery surfaces", () => {
     await act(async () => {
       Array.from(container.querySelectorAll("button"))
         .find((button) =>
-          button.textContent?.includes("Resend verification email"),
+          button.textContent?.includes("Resend app account verification email"),
         )
         ?.click();
       await Promise.resolve();
