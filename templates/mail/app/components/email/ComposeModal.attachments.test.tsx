@@ -2,6 +2,7 @@
 
 import type { ComposeAttachment, ComposeState } from "@shared/types";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type { ComponentProps, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -22,26 +23,26 @@ vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn(), dismiss: vi.fn() }),
 }));
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: any) => (
+  Button: ({ children, ...props }: ComponentProps<"button">) => (
     <button {...props}>{children}</button>
   ),
 }));
 vi.mock("@/components/ui/popover", () => ({
-  Popover: ({ children }: any) => <>{children}</>,
-  PopoverContent: ({ children }: any) => <>{children}</>,
-  PopoverTrigger: ({ children }: any) => <>{children}</>,
+  Popover: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  PopoverContent: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  PopoverTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: any) => <>{children}</>,
-  SelectContent: ({ children }: any) => <>{children}</>,
-  SelectItem: ({ children }: any) => <>{children}</>,
-  SelectTrigger: ({ children }: any) => <>{children}</>,
+  Select: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  SelectContent: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  SelectItem: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  SelectTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
   SelectValue: () => null,
 }));
 vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: any) => <>{children}</>,
-  TooltipContent: ({ children }: any) => <>{children}</>,
-  TooltipTrigger: ({ children }: any) => <>{children}</>,
+  Tooltip: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/hooks/use-account-filter", () => ({
   useAccountFilter: () => ({ allAccounts: [] }),
@@ -99,12 +100,14 @@ import { ComposeModal } from "./ComposeModal";
 const contentFile: ComposeAttachment = {
   id: "content-file",
   filename: "Plan.pdf",
+  originalName: "Plan.pdf",
   mimeType: "application/pdf",
   size: 1200,
 };
 const uploadedFile: ComposeAttachment = {
   id: "uploaded-file",
   filename: "notes.txt",
+  originalName: "notes.txt",
   mimeType: "text/plain",
   size: 40,
 };
