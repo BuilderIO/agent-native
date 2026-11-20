@@ -3,16 +3,42 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-19
+
+### Improved
+
+- Only a page's owner can now link it to Notion or push it to Notion; shared editors can still pull updates from a linked page.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+- Select text and press the pencil in its toolbar to suggest an edit to it, even on pages you can comment on but not edit.
+
+### Fixed
+
+- Content opens reliably in browsers missing newer JavaScript features.
+- The selection toolbar now fits on phones as narrow as 360 px, with every button in reach.
+
 ## 2026-11-17
 
 ### Fixed
 
+- Failed comment AI retries show an error instead of failing silently
 - Keep comment highlights and suggestion previews in place while editing a page
 
 ## 2026-11-16
 
+### Added
+
+- Comments can now carry screenshots. Paste, drop or pick up to five images (PNG, JPEG, GIF or WebP, up to 10 MB each) on a new comment, a reply or an edit; click a thumbnail to see it full size. Only people who can read the page can open them, and they stop loading once the comment is deleted or the page is in Trash.
+- Import a Notion export by dropping or picking its zip: pages keep their subpages, callouts and toggles, links between them point at the new pages, images and PDFs come along, and databases are listed for a later import. The preview also says when the same files were imported before.
+
 ### Improved
 
+- Code blocks now have a bar at the top, which shows when you hover over one or put the cursor in it. Pick the block's language from a searchable list, or leave it on Auto to have the colors guessed; turn on line wrapping so long lines stay in view; or copy the whole block. Readers of a page get the Copy button too. The language and the wrapping are saved with the block. Markdown export keeps both; Notion keeps the language only.
+- Move to and your first pin now show in the sidebar the moment you click, instead of a second or two later, and a move that fails puts the page back where it was.
 - Every block's menu now has Insert block above and Ask agent, which opens the agent with the block attached and sends nothing until you write. Columns, synced blocks, components and Notion embeds now say what they are in the menu's title, and on a phone the menu opens as a sheet from the bottom of the screen with rows big enough to tap, where Turn into and Color open in place with a Back button.
 - Agents connected to Content can list your most recently edited pages first, so asking what you worked on last takes one call instead of reading your whole library.
 - Agents now read a page with far less data: its text comes back once, and fields leave out the editor's display details.
@@ -25,6 +51,12 @@ time from the command menu (Cmd+K → "What's new").
 - Rows an agent adds or edits in a table, and the properties and views it changes, now show within seconds for everyone who has that table open, instead of at the next idle check a minute or more later, or not until a collaborator reloads.
 - Disconnecting a collection from Builder while it's still syncing no longer leaves rows saying their content is still syncing from Builder.
 - Importing names an image that couldn't be uploaded, instead of showing only the reason
+
+## 2026-11-15
+
+### Fixed
+
+- Property type changes are blocked to protect existing values.
 
 ## 2026-11-14
 
@@ -1270,50 +1302,5 @@ time from the command menu (Cmd+K → "What's new").
 - Moving documents at the same time no longer scrambles their order
 - Reopening a comment now uses consistent permissions everywhere
 - Sidebar resizing now tracks your cursor instantly instead of lagging behind
-
-## 2026-07-10
-
-### Added
-
-- Database form views now collect ordered, required answers and create verified response pages.
-- Notion databases can now add read-only details to Content tables through a safe, refreshable source connection.
-
-### Improved
-
-- Builder CMS sources can now be enabled for guarded staged or published updates by page administrators.
-- Database tables now use a quieter, more compact layout with clearer filters and contextual shared-view controls.
-- Open documents no longer make constant background requests while waiting for sync operations.
-- Slack request intake can preserve its source thread, validate required database form fields, and return the exact submitted Content page.
-
-### Fixed
-
-- Builder-backed preview edits are preserved when article bodies finish syncing.
-- Builder-backed properties now load current source values as soon as you add them.
-- Builder database snapshots now refresh only when requested, continue past 500 rows, and ignore unchanged select values when counting pending changes.
-- Failed row creation and source attach now show an error instead of silently doing nothing
-- Items added at the same time no longer end up with identical sort positions
-- Local folders now wait for an explicit pull before Content reads them
-
-## 2026-07-09
-
-### Fixed
-
-- Builder source refreshes now keep mapped fields such as topics and tags, preserve existing rows when a read unexpectedly returns empty, and load large databases more reliably.
-- Notion conflict choices and version restores preserve document paragraphs and protect live edits.
-- Notion conflict warnings no longer flash during normal synced editing
-- Property menus and delete confirmations now open visibly and respond reliably in database tables.
-
-## 2026-07-08
-
-### Improved
-
-- Database filters now support Notion-style reset, save-for-everyone, and additive option selections.
-- Date filters can now target a between range.
-- Settings are cleaner and searchable, with a consistent navigation that jumps straight to any setting.
-
-### Fixed
-
-- Builder source sync now completes reliably on hosted databases with hundreds of entries.
-- Fixed Builder database sync so large sources continue past the first batch without leaving the table stuck mid-refresh.
 
 For the full list of updates, see the [changelog folder](./changelog/).

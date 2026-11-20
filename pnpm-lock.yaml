@@ -8218,6 +8218,15 @@ importers:
 
 packages:
 
+  2g@1.0.1:
+    resolution: {integrity: sha512-+uViadKOS/wwR4pFu5g8TPn3QHpKqoX19JHCnp8k/3cLpImdcXozwvZA6Q/5PeW3AcU8neL8faaMidBcv7o8CA==}
+    hasBin: true
+    peerDependencies:
+      typescript: '>=5.8.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
 
@@ -17510,15 +17519,6 @@ packages:
   '@xyflow/system@0.0.83':
     resolution: {integrity: sha512-a//eDjez3WZF47aaPTfVUDD0OINOq+WVwBZCRTqG+m0a5euX8EwlJ4jMY1Wxz0Ocj4xOeekJ70V22Pq0ll8RJw==}
 
-  2g@1.0.1:
-    resolution: {integrity: sha512-+uViadKOS/wwR4pFu5g8TPn3QHpKqoX19JHCnp8k/3cLpImdcXozwvZA6Q/5PeW3AcU8neL8faaMidBcv7o8CA==}
-    hasBin: true
-    peerDependencies:
-      typescript: '>=5.8.0'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   abbrev@4.0.0:
     resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
     engines: {node: ^20.17.0 || >=22.9.0}
@@ -25205,6 +25205,10 @@ packages:
       '@types/emscripten': '>=1.39.6'
 
 snapshots:
+
+  2g@1.0.1(typescript@6.0.3):
+    optionalDependencies:
+      typescript: 6.0.3
 
   '@adobe/css-tools@4.5.0':
     optional: true
@@ -35373,10 +35377,6 @@ snapshots:
       d3-interpolate: 3.0.1
       d3-selection: 3.0.0
       d3-zoom: 3.0.0
-
-  2g@1.0.1(typescript@6.0.3):
-    optionalDependencies:
-      typescript: 6.0.3
 
   abbrev@4.0.0: {}
 

@@ -3,10 +3,23 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-19
+
+### Fixed
+
+- New signups from the shared-clip account dialog now include automatic Builder.io setup alongside the sign-in page.
+
+## 2026-11-18
+
+### Fixed
+
+- Automatic Builder setup now runs only on hosted Clips, not on apps created from the Clips template.
+
 ## 2026-11-16
 
 ### Fixed
 
+- Title generation now explains when workspace email verification is required.
 - Agent frame requests on large recordings no longer fail with "Recording range request budget exceeded" while the video is being read.
 - Asking the agent to archive or change your clips older than a date no longer skips the ones you've shared with someone
 - Asking the agent to make several clips public now asks "Make 5 recordings public?" instead of "Approve this tool call?"
@@ -145,6 +158,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Recording no longer shows Chrome's debugging banner in your other browser windows.
 - The recording timer in the Chrome extension keeps its elapsed time when you refresh the page, including in incognito windows.
 - Trash now says whether Clips is still checking a deleted video's files, couldn't confirm they were deleted, or needs to retry a storage usage update, and each retry button retries only that step.
 
@@ -1370,38 +1384,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Live dictation text now appears above the desktop recording pill.
 - Meeting notes now stop shortly after Zoom, Teams, or Meet calls end.
 - Recording retries and restarts keep their upload session so they can finish saving.
-
-## 2026-07-20
-
-### Added
-
-- Meeting share links can include the full transcript with an explicit privacy control.
-
-### Improved
-
-- Meeting recordings now offer a cleaner transcript view with quick chat and browser actions.
-- Opening a Zoom meeting from Clips now launches the native app when available.
-- Rewind can set up your local agent once, so future requests work with a simple ‘Look at Rewind.’
-- Shared clips can be shared with limited access, and cards show who created them and when.
-
-### Fixed
-
-- Agent summaries use bounded transcript context
-- Clip summaries now finish without sending a long transcript through the agent chat
-- Clips agents only discover recordings you own or have already viewed
-- Hosted recordings now stop with a clear retryable storage message instead of failing later during chunk upload.
-- Recording retries the default Mac microphone when a saved input is no longer available.
-- Rewind now reports the same live capture status on Home and in Settings without mistaking an idle moment for a permission problem.
-- Shared Clips now tell agents to wait while uploads and transcription finish.
-
-## 2026-07-19
-
-### Added
-
-- Ready Clips transcripts can be backfilled to Brain for a bounded recent window with clear export and privacy-review results.
-
-### Improved
-
-- Rewind-backed recordings now start immediately after the countdown and upload progressively while you record.
 
 For the full list of updates, see the [changelog folder](./changelog/).
