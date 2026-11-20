@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -421,6 +422,57 @@ describe("personal memory shared across local apps", () => {
       `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/stale.md'`,
     );
     expect(rows).toEqual([]);
+  });
+
+  it("recovers a row whose delete crashed after its tombstone and before the row delete", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourceList, resourcePut } =
+      await import("./store.js");
+    const put = await resourcePut(OWNER, "memory/aborted.md", "kept");
+    const file = sharedFile(dir, "aborted.md");
+    const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+    fs.unlinkSync(file);
+    fs.writeFileSync(
+      `${file}.deleted`,
+      JSON.stringify({
+        deletedAt: put.updatedAt + 1,
+        state: "pending",
+        pid: dead,
+      }),
+    );
+
+    expect((await resourceList(OWNER, "memory/")).map((r) => r.path)).toEqual([
+      "memory/aborted.md",
+    ]);
+    expect(fs.existsSync(`${file}.deleted`)).toBe(false);
+    expect((await resourceGetByPath(OWNER, "memory/aborted.md"))?.content).toBe(
+      "kept",
+    );
+    expect(fs.readFileSync(file, "utf8")).toBe("kept");
+  });
+
+  it("keeps hiding a row under a committed or live pending tombstone", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const put = await resourcePut(OWNER, "memory/live.md", "row");
+    const file = sharedFile(dir, "live.md");
+    fs.unlinkSync(file);
+    fs.writeFileSync(
+      `${file}.deleted`,
+      JSON.stringify({
+        deletedAt: put.updatedAt + 1,
+        state: "pending",
+        pid: process.pid,
+      }),
+    );
+    await expect(
+      resourceGetByPath(OWNER, "memory/live.md"),
+    ).resolves.toBeNull();
+    fs.writeFileSync(`${file}.deleted`, String(put.updatedAt + 1));
+    await expect(
+      resourceGetByPath(OWNER, "memory/live.md"),
+    ).resolves.toBeNull();
+    expect(fs.existsSync(`${file}.deleted`)).toBe(true);
   });
 
   it("skips a mirror write whose SQL revision is no longer current", async () => {

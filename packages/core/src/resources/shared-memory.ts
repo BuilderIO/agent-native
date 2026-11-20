@@ -175,15 +175,45 @@ function isStaleLock(lock: LockSnapshot): boolean {
   return dead && Date.now() - lock.mtimeMs > LOCK_STALE_MS;
 }
 
+async function clearStaleReclaimMarker(reclaimPath: string): Promise<void> {
+  const judged = await readLock(reclaimPath);
+  if (!judged || !isStaleLock(judged)) return;
+  const aside = `${reclaimPath}.${process.pid}.${randomUUID()}`;
+  try {
+    await fs.promises.rename(reclaimPath, aside);
+  } catch (error) {
+    if (isMissingPathError(error)) return;
+    throw error;
+  }
+  const taken = await readLock(aside);
+  const same =
+    taken &&
+    taken.ino === judged.ino &&
+    taken.mtimeMs === judged.mtimeMs &&
+    taken.text === judged.text;
+  if (!same) {
+    await fs.promises.link(aside, reclaimPath).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    });
+  }
+  await fs.promises.unlink(aside);
+}
+
 async function breakStaleLock(lockPath: string): Promise<void> {
   const judged = await readLock(lockPath);
   if (!judged || !isStaleLock(judged)) return;
   const reclaimPath = `${lockPath}.reclaim`;
   try {
-    await (await fs.promises.open(reclaimPath, "wx")).close();
+    const marker = await fs.promises.open(reclaimPath, "wx");
+    try {
+      await marker.writeFile(`${process.pid} ${Date.now()}`);
+    } finally {
+      await marker.close();
+    }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
-    throw error;
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    await clearStaleReclaimMarker(reclaimPath);
+    return;
   }
   try {
     const current = await readLock(lockPath);
@@ -272,25 +302,49 @@ async function writeAtomic(
   await fs.promises.rename(temp, filePath);
 }
 
-async function readTombstone(tombstonePath: string): Promise<number | null> {
+type Tombstone = { deletedAt: number; pendingPid: number | null };
+
+function parseTombstone(text: string, tombstonePath: string): Tombstone {
+  const invalid = () =>
+    new MemoryTombstoneError(`Invalid memory tombstone: ${tombstonePath}`);
+  const trimmed = text.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const deletedAt = Number(trimmed);
+    if (!Number.isSafeInteger(deletedAt)) throw invalid();
+    return { deletedAt, pendingPid: null };
+  }
+  let parsed: { deletedAt?: unknown; state?: unknown; pid?: unknown };
   try {
-    const text = (await fs.promises.readFile(tombstonePath, "utf8")).trim();
-    if (!/^\d+$/.test(text)) {
-      throw new MemoryTombstoneError(
-        `Invalid memory tombstone: ${tombstonePath}`,
-      );
-    }
-    const deletedAt = Number(text);
-    if (!Number.isSafeInteger(deletedAt)) {
-      throw new MemoryTombstoneError(
-        `Invalid memory tombstone: ${tombstonePath}`,
-      );
-    }
-    return deletedAt;
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw invalid();
+  }
+  if (!Number.isSafeInteger(parsed.deletedAt)) throw invalid();
+  const deletedAt = parsed.deletedAt as number;
+  if (parsed.state === "committed") return { deletedAt, pendingPid: null };
+  if (parsed.state !== "pending" || !Number.isSafeInteger(parsed.pid)) {
+    throw invalid();
+  }
+  return { deletedAt, pendingPid: parsed.pid as number };
+}
+
+async function readTombstoneRecord(
+  tombstonePath: string,
+): Promise<Tombstone | null> {
+  try {
+    return parseTombstone(
+      await fs.promises.readFile(tombstonePath, "utf8"),
+      tombstonePath,
+    );
   } catch (error) {
     if (isMissingPathError(error)) return null;
     throw error;
   }
+}
+
+async function readTombstone(tombstonePath: string): Promise<number | null> {
+  const record = await readTombstoneRecord(tombstonePath);
+  return record ? record.deletedAt : null;
 }
 
 /**
@@ -360,6 +414,7 @@ export async function deleteSharedPersonalMemory(
   owner: string,
   resourcePath: string,
   revisionFloor = 0,
+  state: "pending" | "committed" = "committed",
 ): Promise<number> {
   const rootDir = getSharedMemoryDir();
   if (!rootDir) return 0;
@@ -377,7 +432,12 @@ export async function deleteSharedPersonalMemory(
       revisionFloor,
       fileStat ? Math.floor(fileStat.mtimeMs) + 1 : 0,
     );
-    await writeAtomic(`${filePath}.deleted`, String(deletedAt));
+    await writeAtomic(
+      `${filePath}.deleted`,
+      state === "pending"
+        ? JSON.stringify({ deletedAt, state, pid: process.pid })
+        : String(deletedAt),
+    );
     try {
       await fs.promises.unlink(filePath);
     } catch (error) {
@@ -424,6 +484,30 @@ export async function readMemoryTombstoneFloor(
     return null;
   });
   return stat?.isFile() && stat.mtimeMs > deletedAt ? null : deletedAt;
+}
+
+/**
+ * The revision of a pending tombstone whose delete can no longer finish: its
+ * process is gone or it has outlived the lock bound. A committed tombstone is
+ * never abandoned.
+ */
+export async function readAbandonedMemoryDelete(
+  owner: string,
+  resourcePath: string,
+): Promise<number | null> {
+  const rootDir = getSharedMemoryDir();
+  const tombstonePath =
+    rootDir && resolveTombstonePath(rootDir, owner, resourcePath);
+  if (!tombstonePath) return null;
+  const record = await readTombstoneRecord(tombstonePath);
+  if (record?.pendingPid == null) return null;
+  const stat = await fs.promises.stat(tombstonePath).catch((error) => {
+    if (!isMissingPathError(error)) throw error;
+    return null;
+  });
+  if (!stat) return null;
+  const aged = Date.now() - stat.mtimeMs > LOCK_STALE_MS;
+  return aged || !isProcessAlive(record.pendingPid) ? record.deletedAt : null;
 }
 
 /** The raw tombstone value, whether or not the file still covers it. */

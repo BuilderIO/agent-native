@@ -1969,9 +1969,8 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     }
     if (account && account !== next) {
       revoke();
-      return;
-    }
-    if (!account) {
+      account = next;
+    } else if (!account) {
       account = next;
       watch();
     }

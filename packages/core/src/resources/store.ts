@@ -52,6 +52,7 @@ import {
   MemoryDeleteFailedError,
   MemoryDeleteStateUnknownError,
   clearSharedMemoryTombstone,
+  readAbandonedMemoryDelete,
   MemoryMirrorRepairError,
   MemoryMirrorStaleError,
   MemoryTombstoneError,
@@ -2170,7 +2171,12 @@ async function publishDeleteTombstone(
 ): Promise<{ marker: number; leftover?: MemoryMirrorStaleError }> {
   try {
     return {
-      marker: await deleteSharedPersonalMemory(owner, path, revisionHint + 1),
+      marker: await deleteSharedPersonalMemory(
+        owner,
+        path,
+        revisionHint + 1,
+        "pending",
+      ),
     };
   } catch (error) {
     if (error instanceof MemoryMirrorStaleError) {
@@ -2397,12 +2403,29 @@ async function mirrorPutOrThrow(
   );
 }
 
+async function recoverAbortedMemoryDelete(
+  owner: string,
+  path: string,
+): Promise<void> {
+  if (!isPersonalMemoryResourcePath(owner, path)) return;
+  const marker = await readAbandonedMemoryDelete(owner, path);
+  if (marker === null) return;
+  await serializeMemoryMirror(owner, path, async () => {
+    if (await selectMirrorTarget(owner, path)) {
+      await abandonDeleteTombstone(owner, path, marker);
+    }
+  });
+}
+
 async function withoutTombstonedMemories(
   owner: string,
   workspace: boolean,
   metas: ResourceMeta[],
 ): Promise<ResourceMeta[]> {
   if (workspace) return metas;
+  await Promise.all(
+    metas.map((meta) => recoverAbortedMemoryDelete(owner, meta.path)),
+  );
   const floors = await Promise.all(
     metas.map((meta) =>
       isPersonalMemoryResourcePath(owner, meta.path)
@@ -2487,6 +2510,7 @@ export async function resourceGetByPath(
   );
   if (!workspace || isBareWorkspaceResourceOwner(owners[0])) {
     if (!workspace && isPersonalMemoryResourcePath(owner, path)) {
+      await recoverAbortedMemoryDelete(owner, path);
       const mirrored = await readMirroredMemory(owner, path);
       const dbResource = resources.at(0);
       if (

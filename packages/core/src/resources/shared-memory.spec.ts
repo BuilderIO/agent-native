@@ -12,6 +12,7 @@ import {
   MemoryLockTimeoutError,
   MemoryTombstoneError,
   MemoryMirrorStaleError,
+  readAbandonedMemoryDelete,
   readMirroredMemory,
   staleMirrorCollector,
   resolveSharedMemoryFilePath,
@@ -361,6 +362,44 @@ describe("shared-memory", () => {
       expect(fs.existsSync(`${file}.lock.reclaim`)).toBe(true);
     });
 
+    it("recovers a reclaim marker stranded by a crashed reclaimer", async () => {
+      const file = setup("crashed-reclaimer");
+      const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+      const old = new Date(Date.now() - 60_000);
+      for (const name of [".lock", ".lock.reclaim"]) {
+        fs.writeFileSync(`${file}${name}`, `${dead} 1`);
+        fs.utimesSync(`${file}${name}`, old, old);
+      }
+      await writeSharedPersonalMemory(
+        owner,
+        "memory/crashed-reclaimer.md",
+        "x",
+        Date.now(),
+      );
+      expect(fs.readFileSync(file, "utf8")).toBe("x");
+      expect(fs.readdirSync(path.dirname(file))).toEqual([path.basename(file)]);
+    });
+
+    it("keeps an old reclaim marker whose process is alive", async () => {
+      const file = setup("live-reclaimer");
+      const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+      const old = new Date(Date.now() - 60_000);
+      fs.writeFileSync(`${file}.lock`, `${dead} 1`);
+      fs.writeFileSync(`${file}.lock.reclaim`, `${process.pid} 1`);
+      for (const name of [".lock", ".lock.reclaim"]) {
+        fs.utimesSync(`${file}${name}`, old, old);
+      }
+      await expect(
+        writeSharedPersonalMemory(
+          owner,
+          "memory/live-reclaimer.md",
+          "x",
+          Date.now(),
+        ),
+      ).rejects.toBeInstanceOf(MemoryLockTimeoutError);
+      expect(fs.existsSync(`${file}.lock.reclaim`)).toBe(true);
+    });
+
     it("does not break an old lock whose process is still alive", async () => {
       const file = setup("alive");
       fs.writeFileSync(`${file}.lock`, `${process.pid} 1`);
@@ -370,6 +409,42 @@ describe("shared-memory", () => {
         writeSharedPersonalMemory(owner, "memory/alive.md", "x", Date.now()),
       ).rejects.toBeInstanceOf(MemoryLockTimeoutError);
     });
+  });
+
+  it("reads a pending tombstone as a delete and only abandons it once its process is gone", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/p.md",
+    ) as string;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+    const write = (pid: number | undefined, state = "pending") =>
+      fs.writeFileSync(
+        `${file}.deleted`,
+        JSON.stringify({ deletedAt: 5, state, pid }),
+      );
+    write(process.pid);
+    await expect(
+      readMirroredMemory("alice@example.com", "memory/p.md"),
+    ).resolves.toEqual({ state: "deleted", deletedAt: 5 });
+    await expect(
+      readAbandonedMemoryDelete("alice@example.com", "memory/p.md"),
+    ).resolves.toBeNull();
+    write(dead);
+    await expect(
+      readAbandonedMemoryDelete("alice@example.com", "memory/p.md"),
+    ).resolves.toBe(5);
+    write(dead, "committed");
+    await expect(
+      readAbandonedMemoryDelete("alice@example.com", "memory/p.md"),
+    ).resolves.toBeNull();
+    fs.writeFileSync(`${file}.deleted`, "5");
+    await expect(
+      readAbandonedMemoryDelete("alice@example.com", "memory/p.md"),
+    ).resolves.toBeNull();
   });
 
   it("reads content and revision from one file handle", async () => {

@@ -1328,7 +1328,7 @@ describe("desktop Pi extension memory prompt", () => {
     const fresh = await bindDesktopSessionMemoryOwner();
     const freshPrompt = await startSession(fresh.file);
 
-    expect(oldPrompt()).not.toContain("SECRET");
+    expect(oldPrompt()).not.toContain("ALICE-SECRET");
     expect(freshPrompt()).toContain("BOB-SECRET");
     expect(freshPrompt()).not.toContain("ALICE-SECRET");
     old.release();
@@ -1576,7 +1576,7 @@ describe("desktop Pi extension memory prompt", () => {
       return realRm(target, options);
     }) as typeof nodeFs.rmSync);
     try {
-      expect(() => setDesktopMemoryAccount("b@example.test")).not.toThrow();
+      expect(() => setDesktopMemoryAccount(null)).not.toThrow();
     } finally {
       rm.mockRestore();
     }
@@ -1699,6 +1699,19 @@ describe("desktop Pi extension memory prompt", () => {
       log.mockRestore();
     }
     expect(terminate).toHaveBeenCalledTimes(1);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("moves a running terminal straight from one account to the next", async () => {
+    seedAccounts();
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+
+    setDesktopMemoryAccount("b@example.test");
+    expect(readdirSync(root)).toEqual([encodeURIComponent("b@example.test")]);
     session.release();
     setDesktopMemoryAccount(null);
   });
