@@ -63,7 +63,7 @@ const ROLES: Record<string, "editor" | "commenter" | "viewer"> = {
 };
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   __resetReviewInitForTests();
   __resetReviewableResourcesForTests();

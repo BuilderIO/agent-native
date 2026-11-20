@@ -1,6 +1,15 @@
 import { createRequire } from "node:module";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 // The Content view's seeded panels, run through the real first-party query
 // path against a local PGlite database, for an organization whose events
@@ -77,6 +86,7 @@ import { planPanelRender } from "@agent-native/toolkit/dashboard/panel-render-co
 import { interpolateDashboardPanelSql } from "../../../app/pages/adhoc/sql-dashboard/interpolate";
 import { getDashboardCatalogEntry } from "../dashboard-catalog";
 import { queryFirstPartyAnalytics } from "../first-party-analytics";
+import { resetPublicSchema } from "../testing/pglite-reset";
 import { CONTENT_METRICS_MIGRATION_SQL } from "./migration";
 
 const ALICE = { userEmail: "alice@example.test", orgId: "org_a" };
@@ -109,9 +119,17 @@ async function runPanel(id: string, timeRange = "28d") {
 describe("Content view dashboard", () => {
   let client: PGliteClient;
 
+  beforeAll(async () => {
+    client = await PGlite.create("memory://");
+  });
+
+  afterAll(async () => {
+    await client.close();
+  });
+
   beforeEach(async () => {
     bigQuery.query.mockReset();
-    client = await PGlite.create("memory://");
+    await resetPublicSchema(client);
     database.client = client;
     await client.exec(`
       ${CONTENT_METRICS_MIGRATION_SQL.join(";\n")};
@@ -154,7 +172,6 @@ describe("Content view dashboard", () => {
 
   afterEach(async () => {
     database.client = null;
-    await client?.close();
   });
 
   it("reads only the content tables through the first-party source", () => {

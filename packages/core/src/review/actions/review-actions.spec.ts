@@ -125,7 +125,7 @@ const { __resetStoreLedgerSnapshotForTests } =
 
 beforeEach(async () => {
   afterCommentRead.run = null;
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   __resetStoreLedgerSnapshotForTests();
   rawClient.execute.mockClear();
   __resetReviewInitForTests();
