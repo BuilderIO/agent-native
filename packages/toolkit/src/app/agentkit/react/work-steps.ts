@@ -494,6 +494,15 @@ export function agentWorkCallObject(
   if (query) return { kind: "query", text: query };
   const document = documentObject(call);
   if (document) return document;
+  const reference = call.tool ? undefined : call.activity.object;
+  const label = reference?.label.trim().replace(/\s+/g, " ");
+  if (label && reference?.kind === "document") {
+    const { id, uri } = reference;
+    return { kind: "document", text: label, id, ...(uri ? { uri } : {}) };
+  }
+  if (label && reference?.kind === "query") {
+    return { kind: "query", text: label };
+  }
   const url = firstString(input, URL_KEYS) ?? call.activity.object?.uri;
   const domain = url ? urlDomain(url) : undefined;
   if (url && domain) return { kind: "url", text: domain, uri: url };
@@ -569,8 +578,8 @@ export function agentWorkFailureReason(
   const source =
     tool?.error?.message.trim() ||
     outputReason(tool?.output) ||
-    (summary && !jsonText(summary) ? summary.trim() : undefined) ||
-    call.activity.detail?.trim();
+    outputReason(summary) ||
+    outputReason(call.activity.detail);
   if (!source) return undefined;
   const status = /\bHTTP\s+\d{3}\b[^\n]*/i.exec(source)?.[0];
   const line =
@@ -1000,9 +1009,19 @@ function namesPages(call: AgentWorkCall): boolean {
 function readKind(call: AgentWorkCall): string {
   const tokens = toolWords(call);
   if (!mcpToolParts(call.tool?.name ?? "")) {
-    return call.activity.kind === "tool" && READ_VERBS.has(tokens.at(0) ?? "")
-      ? "read"
-      : call.activity.kind;
+    const first = tokens.at(0) ?? "";
+    const kind =
+      call.activity.kind === "tool" && READ_VERBS.has(first)
+        ? "read"
+        : call.activity.kind;
+    const leads =
+      READ_VERBS.has(first) ||
+      SOURCE_ACTIVITY_KINDS.has(inferAgentActivityKind(first));
+    return SOURCE_ACTIVITY_KINDS.has(kind) &&
+      !leads &&
+      tokens.some((token) => WRITE_VERBS.has(token))
+      ? "write"
+      : kind;
   }
   const verb = tokens.at(0);
   if (verb === undefined) return call.activity.kind;

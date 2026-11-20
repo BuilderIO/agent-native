@@ -855,6 +855,40 @@ describe("agentWorkSources", () => {
     ]);
   });
 
+  it("lists an activity without a tool by the page or query it names", () => {
+    const activity = (
+      id: string,
+      kind: AgentActivity["kind"],
+      object: NonNullable<AgentActivity["object"]>,
+      status: AgentActivity["status"] = "completed",
+    ): AgentWorkCall => ({
+      id,
+      activity: { id, kind, label: `${kind} ${id}`, status, object },
+    });
+    const { sources, failures } = agentWorkSources([
+      activity("a", "read", {
+        id: "d1",
+        kind: "document",
+        label: "Launch plan",
+        uri: "https://docs.example/d1",
+      }),
+      activity("b", "search", { id: "q1", kind: "query", label: "pricing" }),
+      activity(
+        "c",
+        "read",
+        { id: "d2", kind: "document", label: "Roadmap" },
+        "failed",
+      ),
+    ]);
+    expect(sources.map(({ kind, text, uri }) => [kind, text, uri])).toEqual([
+      ["document", "Launch plan", "https://docs.example/d1"],
+      ["search", "pricing", undefined],
+    ]);
+    expect(failures.map(({ kind, text }) => [kind, text])).toEqual([
+      ["document", "Roadmap"],
+    ]);
+  });
+
   it("clears a failed activity without a tool when the same activity succeeds", () => {
     const activity = (
       id: string,
@@ -901,6 +935,8 @@ describe("agentWorkSources", () => {
       call("m", "list-content-webhook-create", { url: "https://a.dev/hook" }),
       call("n", "mcp__crm__get_contact_update", { query: "ann" }),
       call("o", "get-latest-post", { query: "news" }),
+      call("p", "file-mark-read", { path: "notes/a.md" }),
+      call("q", "notification-mark-read", { url: "https://a.dev/n/1" }, failed),
     ]);
     expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
       ["search", "launch"],
@@ -1513,6 +1549,14 @@ describe("agentWorkFailureReason", () => {
       "[Errno 13] Permission denied",
     );
     expect(reason(summary('{"ok":false}'))).toBe(undefined);
+    const detail = (text: string) => ({ activity: { detail: text } });
+    expect(reason(detail('{"error":"Quota exceeded."}'))).toBe(
+      "Quota exceeded",
+    );
+    expect(reason(detail('{"ok":false}'))).toBe(undefined);
+    expect(reason(detail("[Errno 28] No space left"))).toBe(
+      "[Errno 28] No space left",
+    );
   });
 
   it("prefers the HTTP status, then the first sentence of the first line", () => {
