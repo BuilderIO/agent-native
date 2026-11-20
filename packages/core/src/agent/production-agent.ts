@@ -437,7 +437,7 @@ import {
   schemaAcceptsToolValue,
   type ToolInputRepair,
 } from "./optional-placeholders.js";
-import { requirePrivateSafeErrorMessage } from "./private-safe-errors.js";
+import { PRIVATE_ACTION_ALREADY_COMPLETED_RESULT } from "./private-safe-errors.js";
 import {
   ProcessorChain,
   TripWire,
@@ -8403,9 +8403,9 @@ export async function runAgentLoop(opts: {
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message: requirePrivateSafeErrorMessage(
-            "tool_call_journal_unreadable",
-          ),
+          message:
+            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
+            "Retrying would risk repeating a step that already completed. Please send the request again.",
           errorCode: "tool_call_journal_unreadable",
           details: journalRead.error,
         }
@@ -10936,10 +10936,6 @@ export async function runAgentLoop(opts: {
       }
 
       if (!actionIsReadOnly && privateCompletedTools.has(toolCall.name)) {
-        rollbackRepeatedToolCall();
-        const result = requirePrivateSafeErrorMessage(
-          "private_action_already_completed",
-        );
         await send({
           type: "tool_start",
           id: toolCall.id,
@@ -10952,23 +10948,18 @@ export async function runAgentLoop(opts: {
           id: toolCall.id,
           tool: toolCall.name,
           input: liveToolInput as Record<string, unknown>,
-          result,
+          result: PRIVATE_ACTION_ALREADY_COMPLETED_RESULT,
           isError: true,
           errorCode: "private_action_already_completed",
           notExecuted: true,
         });
-        recordToolResult(result, true);
-        requestedActionStop ??= {
-          message: result,
-          errorCode: "private_action_already_completed",
-          blockedTool: toolCall.name,
-        };
+        recordToolResult(PRIVATE_ACTION_ALREADY_COMPLETED_RESULT, true);
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
           toolInput: wireToolInput,
-          content: result,
+          content: PRIVATE_ACTION_ALREADY_COMPLETED_RESULT,
           isError: true,
         };
       }

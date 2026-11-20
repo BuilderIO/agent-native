@@ -867,10 +867,6 @@ it("does not re-run a private write that already completed earlier in the turn",
           isError: true,
           errorCode: "private_action_already_completed",
         }),
-        expect.objectContaining({
-          type: "error",
-          errorCode: "private_action_already_completed",
-        }),
       ]),
     );
     expect(events).not.toContainEqual(
@@ -974,10 +970,6 @@ it("does not re-run a history-persisted write that completed in a private turn",
           type: "tool_done",
           tool: "write",
           isError: true,
-          errorCode: "private_action_already_completed",
-        }),
-        expect.objectContaining({
-          type: "error",
           errorCode: "private_action_already_completed",
         }),
       ]),

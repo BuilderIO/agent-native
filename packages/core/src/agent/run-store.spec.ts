@@ -868,17 +868,15 @@ describe("run store", () => {
           type: "error",
           omitFromPersistedHistory: true,
           error: body,
-          errorCode: "private_action_already_completed",
+          errorCode: "tool_call_journal_unreadable",
         }),
       ),
     );
     expect(JSON.stringify(safe)).not.toContain(body);
     expect(safe).toMatchObject({
       type: "error",
-      errorCode: "private_action_already_completed",
-      error: expect.stringContaining(
-        "Anything completed before this is saved.",
-      ),
+      errorCode: "tool_call_journal_unreadable",
+      error: expect.stringContaining("Please send the request again."),
     });
 
     const other = JSON.parse(
