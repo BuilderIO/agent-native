@@ -115,16 +115,16 @@ Count a round as one batch of bot or AI review findings posted after a push
 - Rounds 1-2: address every item.
 - Round 3 and later: fix only critical items: data loss or corruption, a
   security issue, a crash or broken core flow, or a regression in tested
-  behavior.
+  behavior. High and critical findings are still always fixed or disproven
+  (see Judging feedback), in any round; only medium and low bot findings may
+  be deferred.
 - Everything else gets a one-line reply in its thread, "Deferred as
   non-critical after round 2; tracked in <follow-up>". Resolve the thread and
-  append the item to one follow-up list (a single PR comment or issue). The PR
-  merges when green.
+  append the item to one follow-up list (a single PR comment or issue).
+  Deferred threads count as answered. Merge authorization and `ship`'s merge
+  gate (stable head, mergeability) apply unchanged: standalone, merge only if
+  the user asks.
 - Human reviewer comments are always addressed, in any round.
-
-This replaces the "fix real bugs ... even when this PR didn't introduce them"
-and "never leave a comment without a disposition" duties for round 3 on: the
-deferral reply is the disposition.
 
 ## Pushing to an existing PR
 

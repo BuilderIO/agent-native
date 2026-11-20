@@ -4269,7 +4269,7 @@ const PATTERNS = [
     key: "review-round-churn",
     label: "Had to cap bot review rounds to critical-only after round 2",
     fixedBy: ".agents/skills/babysit-pr (Review round cap, 2026-11-20)",
-    re: /\b(\d+ rounds? of (bot |ai )?review|too many (rounds of )?(bot |ai )?review|rounds? of review (is|are) way too much|only (worry about|fix) critical (things|items|issues))\b/i,
+    re: /\b(too many rounds? of (bot |ai )?review|(\d+ )?rounds? of (bot |ai )?review (is|are) (way )?too much|after a couple (of )?rounds,? (let'?s )?only (worry about|fix) critical)\b/i,
   },
   {
     key: "pr-file-overlap",
