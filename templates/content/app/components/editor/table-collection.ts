@@ -21,11 +21,14 @@ import { getTableHeaders, type TableAt } from "./table-commands";
 
 function cellText(cell: ProseMirrorNode) {
   return cell
-    .textBetween(0, cell.content.size, "\n", (leaf) =>
-      leaf.type.name === "hardBreak"
-        ? "\n"
-        : (leaf.type.spec.leafText?.(leaf) ?? ""),
-    )
+    .textBetween(0, cell.content.size, "\n", (leaf) => {
+      if (leaf.type.name === "hardBreak") return "\n";
+      const label: unknown = leaf.attrs.label;
+      return (
+        leaf.type.spec.leafText?.(leaf) ??
+        (typeof label === "string" ? label : "")
+      );
+    })
     .trim();
 }
 

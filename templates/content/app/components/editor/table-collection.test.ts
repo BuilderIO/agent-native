@@ -108,6 +108,24 @@ describe("tableCollectionSeed", () => {
     expect(seed.rows).toEqual([["First second Third", "First\nsecond\nThird"]]);
   });
 
+  it("keeps the text a mention or inline maths shows", () => {
+    const atom = (tagName: string, label: string) =>
+      schema.node("notionInlineAtom", { tagName, label });
+    const withAtoms = schema.node(
+      "tableCell",
+      null,
+      schema.node("paragraph", null, [
+        schema.text("Ask "),
+        atom("mention-user", "Ana"),
+        schema.text(" about "),
+        atom("math", "x^2"),
+      ]),
+    );
+    expect(tableCollectionSeed(table([[withAtoms, withAtoms]])).rows).toEqual([
+      ["Ask Ana about x^2", "Ask Ana about x^2"],
+    ]);
+  });
+
   it("puts a merged cell's text in its first row and column only", () => {
     const seed = tableCollectionSeed(
       table([
