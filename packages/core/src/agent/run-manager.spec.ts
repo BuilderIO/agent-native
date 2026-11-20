@@ -9256,7 +9256,81 @@ describe("run manager soft timeout", () => {
     }
   });
 
-  it("continues after a failed private UI result or a later unfinished tool", async () => {
+  it("does not auto-continue a private turn that ends after a completed side-effect tool with empty text", async () => {
+    const runId = "run-private-empty-final";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_start",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "tool_done",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          result: "private draft saved",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "text",
+          text: "",
+          omitFromPersistedHistory: true,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "truncated",
+      expect.anything(),
+    );
+    expect(run.events.some(({ event }) => event.type === "auto_continue")).toBe(
+      false,
+    );
+    expect(setRunError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a real framework error code on a private run instead of overwriting it", async () => {
+    const runId = "run-private-real-error-code";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_start",
+          tool: "read",
+          input: {},
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "error",
+          error: "private sentinel text",
+          errorCode: "private_history_unrecoverable",
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(setRunError).toHaveBeenCalledWith(
+      runId,
+      "private_history_unrecoverable",
+      "Private content omitted",
+    );
+  });
+
+  it("completes a failed private UI result or a later unfinished tool without a doomed continuation", async () => {
     for (const kind of ["failed-ui", "later-tool"] as const) {
       const runId = `run-private-unfinished-${kind}`;
       const run = startRun(
@@ -9289,11 +9363,10 @@ describe("run manager soft timeout", () => {
         { softTimeoutMs: 0 },
       );
       await run.finalized;
-      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
-        runId,
-        "truncated",
-        { terminalReason: "stream_ended" },
-      );
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+      expect(
+        run.events.some(({ event }) => event.type === "auto_continue"),
+      ).toBe(false);
     }
   });
 

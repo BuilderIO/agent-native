@@ -271,6 +271,8 @@ const messages = {
         "Os links são desativados na revisão para que o documento permaneça no lugar.",
       visualPromptCopied: "Prompt de ingestão visual copiado",
       sentAnswers: "Enviou respostas ao agente",
+      sendAnswersPrompt: "Enviar suas respostas ao agente?",
+      sendAnswersAction: "Enviar",
       recapLinkCopied: "Link de recapitulação copiado",
       planLinkCopied: "Link Plan copiado",
       localPathCopied: "Caminho local copiado",

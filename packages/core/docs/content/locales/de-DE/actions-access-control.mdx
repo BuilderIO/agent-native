@@ -208,6 +208,8 @@ Bei `approval_required` rendert die Chat-UI ein **Genehmigen / Ablehnen**-Bedien
 
 `approvedToolCalls` ist ein Feld der Chat-Anfrage (`AgentChatRequest.approvedToolCalls`). Schlüssel, die darin nicht vorhanden sind, bleiben pausiert. Die Genehmigung eines Aufrufs genehmigt nie einen anderen Aufruf. Da der Schlüssel inhaltsadressiert ist, autorisiert eine Genehmigung nur genau diesen Aufruf mit genau diesen Argumenten. Wenn das Modell später einen anderen Versand vorschlägt, wird das zu einem neuen Schlüssel und braucht seine eigene, frische Genehmigung.
 
+Der erneut ausgegebene Turn trägt außerdem die ID der ausstehenden Anfrage des Aufrufs in `approvedToolCallAskIds`. Der Server führt den Aufruf nur aus, solange diese Anfrage für denselben Benutzer und denselben Thread noch aussteht. Ein Schlüssel allein genehmigt also nichts, und nur die eigenen Seiten der App können eine Genehmigung über `agentNative.submitChat` weiterreichen.
+
 ### End-to-End {#flow}
 
 <Diagram id="doc-block-2nor1g" title="Die Genehmigungsunterbrechung" summary={"Ein gesperrter Aufruf pausiert den Turn, bevor run() ausgelöst wird. Die Genehmigung gibt den Turn mit dem Schlüssel des Aufrufs erneut aus. Erst dann tritt die Nebenwirkung ein."}>

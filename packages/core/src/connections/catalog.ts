@@ -73,6 +73,12 @@ export interface WorkspaceConnectionProvider {
     tokenUrl: string;
     refreshUrl?: string;
     scopes: readonly string[];
+    /**
+     * Scopes a connection must hold to count as connected. Defaults to
+     * `scopes`. Leave out a scope added to `scopes` later for one feature, or
+     * every connection made before it becomes `needs_reauth`.
+     */
+    requiredScopes?: readonly string[];
   };
 }
 
@@ -235,12 +241,19 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: GOOGLE_CREDENTIAL_KEYS,
     capabilities: ["search", "import", "meetings"],
     recommendedTemplateUses: ["calendar", "brain", "dispatch", "mail"],
-    oauth: googleOAuth([
-      ...GOOGLE_IDENTITY_SCOPES,
-      "https://www.googleapis.com/auth/calendar.readonly",
-      "https://www.googleapis.com/auth/calendar.events",
-      "https://www.googleapis.com/auth/calendar.calendarlist",
-    ]),
+    oauth: {
+      ...googleOAuth([
+        ...GOOGLE_IDENTITY_SCOPES,
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.calendarlist",
+      ]),
+      requiredScopes: [
+        ...GOOGLE_IDENTITY_SCOPES,
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+      ],
+    },
   }),
   defineWorkspaceConnectionProvider({
     id: "bigquery",
