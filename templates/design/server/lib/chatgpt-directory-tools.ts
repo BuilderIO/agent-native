@@ -7,8 +7,6 @@ import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "list-designs",
   "list-design-templates",
-  "list-design-systems",
-  "get-design-system",
   "get-design-snapshot",
   "create-design",
   "create-design-from-template",
@@ -224,16 +222,12 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       "Lists accessible design projects with bounded pagination and optional HTML previews.",
     "list-design-templates":
       "Lists reusable templates available to the current user, including built-in and publicly discoverable templates. Optional previews include template assets.",
-    "list-design-systems":
-      "Lists accessible design systems with their titles, IDs, and default status.",
-    "get-design-system":
-      "Reads a design system by ID and returns colors, typography, spacing, assets, linked Builder documentation, and agent context. Compact mode returns a bounded summary.",
     "get-design-snapshot":
-      "Reads a saved design and selected file, including file content, revision, linked design-system context, and locked-layer details.",
+      "Reads a saved design and selected file, including file content, revision, and locked-layer details.",
     "create-design":
       "Creates an empty design project. A newly created project has no screen until generated or copied content is saved.",
     "create-design-from-template":
-      "Creates an editable design by copying a reusable template's files, dimensions, defaults, and locked layers. The result includes linked design-system context when it is readable.",
+      "Creates an editable design by copying a reusable template's files, dimensions, defaults, and locked layers.",
     "generate-design":
       "Saves generated design files to a design project. The result contains the saved files and design path; matching existing filenames can be updated.",
     "present-design-variants":

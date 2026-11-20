@@ -206,6 +206,8 @@ On `approval_required`, the chat UI renders an **Approve / Deny** affordance on 
 
 `approvedToolCalls` is a field on the chat request (`AgentChatRequest.approvedToolCalls`). Keys that are not present in it stay paused. Approving one call never approves any other call. Because the key is content-addressed, an approval only authorizes that exact call with those exact arguments. If the model later proposes a different send, that becomes a new key and needs its own fresh approval.
 
+The re-issued turn also carries the call's pending ask id in `approvedToolCallAskIds`. The server runs the call only while that ask is still pending for the same user and thread, so a key on its own approves nothing, and only the app's own pages can relay an approval through `agentNative.submitChat`.
+
 ### End-to-end {#flow}
 
 <Diagram id="doc-block-2nor1g" title="The approval interrupt" summary={"A gated call pauses the turn before run() fires. Approval re-issues the turn carrying the call's key. Only then does the side effect happen."}>

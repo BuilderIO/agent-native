@@ -700,6 +700,46 @@ describe("run recovery surfaces", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("starts a new chat from the failure link and shows the error once", async () => {
+    const onDismiss = vi.fn();
+    const newChat = vi.fn();
+    window.addEventListener("agent-chat:new-chat", newChat, { once: true });
+    try {
+      await act(async () => {
+        root.render(
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "Error: Gateway unavailable.\n\n[Start new chat](agent-native:new-chat)",
+              details: "Gateway unavailable.",
+              errorCode: "builder_gateway_error",
+              runId: "run-failed",
+            }}
+            onRetry={vi.fn()}
+            onDismiss={onDismiss}
+          />,
+        );
+      });
+      const link = container.querySelector<HTMLAnchorElement>(
+        'a[href="agent-native:new-chat"]',
+      );
+      expect(link?.textContent).toBe("Start new chat");
+      expect(container.textContent).not.toContain("[Start new chat]");
+      const details = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Details",
+      );
+      await act(async () => details?.click());
+      expect(
+        container.textContent.match(/Gateway unavailable\./g),
+      ).toHaveLength(1);
+      await act(async () => link?.click());
+      expect(newChat).toHaveBeenCalledOnce();
+      expect(onDismiss).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("agent-chat:new-chat", newChat);
+    }
+  });
+
   it("keeps recovery actions compact in a narrow chat panel", async () => {
     await act(async () => {
       root.render(

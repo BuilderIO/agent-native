@@ -1,6 +1,7 @@
 import { docToNfm, nfmToDoc, type PMDoc, type PMNode } from "../nfm";
+import { expiringFileLabel } from "./expiring-links";
 import type { ImportReferenceSlot, MarkdownImportDraft } from "./markdown";
-import { isMarkdownFilePath } from "./paths";
+import { isMarkdownFilePath, splitReferenceSuffix } from "./paths";
 import type {
   ImportAssetResolution,
   ImportedPage,
@@ -43,6 +44,16 @@ export function finalizeMarkdownImport(
           kind: "file",
           path: reference.path,
           reference: slot.written,
+          use: slot.role === "asset" ? "image" : "link",
+        }) ?? { status: "missing" }
+      );
+    }
+    if (reference.kind === "remote") {
+      return (
+        resolvers.asset?.({
+          kind: "remote",
+          url: reference.url,
+          reference: slot.written,
         }) ?? { status: "missing" }
       );
     }
@@ -76,14 +87,26 @@ export function finalizeMarkdownImport(
   const assetUrl = (slot: ImportReferenceSlot): string | null => {
     const resolution = resolveAsset(slot);
     assets.push({ reference: slot.written, status: resolution.status });
-    if (resolution.status === "resolved") return resolution.url;
+    const remote = slot.reference.kind === "remote" ? slot.reference : null;
+    if (resolution.status === "resolved") {
+      if (remote) notes.add("expiring-link-rehosted", slotLabel(slot));
+      return resolution.url;
+    }
     if (resolution.status === "available") {
       if (mode === "apply") {
         throw new ImportContractError(
           `Asset ${slot.written} must be uploaded before the import is applied`,
         );
       }
+      if (remote) {
+        notes.add("expiring-link-rehosted", slotLabel(slot));
+        return remote.url;
+      }
       return slot.reference.kind === "relative" ? slot.written : "";
+    }
+    if (remote) {
+      notes.add("expiring-link-not-rehosted", slotLabel(slot));
+      return resolvers.unhostedUrl?.(remote.url) ?? remote.url;
     }
     return null;
   };
@@ -169,14 +192,17 @@ export function finalizeMarkdownImport(
 
 /** The `#section` a link names, which the page it now points at keeps. */
 function linkFragment(written: string): string {
-  const hash = written.indexOf("#");
-  return hash === -1 || hash === written.length - 1 ? "" : written.slice(hash);
+  const { suffix } = splitReferenceSuffix(written);
+  const hash = suffix.indexOf("#");
+  return hash === -1 || hash === suffix.length - 1 ? "" : suffix.slice(hash);
 }
 
 function slotLabel(slot: ImportReferenceSlot): string {
-  return slot.reference.kind === "relative"
-    ? slot.reference.path
-    : slot.written;
+  if (slot.reference.kind === "relative") return slot.reference.path;
+  if (slot.reference.kind === "remote") {
+    return expiringFileLabel(slot.reference.url);
+  }
+  return slot.written;
 }
 
 function visitNodes(nodes: PMNode[], visit: (node: PMNode) => void) {

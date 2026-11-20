@@ -1003,6 +1003,10 @@
     {
       "name": "write-completion-notification",
       "checksum": "2529a5955cdfbe42"
+    },
+    {
+      "name": "write-server-context",
+      "checksum": "6fc177c8e0a65cc3"
     }
   ],
   "provider_write_enqueue": [
@@ -1101,9 +1105,23 @@
       "checksum": null
     }
   ],
+  "runner_session_nonces": [
+    {
+      "name": "baseline",
+      "checksum": "c74da203e8c1aa11"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "8331ca3a62dda83d"
+    }
+  ],
   "sandbox_executions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "sandbox-executions-origin-caller",
       "checksum": null
     }
   ],

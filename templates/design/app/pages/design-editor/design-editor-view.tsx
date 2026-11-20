@@ -1,4 +1,3 @@
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import type { AgentShareDestination } from "@agent-native/toolkit/sharing";
@@ -258,7 +257,6 @@ export function renderDesignEditorView({
   } = editorGenerationAndAccess;
   const {
     postAuthIntent,
-    creativeContextEnabled,
     breakpointFramesHidden,
     setBreakpointFramesHidden,
     editorPreferences,
@@ -659,28 +657,6 @@ export function renderDesignEditorView({
                     </a>
                   </Button>
                 </div>
-              ),
-            },
-          ]
-        : []),
-      ...(creativeContextEnabled
-        ? [
-            {
-              value: "context",
-              label: t("creativeContext.share.tabLabel", {
-                defaultValue: "Context",
-              }),
-              content: (
-                <CreativeContextShareTab
-                  resource={{
-                    appId: "design",
-                    resourceType: "design",
-                    resourceId: id ?? "",
-                    title: design?.title ?? "Untitled design",
-                    updatedAt: design?.updatedAt ?? undefined,
-                    preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
-                  }}
-                />
               ),
             },
           ]

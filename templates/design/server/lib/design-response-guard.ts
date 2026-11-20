@@ -21,7 +21,6 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   "apply-visual-edit",
   "create-design",
   "create-design-from-template",
-  "create-design-system",
   "create-component",
   "create-file",
   "delete-design",
@@ -268,10 +267,6 @@ function hasSuccessfulMutation(
         isRecord(parsed.appliedTweaks) &&
         Object.keys(parsed.appliedTweaks).length > 0
       );
-    }
-
-    if (name === "create-design-system") {
-      return typeof parsed.id === "string";
     }
 
     if (name === "update-design") {

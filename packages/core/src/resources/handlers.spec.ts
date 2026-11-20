@@ -13,6 +13,7 @@ const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceListOrganization = vi.fn();
 const mockResourceMove = vi.fn();
+const mockResourceMoveIfCurrent = vi.fn();
 const mockResourceStoredPathsTaken = vi.fn();
 const mockIsSameLocalWorkspaceFile = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
@@ -66,6 +67,8 @@ vi.mock("./store.js", () => ({
   resourceListOrganization: (...args: any[]) =>
     mockResourceListOrganization(...args),
   resourceMove: (...args: any[]) => mockResourceMove(...args),
+  resourceMoveIfCurrent: (...args: unknown[]) =>
+    mockResourceMoveIfCurrent(...args),
   resourceStoredPathsTaken: (...args: unknown[]) =>
     mockResourceStoredPathsTaken(...args),
   resourceEffectiveContext: (...args: any[]) =>
@@ -89,6 +92,11 @@ const mockGetOrgContext = vi.fn().mockResolvedValue({
   orgName: null,
   role: null,
 });
+
+const orglessAdminRef = vi.hoisted(() => ({ value: true }));
+vi.mock("../org/orgless-access.js", () => ({
+  canManageDeploymentWithoutOrg: () => orglessAdminRef.value,
+}));
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
@@ -198,6 +206,7 @@ describe("resource handlers", () => {
     mockResourcePutIfCurrent.mockReset().mockResolvedValue(null);
     mockResourcePutIfSnapshot.mockReset().mockResolvedValue(null);
     mockResourceDeleteIfCurrent.mockResolvedValue(true);
+    mockResourceMoveIfCurrent.mockReset();
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
     mockIsLegacyOrganizationWorkspaceFile.mockReturnValue(false);
@@ -481,6 +490,36 @@ describe("resource handlers", () => {
         "nosniff",
       );
       expect(result).toBeInstanceOf(Response);
+    });
+
+    it("serves a raw HTML resource as a sandboxed document", async () => {
+      const { setResponseHeader } = await import("h3");
+      mockResourceGet.mockResolvedValue({
+        id: "r-html",
+        path: "page.html",
+        owner: "test@test.com",
+        content: "<script>window.ran = 1</script>",
+        mimeType: "text/html",
+        size: 36,
+        createdAt: 1000,
+        updatedAt: 2000,
+      });
+      const event = {
+        _params: { id: "r-html" },
+        _query: { raw: "" },
+        context: {},
+      };
+
+      await handleGetResource(event);
+
+      const csp = vi
+        .mocked(setResponseHeader)
+        .mock.calls.find(
+          ([target, name]) =>
+            target === event && name === "Content-Security-Policy",
+        )?.[2];
+      expect(String(csp).split(";")[0]).toBe("sandbox");
+      expect(String(csp)).toContain("default-src 'none'");
     });
 
     it("does not expose legacy webhook tokens to read-only members", async () => {
@@ -1373,6 +1412,22 @@ Legacy webhook.`,
         "",
         undefined,
       );
+    });
+
+    it("rejects shared resource creation without an organization unless the caller manages the deployment", async () => {
+      orglessAdminRef.value = false;
+      try {
+        const event = {
+          _body: { path: "AGENTS.md", content: "x", shared: true },
+        };
+
+        await expect(handleCreateResource(event)).rejects.toMatchObject({
+          statusCode: 403,
+        });
+        expect(mockResourcePut).not.toHaveBeenCalled();
+      } finally {
+        orglessAdminRef.value = true;
+      }
     });
 
     it("rejects unauthenticated shared resource creation", async () => {
@@ -2616,6 +2671,41 @@ Legacy webhook.`,
   });
 
   describe("handleDeleteResource", () => {
+    it("moves a removed skill into Trash and restores it by id", async () => {
+      const skill = {
+        id: "skill-1",
+        path: "skills/review/SKILL.md",
+        owner: "test@test.com",
+        content: "Review the current task",
+      };
+      const trashed = {
+        ...skill,
+        path: `trash/skills/${skill.id}/${skill.path}`,
+      };
+      mockResourceGet.mockResolvedValue(skill);
+      mockResourceMoveIfCurrent.mockResolvedValue(trashed);
+
+      const event = { _params: { id: skill.id }, context: {} };
+      await expect(
+        handleDeleteResource({ ...event, _query: { trashSkill: "true" } }),
+      ).resolves.toEqual({ ok: true });
+      expect(mockResourceMoveIfCurrent).toHaveBeenLastCalledWith(
+        skill,
+        trashed.path,
+      );
+      expect(mockResourceDeleteIfCurrent).not.toHaveBeenCalled();
+
+      mockResourceGet.mockResolvedValue(trashed);
+      mockResourceMoveIfCurrent.mockResolvedValue(skill);
+      await expect(
+        handleUpdateResource({ ...event, _body: { restoreSkill: true } }),
+      ).resolves.toEqual(withRevision(skill));
+      expect(mockResourceMoveIfCurrent).toHaveBeenLastCalledWith(
+        trashed,
+        skill.path,
+      );
+    });
+
     it("deletes resource and returns ok", async () => {
       mockResourceGet.mockResolvedValue({
         id: "r1",
@@ -3269,6 +3359,76 @@ Legacy webhook.`,
   });
 
   describe("handleGetResourceTree", () => {
+    it("marks inherited defaults in the tree and the opened resource", async () => {
+      const inherited = {
+        id: "default-skill",
+        owner: "__shared__",
+        path: "skills/learn-shared/SKILL.md",
+        mimeType: "text/markdown",
+        metadata: null,
+      };
+      const legacy = {
+        ...inherited,
+        id: "legacy-skill",
+        path: "skills/legacy/SKILL.md",
+        metadata: JSON.stringify({
+          source: "workspace-files",
+          scope: "org",
+          scopeId: "org-1",
+        }),
+      };
+      const override = {
+        ...inherited,
+        id: "org-skill",
+        owner: "__organization__:org-1",
+        path: "skills/org/SKILL.md",
+      };
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "Test org",
+        role: "admin",
+      });
+      mockIsLegacyOrganizationWorkspaceFile.mockImplementation(
+        (resource) => resource.id === legacy.id,
+      );
+      mockResourceListOrganization.mockResolvedValue([
+        inherited,
+        legacy,
+        override,
+      ]);
+      mockResourceGet.mockImplementation(async (id) => {
+        const resource = [inherited, legacy, override].find(
+          (entry) => entry.id === id,
+        );
+        return resource ? { ...resource, content: "Skill contents" } : null;
+      });
+
+      const { tree } = await handleGetResourceTree({
+        _query: { scope: "shared" },
+      });
+
+      expect(
+        tree[0]?.children?.map((folder) => folder.children?.[0]?.resource),
+      ).toEqual([
+        { ...inherited, inheritedFromAppDefault: true },
+        legacy,
+        override,
+      ]);
+      await expect(
+        handleGetResource({ _params: { id: inherited.id }, context: {} }),
+      ).resolves.toMatchObject({ inheritedFromAppDefault: true });
+    });
+
+    it("reads a tree without writing defaults when requested", async () => {
+      mockResourceList.mockResolvedValue([]);
+      await handleGetResourceTree({
+        _query: { scope: "personal", seedDefaults: "false" },
+      });
+      expect(mockResourceList).toHaveBeenCalledWith("test@test.com");
+      expect(mockEnsurePersonalDefaults).not.toHaveBeenCalled();
+    });
+
     it("builds a nested tree from flat resources", async () => {
       mockResourceListAccessible.mockResolvedValue([
         { id: "1", path: "README.md", owner: "test@test.com" },

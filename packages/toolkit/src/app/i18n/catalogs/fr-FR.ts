@@ -1454,6 +1454,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.errorPrefix": "Erreur : {{message}}",
   "errorMessages.gatewayInternalError":
     "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
+  "errorMessages.modelRefusal":
+    "Je ne peux pas vous aider avec cette demande. Je peux répondre à une autre question.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
   "errorMessages.creditsLimitReached":

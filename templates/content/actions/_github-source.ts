@@ -1252,6 +1252,8 @@ function waitsForStorage(run: SyncRun, file: PlannedFile) {
   );
 }
 
+type StoredAssetRequest = Exclude<ImportAssetRequest, { kind: "remote" }>;
+
 /**
  * Copies one image into Content's private storage. `"no-storage"` means
  * storage isn't set up or is down, and `"failed"` that this upload failed;
@@ -1261,7 +1263,7 @@ function waitsForStorage(run: SyncRun, file: PlannedFile) {
  */
 async function uploadAsset(
   run: SyncRun,
-  request: ImportAssetRequest,
+  request: StoredAssetRequest,
   beforeUpload: () => Promise<void>,
 ): Promise<{ sha: string; url: string } | "no-storage" | "failed" | null> {
   if (request.kind === "data-url") {
@@ -1349,11 +1351,12 @@ async function buildPage(
     text,
     tablePadding: newTablePaddingBudget(),
   });
-  const requests = new Map<string, ImportAssetRequest>();
+  const requests = new Map<string, StoredAssetRequest>();
   finalizeMarkdownImport(
     draft,
     {
       asset: (request): ImportAssetResolution => {
+        if (request.kind === "remote") return { status: "missing" };
         requests.set(
           request.kind === "file"
             ? `file:${request.path}`
@@ -1393,6 +1396,7 @@ async function buildPage(
     draft,
     {
       asset: (request) => {
+        if (request.kind === "remote") return { status: "missing" };
         const url = urls.get(
           request.kind === "file"
             ? `file:${request.path}`
