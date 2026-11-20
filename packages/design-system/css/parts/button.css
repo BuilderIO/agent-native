@@ -1,7 +1,7 @@
 /*
  * Part: button (and icon-button, which shares every rule here)
  *
- *   <button class="button | icon-button"
+ *   <button | a href class="button | icon-button"
  *           data-size="1|2|3|4" data-variant="solid|soft|surface|outline|ghost"
  *           [data-color="accent|gray|danger|warning|success|info"]
  *           [data-high-contrast] [data-radius] [data-loading] [data-disabled]>
@@ -36,6 +36,7 @@
     font-size: var(--control-font-size);
     line-height: var(--control-line-height);
     font-weight: var(--font-weight-medium);
+    text-decoration: none;
     white-space: nowrap;
     vertical-align: top;
     -webkit-user-select: none;

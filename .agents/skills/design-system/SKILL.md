@@ -64,6 +64,13 @@ After editing anything under `src/`, run `pnpm --filter @agent-native/design-sys
   `--radius-card` and friends for their own values.
 - Base UI's Button defaults `type="button"`; toolkit passes `type` through so
   an untyped Button still submits its form. Keep that for every button-like part.
+- Choose the element by what it does: a link goes somewhere, a button does
+  something. A link that looks like a button is `ButtonLink` or
+  `IconButtonLink`, an `<a href>` with Button's look (a router link through
+  `render`). Never `<Button render={<a />} nativeButton={false}>`: Base UI
+  gives it button semantics, so screen readers announce a button and it
+  leaves their links list. A link has no disabled or loading state; render
+  text or a button instead.
 
 ## Building a component
 

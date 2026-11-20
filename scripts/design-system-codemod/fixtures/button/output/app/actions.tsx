@@ -1,7 +1,12 @@
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { Link } from "react-router";
 
-import { Button, IconButton } from "@/components/ui/button";
+import {
+  Button,
+  IconButtonLink,
+  ButtonLink,
+  IconButton,
+} from "@/components/ui/button";
 
 export function Actions({ onSave }: { onSave: () => void }) {
   return (
@@ -32,15 +37,30 @@ export function Actions({ onSave }: { onSave: () => void }) {
       <IconButton>
         <IconX />
       </IconButton>
-      <Button
+      <ButtonLink
         variant="surface"
         color="gray"
         render={<Link to="/designs" className="gap-2" />}
-        nativeButton={false}
       >
         Open designs
-      </Button>
+      </ButtonLink>
       <Button render={<button type="button" />}>Native</Button>
+      <ButtonLink
+        variant="ghost"
+        color="gray"
+        href="https://example.com"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Docs
+      </ButtonLink>
+      <IconButtonLink
+        variant="ghost"
+        color="gray"
+        render={<Link to="/help" aria-label="Help" />}
+      >
+        <IconX />
+      </IconButtonLink>
       <form>
         <Button type="submit">Submit</Button>
         <Button type="button">Not a submit</Button>

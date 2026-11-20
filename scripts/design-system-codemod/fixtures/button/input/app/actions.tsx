@@ -38,6 +38,16 @@ export function Actions({ onSave }: { onSave: () => void }) {
       <Button asChild>
         <button type="button">Native</button>
       </Button>
+      <Button asChild variant="ghost">
+        <a href="https://example.com" target="_blank" rel="noreferrer">
+          Docs
+        </a>
+      </Button>
+      <Button asChild size="icon-sm" variant="ghost">
+        <Link to="/help" aria-label="Help">
+          <IconX />
+        </Link>
+      </Button>
       <form>
         <Button>Submit</Button>
         <Button type="button">Not a submit</Button>

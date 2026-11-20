@@ -8,6 +8,7 @@ import type {
   avatarProps,
   badgeProps,
   blockquoteProps,
+  buttonLinkProps,
   buttonProps,
   calloutProps,
   cardProps,
@@ -204,6 +205,32 @@ export interface BlockquoteOwnProps {
    * @default false
    */
   highContrast?: boolean;
+}
+
+export interface ButtonLinkOwnProps {
+  /**
+   * Control height: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
+   * @default "3"
+   */
+  size?: "1" | "2" | "3" | "4";
+  /**
+   * How the component applies its color.
+   * @default "solid"
+   */
+  variant?: "solid" | "soft" | "surface" | "outline" | "ghost";
+  /**
+   * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
+   */
+  color?: "accent" | "gray" | "danger" | "warning" | "success" | "info";
+  /**
+   * Uses the scale's darkest steps, for text and fills that need more contrast.
+   * @default false
+   */
+  highContrast?: boolean;
+  /**
+   * Overrides the theme's corner radius for this component.
+   */
+  radius?: "none" | "small" | "medium" | "large" | "full";
 }
 
 export interface ButtonOwnProps {
@@ -1333,6 +1360,7 @@ export type PropTypesMatchDefinitions = [
   Expect<Equal<AvatarOwnProps, PropsOf<typeof avatarProps>>>,
   Expect<Equal<BadgeOwnProps, PropsOf<typeof badgeProps>>>,
   Expect<Equal<BlockquoteOwnProps, PropsOf<typeof blockquoteProps>>>,
+  Expect<Equal<ButtonLinkOwnProps, PropsOf<typeof buttonLinkProps>>>,
   Expect<Equal<ButtonOwnProps, PropsOf<typeof buttonProps>>>,
   Expect<Equal<CalloutOwnProps, PropsOf<typeof calloutProps>>>,
   Expect<Equal<CardOwnProps, PropsOf<typeof cardProps>>>,

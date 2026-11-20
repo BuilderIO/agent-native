@@ -104,6 +104,16 @@ const BUTTON_SIZES: Readonly<Record<string, { size: string; icon: boolean }>> =
 
 const DEFAULT_CONTROL_SIZE = "3";
 
+const LINK_TAGS = new Set(["a", "Link", "NavLink"]);
+
+function isLinkTag(tag: JsxTag, source: ts.SourceFile): boolean {
+  return (
+    LINK_TAGS.has(tag.tagName.getText(source)) ||
+    findAttr(tag, "href") !== null ||
+    findAttr(tag, "to") !== null
+  );
+}
+
 function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
   if (hasSpread(tag)) {
     return skip("spread props may carry variant, size or asChild");
@@ -156,10 +166,23 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
       return skip("asChild child isn't a single element");
     }
     child = only;
-    const childTag = ts.isJsxElement(only) ? only.openingElement : only;
-    if (containsJsx(childTag.attributes)) {
+    const onlyTag = ts.isJsxElement(only) ? only.openingElement : only;
+    if (containsJsx(onlyTag.attributes)) {
       return skip("asChild child's props hold JSX");
     }
+  }
+
+  const childTag =
+    child === null
+      ? null
+      : ts.isJsxElement(child)
+        ? child.openingElement
+        : child;
+  const isLink = childTag !== null && isLinkTag(childTag, context.source);
+  if (isLink && findAttr(tag, "disabled")) {
+    reviews.push(
+      "a link has no disabled state; render text or a Button instead",
+    );
   }
 
   const add: string[] = [
@@ -168,17 +191,21 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
       ? []
       : [`size="${sizeProps.size}"`]),
   ];
+  const base = sizeProps.icon ? "IconButton" : "Button";
+  const partName = isLink ? `${base}Link` : base;
   let name = context.local;
-  if (sizeProps.icon) {
-    if (context.nameInUse("IconButton")) {
-      return skip("IconButton is already a name in this file");
+  if (sizeProps.icon || isLink) {
+    if (context.nameInUse(partName)) {
+      return skip(`${partName} is already a name in this file`);
     }
-    name = "IconButton";
-    if (
-      !findAttr(tag, "aria-label") &&
-      !findAttr(tag, "title") &&
-      !findAttr(tag, "aria-labelledby")
-    ) {
+    name = partName;
+  }
+  if (sizeProps.icon) {
+    const named = (candidate: JsxTag) =>
+      ["aria-label", "title", "aria-labelledby"].some(
+        (attribute) => findAttr(candidate, attribute) !== null,
+      );
+    if (!named(tag) && !(isLink && named(childTag))) {
       reviews.push("IconButton has no aria-label or title; it needs a name");
     }
   }
@@ -191,8 +218,8 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
   }
 
   const uses: ImportName[] = [
-    sizeProps.icon
-      ? { imported: "IconButton", local: "IconButton" }
+    sizeProps.icon || isLink
+      ? { imported: partName, local: partName }
       : { imported: "Button", local: context.local },
   ];
   return {
@@ -200,16 +227,21 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
     uses,
     reviews,
     build(edits) {
-      if (child) {
-        const childTag = ts.isJsxElement(child) ? child.openingElement : child;
+      if (child && childTag) {
         const tagText = childTag.tagName.getText(context.source);
         const attributes = edits
           .slice(childTag.attributes.pos, childTag.attributes.end)
           .trim();
-        add.push(
-          `render={<${tagText}${attributes ? ` ${attributes}` : ""} />}`,
-        );
-        if (tagText !== "button") add.push("nativeButton={false}");
+        if (isLink && tagText === "a") {
+          if (attributes) add.push(attributes);
+        } else {
+          add.push(
+            `render={<${tagText}${attributes ? ` ${attributes}` : ""} />}`,
+          );
+          if (!isLink && tagText !== "button") {
+            add.push("nativeButton={false}");
+          }
+        }
         if (ts.isJsxElement(child)) {
           edits.add(
             child.openingElement.getStart(),

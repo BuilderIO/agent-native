@@ -22,3 +22,15 @@ export const buttonProps = {
 } as const;
 
 export const iconButtonProps = buttonProps;
+
+/**
+ * ButtonLink and IconButtonLink: Button's look on a link, which has no
+ * loading state.
+ */
+export const buttonLinkProps = {
+  size: buttonProps.size,
+  variant: buttonProps.variant,
+  color: buttonProps.color,
+  highContrast: buttonProps.highContrast,
+  radius: buttonProps.radius,
+} as const;
