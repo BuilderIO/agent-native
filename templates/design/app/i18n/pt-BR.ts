@@ -1037,6 +1037,13 @@ export default {
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
     },
+    columnHead: {
+      comments: "Comentários",
+      unreadComments: "Comentários não lidos",
+      resizeLeftPanel: "Redimensionar painel esquerdo",
+      resizeInspector: "Redimensionar inspetor",
+      whatsNew: "Novidades",
+    },
     breakpointBar: {
       base: "Base",
       editBaseWidth: "Editar largura base",
@@ -1289,6 +1296,7 @@ export default {
     templateSaved: "Modelo salvo na biblioteca",
     templateSaveFailed: "Não foi possível salvar este modelo",
     appMenu: {
+      backToDashboard: "Voltar ao painel",
       file: "Arquivo",
       preferences: "Preferências",
       newDesign: "Novo design",

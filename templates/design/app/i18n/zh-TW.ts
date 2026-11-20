@@ -1293,6 +1293,13 @@ export default {
       collapse: "收合側邊欄",
       expand: "展開側邊欄",
     },
+    columnHead: {
+      comments: "留言",
+      unreadComments: "未讀留言",
+      resizeLeftPanel: "調整左側面板大小",
+      resizeInspector: "調整檢查器大小",
+      whatsNew: "新功能",
+    },
     tokens: {
       newToken: "新增權杖",
       cssVar: "CSS 變數",
@@ -1449,6 +1456,7 @@ export default {
     notFound: "未找到設計",
     backToDesigns: "返回設計",
     appMenu: {
+      backToDashboard: "返回儀表板",
       file: "檔案",
       preferences: "偏好設定",
       newDesign: "新增設計",

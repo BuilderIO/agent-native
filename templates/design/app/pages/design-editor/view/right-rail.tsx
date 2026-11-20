@@ -1,13 +1,19 @@
 import type { ReactElement } from "react";
 
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
+import { SidebarResizeHandle } from "@/components/design/editor/SidebarResizeHandle";
 import { EditPanel } from "@/components/design/EditPanel";
 
 import type { EditorContentAndComponents } from "../domains/use-editor-content-and-components";
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
+import {
+  DEFAULT_INSPECTOR_WIDTH,
+  INSPECTOR_MAX_WIDTH,
+  INSPECTOR_MIN_WIDTH,
+  snapInspectorDragWidth,
+} from "../inspector-width";
 import { rightInspectorPanelClassName } from "../minimal-inspector";
-import { TOP_BAR_HEIGHT_PX } from "../top-bar";
 
 export function renderRightRail({
   editorCore,
@@ -15,11 +21,11 @@ export function renderRightRail({
   editorContentAndComponents,
   projectTitleControl,
   minimalUiToggle,
-  localPreviewRow,
   rightSidebarActions,
-  topBarVisible,
   interactFloatingBar,
   rightSidebarVisible,
+  floatingHeadAllowed,
+  commentsPanel,
   editPanelProps,
 }: {
   editorCore: EditorCore;
@@ -27,11 +33,14 @@ export function renderRightRail({
   editorContentAndComponents: EditorContentAndComponents;
   projectTitleControl: ReactElement;
   minimalUiToggle: ReactElement | null;
-  localPreviewRow: ReactElement | null;
+  /** The right column head; it also floats as an island where the column is absent. */
   rightSidebarActions: ReactElement;
-  topBarVisible: boolean;
   interactFloatingBar: ReactElement | null;
   rightSidebarVisible: boolean;
+  /** Whether the head may float while the column is absent (not during first generation). */
+  floatingHeadAllowed: boolean;
+  /** Shown in place of the inspector while Comments is open. */
+  commentsPanel: ReactElement | null;
   editPanelProps: Omit<
     import("react").ComponentProps<typeof EditPanel>,
     "width"
@@ -42,9 +51,20 @@ export function renderRightRail({
     rightSidebarContentRef,
     minimalUi,
     rightSidebarWidth,
+    setRightSidebarWidth,
     startSidebarResize,
+    commentsPanelOpen,
   } = editorHistory;
   const { uiHidden } = editorContentAndComponents;
+  const showComments = commentsPanelOpen && commentsPanel !== null;
+  // Interact has no inspector, but its head (Share, presence) must stay
+  // reachable, so it floats top right like minimal UI's island.
+  const floatingHeadVisible =
+    floatingHeadAllowed &&
+    !minimalUi &&
+    !rightSidebarVisible &&
+    !hostOwnsChrome &&
+    !uiHidden;
 
   return (
     <>
@@ -53,35 +73,35 @@ export function renderRightRail({
           ref={rightSidebarContentRef}
           data-design-chrome-region="right-panel"
           className={rightInspectorPanelClassName(minimalUi)}
-          style={
-            topBarVisible && !minimalUi
-              ? {
-                  width: rightSidebarWidth,
-                  top: TOP_BAR_HEIGHT_PX,
-                  bottom: 0,
-                  height: "auto",
-                }
-              : { width: rightSidebarWidth }
-          }
+          style={{ width: rightSidebarWidth }}
         >
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t("editPanel.properties")}
-            className="absolute left-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
-            onPointerDown={(event) => startSidebarResize("right", event)}
-          />
-          {!topBarVisible ? (
-            rightSidebarActions
-          ) : localPreviewRow ? (
+          {minimalUi ? null : (
             <div
-              data-design-chrome-region="right-toolbar"
-              className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-[var(--design-baseline-unit)] py-[var(--design-baseline-half)]"
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 start-0 z-[1] w-px bg-[var(--design-editor-panel-divider-color)]"
+            />
+          )}
+          <SidebarResizeHandle
+            edge="start"
+            label={t("designEditor.columnHead.resizeInspector")}
+            width={rightSidebarWidth}
+            minWidth={INSPECTOR_MIN_WIDTH}
+            maxWidth={INSPECTOR_MAX_WIDTH}
+            onPointerDown={(event) => startSidebarResize("right", event)}
+            onWidthChange={(width) =>
+              setRightSidebarWidth(snapInspectorDragWidth(width))
+            }
+            onReset={() => setRightSidebarWidth(DEFAULT_INSPECTOR_WIDTH)}
+          />
+          {rightSidebarActions}
+          {showComments ? (
+            <div
+              data-design-comments-panel
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              {localPreviewRow}
+              {commentsPanel}
             </div>
-          ) : null}
-          {mode === "edit" ? (
+          ) : mode === "edit" ? (
             <div className="min-h-0 flex-1">
               <EditPanel {...editPanelProps} width={rightSidebarWidth} />
             </div>
@@ -97,6 +117,15 @@ export function renderRightRail({
           className="pointer-events-none absolute inset-x-0 top-0 z-[90] flex justify-center px-3 pt-3"
         >
           {interactFloatingBar}
+        </div>
+      ) : null}
+
+      {floatingHeadVisible ? (
+        <div
+          data-design-floating-right-head
+          className="pointer-events-auto absolute right-3 top-3 z-[90] min-w-0 max-w-[calc(100%-1.5rem)] overflow-hidden rounded-lg border border-border bg-[var(--design-editor-panel-bg)] shadow-xl md:max-w-[680px]"
+        >
+          {rightSidebarActions}
         </div>
       ) : null}
 

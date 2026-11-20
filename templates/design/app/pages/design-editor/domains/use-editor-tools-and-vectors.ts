@@ -196,6 +196,7 @@ export function useEditorToolsAndVectors({
   const {
     activeLeftPanel,
     setActiveLeftPanel,
+    commentsPanelOpen,
     selectedLayerIdsState,
     setSelectedLayerIdsState,
     codeLayerOwnerByNodeIdRef,
@@ -1660,6 +1661,7 @@ export function useEditorToolsAndVectors({
         activeBreakpointWidthState,
         activeFile,
         activeLeftPanel,
+        commentsPanelOpen,
         activeTool,
         design,
         designDataJson,
@@ -1700,6 +1702,7 @@ export function useEditorToolsAndVectors({
       mode,
       activeTool,
       activeLeftPanel,
+      commentsPanelOpen,
       overviewSelectedScreenIds,
       viewMode,
       zoom,

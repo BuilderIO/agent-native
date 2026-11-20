@@ -44,7 +44,7 @@ const designLeftPanelSchema = z.enum([
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, templates, editor, present, settings. Use --templateId with templates, --designId with editor/present views. Use view=list with --search to land on Design home filtered by that text (for example to show the designs matching a name), from any screen including an open editor. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens|threads to focus the left rail (file is the panel labeled Layers, with screens and the layer tree; threads is the review comment threads panel). The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
+    "Navigate the UI to a specific view or path. Views: list, templates, editor, present, settings. Use --templateId with templates, --designId with editor/present views. Use view=list with --search to land on Design home filtered by that text (for example to show the designs matching a name), from any screen including an open editor. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use leftPanel=file|agent|assets|tools|tokens to focus the left panel (file is the panel labeled Layers, with screens and the layer tree); leftPanel=threads opens the Comments panel in the right column in place of the inspector. The inspector has no tabs, so inspectorTab is accepted and ignored; the legacy value extensions still opens Tools. Use tool to activate a design editor tool. In Interact mode, use interactDevice to pick the preview device and interactTheme=light|dark|system to pick the preview color scheme.",
   schema: z
     .object({
       view: z
@@ -94,7 +94,7 @@ export default defineAction({
         .preprocess(retiredToolToMove, designEditorToolSchema)
         .optional()
         .describe(
-          "Optional design editor tool to activate. comment arms the comment pin tool and opens the Threads panel. To open the Agent panel use leftPanel=agent.",
+          "Optional design editor tool to activate. comment arms the comment pin tool and opens the Comments panel. To open the Agent panel use leftPanel=agent.",
         ),
       interactDevice: z
         .string()

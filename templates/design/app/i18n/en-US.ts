@@ -962,6 +962,13 @@ export default {
       collapse: "Collapse sidebar",
       expand: "Expand sidebar",
     },
+    columnHead: {
+      comments: "Comments",
+      unreadComments: "Unread comments",
+      resizeLeftPanel: "Resize left panel",
+      resizeInspector: "Resize inspector",
+      whatsNew: "What’s new",
+    },
     breakpointBar: {
       base: "Base",
       editBaseWidth: "Edit base width",
@@ -1211,6 +1218,7 @@ export default {
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
     appMenu: {
+      backToDashboard: "Back to dashboard",
       file: "File",
       preferences: "Preferences",
       newDesign: "New design",

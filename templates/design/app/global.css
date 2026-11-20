@@ -169,7 +169,7 @@
   --design-row-height: 32px;
   --design-section-height: 40px;
   --design-action-slot-width: calc(var(--design-baseline-unit) * 4);
-  --design-chrome-rail-width: calc(var(--design-baseline-unit) * 7);
+  --design-column-head-height: calc(var(--design-baseline-unit) * 6);
   /* Editor chrome brand. Scoped to Design's own chrome: shadcn `--primary`
      stays neutral so every other surface keeps its color. */
   --design-brand: #1a70eb;
@@ -496,14 +496,6 @@
 
 .design-sidebar-comments [data-slot="tabs-trigger"] {
   min-height: var(--design-control-height);
-}
-
-/* Keep workspace-rail typography explicit. Tailwind cannot infer whether an
-   untyped `text-[var(...)]` token is a font size or a color, which previously
-   left these labels at the inherited 16px size and forced them to truncate. */
-.design-workspace-rail-item {
-  font-size: var(--design-sidebar-font-label);
-  line-height: var(--design-sidebar-line-label);
 }
 
 .design-inspector-grid {

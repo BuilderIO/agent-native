@@ -1,5 +1,4 @@
 import { inspectorFitsViewport } from "./editor-chrome";
-import type { EditorMode } from "./types";
 
 export function hasMinimalInspectorSelection({
   selectedElement,
@@ -18,11 +17,9 @@ export function hasMinimalInspectorSelection({
 }
 
 /**
- * Whether the right inspector is on screen. It is the Design panel: Interact
- * and comment mode have none, and neither does someone who cannot edit, because
- * the Code and Comments tabs that used to give them one are gone. Where the
- * top bar is absent the rail also carries the share controls, so it keeps its
- * place in every mode.
+ * Whether the right column is on screen. Its head carries Comments and Share,
+ * so it keeps its place in every mode and for every role; only Interact,
+ * which floats that head instead, and the shells below drop it.
  */
 export function isRightInspectorVisible({
   hostOwnsChrome,
@@ -32,9 +29,6 @@ export function isRightInspectorVisible({
   responsiveInteractActive,
   minimalUi,
   minimalInspectorHasSelection,
-  topBarVisible,
-  mode,
-  canEdit,
 }: {
   hostOwnsChrome: boolean;
   /** Below md the docked panel is display:none and a sheet carries the inspector. */
@@ -44,9 +38,6 @@ export function isRightInspectorVisible({
   responsiveInteractActive: boolean;
   minimalUi: boolean;
   minimalInspectorHasSelection: boolean;
-  topBarVisible: boolean;
-  mode: EditorMode;
-  canEdit: boolean;
 }): boolean {
   return (
     !hostOwnsChrome &&
@@ -54,8 +45,7 @@ export function isRightInspectorVisible({
     !uiHidden &&
     !initialGenerationChromeLimited &&
     !responsiveInteractActive &&
-    (!minimalUi || minimalInspectorHasSelection) &&
-    (!topBarVisible || (mode === "edit" && canEdit))
+    (!minimalUi || minimalInspectorHasSelection)
   );
 }
 
@@ -77,7 +67,7 @@ export function rightInspectorCanvasInset({
 }
 
 export const DOCKED_RIGHT_INSPECTOR_CLASSNAME =
-  "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex";
+  "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col bg-[var(--design-editor-panel-bg)] md:flex";
 
 // Stops above the bottom toolbar while the pane is too narrow to sit beside it.
 export const FLOATING_RIGHT_INSPECTOR_CLASSNAME =

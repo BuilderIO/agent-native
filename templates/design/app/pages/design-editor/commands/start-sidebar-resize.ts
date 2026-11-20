@@ -6,6 +6,10 @@ import type {
 } from "react";
 
 import {
+  resolveInspectorWidth,
+  snapInspectorDragWidth,
+} from "@/pages/design-editor/inspector-width";
+import {
   resolveLeftSidebarWidth,
   snapLeftSidebarDragWidth,
 } from "@/pages/design-editor/left-sidebar-width";
@@ -38,7 +42,7 @@ export function runStartSidebarResize(
   const startWidth =
     side === "left"
       ? resolveLeftSidebarWidth(leftSidebarWidth)
-      : rightSidebarWidth;
+      : resolveInspectorWidth(rightSidebarWidth);
   const setWidth = side === "left" ? setLeftSidebarWidth : setRightSidebarWidth;
   const target =
     side === "left"
@@ -69,7 +73,7 @@ export function runStartSidebarResize(
     const next =
       side === "left"
         ? snapLeftSidebarDragWidth(startWidth + delta)
-        : Math.min(390, Math.max(240, startWidth + delta));
+        : snapInspectorDragWidth(startWidth + delta);
     if (next === latestWidth) return;
     latestWidth = next;
     if (target) {

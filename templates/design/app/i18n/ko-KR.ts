@@ -1029,6 +1029,13 @@ export default {
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
     },
+    columnHead: {
+      comments: "댓글",
+      unreadComments: "읽지 않은 댓글",
+      resizeLeftPanel: "왼쪽 패널 크기 조정",
+      resizeInspector: "인스펙터 크기 조정",
+      whatsNew: "새로운 기능",
+    },
     breakpointBar: {
       base: "기본",
       editBaseWidth: "기본 너비 편집",
@@ -1276,6 +1283,7 @@ export default {
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
     appMenu: {
+      backToDashboard: "대시보드로 돌아가기",
       file: "파일",
       preferences: "환경설정",
       newDesign: "새 디자인",

@@ -1043,6 +1043,13 @@ export default {
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
     },
+    columnHead: {
+      comments: "コメント",
+      unreadComments: "未読のコメント",
+      resizeLeftPanel: "左パネルのサイズを変更",
+      resizeInspector: "インスペクターのサイズを変更",
+      whatsNew: "新機能",
+    },
     breakpointBar: {
       base: "ベース",
       editBaseWidth: "ベース幅を編集",
@@ -1292,6 +1299,7 @@ export default {
     templateSaved: "テンプレートをライブラリに保存しました",
     templateSaveFailed: "このテンプレートを保存できませんでした",
     appMenu: {
+      backToDashboard: "ダッシュボードに戻る",
       file: "ファイル",
       preferences: "環境設定",
       newDesign: "新規デザイン",

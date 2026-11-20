@@ -1026,6 +1026,13 @@ export default {
       collapse: "साइडबार समेटें",
       expand: "साइडबार फैलाएँ",
     },
+    columnHead: {
+      comments: "टिप्पणियाँ",
+      unreadComments: "अपठित टिप्पणियाँ",
+      resizeLeftPanel: "बायाँ पैनल का आकार बदलें",
+      resizeInspector: "इंस्पेक्टर का आकार बदलें",
+      whatsNew: "नया क्या है",
+    },
     breakpointBar: {
       base: "आधार",
       editBaseWidth: "आधार चौड़ाई संपादित करें",
@@ -1270,6 +1277,7 @@ export default {
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
     appMenu: {
+      backToDashboard: "डैशबोर्ड पर वापस जाएँ",
       file: "फ़ाइल",
       preferences: "प्राथमिकताएँ",
       newDesign: "नया डिज़ाइन",
