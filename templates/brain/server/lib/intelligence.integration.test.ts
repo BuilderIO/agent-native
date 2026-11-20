@@ -433,6 +433,128 @@ describe("evidence-backed intelligence", () => {
     expect((await listIntelligence({ id: item.id })).records).toEqual([]);
   });
 
+  it.each(["date", "content"] as const)(
+    "retains knowledge on a legacy connector resync but invalidates a real %s change",
+    async (change) => {
+      const { createCapture } = await import("./brain.js");
+      const captureInput = {
+        sourceId: "source-a",
+        externalId: "connector:legacy",
+        title: "Meeting",
+        kind: "transcript" as const,
+        content: "Morgan will ship Atlas.",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+        metadata: { location: "Launch" },
+      };
+      const capture = await createCapture(captureInput);
+      const metadata = JSON.parse(capture.metadataJson);
+      delete metadata.capturedAtExplicit;
+      await database
+        .update(schema.brainRawCaptures)
+        .set({
+          metadataJson: JSON.stringify(metadata),
+          status: "distilled",
+          distilledAt: "2026-05-20T15:00:00.000Z",
+        })
+        .where(eq(schema.brainRawCaptures.id, capture.id));
+      const { item } = await writeIntelligence({
+        ...input(),
+        dueDate: null,
+        entities: [],
+        evidence: [{ captureId: capture.id, quote: captureInput.content }],
+      });
+      const same = await createCapture(captureInput);
+      expect(same.status).toBe("distilled");
+      expect(JSON.parse(same.metadataJson).capturedAtExplicit).toBe(true);
+      expect(
+        (await listIntelligence({ id: item.id })).records.map(
+          (record) => record.id,
+        ),
+      ).toEqual([item.id]);
+      const changed = await createCapture({
+        ...captureInput,
+        ...(change === "date"
+          ? { capturedAt: "2026-05-21T15:00:00.000Z" }
+          : { content: "Morgan will ship Atlas tomorrow." }),
+      });
+      expect(changed.status).toBe("queued");
+      expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+    },
+  );
+
+  it("preserves transcript kind on an unspecified Markdown reimport and permits an explicit document transition", async () => {
+    const file = { path: "meeting.md", content: "Morgan will ship Atlas." };
+    const initial = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ path: "new.md", content: file.content }],
+      enqueueDistillation: false,
+    });
+    const newEntry = first(initial.files);
+    if (newEntry.status !== "imported") throw new Error("Import failed");
+    expect(
+      first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, newEntry.captureId)),
+      ).kind,
+    ).toBe("document");
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, kind: "transcript" }],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: "2026-05-20T15:00:00.000Z" })
+      .where(eq(schema.brainRawCaptures.id, entry.captureId));
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const unchanged = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(unchanged).toMatchObject({
+      kind: "transcript",
+      status: "distilled",
+    });
+    expect(
+      (await listIntelligence({ id: item.id })).records.map(
+        (record) => record.id,
+      ),
+    ).toEqual([item.id]);
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, kind: "document" }],
+      enqueueDistillation: false,
+    });
+    const changed = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(changed).toMatchObject({
+      kind: "document",
+      status: "queued",
+      distilledAt: null,
+    });
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
   it("invalidates derived knowledge when only the capture kind changes", async () => {
     const file = { path: "change.md", content: "Morgan will ship Atlas." };
     const imported = await importMarkdownFiles.run({

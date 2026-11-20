@@ -49,7 +49,7 @@ const markdownFileSchema = z
       .enum(["document", "transcript"])
       .optional()
       .describe(
-        "Mark a file as a transcript explicitly; defaults to document.",
+        "Set document or transcript explicitly; when omitted, preserve an existing capture's kind or use document for a new file.",
       ),
     capturedAt: z.iso
       .datetime({ offset: true })
@@ -189,7 +189,7 @@ export default defineAction({
             sourceId: source.id,
             externalId: `markdown:${normalizedPath}`,
             title: normalizedPath,
-            kind: file.input.kind ?? "document",
+            ...(file.input.kind ? { kind: file.input.kind } : {}),
             content: file.input.content,
             ...(file.input.capturedAt
               ? { capturedAt: file.input.capturedAt }

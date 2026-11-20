@@ -80,7 +80,6 @@ describe("import-markdown-files", () => {
       sourceId: "source-1",
       externalId: "markdown:docs/getting-started.md",
       title: "docs/getting-started.md",
-      kind: "document",
       content: "# Getting started",
       metadata: {
         path: "docs/getting-started.md",
@@ -91,7 +90,6 @@ describe("import-markdown-files", () => {
       sourceId: "source-1",
       externalId: "markdown:docs/setup.markdown",
       title: "docs/setup.markdown",
-      kind: "document",
       content: "# Setup",
       metadata: {
         path: "docs/setup.markdown",
@@ -154,9 +152,7 @@ describe("import-markdown-files", () => {
     expect(mocks.createCapture.mock.calls[0]?.[0]).not.toHaveProperty(
       "audience",
     );
-    expect(mocks.createCapture.mock.calls[1]?.[0]).toMatchObject({
-      kind: "document",
-    });
+    expect(mocks.createCapture.mock.calls[1]?.[0]).not.toHaveProperty("kind");
   });
 
   it("imports plain text files and records their format", async () => {

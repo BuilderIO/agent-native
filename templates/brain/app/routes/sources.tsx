@@ -1788,7 +1788,7 @@ function ingestSourceKey(source: BrainSource) {
 type MarkdownFileSelection = {
   path: string;
   file: File;
-  transcript: boolean;
+  transcript: boolean | null;
   capturedAt: string;
 };
 
@@ -1821,7 +1821,7 @@ function MarkdownImportDialog({
       files: Array<{
         path: string;
         content: string;
-        kind?: "transcript";
+        kind?: "document" | "transcript";
         capturedAt?: string;
       }>;
       enqueueDistillation: boolean;
@@ -1846,7 +1846,7 @@ function MarkdownImportDialog({
         byPath.set(path, {
           path,
           file,
-          transcript: false,
+          transcript: null,
           capturedAt: "",
         });
     }
@@ -1865,7 +1865,13 @@ function MarkdownImportDialog({
         files.map(async ({ path, file, transcript, capturedAt }) => ({
           path,
           content: await file.text(),
-          ...(transcript ? { kind: "transcript" as const } : {}),
+          ...(transcript === null
+            ? {}
+            : {
+                kind: transcript
+                  ? ("transcript" as const)
+                  : ("document" as const),
+              }),
           ...(capturedAt
             ? { capturedAt: new Date(capturedAt).toISOString() }
             : {}),
@@ -1986,7 +1992,11 @@ function MarkdownImportDialog({
                       </label>
                       <label className="flex items-center gap-2">
                         <Checkbox
-                          checked={item.transcript}
+                          checked={
+                            item.transcript === null
+                              ? "indeterminate"
+                              : item.transcript
+                          }
                           onCheckedChange={(checked) =>
                             setFiles((current) =>
                               current.map((entry) =>

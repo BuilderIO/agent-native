@@ -857,6 +857,7 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   delete comparable.captureSanitization;
   // Connectors stamp every re-pull with a fresh run id; it must not re-queue unchanged captures.
   delete comparable.syncRunId;
+  delete comparable.capturedAtExplicit;
   return stableJson(comparable);
 }
 
@@ -865,7 +866,7 @@ export type CaptureInput = {
   sourceId: string;
   externalId?: string | null | undefined;
   title: string;
-  kind: BrainCaptureKind;
+  kind?: BrainCaptureKind | undefined;
   content: string;
   metadata?: Record<string, unknown> | undefined;
   capturedAt?: string | undefined;
@@ -884,7 +885,8 @@ export interface PreparedCapture {
   readonly [preparedCaptureBrand]: true;
 }
 interface PreparedCaptureData {
-  values: CaptureInput;
+  values: CaptureInput & { kind: BrainCaptureKind };
+  preserveExistingKind: boolean;
   actor: string;
   sourceRevision: string;
   settingsRevision: string;
@@ -919,6 +921,26 @@ export async function prepareCapture(
     : null;
   if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+  const preserveExistingKind = values.kind === undefined;
+  const existing =
+    preserveExistingKind && values.externalId
+      ? firstRow(
+          await getDb()
+            .select({ kind: schema.brainRawCaptures.kind })
+            .from(schema.brainRawCaptures)
+            .where(
+              and(
+                eq(schema.brainRawCaptures.sourceId, values.sourceId),
+                eq(schema.brainRawCaptures.externalId, values.externalId),
+              ),
+            )
+            .limit(1),
+        )
+      : undefined;
+  const resolvedValues: CaptureInput & { kind: BrainCaptureKind } = {
+    ...values,
+    kind: values.kind ?? existing?.kind ?? "document",
+  };
   const settings = await readBrainSettings();
   const actor = requireUserEmail().trim().toLowerCase();
   const sourceRevision = captureScreeningSourceRevision(source);
@@ -928,7 +950,7 @@ export async function prepareCapture(
     values.metadata,
   );
   const sanitized = await sanitizeCaptureForStorage({
-    kind: values.kind,
+    kind: resolvedValues.kind,
     title: values.title,
     content: values.content,
     metadata,
@@ -949,7 +971,8 @@ export async function prepareCapture(
     [preparedCaptureBrand]: true as const,
   });
   preparedCaptures.set(token, {
-    values,
+    values: resolvedValues,
+    preserveExistingKind,
     actor,
     sourceRevision,
     settingsRevision,
@@ -1013,6 +1036,15 @@ export async function commitPreparedCaptureWithWarnings(
     : null;
   if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+  if (
+    prepared.preserveExistingKind &&
+    existing &&
+    existing.kind !== values.kind
+  ) {
+    throw new Error(
+      "Capture kind changed during screening. Screen the capture again before storing it.",
+    );
+  }
 
   if (!sanitized.decision || sanitized.decision.disposition !== "allowed") {
     const receipt = await recordBlockedCapture({
@@ -1185,6 +1217,20 @@ export async function commitPreparedCaptureWithWarnings(
         ],
         scoped,
       );
+      if (prepared.preserveExistingKind) {
+        const current = firstRow(
+          await scoped
+            .select({ kind: schema.brainRawCaptures.kind })
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, captureId))
+            .limit(1),
+        );
+        if (!current || current.kind !== values.kind) {
+          throw new Error(
+            "Capture kind changed during screening. Screen the capture again before storing it.",
+          );
+        }
+      }
       const audience = await ensureCaptureAudience(audienceInput);
       const result = (await scoped
         .update(schema.brainRawCaptures)
