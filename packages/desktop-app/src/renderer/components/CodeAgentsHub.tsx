@@ -333,9 +333,6 @@ const DISPATCH_CONTROL_PLANE_PATHS = [
   "/admin/automations",
 ] as const;
 
-// A launch-preloaded tab shares its canonical id with the user-opened tab for
-// the same app, so preload status is dropped once the user owns a tab with
-// that id; it cannot be inferred from the id alone.
 export function resolveLaunchPreloadedTabIds(
   launchTabs: readonly Pick<ChatFirstSurfaceTab, "id">[],
   userTabs: readonly Pick<ChatFirstSurfaceTab, "id">[],

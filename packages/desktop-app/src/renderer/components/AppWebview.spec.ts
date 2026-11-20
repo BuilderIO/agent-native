@@ -637,6 +637,84 @@ describe("Desktop identity activation", () => {
     expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
   });
 
+  it("throttles again when preload flips back on and waits for dom-ready on a detached guest", () => {
+    const setWebviewBackgroundThrottling = vi.fn();
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: { setWebviewBackgroundThrottling },
+    });
+    root = createRoot(container);
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+    const render = (preload: boolean) =>
+      React.createElement(AppWebview, {
+        app,
+        appConfig,
+        isActive: true,
+        preload,
+        theme: "dark" as const,
+      });
+
+    act(() => {
+      root.render(render(false));
+    });
+    const webview = container.querySelector("webview");
+    if (!webview) throw new Error("webview not rendered");
+    let attached = true;
+    Object.defineProperties(webview, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview.getAttribute("src") ?? "",
+      },
+    });
+    Object.defineProperty(webview, "getWebContentsId", {
+      configurable: true,
+      value: () => {
+        if (!attached) throw new Error("not attached");
+        return 5;
+      },
+    });
+
+    act(() => {
+      root.render(render(true));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenLastCalledWith(5, false);
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+
+    attached = false;
+    act(() => {
+      root.render(render(false));
+    });
+    act(() => {
+      root.render(render(true));
+    });
+    act(() => {
+      root.render(render(false));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(1);
+
+    attached = true;
+    act(() => {
+      webview.dispatchEvent(new Event("dom-ready"));
+    });
+    expect(setWebviewBackgroundThrottling).toHaveBeenCalledTimes(2);
+    expect(setWebviewBackgroundThrottling).toHaveBeenLastCalledWith(5, true);
+    expect(container.querySelector("webview")).toBe(webview);
+  });
+
   it("keeps a remembered session gated until child synchronization completes", async () => {
     let resolveSynchronization!: (synchronized: boolean) => void;
     const ensureAppSession = vi.fn(

@@ -1289,30 +1289,38 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
     }, [app.placeholder, executeGuestScript, isActive]);
 
-    // webpreferences only apply at guest creation, so a guest that was
-    // launch-preloaded keeps backgroundThrottling=false until told otherwise.
-    // Flip it live; recreating the webview would reload the page.
-    const prevPreloadRef = useRef(preload);
+    const throttlingAppliedForPreloadRef = useRef(preload);
     useEffect(() => {
-      const wasPreload = prevPreloadRef.current;
-      prevPreloadRef.current = preload;
       const wv = webviewRef.current;
-      if (!wasPreload || preload || !wv || app.placeholder) return;
+      if (
+        !wv ||
+        app.placeholder ||
+        throttlingAppliedForPreloadRef.current === preload
+      ) {
+        return;
+      }
+      const electronAPI = window.electronAPI as
+        | Window["electronAPI"]
+        | undefined;
       const apply = () => {
+        let webContentsId: number;
         try {
-          window.electronAPI?.setWebviewBackgroundThrottling?.(
-            wv.getWebContentsId(),
-            true,
-          );
-          return true;
-        } catch {
+          webContentsId = wv.getWebContentsId();
+        } catch (error) {
+          console.debug("[desktop-webview] guest not attached yet", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : error,
+          });
           return false;
         }
+        electronAPI?.setWebviewBackgroundThrottling(webContentsId, !preload);
+        throttlingAppliedForPreloadRef.current = preload;
+        return true;
       };
       if (apply()) return;
       wv.addEventListener("dom-ready", apply, { once: true });
       return () => wv.removeEventListener("dom-ready", apply);
-    }, [app.placeholder, preload]);
+    }, [app.id, app.placeholder, preload]);
 
     function reportActiveWebview() {
       const wv = webviewRef.current;
