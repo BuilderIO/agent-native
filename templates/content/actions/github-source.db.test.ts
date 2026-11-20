@@ -456,6 +456,7 @@ let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocu
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
 let getDocument: typeof import("./get-document.js").default;
+let readDocumentFile: typeof import("./read-document-file.js").default;
 let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
 let refreshBeforeRead: typeof import("./_github-source-freshness.js").refreshGitHubSourceBeforeRead;
 let liveCopyPage: typeof import("../server/test-support/live-copy-page.js");
@@ -501,6 +502,7 @@ beforeAll(async () => {
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
   getDocument = (await import("./get-document.js")).default;
+  readDocumentFile = (await import("./read-document-file.js")).default;
   liveCopyPage = await import("../server/test-support/live-copy-page.js");
   configureProperty = (await import("./configure-document-property.js"))
     .default;
@@ -3364,6 +3366,22 @@ describe("GitHub folder freshness", () => {
     await checkedAgo(database.id, 2 * 60_000);
     const page = await as(() => getDocument.run({ id: faq.documentId }));
     expect(page.content).toContain("Answers moved to the forum.");
+  });
+
+  it("brings a stale GitHub page up to date when another app reads it as a file", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    const file = await as(() =>
+      readDocumentFile.run({ operation: "read", id: faq.documentId, page: 1 }),
+    );
+    expect(file).toMatchObject({
+      format: "markdown",
+      content: expect.stringContaining("Answers moved to the forum."),
+    });
   });
 
   it("answers a read from what Content has when GitHub fails", async () => {
