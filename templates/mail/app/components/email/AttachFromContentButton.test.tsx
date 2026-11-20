@@ -139,9 +139,12 @@ describe("AttachFromContentButton", () => {
       await choosePlan();
       await waitFor(() => expect(mocks.toastUploadFailure).toHaveBeenCalled());
 
-      const [error, fallback] = mocks.toastUploadFailure.mock.calls[0];
-      expect((error as Error).message).toBe(shown);
-      expect(fallback).toBe("mail.toasts.failedToAttachContentPage");
+      expect(mocks.toastUploadFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ message: shown }),
+        "mail.toasts.failedToAttachContentPage",
+        {},
+        false,
+      );
       expect(onAttach).not.toHaveBeenCalled();
     },
   );
