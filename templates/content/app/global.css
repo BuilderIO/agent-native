@@ -427,6 +427,71 @@
   min-height: 0;
 }
 
+/* A new page's starting points float over its empty body, so the whole body
+   still takes a click to start writing and nothing moves when they go. */
+.content-new-page-body {
+  position: relative;
+}
+
+.content-new-page-body
+  .content-editor
+  p.is-new-page-empty.is-editor-empty:first-child::before {
+  content: none;
+}
+
+.content-new-page-start {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 1;
+  display: none;
+  margin: 0;
+  padding-inline: inherit;
+  font-family:
+    "Inter Variable",
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: hsl(var(--muted-foreground) / 0.6);
+  pointer-events: none;
+}
+
+/* Gate on ProseMirror's own empty mark, not React state: it drops on the
+   keystroke that adds text, so the overlay never sits over typed words. */
+.content-new-page-body:has(
+    .content-editor > p.is-new-page-empty:first-child:not([data-indent])
+  )
+  .content-new-page-start {
+  display: block;
+}
+
+.content-new-page-start__action {
+  border-radius: 2px;
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.35);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color 120ms ease-out,
+    text-decoration-color 120ms ease-out;
+}
+
+.content-new-page-start__action:hover {
+  color: hsl(var(--muted-foreground));
+  text-decoration-color: currentColor;
+}
+
+.content-new-page-start__action:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 /* A public page's sub-pages and sign-up card follow its body, so the body
    takes only the room its blocks need. */
 .content-public-reader-body .visual-editor-wrapper,

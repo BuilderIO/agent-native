@@ -1,5 +1,5 @@
 import { useOrg, useOrgMembers } from "@agent-native/core/client/org";
-import type { ReviewMention } from "@agent-native/core/review";
+import type { ReviewMention } from "@agent-native/core/review/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const SEARCH_DEBOUNCE_MS = 200;

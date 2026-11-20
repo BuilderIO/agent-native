@@ -1,4 +1,4 @@
-export const ASK_SHEET_DEFAULT = 0.45;
+export const ASK_SHEET_DEFAULT = 0.6;
 export const ASK_SHEET_MIN = 0.2;
 export const ASK_SHEET_MAX = 0.7;
 export const TRANSCRIPT_MIN_PX = 104;

@@ -199,6 +199,30 @@ describe("applySlideContentEdits", () => {
     expect(message).toContain("padding:32px 64px;");
   });
 
+  it("names the earlier edit in the batch that changed a later edit's find text", async () => {
+    const stored = '<div style="color:#65746a;padding:4px;">Hi</div>';
+    const error = await applySlideContentEdits(stored, [
+      { find: "color:#65746a;", replace: "color:#58685d;" },
+      { find: 'style="color:#65746a;padding:4px;"', replace: 'style=""' },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    expect((error as Error).message).toContain(
+      "Edit 2: its search text is in the file you read, but edit 1 earlier in this batch already changed that text.",
+    );
+  });
+
+  it("marks a candidate whose only difference is an escaped line break", async () => {
+    const stored = "<p>One</p>\n<p>Two</p>";
+    const error = await applySlideContentEdits(stored, [
+      { find: "<p>One</p>\\n<p>Two</p>", replace: "<p>Both</p>" },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(SlideContentEditError);
+    expect((error as Error).message).toContain("(escaped)");
+    expect((error as Error).message).toContain("send the real characters");
+  });
+
   it("does not tell the caller to copy a whitespace-only candidate that was cut off", async () => {
     const items = Array.from(
       { length: 12 },

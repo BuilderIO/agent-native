@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
@@ -6,6 +7,13 @@ import { z } from "zod";
 import type { ExternalCalendar } from "../shared/api.js";
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   description: "Remove a subscribed external calendar feed by ID",
   schema: z.object({
     id: z.string().describe("The ID of the external calendar to remove"),

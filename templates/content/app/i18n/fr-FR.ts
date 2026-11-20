@@ -412,6 +412,12 @@ const database = {
   failedToSavePagePreview: "Échec de l’enregistrement de l’aperçu",
   failedToSaveView: "Échec de l’enregistrement de la vue",
   failedToUpdateCheckbox: "Échec de la mise à jour de la case",
+  undoPropertyChangedSince:
+    "Non annulé : cette propriété a changé après votre modification",
+  redoPropertyChangedSince:
+    "Non rétabli : cette propriété a changé après l’annulation",
+  undoPropertyFailed: "Impossible d’annuler la modification de la propriété",
+  redoPropertyFailed: "Impossible de rétablir la modification de la propriété",
   failedToUpdateEverySelectedRow:
     "Impossible de mettre à jour toutes les lignes sélectionnées",
   filter: "Filtrer",
@@ -803,6 +809,14 @@ const editor = {
   creatingDatabase: "Création d'une collection intégrée...",
   databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
+  newPagePlaceholder: "Commencez à écrire",
+  newPageLine: "Commencez à écrire, {{draft}} ou {{import}}",
+  newPageLineWithoutImport: "Commencez à écrire ou {{draft}}",
+  newPageLineDraft: "rédigez-la avec l’agent",
+  newPageLineImport: "importez du Markdown",
+  newPageDraftPrompt: "Rédige cette page sur ",
+  newPageDraftPromptTitled: "Rédige cette page sur {{title}}",
+  newPageAgentContextLabel: "Cette page",
   describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
   enterToSubmit: "Entrez pour soumettre",
   failedToCreateDatabase: "Échec de la création de la collection intégrée",
@@ -1726,6 +1740,27 @@ const overrides = {
     builderReviewShowMore: "Afficher plus",
     builderReviewRemainingBatches:
       "Relancez la revue après ce lot pour préparer les modifications Builder restantes.",
+    builderReviewLoadingMorePagesOne:
+      "Chargement des modifications d’1 page de plus…",
+    builderReviewLoadingMorePages:
+      "Chargement des modifications de {{count}} pages de plus…",
+    builderReviewConfirmingBodiesOne:
+      "Vérification d’1 modification du corps auprès de Builder…",
+    builderReviewConfirmingBodies:
+      "Vérification de {{count}} modifications du corps auprès de Builder…",
+    builderReviewFindingPages: "Recherche des pages modifiées…",
+    builderReviewRowsMatchBuilderOne:
+      "1 page correspond déjà à Builder une fois son corps converti ; elle n’est donc pas incluse.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} pages correspondent déjà à Builder une fois leur corps converti ; elles ne sont donc pas incluses.",
+    builderReviewLoadFailed:
+      "Certaines modifications ne se sont pas chargées : {{message}}",
+    bodyDiffAdded: "Ajouté :",
+    bodyDiffRemoved: "Supprimé :",
+    bodyDiffMoreLinesOne: "1 ligne modifiée de plus",
+    bodyDiffMoreLines: "{{count}} lignes modifiées de plus",
+    bodyDiffMoreChangesOne: "1 autre modification non affichée",
+    bodyDiffMoreChanges: "{{count}} autres modifications non affichées",
     builderBodiesSyncingProgress:
       "Synchronisation de {{hydrated}} corps sur {{total}}.",
     builderBodiesSyncFinishedWithFailures:

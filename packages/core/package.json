@@ -441,6 +441,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/process": {
+      "types": "./dist/cli/process.d.ts",
+      "default": "./dist/cli/process.js"
+    },
     "./cli/telemetry": {
       "types": "./dist/cli/telemetry.d.ts",
       "default": "./dist/cli/telemetry.js"
