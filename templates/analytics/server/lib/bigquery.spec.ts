@@ -51,13 +51,26 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute }),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   getCredentialContext,
   getRequestRunContext: () => undefined,
   platformWaitUntil: () => undefined,
 }));
 
 vi.mock("./credentials", () => ({ resolveCredential }));
+
+vi.mock("./scoped-settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./scoped-settings")>()),
+  getScopedSettingRecord: async () => ({
+    sink: "bigquery",
+    table: "test-project.analytics.events",
+  }),
+}));
+vi.mock("./first-party-analytics-health", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./first-party-analytics-health")>()),
+  recordFirstPartyAnalyticsQueryPressure: async () => {},
+}));
 
 vi.mock("./gcloud", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./gcloud")>()),
@@ -517,6 +530,73 @@ describe("runQuery cancellation", () => {
         workload: fixture.workload,
       });
     }
+  });
+
+  it("carries the real batch evaluator's attribution into its provider submission", async () => {
+    const { evaluateBigQueryAnalyticsAlertBatch } =
+      await import("./analytics-alerts");
+    const now = new Date("2026-11-20T18:00:00.000Z");
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: {
+          fields: [
+            { name: "count_0", type: "INTEGER" },
+            { name: "samples_0", type: "STRING" },
+          ],
+        },
+        rows: [{ f: [{ v: "0" }, { v: "[]" }] }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const results = await evaluateBigQueryAnalyticsAlertBatch(
+      [
+        {
+          id: "label-entry-point",
+          name: "Synthetic alert",
+          description: "",
+          eventName: "synthetic_label_probe",
+          filters: [],
+          thresholdMode: "event_count",
+          distinctBy: null,
+          threshold: 1,
+          windowMinutes: 10,
+          cooldownMinutes: 30,
+          severity: "warning",
+          channels: ["inbox"],
+          emailRecipients: [],
+          slackWebhookUrl: null,
+          webhookUrl: null,
+          enabled: true,
+          lastEvaluatedAt: null,
+          lastTriggeredAt: null,
+          lastStatus: null,
+          lastError: null,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          ownerEmail: "test@example.com",
+          orgId: null,
+        },
+      ],
+      now,
+    );
+    expect(results.get("label-entry-point")).toMatchObject({
+      evaluation: { observedValue: 0 },
+    });
+    const submissions = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith("/jobs"),
+    );
+    expect(submissions).toHaveLength(1);
+    const request = JSON.parse(String(present(submissions[0])[1]?.body));
+    expect(request.configuration.labels).toEqual({
+      agent_native_workload: "alert",
+    });
+    expect(request.configuration.query.maximumBytesBilled).toBe("50000000000");
+    expect(usageWrites).toHaveLength(1);
+    expect(present(usageWrites[0])).toMatchObject({
+      workload: "alert",
+      jobId: request.jobReference.jobId,
+    });
   });
 
   it("stops an incomplete job's poll wait immediately when the agent run aborts", async () => {
