@@ -1251,6 +1251,58 @@ describe("personal memory shared across local apps", () => {
       expect(rows).toEqual([]);
     });
 
+    it("clears its own tombstone when a conditional delete matches no row after the precheck", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteIfCurrent, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/nomatch.md", "v1");
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        await pglite.query(
+          `UPDATE resources SET content = 'v2', updated_at = updated_at + 1 WHERE id = $1`,
+          [stored.id],
+        );
+      });
+      try {
+        await expect(resourceDeleteIfCurrent(stored)).resolves.toBe(false);
+      } finally {
+        restore();
+      }
+      expect(fs.existsSync(`${sharedFile(dir, "nomatch.md")}.deleted`)).toBe(
+        false,
+      );
+      await expect(
+        resourceGetByPath(OWNER, "memory/nomatch.md"),
+      ).resolves.toMatchObject({ content: "v2" });
+    });
+
+    it("clears the marker when the transactional restamp fails so a rollback cannot hide the row", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteWithDb, resourcePut } = await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/restamp.md", "live");
+      const realRename = fs.promises.rename.bind(fs.promises);
+      let tombstones = 0;
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (String(to).endsWith(".deleted") && ++tombstones > 1) {
+            throw new Error("EROFS");
+          }
+          return realRename(from, to);
+        });
+      try {
+        await expect(
+          sharedClient.transaction?.((tx) =>
+            resourceDeleteWithDb(tx, stored.id),
+          ),
+        ).rejects.toThrow("EROFS");
+      } finally {
+        rename.mockRestore();
+      }
+      expect(fs.existsSync(`${sharedFile(dir, "restamp.md")}.deleted`)).toBe(
+        false,
+      );
+    });
+
     it("keeps a restored memory visible past a newer tombstone when its mirror fails", async () => {
       const dir = useMemoryDir();
       const {

@@ -48,6 +48,17 @@ describe("delete-memory", () => {
     log.mockRestore();
   });
 
+  it("reports the memory as deleted when the index cleanup fails afterwards", async () => {
+    mocks.resourcePut.mockRejectedValueOnce(new Error("conflict"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(run()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/Deleted memory "style".*index.*conflict/),
+    );
+    log.mockRestore();
+  });
+
   it("does not swallow other delete errors", async () => {
     mocks.resourceDeleteByPath.mockRejectedValueOnce(new Error("db down"));
     await expect(run()).rejects.toThrow("db down");

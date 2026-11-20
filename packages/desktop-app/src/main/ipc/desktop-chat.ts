@@ -1005,7 +1005,10 @@ async function createDesktopTerminalSession(
         piExtensionPath,
       ),
       environment: {
-        ...desktopTerminalMemoryEnvironment(memoryOwner.file),
+        ...desktopTerminalMemoryEnvironment(
+          memoryOwner.file,
+          memoryOwner.memoryDir,
+        ),
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
@@ -1770,16 +1773,25 @@ export function setDesktopMemoryAccount(account: string | null): void {
 }
 
 export function sweepStaleMemoryOwnerFiles(): void {
-  fs.rmSync(path.join(app.getPath("userData"), "memory-owners"), {
-    recursive: true,
-    force: true,
-  });
+  for (const dir of ["memory-owners", "memory-roots"]) {
+    fs.rmSync(path.join(app.getPath("userData"), dir), {
+      recursive: true,
+      force: true,
+    });
+  }
 }
 
-export function desktopTerminalMemoryEnvironment(promptFile: string): {
+export function desktopTerminalMemoryEnvironment(
+  promptFile: string,
+  memoryDir?: string,
+): {
   AGENT_NATIVE_MEMORY_PROMPT_FILE: string;
+  AGENT_NATIVE_MEMORY_DIR?: string;
 } {
-  return { AGENT_NATIVE_MEMORY_PROMPT_FILE: promptFile };
+  return {
+    AGENT_NATIVE_MEMORY_PROMPT_FILE: promptFile,
+    ...(memoryDir ? { AGENT_NATIVE_MEMORY_DIR: memoryDir } : {}),
+  };
 }
 
 function desktopMemoryDir(): string {
@@ -1799,6 +1811,7 @@ async function renderMemoryPrompt(account: string): Promise<string> {
 
 export async function bindDesktopSessionMemoryOwner(): Promise<{
   file: string;
+  memoryDir: string | undefined;
   release: () => void;
 }> {
   const file = path.join(
@@ -1807,6 +1820,22 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     randomUUID(),
   );
   let account = currentMemoryAccount;
+  let memoryDir: string | undefined;
+  if (account) {
+    const target = path.join(desktopMemoryDir(), encodeURIComponent(account));
+    memoryDir = path.join(
+      app.getPath("userData"),
+      "memory-roots",
+      randomUUID(),
+    );
+    fs.mkdirSync(target, { recursive: true });
+    fs.mkdirSync(memoryDir, { recursive: true });
+    fs.symlinkSync(
+      target,
+      path.join(memoryDir, encodeURIComponent(account)),
+      "dir",
+    );
+  }
   let released = false;
   const refresh = async () => {
     if (!account) return;
@@ -1870,8 +1899,10 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
   await scheduleRefresh();
   return {
     file,
+    memoryDir,
     release: () => {
       released = true;
+      if (memoryDir) fs.rmSync(memoryDir, { recursive: true, force: true });
       memorySessions.delete(rebind);
       watcher?.close();
       fs.rmSync(file, { force: true });

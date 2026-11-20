@@ -2198,6 +2198,10 @@ function deleteMirroredMemory(
         { cause: error },
       );
     }
+    if (!deleted && (await selectMirrorTarget(owner, path))) {
+      await abandonDeleteTombstone(owner, path, marker);
+      return null;
+    }
     try {
       if (deleted) {
         await deleteSharedPersonalMemory(owner, path, deleted.updatedAt + 1);
@@ -3082,11 +3086,18 @@ export async function resourceDeleteWithDb(
         );
       }
       if (removed) {
-        marker = await deleteSharedPersonalMemory(
-          owner,
-          path,
-          removed.updatedAt + 1,
-        );
+        try {
+          marker = await deleteSharedPersonalMemory(
+            owner,
+            path,
+            removed.updatedAt + 1,
+          );
+        } catch (error) {
+          await clearSharedMemoryTombstone(owner, path, marker).catch(
+            handleMirrorFailure,
+          );
+          throw error;
+        }
       }
       return removed;
     });

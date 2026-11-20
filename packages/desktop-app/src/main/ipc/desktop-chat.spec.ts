@@ -3,6 +3,9 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -1458,16 +1461,42 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
-  it("never exposes any account's memory directory to the terminal env", () => {
+  it("gives terminals a memory directory holding only the signed-in account's own", async () => {
     const dir = seedAccounts();
-    const env = desktopTerminalMemoryEnvironment("/tmp/prompt-file");
-    expect(env).toEqual({
-      AGENT_NATIVE_MEMORY_PROMPT_FILE: "/tmp/prompt-file",
-    });
-    for (const value of Object.values(env)) {
-      expect(value).not.toContain(dir);
-      expect(value).not.toContain(encodeURIComponent("b@example.test"));
-    }
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const env = desktopTerminalMemoryEnvironment(
+      session.file,
+      session.memoryDir,
+    );
+    const root = env.AGENT_NATIVE_MEMORY_DIR as string;
+    expect(root).toBeTruthy();
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    expect(
+      realpathSync(path.join(root, encodeURIComponent("a@example.test"))),
+    ).toBe(
+      realpathSync(
+        path.join(dir, "memory", encodeURIComponent("a@example.test")),
+      ),
+    );
+    writeFileSync(
+      path.join(root, encodeURIComponent("a@example.test"), "saved.md"),
+      "from terminal",
+    );
+    expect(
+      readFileSync(
+        path.join(
+          dir,
+          "memory",
+          encodeURIComponent("a@example.test"),
+          "saved.md",
+        ),
+        "utf8",
+      ),
+    ).toBe("from terminal");
+    session.release();
+    expect(existsSync(root)).toBe(false);
+    setDesktopMemoryAccount(null);
   });
 
   it("serializes refreshes so a slow stale read cannot restore deleted memory", async () => {

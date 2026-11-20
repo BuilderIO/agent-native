@@ -45,20 +45,27 @@ export default async function deleteMemoryScript(
   }
 
   const stale = staleMirrorCollector();
-  const existing = await resourceGetByPath(owner, indexPath);
-  if (existing?.content) {
-    const entryPrefix = `- [${name}]`;
-    const lines = existing.content.split("\n");
-    const filtered = lines.filter((line) => !line.startsWith(entryPrefix));
-    if (filtered.length !== lines.length) {
-      await resourcePut(
-        owner,
-        indexPath,
-        filtered.join("\n").trimEnd() + "\n",
-        "text/markdown",
-      ).catch(stale.absorb);
-      deleted = true;
+  try {
+    const existing = await resourceGetByPath(owner, indexPath);
+    if (existing?.content) {
+      const entryPrefix = `- [${name}]`;
+      const lines = existing.content.split("\n");
+      const filtered = lines.filter((line) => !line.startsWith(entryPrefix));
+      if (filtered.length !== lines.length) {
+        await resourcePut(
+          owner,
+          indexPath,
+          filtered.join("\n").trimEnd() + "\n",
+          "text/markdown",
+        ).catch(stale.absorb);
+        deleted = true;
+      }
     }
+  } catch (error) {
+    console.log(
+      `${deleted ? `Deleted memory "${name}"` : `Memory "${name}" not found`}, but the MEMORY.md index could not be updated: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return;
   }
 
   stale.finish();
