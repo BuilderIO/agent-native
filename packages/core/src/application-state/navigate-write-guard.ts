@@ -9,6 +9,7 @@ import {
   insideWriteAction,
   isStandaloneNavigateAction,
 } from "../action-frame.js";
+import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 
 /**
@@ -171,7 +172,29 @@ function hasNonEmptyIdValue(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function isDetailPath(path: string): boolean {
+function matchesDetailRoutePattern(
+  segments: readonly string[],
+  pattern: string,
+): boolean {
+  const patternSegments = pattern.trim().split("/").filter(Boolean);
+  if (patternSegments.length === 0) return false;
+  for (let i = 0; i < patternSegments.length; i += 1) {
+    const part = patternSegments[i];
+    if (!part) return false;
+    if (part === "*") {
+      return true;
+    }
+    if (i >= segments.length) return false;
+    if (part.startsWith(":")) {
+      if (!segments[i]) return false;
+      continue;
+    }
+    if (segments[i] !== part) return false;
+  }
+  return segments.length === patternSegments.length;
+}
+
+function isDetailPath(path: string, detailRoutes?: readonly string[]): boolean {
   const trimmed = path.trim();
   if (!trimmed) return false;
   const hashIdx = trimmed.indexOf("#");
@@ -185,28 +208,35 @@ function isDetailPath(path: string): boolean {
     }
   }
   const segments = pathname.split("/").filter(Boolean);
-  if (segments.length < 2) return false;
-  const [first, second] = segments;
-  if (!first || first === "settings" || first.startsWith("_")) return false;
-  if (first === "admin") {
-    return segments.length >= 3 && second !== "integrations";
+  const configuredRoutes = detailRoutes ?? getAppConfig().agent.detailRoutes;
+  if (configuredRoutes !== undefined) {
+    return configuredRoutes.some((pattern) =>
+      matchesDetailRoutePattern(segments, pattern),
+    );
   }
+  if (segments.length < 2) return false;
+  const [first] = segments;
+  if (!first || first === "settings" || first.startsWith("_")) return false;
   return true;
 }
 
 /**
  * Default detail-view detector for navigate payloads: true when the command
- * targets a specific item (`id`, `*Id`, `*_id`, a detail query param, a nested
- * `/<section>/<item>` path outside `/settings`, or a nested item path under
- * `/admin/<section>/<id>` outside `/admin/integrations`).
+ * targets a specific item (`id`, `*Id`, `*_id`, a detail query param, a route
+ * matching the app's declared `agent.detailRoutes`, or—when none are declared—
+ * a nested `/<section>/<item>` path outside `/settings`).
  */
 export function isDefaultDetailNavigation(
   navigation: Record<string, unknown>,
+  options?: { detailRoutes?: readonly string[] },
 ): boolean {
   for (const [key, val] of Object.entries(navigation)) {
     if (isDetailKey(key) && hasNonEmptyIdValue(val)) return true;
   }
-  return typeof navigation.path === "string" && isDetailPath(navigation.path);
+  return (
+    typeof navigation.path === "string" &&
+    isDetailPath(navigation.path, options?.detailRoutes)
+  );
 }
 
 function isNavigateKey(key: string): boolean {
