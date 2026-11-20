@@ -130,4 +130,15 @@ describe("useFilterUrlState", () => {
     expect(shownKey()).toBe("?r=owner:equals:bob");
     expect(requests).toHaveLength(2);
   });
+
+  it("follows Back after a repeated change lands as one navigation", () => {
+    act(() => root.render(<Harness initial="?r=owner:equals:alice" />));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => filters.setState(owners("alice")));
+    act(() => filters.setState(owners("alice", "bob")));
+    act(() => publish("?r=owner:equals:alice,bob"));
+    act(() => publish("?r=owner:equals:alice"));
+    expect(shownKey()).toBe("?r=owner:equals:alice");
+    expect(requests).toHaveLength(3);
+  });
 });
