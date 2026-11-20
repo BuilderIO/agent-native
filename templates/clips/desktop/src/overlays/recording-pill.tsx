@@ -133,8 +133,6 @@ export function MeetingPill() {
     "unknown" | "eligible" | "missing" | "unavailable"
   >(pillDemoMode ? "eligible" : "unknown");
   const providerStatusAbortRef = useRef<AbortController | null>(null);
-  // The pill's outer column: header, error, then the expanded body the
-  // transcript and the answer sheet divide between them.
   const pillInnerRef = useRef<HTMLDivElement | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
   /** Held open for the exit animation. A drawer that vanishes on close reads
@@ -847,8 +845,8 @@ export function MeetingPill() {
   };
 
   // A split that leaves the transcript room on a tall window can starve it on a
-  // short one, so the ratio is re-clamped against the sheet's own panel
-  // whenever that panel resizes or the finished banner joins it.
+  // short one, so the ratio is re-clamped against the panel's real height
+  // whenever that height changes.
   useEffect(() => {
     const sheet = askChatContainerRef.current;
     const panel = sheet?.parentElement;
@@ -1201,9 +1199,7 @@ export function MeetingPill() {
                   askSheetClosing ? "closing" : askSheetOpen ? "open" : "closed"
                 }
                 style={{
-                  height: askSheetOpen
-                    ? `${Math.round(askSheetHeight * 100)}%`
-                    : "auto",
+                  height: askSheetOpen ? `${askSheetHeight * 100}%` : "auto",
                   animation:
                     !askSheetOpen && !askSheetClosing ? "none" : undefined,
                 }}

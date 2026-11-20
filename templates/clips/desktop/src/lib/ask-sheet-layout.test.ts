@@ -14,9 +14,9 @@ import {
   TRANSCRIPT_MIN_PX,
 } from "./ask-sheet-layout";
 
-// The shortest expanded pill: a 260px window less the 44px header leaves the
-// body the transcript and the sheet share, which also holds a 1px divider.
-const SHORTEST_PANEL_PX = 260 - 44;
+const MIN_WINDOW_PX = 260;
+const HEADER_PX = 44;
+const SHORTEST_PANEL_PX = MIN_WINDOW_PX - HEADER_PX;
 const DIVIDER_PX = 1;
 
 describe("clampAskSheetHeight", () => {
@@ -81,11 +81,12 @@ describe("measureAskSheetPanel", () => {
     return element;
   }
 
-  /** The expanded pill as the meeting pill renders it. */
   function expandedPill({ finished }: { finished: boolean }) {
-    const pill = sized(document.createElement("div"), { clientHeight: 260 });
+    const pill = sized(document.createElement("div"), {
+      clientHeight: MIN_WINDOW_PX,
+    });
     pill.className = "pill-inner";
-    pill.append(row("pill-header", 44));
+    pill.append(row("pill-header", HEADER_PX));
     const panel = sized(document.createElement("div"), {
       clientHeight: SHORTEST_PANEL_PX,
     });
@@ -97,28 +98,39 @@ describe("measureAskSheetPanel", () => {
     }
     panel.append(row("pill-transcript-area", 120));
     const sheet = row("pill-ask-sheet", 96);
-    panel.append(sheet);
+    const offscreenSuggestions = sized(document.createElement("div"), {
+      offsetHeight: 240,
+    });
+    offscreenSuggestions.style.position = "fixed";
+    panel.append(sheet, offscreenSuggestions);
     pill.append(panel);
     return sheet;
   }
 
-  it("measures the panel the sheet sits in, not the whole pill", () => {
-    expect(measureAskSheetPanel(expandedPill({ finished: false }))).toEqual({
+  function measure(sheet: HTMLElement) {
+    const measured = measureAskSheetPanel(sheet);
+    if (!measured) throw new Error("the sheet has no panel to measure");
+    return measured;
+  }
+
+  it("measures the sheet's own panel and the rows that take room in it", () => {
+    expect(measure(expandedPill({ finished: false }))).toEqual({
       height: SHORTEST_PANEL_PX,
       reservedPx: DIVIDER_PX,
     });
   });
 
   it("reserves the finished banner with its margins", () => {
-    expect(measureAskSheetPanel(expandedPill({ finished: true }))).toEqual({
+    expect(measure(expandedPill({ finished: true }))).toEqual({
       height: SHORTEST_PANEL_PX,
       reservedPx: DIVIDER_PX + 38 + 8 + 2,
     });
   });
 
-  it("keeps the transcript floor at the opening height it measures", () => {
-    for (const finished of [false, true]) {
-      const measured = measureAskSheetPanel(expandedPill({ finished }))!;
+  it.each([false, true])(
+    "keeps the transcript floor at the opening height it measures (finished=%s)",
+    (finished) => {
+      const measured = measure(expandedPill({ finished }));
       const height = clampAskSheetHeight(
         ASK_SHEET_DEFAULT,
         measured.height,
@@ -127,8 +139,8 @@ describe("measureAskSheetPanel", () => {
       const transcript =
         measured.height - measured.reservedPx - height * measured.height;
       expect(transcript).toBeGreaterThanOrEqual(TRANSCRIPT_MIN_PX);
-    }
-  });
+    },
+  );
 
   it("has nothing to measure before the sheet is mounted", () => {
     expect(measureAskSheetPanel(null)).toBeNull();

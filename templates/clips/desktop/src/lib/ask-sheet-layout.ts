@@ -24,16 +24,8 @@ export function isPinnedToBottom(metrics: {
   );
 }
 
-/**
- * The sheet's height is a share of the panel it sits in, the expanded body
- * below the header, and that panel also holds fixed rows: the divider and,
- * once the meeting ends, the finished banner. Clamping against the whole pill,
- * or ignoring those rows, lets the sheet take the transcript's floor.
- */
 export interface AskSheetPanel {
-  /** The panel's height, which the sheet's percentage is taken from. */
   height: number;
-  /** Space in the panel taken by rows that are neither transcript nor sheet. */
   reservedPx: number;
 }
 
@@ -52,6 +44,7 @@ export function measureAskSheetPanel(
       continue;
     }
     const style = getComputedStyle(child);
+    if (style.position === "fixed" || style.position === "absolute") continue;
     reservedPx +=
       child.offsetHeight +
       (parseFloat(style.marginTop) || 0) +
