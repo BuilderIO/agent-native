@@ -17,8 +17,10 @@
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
+    gap: var(--space-1);
     box-sizing: border-box;
     height: var(--control-height-2);
+    padding: 0 var(--space-2);
     border-radius: var(--radius-full);
     font-size: var(--font-size-1);
     line-height: var(--line-height-1);
@@ -34,6 +36,7 @@
 
   .badge[data-size="1"] {
     height: var(--control-height-1);
+    padding: 0 var(--space-1);
     font-size: var(--font-size-0);
     line-height: var(--line-height-0);
     letter-spacing: var(--letter-spacing-0);
@@ -41,6 +44,7 @@
 
   .badge[data-size="3"] {
     height: var(--control-height-3);
+    padding: 0 var(--space-3);
   }
 
   .badge[data-size="3"] svg {

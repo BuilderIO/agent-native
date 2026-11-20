@@ -55,7 +55,7 @@ describe("Tab Nav part", () => {
   it("writes size, justify and wrap on the list, size 2 by default, inheriting its color", () => {
     render(<Example />);
     const list = screen.getByRole("navigation").querySelector("ul");
-    expect(list?.dataset.size).toBe("4");
+    expect(list?.dataset.size).toBe("2");
     expect(list?.dataset.justify).toBe("start");
     expect(list?.dataset.wrap).toBe("nowrap");
     expect(list?.dataset.color).toBeUndefined();
@@ -65,7 +65,7 @@ describe("Tab Nav part", () => {
   it("writes color and high contrast on the list as Radix names them", () => {
     render(
       <Example
-        size="3"
+        size="1"
         color="gray"
         highContrast
         justify="center"
@@ -75,7 +75,7 @@ describe("Tab Nav part", () => {
     const nav = screen.getByRole("navigation");
     expect(nav.dataset.size).toBeUndefined();
     const list = nav.querySelector("ul");
-    expect(list?.dataset.size).toBe("3");
+    expect(list?.dataset.size).toBe("1");
     expect(list?.dataset.color).toBe("gray");
     expect(list?.dataset.highContrast).toBe("");
     expect(list?.dataset.justify).toBe("center");
@@ -83,9 +83,9 @@ describe("Tab Nav part", () => {
   });
 
   it("refuses a size it doesn't have", () => {
-    const props = { size: "2" } as unknown as TabNavProps;
+    const props = { size: "3" } as unknown as TabNavProps;
     expect(() => render(<Example {...props} />)).toThrow(
-      /size="2" is not one of/,
+      /size="3" is not one of/,
     );
   });
 

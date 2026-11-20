@@ -3,7 +3,7 @@
  *
  *   <div class="tabs" data-orientation>                  Base UI Tabs.Root
  *     <div class="tabs-list" role="tablist"              Tabs.List
- *          data-size="3|4" data-justify="start|center|end"
+ *          data-size="1|2" data-justify="start|center|end"
  *          data-wrap="nowrap|wrap|wrap-reverse"
  *          [data-color="accent|gray|danger|warning|success|info"]
  *          [data-high-contrast] data-orientation>
@@ -38,6 +38,7 @@
   :is(.tabs-list, .tab-nav-list) {
     --tabs-tab-height: var(--control-height-4);
     --tabs-tab-tint-height: var(--control-height-3);
+    --tabs-tab-padding-x: var(--control-padding-x-3);
     --tabs-tab-icon-size: var(--control-icon-size-3);
     position: relative;
     display: flex;
@@ -53,9 +54,10 @@
     display: none;
   }
 
-  :is(.tabs-list, .tab-nav-list)[data-size="3"] {
+  :is(.tabs-list, .tab-nav-list)[data-size="1"] {
     --tabs-tab-height: var(--control-height-3);
     --tabs-tab-tint-height: var(--control-height-2);
+    --tabs-tab-padding-x: var(--control-padding-x-2);
     --tabs-tab-icon-size: var(--control-icon-size-2);
   }
 
@@ -89,8 +91,10 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
+    gap: var(--control-gap);
     box-sizing: border-box;
     height: var(--tabs-tab-height);
+    padding: 0 calc(var(--tabs-tab-padding-x) + var(--control-padding-x-1));
     border: 0;
     background-color: transparent;
     color: var(--gray-text);

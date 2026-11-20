@@ -43,14 +43,17 @@
     --control-line-height: var(--control-line-height-3);
     --_height: var(--control-height-3);
     --_icon: var(--control-icon-size-3);
+    --_padding: var(--control-padding-x-3);
 
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: var(--space-2);
     box-sizing: border-box;
     width: 100%;
     height: var(--_height);
     margin: 0;
+    padding: 0 var(--_padding);
     border: 0;
     border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
@@ -73,6 +76,7 @@
     --control-line-height: var(--control-line-height-1);
     --_height: var(--control-height-1);
     --_icon: var(--control-icon-size-1);
+    --_padding: var(--control-padding-x-2);
   }
 
   .select-trigger[data-size="2"] {
@@ -87,6 +91,7 @@
     --control-line-height: var(--control-line-height-4);
     --_height: var(--control-height-4);
     --_icon: var(--control-icon-size-4);
+    --_padding: var(--control-padding-x-4);
   }
 
   .select-trigger[data-variant="surface"] {

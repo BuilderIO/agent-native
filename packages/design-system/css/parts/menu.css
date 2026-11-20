@@ -104,7 +104,7 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--control-gap);
     box-sizing: border-box;
     min-height: var(--_row-height);
     padding: 0 var(--space-2);
@@ -135,27 +135,9 @@
     --_icon-size: var(--control-icon-size-2);
   }
 
-  /* The leading column: the glyph's inset, one icon wide, then the gap. */
+  /* The leading column: one icon wide, then the row gap. */
   .menu-popup:has(.menu-item-leading) {
-    --_leading-column: calc(var(--_icon-size) + 2 * var(--space-1));
-  }
-
-  :is(
-    .menu-item,
-    .menu-checkbox-item,
-    .menu-radio-item,
-    .menu-submenu-trigger
-  ):has(> .menu-item-leading) {
-    padding-inline-start: var(--space-1);
-  }
-
-  :is(
-    .menu-item,
-    .menu-checkbox-item,
-    .menu-radio-item,
-    .menu-submenu-trigger
-  ):has(> .menu-item-trailing > svg:last-child) {
-    padding-inline-end: var(--space-1);
+    --_leading-column: calc(var(--_icon-size) + var(--control-gap));
   }
 
   /* A row without a leading element starts where the labels start. */
@@ -166,11 +148,11 @@
       .menu-radio-item,
       .menu-submenu-trigger
     ):not(:has(> .menu-item-leading)) {
-    padding-inline-start: var(--_leading-column);
+    padding-inline-start: calc(var(--space-2) + var(--_leading-column));
   }
 
   .menu-popup:has(.menu-item-leading) .menu-group-label {
-    padding-inline-start: var(--_leading-column);
+    padding-inline-start: calc(var(--space-2) + var(--_leading-column));
   }
 
   /* ---- color ---- */

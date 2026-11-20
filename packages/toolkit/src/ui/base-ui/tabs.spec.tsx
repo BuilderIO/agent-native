@@ -62,7 +62,7 @@ describe("Tabs part", () => {
   it("writes the list's size, justify and wrap, size 2 by default, inheriting its color", () => {
     render(<Example />);
     const list = screen.getByRole("tablist");
-    expect(list.dataset.size).toBe("4");
+    expect(list.dataset.size).toBe("2");
     expect(list.dataset.justify).toBe("start");
     expect(list.dataset.wrap).toBe("nowrap");
     expect(list.dataset.color).toBeUndefined();
@@ -73,7 +73,7 @@ describe("Tabs part", () => {
     render(
       <Tabs defaultValue="a">
         <TabsList
-          size="3"
+          size="1"
           color="gray"
           highContrast
           justify="center"
@@ -84,7 +84,7 @@ describe("Tabs part", () => {
       </Tabs>,
     );
     const list = screen.getByRole("tablist");
-    expect(list.dataset.size).toBe("3");
+    expect(list.dataset.size).toBe("1");
     expect(list.dataset.color).toBe("gray");
     expect(list.dataset.highContrast).toBe("");
     expect(list.dataset.justify).toBe("center");
@@ -92,7 +92,7 @@ describe("Tabs part", () => {
   });
 
   it("refuses a size it doesn't have instead of drawing the default", () => {
-    const props = { size: "2" } as unknown as TabsListProps;
+    const props = { size: "3" } as unknown as TabsListProps;
     expect(() =>
       render(
         <Tabs defaultValue="a">
@@ -101,7 +101,7 @@ describe("Tabs part", () => {
           </TabsList>
         </Tabs>,
       ),
-    ).toThrow(/size="2" is not one of/);
+    ).toThrow(/size="3" is not one of/);
   });
 
   it("underlines the active tab with Base UI's indicator", () => {

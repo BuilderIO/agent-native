@@ -2,7 +2,6 @@ import { type ToggleOwnProps, toggleProps } from "@agent-native/design-system";
 import { Toggle as BaseToggle } from "@base-ui/react/toggle";
 import * as React from "react";
 
-import { labelText } from "./label-text.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 import { toggleGroupItemProps } from "./toggle-group.js";
@@ -19,7 +18,7 @@ export interface ToggleProps
  */
 const Toggle = React.forwardRef<HTMLButtonElement, ToggleProps>(
   (props, ref) => {
-    const [attributes, { className, children, ...rest }] = splitProps(
+    const [attributes, { className, ...rest }] = splitProps(
       toggleProps,
       toggleGroupItemProps.useGroupProps(props),
     );
@@ -29,9 +28,7 @@ const Toggle = React.forwardRef<HTMLButtonElement, ToggleProps>(
         {...rest}
         {...attributes}
         className={partClassName("toggle", className)}
-      >
-        {labelText(children)}
-      </BaseToggle>
+      />
     );
   },
 );

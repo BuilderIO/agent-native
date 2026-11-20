@@ -2,7 +2,6 @@ import { type TabNavOwnProps, tabNavProps } from "@agent-native/design-system";
 import { NavigationMenu as BaseNavigationMenu } from "@base-ui/react/navigation-menu";
 import * as React from "react";
 
-import { labelText } from "./label-text.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
@@ -45,15 +44,13 @@ export type TabNavLinkProps = BaseNavigationMenu.Link.Props;
  * @import import { TabNavLink } from "@agent-native/toolkit/ui/base-ui/tab-nav";
  */
 const TabNavLink = React.forwardRef<HTMLAnchorElement, TabNavLinkProps>(
-  ({ className, children, ...props }, ref) => (
+  ({ className, ...props }, ref) => (
     <BaseNavigationMenu.Item className="tab-nav-item">
       <BaseNavigationMenu.Link
         ref={ref}
         {...props}
         className={partClassName("tab-nav-link", className)}
-      >
-        {labelText(children)}
-      </BaseNavigationMenu.Link>
+      />
     </BaseNavigationMenu.Item>
   ),
 );

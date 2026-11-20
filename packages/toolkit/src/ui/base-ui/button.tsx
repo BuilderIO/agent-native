@@ -11,7 +11,6 @@ import { useRender } from "@base-ui/react/use-render";
 import * as React from "react";
 
 import { cn } from "../../utils.js";
-import { labelText } from "./label-text.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 import { Spinner, type SpinnerProps } from "./spinner.js";
@@ -64,7 +63,7 @@ function createButton(part: "button" | "icon-button", displayName: string) {
           {loading ? (
             <>
               <span className="button-content" aria-hidden>
-                {labelText(children)}
+                {children}
               </span>
               <VisuallyHidden>{children}</VisuallyHidden>
               <span className="button-spinner">
@@ -72,7 +71,7 @@ function createButton(part: "button" | "icon-button", displayName: string) {
               </span>
             </>
           ) : (
-            labelText(children)
+            children
           )}
         </BaseButton>
       );
@@ -84,7 +83,7 @@ function createButton(part: "button" | "icon-button", displayName: string) {
 
 function createButtonLink(part: "button" | "icon-button", displayName: string) {
   const component = React.forwardRef<HTMLAnchorElement, ButtonLinkProps>(
-    ({ render, className, children, ...props }, ref) => {
+    ({ render, className, ...props }, ref) => {
       const [attributes, rest] = splitProps(buttonLinkProps, props);
       return useRender({
         defaultTagName: "a",
@@ -92,7 +91,6 @@ function createButtonLink(part: "button" | "icon-button", displayName: string) {
         ref,
         props: mergeProps<"a">(rest, attributes, {
           className: cn(part, className),
-          children: labelText(children),
         }),
       });
     },

@@ -63,14 +63,6 @@ After editing anything under `src/`, run `pnpm --filter @agent-native/design-sys
   `--radius-card` and friends for their own values.
 - Base UI's Button defaults `type="button"`; toolkit passes `type` through so
   an untyped Button still submits its form. Keep that for every button-like part.
-- Insets follow one rule, in `css/control-insets.css`, from the spacing
-  tokens: text at an edge sits `--control-padding-x-N` from it; a glyph at an
-  edge sits `--space-1` from it and from its label (`--space-2` at size 4).
-  Never add a token or custom property for a value the spacing scale has. A
-  control part never sets its own `padding-inline` or `gap`; it joins that
-  file's selector lists, takes its size on itself or its container, and wraps
-  text with `labelText`. Add the part to the `Foundations/Control insets`
-  probe; its play function measures every probe and fails CI on any drift.
 - Choose the element by what it does: a link goes somewhere, a button does
   something. A link that looks like a button is `ButtonLink` or
   `IconButtonLink`, an `<a href>` with Button's look (a router link through

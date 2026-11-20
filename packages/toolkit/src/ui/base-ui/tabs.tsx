@@ -5,7 +5,6 @@ import {
 import { Tabs as BaseTabs } from "@base-ui/react/tabs";
 import * as React from "react";
 
-import { labelText } from "./label-text.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
@@ -66,14 +65,12 @@ export type TabsTabProps = BaseTabs.Tab.Props;
  * @import import { TabsTab } from "@agent-native/toolkit/ui/base-ui/tabs";
  */
 const TabsTab = React.forwardRef<HTMLButtonElement, TabsTabProps>(
-  ({ className, children, ...props }, ref) => (
+  ({ className, ...props }, ref) => (
     <BaseTabs.Tab
       ref={ref}
       className={partClassName("tabs-tab", className)}
       {...props}
-    >
-      {labelText(children)}
-    </BaseTabs.Tab>
+    />
   ),
 );
 TabsTab.displayName = "TabsTab";

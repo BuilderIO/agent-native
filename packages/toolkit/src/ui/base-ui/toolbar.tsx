@@ -5,7 +5,6 @@ import {
 import { Toolbar as BaseToolbar } from "@base-ui/react/toolbar";
 import * as React from "react";
 
-import { labelText } from "./label-text.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
@@ -58,14 +57,12 @@ export type ToolbarButtonProps = BaseToolbar.Button.Props;
  * @import import { ToolbarButton } from "@agent-native/toolkit/ui/base-ui/toolbar";
  */
 const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonProps>(
-  ({ className, children, ...props }, ref) => (
+  ({ className, ...props }, ref) => (
     <BaseToolbar.Button
       ref={ref}
       className={partClassName("toolbar-button", className)}
       {...props}
-    >
-      {labelText(children)}
-    </BaseToolbar.Button>
+    />
   ),
 );
 ToolbarButton.displayName = "ToolbarButton";
@@ -78,14 +75,12 @@ export type ToolbarLinkProps = BaseToolbar.Link.Props;
  * @import import { ToolbarLink } from "@agent-native/toolkit/ui/base-ui/toolbar";
  */
 const ToolbarLink = React.forwardRef<HTMLAnchorElement, ToolbarLinkProps>(
-  ({ className, children, ...props }, ref) => (
+  ({ className, ...props }, ref) => (
     <BaseToolbar.Link
       ref={ref}
       className={partClassName("toolbar-link", className)}
       {...props}
-    >
-      {labelText(children)}
-    </BaseToolbar.Link>
+    />
   ),
 );
 ToolbarLink.displayName = "ToolbarLink";
