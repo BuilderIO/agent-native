@@ -73,9 +73,11 @@ export interface WorkspaceConnectionProvider {
     tokenUrl: string;
     refreshUrl?: string;
     scopes: readonly string[];
-    // A connection holding these counts as connected; defaults to `scopes`.
-    // A scope added to `scopes` later for one feature must stay out of this
-    // list, or every connection made before it turns needs_reauth at once.
+    /**
+     * Scopes a connection must hold to count as connected. Defaults to
+     * `scopes`. Leave out a scope added to `scopes` later for one feature, or
+     * every connection made before it becomes `needs_reauth`.
+     */
     requiredScopes?: readonly string[];
   };
 }
