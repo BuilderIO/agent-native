@@ -1951,7 +1951,7 @@ describe("AgentJobsTab organization automations", () => {
     },
   );
 
-  it("does not overwrite a same-field authoritative read with a later write response", async () => {
+  it("does not overwrite a read of a concurrently committed edit with an older response", async () => {
     const actual =
       await vi.importActual<typeof import("./use-jobs.js")>("./use-jobs.js");
     const job =
@@ -1966,13 +1966,13 @@ describe("AgentJobsTab organization automations", () => {
       { scope: "organization" },
     ] as const;
     client.setQueryData(key, [job]);
-    let resolveWrite: ((response: Response) => void) | undefined;
+    const writes: Array<(response: Response) => void> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         if (String(input).includes("manage-recurring-job"))
           return new Promise<Response>((resolve) => {
-            resolveWrite = resolve;
+            writes.push(resolve);
           });
         return Promise.reject(new Error("Read unavailable"));
       }),
@@ -1980,6 +1980,7 @@ describe("AgentJobsTab organization automations", () => {
     function Controls() {
       const jobs = actual.useRecurringJobs("org");
       const mutation = actual.useManageRecurringJob("org");
+      const concurrent = actual.useManageRecurringJob("org");
       return (
         <>
           <output data-jobs={JSON.stringify(jobs.data)} />
@@ -1994,6 +1995,17 @@ describe("AgentJobsTab organization automations", () => {
           >
             Update
           </button>
+          <button
+            onClick={() =>
+              concurrent.mutate({
+                operation: "update",
+                resourceId: job.id,
+                schedule: "0 7 * * *",
+              })
+            }
+          >
+            Concurrent update
+          </button>
         </>
       );
     }
@@ -2004,11 +2016,31 @@ describe("AgentJobsTab organization automations", () => {
         </QueryClientProvider>,
       ),
     );
-    const button = container.querySelector("button");
-    if (!button) throw new Error("Missing control");
+    const buttons = container.querySelectorAll("button");
     await act(async () => {
-      button.click();
-      await vi.waitFor(() => expect(resolveWrite).toBeDefined());
+      buttons[0].click();
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
+      buttons[1].click();
+      await vi.waitFor(() => expect(writes).toHaveLength(2));
+      const later = writes.at(1);
+      if (!later) throw new Error("Concurrent write did not start");
+      later(
+        new Response(
+          JSON.stringify({
+            resourceId: job.id,
+            name: job.name,
+            enabled: true,
+            nextRun: "2026-02-01T07:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(client.getMutationCache().getAll().at(1)?.state.status).toBe(
+          "success",
+        ),
+      );
+      await client.cancelQueries({ queryKey: key });
       let firstRead = true;
       await client.fetchQuery({
         queryKey: key,
@@ -2027,7 +2059,7 @@ describe("AgentJobsTab organization automations", () => {
         staleTime: 0,
       });
     });
-    const finish = resolveWrite;
+    const finish = writes.at(0);
     if (!finish) throw new Error("Write did not start");
     await act(async () => {
       finish(
@@ -2059,6 +2091,195 @@ describe("AgentJobsTab organization automations", () => {
         },
       ]),
     );
+    client.clear();
+  });
+
+  it("keeps a successful enable after an older list read and a failed refresh", async () => {
+    const actual =
+      await vi.importActual<typeof import("./use-jobs.js")>("./use-jobs.js");
+    const job =
+      jobMocks.useRecurringJobs.getMockImplementation()?.("org").data[0];
+    const automation =
+      jobMocks.useAutomations.getMockImplementation()?.("org").data[0];
+    if (!job || !automation) throw new Error("Job fixtures are not configured");
+    const client = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const jobsKey = [
+      "action",
+      "list-recurring-jobs",
+      { scope: "organization" },
+    ] as const;
+    const automationsKey = [
+      "action",
+      "list-automations",
+      { scope: "organization" },
+    ] as const;
+    const paused = {
+      ...job,
+      enabled: false,
+      lastStatus: "paused",
+      lastError: "Pause reason",
+    };
+    const matching = {
+      ...automation,
+      id: job.id,
+      resourceId: job.id,
+      name: job.name,
+      enabled: false,
+      lastStatus: "paused",
+      lastError: "Pause reason",
+    };
+    const otherJob = { ...job, id: "other", name: "other-job" };
+    const otherAutomation = {
+      ...matching,
+      id: "other",
+      resourceId: "other",
+      name: "other-job",
+      enabled: true,
+    };
+    client.setQueryData(jobsKey, [paused, otherJob]);
+    client.setQueryData(automationsKey, [matching, otherAutomation]);
+    let finishWrite: ((response: Response) => void) | undefined;
+    let finishRead: ((value: (typeof paused)[]) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (
+          init?.method === "POST" &&
+          String(input).includes("manage-recurring-job")
+        ) {
+          return new Promise<Response>((resolve) => {
+            finishWrite = resolve;
+          });
+        }
+        return Promise.reject(new Error("Refresh unavailable"));
+      }),
+    );
+    function Controls() {
+      const jobs = actual.useRecurringJobs("org");
+      const automations = actual.useAutomations("org");
+      const mutation = actual.useManageRecurringJob("org");
+      return (
+        <>
+          <output
+            data-jobs={JSON.stringify(jobs.data)}
+            data-automations={JSON.stringify(automations.data)}
+            data-error={Boolean(jobs.error || automations.error)}
+          />
+          <button
+            onClick={() =>
+              mutation.mutate({
+                operation: "update",
+                resourceId: job.id,
+                enabled: true,
+              })
+            }
+          >
+            Enable
+          </button>
+        </>
+      );
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <Controls />
+        </QueryClientProvider>,
+      ),
+    );
+    let initialRead: Promise<(typeof paused)[]> | undefined;
+    let firstRead = true;
+    await act(async () => {
+      initialRead = client.fetchQuery({
+        queryKey: jobsKey,
+        staleTime: 0,
+        queryFn: () => {
+          if (!firstRead)
+            return Promise.reject(new Error("Refresh unavailable"));
+          firstRead = false;
+          return new Promise<(typeof paused)[]>((resolve) => {
+            finishRead = resolve;
+          });
+        },
+      });
+      await vi.waitFor(() => expect(finishRead).toBeDefined());
+    });
+    const button = container.querySelector("button");
+    if (!button) throw new Error("Missing enable button");
+    await act(async () => {
+      button.click();
+      await vi.waitFor(() => expect(finishWrite).toBeDefined());
+    });
+    const output = container.querySelector("output");
+    if (!output || !finishRead || !initialRead || !finishWrite)
+      throw new Error("Pending requests did not start");
+    const resolveRead = finishRead;
+    const resolveWrite = finishWrite;
+    await vi.waitFor(() =>
+      expect(JSON.parse(output.dataset.jobs ?? "null")[0].enabled).toBe(true),
+    );
+    const savedOther = { ...otherAutomation, name: "changed-elsewhere" };
+    await act(async () => {
+      client.setQueryData(automationsKey, [matching, savedOther]);
+      resolveRead([paused, otherJob]);
+      await initialRead;
+    });
+    expect(JSON.parse(output.dataset.jobs ?? "null")[0].enabled).toBe(true);
+    await act(async () => {
+      resolveWrite(
+        new Response(
+          JSON.stringify({
+            resourceId: job.id,
+            name: job.name,
+            enabled: true,
+            nextRun: "2026-01-04T08:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(client.getMutationCache().getAll().at(0)?.state.status).toBe(
+          "success",
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(
+          Boolean(
+            client.getQueryState(jobsKey)?.error ||
+            client.getQueryState(automationsKey)?.error,
+          ),
+        ).toBe(true),
+      );
+    });
+    await vi.waitFor(() => expect(output.dataset.error).toBe("true"));
+    const savedJob = {
+      ...paused,
+      enabled: true,
+      lastStatus: null,
+      lastError: null,
+      nextRun: "2026-01-04T08:00:00Z",
+    };
+    const savedAutomation = {
+      ...matching,
+      enabled: true,
+      lastStatus: null,
+      lastError: null,
+      nextRun: "2026-01-04T08:00:00Z",
+    };
+    expect(JSON.parse(output.dataset.jobs ?? "null")).toEqual([
+      savedJob,
+      otherJob,
+    ]);
+    expect(JSON.parse(output.dataset.automations ?? "null")).toEqual([
+      savedAutomation,
+      savedOther,
+    ]);
+    expect(client.getQueryData(jobsKey)).toEqual([savedJob, otherJob]);
+    expect(client.getQueryData(automationsKey)).toEqual([
+      savedAutomation,
+      savedOther,
+    ]);
     client.clear();
   });
 

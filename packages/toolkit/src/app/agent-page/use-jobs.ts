@@ -293,7 +293,6 @@ type RecurringMutation = {
   locator: ManageJobInput;
   conflictingFields: Set<RecurringField>;
   schedulingAmbiguous: boolean;
-  stopTracking?: () => void;
 };
 
 const recurringMutations = new WeakMap<QueryClient, Set<RecurringMutation>>();
@@ -353,30 +352,6 @@ function beginRecurringMutation(
     }
   }
   active.add(mutation);
-  mutation.stopTracking = client.getQueryCache().subscribe((event) => {
-    if (
-      event.type !== "updated" ||
-      event.action.type !== "success" ||
-      event.action.manual ||
-      event.query.queryKey[0] !== "action" ||
-      (event.query.queryKey[1] !== "list-recurring-jobs" &&
-        event.query.queryKey[1] !== "list-automations") ||
-      variables.operation !== "update"
-    )
-      return;
-    const data = event.query.state.data as
-      | (RecurringJob | Automation)[]
-      | undefined;
-    if (
-      !Array.isArray(data) ||
-      !data.some((item) => matchesLocator(item, variables))
-    )
-      return;
-    for (const field of ["enabled", "schedule", "timezone"] as const) {
-      if (variables[field] !== undefined) mutation.conflictingFields.add(field);
-    }
-    mutation.schedulingAmbiguous = true;
-  });
   return mutation;
 }
 
@@ -563,9 +538,9 @@ export function useManageRecurringJob(scope: JobsScope) {
     },
     onSettled: (_data, _error, _variables, context) => {
       if (context) {
-        const mutation = context as RecurringMutation;
-        mutation.stopTracking?.();
-        recurringMutations.get(queryClient)?.delete(mutation);
+        recurringMutations
+          .get(queryClient)
+          ?.delete(context as RecurringMutation);
       }
     },
   });
