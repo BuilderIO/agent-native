@@ -90,6 +90,12 @@ function screen(overrides: Partial<DesignScreenData> = {}): DesignScreenData {
   };
 }
 
+const PICTURE_ALT = `designScreen.pictureAlt ${JSON.stringify({
+  screen: "Pay",
+  design: "Checkout",
+  width: 390,
+})}`;
+
 function status(fingerprint: string | null, openComments = 0) {
   return {
     designs: [
@@ -163,7 +169,7 @@ afterEach(() => {
 });
 
 describe("DesignScreen for readers", () => {
-  it("shows the picture from the page's private images, described for screen readers", () => {
+  it("shows the picture from the page's private images, described for screen readers in their language", () => {
     renderRead(screen());
     const figure = defined(container.querySelector("figure"));
     const titleId = defined(figure.getAttribute("aria-labelledby"));
@@ -172,7 +178,7 @@ describe("DesignScreen for readers", () => {
     expect(image.getAttribute("src")).toContain(
       `/api/private-media/${MEDIA_ID}`,
     );
-    expect(image.getAttribute("alt")).toBe(screen().image.alt);
+    expect(image.getAttribute("alt")).toBe(PICTURE_ALT);
     expect(image.getAttribute("width")).toBe("780");
     expect(image.getAttribute("height")).toBe("1688");
   });
@@ -261,7 +267,7 @@ describe("DesignScreen for readers", () => {
     });
     expect(container.querySelector("img")).toBeNull();
     const fallback = defined(container.querySelector('[role="img"]'));
-    expect(fallback.getAttribute("aria-label")).toBe(screen().image.alt);
+    expect(fallback.getAttribute("aria-label")).toBe(PICTURE_ALT);
     expect(fallback.textContent).toBe("designScreen.imageFailed");
   });
 
@@ -413,4 +419,26 @@ describe("DesignScreen for editors", () => {
       description: "designScreen.errorTooLarge",
     });
   });
+
+  it.each([
+    [
+      "design_screen_storage_unavailable",
+      "designScreen.errorStorageUnavailable",
+    ],
+    ["design_screen_image_invalid", "designScreen.errorUnreadableAnswer"],
+  ])(
+    "says in the page's words when Content couldn't keep the picture (%s)",
+    async (errorCode, message) => {
+      hooks.callAction.mockRejectedValue(
+        Object.assign(new Error("Private media storage isn't set up."), {
+          errorCode,
+        }),
+      );
+      renderEdit(screen());
+      await act(async () => defined(refreshButton()).click());
+      expect(toasts.error).toHaveBeenCalledWith("designScreen.refreshFailed", {
+        description: message,
+      });
+    },
+  );
 });

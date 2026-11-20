@@ -57,9 +57,11 @@ function UnreadableScreen() {
 
 function ScreenPicture({
   image,
+  alt,
   screenWidth,
 }: {
   image: DesignScreenData["image"];
+  alt: string;
   screenWidth: number;
 }) {
   const t = useT();
@@ -71,7 +73,7 @@ function ScreenPicture({
     return (
       <div
         role="img"
-        aria-label={image.alt}
+        aria-label={alt}
         className="rounded-md bg-muted p-4 text-sm text-muted-foreground"
       >
         {t("designScreen.imageFailed")}
@@ -93,7 +95,7 @@ function ScreenPicture({
       >
         <img
           src={src}
-          alt={image.alt}
+          alt={alt}
           width={image.width}
           height={image.height}
           loading="lazy"
@@ -107,7 +109,7 @@ function ScreenPicture({
         open={expanded}
         onOpenChange={setExpanded}
         src={src}
-        alt={image.alt}
+        alt={alt}
         returnFocus={opener}
       />
     </>
@@ -192,6 +194,11 @@ function DesignScreenView({
       <ScreenPicture
         key={data.image.src}
         image={data.image}
+        alt={t("designScreen.pictureAlt", {
+          screen: data.screen.name,
+          design: data.design.title,
+          width: data.screen.width,
+        })}
         screenWidth={data.screen.width}
       />
     </SourceEmbedFrame>

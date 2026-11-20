@@ -7,6 +7,8 @@ const MESSAGE_FOR_CODE = new Map([
   ["design_screen_wider_than_design", "designScreen.errorPublicPage"],
   ["design_screen_page_moved", "designScreen.errorPageMoved"],
   ["design_invalid_response", "designScreen.errorUnreadableAnswer"],
+  ["design_screen_image_invalid", "designScreen.errorUnreadableAnswer"],
+  ["design_screen_storage_unavailable", "designScreen.errorStorageUnavailable"],
 ]);
 
 const MESSAGE_FOR_DESIGN_CODE = new Map([
