@@ -892,6 +892,40 @@ describe("Brain semantic capture hits", () => {
     expect(rows[0]?.content).toBeTruthy();
   });
 
+  it("reports manual transcript withholding on semantic hits", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+    });
+    seedSemanticCapture({
+      id: "capture-semantic-manual",
+      sourceId: "source-manual",
+      metadata: {
+        passageQuarantine: { version: 1, withheldPassages: 2 },
+        sourceUrl: "https://example.test/private-transcript",
+        meetingTopic: "https://example.test/private-transcript",
+      },
+    });
+    const capture = mocks.rows.captures.find(
+      (row) => row.id === "capture-semantic-manual",
+    );
+    if (!capture) throw new Error("missing test capture");
+    capture.kind = "transcript";
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows).toMatchObject([
+      {
+        id: "capture-semantic-manual",
+        withheldPassages: 2,
+        sourceUrl: null,
+        location: null,
+      },
+    ]);
+  });
+
   it("does not enrich semantic hits whose capture is outside the allowed scope", async () => {
     seedSemanticCapture({
       id: "capture-semantic-blocked",

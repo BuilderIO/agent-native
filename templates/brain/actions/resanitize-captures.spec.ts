@@ -146,6 +146,77 @@ describe("resanitize-captures", () => {
     });
   });
 
+  it("reports the real sanitizer method when rescreening a partial transcript", async () => {
+    const actual = await vi.importActual<
+      typeof import("../server/lib/capture-sanitization.js")
+    >("../server/lib/capture-sanitization.js");
+    const { DEFAULT_BRAIN_SETTINGS } = await import("../shared/types.js");
+    mocks.getAccessibleCapture.mockResolvedValue({
+      capture: {
+        ...capture,
+        content: "Decision: ship the API.\n[…]\nRoadmap launch is ready.",
+        metadataJson: JSON.stringify({
+          passageQuarantine: { version: 1, withheldPassages: 1 },
+        }),
+      },
+      source,
+      role: "editor",
+    });
+    mocks.sanitizeCaptureForStorage.mockImplementationOnce((input) =>
+      actual.sanitizeCaptureForStorage({
+        ...input,
+        settings: {
+          ...DEFAULT_BRAIN_SETTINGS,
+          privacyClassifier: "deterministic",
+        },
+      }),
+    );
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: true,
+      includeNonTranscript: false,
+      allowCitationDrift: false,
+    });
+    expect(result.results[0]).toMatchObject({
+      method: "deterministic",
+      rawContentRetained: false,
+    });
+  });
+
+  it("does not return the original locator for partial transcripts", async () => {
+    const metadata = {
+      passageQuarantine: { version: 1, withheldPassages: 1 },
+      captureSanitization: { method: "jev" },
+    };
+    mocks.getAccessibleCapture.mockResolvedValue({
+      capture: {
+        ...capture,
+        externalId: "https://example.test/full-transcript",
+        metadataJson: JSON.stringify(metadata),
+      },
+      source,
+      role: "editor",
+    });
+    mocks.sanitizeCaptureForStorage.mockResolvedValue({
+      title: capture.title,
+      content: "Safe excerpt.",
+      metadata,
+      decision: { disposition: "allowed", policyVersion: "policy-v2" },
+    });
+    const result = await action.run({
+      captureIds: [capture.id],
+      limit: 25,
+      dryRun: true,
+      includeNonTranscript: false,
+      allowCitationDrift: false,
+    });
+    expect(result.results[0]).toMatchObject({
+      externalId: null,
+      method: "jev",
+    });
+  });
+
   it("does not rewrite or invalidate cited data by default when sanitization changes content", async () => {
     mocks.sanitizeCaptureForStorage.mockResolvedValue({
       title: capture.title,

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getAccessibleCapture, serializeCapture } from "../server/lib/brain.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  withheldPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import {
   redactSensitiveText,
@@ -40,9 +40,10 @@ export default defineAction({
     if (!access) return { capture: null };
     const capture = {
       ...serializeCapture(access.capture),
-      withheldPassages: withheldZoomPassageCount(
+      withheldPassages: withheldPassageCount(
         parseCaptureMetadata(access.capture.metadataJson),
         access.source.provider,
+        access.capture.kind,
       ),
     };
     if (includeRawContent) {

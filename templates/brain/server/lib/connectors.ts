@@ -36,6 +36,10 @@ import {
 } from "./google-sources.js";
 import { resolveMeetingMemberEmails } from "./meeting-audience.js";
 import {
+  parseCaptureMetadata,
+  publicCaptureMetadata,
+} from "./search-index-contracts.js";
+import {
   ensureSlackPublicChannelMembership,
   type SlackChannelJoinResponse,
 } from "./slack-channel-membership.js";
@@ -446,7 +450,11 @@ function transcriptItems(config: Record<string, unknown>) {
   return raw
     .map((item) => {
       if (typeof item === "string") {
-        return { title: "Imported capture", content: item };
+        return {
+          title: "Imported capture",
+          content: item,
+          kind: "transcript" as const,
+        };
       }
       if (!item || typeof item !== "object") return null;
       const record = item as Record<string, unknown>;
@@ -1999,9 +2007,8 @@ async function githubRefsFromLinkedSources(
 
     for (const capture of captures) {
       if (refsByKey.size >= options.refLimit) break;
-      const metadata = parseJson<Record<string, unknown>>(
-        capture.metadataJson,
-        {},
+      const metadata = publicCaptureMetadata(
+        parseCaptureMetadata(capture.metadataJson),
       );
       const linkedFrom = {
         sourceId,

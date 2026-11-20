@@ -1403,6 +1403,94 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("hides partial capture external IDs on list and raw or redacted reads without changing the stored locator", async () => {
+    seedSource();
+    const externalId = "https://example.test/private-transcript";
+    const stored = seedCapture({
+      kind: "transcript",
+      externalId,
+      metadataJson: JSON.stringify({
+        passageQuarantine: { version: 1, withheldPassages: 1 },
+        sourceUrl: externalId,
+        nested: { original: externalId },
+      }),
+    });
+    const list = await listCapturesAction.run({
+      sourceId: "source-1",
+      includePreview: false,
+      previewLength: 220,
+    });
+    expect(list.captures[0]).toMatchObject({
+      externalId: null,
+      sourceUrl: null,
+      withheldPassages: 1,
+    });
+    for (const includeRawContent of [false, true]) {
+      const result = await getCaptureAction.run({
+        id: "capture-1",
+        includeRawContent,
+      });
+      expect(result.capture).toMatchObject({
+        externalId: null,
+        withheldPassages: 1,
+        metadata: { passageQuarantine: { version: 1, withheldPassages: 1 } },
+      });
+      expect(JSON.stringify(result.capture?.metadata)).not.toContain(
+        externalId,
+      );
+    }
+    expect(stored.externalId).toBe(externalId);
+  });
+
+  it.each([
+    { id: "https://example.test/original", title: "Planning" },
+    { id: "source-1", title: "https://example.test/original" },
+  ])(
+    "blocks a restricted transcript without changing an unsafe source identity %#",
+    async (identity) => {
+      const source = seedSource(identity);
+      const before = { ...source };
+      await expect(
+        createCapture({
+          sourceId: identity.id,
+          title: "Planning",
+          kind: "transcript",
+          privacyClassifier: "deterministic",
+          content:
+            "Roadmap launch is ready.\nHer salary increase is approved.\nThe customer launch is Friday.",
+        }),
+      ).rejects.toBeInstanceOf(BrainCaptureBlockedError);
+      expect(mocks.rows.captures).toHaveLength(0);
+      expect(source).toEqual(before);
+    },
+  );
+
+  it("deduplicates partial transcripts using the internal external ID", async () => {
+    seedSource();
+    const input = {
+      sourceId: "source-1",
+      externalId: "https://example.test/private-transcript",
+      title: "Planning",
+      kind: "transcript" as const,
+      privacyClassifier: "deterministic" as const,
+      content:
+        "Roadmap launch is ready.\nProduct planning is on track.\nHer salary increase is approved.\nThe API project is next.\nThe customer launch is Friday.",
+    };
+    const first = await createCapture(input);
+    const second = await createCapture(input);
+    expect(second.id).toBe(first.id);
+    expect(mocks.rows.captures).toHaveLength(1);
+    expect(mocks.rows.captures[0]?.externalId).toBe(input.externalId);
+    const result = await getCaptureAction.run({
+      id: first.id,
+      includeRawContent: true,
+    });
+    expect(result.capture).toMatchObject({
+      externalId: null,
+      withheldPassages: 1,
+    });
+  });
+
   it("lists the requested capture even when another capture fills the limit", async () => {
     seedSource();
     seedCapture({ id: "other" });
@@ -2069,7 +2157,32 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
-  it("returns the raced-in capture when source/external unique insert conflicts", async () => {
+  it("does not report a competing same-path insert as the requested capture", async () => {
+    seedSource();
+    mocks.insertControls.error = Object.assign(new Error("insert failed"), {
+      code: "23505",
+    });
+    mocks.insertControls.beforeThrow = (_tableRef, row) => {
+      mocks.rows.captures.push({
+        ...row,
+        id: "competing-capture",
+        kind: "document",
+        content: "different content",
+      });
+    };
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning transcript",
+        kind: "transcript",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent|retry/i);
+  });
+
+  // oracle-change: a conflicting insert is not proof that this capture was saved.
+  it("rejects source/external unique insert conflicts for retry", async () => {
     seedSource();
     mocks.insertControls.error = new Error(
       "UNIQUE constraint failed: brain_raw_captures.source_id, brain_raw_captures.external_id",
@@ -2078,15 +2191,15 @@ describe("Brain knowledge quality gates", () => {
       mocks.rows.captures.push({ ...row, id: "capture-from-race" });
     };
 
-    const capture = await createCapture({
-      sourceId: "source-1",
-      externalId: "external-1",
-      title: "Planning note",
-      kind: "note",
-      content: "Decision: ship the beta on May 20.",
-    });
-
-    expect(capture.id).toBe("capture-from-race");
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning note",
+        kind: "note",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent.*retry/i);
     expect(mocks.rows.captures).toHaveLength(1);
   });
 
@@ -2099,15 +2212,15 @@ describe("Brain knowledge quality gates", () => {
       mocks.rows.captures.push({ ...row, id: "capture-from-postgres-race" });
     };
 
-    const capture = await createCapture({
-      sourceId: "source-1",
-      externalId: "external-1",
-      title: "Planning note",
-      kind: "note",
-      content: "Decision: ship the beta on May 20.",
-    });
-
-    expect(capture.id).toBe("capture-from-postgres-race");
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning note",
+        kind: "note",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent.*retry/i);
     expect(mocks.rows.captures).toHaveLength(1);
   });
 
@@ -5755,6 +5868,51 @@ describe("Brain connector smoke coverage", () => {
     expect(mocks.rows.captures).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("imports configured string items as transcript captures", async () => {
+    const source = seedSource({
+      id: "configured-string",
+      provider: "clips",
+      configJson: JSON.stringify({
+        transcripts: ["Decision: ship the product launch."],
+      }),
+    });
+    const result = await runConnectorSync(source as never);
+    expect(result.captures).toMatchObject([
+      { kind: "transcript", content: "Decision: ship the product launch." },
+    ]);
+  });
+
+  it.each([
+    "Roadmap launch.\nProduct planning.\npassword: fake-example\nAPI work.\nCustomer launch.",
+    {
+      title: "Planning",
+      kind: "transcript",
+      content:
+        "Roadmap launch.\nProduct planning.\npassword: fake-example\nAPI work.\nCustomer launch.",
+    },
+  ])(
+    "does not store a partial configured Clips transcript while its original remains in source config",
+    async (item) => {
+      const config = { transcripts: [item] };
+      const source = seedSource({
+        id: "clips-configured",
+        provider: "clips",
+        configJson: JSON.stringify(config),
+      });
+      const result = await runConnectorSync(source as never);
+      expect(result).toMatchObject({
+        status: "success",
+        capturesCreated: 0,
+        captures: [],
+      });
+      expect(mocks.rows.captures).toHaveLength(0);
+      expect(JSON.stringify(serializeSource(source as never).config)).toContain(
+        "password: fake-example",
+      );
+      expect(source.configJson).toBe(JSON.stringify(config));
+    },
+  );
 
   it("normalizes configured Granola notes into note captures with connector metadata", async () => {
     const fetchSpy = vi.fn();

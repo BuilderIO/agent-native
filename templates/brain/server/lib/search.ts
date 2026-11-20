@@ -23,7 +23,8 @@ import {
 } from "./hybrid-search.js";
 import {
   parseCaptureMetadata,
-  withheldZoomPassageCount,
+  publicCaptureMetadata,
+  withheldPassageCount,
 } from "./search-index-contracts.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
 import { sourceAnswerPolicyFromConfig } from "./source-policy.js";
@@ -378,7 +379,7 @@ export function sourceUrlFromMetadata(
   metadata: Record<string, unknown>,
 ): string | null {
   for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = safeCitationUrl(metadata[key]);
+    const value = safeCitationUrl(publicCaptureMetadata(metadata)[key]);
     if (value) return value;
   }
   return null;
@@ -394,10 +395,7 @@ function firstCitation(evidenceJson: string) {
 const CAPTURE_CONTENT_LIMIT = 4000;
 
 function captureMetadata(metadataJson: string | null): Record<string, unknown> {
-  const parsed = parseJson<unknown>(metadataJson, {});
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+  return publicCaptureMetadata(parseCaptureMetadata(metadataJson));
 }
 
 function captureLocation(metadata: Record<string, unknown>): string | null {
@@ -677,9 +675,10 @@ async function searchCaptureResults(
         capturedAt: row.capturedAt,
         location: captureLocation(metadata),
         content: captureContent(row.content),
-        withheldPassages: withheldZoomPassageCount(
+        withheldPassages: withheldPassageCount(
           parseCaptureMetadata(row.metadataJson),
           source.provider,
+          row.kind,
         ),
       },
     ];
@@ -749,7 +748,9 @@ async function searchSourceResults(
 async function semanticCaptureDetails(
   artifacts: Array<{ captureId: string; audienceId: string }>,
   accessibleSourceIds: string[],
-): Promise<Map<string, { content: string; metadataJson: string | null }>> {
+): Promise<
+  Map<string, { content: string; metadataJson: string | null; kind: string }>
+> {
   const captureIds = Array.from(
     new Set(artifacts.map((artifact) => artifact.captureId)),
   );
@@ -762,6 +763,7 @@ async function semanticCaptureDetails(
       id: schema.brainRawCaptures.id,
       content: schema.brainRawCaptures.content,
       metadataJson: schema.brainRawCaptures.metadataJson,
+      kind: schema.brainRawCaptures.kind,
     })
     .from(schema.brainRawCaptures)
     .where(
@@ -908,9 +910,10 @@ export async function searchEverythingWithLanes(args: {
                 capturedAt: artifact.capturedAt,
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
-                withheldPassages: withheldZoomPassageCount(
+                withheldPassages: withheldPassageCount(
                   parseCaptureMetadata(detail.metadataJson),
                   source.provider,
+                  detail.kind,
                 ),
               },
             ];

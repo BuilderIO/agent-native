@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   BrainCaptureBlockedError,
+  BrainCaptureConcurrentError,
   createCaptureWithWarnings,
   ensureManualSource,
   getAccessibleSource,
@@ -10,6 +11,10 @@ import {
 } from "../server/lib/brain.js";
 import { BrainClassifierUnavailableError } from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
+import {
+  parseCaptureMetadata,
+  withheldPassageCount,
+} from "../server/lib/search-index-contracts.js";
 import { documentImportFormat } from "../shared/document-import.js";
 import {
   SCREENING_UNAVAILABLE_CODE,
@@ -25,6 +30,8 @@ type ImportedMarkdownResult =
       path: string;
       status: "imported";
       captureId: string;
+      withheldPassages: number | null;
+      passageQuarantine?: { version: 1; withheldPassages: number | null };
       distillation: "queued" | "existing" | "skipped" | "failed";
       error?: string;
       postCommitWarnings?: string[];
@@ -86,6 +93,12 @@ export default defineAction({
       .optional()
       .describe("Manual source title to create/use when sourceId is omitted"),
     files: z.array(markdownFileSchema).min(1).max(MAX_MARKDOWN_FILES),
+    kind: z
+      .enum(["document", "transcript"])
+      .optional()
+      .describe(
+        "Treat every file as a document (default) or a meeting transcript; transcript passages may be withheld for privacy.",
+      ),
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
   run: async (args) => {
@@ -175,7 +188,7 @@ export default defineAction({
             sourceId: source.id,
             externalId: `markdown:${normalizedPath}`,
             title: normalizedPath,
-            kind: "document",
+            kind: args.kind ?? "document",
             content: file.input.content,
             metadata: {
               path: normalizedPath,
@@ -183,6 +196,9 @@ export default defineAction({
             },
           },
         );
+        if (capture.kind !== (args.kind ?? "document")) {
+          throw new BrainCaptureConcurrentError();
+        }
         let distillation: "queued" | "existing" | "skipped" | "failed" =
           "skipped";
         let distillationError: string | undefined;
@@ -200,10 +216,19 @@ export default defineAction({
               error instanceof Error ? error.message : String(error);
           }
         }
+        const withheldPassages = withheldPassageCount(
+          parseCaptureMetadata(capture.metadataJson),
+          source.provider,
+          capture.kind,
+        );
         importedResults.push({
           path: normalizedPath,
           status: "imported",
           captureId: capture.id,
+          withheldPassages,
+          ...(withheldPassages !== 0
+            ? { passageQuarantine: { version: 1 as const, withheldPassages } }
+            : {}),
           distillation,
           ...(postCommitWarnings ? { postCommitWarnings } : {}),
           ...(distillationError
@@ -218,6 +243,13 @@ export default defineAction({
             path: normalizedPath,
             status: "blocked",
             sensitivityReceipt: error.receipt,
+          });
+        } else if (error instanceof BrainCaptureConcurrentError) {
+          importedResults.push({
+            path: normalizedPath,
+            status: "failed",
+            error: error.message,
+            errorCode: "capture_concurrent",
           });
         } else if (error instanceof BrainClassifierUnavailableError) {
           importedResults.push({
