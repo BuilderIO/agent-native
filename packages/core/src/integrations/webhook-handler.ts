@@ -1240,9 +1240,14 @@ async function processIncomingMessage(
                 engineOption: effectiveEngineOption,
                 apiKey: effectiveApiKey.apiKey,
                 apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
-                apiKeyProvenance: effectiveApiKey.credentialProvenance,
+                ...(effectiveApiKey.apiKeyEngineBinding
+                  ? { apiKeyEngineBinding: effectiveApiKey.apiKeyEngineBinding }
+                  : {}),
+                ...(effectiveApiKey.credentialProvenance
+                  ? { apiKeyProvenance: effectiveApiKey.credentialProvenance }
+                  : {}),
                 model,
-                appId: options.appId,
+                ...(options.appId ? { appId: options.appId } : {}),
               });
               const modelCandidate =
                 (typeof incoming.platformContext.defaultModel === "string"

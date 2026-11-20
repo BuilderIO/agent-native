@@ -23,6 +23,7 @@ import {
   type AgentChatEvent,
   type AgentLoopFinalResponseGuard,
   type PersistAgentTurnToThreadInput,
+  type ResolvedOwnerApiKey,
 } from "@agent-native/core/server";
 import { recordUsage, type UsageRecord } from "@agent-native/core/usage";
 
@@ -169,13 +170,19 @@ type StructuredTurnResult =
 
 /** Everything the turn takes from outside, so a spec can script it. */
 export interface StructuredTurnDeps {
-  resolveEngine(input: {
-    owner: string;
-    orgId: string;
-  }): Promise<{ engine: AgentEngine; apiKey: string | undefined }>;
+  resolveEngine(input: { owner: string; orgId: string }): Promise<{
+    engine: AgentEngine;
+    apiKey: string | undefined;
+    ownerKey?: ResolvedOwnerApiKey;
+  }>;
   isEngineUsable(
     engine: AgentEngine,
-    input: { apiKey: string | undefined; owner: string; orgId: string },
+    input: {
+      apiKey: string | undefined;
+      owner: string;
+      orgId: string;
+      ownerKey?: ResolvedOwnerApiKey;
+    },
   ): Promise<boolean>;
   resolveModel(engine: AgentEngine): Promise<string>;
   runLoop(options: LoopOptions): Promise<LoopUsage>;
@@ -195,18 +202,20 @@ export const defaultStructuredTurnDeps: StructuredTurnDeps = {
     const ownerKey = await resolveOwnerEngineApiKey({ ownerEmail: owner });
     const engine = await resolveEngine({
       apiKey: ownerKey.apiKey,
-      apiKeyEnvVar: ownerKey.apiKey ? ownerKey.apiKeyEnvVar : undefined,
-      apiKeyProvenance: ownerKey.apiKey
-        ? ownerKey.credentialProvenance
-        : undefined,
+      apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+      apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+      apiKeyProvenance: ownerKey.credentialProvenance,
       appId: APP_ID,
       credentialIdentity: { userEmail: owner, orgId },
     });
-    return { engine, apiKey: ownerKey.apiKey };
+    return { engine, apiKey: ownerKey.apiKey, ownerKey };
   },
-  isEngineUsable: (engine, { apiKey, owner, orgId }) =>
+  isEngineUsable: (engine, { apiKey, owner, orgId, ownerKey }) =>
     isResolvedEngineUsableForRequest(engine, {
       apiKey,
+      apiKeyEnvVar: ownerKey?.apiKeyEnvVar,
+      apiKeyEngineBinding: ownerKey?.apiKeyEngineBinding,
+      apiKeyProvenance: ownerKey?.credentialProvenance,
       credentialIdentity: { userEmail: owner, orgId },
     }),
   async resolveModel(engine) {
@@ -731,10 +740,18 @@ async function executeTurn(
 
   let engine: AgentEngine;
   let apiKey: string | undefined;
+  let ownerKey: ResolvedOwnerApiKey | undefined;
   let model: string;
   try {
-    ({ engine, apiKey } = await deps.resolveEngine({ owner, orgId }));
-    if (!(await deps.isEngineUsable(engine, { apiKey, owner, orgId }))) {
+    ({ engine, apiKey, ownerKey } = await deps.resolveEngine({ owner, orgId }));
+    if (
+      !(await deps.isEngineUsable(engine, {
+        apiKey,
+        owner,
+        orgId,
+        ...(ownerKey ? { ownerKey } : {}),
+      }))
+    ) {
       return failed(
         "credentials",
         `No usable model credential for the "${engine.name}" engine for ${owner}. Connect a provider in Settings > Agent > AI providers, or ask a workspace admin to.`,

@@ -486,6 +486,8 @@ async function classifyWithApprovedModel(
   const engine = await core.resolveEngine({
     apiKey: userApiKey.apiKey,
     apiKeyEnvVar: userApiKey.apiKeyEnvVar,
+    apiKeyEngineBinding: userApiKey.apiKeyEngineBinding,
+    apiKeyProvenance: userApiKey.credentialProvenance,
     appId: "brain",
     engineOption: engineName,
     credentialIdentity: {
