@@ -2,7 +2,11 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useMutationState, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutationState,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import type {
@@ -281,6 +285,101 @@ function matchesLocator(
   return automation.name === locator.name && automation.scope === locator.scope;
 }
 
+type RecurringField = "enabled" | "schedule" | "timezone";
+
+type RecurringMutation = {
+  scope: JobsScope;
+  resourceId: string | undefined;
+  locator: ManageJobInput;
+  conflictingFields: Set<RecurringField>;
+  schedulingAmbiguous: boolean;
+  stopTracking?: () => void;
+};
+
+const recurringMutations = new WeakMap<QueryClient, Set<RecurringMutation>>();
+
+function beginRecurringMutation(
+  client: QueryClient,
+  scope: JobsScope,
+  variables: ManageJobInput,
+): RecurringMutation {
+  const resourceId =
+    "resourceId" in variables
+      ? variables.resourceId
+      : client
+          .getQueryData<RecurringJob[]>([
+            "action",
+            "list-recurring-jobs",
+            recurringParams(scope),
+          ])
+          ?.find((job) => matchesLocator(job, variables))?.id;
+  const mutation: RecurringMutation = {
+    scope,
+    resourceId,
+    locator: variables,
+    conflictingFields: new Set(),
+    schedulingAmbiguous: false,
+  };
+  let active = recurringMutations.get(client);
+  if (!active) {
+    active = new Set();
+    recurringMutations.set(client, active);
+  }
+  for (const other of active) {
+    const sameResource =
+      resourceId && other.resourceId
+        ? resourceId === other.resourceId
+        : "name" in variables && "name" in other.locator
+          ? variables.name === other.locator.name &&
+            variables.scope === other.locator.scope
+          : scope === other.scope;
+    if (
+      !sameResource ||
+      variables.operation !== "update" ||
+      other.locator.operation !== "update"
+    )
+      continue;
+    mutation.schedulingAmbiguous = true;
+    other.schedulingAmbiguous = true;
+    for (const field of ["enabled", "schedule", "timezone"] as const) {
+      if (
+        variables[field] !== undefined &&
+        other.locator[field] !== undefined &&
+        variables[field] !== other.locator[field]
+      ) {
+        mutation.conflictingFields.add(field);
+        other.conflictingFields.add(field);
+      }
+    }
+  }
+  active.add(mutation);
+  mutation.stopTracking = client.getQueryCache().subscribe((event) => {
+    if (
+      event.type !== "updated" ||
+      event.action.type !== "success" ||
+      event.action.manual ||
+      event.query.queryKey[0] !== "action" ||
+      (event.query.queryKey[1] !== "list-recurring-jobs" &&
+        event.query.queryKey[1] !== "list-automations") ||
+      variables.operation !== "update"
+    )
+      return;
+    const data = event.query.state.data as
+      | (RecurringJob | Automation)[]
+      | undefined;
+    if (
+      !Array.isArray(data) ||
+      !data.some((item) => matchesLocator(item, variables))
+    )
+      return;
+    for (const field of ["enabled", "schedule", "timezone"] as const) {
+      if (variables[field] !== undefined) mutation.conflictingFields.add(field);
+    }
+    mutation.schedulingAmbiguous = true;
+  });
+  return mutation;
+}
+
 export type { ScheduledTriggerState, ScheduledTriggerStatus };
 
 export function useScheduledTriggerState(): ScheduledTriggerState {
@@ -388,7 +487,10 @@ export function useManageRecurringJob(scope: JobsScope) {
     ManageJobInput
   >("manage-recurring-job", {
     mutationKey: ["recurring-job", scope],
-    beforeInvalidate: (result, variables) => {
+    onMutate: (variables) =>
+      beginRecurringMutation(queryClient, scope, variables),
+    beforeInvalidate: (result, variables, context) => {
+      const mutation = context as RecurringMutation | undefined;
       const locator = result.resourceId
         ? { resourceId: result.resourceId }
         : variables;
@@ -400,28 +502,44 @@ export function useManageRecurringJob(scope: JobsScope) {
           return current.filter((item) => !matchesLocator(item, locator));
         return current.map((item) => {
           if (!matchesLocator(item, locator)) return item;
+          const enabled =
+            variables.enabled !== undefined &&
+            !mutation?.conflictingFields.has("enabled")
+              ? (result.enabled ?? variables.enabled)
+              : item.enabled;
+          const schedule =
+            variables.schedule !== undefined &&
+            !mutation?.conflictingFields.has("schedule")
+              ? variables.schedule.trim()
+              : undefined;
+          const timezone =
+            variables.timezone !== undefined &&
+            !mutation?.conflictingFields.has("timezone")
+              ? variables.timezone.trim()
+              : undefined;
           return {
             ...item,
-            ...optimisticJobPatch(variables),
-            ...(variables.schedule !== undefined
-              ? {
-                  schedule: variables.schedule.trim(),
-                  scheduleDescription: null,
-                }
+            ...(variables.enabled !== undefined &&
+            !mutation?.conflictingFields.has("enabled")
+              ? { enabled }
               : {}),
-            ...(variables.timezone !== undefined
-              ? {
-                  timezone: variables.timezone.trim(),
-                  scheduleDescription: null,
-                }
+            ...(schedule !== undefined
+              ? { schedule, scheduleDescription: null }
               : {}),
-            ...(result.enabled !== undefined
-              ? { enabled: result.enabled }
+            ...(timezone !== undefined
+              ? { timezone, scheduleDescription: null }
               : {}),
-            ...(result.nextRun !== undefined
-              ? { nextRun: result.nextRun }
-              : {}),
-            ...(result.enabled && item.lastStatus === "paused"
+            ...(!enabled ||
+            mutation?.schedulingAmbiguous ||
+            (result.enabled !== undefined && result.enabled !== enabled)
+              ? { nextRun: null }
+              : result.enabled === enabled && result.nextRun !== undefined
+                ? { nextRun: result.nextRun }
+                : {}),
+            ...(variables.enabled === true &&
+            !mutation?.conflictingFields.has("enabled") &&
+            enabled &&
+            item.lastStatus === "paused"
               ? { lastStatus: null, lastError: null }
               : {}),
           };
@@ -442,6 +560,13 @@ export function useManageRecurringJob(scope: JobsScope) {
         queryKey: automationsKey,
         exact: true,
       });
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context) {
+        const mutation = context as RecurringMutation;
+        mutation.stopTracking?.();
+        recurringMutations.get(queryClient)?.delete(mutation);
+      }
     },
   });
 }
