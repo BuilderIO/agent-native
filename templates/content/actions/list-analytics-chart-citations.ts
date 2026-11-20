@@ -8,7 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { createdPageUrl } from "../server/lib/created-page-links.js";
 import { isPublicViewerOwner } from "../server/lib/public-documents.js";
 import { ANALYTICS_CHART_TAG } from "../shared/analytics-chart-block.js";
-import { analyticsChartsInBody } from "../shared/analytics-charts-in-body.js";
+import { chartTagNamesDashboard } from "../shared/analytics-charts-in-body.js";
 import { accessibleDocumentIds } from "./_document-access.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 
@@ -39,8 +39,7 @@ async function holdsChartFrom(
   ) {
     return false;
   }
-  const { charts } = await analyticsChartsInBody(content);
-  return charts.some((chart) => chart.dashboard.id === dashboardId);
+  return chartTagNamesDashboard(content, dashboardId);
 }
 
 function shortTitle(title: string): string {

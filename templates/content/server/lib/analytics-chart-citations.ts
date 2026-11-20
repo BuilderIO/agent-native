@@ -1,7 +1,7 @@
 import { and, eq, notInArray } from "drizzle-orm";
 
 import { ANALYTICS_CHART_TAG } from "../../shared/analytics-chart-block.js";
-import { analyticsChartsInBody } from "../../shared/analytics-charts-in-body.js";
+import { analyticsChartDashboardIds } from "../../shared/analytics-charts-in-body.js";
 import { getDb, schema } from "../db/index.js";
 
 type Database = ReturnType<typeof getDb>;
@@ -12,12 +12,7 @@ export async function syncAnalyticsChartCitations(
 ): Promise<void> {
   const tag = `<${ANALYTICS_CHART_TAG}`;
   if (!input.before?.includes(tag) && !input.after.includes(tag)) return;
-  const { charts } = await analyticsChartsInBody(input.after);
-  const dashboardIds = [
-    ...new Set(
-      charts.map((chart) => chart.dashboard.id).filter((id) => id !== ""),
-    ),
-  ];
+  const dashboardIds = await analyticsChartDashboardIds(input.after);
   const citations = schema.analyticsChartCitations;
   await db
     .delete(citations)
