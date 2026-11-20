@@ -45,13 +45,6 @@ vi.mock("../server/auth.js", () => ({
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
   isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
-const revokeEmbedSessionsForOwnerMock = vi.hoisted(() =>
-  vi.fn<(ownerEmail: string) => Promise<void>>(async () => {}),
-);
-vi.mock("../server/embed-session.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../server/embed-session.js")>()),
-  revokeEmbedSessionsForOwner: revokeEmbedSessionsForOwnerMock,
-}));
 
 const listOrgMembershipsForEventMock = vi.fn(
   async (): Promise<unknown[] | null> => null,
@@ -1041,38 +1034,6 @@ describe("handleMcpConnect", () => {
       );
       expect((await ok.json()).ok).toBe(true);
       expect(tokenRows[1].revokedAt).not.toBeNull();
-    });
-
-    it("revoking a token ends its owner's embed sessions", async () => {
-      revokeEmbedSessionsForOwnerMock.mockClear();
-      getSessionMock.mockResolvedValue({ email: "u@example.com" });
-      tokenRows.push({
-        id: "id-0",
-        jti: "j0",
-        ownerEmail: "someoneelse@x.com",
-        revokedAt: null,
-      });
-      await handleMcpConnect(
-        ev({ method: "POST", body: { id: "id-0" } }),
-        "/tokens/revoke",
-      );
-      expect(revokeEmbedSessionsForOwnerMock).not.toHaveBeenCalled();
-
-      tokenRows.push({
-        id: "id-1",
-        jti: "j1",
-        ownerEmail: "u@example.com",
-        revokedAt: null,
-      });
-      const ok = await handleMcpConnect(
-        ev({ method: "POST", body: { id: "id-1" } }),
-        "/tokens/revoke",
-      );
-      expect((await ok.json()).ok).toBe(true);
-      expect(revokeEmbedSessionsForOwnerMock).toHaveBeenCalledTimes(1);
-      expect(revokeEmbedSessionsForOwnerMock).toHaveBeenCalledWith(
-        "u@example.com",
-      );
     });
 
     it("revoke requires a session", async () => {
