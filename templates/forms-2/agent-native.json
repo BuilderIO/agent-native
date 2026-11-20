@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "onboarding": {
+    "firstRun": "off"
+  },
+  "doctor": {
+    "failOnBuild": false,
+    "dbToolScopingDenylist": {
+      "forms_upload_log": "anonymous respondent rate-limit counters keyed by session and hashed address; no content",
+      "forms_email_verifications": "pending verification-code hashes for anonymous respondents, handled only by submit-response",
+      "forms_password_attempts": "failed-guess counters keyed by form and hashed address; no content",
+      "forms_respondent_mail_log": "anonymous respondent mail-cap counters keyed by form and hashed address; no content"
+    }
+  }
+}

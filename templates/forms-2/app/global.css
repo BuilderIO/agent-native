@@ -1,0 +1,412 @@
+@import "@fontsource-variable/inter";
+
+@import "tailwindcss";
+@import "@agent-native/toolkit/styles.css";
+
+@source "./**/*.{ts,tsx}";
+
+:root {
+  /* Measured from the reference screens: ink rgb(55 53 47), muted rgb(119 118 114),
+     hairline rgb(55 53 47 / 0.09), primary rgb(0 112 215). */
+  --background: 0 0% 100%;
+  --foreground: 45 8% 20%;
+  --card: 0 0% 100%;
+  --card-foreground: 45 8% 20%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 45 8% 20%;
+  --primary: 208.8 100% 42.16%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 45 8% 20%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 48 2.15% 45.69%;
+  --accent: 0 0% 96%;
+  --accent-foreground: 45 8% 20%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 45 8% 20% / 0.09;
+  --input: 45 8% 20% / 0.16;
+  --ring: 209 100% 42%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 48 2% 46%;
+  --sidebar-primary: 209 100% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 96%;
+  --sidebar-accent-foreground: 45 8% 20%;
+  --sidebar-border: 45 8% 20% / 0.09;
+  --sidebar-ring: 209 100% 42%;
+  --chat-sidebar-width: 17.5rem;
+  --chat-sidebar-content-inset: 0.5rem;
+  --chat-sidebar-row-padding: 0.75rem;
+  --chat-sidebar-title-fade: 1.25rem;
+  /* Forms-specific measurements and accents. */
+  --forms-sidebar-width: 250px;
+  --forms-topbar-height: 48px;
+  --forms-content-width: 900px;
+  --forms-star: 44 100% 60%;
+  --forms-keycap: 48 2.7% 36.27%;
+  --forms-badge: 0 0% 96%;
+  --forms-badge-foreground: 48 2.07% 52.75%;
+  --forms-required-dot: 0 0% 92%;
+  --forms-ink-heading: rgb(69 67 62);
+  --forms-ink-faint: rgb(136 136 136);
+  --forms-ink-strong: rgb(39 38 34);
+  --forms-ink-off: rgb(137 136 132);
+  --forms-placeholder: rgb(187 186 184);
+  --forms-link: rgb(0 0 238);
+  --forms-solid: rgb(0 0 0);
+  --forms-solid-text: rgb(255 255 255);
+  --forms-code-bg: rgb(40 42 54);
+  --forms-code-text: rgb(230 230 234);
+  --forms-code-placeholder: rgb(124 127 147);
+  /* Respondent theme defaults; a form's theme overrides them on .forms-surface. */
+  --fs-button-bg: rgb(0 0 0);
+  --fs-button-text: rgb(255 255 255);
+  --fs-button-radius: 8px;
+  --fs-field-radius: 8px;
+}
+
+.forms-surface .forms-input {
+  border-radius: var(--fs-field-radius);
+}
+
+.chat-layout-shell {
+  --agent-layout-left-drawer-expanded-width: var(--chat-sidebar-width);
+  --agent-layout-left-drawer-collapsed-width: 3rem;
+  --agent-native-lower-surface: var(--agent-kit-nav-surface);
+}
+
+/* Phones get one app bar: the layout bar carries the thread title and
+   toolbar, so the AgentKit header would stack a second 48px bar. */
+@media (max-width: 47.99rem) {
+  [data-chat-header-in-app-bar="true"] .agentkit-chat-header {
+    display: none;
+  }
+}
+
+.agentkit-chat-empty-copy {
+  text-align: center;
+}
+
+.agentkit-chat-empty-copy h1 {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.agent-kit-chat-footer-stack {
+  /* Matches the transcript text lane (the lane minus its 1rem padding). */
+  inline-size: min(
+    100%,
+    calc(var(--agent-kit-conversation-max-width, 47rem) - 2rem)
+  );
+  margin-inline: auto;
+  pointer-events: auto;
+}
+
+.agent-kit-chat-footer-stack > .agentkit-composer-stack {
+  inline-size: 100%;
+}
+
+.agent-kit-chat-guided-question {
+  max-block-size: min(32rem, 58dvh);
+  overflow: auto;
+  margin-block-end: 0.5rem;
+  border: 1px solid var(--agentkit-border);
+  border-radius: var(--agentkit-radius);
+  background: var(--agentkit-surface);
+  box-shadow: var(--agentkit-elevation);
+}
+
+.chat-sidebar-history .an-chat-history__list {
+  padding-top: 0;
+}
+
+.chat-sidebar-history .an-chat-history__section-label {
+  padding: 8px
+    calc(var(--chat-sidebar-content-inset) + var(--chat-sidebar-row-padding))
+    5px;
+  color: hsl(var(--sidebar-foreground));
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.chat-sidebar-history.an-chat-history--rail .an-chat-history-row {
+  margin-inline: var(--chat-sidebar-content-inset);
+  border-radius: calc(var(--radius) + 2px);
+}
+
+.chat-sidebar-history.an-chat-history--rail .an-chat-history__skeleton-row {
+  min-height: 32px;
+  margin-inline: var(--chat-sidebar-content-inset);
+  padding-inline: var(--chat-sidebar-row-padding);
+}
+
+.chat-sidebar-history.an-chat-history--rail .an-chat-history-row__button {
+  min-height: 32px;
+  padding-block: 6px;
+  padding-inline: var(--chat-sidebar-row-padding);
+  color: hsl(var(--sidebar-foreground));
+}
+
+/* The ⋯ trigger sits 3px in from the row edge and is 24px wide, so it
+   reaches 15px into the title line past the row padding. */
+.chat-sidebar-history.an-chat-history--rail {
+  --an-chat-history-menu-clearance: calc(
+    1.6875rem - var(--chat-sidebar-row-padding)
+  );
+}
+
+/* Pinned rows hide their trigger until hover here, so they fade only then. */
+.chat-sidebar-history.an-chat-history--rail
+  .an-chat-history-row--pinned:not(
+    :hover,
+    :focus-within,
+    .an-chat-history-row--menu-open
+  )
+  .an-chat-history-row__topline {
+  mask-image: none;
+}
+
+.chat-sidebar-history .an-chat-history-row__title {
+  flex: 1 1 auto;
+  color: hsl(var(--sidebar-accent-foreground));
+  font-size: 13px;
+  font-weight: 400;
+  text-overflow: clip;
+}
+
+.chat-sidebar-thread-title-shell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-sidebar-thread-title {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.chat-sidebar-thread-running {
+  color: hsl(var(--sidebar-foreground) / 0.72);
+}
+
+.chat-sidebar-thread-title[data-overflow="true"] {
+  mask-image: linear-gradient(
+    to right,
+    hsl(var(--foreground)) 0,
+    hsl(var(--foreground)) calc(100% - var(--chat-sidebar-title-fade)),
+    hsl(var(--foreground) / 0) 100%
+  );
+}
+
+.chat-sidebar-thread-title__content {
+  display: block;
+  width: max-content;
+  transform: translateX(0);
+}
+
+.an-chat-history-row:hover
+  .chat-sidebar-thread-title[data-overflow="true"]
+  .chat-sidebar-thread-title__content {
+  animation: chat-sidebar-title-reveal
+    var(--chat-sidebar-title-duration, 1800ms) ease-in-out 350ms;
+}
+
+.chat-sidebar-history.an-chat-history--rail
+  .an-chat-history-row__menu-trigger--pinned {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.chat-sidebar-history.an-chat-history--rail
+  .an-chat-history-row:hover
+  .an-chat-history-row__menu-trigger--pinned,
+.chat-sidebar-history.an-chat-history--rail
+  .an-chat-history-row:focus-within
+  .an-chat-history-row__menu-trigger--pinned,
+.chat-sidebar-history.an-chat-history--rail
+  .an-chat-history-row__menu-trigger--pinned[aria-expanded="true"] {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+@keyframes chat-sidebar-title-reveal {
+  to {
+    transform: translateX(calc(-1 * var(--chat-sidebar-title-shift, 0px)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .an-chat-history-row:hover .chat-sidebar-thread-title__content {
+    animation: none;
+  }
+}
+
+.chat-sidebar-history.an-chat-history--rail
+  .an-chat-history-row--active
+  .an-chat-history-row__button {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+}
+
+.dark {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 16.47%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
+
+  /* The Forms accents are the app's own palette, so dark needs its own values: leaving them
+     at their light values drew light ink on a dark page and dark ink on a light button. */
+  --forms-badge: 0 0% 24%;
+  --forms-badge-foreground: 0 0% 88%;
+  --forms-required-dot: 0 0% 24%;
+  --forms-ink-heading: rgb(232 231 228);
+  --forms-ink-faint: rgb(168 166 162);
+  --forms-ink-strong: rgb(240 239 236);
+  --forms-ink-off: rgb(176 174 170);
+  --forms-placeholder: rgb(150 148 144);
+  --forms-link: rgb(138 180 255);
+  --forms-solid: rgb(235 234 231);
+  --forms-solid-text: rgb(20 20 19);
+  --forms-code-bg: rgb(26 27 33);
+  --forms-code-text: rgb(228 228 233);
+  --forms-code-placeholder: rgb(150 153 170);
+  --forms-keycap: 0 0% 70%;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212,
+    U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@layer base {
+  button {
+    text-align: center;
+  }
+  th,
+  td {
+    text-align: left;
+  }
+
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: currentColor;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", "Inter Variable", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.22);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.34);
+}
+
+/* The page scrolls as a document; the chat panel stays pinned beside it. */
+.agent-sidebar-shell {
+  height: auto;
+  min-height: 100vh;
+  overflow: visible;
+  align-items: flex-start;
+}
+.agent-sidebar-main-surface {
+  overflow: visible;
+}
+.agent-sidebar-panel {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+/* Chromeless embed: the host page owns the surrounding layout. */
+.forms-embed .forms-surface {
+  min-height: 0;
+}
+.forms-embed .forms-root {
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+.forms-embed--left .forms-root {
+  margin-left: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+body:has(.forms-embed--transparent),
+.forms-embed--transparent,
+.forms-embed--transparent .forms-surface {
+  background: transparent !important;
+}
+.forms-embed--hide-title .forms-page .forms-title {
+  display: none;
+}
