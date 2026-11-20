@@ -23,9 +23,13 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
-function isBuilderPreviewOrigin(origin: string): boolean {
+export function isDevEnvironment(): boolean {
   const env = process.env.NODE_ENV;
-  if (env !== "development" && env !== "test") return false;
+  return env === "development" || env === "test";
+}
+
+function isBuilderPreviewOrigin(origin: string): boolean {
+  if (!isDevEnvironment()) return false;
   try {
     const url = new URL(origin);
     const hostname = url.hostname.toLowerCase();

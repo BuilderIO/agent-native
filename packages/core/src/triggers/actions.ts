@@ -19,7 +19,10 @@ import {
   listRemoteDevicesForOwner,
 } from "../integrations/remote-devices-store.js";
 import { describeCron, effectiveTimezone } from "../jobs/cron.js";
-import { parseJobResource } from "../jobs/frontmatter.js";
+import {
+  resourceTargetsHost,
+  setsExecutionTarget,
+} from "../jobs/execution-target.js";
 import {
   authorizeAutomationRunNow,
   queueAutomationRunNow,
@@ -585,20 +588,6 @@ const VALID_ACTIONS = [
   "run-now",
 ] as const;
 
-const EXECUTION_TARGET_ARGS = [
-  "execution_host_id",
-  "execution_engine",
-  "execution_cwd",
-] as const;
-
-function setsExecutionTarget(args: Record<string, unknown>): boolean {
-  return EXECUTION_TARGET_ARGS.some((field) => {
-    const value = args[field];
-    if (value === undefined || value === null) return false;
-    return typeof value !== "string" || value.trim() !== "";
-  });
-}
-
 async function existingTargetsHost(
   args: Record<string, unknown>,
   context: ActionRunContext | undefined,
@@ -623,8 +612,7 @@ async function existingTargetsHost(
       ...(scope !== undefined ? { scope } : {}),
       ...(path ? { path } : name ? { name } : {}),
     });
-    const { meta } = parseJobResource(access.resource.content);
-    return Boolean(meta.executionHostId?.trim());
+    return resourceTargetsHost(access.resource.content);
   } catch {
     // coercion-ok: an unreadable target asks for approval
     return true;
@@ -647,7 +635,7 @@ export function createAutomationToolEntries(
           return true;
         }
         if (args.action === "define" || args.action === "update") {
-          if (setsExecutionTarget(args)) return true;
+          if (setsExecutionTarget(args, "snake")) return true;
           return args.action === "update"
             ? existingTargetsHost(args, context, appId)
             : false;

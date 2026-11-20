@@ -316,7 +316,7 @@ import {
   MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME,
   readMcpSignupContextFromCookieHeader,
 } from "./mcp-signup-attribution.js";
-import { safeOAuthReturnUrl } from "./oauth-return-url.js";
+import { isDevEnvironment, safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getDeploySettingsRequiredHtml,
   getOnboardingHtml,
@@ -981,10 +981,7 @@ function logGoogleOAuthDebug(
 }
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30;
 
-export function isDevEnvironment(): boolean {
-  const env = process.env.NODE_ENV;
-  return env === "development" || env === "test";
-}
+export { isDevEnvironment };
 
 /**
  * @deprecated Prefer `normalizeAppPath` from `@agent-native/core/shared`,

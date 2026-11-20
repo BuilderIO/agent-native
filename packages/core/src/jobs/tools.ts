@@ -32,6 +32,10 @@ import {
   isValidTimezone,
 } from "./cron.js";
 import {
+  resourceTargetsHost,
+  setsExecutionTarget,
+} from "./execution-target.js";
+import {
   assertJobExecutionTargetFields,
   assertJobRunnerTarget,
   classifyJobResource,
@@ -577,20 +581,6 @@ async function runDelete(
   return JSON.stringify({ deleted: true, name });
 }
 
-const EXECUTION_TARGET_FIELDS = [
-  "executionHostId",
-  "executionEngine",
-  "executionCwd",
-] as const;
-
-function setsExecutionTarget(args: Record<string, unknown>): boolean {
-  return EXECUTION_TARGET_FIELDS.some((field) => {
-    const value = args[field];
-    if (value === undefined || value === null) return false;
-    return typeof value !== "string" || value.trim() !== "";
-  });
-}
-
 async function existingJobTargetsHost(
   args: Record<string, unknown>,
 ): Promise<boolean> {
@@ -601,8 +591,7 @@ async function existingJobTargetsHost(
       resource = await resourceGetByPath(getOwner(), path);
     }
     if (!resource) return false;
-    const { meta } = parseJobFrontmatter(resource.content);
-    return Boolean(meta.executionHostId?.trim());
+    return resourceTargetsHost(resource.content);
   } catch {
     // coercion-ok: an unreadable job asks for approval
     return true;
@@ -615,7 +604,7 @@ export function createJobTools(appId?: string): Record<string, ActionEntry> {
       needsApproval: async (args) => {
         if (
           (args.action === "create" || args.action === "update") &&
-          setsExecutionTarget(args)
+          setsExecutionTarget(args, "camel")
         ) {
           return true;
         }

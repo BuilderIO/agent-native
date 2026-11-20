@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   MANAGED_BLOCK_START,
   assertSafeSourceRef,
-  shimSpawnTarget,
   discoverSkillFolders,
   installSkills,
   parseGitHubSource,
@@ -476,27 +475,5 @@ describe("assertSafeSourceRef", () => {
     ]) {
       expect(() => assertSafeSourceRef(ref)).toThrow(/Invalid source ref/);
     }
-  });
-});
-
-describe("shimSpawnTarget", () => {
-  it("passes through off Windows", () => {
-    expect(shimSpawnTarget("git", ["clone", "x"], "linux")).toEqual([
-      "git",
-      ["clone", "x"],
-      false,
-    ]);
-  });
-
-  it("builds a quoted command line on Windows", () => {
-    expect(shimSpawnTarget("git", ["clone", "a b"], "win32")).toEqual([
-      'git clone "a b"',
-      [],
-      true,
-    ]);
-  });
-
-  it("refuses arguments cmd.exe cannot quote", () => {
-    expect(() => shimSpawnTarget("git", ["a%b"], "win32")).toThrow();
   });
 });

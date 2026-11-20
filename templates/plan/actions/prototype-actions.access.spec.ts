@@ -20,6 +20,7 @@ import {
   it,
   vi,
 } from "vitest";
+import type { z } from "zod";
 
 import * as planSchema from "../server/db/schema.js";
 import { PLANS_TABLE_DDL } from "../server/test-support/plans-test-schema.js";
@@ -242,18 +243,29 @@ describe("create-prototype-plan: owner scoping", () => {
     );
   });
 
-  it("create-visual-plan rejects a non-empty html payload with a 400", async () => {
-    await expect(
-      asUser({ userEmail: OWNER, orgId: ORG }, () =>
-        createVisualPlan.run({
-          brief: "html plan",
-          html: "<p>legacy</p>",
-          status: "review",
-          sections: [],
-          comments: [],
-        }),
-      ),
-    ).rejects.toMatchObject({ statusCode: 400 });
+  it.each(["<p>legacy</p>", "  "])(
+    "create-visual-plan rejects an html payload (%j) at validation",
+    (html) => {
+      const parsed = (createVisualPlan.schema as z.ZodType).safeParse({
+        brief: "html plan",
+        html,
+      });
+      expect(parsed.success).toBe(false);
+    },
+  );
+
+  it("create-visual-plan stores null html for a structured create", async () => {
+    const result = await asUser({ userEmail: OWNER, orgId: ORG }, () =>
+      createVisualPlan.run({
+        brief: "structured plan",
+        status: "review",
+        sections: [],
+        comments: [],
+      }),
+    );
+    const row = await rawPlan(result.planId as string);
+    expect(row.html).toBeNull();
+    expect(row.content).toBeTruthy();
   });
 
   it("scopes the new plan to the request user, private + org from context", async () => {

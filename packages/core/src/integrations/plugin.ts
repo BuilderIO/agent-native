@@ -3579,7 +3579,49 @@ export function createIntegrationsPlugin(
             return "ok";
           }
 
-          const config = await getIntegrationConfig(platform);
+          const loadedConfig = await getIntegrationConfig(platform);
+          let config = loadedConfig;
+          let channelOrgId = storedIntegrationOwnerOrgId(loadedConfig);
+          let lookupFailed = false;
+          if (channelOrgId === undefined) {
+            try {
+              channelOrgId = await integrationOwnerOrgId(
+                loadedConfig?.owner ?? undefined,
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] ${platform} channel organization lookup failed:`,
+                err,
+              );
+              lookupFailed = true;
+            }
+            if (!lookupFailed && loadedConfig?.owner?.trim()) {
+              config = {
+                ...loadedConfig,
+                configData: {
+                  ...loadedConfig.configData,
+                  ownerOrgId: channelOrgId,
+                },
+              };
+              try {
+                await saveIntegrationConfig(
+                  platform,
+                  config.configData,
+                  "default",
+                  loadedConfig.owner,
+                );
+              } catch (err) {
+                console.error(
+                  `[integrations] ${platform} channel organization could not be recorded:`,
+                  err,
+                );
+              }
+            }
+          }
+          if (lookupFailed) {
+            setResponseStatus(event, 503);
+            return "unavailable";
+          }
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
           const verificationContext = credentialContext
@@ -3791,14 +3833,8 @@ export function createIntegrationsPlugin(
               return "ok";
             }
           }
-          const storedChannelOrgId = storedIntegrationOwnerOrgId(config);
-          const channelOrgId =
-            storedChannelOrgId === undefined
-              ? await integrationOwnerOrgId(config.owner ?? undefined)
-              : storedChannelOrgId;
           if (channelOrgId) {
             let permitted = true;
-            let lookupFailed = false;
             const runOwner = executionContext.ownerEmail.trim().toLowerCase();
             const isUserRun =
               executionContext.principalType === "user" ||

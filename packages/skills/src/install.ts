@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
+import { shimSpawnTarget } from "@agent-native/core/cli/process";
+
 import { copySkillFiles } from "./skill-files.js";
 
 export type AgentId = "codex" | "claude";
@@ -378,25 +380,6 @@ export function assertSafeSourceRef(ref: string | undefined): void {
   if (ref.startsWith("-") || !SAFE_SOURCE_REF.test(ref)) {
     throw new Error(`Invalid source ref: ${ref}`);
   }
-}
-
-export function shimSpawnTarget(
-  command: string,
-  args: string[],
-  platform: NodeJS.Platform = process.platform,
-): [string, string[], boolean] {
-  if (platform !== "win32") return [command, args, false];
-  const quoted = args.map((arg) => {
-    if (/["%]/.test(arg)) {
-      throw new Error(
-        `Cannot run ${command} on Windows: argument contains '"' or '%': ${arg}`,
-      );
-    }
-    return /[\s&|<>^()!]/.test(arg)
-      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
-      : arg;
-  });
-  return [[command, ...quoted].join(" "), [], true];
 }
 
 function runCommand(

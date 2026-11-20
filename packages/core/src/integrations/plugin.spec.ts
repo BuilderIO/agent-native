@@ -3634,6 +3634,133 @@ describe("integrations plugin routes", () => {
     expect(handleWebhookMock).toHaveBeenCalledTimes(0);
   });
 
+  it("returns a retryable 503 when a legacy channel's organization lookup fails", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+      owner: "admin@example.test",
+    } as never);
+    resolveOrgScopeForEmailMock.mockRejectedValue(new Error("scope failed"));
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "status",
+        senderId: "UQA",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      resolveExecutionContext: async () => ({
+        ownerEmail: "member@example.test",
+        orgId: "org-a",
+        principalType: "user" as const,
+      }),
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(503);
+    expect(handleWebhookMock).toHaveBeenCalledTimes(0);
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("records the resolved organization on a legacy channel", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+      owner: "admin@example.test",
+    } as never);
+    isOrgMemberMock.mockResolvedValue(true);
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-a",
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "status",
+        senderId: "UQA",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      resolveExecutionContext: async () => ({
+        ownerEmail: "member@example.test",
+        orgId: "org-a",
+        principalType: "user" as const,
+      }),
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledTimes(1);
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(
+      "fake",
+      { enabled: true, ownerOrgId: "org-a" },
+      "default",
+      "admin@example.test",
+    );
+  });
+
+  it("does not resolve the owner's scope when the channel records an organization", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true, ownerOrgId: "org-a" },
+      owner: "admin@example.test",
+    } as never);
+    isOrgMemberMock.mockResolvedValue(true);
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "fake-thread",
+        text: "status",
+        senderId: "UQA",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      resolveExecutionContext: async () => ({
+        ownerEmail: "member@example.test",
+        orgId: "org-a",
+        principalType: "user" as const,
+      }),
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+  });
+
   it("runs a webhook for a member of the channel's organization", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true, ownerOrgId: "org-a" },
