@@ -21,8 +21,9 @@ function propsFromHtml(html: string): AuthPageProps {
   const match = html.match(
     /<script type="application\/json" id="agent-native-auth-data">([\s\S]*?)<\/script>/,
   );
-  if (!match) throw new Error("auth page data is missing");
-  return JSON.parse(match[1]!) as AuthPageProps;
+  const data = match?.[1];
+  if (!data) throw new Error("auth page data is missing");
+  return JSON.parse(data) as AuthPageProps;
 }
 
 function cookie(name: string): string | null {
@@ -31,6 +32,11 @@ function cookie(name: string): string | null {
     .map((item) => item.trim())
     .find((item) => item.startsWith(`${name}=`));
   return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
+}
+
+function cookieJson(name: string): unknown {
+  const value = cookie(name);
+  return value === null ? null : JSON.parse(value);
 }
 
 function pinTimeZone(timeZone: string): void {
@@ -61,7 +67,6 @@ function stubServer(region: "consent" | "none"): void {
   );
 }
 
-/** Opens the sign-in page for a visitor the server places in `region`. */
 async function openSignInPage(region: "consent" | "none") {
   stubServer(region);
   window.happyDOM.setURL(SIGN_IN_URL);
@@ -69,11 +74,13 @@ async function openSignInPage(region: "consent" | "none") {
   const consent = await import("@agent-native/core/client/consent");
   const { AuthPage } = await import("./AuthPage.js");
   const props = propsFromHtml(getOnboardingHtml());
-  container = document.createElement("div");
-  document.body.appendChild(container);
-  root = createRoot(container);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const created = createRoot(host);
+  container = host;
+  root = created;
   await act(async () => {
-    root!.render(<AuthPage {...props} identitySsoAuto={false} />);
+    created.render(<AuthPage {...props} identitySsoAuto={false} />);
   });
   await act(async () => {
     await consent.resolveConsentRegion();
@@ -118,7 +125,7 @@ describe("AuthPage cookie banner", () => {
     container?.remove();
     root = null;
     container = null;
-    delete (globalThis as any)[consentStateKey];
+    Reflect.deleteProperty(globalThis, consentStateKey);
     window.localStorage.clear();
     window.sessionStorage.clear();
     for (const item of document.cookie.split(";")) {
@@ -154,7 +161,7 @@ describe("AuthPage cookie banner", () => {
     await click(bannerButton(english.acceptAll));
 
     expect(cookie("an_consent")).toBe("1.p1.t1");
-    expect(JSON.parse(cookie("an_ft")!)).toMatchObject({
+    expect(cookieJson("an_ft")).toMatchObject({
       utm_source: "test",
       utm_medium: "cpc",
     });
@@ -184,7 +191,7 @@ describe("AuthPage cookie banner", () => {
     await click(bannerButton(english.save));
 
     expect(cookie("an_consent")).toBe("1.p0.t1");
-    expect(JSON.parse(cookie("an_ft")!)).toMatchObject({ utm_source: "test" });
+    expect(cookieJson("an_ft")).toMatchObject({ utm_source: "test" });
     expect(banner()).toBeNull();
   });
 
@@ -217,13 +224,14 @@ describe("AuthPage cookie banner", () => {
     if (!markup) throw new Error("server markup is missing");
     expect(markup).not.toContain("data-agent-native-consent-banner");
 
-    container = document.createElement("div");
-    container.innerHTML = markup;
-    document.body.appendChild(container);
+    const host = document.createElement("div");
+    host.innerHTML = markup;
+    document.body.appendChild(host);
+    container = host;
     const recoverableErrors: unknown[] = [];
     await act(async () => {
       root = hydrateRoot(
-        container!,
+        host,
         <AuthPage {...propsFromHtml(html)} identitySsoAuto={false} />,
         { onRecoverableError: (error) => recoverableErrors.push(error) },
       );
@@ -242,7 +250,7 @@ describe("AuthPage cookie banner", () => {
 
     expect(banner()).toBeNull();
     expect(cookie("an_consent")).toBeNull();
-    expect(JSON.parse(cookie("an_ft")!)).toMatchObject({
+    expect(cookieJson("an_ft")).toMatchObject({
       utm_source: "test",
       utm_medium: "cpc",
     });

@@ -478,12 +478,6 @@ export async function trackSignupEvent({
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
   sessionId?: string;
-  /**
-   * The signup request's consent. A category it didn't allow is named on the
-   * event (`analytics_consent` for `performance`, `attribution_consent` for
-   * `targeting`), so a signup that consent kept unattributed stays
-   * distinguishable from one whose attribution was lost.
-   */
   consent?: Record<ConsentCategory, ConsentCategoryState>;
 }): Promise<void> {
   identify(email, {

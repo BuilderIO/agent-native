@@ -50,7 +50,11 @@ describe("request consent decisions", () => {
   it.each([
     [{ "cf-ipcountry": "US" }, "allowed", "allowed"],
     [{ "cf-ipcountry": "DE" }, "withheld", "withheld"],
-    [{ "cf-ipcountry": "DE", cookie: "an_consent=1.p1.t0" }, "allowed", "withheld"],
+    [
+      { "cf-ipcountry": "DE", cookie: "an_consent=1.p1.t0" },
+      "allowed",
+      "withheld",
+    ],
     [{ cookie: "an_consent=1.p0.t1" }, "withheld", "allowed"],
     [{}, "unknown", "unknown"],
     [{ "cf-ipcountry": "XX" }, "unknown", "unknown"],

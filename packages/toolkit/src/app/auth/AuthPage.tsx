@@ -3259,8 +3259,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   ) : null;
-  // The page has its own locale and no i18n provider, so the cookie banner
-  // takes its copy from that locale. It sits under the card, never over it.
   const consentBanner = (
     <ConsentBannerPanel messages={consentBannerMessagesForLocale(locale)} />
   );

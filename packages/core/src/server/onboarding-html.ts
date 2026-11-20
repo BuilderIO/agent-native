@@ -2146,8 +2146,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     align-items: center;
     width: 100%;
   }
-  /* The toolkit cookie banner, styled here because this page has no Tailwind.
-     It sits in the flow under the sign-in card so it never covers the form. */
   .auth-page [data-agent-native-consent-banner] {
     display: flex;
     flex-direction: column;
