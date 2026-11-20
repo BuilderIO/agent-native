@@ -11,6 +11,7 @@ import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentDiscoveryWhere } from "./_document-discovery-query.js";
+import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
 import { listPropertiesForDatabase } from "./_property-utils.js";
 import searchDocuments from "./search-documents.js";
 
@@ -263,9 +264,19 @@ export default defineAction({
         errorCode: "document_file_required",
       });
     }
-    const access =
+    const resolveAccess = async () =>
       (await resolveDocumentAccess(id)) ??
       (await resolveContentDocumentAccess(id));
+    let access = await resolveAccess();
+    if (
+      access &&
+      !access.resource.trashedAt &&
+      (access.resource.sourceMode === "github" ||
+        (!access.resource.sourceMode && access.resource.parentId)) &&
+      (await refreshGitHubPageBeforeRead(access.resource.id))
+    ) {
+      access = await resolveAccess();
+    }
     if (
       !access ||
       access.resource.trashedAt ||
