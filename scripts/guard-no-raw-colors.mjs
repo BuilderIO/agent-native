@@ -61,6 +61,11 @@ const REPO_ROOT = path.resolve(
 
 const IN_SCOPE_DIR = /^templates\//;
 const IN_SCOPE_PKG_SRC = /^packages\/[^/]+\/src\//;
+// The design system's part and theme CSS reads tokens only; its generated
+// token and role sheets are where raw values belong.
+const IN_SCOPE_DESIGN_SYSTEM_CSS = /^packages\/design-system\/css\//;
+const GENERATED_DESIGN_SYSTEM_CSS =
+  /^packages\/design-system\/css\/(?:tokens\.css|themes\/[^/]+\.css)$/;
 const IN_SCOPE_EXT = /\.(tsx|ts|css)$/;
 
 const EXCLUDED_BUILD_DIR =
@@ -105,9 +110,14 @@ const HEX_HSL_HELP = `    Use the theme tokens declared in app/global.css instea
 function inScope(relPath) {
   if (EXCLUDED_BUILD_DIR.test(`/${relPath}`)) return false;
   if (!IN_SCOPE_EXT.test(relPath)) return false;
-  if (!IN_SCOPE_DIR.test(relPath) && !IN_SCOPE_PKG_SRC.test(relPath)) {
+  if (
+    !IN_SCOPE_DIR.test(relPath) &&
+    !IN_SCOPE_PKG_SRC.test(relPath) &&
+    !IN_SCOPE_DESIGN_SYSTEM_CSS.test(relPath)
+  ) {
     return false;
   }
+  if (GENERATED_DESIGN_SYSTEM_CSS.test(relPath)) return false;
   if (EXCLUDED_TEST_FILE.test(relPath)) return false;
   if (EXCLUDED_E2E_DIR.test(relPath)) return false;
   if (EXCLUDED_TOKEN_PATH.test(relPath)) return false;

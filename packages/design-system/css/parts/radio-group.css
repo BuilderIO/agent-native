@@ -1,0 +1,124 @@
+/*
+ * Part: radio-group
+ *
+ *   <div class="radio-group" role="radiogroup"      Base UI RadioGroup
+ *        data-size="1|2|3" data-variant="surface|soft"
+ *        [data-color="accent|gray|danger|warning|success|info"]
+ *        [data-high-contrast]>
+ *     <span class="radio-group-radio" role="radio"  Radio.Root, with the group's
+ *           data-size data-variant [data-color]     props written on it
+ *           [data-high-contrast] [data-checked] [data-unchecked]
+ *           [data-invalid] [data-disabled]>
+ *       <span class="radio-group-indicator">        Radio.Indicator, while checked
+ *
+ * Radix Themes' radio on the system's scale: sizes 1 to 3 are 12, 16 and
+ * 20px circles, each with a hit area 4px wider on every side. Surface is a
+ * field with a gray edge that fills with the nearest color's indicator when
+ * checked and shows a dot; soft is a tint with a dot in the color's text
+ * step. The unchecked edge is gray step a10, not Radix's a7, so the circle
+ * keeps a 3:1 contrast against the page.
+ */
+
+@layer components {
+  .radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .radio-group-radio {
+    --_size: var(--space-4);
+    --_dot: 6px;
+
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--_size);
+    height: var(--_size);
+    border-radius: var(--radius-full);
+    vertical-align: top;
+    cursor: pointer;
+    outline-style: none;
+    transition-property: color, background-color, box-shadow;
+    transition-duration: var(--duration-1);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .radio-group-radio::after {
+    content: "";
+    position: absolute;
+    inset: calc(var(--space-1) * -1);
+  }
+
+  .radio-group-indicator {
+    width: var(--_dot);
+    height: var(--_dot);
+    border-radius: var(--radius-full);
+    background-color: currentColor;
+  }
+
+  /* ---- sizes ---- */
+
+  .radio-group-radio[data-size="1"] {
+    --_size: var(--space-3);
+    --_dot: var(--space-1);
+  }
+
+  .radio-group-radio[data-size="3"] {
+    --_size: calc(var(--space-4) * 1.25);
+    --_dot: var(--space-2);
+  }
+
+  /* ---- variants ---- */
+
+  .radio-group-radio[data-variant="surface"] {
+    background-color: var(--fill-field);
+    box-shadow: inset 0 0 0 1px var(--gray-a10);
+  }
+
+  .radio-group-radio[data-variant="surface"]:where([data-checked]) {
+    background-color: var(--accent-indicator);
+    box-shadow: none;
+    color: var(--accent-contrast);
+  }
+
+  .radio-group-radio[data-variant="surface"][data-high-contrast]:where(
+      [data-checked]
+    ) {
+    background-color: var(--accent-12);
+    color: var(--accent-1);
+  }
+
+  .radio-group-radio[data-variant="soft"] {
+    background-color: var(--accent-a4);
+    color: var(--accent-text);
+  }
+
+  .radio-group-radio[data-variant="soft"][data-high-contrast] {
+    color: var(--accent-12);
+  }
+
+  .radio-group-radio[data-invalid][data-unchecked] {
+    box-shadow: inset 0 0 0 1px var(--fill-danger);
+  }
+
+  .radio-group-radio:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- disabled ---- */
+
+  .radio-group-radio[data-disabled][data-variant] {
+    cursor: not-allowed;
+    background-color: var(--gray-a3);
+    color: var(--gray-a8);
+  }
+
+  .radio-group-radio[data-disabled][data-variant="surface"] {
+    box-shadow: inset 0 0 0 1px var(--gray-a6);
+  }
+}

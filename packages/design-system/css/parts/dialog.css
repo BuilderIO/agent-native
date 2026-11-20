@@ -1,0 +1,251 @@
+/*
+ * Part: dialog
+ *
+ *   <div class="dialog-backdrop" data-motion="default|instant" data-open|data-closed>
+ *   <div class="dialog-popup" data-size="1|2|3|4" role="dialog" data-motion="default|instant" data-open|data-closed>
+ *     <div class="dialog-header">
+ *       <h2 class="dialog-title"> <p class="dialog-description">
+ *     <div class="dialog-footer">
+ *     <button class="dialog-close"><svg/></button>
+ *
+ * Layers stay under the toolkit's popovers and menus and above drawers, so a
+ * menu opened inside a dialog paints over it. A dialog opened from another
+ * dialog stacks above it by DOM order, not by layer. With `data-motion="instant"`
+ * only the backdrop blur eases in.
+ *
+ * `data-size` is Radix Themes' Dialog.Content size: 1 to 4 step the popup's
+ * padding and gap with the title and description type; 3 is the default.
+ * The close button is a gray ghost icon button.
+ */
+
+@layer components {
+  .dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--layer-dialog-backdrop);
+    background-color: var(--surface-overlay);
+    -webkit-backdrop-filter: blur(1px);
+    backdrop-filter: blur(1px);
+  }
+
+  .dialog-popup {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    z-index: var(--layer-dialog);
+    display: grid;
+    gap: var(--space-4);
+    box-sizing: border-box;
+    width: calc(100vw - var(--space-3) * 2);
+    max-width: 32rem;
+    max-height: min(760px, calc(100vh - var(--space-6)));
+    overflow-x: hidden;
+    overflow-y: auto;
+    translate: -50% -50%;
+    padding: var(--space-5);
+    border: 1px solid var(--line-default);
+    border-radius: calc(var(--shape-dialog) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-raised);
+    color: var(--fg-default);
+    box-shadow: var(--shadow-5);
+    outline-style: none;
+  }
+
+  /* ---- motion: default ---- */
+
+  .dialog-backdrop[data-motion="default"] {
+    transition-property: opacity;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .dialog-popup[data-motion="default"] {
+    transition-property: opacity, scale;
+    transition-duration: 200ms;
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .dialog-backdrop[data-motion="default"][data-starting-style],
+  .dialog-backdrop[data-motion="default"][data-ending-style] {
+    opacity: 0;
+  }
+
+  .dialog-popup[data-motion="default"][data-starting-style],
+  .dialog-popup[data-motion="default"][data-ending-style] {
+    opacity: 0;
+    scale: 0.95;
+  }
+
+  .dialog-popup[data-motion="default"][data-ending-style] {
+    transition-duration: var(--duration-2);
+  }
+
+  /* ---- motion: instant ---- */
+
+  .dialog-backdrop[data-motion="instant"] {
+    transition-property: backdrop-filter;
+    transition-duration: 1000ms;
+    transition-timing-function: var(--ease-enter);
+  }
+
+  .dialog-backdrop[data-motion="instant"][data-starting-style] {
+    -webkit-backdrop-filter: blur(0px);
+    backdrop-filter: blur(0px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dialog-backdrop,
+    .dialog-popup {
+      transition-property: none;
+    }
+  }
+
+  /* ---- header, footer, text ---- */
+
+  .dialog-header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    text-align: center;
+  }
+
+  .dialog-footer {
+    display: flex;
+    flex-direction: column-reverse;
+    gap: var(--space-2);
+  }
+
+  @media (min-width: 40rem) {
+    .dialog-header {
+      text-align: start;
+    }
+
+    .dialog-footer {
+      flex-direction: row;
+      justify-content: flex-end;
+    }
+  }
+
+  .dialog-title {
+    margin: 0;
+    font-size: var(--font-size-4);
+    line-height: var(--line-height-4);
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: var(--letter-spacing-4);
+    color: var(--fg-default);
+  }
+
+  .dialog-description {
+    margin: 0;
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    color: var(--fg-muted);
+  }
+
+  /* ---- sizes: padding, gap and type step together ---- */
+
+  .dialog-popup[data-size="1"] {
+    padding: var(--space-3);
+    gap: var(--space-3);
+  }
+
+  .dialog-popup[data-size="1"] .dialog-title {
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    letter-spacing: var(--letter-spacing-2);
+  }
+
+  .dialog-popup[data-size="1"] .dialog-description {
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+  }
+
+  .dialog-popup[data-size="1"] .dialog-close {
+    top: var(--space-2);
+    inset-inline-end: var(--space-2);
+  }
+
+  .dialog-popup[data-size="2"] {
+    padding: var(--space-4);
+    gap: var(--space-3);
+  }
+
+  .dialog-popup[data-size="2"] .dialog-title {
+    font-size: var(--font-size-3);
+    line-height: var(--line-height-3);
+    letter-spacing: var(--letter-spacing-3);
+  }
+
+  .dialog-popup[data-size="2"] .dialog-close {
+    top: var(--space-2);
+    inset-inline-end: var(--space-2);
+  }
+
+  .dialog-popup[data-size="4"] {
+    padding: var(--space-6);
+    gap: var(--space-5);
+  }
+
+  .dialog-popup[data-size="4"] .dialog-title {
+    font-size: var(--font-size-5);
+    line-height: var(--line-height-5);
+    letter-spacing: var(--letter-spacing-5);
+  }
+
+  .dialog-popup[data-size="4"] .dialog-description {
+    font-size: var(--font-size-3);
+    line-height: var(--line-height-3);
+  }
+
+  /* ---- close button: a gray ghost icon button ---- */
+
+  .dialog-close {
+    position: absolute;
+    top: var(--space-3);
+    inset-inline-end: var(--space-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--control-height-3);
+    height: var(--control-height-3);
+    padding: 0;
+    border: 0 solid;
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: transparent;
+    color: var(--gray-text);
+    outline-style: none;
+    transition-property: color, background-color;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .dialog-close svg {
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+  }
+
+  @media (hover: hover) {
+    .dialog-close:hover {
+      background-color: var(--gray-a3);
+    }
+  }
+
+  .dialog-close:active {
+    background-color: var(--gray-a4);
+  }
+
+  .dialog-close:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  .dialog-close:disabled,
+  .dialog-close[data-disabled] {
+    pointer-events: none;
+    background-color: transparent;
+    color: var(--gray-a8);
+  }
+}

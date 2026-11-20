@@ -1,0 +1,150 @@
+import {
+  createPalette,
+  DENSITIES,
+  paletteCss,
+  RADIUS_PRESETS,
+  THEMES,
+} from "@agent-native/design-system";
+import type { Decorator, Preview } from "@storybook/react-vite";
+import * as React from "react";
+
+import "./storybook.css";
+
+/** Brand colors the toolbar generates palettes from; `none` keeps the default scales. */
+const BRANDS: Readonly<Record<string, string | null>> = {
+  none: null,
+  indigo: "#5b5bd6",
+  red: "#e5484d",
+  green: "#30a46c",
+  orange: "#f76b15",
+  cyan: "#00a2c7",
+};
+
+const PALETTE_ID = "storybook";
+const GRAY = "#8d8d8d";
+
+function PaletteStyle({ brand }: { brand: string | null }) {
+  const css = React.useMemo(
+    () =>
+      brand
+        ? paletteCss(createPalette({ brand, gray: GRAY }), { id: PALETTE_ID })
+        : "",
+    [brand],
+  );
+  return css ? <style data-storybook-palette="">{css}</style> : null;
+}
+
+function globalString(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+/**
+ * The stage every story renders on: the theme, appearance, density, radius,
+ * corners and palette the toolbar picked, as the app root would set them.
+ */
+const withStage: Decorator = (Story, { globals }) => {
+  const theme = globalString(globals.theme, "agent-native");
+  const appearance = globalString(globals.appearance, "light");
+  const density = globalString(globals.density, "default");
+  const radius = globalString(globals.radius, "theme");
+  const corners = globalString(globals.corners, "round");
+  const brandKey = globalString(globals.palette, "none");
+  const brand = BRANDS[brandKey] ?? null;
+  return (
+    <>
+      <PaletteStyle brand={brand} />
+      <div
+        className={`${appearance} min-h-screen bg-surface-canvas text-fg`}
+        data-app-theme={theme}
+        data-density={density}
+        data-radius={radius === "theme" ? undefined : radius}
+        data-corners={corners}
+        data-palette={brand ? PALETTE_ID : undefined}
+        data-storybook-stage=""
+      >
+        <div className="mx-auto flex max-w-[1120px] flex-col gap-4 px-8 py-10">
+          <Story />
+        </div>
+      </div>
+    </>
+  );
+};
+
+type GlobalType = NonNullable<Preview["globalTypes"]>[string];
+type ToolbarIcon = NonNullable<NonNullable<GlobalType["toolbar"]>["icon"]>;
+
+function toolbar(
+  title: string,
+  icon: ToolbarIcon,
+  items: readonly string[],
+  defaultValue: string,
+): GlobalType {
+  return {
+    description: title,
+    defaultValue,
+    toolbar: {
+      title,
+      icon,
+      items: items.map((value) => ({ value, title: value })),
+      dynamicTitle: true,
+    },
+  };
+}
+
+const preview: Preview = {
+  decorators: [withStage],
+  globalTypes: {
+    theme: toolbar(
+      "Theme",
+      "paintbrush",
+      THEMES.map((theme) => theme.name),
+      "agent-native",
+    ),
+    appearance: toolbar("Appearance", "contrast", ["light", "dark"], "light"),
+    density: toolbar("Density", "component", DENSITIES, "default"),
+    radius: toolbar(
+      "Radius",
+      "circlehollow",
+      ["theme", ...RADIUS_PRESETS],
+      "theme",
+    ),
+    corners: toolbar("Corners", "outline", ["round", "squircle"], "round"),
+    palette: toolbar("Palette", "starhollow", Object.keys(BRANDS), "none"),
+  },
+  parameters: {
+    a11y: {
+      // Any axe violation fails the story's test.
+      test: "error",
+      // Base UI's focus guards are aria-hidden on purpose and take focus only
+      // to hand it on, so axe's aria-hidden-focus misreads them.
+      context: { exclude: ["[data-base-ui-focus-guard]"] },
+    },
+    backgrounds: { disable: true },
+    controls: { expanded: true },
+    options: {
+      storySort: {
+        method: "alphabetical",
+        order: [
+          "Introduction",
+          "Migration status",
+          "Foundations",
+          [
+            "Color",
+            "Typography",
+            "Space and density",
+            "Sizing",
+            "Radius and shape",
+            "Elevation",
+            "Motion",
+            "Themes",
+          ],
+          "Components",
+          "Patterns",
+        ],
+      },
+    },
+  },
+  tags: ["autodocs"],
+};
+
+export default preview;

@@ -77,6 +77,8 @@ const guards = [
   "guard:no-source-reading-tests",
   "guard:no-duplicate-vi-mock",
   "guard:no-major-changeset",
+  "guard:no-part-class-redefinition",
+  "guard:no-part-geometry-classes",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
   "guard:help-icon-scale",

@@ -1,0 +1,30 @@
+/*
+ * Part: icon-button
+ *
+ *   <button class="icon-button" data-size="1|2|3|4" data-variant=…>
+ *
+ * A button holding only an icon, square at every size. Its colors, states
+ * and sizes' heights are Button's: button.css styles both.
+ */
+
+@layer components {
+  .icon-button {
+    width: var(--control-height-3);
+    padding: 0;
+  }
+
+  .icon-button[data-size="1"] {
+    width: var(--control-height-1);
+    padding: 0;
+  }
+
+  .icon-button[data-size="2"] {
+    width: var(--control-height-2);
+    padding: 0;
+  }
+
+  .icon-button[data-size="4"] {
+    width: var(--control-height-4);
+    padding: 0;
+  }
+}
