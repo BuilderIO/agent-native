@@ -9,9 +9,12 @@
  *     <span class="button-spinner">   the Spinner, while loading
  *
  * Radix Themes' button on the system's scale: sizes 1 to 4 are the 16, 20,
- * 24 and 32px control heights. A variant decides how the color applies, and
- * the color is whichever `data-color` is nearest, the theme's accent at the
- * root. Every variant reads the `--accent-*` steps, so a new color needs no
+ * 24 and 32px control heights, and like Radix the corner radius, padding and
+ * gap step up with the size (--radius-1 to 4; --space-1, 2, 2, 3; --space-1
+ * to --space-2). The full radius preset still makes it a pill: its
+ * --shape-control is --radius-full, which outweighs the step. A variant
+ * decides how the color applies, and the color is whichever `data-color` is
+ * nearest, the theme's accent at the root. Every variant reads the `--accent-*` steps, so a new color needs no
  * rule here. An icon button is the same button made square. Loading
  * disables the button, which draws it in the disabled colors, as Radix does.
  */
@@ -20,17 +23,21 @@
   :is(.button, .icon-button) {
     --control-font-size: var(--control-font-size-3);
     --control-line-height: var(--control-line-height-3);
+    --_radius: var(--radius-3);
     position: relative;
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    gap: var(--control-gap);
+    gap: var(--space-1);
     box-sizing: border-box;
     height: var(--control-height-3);
-    padding: 0 var(--control-padding-x-3);
+    padding: 0 var(--space-2);
     border: 0;
-    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    border-radius: max(
+      calc(var(--_radius) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
     corner-shape: var(--corner-shape, round);
     font: inherit;
     font-size: var(--control-font-size);
@@ -59,13 +66,15 @@
   :is(.button, .icon-button)[data-size="1"] {
     --control-font-size: var(--control-font-size-1);
     --control-line-height: var(--control-line-height-1);
+    --_radius: var(--radius-1);
     height: var(--control-height-1);
-    padding-inline: var(--space-2);
+    padding-inline: var(--space-1);
   }
 
   :is(.button, .icon-button)[data-size="2"] {
     --control-font-size: var(--control-font-size-2);
     --control-line-height: var(--control-line-height-2);
+    --_radius: var(--radius-2);
     height: var(--control-height-2);
     padding-inline: var(--space-2);
   }
@@ -73,8 +82,10 @@
   :is(.button, .icon-button)[data-size="4"] {
     --control-font-size: var(--control-font-size-4);
     --control-line-height: var(--control-line-height-4);
+    --_radius: var(--radius-4);
+    gap: var(--space-2);
     height: var(--control-height-4);
-    padding-inline: var(--control-padding-x-4);
+    padding-inline: var(--space-3);
   }
 
   :is(.button, .icon-button)[data-size="1"] svg {
@@ -121,9 +132,7 @@
     color: var(--accent-text);
   }
 
-  :is(.button, .icon-button)[data-high-contrast]:not(
-      [data-variant="solid"]
-    ) {
+  :is(.button, .icon-button)[data-high-contrast]:not([data-variant="solid"]) {
     color: var(--accent-12);
   }
 
@@ -231,9 +240,10 @@
     box-shadow: inset 0 0 0 1px var(--gray-a6);
   }
 
-  :is(.button, .icon-button):is(:disabled, [data-disabled])[
-      data-variant="ghost"
-    ] {
+  :is(.button, .icon-button):is(
+      :disabled,
+      [data-disabled]
+    )[data-variant="ghost"] {
     background-color: transparent;
   }
 }

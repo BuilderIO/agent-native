@@ -2,6 +2,7 @@ import { type ToggleOwnProps, toggleProps } from "@agent-native/design-system";
 import { Toggle as BaseToggle } from "@base-ui/react/toggle";
 import * as React from "react";
 
+import { glyphOnly } from "./glyph-only.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 import { toggleGroupItemProps } from "./toggle-group.js";
@@ -27,6 +28,7 @@ const Toggle = React.forwardRef<HTMLButtonElement, ToggleProps>(
         ref={ref}
         {...rest}
         {...attributes}
+        data-icon-only={glyphOnly(rest.children) ? "" : undefined}
         className={partClassName("toggle", className)}
       />
     );

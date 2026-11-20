@@ -26,7 +26,8 @@
     --control-line-height: var(--control-line-height-3);
     --_height: var(--control-height-3);
     --_icon: var(--control-icon-size-3);
-    --_padding: var(--control-padding-x-4);
+    --_padding: var(--space-2);
+    --_radius: var(--radius-3);
 
     display: flex;
     align-items: stretch;
@@ -34,7 +35,10 @@
     width: 100%;
     min-width: 0;
     height: var(--_height);
-    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    border-radius: max(
+      calc(var(--_radius) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
     corner-shape: var(--corner-shape, round);
     font: inherit;
     font-size: var(--control-font-size);
@@ -53,7 +57,8 @@
     --control-line-height: var(--control-line-height-1);
     --_height: var(--control-height-1);
     --_icon: var(--control-icon-size-1);
-    --_padding: var(--space-2);
+    --_padding: var(--space-1);
+    --_radius: var(--radius-1);
   }
 
   .input[data-size="2"] {
@@ -61,10 +66,11 @@
     --control-line-height: var(--control-line-height-2);
     --_height: var(--control-height-2);
     --_icon: var(--control-icon-size-2);
-    --_padding: var(--control-padding-x-3);
+    --_radius: var(--radius-2);
   }
 
   .input[data-size="4"] {
+    --_radius: var(--radius-4);
     --control-font-size: var(--control-font-size-4);
     --control-line-height: var(--control-line-height-4);
     --_height: var(--control-height-4);

@@ -20,27 +20,30 @@
 
 @layer components {
   .toolbar {
-    --toolbar-control-font-size: var(--control-font-size-3);
-    --toolbar-control-line-height: var(--control-line-height-3);
-    --toolbar-control-height: var(--control-height-3);
-    --toolbar-control-padding-x: var(--control-padding-x-3);
-    --toolbar-control-icon-size: var(--control-icon-size-3);
+    --_toolbar-font-size: var(--control-font-size-3);
+    --_toolbar-line-height: var(--control-line-height-3);
+    --_toolbar-height: var(--control-height-3);
+    --_toolbar-padding-x: var(--space-2);
+    --_toolbar-radius: var(--radius-3);
+    --_toolbar-icon-size: var(--control-icon-size-3);
   }
 
   .toolbar[data-size="2"] {
-    --toolbar-control-font-size: var(--control-font-size-2);
-    --toolbar-control-line-height: var(--control-line-height-2);
-    --toolbar-control-height: var(--control-height-2);
-    --toolbar-control-padding-x: var(--control-padding-x-2);
-    --toolbar-control-icon-size: var(--control-icon-size-2);
+    --_toolbar-font-size: var(--control-font-size-2);
+    --_toolbar-line-height: var(--control-line-height-2);
+    --_toolbar-height: var(--control-height-2);
+    --_toolbar-padding-x: var(--space-2);
+    --_toolbar-radius: var(--radius-2);
+    --_toolbar-icon-size: var(--control-icon-size-2);
   }
 
   .toolbar[data-size="4"] {
-    --toolbar-control-font-size: var(--control-font-size-4);
-    --toolbar-control-line-height: var(--control-line-height-4);
-    --toolbar-control-height: var(--control-height-4);
-    --toolbar-control-padding-x: var(--control-padding-x-4);
-    --toolbar-control-icon-size: var(--control-icon-size-4);
+    --_toolbar-font-size: var(--control-font-size-4);
+    --_toolbar-line-height: var(--control-line-height-4);
+    --_toolbar-height: var(--control-height-4);
+    --_toolbar-padding-x: var(--space-3);
+    --_toolbar-radius: var(--radius-4);
+    --_toolbar-icon-size: var(--control-icon-size-4);
   }
 
   .toolbar,
@@ -60,10 +63,13 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    gap: var(--control-gap);
+    gap: var(--space-1);
     box-sizing: border-box;
     border: 0;
-    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    border-radius: max(
+      calc(var(--_toolbar-radius, var(--radius-3)) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
     corner-shape: var(--corner-shape, round);
     background-color: transparent;
     color: var(--gray-text);
@@ -81,17 +87,21 @@
   }
 
   .toolbar[data-size] :is(.toolbar-button, .toolbar-link) {
-    --control-font-size: var(--toolbar-control-font-size);
-    --control-line-height: var(--toolbar-control-line-height);
-    min-width: var(--toolbar-control-height);
-    height: var(--toolbar-control-height);
-    padding: 0 var(--toolbar-control-padding-x);
+    --control-font-size: var(--_toolbar-font-size);
+    --control-line-height: var(--_toolbar-line-height);
+    min-width: var(--_toolbar-height);
+    height: var(--_toolbar-height);
+    padding: 0 var(--_toolbar-padding-x);
+  }
+
+  .toolbar[data-size] :is(.toolbar-button, .toolbar-link)[data-icon-only] {
+    padding: 0;
   }
 
   .toolbar[data-size] :is(.toolbar-button, .toolbar-link) svg {
     flex-shrink: 0;
-    width: var(--toolbar-control-icon-size);
-    height: var(--toolbar-control-icon-size);
+    width: var(--_toolbar-icon-size);
+    height: var(--_toolbar-icon-size);
   }
 
   @media (hover: hover) {

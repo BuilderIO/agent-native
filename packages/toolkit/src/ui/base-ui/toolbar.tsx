@@ -5,6 +5,7 @@ import {
 import { Toolbar as BaseToolbar } from "@base-ui/react/toolbar";
 import * as React from "react";
 
+import { glyphOnly } from "./glyph-only.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
@@ -61,6 +62,7 @@ const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonProps>(
     <BaseToolbar.Button
       ref={ref}
       className={partClassName("toolbar-button", className)}
+      data-icon-only={glyphOnly(props.children) ? "" : undefined}
       {...props}
     />
   ),
@@ -79,6 +81,7 @@ const ToolbarLink = React.forwardRef<HTMLAnchorElement, ToolbarLinkProps>(
     <BaseToolbar.Link
       ref={ref}
       className={partClassName("toolbar-link", className)}
+      data-icon-only={glyphOnly(props.children) ? "" : undefined}
       {...props}
     />
   ),

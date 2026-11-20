@@ -18,7 +18,9 @@
 @layer components {
   .otp-field {
     --_box: var(--control-height-4);
-    --_font-size: var(--font-size-2);
+    --_font-size: var(--control-font-size-4);
+    --_line-height: var(--control-line-height-4);
+    --_radius: var(--radius-4);
 
     display: inline-flex;
     align-items: center;
@@ -29,21 +31,27 @@
 
   .otp-field[data-size="1"] {
     --_box: var(--control-height-1);
-    --_font-size: var(--control-font-size);
+    --_font-size: var(--control-font-size-1);
+    --_line-height: var(--control-line-height-1);
+    --_radius: var(--radius-1);
 
     gap: var(--space-1);
   }
 
   .otp-field[data-size="2"] {
     --_box: var(--control-height-2);
-    --_font-size: var(--control-font-size);
+    --_font-size: var(--control-font-size-2);
+    --_line-height: var(--control-line-height-2);
+    --_radius: var(--radius-2);
 
     gap: var(--space-1);
   }
 
   .otp-field[data-size="3"] {
     --_box: var(--control-height-3);
-    --_font-size: var(--control-font-size);
+    --_font-size: var(--control-font-size-3);
+    --_line-height: var(--control-line-height-3);
+    --_radius: var(--radius-3);
   }
 
   /* ---- boxes ---- */
@@ -56,11 +64,14 @@
     margin: 0;
     padding: 0;
     border: 0;
-    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    border-radius: max(
+      calc(var(--_radius) * var(--corner-scale, 1)),
+      calc(var(--shape-control) - 4 * var(--size-8))
+    );
     corner-shape: var(--corner-shape, round);
     font: inherit;
     font-size: var(--_font-size);
-    line-height: 1;
+    line-height: var(--_line-height);
     font-weight: var(--font-weight-medium);
     font-variant-numeric: tabular-nums;
     text-align: center;
