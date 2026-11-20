@@ -235,6 +235,12 @@ export interface RequestContext {
   /** True only when this server received the request directly on 127.0.0.1. */
   isDirectLoopbackRequest?: boolean;
   isIntegrationCaller?: boolean;
+  /**
+   * Inbound webhook verification runs as the channel config owner, but a
+   * signing secret must come from the deployment or the owner's workspace,
+   * never from a row the owner can write for themselves alone.
+   */
+  skipUserScopeSecrets?: boolean;
   integration?: {
     taskId: string;
     attempts?: number;

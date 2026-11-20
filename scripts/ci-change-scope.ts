@@ -190,10 +190,6 @@ const DESIGN_BROAD_WORKFLOW_SHARDS = new Map([
     "music-app-workflow",
   ],
   [
-    "templates/design/e2e/home-system-selection.spec.ts",
-    "home-system-selection",
-  ],
-  [
     "templates/design/e2e/interaction-landing-page-build.spec.ts",
     "landing-page-build",
   ],

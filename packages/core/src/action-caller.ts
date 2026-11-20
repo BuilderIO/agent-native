@@ -1,4 +1,4 @@
-import type { ActionRunContext } from "./action.js";
+import type { ActionCaller, ActionRunContext } from "./action.js";
 
 /** Classify provenance for approval policy; this does not authenticate a caller. */
 export function isOutsideAgentCall(
@@ -11,4 +11,25 @@ export function isOutsideAgentCall(
     ctx?.automation !== undefined ||
     (ctx?.caller !== "frontend" && ctx?.caller !== "tool")
   );
+}
+
+const AGENT_CALLERS: ReadonlySet<string> = new Set<ActionCaller | "agent">([
+  "agent",
+  "tool",
+  "mcp",
+  "webmcp",
+  "a2a",
+]);
+
+/**
+ * Whether an agent made this call: the app's own chat, an external agent over
+ * MCP or WebMCP, or a peer over A2A. Behavior meant for "the agent" keys off
+ * this, never off `caller === "tool"`, which is only the built-in chat.
+ */
+export function isAgentCaller(ctx: unknown): boolean {
+  const caller =
+    typeof ctx === "string"
+      ? ctx
+      : (ctx as { caller?: unknown } | null | undefined)?.caller;
+  return typeof caller === "string" && AGENT_CALLERS.has(caller);
 }

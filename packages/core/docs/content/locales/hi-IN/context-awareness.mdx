@@ -365,6 +365,18 @@ UI की तरफ आप कभी भी इस कुंजी को हा
 इसे लपेटने के बजाय `navigate(path, { replace: true, flushSync: true })` के साथ
 एक दृश्य परिवर्तन में ताकि पता बार और दृश्यमान पृष्ठ एक साथ रहें।
 
+### एजेंट उपयोगकर्ता का व्यू नहीं बदलते {#agent-keeps-view}
+
+उपयोगकर्ता की स्क्रीन तभी बदलती है जब उसने कुछ देखने को कहा हो। यह हर एजेंट पर लागू होता है: बिल्ट-इन चैट, MCP या WebMCP से जुड़े बाहरी एजेंट, और A2A से जुड़े पीयर (`@agent-native/core` से `isAgentCaller(ctx)`)।
+
+- पढ़ना कभी नेविगेट नहीं करता। एजेंट कॉल के दौरान `navigate` लिखने वाली केवल-पढ़ने वाली क्रिया ऐप-स्टेट स्टोर पर अस्वीकार की जाती है।
+- लिखना डिफ़ॉल्ट रूप से व्यू नहीं हिलाता। `intent: "open"` के बिना `navigate` लिखने वाला एजेंट लेखन अस्वीकार किया जाता है; `@agent-native/core/application-state` से `navigateAfterWrite(navigation, { ctx, intent })` कॉल करें ताकि एजेंट `intent` `"open"` न होने पर बदलाव छोड़ दे, या UI खोलने वाली क्रिया पर `allowsAgentNavigation: true` सेट करें।
+- एक आइटम खोलने के लिए `intent: "open"` चाहिए। `createNavigateAction()` और ऐप-स्टेट स्टोर बिना अलग ऐप कोड के आइटम ID फ़ील्ड (`id`, `*Id`) और डिटेल पथों के लिए इसे डिफ़ॉल्ट रूप से लागू करते हैं। कस्टम मिलान की ज़रूरत होने पर ही `createNavigateAction()` को `isDetailView` दें।
+
+```ts
+export const navigate = createNavigateAction();
+```
+
 ## यूज़नेविगेशनस्टेट हुक {#use-navigation-state}
 
 `useNavigationState` **आपके ऐप का हुक है, फ्रेमवर्क आयात नहीं।** प्रत्येक टेम्पलेट `app/hooks/use-navigation-state.ts` पर एक शिप करता है और इसे ऐप शेल (`root.tsx`) से एक बार कॉल करता है। यह एकमात्र स्थान है जो दोनों दिशाओं में नेविगेशन को तारित करता है:

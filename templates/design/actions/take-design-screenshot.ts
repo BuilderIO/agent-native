@@ -10,7 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { isAllowedFigmaSvgRenderRequest } from "../server/lib/design-to-figma-svg.js";
+import { routeAllowedRenderRequests } from "../server/lib/design-to-figma-svg.js";
 import {
   createHubSpotEmailPreview,
   sampleContactValuesSchema,
@@ -650,21 +650,15 @@ export default defineAction({
             }),
           viewport.widthPx,
         );
-        const page = await measure(
+        const { page, requests } = await measure(
           "setup-page",
           async () => {
             await context.addInitScript(
               "globalThis.__name = globalThis.__name || function (value) { return value; };",
             );
-            await context.route("**/*", async (route) => {
-              if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
-                await route.continue();
-              } else {
-                await route.abort("blockedbyclient");
-              }
-            });
+            const requests = await routeAllowedRenderRequests(context);
             await context.routeWebSocket("**/*", () => {});
-            return context.newPage();
+            return { page: await context.newPage(), requests };
           },
           viewport.widthPx,
         );
@@ -707,6 +701,12 @@ export default defineAction({
               page.screenshot({ type: "png", fullPage: true, timeout: 30_000 }),
             viewport.widthPx,
           );
+          if (requests.blockedNavigations.length > 0) {
+            fail(
+              "The screen navigates the page away from its own document, so it cannot be captured. Remove the script that changes the page location.",
+              { errorCode: "screenshot_navigated_away", statusCode: 422 },
+            );
+          }
 
           let uploaded: Awaited<ReturnType<typeof uploadFile>> | null = null;
           let uploadError: ScreenshotUploadError | undefined;
