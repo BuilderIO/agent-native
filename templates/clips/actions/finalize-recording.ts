@@ -34,6 +34,10 @@ import {
   mediaVerificationMarkerMatchesUpload,
   parseMediaVerificationMarker,
 } from "../server/lib/media-verification-state.js";
+import {
+  hasMeetingAudioLayout,
+  isDraftTranscriptProvider,
+} from "../server/lib/meeting-audio-channels.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   reconcileMeetingOnRecordingFailed,
@@ -925,6 +929,7 @@ async function completeReadyRecordingBookkeeping(params: {
       updatedAt: schema.recordingTranscripts.updatedAt,
       fullText: schema.recordingTranscripts.fullText,
       source: schema.recordingTranscripts.source,
+      provider: schema.recordingTranscripts.provider,
     })
     .from(schema.recordingTranscripts)
     .where(eq(schema.recordingTranscripts.recordingId, params.id));
@@ -989,6 +994,16 @@ async function completeReadyRecordingBookkeeping(params: {
       )
       .returning({ recordingId: schema.recordingTranscripts.recordingId });
     shouldDispatchTranscript = Boolean(claimedTranscript);
+  } else if (
+    existingTranscript.source !== "imported" &&
+    existingTranscript.status === "ready" &&
+    isDraftTranscriptProvider(existingTranscript.provider) &&
+    (await hasMeetingAudioLayout(params.id, params.ownerEmail))
+  ) {
+    // A meeting the desktop transcribed live just got its audio.
+    // Its live transcript stays until the one with speakers replaces it, and
+    // comes back if that transcription fails.
+    shouldDispatchTranscript = true;
   }
 
   await deleteAppState(mediaVerificationStateKey(params.id)).catch((err) => {

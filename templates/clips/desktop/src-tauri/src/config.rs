@@ -135,6 +135,11 @@ pub struct FeatureConfig {
     pub whisper_model_enabled: bool,
     #[serde(default = "default_whisper_model_id")]
     pub whisper_model_id: String,
+    /// Keep the audio of a meeting the Mac records itself and upload it with
+    /// the transcript, so the meeting can be played back and its speakers
+    /// named. Off keeps the transcript only.
+    #[serde(default = "default_keep_meeting_audio")]
+    pub keep_meeting_audio: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +157,10 @@ pub enum LocalRecordingMode {
     Off,
     Composed,
     Separate,
+}
+
+fn default_keep_meeting_audio() -> bool {
+    true
 }
 
 fn default_launch_at_login_enabled() -> bool {
@@ -241,6 +250,7 @@ impl Default for FeatureConfig {
             screen_memory: ScreenMemoryConfig::default(),
             whisper_model_enabled: default_whisper_model_enabled(),
             whisper_model_id: default_whisper_model_id(),
+            keep_meeting_audio: default_keep_meeting_audio(),
         }
     }
 }
