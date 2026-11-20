@@ -139,7 +139,7 @@ export const searchConsoleQueriesStep: ContentStep = {
             owned.set(key, site.siteUrl);
             let item: ItemRef | undefined = byKey.get(key);
             if (!item) {
-              const url = page.split("#")[0];
+              const [url = page] = page.split("#");
               const created: StoredContentItem = {
                 source: "search_console",
                 externalId: key,

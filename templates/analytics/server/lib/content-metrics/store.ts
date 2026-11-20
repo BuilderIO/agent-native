@@ -280,7 +280,7 @@ export async function latestSnapshotDate(
   source: ContentCollectionStepId,
 ): Promise<string | null> {
   const db = getDb();
-  const [row] = await db
+  const [row = { latest: null }] = await db
     .select({
       latest: max(schema.analyticsContentMetricSnapshots.metricDate),
     })
@@ -294,7 +294,7 @@ export async function latestSnapshotDate(
         eq(schema.analyticsContentMetricSnapshots.source, source),
       ),
     );
-  return row.latest ?? null;
+  return row.latest;
 }
 
 /** The last run of a step that wrote its data, for choosing a backfill window. */

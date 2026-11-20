@@ -156,7 +156,8 @@ describe("Content view dashboard", () => {
       "SELECT to_char(date_trunc('week', CURRENT_DATE::timestamp)::date - 7 * $1::int, 'YYYY-MM-DD') AS day",
       [weeksAgo],
     )) as { rows: Array<{ day: string }> };
-    return rows[0].day;
+    const [row = { day: "" }] = rows;
+    return row.day;
   }
 
   async function monthLabel(monthsAgo: number): Promise<string> {
@@ -164,7 +165,8 @@ describe("Content view dashboard", () => {
       "SELECT to_char(date_trunc('month', CURRENT_DATE::timestamp) - make_interval(months => $1::int), 'Mon YYYY') AS month",
       [monthsAgo],
     )) as { rows: Array<{ month: string }> };
-    return rows[0].month;
+    const [row = { month: "" }] = rows;
+    return row.month;
   }
 
   async function insertQueries(): Promise<void> {
