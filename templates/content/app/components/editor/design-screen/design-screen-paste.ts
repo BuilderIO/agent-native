@@ -11,6 +11,7 @@ import {
   type SourceLinkPasteContext,
   type SourceLinkPasteOptions,
 } from "../source-link-paste";
+import { designScreenErrorMessage } from "./design-screen-errors";
 
 export type DesignScreenPasteContext = SourceLinkPasteContext;
 export type DesignScreenPasteOptions = SourceLinkPasteOptions;
@@ -61,6 +62,7 @@ export const DesignScreenPaste = createSourceLinkPaste<{
           raw: designScreenBlockRaw(result.blockId, result.screen),
         };
   },
+  describeError: designScreenErrorMessage,
   messages: {
     adding: "designScreen.adding",
     added: "designScreen.added",

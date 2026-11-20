@@ -38,6 +38,16 @@ const en = {
     "A sub-page going public with this page has a screen from a design fewer people can open ({{designs}}). Anyone with the link will see it.",
   shareDetailSubPages:
     "Sub-pages going public with this page have {{count}} screens from designs fewer people can open ({{designs}}). Anyone with the link will see them.",
+  errorUnreachable: "Design didn't answer. Try again in a minute.",
+  errorRefused:
+    "Design couldn't show this screen. Check that you can still open the design and that the screen is still in it.",
+  errorSignedOut: "Sign in to pin Design screens.",
+  errorEditRequired:
+    "Only people who can edit this page can pin or refresh its screens.",
+  errorPublicPage:
+    "Anyone with the link can open this page, but not this screen's design, so it can't be pinned here. Narrow the page's sharing first.",
+  errorUnreadableAnswer:
+    "Design sent back something Content can't read. Try again.",
 } as const;
 
 type DesignScreenMessages = Record<keyof typeof en, string>;
@@ -85,6 +95,16 @@ const translations: Record<
       "Una subpágina que se hará pública con esta página tiene una pantalla de un diseño que pueden abrir menos personas ({{designs}}). Cualquiera con el enlace la verá.",
     shareDetailSubPages:
       "Las subpáginas que se harán públicas con esta página tienen {{count}} pantallas de diseños que pueden abrir menos personas ({{designs}}). Cualquiera con el enlace las verá.",
+    errorUnreachable: "Design no respondió. Inténtalo de nuevo en un minuto.",
+    errorRefused:
+      "Design no pudo mostrar esta pantalla. Comprueba que todavía puedes abrir el diseño y que la pantalla sigue en él.",
+    errorSignedOut: "Inicia sesión para fijar pantallas de Design.",
+    errorEditRequired:
+      "Solo quienes pueden editar esta página pueden fijar o actualizar sus pantallas.",
+    errorPublicPage:
+      "Cualquiera con el enlace puede abrir esta página, pero no el diseño de esta pantalla, así que no se puede fijar aquí. Primero limita el uso compartido de la página.",
+    errorUnreadableAnswer:
+      "Design devolvió algo que Content no puede leer. Inténtalo de nuevo.",
   },
   "fr-FR": {
     openInDesign: "Ouvrir dans Design",
@@ -125,6 +145,16 @@ const translations: Record<
       "Une sous-page qui devient publique avec cette page contient un écran d'un design que moins de personnes peuvent ouvrir ({{designs}}). Toute personne disposant du lien le verra.",
     shareDetailSubPages:
       "Les sous-pages qui deviennent publiques avec cette page contiennent {{count}} écrans de designs que moins de personnes peuvent ouvrir ({{designs}}). Toute personne disposant du lien les verra.",
+    errorUnreachable: "Design n'a pas répondu. Réessayez dans une minute.",
+    errorRefused:
+      "Design n'a pas pu afficher cet écran. Vérifiez que vous pouvez toujours ouvrir le design et que l'écran s'y trouve encore.",
+    errorSignedOut: "Connectez-vous pour épingler des écrans de Design.",
+    errorEditRequired:
+      "Seules les personnes qui peuvent modifier cette page peuvent épingler ou actualiser ses écrans.",
+    errorPublicPage:
+      "Toute personne disposant du lien peut ouvrir cette page, mais pas le design de cet écran, qui ne peut donc pas être épinglé ici. Restreignez d'abord le partage de la page.",
+    errorUnreadableAnswer:
+      "Design a renvoyé une réponse que Content ne peut pas lire. Réessayez.",
   },
   "de-DE": {
     openInDesign: "In Design öffnen",
@@ -166,6 +196,17 @@ const translations: Record<
       "Eine Unterseite, die mit dieser Seite öffentlich wird, enthält einen Screen aus einem Design, das weniger Personen öffnen können ({{designs}}). Alle mit dem Link sehen ihn.",
     shareDetailSubPages:
       "Unterseiten, die mit dieser Seite öffentlich werden, enthalten {{count}} Screens aus Designs, die weniger Personen öffnen können ({{designs}}). Alle mit dem Link sehen sie.",
+    errorUnreachable:
+      "Design hat nicht geantwortet. Versuche es in einer Minute erneut.",
+    errorRefused:
+      "Design konnte diesen Screen nicht anzeigen. Prüfe, ob du das Design noch öffnen kannst und ob der Screen noch darin ist.",
+    errorSignedOut: "Melde dich an, um Design-Screens anzuheften.",
+    errorEditRequired:
+      "Nur Personen, die diese Seite bearbeiten können, können ihre Screens anheften oder aktualisieren.",
+    errorPublicPage:
+      "Jeder mit dem Link kann diese Seite öffnen, aber nicht das Design dieses Screens, daher kann er hier nicht angeheftet werden. Schränke zuerst die Freigabe der Seite ein.",
+    errorUnreadableAnswer:
+      "Design hat etwas zurückgeschickt, das Content nicht lesen kann. Versuche es erneut.",
   },
   "pt-BR": {
     openInDesign: "Abrir no Design",
@@ -206,6 +247,16 @@ const translations: Record<
       "Uma subpágina que ficará pública com esta página tem uma tela de um design que menos pessoas podem abrir ({{designs}}). Qualquer pessoa com o link a verá.",
     shareDetailSubPages:
       "As subpáginas que ficarão públicas com esta página têm {{count}} telas de designs que menos pessoas podem abrir ({{designs}}). Qualquer pessoa com o link as verá.",
+    errorUnreachable: "O Design não respondeu. Tente novamente em um minuto.",
+    errorRefused:
+      "O Design não conseguiu mostrar esta tela. Verifique se você ainda consegue abrir o design e se a tela ainda está nele.",
+    errorSignedOut: "Entre para fixar telas do Design.",
+    errorEditRequired:
+      "Só quem pode editar esta página pode fixar ou atualizar as telas dela.",
+    errorPublicPage:
+      "Qualquer pessoa com o link pode abrir esta página, mas não o design desta tela, então ela não pode ser fixada aqui. Restrinja primeiro o compartilhamento da página.",
+    errorUnreadableAnswer:
+      "O Design enviou algo que o Content não consegue ler. Tente novamente.",
   },
   "zh-CN": {
     openInDesign: "在 Design 中打开",
@@ -244,6 +295,14 @@ const translations: Record<
       "将随此页面一起公开的一个子页面中有一个来自较少人能打开的设计（{{designs}}）的画面。任何拥有链接的人都会看到它。",
     shareDetailSubPages:
       "将随此页面一起公开的子页面中有 {{count}} 个来自较少人能打开的设计（{{designs}}）的画面。任何拥有链接的人都会看到它们。",
+    errorUnreachable: "Design 没有响应。请过一分钟再试。",
+    errorRefused:
+      "Design 无法显示此画面。请确认你仍能打开该设计，并且该画面仍在其中。",
+    errorSignedOut: "登录后才能固定 Design 画面。",
+    errorEditRequired: "只有能编辑此页面的人才能固定或刷新其中的画面。",
+    errorPublicPage:
+      "任何拥有链接的人都能打开此页面，但不能打开此画面所在的设计，因此无法在这里固定它。请先缩小此页面的共享范围。",
+    errorUnreadableAnswer: "Design 返回了 Content 无法读取的内容。请重试。",
   },
   "zh-TW": {
     openInDesign: "在 Design 中開啟",
@@ -282,6 +341,14 @@ const translations: Record<
       "將隨此頁面一起公開的一個子頁面中有一個來自較少人能開啟的設計（{{designs}}）的畫面。任何擁有連結的人都會看到它。",
     shareDetailSubPages:
       "將隨此頁面一起公開的子頁面中有 {{count}} 個來自較少人能開啟的設計（{{designs}}）的畫面。任何擁有連結的人都會看到它們。",
+    errorUnreachable: "Design 沒有回應。請過一分鐘再試。",
+    errorRefused:
+      "Design 無法顯示此畫面。請確認你仍能開啟該設計，且該畫面仍在其中。",
+    errorSignedOut: "登入後才能固定 Design 畫面。",
+    errorEditRequired: "只有能編輯此頁面的人才能固定或重新整理其中的畫面。",
+    errorPublicPage:
+      "任何擁有連結的人都能開啟此頁面，但無法開啟此畫面所屬的設計，因此無法在這裡固定它。請先縮小此頁面的共用範圍。",
+    errorUnreadableAnswer: "Design 傳回了 Content 無法讀取的內容。請再試一次。",
   },
   "ja-JP": {
     openInDesign: "Design で開く",
@@ -321,6 +388,17 @@ const translations: Record<
       "このページと一緒に公開されるサブページに、開ける人が少ないデザイン（{{designs}}）の画面が 1 つあります。リンクを知っている人は誰でも見られます。",
     shareDetailSubPages:
       "このページと一緒に公開されるサブページに、開ける人が少ないデザイン（{{designs}}）の画面が {{count}} 個あります。リンクを知っている人は誰でも見られます。",
+    errorUnreachable:
+      "Design から応答がありませんでした。1 分ほどしてからもう一度お試しください。",
+    errorRefused:
+      "Design でこの画面を表示できませんでした。デザインをまだ開けること、そして画面がまだその中にあることを確認してください。",
+    errorSignedOut: "Design の画面をピン留めするにはサインインしてください。",
+    errorEditRequired:
+      "このページを編集できる人だけが、その画面をピン留めまたは更新できます。",
+    errorPublicPage:
+      "リンクを知っている人は誰でもこのページを開けますが、この画面のデザインは開けないため、ここにピン留めできません。先にページの共有範囲を狭めてください。",
+    errorUnreadableAnswer:
+      "Design から Content が読み取れない内容が返されました。もう一度お試しください。",
   },
   "ko-KR": {
     openInDesign: "Design에서 열기",
@@ -360,6 +438,16 @@ const translations: Record<
       "이 페이지와 함께 공개되는 하위 페이지에 더 적은 사람이 열 수 있는 디자인({{designs}})의 화면이 있습니다. 링크가 있는 누구나 보게 됩니다.",
     shareDetailSubPages:
       "이 페이지와 함께 공개되는 하위 페이지에 더 적은 사람이 열 수 있는 디자인({{designs}})의 화면 {{count}}개가 있습니다. 링크가 있는 누구나 보게 됩니다.",
+    errorUnreachable: "Design이 응답하지 않았습니다. 1분 후에 다시 시도하세요.",
+    errorRefused:
+      "Design에서 이 화면을 표시하지 못했습니다. 아직 디자인을 열 수 있는지, 화면이 아직 그 안에 있는지 확인하세요.",
+    errorSignedOut: "Design 화면을 고정하려면 로그인하세요.",
+    errorEditRequired:
+      "이 페이지를 편집할 수 있는 사람만 화면을 고정하거나 새로고침할 수 있습니다.",
+    errorPublicPage:
+      "링크가 있는 누구나 이 페이지를 열 수 있지만 이 화면의 디자인은 열 수 없으므로 여기에 고정할 수 없습니다. 먼저 페이지의 공유 범위를 좁히세요.",
+    errorUnreadableAnswer:
+      "Design이 Content에서 읽을 수 없는 내용을 보냈습니다. 다시 시도하세요.",
   },
   "hi-IN": {
     openInDesign: "Design में खोलें",
@@ -400,6 +488,16 @@ const translations: Record<
       "इस पेज के साथ सार्वजनिक होने वाले एक सब-पेज में ऐसे डिज़ाइन की स्क्रीन है जिसे कम लोग खोल सकते हैं ({{designs}})। लिंक वाला कोई भी व्यक्ति इसे देखेगा।",
     shareDetailSubPages:
       "इस पेज के साथ सार्वजनिक होने वाले सब-पेजों में ऐसे डिज़ाइनों की {{count}} स्क्रीन हैं जिन्हें कम लोग खोल सकते हैं ({{designs}})। लिंक वाला कोई भी व्यक्ति उन्हें देखेगा।",
+    errorUnreachable: "Design ने जवाब नहीं दिया। एक मिनट बाद फिर कोशिश करें।",
+    errorRefused:
+      "Design यह स्क्रीन नहीं दिखा सका। जाँचें कि आप अब भी डिज़ाइन खोल सकते हैं और स्क्रीन अब भी उसमें है।",
+    errorSignedOut: "Design स्क्रीन पिन करने के लिए साइन इन करें।",
+    errorEditRequired:
+      "केवल वे लोग जो इस पेज को संपादित कर सकते हैं, इसकी स्क्रीन पिन या रीफ़्रेश कर सकते हैं।",
+    errorPublicPage:
+      "लिंक वाला कोई भी व्यक्ति यह पेज खोल सकता है, लेकिन इस स्क्रीन का डिज़ाइन नहीं, इसलिए इसे यहाँ पिन नहीं किया जा सकता। पहले पेज की शेयरिंग सीमित करें।",
+    errorUnreadableAnswer:
+      "Design ने कुछ ऐसा भेजा जिसे Content पढ़ नहीं सकता। फिर कोशिश करें।",
   },
   "ar-SA": {
     openInDesign: "فتح في Design",
@@ -439,6 +537,16 @@ const translations: Record<
       "تحتوي صفحة فرعية تصبح عامة مع هذه الصفحة على شاشة من تصميم يمكن لعدد أقل من الأشخاص فتحه ({{designs}}). سيراها كل من لديه الرابط.",
     shareDetailSubPages:
       "تحتوي الصفحات الفرعية التي تصبح عامة مع هذه الصفحة على {{count}} شاشات من تصاميم يمكن لعدد أقل من الأشخاص فتحها ({{designs}}). سيراها كل من لديه الرابط.",
+    errorUnreachable: "لم يستجب Design. حاول مرة أخرى بعد دقيقة.",
+    errorRefused:
+      "تعذّر على Design عرض هذه الشاشة. تحقّق من أنك ما زلت تستطيع فتح التصميم وأن الشاشة ما زالت فيه.",
+    errorSignedOut: "سجّل الدخول لتثبيت شاشات Design.",
+    errorEditRequired:
+      "يمكن فقط لمن يستطيع تعديل هذه الصفحة تثبيت شاشاتها أو تحديثها.",
+    errorPublicPage:
+      "يمكن لأي شخص لديه الرابط فتح هذه الصفحة، لكن ليس تصميم هذه الشاشة، لذا لا يمكن تثبيتها هنا. ضيّق مشاركة الصفحة أولاً.",
+    errorUnreadableAnswer:
+      "أرسل Design شيئًا لا يستطيع Content قراءته. حاول مرة أخرى.",
   },
 };
 

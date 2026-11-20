@@ -4,6 +4,7 @@ import {
   type ActionRunContext,
 } from "@agent-native/core/action";
 import {
+  deletePrivateMedia,
   PrivateMediaStorageUnavailableError,
   PrivateMediaValidationError,
   putPrivateMedia,
@@ -57,6 +58,20 @@ function audienceMessage(reason: EmbedAudienceReason, title: string): string {
   return `More people can open this page than ${design}. Everyone who can open the page will see this screen.`;
 }
 
+function claimsItsOwnSize(image: {
+  data: string;
+  width: number;
+  height: number;
+}): boolean {
+  const header = Buffer.from(image.data.slice(0, 44), "base64");
+  return (
+    header.length >= 24 &&
+    header.toString("ascii", 12, 16) === "IHDR" &&
+    header.readUInt32BE(16) === image.width &&
+    header.readUInt32BE(20) === image.height
+  );
+}
+
 function capturerName(): string {
   const name = getRequestUserName()?.trim();
   if (name) return name.slice(0, 200);
@@ -76,19 +91,15 @@ async function storePicture(args: {
       statusCode: 401,
     });
   }
+  let media: { id: string };
   try {
-    const media = await putPrivateMedia({
+    media = await putPrivateMedia({
       ownerEmail,
       orgId: args.orgId,
       data: Buffer.from(args.data, "base64"),
       mimeType: "image/png",
       filename: `design-screen-${args.screenId}.png`,
     });
-    await bindUploadedPrivateMedia({
-      documentId: args.documentId,
-      mediaId: media.id,
-    });
-    return privateMediaPath(media.id);
   } catch (error) {
     if (error instanceof PrivateMediaStorageUnavailableError) {
       fail(error.message, {
@@ -104,6 +115,23 @@ async function storePicture(args: {
     }
     throw error;
   }
+  try {
+    await bindUploadedPrivateMedia({
+      documentId: args.documentId,
+      mediaId: media.id,
+    });
+  } catch (error) {
+    try {
+      await deletePrivateMedia(media.id);
+    } catch (cleanupError) {
+      console.warn(
+        "[design-screen] could not remove a picture that failed to attach",
+        cleanupError,
+      );
+    }
+    throw error;
+  }
+  return privateMediaPath(media.id);
 }
 
 const audienceSchema = z.object({
@@ -138,7 +166,7 @@ export default defineAction({
     openWorldHint: true,
   },
   description:
-    "Pin a picture of one Design screen in a page. Pass the screen's copied link from Design, or its designId and screenId, and optionally a width. Checks you can edit the page, then has Design render the screen as you, with your access, keeps the picture with the page's private images, and returns the DesignScreen tag to put in the page with edit-document. To refresh a screen already in the page, pass purpose \"refresh\" and its blockId, then replace the old tag with the new one. A screen from a design fewer people can open than the page comes back as needs_confirmation: ask the person first, then call again with acknowledgeWiderAudience. A page anyone with the link can open only takes screens from designs anyone with the link can open. A link to a whole board, and screens with live effects, are refused.",
+    "Pin a picture of one Design screen in a page. Pass the screen's copied link from Design, or its designId and screenId, and optionally a width. Checks you can edit the page, then has Design render the screen as you, with your access, keeps the picture with the page's private images, and returns the DesignScreen tag to put in the page with edit-document. To refresh a screen already in the page, pass purpose \"refresh\" with its blockId and the designId, screenId and width from its tag, then replace the old tag with the new one. A screen from a design fewer people can open than the page comes back as needs_confirmation: ask the person first, then call again with acknowledgeWiderAudience. A page anyone with the link can open only takes screens from designs anyone with the link can open. A link to a whole board, and screens with live effects, are refused.",
   schema: z.object({
     documentId: designScreenDocumentIdSchema,
     link: z
@@ -230,33 +258,24 @@ export default defineAction({
       });
     }
     const capture = answer.data;
+    if (!claimsItsOwnSize(capture.image)) {
+      fail("Design sent a picture whose size doesn't match what it said.", {
+        errorCode: "design_invalid_response",
+        statusCode: 502,
+      });
+    }
+    const pageNow = await authorizeDesignScreenPage(args.documentId, "editor");
     const design = {
       ...capture.design,
       visibility: visibilityForPageOrganization(
         capture.design.visibility,
-        page,
+        pageNow,
       ),
     };
-    const audience = designScreenAudience("insert", page.visibility, {
+    const audience = designScreenAudience("insert", pageNow.visibility, {
       design,
     });
     const blockId = args.blockId ?? newBlockId();
-
-    track(
-      args.purpose === "refresh"
-        ? "design_screen_refreshed"
-        : "design_screen_captured",
-      {
-        app_name: "content",
-        template_name: "content",
-        output_type: "design_screen",
-        width: capture.screen.width,
-        page_visibility: page.visibility,
-        design_visibility: design.visibility,
-        audience_verdict: audience.verdict,
-      },
-      ctx,
-    );
 
     if (audience.verdict === "block" && audience.reason) {
       fail(audienceMessage(audience.reason, design.title), {
@@ -282,10 +301,25 @@ export default defineAction({
 
     const src = await storePicture({
       documentId: args.documentId,
-      orgId: page.orgId,
+      orgId: pageNow.orgId,
       screenId: capture.screen.id,
       data: capture.image.data,
     });
+    track(
+      args.purpose === "refresh"
+        ? "design_screen_refreshed"
+        : "design_screen_captured",
+      {
+        app_name: "content",
+        template_name: "content",
+        output_type: "design_screen",
+        width: capture.screen.width,
+        page_visibility: pageNow.visibility,
+        design_visibility: design.visibility,
+        audience_verdict: audience.verdict,
+      },
+      ctx,
+    );
     const screen: DesignScreenData = {
       design,
       screen: capture.screen,

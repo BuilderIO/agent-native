@@ -581,9 +581,10 @@ for one. It checks you can edit the page, has Design render the screen as you,
 keeps the picture with the page, and returns `designScreenTag`. Put that tag
 in the page with `edit-document` as its own block, exactly as returned; never
 write or change a `DesignScreen` tag by hand, and never point its picture at
-another image. To refresh a screen, call it again with `purpose: "refresh"`
-and the screen's `id` from `get-document` as `blockId`, then replace the old
-tag with the new one.
+another image. To refresh a screen, read its tag with `get-document` and call
+it again with `purpose: "refresh"`, the tag's `id` as `blockId`, its
+`design.id` as `designId`, and its `screen.id` and `screen.width` as
+`screenId` and `width`, then replace the old tag with the new one.
 
 - `design_screen_board_link` means the link opens a whole board. Ask for one
   screen's link (Copy link on that screen).

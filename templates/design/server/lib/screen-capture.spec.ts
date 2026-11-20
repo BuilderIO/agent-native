@@ -1,14 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../db/index.js", () => ({ getDb: vi.fn(), schema: {} }));
+vi.mock("../db/index.js", () => ({
+  getDb: vi.fn(),
+  schema: { designFiles: {} },
+}));
+vi.mock("drizzle-orm", () => ({ and: vi.fn(), eq: vi.fn(), inArray: vi.fn() }));
 vi.mock("../source-workspace.js", () => ({ readLiveSourceFile: vi.fn() }));
 vi.mock("./playwright-runtime.js", () => ({
   importPlaywright: vi.fn(),
   launchChromium: vi.fn(),
 }));
 
+import { getDb } from "../db/index.js";
+import { readLiveSourceFile } from "../source-workspace.js";
+import { importPlaywright } from "./playwright-runtime.js";
 import {
+  loadCaptureScreens,
   pngSize,
+  renderScreenPng,
   screenFingerprint,
   screenName,
   screenWidthPx,
@@ -116,5 +125,68 @@ describe("pngSize", () => {
 
   it("refuses bytes that aren't a PNG", () => {
     expect(() => pngSize(Buffer.from("not a png"))).toThrow("Not a PNG");
+  });
+});
+
+describe("loadCaptureScreens", () => {
+  it("reads each screen as its editors have it now, not as last saved", async () => {
+    const saved = {
+      id: "s1",
+      designId: "d1",
+      filename: "Pay.html",
+      fileType: "html",
+      content: "<main>Saved</main>",
+      createdAt: null,
+      updatedAt: null,
+    };
+    vi.mocked(getDb).mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: async () => [saved, { ...saved, id: "s2", fileType: "css" }],
+        }),
+      }),
+    } as never);
+    vi.mocked(readLiveSourceFile).mockResolvedValueOnce({
+      content: "<main>Live</main>",
+    } as never);
+    const screens = await loadCaptureScreens("d1", ["s1", "s2"]);
+    expect([...screens.keys()]).toEqual(["s1"]);
+    expect(screens.get("s1")).toEqual({
+      id: "s1",
+      filename: "Pay.html",
+      content: "<main>Live</main>",
+    });
+    expect(readLiveSourceFile).toHaveBeenCalledWith(saved);
+  });
+});
+
+describe("renderScreenPng", () => {
+  it("refuses a screen with live effects before starting a browser", async () => {
+    await expect(
+      renderScreenPng(
+        {
+          id: "s1",
+          filename: "Glow.html",
+          content:
+            '<main>Glow</main><script type="application/x-agent-native-effects">{bad}</script>',
+        },
+        1440,
+      ),
+    ).rejects.toMatchObject({ errorCode: "design_screen_live_effects" });
+    expect(importPlaywright).not.toHaveBeenCalled();
+  });
+
+  it("refuses a screen that shows a running app from its address", async () => {
+    await expect(
+      renderScreenPng(
+        {
+          id: "s1",
+          filename: "Pricing.html",
+          content: "  http://localhost:3000/pricing\n",
+        },
+        1440,
+      ),
+    ).rejects.toMatchObject({ errorCode: "design_screen_live_app" });
+    expect(importPlaywright).not.toHaveBeenCalled();
   });
 });

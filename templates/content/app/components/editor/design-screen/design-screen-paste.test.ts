@@ -201,7 +201,9 @@ describe("pasting a Design screen link", () => {
 
   it("keeps the link when Design refuses, and says why", async () => {
     hooks.callAction.mockRejectedValue(
-      new Error("This screen has live effects."),
+      Object.assign(new Error("Something went wrong. Try again."), {
+        errorCode: "design_refused",
+      }),
     );
     const target = open("See ");
     caretAtEnd(target);
@@ -210,7 +212,7 @@ describe("pasting a Design screen link", () => {
     expect(blocks(target)[0]?.text).toContain(LINK);
     expect(toasts.error).toHaveBeenCalledWith("designScreen.addFailed", {
       id: expect.any(String),
-      description: "This screen has live effects.",
+      description: "designScreen.errorRefused",
     });
   });
 
@@ -230,7 +232,7 @@ describe("pasting a Design screen link", () => {
     expect(toasts.warning).toHaveBeenCalledTimes(1);
     const [message, options] = toasts.warning.mock.calls[0] as [
       string,
-      { action: { label: string; onClick: () => void } },
+      { id: string; action: { label: string; onClick: () => void } },
     ];
     expect(message).toBe("designScreen.confirmWider");
     expect(options.action.label).toBe("designScreen.addAnyway");
@@ -249,6 +251,43 @@ describe("pasting a Design screen link", () => {
     expect(blocks(target).map((block) => block.type)).toContain(
       "registryBlock:design-screen",
     );
+    const [, pinned] = toasts.success.mock.calls[0] as [string, { id: string }];
+    expect(pinned.id).not.toBe(options.id);
+  });
+
+  it("asks Design nothing more when the link is gone or the page closed by the time the person says yes", async () => {
+    hooks.callAction.mockResolvedValue({
+      status: "needs_confirmation",
+      blockId: "design-screen-1a2b3c4d",
+      design: { title: "Checkout" },
+    });
+    const first = open("See ");
+    caretAtEnd(first);
+    paste(first, LINK);
+    await settle();
+    const [, removed] = toasts.warning.mock.calls[0] as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    first.commands.clearContent();
+    removed.action.onClick();
+    await settle();
+    expect(hooks.callAction).toHaveBeenCalledTimes(1);
+
+    first.destroy();
+    const second = open("See ");
+    caretAtEnd(second);
+    paste(second, LINK);
+    await settle();
+    const [, closed] = toasts.warning.mock.calls[1] as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    second.destroy();
+    editor = null;
+    closed.action.onClick();
+    await settle();
+    expect(hooks.callAction).toHaveBeenCalledTimes(2);
   });
 
   it("leaves an Analytics panel link to Analytics", async () => {

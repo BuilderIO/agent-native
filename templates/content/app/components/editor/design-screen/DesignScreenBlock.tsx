@@ -25,6 +25,8 @@ import { imageDisplaySrc } from "@/components/editor/private-media-src";
 import { Button } from "@/components/ui/button";
 import { SourceEmbedFrame } from "@/components/ui/source-embed-frame";
 
+import { designScreenErrorMessage } from "./design-screen-errors";
+
 type ContentBlockRenderContext = BlockRenderContext & {
   documentId?: string | null;
   canEdit?: boolean;
@@ -53,7 +55,13 @@ function UnreadableScreen() {
   );
 }
 
-function ScreenPicture({ image }: { image: DesignScreenData["image"] }) {
+function ScreenPicture({
+  image,
+  screenWidth,
+}: {
+  image: DesignScreenData["image"];
+  screenWidth: number;
+}) {
   const t = useT();
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -80,7 +88,8 @@ function ScreenPicture({ image }: { image: DesignScreenData["image"] }) {
           setOpener(event.currentTarget);
           setExpanded(true);
         }}
-        className="block w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{ maxWidth: screenWidth }}
+        className="mx-auto block w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <img
           src={src}
@@ -180,7 +189,11 @@ function DesignScreenView({
       }
       notice={notice ?? undefined}
     >
-      <ScreenPicture image={data.image} />
+      <ScreenPicture
+        key={data.image.src}
+        image={data.image}
+        screenWidth={data.screen.width}
+      />
     </SourceEmbedFrame>
   );
 }
@@ -188,7 +201,7 @@ function DesignScreenView({
 function useScreenStatus(
   documentId: string | null | undefined,
   data: DesignScreenData,
-): ScreenStatus | null {
+): { status: ScreenStatus | null; recheck: () => void } {
   const { session } = useSession();
   const query = useActionQuery(
     "get-design-screen-status",
@@ -206,22 +219,28 @@ function useScreenStatus(
       refetchOnWindowFocus: false,
     },
   );
+  const recheck = () => void query.refetch();
   const entry = query.data?.designs.find(
     (candidate) => candidate.designId === data.design.id,
   );
-  if (!entry || !("status" in entry)) return null;
-  const screen = entry.status.screens.find(
-    (candidate) => candidate.id === data.screen.id,
-  );
-  if (!screen) return null;
+  const screen =
+    entry && "status" in entry
+      ? entry.status.screens.find(
+          (candidate) => candidate.id === data.screen.id,
+        )
+      : undefined;
+  if (!screen) return { status: null, recheck };
   return {
-    state:
-      screen.fingerprint === null
-        ? "gone"
-        : screen.fingerprint !== data.screen.fingerprint
-          ? "changed"
-          : null,
-    openComments: screen.openComments,
+    status: {
+      state:
+        screen.fingerprint === null
+          ? "gone"
+          : screen.fingerprint !== data.screen.fingerprint
+            ? "changed"
+            : null,
+      openComments: screen.openComments,
+    },
+    recheck,
   };
 }
 
@@ -233,7 +252,7 @@ function DesignScreenReader({
   ctx: BlockRenderContext;
 }) {
   const { documentId } = ctx as ContentBlockRenderContext;
-  const status = useScreenStatus(documentId, data);
+  const { status } = useScreenStatus(documentId, data);
   return <DesignScreenView data={data} status={status} />;
 }
 
@@ -264,7 +283,7 @@ function DesignScreenEditor({
   const t = useT();
   const { documentId } = ctx as ContentBlockRenderContext;
   const [refreshing, setRefreshing] = useState(false);
-  const status = useScreenStatus(documentId, data);
+  const { status, recheck } = useScreenStatus(documentId, data);
 
   const refresh = async (acknowledgeWiderAudience = false) => {
     if (!documentId || refreshing) return;
@@ -292,10 +311,11 @@ function DesignScreenEditor({
         return;
       }
       onChange(result.screen);
+      recheck();
       toast.success(t("designScreen.refreshed"));
     } catch (error) {
       toast.error(t("designScreen.refreshFailed"), {
-        description: error instanceof Error ? error.message : undefined,
+        description: designScreenErrorMessage(error, t),
       });
     } finally {
       setRefreshing(false);

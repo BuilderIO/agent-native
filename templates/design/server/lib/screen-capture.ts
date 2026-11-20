@@ -17,6 +17,7 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 
+import { externalPreviewUrlForContent } from "../../app/pages/design-editor/preview-html.js";
 import { parseCanvasFrameGeometryById } from "../../shared/canvas-frames.js";
 import { degradeWideColorsInHtml } from "../../shared/export-color-fallback.js";
 import { parseEffectsFromHtml } from "../../shared/native-effects.js";
@@ -112,9 +113,12 @@ export async function loadCaptureScreens(
   const rows = await getDb()
     .select({
       id: schema.designFiles.id,
+      designId: schema.designFiles.designId,
       filename: schema.designFiles.filename,
       fileType: schema.designFiles.fileType,
       content: schema.designFiles.content,
+      createdAt: schema.designFiles.createdAt,
+      updatedAt: schema.designFiles.updatedAt,
     })
     .from(schema.designFiles)
     .where(
@@ -123,14 +127,16 @@ export async function loadCaptureScreens(
         inArray(schema.designFiles.id, [...screenIds]),
       ),
     );
-  return new Map(
+  const screens = await Promise.all(
     rows
       .filter((row) => row.fileType === "html")
-      .map((row) => [
-        row.id,
-        { id: row.id, filename: row.filename, content: row.content },
-      ]),
+      .map(async (row) => ({
+        id: row.id,
+        filename: row.filename,
+        content: (await readLiveSourceFile(row)).content,
+      })),
   );
+  return new Map(screens.map((screen) => [screen.id, screen]));
 }
 
 export function screenWidthPx(
@@ -208,20 +214,6 @@ export function captureLinks(
   };
 }
 
-async function liveContent(screen: CaptureScreen): Promise<string> {
-  return (
-    await readLiveSourceFile({
-      id: screen.id,
-      designId: "",
-      filename: "index.html",
-      fileType: "html",
-      content: screen.content,
-      createdAt: null,
-      updatedAt: null,
-    })
-  ).content;
-}
-
 export function pngSize(png: Buffer): { width: number; height: number } {
   if (png.length < 24 || png.toString("ascii", 12, 16) !== "IHDR") {
     throw new Error("Not a PNG");
@@ -234,7 +226,13 @@ export async function renderScreenPng(
   widthPx: number,
   signal?: AbortSignal,
 ): Promise<Buffer> {
-  const html = await liveContent(screen);
+  const html = screen.content;
+  if (externalPreviewUrlForContent(html) !== null) {
+    fail(
+      "This screen shows a running app from its address, which only loads in the Design editor, so it can't be pinned as a picture.",
+      { errorCode: "design_screen_live_app", statusCode: 422 },
+    );
+  }
   const native = parseEffectsFromHtml(html);
   if (
     native.errors.length ||

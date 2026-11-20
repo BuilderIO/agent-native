@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   resolveDocumentAccess: vi.fn(),
   requestDesign: vi.fn(),
   putPrivateMedia: vi.fn(),
+  deletePrivateMedia: vi.fn(),
   bindUploadedPrivateMedia: vi.fn(),
   track: vi.fn(),
   shares: [] as { principalType: string; principalId: string }[],
@@ -39,6 +40,7 @@ vi.mock("@agent-native/core/private-media", async (importOriginal) => ({
     typeof import("@agent-native/core/private-media")
   >()),
   putPrivateMedia: mocks.putPrivateMedia,
+  deletePrivateMedia: mocks.deletePrivateMedia,
 }));
 
 vi.mock("../server/lib/private-media-references.js", () => ({
@@ -88,8 +90,17 @@ import listSubPageDesignScreens from "./list-sub-page-design-screens";
 
 const LINK = "https://design.example.test/design/checkout?screen=pay";
 const MEDIA_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
-const PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+function png(width: number, height: number): string {
+  const bytes = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+  bytes.writeUInt32BE(13, 8);
+  bytes.write("IHDR", 12, "ascii");
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes.toString("base64");
+}
+
+const PNG_BASE64 = png(780, 1688);
 
 function capture(
   overrides: { visibility?: "private" | "org" | "public" } = {},
@@ -170,6 +181,7 @@ beforeEach(() => {
   mocks.requestDesign.mockResolvedValue({ ok: true, data: capture() });
   mocks.putPrivateMedia.mockResolvedValue({ id: MEDIA_ID });
   mocks.bindUploadedPrivateMedia.mockResolvedValue(undefined);
+  mocks.deletePrivateMedia.mockResolvedValue(true);
   mocks.publicSubPageIds.mockResolvedValue([]);
   mocks.resolveAccess.mockResolvedValue(null);
 });
@@ -460,6 +472,7 @@ describe("capture-design-screen", () => {
     });
     expect(held).not.toHaveProperty("designScreenTag");
     expect(mocks.putPrivateMedia).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
 
     const confirmed = await captureDesignScreen.run({
       documentId: "doc_1",
@@ -469,6 +482,58 @@ describe("capture-design-screen", () => {
     });
     expect(confirmed.status).toBe("captured");
     expect(mocks.putPrivateMedia).toHaveBeenCalledTimes(1);
+    expect(mocks.track).toHaveBeenCalledTimes(1);
+  });
+
+  it("weighs who can open the page once Design has answered, not before", async () => {
+    mocks.resolveDocumentAccess
+      .mockResolvedValueOnce(page("private"))
+      .mockResolvedValueOnce(page("public"));
+    await expect(
+      captureDesignScreen.run({
+        documentId: "doc_1",
+        link: LINK,
+        purpose: "insert",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_screen_wider_than_design",
+      details: { reason: "public-page" },
+    });
+    expect(mocks.putPrivateMedia).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("refuses a picture whose size isn't the one Design gave", async () => {
+    const wrong = capture();
+    wrong.image.width = 100;
+    mocks.requestDesign.mockResolvedValue({ ok: true, data: wrong });
+    await expect(
+      failureOf(
+        captureDesignScreen.run({
+          documentId: "doc_1",
+          link: LINK,
+          purpose: "insert",
+        }),
+      ),
+    ).resolves.toEqual({
+      errorCode: "design_invalid_response",
+      statusCode: 502,
+    });
+    expect(mocks.putPrivateMedia).not.toHaveBeenCalled();
+  });
+
+  it("removes the picture again when it can't be attached to the page", async () => {
+    const failure = new Error("database is busy");
+    mocks.bindUploadedPrivateMedia.mockRejectedValue(failure);
+    await expect(
+      captureDesignScreen.run({
+        documentId: "doc_1",
+        link: LINK,
+        purpose: "insert",
+      }),
+    ).rejects.toBe(failure);
+    expect(mocks.deletePrivateMedia).toHaveBeenCalledWith(MEDIA_ID);
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 
   it("counts an organization's design as private on a page from another organization", async () => {

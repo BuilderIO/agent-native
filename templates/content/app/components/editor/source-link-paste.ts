@@ -26,6 +26,10 @@ export interface SourceLinkPasteSpec<Request> {
     request: Request,
     acknowledgeWiderAudience: boolean,
   ) => Promise<SourceLinkCapture>;
+  describeError?: (
+    error: unknown,
+    t: SourceLinkPasteContext["t"],
+  ) => string | undefined;
   messages: {
     adding: string;
     added: string;
@@ -134,8 +138,13 @@ export function createSourceLinkPaste<Request>(
     context: SourceLinkPasteContext,
     acknowledgeWiderAudience = false,
   ): Promise<void> {
+    if (editor.isDestroyed) return;
+    if (!pendingLinkRange(editor.state, id)) {
+      remember(editor, { remove: id });
+      return;
+    }
     const { t } = context;
-    const toastId = `${spec.blockType}-${id}`;
+    const toastId = `${spec.blockType}-${id}${acknowledgeWiderAudience ? "-acknowledged" : ""}`;
     toast.loading(t(spec.messages.adding), { id: toastId });
     try {
       const result = await spec.capture(
@@ -166,17 +175,22 @@ export function createSourceLinkPaste<Request>(
         toast.dismiss(toastId);
         return;
       }
-      replaceLinkWithBlock(editor, range, {
+      const replaced = replaceLinkWithBlock(editor, range, {
         blockType: spec.blockType,
         blockId: result.blockId,
         raw: result.raw,
       });
-      toast.success(t(spec.messages.added), { id: toastId });
+      if (replaced) toast.success(t(spec.messages.added), { id: toastId });
+      else toast.error(t(spec.messages.addFailed), { id: toastId });
     } catch (error) {
       remember(editor, { remove: id });
       toast.error(t(spec.messages.addFailed), {
         id: toastId,
-        description: error instanceof Error ? error.message : undefined,
+        description: spec.describeError
+          ? spec.describeError(error, t)
+          : error instanceof Error
+            ? error.message
+            : undefined,
       });
     }
   }

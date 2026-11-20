@@ -1189,14 +1189,14 @@ export function DocumentToolbar({
       // while that read is out; the question's text follows the read. Tables
       // are refused when the change is saved, whatever this read says.
       const now = Date.now();
-      if (
-        to === "public" &&
-        !inWidget &&
-        (subPageChartsNeedReading(subPagesReadAt, now) ||
-          subPageChartsNeedReading(designScreenShare.subPagesReadAt, now))
-      ) {
-        void readSubPagesAgain();
-        void designScreenShare.readSubPagesAgain();
+      const chartsStale = subPageChartsNeedReading(subPagesReadAt, now);
+      const screensStale = subPageChartsNeedReading(
+        designScreenShare.subPagesReadAt,
+        now,
+      );
+      if (to === "public" && !inWidget && (chartsStale || screensStale)) {
+        if (chartsStale) void readSubPagesAgain();
+        if (screensStale) void designScreenShare.readSubPagesAgain();
         return true;
       }
       return (

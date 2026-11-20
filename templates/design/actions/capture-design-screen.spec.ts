@@ -129,10 +129,10 @@ describe("capture-design-screen", () => {
 
 describe("get-design-screen-status", () => {
   it("reports each screen's fingerprint and open comments", async () => {
-    const result = await getDesignScreenStatus.run({
-      designId: "d1",
-      screenIds: ["s1", "gone", "s1"],
-    });
+    const result = await getDesignScreenStatus.run(
+      { designId: "d1", screenIds: ["s1", "gone", "s1"] },
+      a2a,
+    );
     expect(result.design).toEqual({
       id: "d1",
       title: "Checkout",
@@ -146,5 +146,16 @@ describe("get-design-screen-status", () => {
       },
       { id: "gone", fingerprint: null, openComments: 0 },
     ]);
+  });
+
+  it("answers only other apps", async () => {
+    for (const caller of ["tool", "mcp", "frontend", "http"]) {
+      await expect(
+        getDesignScreenStatus.run({ designId: "d1", screenIds: ["s1"] }, {
+          caller,
+        } as never),
+      ).rejects.toMatchObject({ errorCode: "design_screen_capture_app_only" });
+    }
+    expect(mocks.loadCaptureDesign).not.toHaveBeenCalled();
   });
 });

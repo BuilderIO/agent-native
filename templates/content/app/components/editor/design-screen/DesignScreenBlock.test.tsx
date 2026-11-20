@@ -17,6 +17,7 @@ const hooks = vi.hoisted(() => ({
   options: {} as Record<string, Record<string, unknown> | undefined>,
   session: null as { email: string } | null,
   callAction: vi.fn(),
+  refetch: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", async () => {
@@ -31,7 +32,10 @@ vi.mock("@agent-native/core/client/hooks", async () => {
     ) => {
       useRef(name);
       hooks.options[name] = options;
-      return { data: options?.enabled ? hooks.queries[name] : undefined };
+      return {
+        data: options?.enabled ? hooks.queries[name] : undefined,
+        refetch: hooks.refetch,
+      };
     },
   };
 });
@@ -141,6 +145,7 @@ beforeEach(() => {
   hooks.options = {};
   hooks.session = { email: "reader@example.test" };
   hooks.callAction.mockReset();
+  hooks.refetch.mockReset();
   tracked.mockReset();
   for (const fn of Object.values(toasts)) fn.mockReset();
   container = document.createElement("div");
@@ -167,6 +172,12 @@ describe("DesignScreen for readers", () => {
     expect(image.getAttribute("alt")).toBe(screen().image.alt);
     expect(image.getAttribute("width")).toBe("780");
     expect(image.getAttribute("height")).toBe("1688");
+  });
+
+  it("shows a phone screen no wider than the phone", () => {
+    renderRead(screen());
+    const picture = defined(container.querySelector("img")?.closest("button"));
+    expect(picture.style.maxWidth).toBe("390px");
   });
 
   it("opens the picture full size", () => {
@@ -251,6 +262,24 @@ describe("DesignScreen for readers", () => {
     expect(fallback.textContent).toBe("designScreen.imageFailed");
   });
 
+  it("tries a new picture even after the old one didn't load", () => {
+    renderRead(screen());
+    act(() => {
+      defined(container.querySelector("img")).dispatchEvent(new Event("error"));
+    });
+    renderRead(
+      screen({
+        image: {
+          ...screen().image,
+          src: "/api/private-media/7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        },
+      }),
+    );
+    expect(container.querySelector("img")?.getAttribute("src")).toContain(
+      "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    );
+  });
+
   it("shows nothing from a tag whose picture isn't one of the page's private images", () => {
     renderRead(
       screen({
@@ -295,6 +324,7 @@ describe("DesignScreen for editors", () => {
       blockId: "design-screen-1a2b3c4d",
     });
     expect(onChange).toHaveBeenCalledWith(fresh);
+    expect(hooks.refetch).toHaveBeenCalledTimes(1);
     expect(toasts.success).toHaveBeenCalled();
   });
 
@@ -334,6 +364,19 @@ describe("DesignScreen for editors", () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(toasts.error).toHaveBeenCalledWith("designScreen.refreshFailed", {
       description: "Design didn't answer.",
+    });
+  });
+
+  it("says why in the page's own words when the action names the failure", async () => {
+    hooks.callAction.mockRejectedValue(
+      Object.assign(new Error("Something went wrong. Try again."), {
+        errorCode: "design_unreachable",
+      }),
+    );
+    renderEdit(screen());
+    await act(async () => defined(refreshButton()).click());
+    expect(toasts.error).toHaveBeenCalledWith("designScreen.refreshFailed", {
+      description: "designScreen.errorUnreachable",
     });
   });
 });
