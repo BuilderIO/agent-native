@@ -2130,10 +2130,14 @@ function sameMirrorTarget(a: MirrorTarget, b: MirrorTarget): boolean {
   return a.updatedAt === b.updatedAt && a.content === b.content;
 }
 
-function deleteMirroredMemory(owner: string, path: string): Promise<void> {
+function deleteMirroredMemory(
+  owner: string,
+  path: string,
+  deletedRevision = 0,
+): Promise<void> {
   return serializeMemoryMirror(owner, path, async () => {
     try {
-      await deleteSharedPersonalMemory(owner, path);
+      await deleteSharedPersonalMemory(owner, path, deletedRevision + 1);
     } catch (error) {
       throw new MemoryTombstoneError(
         `Could not record the deletion of ${path}; the shared copy may reappear`,
@@ -2470,13 +2474,21 @@ export function prepareResourceCreate(
         ],
       },
     ],
-    notifyAfterCommit: () =>
+    notifyAfterCommit: async () => {
+      if (isPersonalMemoryResourcePath(input.owner, input.path)) {
+        await mirrorPutOrThrow(
+          resource,
+          ROWLESS_MEMORY_BASE,
+          input.options?.requestSource,
+        );
+      }
       emitResourceChange(
         input.id,
         input.path,
         input.owner,
         input.options?.requestSource,
-      ),
+      );
+    },
   };
 }
 
@@ -2895,6 +2907,13 @@ async function notifyResourceIfCurrent(
   input: ResourceConditionalWrite,
   resource: Resource,
 ): Promise<void> {
+  if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+    await mirrorPutOrThrow(
+      resource,
+      { content: input.expectedContent, updatedAt: input.expectedUpdatedAt },
+      undefined,
+    );
+  }
   await noteJobFrontmatterWrite({
     owner: resource.owner,
     orgId: organizationIdFromResourceOwner(resource.owner),
@@ -2968,7 +2987,7 @@ export async function resourceDeleteWithDb(
     );
   }
   const { rows } = await client.execute({
-    sql: `SELECT path, owner FROM resources WHERE id = ?`,
+    sql: `SELECT path, owner, updated_at FROM resources WHERE id = ?`,
     args: [id],
   });
   if (rows.length === 0) {
@@ -2982,13 +3001,14 @@ export async function resourceDeleteWithDb(
   const deleted = result.rowsAffected > 0;
   const path = String(rows[0].path);
   const owner = String(rows[0].owner);
+  const deletedRevision = Number(rows[0].updated_at);
   return {
     value: deleted,
     notifyAfterCommit: async () => {
       if (deleted) {
         if (isPersonalMemoryResourcePath(owner, path)) {
           try {
-            await deleteMirroredMemory(owner, path);
+            await deleteMirroredMemory(owner, path, deletedRevision);
           } finally {
             emitResourceDelete(id, path, owner);
           }
@@ -3181,6 +3201,13 @@ async function resourcePutIfSnapshotInternal(
   if (rows.length !== 1) return null;
   const resource = rowToResource(rows[0]);
   if (emitChange) {
+    if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+      await mirrorPutOrThrow(
+        resource,
+        { content: previous.content, updatedAt: previous.updatedAt },
+        input.options?.requestSource,
+      );
+    }
     await noteJobFrontmatterWrite({
       owner: resource.owner,
       orgId: organizationIdFromResourceOwner(resource.owner),
@@ -3382,6 +3409,13 @@ export async function resourceRestoreSnapshotIfCurrent(
       ],
     });
     if (rows.length !== 1) return false;
+    if (isPersonalMemoryResourcePath(snapshot.owner, snapshot.path)) {
+      await mirrorPutOrThrow(
+        rowToResource(rows[0]),
+        ROWLESS_MEMORY_BASE,
+        undefined,
+      );
+    }
     emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
     return true;
   }
@@ -3404,6 +3438,13 @@ export async function resourceRestoreSnapshotIfCurrent(
     ],
   });
   if (rows.length !== 1) return false;
+  if (isPersonalMemoryResourcePath(snapshot.owner, snapshot.path)) {
+    await mirrorPutOrThrow(
+      rowToResource(rows[0]),
+      { content: current.content, updatedAt: current.updatedAt },
+      undefined,
+    );
+  }
   emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
   return true;
 }
@@ -3438,7 +3479,11 @@ export async function resourceDeleteIfCurrent(
   if (deleted) {
     if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
       try {
-        await deleteMirroredMemory(resource.owner, resource.path);
+        await deleteMirroredMemory(
+          resource.owner,
+          resource.path,
+          resource.updatedAt,
+        );
       } finally {
         emitResourceDelete(resource.id, resource.path, resource.owner);
       }
@@ -3494,7 +3539,7 @@ export async function resourceDeleteByPath(
   const client = getDbExec();
 
   const { rows } = await client.execute({
-    sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
+    sql: `SELECT id, updated_at FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
   if (rows.length === 0) {
@@ -3516,7 +3561,7 @@ export async function resourceDeleteByPath(
   if (deleted) {
     if (isPersonalMemoryResourcePath(owner, path)) {
       try {
-        await deleteMirroredMemory(owner, path);
+        await deleteMirroredMemory(owner, path, Number(rows[0].updated_at));
       } finally {
         emitResourceDelete(rows[0].id as string, path, owner);
       }

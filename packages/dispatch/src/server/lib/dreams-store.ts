@@ -13,6 +13,7 @@ import {
   isNull,
   or,
 } from "@agent-native/core/db/schema";
+import { staleMirrorCollector } from "@agent-native/core/resources/shared-memory";
 import {
   organizationIdFromResourceOwner,
   resourceGetByPath,
@@ -2706,10 +2707,11 @@ async function savePersonalMemory(proposal: DreamProposalRow) {
     "",
   ].join("\n");
 
+  const stale = staleMirrorCollector();
   await resourcePut(owner, targetPath, fileContent, "text/markdown", {
     createdBy: "agent",
     metadata: { dreamId: proposal.dreamId, proposalId: proposal.id },
-  });
+  }).catch(stale.absorb);
 
   const existingIndex = await resourceGetByPath(owner, MEMORY_INDEX_PATH);
   const index = existingIndex?.content ?? "# Memory Index\n";
@@ -2729,7 +2731,8 @@ async function savePersonalMemory(proposal: DreamProposalRow) {
   await resourcePut(owner, MEMORY_INDEX_PATH, updatedIndex, "text/markdown", {
     createdBy: "agent",
     metadata: { dreamId: proposal.dreamId, proposalId: proposal.id },
-  });
+  }).catch(stale.absorb);
+  stale.finish();
 
   return {
     resourcePath: targetPath,

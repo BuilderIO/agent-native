@@ -1,0 +1,72 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  resourcePut: vi.fn(async (..._args: unknown[]): Promise<unknown> => ({})),
+  resourceGetByPath: vi.fn(
+    async (..._args: unknown[]): Promise<unknown> => ({
+      content: "# Memory Index\n- [style](style.md) — Style\n",
+    }),
+  ),
+  resourceDeleteByPath: vi.fn(
+    async (..._args: unknown[]): Promise<boolean> => true,
+  ),
+}));
+
+vi.mock("../../resources/store.js", () => ({
+  resourcePut: (...args: unknown[]) => mocks.resourcePut(...args),
+  resourceGetByPath: (...args: unknown[]) => mocks.resourceGetByPath(...args),
+  resourceDeleteByPath: (...args: unknown[]) =>
+    mocks.resourceDeleteByPath(...args),
+}));
+
+import {
+  MemoryMirrorStaleError,
+  MemoryTombstoneError,
+} from "../../resources/shared-memory.js";
+import deleteMemoryScript from "./delete-memory.js";
+
+const run = () => {
+  vi.stubEnv("AGENT_USER_EMAIL", "alice@example.test");
+  return deleteMemoryScript(["--name", "style"]);
+};
+
+describe("delete-memory", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+
+  it("surfaces a tombstone failure instead of reporting not found, after updating the index", async () => {
+    mocks.resourceDeleteByPath.mockRejectedValueOnce(
+      new MemoryTombstoneError("disk full"),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(run()).rejects.toThrow(
+      /could not be marked deleted.*disk full/,
+    );
+    expect(mocks.resourcePut).toHaveBeenCalledTimes(1);
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining("not found"));
+    log.mockRestore();
+  });
+
+  it("does not swallow other delete errors", async () => {
+    mocks.resourceDeleteByPath.mockRejectedValueOnce(new Error("db down"));
+    await expect(run()).rejects.toThrow("db down");
+  });
+
+  it("still updates the MEMORY.md index when the memory write is stale, then reports it", async () => {
+    mocks.resourcePut.mockRejectedValueOnce(
+      new MemoryMirrorStaleError("stale", {
+        path: "memory/MEMORY.md",
+        content: "",
+        updatedAt: 1,
+      }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(run()).rejects.toBeInstanceOf(MemoryMirrorStaleError);
+    expect(mocks.resourcePut).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+});

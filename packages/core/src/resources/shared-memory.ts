@@ -90,6 +90,26 @@ export class MemoryMirrorStaleError extends Error {
 
 export class MemoryMirrorRepairError extends Error {}
 
+/**
+ * Lets a caller keep doing follow-up work after a write whose SQL row
+ * committed but whose mirror is stale, then report the staleness at the end.
+ */
+export function staleMirrorCollector(): {
+  absorb: (error: unknown) => void;
+  finish: () => void;
+} {
+  let first: MemoryMirrorStaleError | undefined;
+  return {
+    absorb(error) {
+      if (!(error instanceof MemoryMirrorStaleError)) throw error;
+      first ??= error;
+    },
+    finish() {
+      if (first) throw first;
+    },
+  };
+}
+
 export type MirroredMemory =
   | { state: "absent" }
   | { state: "deleted"; deletedAt: number }
@@ -190,13 +210,23 @@ export async function writeSharedPersonalMemory(
 export async function deleteSharedPersonalMemory(
   owner: string,
   resourcePath: string,
+  revisionFloor = 0,
 ): Promise<void> {
   const rootDir = getSharedMemoryDir();
   if (!rootDir) return;
   const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
   if (!filePath) return;
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-  await writeAtomic(`${filePath}.deleted`, String(Date.now()));
+  const fileStat = await fs.promises.stat(filePath).catch((error) => {
+    if (!isMissingPathError(error)) throw error;
+    return null;
+  });
+  const deletedAt = Math.max(
+    Date.now(),
+    revisionFloor,
+    fileStat ? Math.floor(fileStat.mtimeMs) + 1 : 0,
+  );
+  await writeAtomic(`${filePath}.deleted`, String(deletedAt));
   try {
     await fs.promises.unlink(filePath);
   } catch (error) {

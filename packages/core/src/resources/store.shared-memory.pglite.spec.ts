@@ -523,7 +523,7 @@ describe("personal memory shared across local apps", () => {
       await resourcePut(OWNER, "memory/same-ms.md", "before");
       await resourceDeleteByPath(OWNER, "memory/same-ms.md");
       const again = await resourcePut(OWNER, "memory/same-ms.md", "after");
-      expect(again.updatedAt).toBe(5_000_000_000_001);
+      expect(again.updatedAt).toBe(5_000_000_000_002);
       await expect(
         resourceGetByPath(OWNER, "memory/same-ms.md"),
       ).resolves.toMatchObject({ content: "after" });
@@ -829,5 +829,68 @@ describe("personal memory shared across local apps", () => {
     expect(fs.existsSync(`${sharedFile(dir, "revive.md")}.deleted`)).toBe(
       false,
     );
+  });
+
+  it("stamps the tombstone above a future-dated adopted row so the delete sticks", async () => {
+    const dir = useMemoryDir();
+    const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+      await import("./store.js");
+    const stored = await resourcePut(OWNER, "memory/future.md", "x");
+    const future = stored.updatedAt + 3_600_000;
+    await pglite.exec(
+      `UPDATE resources SET updated_at = ${future} WHERE id = '${stored.id}'`,
+    );
+    await resourceDeleteByPath(OWNER, "memory/future.md");
+    expect(
+      Number(
+        fs.readFileSync(`${sharedFile(dir, "future.md")}.deleted`, "utf8"),
+      ),
+    ).toBeGreaterThan(future);
+    await expect(
+      resourceGetByPath(OWNER, "memory/future.md"),
+    ).resolves.toBeNull();
+  });
+
+  it("routes single-row conditional writes through the mirror and conflict path", async () => {
+    const dir = useMemoryDir();
+    const { resourcePut, resourcePutIfCurrent, resourcePutIfSnapshot } =
+      await import("./store.js");
+    const { MemoryWriteConflictError } = await import("./shared-memory.js");
+
+    const a = await resourcePut(OWNER, "memory/cond-a.md", "a1");
+    const written = await resourcePutIfCurrent({
+      owner: OWNER,
+      path: a.path,
+      content: "a2",
+      expectedId: a.id,
+      expectedUpdatedAt: a.updatedAt,
+      expectedContent: a.content,
+    });
+    expect(written?.content).toBe("a2");
+    expect(fs.readFileSync(sharedFile(dir, "cond-a.md"), "utf8")).toBe("a2");
+
+    const b = await resourcePut(OWNER, "memory/cond-b.md", "b1");
+    const snap = await resourcePutIfSnapshot({
+      previous: b,
+      owner: OWNER,
+      path: b.path,
+      content: "b2",
+    });
+    expect(snap?.resource.content).toBe("b2");
+    expect(fs.readFileSync(sharedFile(dir, "cond-b.md"), "utf8")).toBe("b2");
+
+    const file = sharedFile(dir, "cond-b.md");
+    fs.writeFileSync(file, "b-external");
+    const later = new Date(Date.now() + 60_000);
+    fs.utimesSync(file, later, later);
+    await expect(
+      resourcePutIfSnapshot({
+        previous: snap?.resource ?? null,
+        owner: OWNER,
+        path: b.path,
+        content: "b3",
+      }),
+    ).rejects.toBeInstanceOf(MemoryWriteConflictError);
+    expect(fs.readFileSync(file, "utf8")).toBe("b-external");
   });
 });

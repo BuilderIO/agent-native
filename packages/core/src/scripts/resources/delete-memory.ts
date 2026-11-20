@@ -1,4 +1,8 @@
 import {
+  MemoryTombstoneError,
+  staleMirrorCollector,
+} from "../../resources/shared-memory.js";
+import {
   resourcePut,
   resourceGetByPath,
   resourceDeleteByPath,
@@ -27,32 +31,38 @@ export default async function deleteMemoryScript(
   const indexPath = "memory/MEMORY.md";
 
   let deleted = false;
+  let tombstoneFailure: MemoryTombstoneError | undefined;
   try {
-    await resourceDeleteByPath(owner, memoryPath);
+    deleted = await resourceDeleteByPath(owner, memoryPath);
+  } catch (error) {
+    if (!(error instanceof MemoryTombstoneError)) throw error;
+    tombstoneFailure = error;
     deleted = true;
-  } catch {
-    // May not exist
   }
 
-  try {
-    const existing = await resourceGetByPath(owner, indexPath);
-    if (existing?.content) {
-      const entryPrefix = `- [${name}]`;
-      const lines = existing.content.split("\n");
-      const filtered = lines.filter((line) => !line.startsWith(entryPrefix));
-      if (filtered.length !== lines.length) {
-        await resourcePut(
-          owner,
-          indexPath,
-          filtered.join("\n").trimEnd() + "\n",
-          "text/markdown",
-        );
-        deleted = true;
-      }
+  const stale = staleMirrorCollector();
+  const existing = await resourceGetByPath(owner, indexPath);
+  if (existing?.content) {
+    const entryPrefix = `- [${name}]`;
+    const lines = existing.content.split("\n");
+    const filtered = lines.filter((line) => !line.startsWith(entryPrefix));
+    if (filtered.length !== lines.length) {
+      await resourcePut(
+        owner,
+        indexPath,
+        filtered.join("\n").trimEnd() + "\n",
+        "text/markdown",
+      ).catch(stale.absorb);
+      deleted = true;
     }
-  } catch {
-    // Index may not exist
   }
+
+  if (tombstoneFailure) {
+    fail(
+      `Memory "${name}" was removed from the database but its shared copy could not be marked deleted, so it may reappear: ${tombstoneFailure.message}`,
+    );
+  }
+  stale.finish();
 
   if (deleted) {
     console.log(`Deleted memory "${name}".`);

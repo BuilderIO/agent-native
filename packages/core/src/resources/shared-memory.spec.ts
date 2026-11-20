@@ -9,7 +9,9 @@ import {
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
   MemoryTombstoneError,
+  MemoryMirrorStaleError,
   readMirroredMemory,
+  staleMirrorCollector,
   resolveSharedMemoryFilePath,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
@@ -211,5 +213,44 @@ describe("shared-memory", () => {
     await expect(
       readMirroredMemory("alice@example.com", "memory/a.md"),
     ).resolves.toMatchObject({ state: "deleted" });
+  });
+
+  it("stamps a tombstone above the surviving file's mtime and the revision floor", async () => {
+    const dir = makeTempDir();
+    process.env.AGENT_NATIVE_MEMORY_DIR = dir;
+    await writeSharedPersonalMemory("alice@example.com", "memory/f.md", "x");
+    const file = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/f.md",
+    ) as string;
+    const future = Date.now() + 3_600_000;
+    fs.utimesSync(file, future / 1000, future / 1000);
+    await deleteSharedPersonalMemory("alice@example.com", "memory/f.md");
+    expect(Number(fs.readFileSync(`${file}.deleted`, "utf8"))).toBeGreaterThan(
+      future,
+    );
+
+    await writeSharedPersonalMemory("alice@example.com", "memory/g.md", "x");
+    const floor = Date.now() + 7_200_000;
+    await deleteSharedPersonalMemory("alice@example.com", "memory/g.md", floor);
+    const tomb = resolveSharedMemoryFilePath(
+      dir,
+      "alice@example.com",
+      "memory/g.md",
+    );
+    expect(Number(fs.readFileSync(`${tomb}.deleted`, "utf8"))).toBe(floor);
+  });
+
+  it("keeps the first stale-mirror error for the end and rethrows anything else at once", () => {
+    const collector = staleMirrorCollector();
+    const stale = new MemoryMirrorStaleError("stale", {
+      path: "memory/a.md",
+      content: "",
+      updatedAt: 1,
+    });
+    collector.absorb(stale);
+    expect(() => collector.absorb(new Error("boom"))).toThrow("boom");
+    expect(() => collector.finish()).toThrow(stale);
   });
 });
