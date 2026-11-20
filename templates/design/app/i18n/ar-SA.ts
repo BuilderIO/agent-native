@@ -1032,7 +1032,7 @@ export default {
       comments: "التعليقات",
       unreadComments: "تعليقات غير مقروءة",
       resizeLeftPanel: "تغيير حجم اللوحة اليسرى",
-      resizeInspector: "تغيير حجم أداة الفحص",
+      resizeInspector: "تغيير حجم المفتش",
       whatsNew: "ما الجديد",
     },
     breakpointBar: {
@@ -1963,7 +1963,7 @@ export default {
       previewCredentialsUnavailableTitle:
         "بيانات اعتماد المعاينة المحلية غير متاحة",
       previewCredentialsUnavailableDescription:
-        "أعد ربط اتصال localhost لهذه الصفحة في المراقب، ثم أعد المحاولة.",
+        "أعد ربط اتصال localhost لهذه الصفحة في المفتش، ثم أعد المحاولة.",
       publicPreviewUnavailableDescription:
         "لا تتم مشاركة معاينات localhost مع المشاهدين العامين. افتح Design هذا كمتعاون لعرض هذه الصفحة.",
       previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",

@@ -1851,7 +1851,7 @@ export default {
       primitiveInsertFailed:
         "Diese Ebene konnte der Seite nicht hinzugefügt werden",
       designStateLiveScreen:
-        "Designzustände können auf einer Live-Seite nicht in der Vorschau angezeigt werden: Ihr Inhalt ist die laufende App, kein Dokument.",
+        "Designzustände können auf einer Live-Seite nicht in der Vorschau angezeigt werden: ihr Inhalt ist die laufende App, kein Dokument.",
       layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
       groupFillApplyFailed:
         "Diese Füllung konnte nicht auf alle Ebenen der Gruppe angewendet werden.",
@@ -1965,7 +1965,7 @@ export default {
   layersPanel: {
     title: "Ebenen",
     screens: "Seiten",
-    resizeScreens: "Seitenbereich skalieren",
+    resizeScreens: "Größe des Seitenbereichs ändern",
     thumbnail: "Miniaturansicht",
     addScreen: "Seite hinzufügen",
     searchPlaceholder: "Ebenen suchen",
@@ -2026,7 +2026,7 @@ export default {
       previewCredentialsUnavailableTitle:
         "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
       previewCredentialsUnavailableDescription:
-        "Verbinde die localhost-Verbindung dieser Seite im Inspektor neu und versuche es dann erneut.",
+        "Verbinde die Localhost-Verbindung dieser Seite im Inspektor neu und versuche es dann erneut.",
       publicPreviewUnavailableDescription:
         "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitarbeiter, um diese Seite zu sehen.",
       previewCredentialsRetry: "Anmeldedaten erneut abrufen",
