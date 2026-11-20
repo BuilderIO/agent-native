@@ -129,7 +129,7 @@
             "label": "Article",
             "format": "link",
             "linkKey": "href",
-            "width": 220
+            "width": 150
           },
           {
             "key": "href",
@@ -138,7 +138,7 @@
           {
             "key": "author",
             "label": "Author",
-            "width": 140
+            "width": 120
           },
           {
             "key": "published",
@@ -392,7 +392,7 @@
       "source": "first-party",
       "width": 6,
       "tab": "Search",
-      "sql": "SELECT to_char(date_trunc('month', s.metric_date::date), 'Mon YYYY') AS month, SUM(s.value) AS clicks FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric = 'search_console_clicks' AND s.metric_date::date >= (date_trunc('month', CURRENT_DATE) - INTERVAL '24 months')::date AND s.metric_date::date < date_trunc('month', CURRENT_DATE)::date AND s.metric_date::date >= (SELECT (date_trunc('month', MIN(earliest.metric_date)::date - 1) + INTERVAL '1 month')::date FROM analytics_content_metric_snapshots earliest WHERE earliest.metric = 'search_console_clicks') GROUP BY date_trunc('month', s.metric_date::date) ORDER BY date_trunc('month', s.metric_date::date)",
+      "sql": "SELECT to_char(date_trunc('month', s.metric_date::date), 'Mon ''YY') AS month, SUM(s.value) AS clicks FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE i.source = 'builder_blog' AND s.metric = 'search_console_clicks' AND s.metric_date::date >= (date_trunc('month', CURRENT_DATE) - INTERVAL '24 months')::date AND s.metric_date::date < date_trunc('month', CURRENT_DATE)::date AND s.metric_date::date >= (SELECT (date_trunc('month', MIN(earliest.metric_date)::date - 1) + INTERVAL '1 month')::date FROM analytics_content_metric_snapshots earliest WHERE earliest.metric = 'search_console_clicks') GROUP BY date_trunc('month', s.metric_date::date) ORDER BY date_trunc('month', s.metric_date::date)",
       "config": {
         "timeScope": "fixed-window",
         "xKey": "month",
@@ -400,7 +400,7 @@
         "seriesLabels": {
           "clicks": "Search clicks"
         },
-        "description": "Google search clicks to blog articles in each full month, up to two years back, whatever the time range. Search Console keeps 16 months; the collection keeps each month from then on, so a month can be set against the same month a year before."
+        "description": "Google search clicks to blog articles in each full month, up to two years back, whatever the time range. The month collection began in is left out unless it began on the 1st. Search Console keeps 16 months; the collection keeps each month from then on, so a month can be set against the same month a year before."
       }
     },
     {
@@ -463,17 +463,6 @@
             "width": 200
           },
           {
-            "key": "title",
-            "label": "Article",
-            "format": "link",
-            "linkKey": "href",
-            "width": 200
-          },
-          {
-            "key": "href",
-            "hidden": true
-          },
-          {
             "key": "impressions",
             "label": "Impressions",
             "format": "number"
@@ -492,6 +481,17 @@
             "key": "position",
             "label": "Avg. position",
             "format": "number"
+          },
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href",
+            "width": 200
+          },
+          {
+            "key": "href",
+            "hidden": true
           }
         ],
         "description": "Each article's top Google queries, most clicks first. Queries are collected per week, Monday to Sunday, so a time range takes every whole week it touches. Search Console leaves rare and private queries out, so an article's queries add up to less than its search clicks."
@@ -502,7 +502,7 @@
       "title": "Close to the top of search",
       "chartType": "table",
       "source": "first-party",
-      "width": 3,
+      "width": 6,
       "tab": "Search",
       "sql": "WITH recent AS (SELECT i.title, i.url AS href, q.query, SUM(q.clicks) AS clicks, SUM(q.impressions) AS impressions, SUM(q.position_weighted) / NULLIF(SUM(q.impressions), 0) AS position FROM analytics_content_search_queries q JOIN analytics_content_items i ON i.id = q.item_id WHERE i.source = 'builder_blog' AND q.week_start::date >= CURRENT_DATE - 120 AND q.week_start::date > (SELECT MAX(newest.week_start)::date FROM analytics_content_search_queries newest) - 28 GROUP BY i.id, i.title, i.url, q.query) SELECT query, title, href, impressions, clicks, ROUND((clicks / NULLIF(impressions, 0))::numeric, 4)::float8 AS click_rate, ROUND(position::numeric, 1)::float8 AS position FROM recent WHERE position >= 8 AND position <= 20 AND impressions >= 50 ORDER BY impressions DESC, query, title LIMIT 100",
       "config": {
@@ -515,17 +515,6 @@
             "width": 200
           },
           {
-            "key": "title",
-            "label": "Article",
-            "format": "link",
-            "linkKey": "href",
-            "width": 200
-          },
-          {
-            "key": "href",
-            "hidden": true
-          },
-          {
             "key": "impressions",
             "label": "Impressions",
             "format": "number"
@@ -544,6 +533,17 @@
             "key": "position",
             "label": "Avg. position",
             "format": "number"
+          },
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href",
+            "width": 200
+          },
+          {
+            "key": "href",
+            "hidden": true
           }
         ],
         "description": "Queries an article averages position 8 to 20 for, the bottom of page one or the top of page two, over the four newest collected weeks, whatever the time range, with at least 50 impressions. The most impressions first: those gain most from a climb."
@@ -554,7 +554,7 @@
       "title": "Seen near the top, rarely clicked",
       "chartType": "table",
       "source": "first-party",
-      "width": 3,
+      "width": 6,
       "tab": "Search",
       "sql": "WITH recent AS (SELECT i.title, i.url AS href, q.query, SUM(q.clicks) AS clicks, SUM(q.impressions) AS impressions, SUM(q.position_weighted) / NULLIF(SUM(q.impressions), 0) AS position FROM analytics_content_search_queries q JOIN analytics_content_items i ON i.id = q.item_id WHERE i.source = 'builder_blog' AND q.week_start::date >= CURRENT_DATE - 120 AND q.week_start::date > (SELECT MAX(newest.week_start)::date FROM analytics_content_search_queries newest) - 28 GROUP BY i.id, i.title, i.url, q.query) SELECT query, title, href, impressions, clicks, ROUND((clicks / NULLIF(impressions, 0))::numeric, 4)::float8 AS click_rate, ROUND(position::numeric, 1)::float8 AS position FROM recent WHERE position <= 5 AND impressions >= 100 AND clicks < impressions * 0.02 ORDER BY impressions DESC, query, title LIMIT 100",
       "config": {
@@ -567,17 +567,6 @@
             "width": 200
           },
           {
-            "key": "title",
-            "label": "Article",
-            "format": "link",
-            "linkKey": "href",
-            "width": 200
-          },
-          {
-            "key": "href",
-            "hidden": true
-          },
-          {
             "key": "impressions",
             "label": "Impressions",
             "format": "number"
@@ -596,6 +585,17 @@
             "key": "position",
             "label": "Avg. position",
             "format": "number"
+          },
+          {
+            "key": "title",
+            "label": "Article",
+            "format": "link",
+            "linkKey": "href",
+            "width": 200
+          },
+          {
+            "key": "href",
+            "hidden": true
           }
         ],
         "description": "Queries an article averages a top-5 position for over the four newest collected weeks, whatever the time range, with at least 100 impressions but under 2% clicked. The title or description may not match what searchers want, or Google may answer them on the results page."

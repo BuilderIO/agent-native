@@ -162,7 +162,7 @@ describe("Content view dashboard", () => {
 
   async function monthLabel(monthsAgo: number): Promise<string> {
     const { rows } = (await client.query(
-      "SELECT to_char(date_trunc('month', CURRENT_DATE::timestamp) - make_interval(months => $1::int), 'Mon YYYY') AS month",
+      "SELECT to_char(date_trunc('month', CURRENT_DATE::timestamp) - make_interval(months => $1::int), 'Mon ''YY') AS month",
       [monthsAgo],
     )) as { rows: Array<{ month: string }> };
     const [row = { month: "" }] = rows;
