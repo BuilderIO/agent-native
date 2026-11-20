@@ -262,6 +262,7 @@ function deterministicMeetingOutageFallback(
     decision.disposition !== "allowed" ||
     input.kind !== "transcript" ||
     !["granola", "clips"].includes(input.source.provider) ||
+    !safeSourceConfig.safeParse(input.sourceConfig ?? {}).success ||
     input.content.includes(WITHHELD_MARKER) ||
     !shouldSanitizeCaptureBeforeStorage(input) ||
     !hasSummarySection(decision.safeContent) ||
@@ -592,6 +593,71 @@ const ZOOM_SCREEN_CONCURRENCY = 8;
 const ZOOM_SCREEN_DEADLINE_MS = 120_000;
 const ZOOM_SCREEN_ROUNDS = 3;
 
+const safeBoolean = z.union([
+  z.boolean(),
+  z.enum(["true", "false", "1", "0", "yes", "no", "on", "off"]),
+]);
+const safeIdentifier = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[\w.@+-]+$/);
+const safePageOptions = {
+  pageSize: z.number().optional(),
+  limit: z.number().optional(),
+  pagesPerSync: z.number().optional(),
+  pageBudget: z.number().optional(),
+  noteCaptureConcurrency: z.number().optional(),
+  captureConcurrency: z.number().optional(),
+  updatedAfter: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}(?:T[\d:.+Z-]+)?$/)
+    .optional(),
+};
+const safeSourceConfig = z.strictObject({
+  sanitizeBeforeStorage: safeBoolean.optional(),
+  captureSanitizationMaxChars: z.number().optional(),
+  companyContextIntake: z.boolean().optional(),
+  autoSync: z.boolean().optional(),
+  pollMinutes: z.number().optional(),
+  sourceKey: safeIdentifier.optional(),
+  ingestTokenHash: z
+    .string()
+    .regex(/^[a-f0-9]+$/i)
+    .optional(),
+  workspaceConnectionId: safeIdentifier.optional(),
+  answerPolicy: z
+    .strictObject({
+      trustTier: z.enum(["blessed", "standard", "untrusted"]).optional(),
+      answerEligible: z.boolean().optional(),
+      authority: z.number().optional(),
+      freshnessWindowDays: z.number().nullable().optional(),
+      reviewRequired: z.boolean().optional(),
+      conflictBehavior: z
+        .enum([
+          "prefer-higher-authority",
+          "surface-conflicts",
+          "require-review",
+        ])
+        .optional(),
+    })
+    .optional(),
+  zoom: z
+    .strictObject({
+      meetingIds: z
+        .array(z.union([z.number(), z.string().regex(/^[\d ]+$/)]))
+        .optional(),
+      userIds: z.array(safeIdentifier).optional(),
+      lookbackDays: z.number().optional(),
+      pollMinutes: z.number().optional(),
+      autoSync: z.boolean().optional(),
+      includeSummaries: z.boolean().optional(),
+    })
+    .optional(),
+  granola: z.strictObject(safePageOptions).optional(),
+  ...safePageOptions,
+});
+
 /**
  * Finds restricted transcript lines so one sensitive remark does not
  * discard the meeting. It only proposes a transcript for the unchanged
@@ -741,7 +807,9 @@ export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
   const screened =
-    input.kind === "transcript"
+    input.kind === "transcript" &&
+    ["manual", "zoom", "granola"].includes(input.source.provider) &&
+    safeSourceConfig.safeParse(input.sourceConfig ?? {}).success
       ? await withholdRestrictedTranscriptLines(input)
       : undefined;
   const result = await sanitizeWholeCapture(
@@ -750,11 +818,11 @@ export async function sanitizeCaptureForStorage(
   );
   const withheldNow = screened?.withheldPassages ?? 0;
   const prior =
-    screened && input.metadata
+    input.kind === "transcript" && input.metadata
       ? readWithheldPassages(input.metadata)
       : undefined;
   const hadGap =
-    Boolean(screened) &&
+    input.kind === "transcript" &&
     input.content
       .split(/\r?\n/)
       .some((line) => line.trim() === WITHHELD_MARKER);

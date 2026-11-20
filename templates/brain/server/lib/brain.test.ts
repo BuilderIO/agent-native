@@ -5839,6 +5839,51 @@ describe("Brain connector smoke coverage", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("imports configured string items as transcript captures", async () => {
+    const source = seedSource({
+      id: "configured-string",
+      provider: "clips",
+      configJson: JSON.stringify({
+        transcripts: ["Decision: ship the product launch."],
+      }),
+    });
+    const result = await runConnectorSync(source as never);
+    expect(result.captures).toMatchObject([
+      { kind: "transcript", content: "Decision: ship the product launch." },
+    ]);
+  });
+
+  it.each([
+    "Roadmap launch.\nProduct planning.\npassword: fake-example\nAPI work.\nCustomer launch.",
+    {
+      title: "Planning",
+      kind: "transcript",
+      content:
+        "Roadmap launch.\nProduct planning.\npassword: fake-example\nAPI work.\nCustomer launch.",
+    },
+  ])(
+    "does not store a partial configured Clips transcript while its original remains in source config",
+    async (item) => {
+      const config = { transcripts: [item] };
+      const source = seedSource({
+        id: "clips-configured",
+        provider: "clips",
+        configJson: JSON.stringify(config),
+      });
+      const result = await runConnectorSync(source as never);
+      expect(result).toMatchObject({
+        status: "success",
+        capturesCreated: 0,
+        captures: [],
+      });
+      expect(mocks.rows.captures).toHaveLength(0);
+      expect(JSON.stringify(serializeSource(source as never).config)).toContain(
+        "password: fake-example",
+      );
+      expect(source.configJson).toBe(JSON.stringify(config));
+    },
+  );
+
   it("normalizes configured Granola notes into note captures with connector metadata", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

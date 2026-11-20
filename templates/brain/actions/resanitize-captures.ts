@@ -185,10 +185,9 @@ export default defineAction({
           ownerEmail: row.source.ownerEmail,
           orgId: row.source.orgId,
         },
-        sourceConfig: parseJson<Record<string, unknown>>(
-          row.source.configJson,
-          {},
-        ),
+        sourceConfig: parseCaptureMetadata(row.source.configJson) ?? {
+          unreadableSourceConfig: true,
+        },
         settings,
       });
       const publicExternalId = publicCaptureExternalId(

@@ -555,6 +555,52 @@ describe.skipIf(!POSTGRES_URL)(
       });
     });
 
+    it("rejects a stale blocked reimport before changing a newer capture or recording a block", async () => {
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const writer = track(
+        asQa(() =>
+          brain.createCapture(
+            capture({
+              content: "password: fake-value",
+              privacyClassifier: "deterministic",
+            }),
+          ),
+        ),
+      );
+      expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
+      holder.release(async (tx) => {
+        await tx
+          .update(schema.brainRawCaptures)
+          .set({
+            content: CONTENT_B,
+            contentHash: await brain.contentHash(CONTENT_B),
+            status: "queued",
+            sensitivityDisposition: "allowed",
+          })
+          .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      });
+      await holder.done;
+      const outcome = await writer.outcome;
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("stale block unexpectedly succeeded");
+      expect(outcome.error).toBeInstanceOf(brain.BrainCaptureConcurrentError);
+      expect(
+        only(
+          await getDb()
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, "capture-a")),
+        ),
+      ).toMatchObject({
+        content: CONTENT_B,
+        status: "queued",
+        sensitivityDisposition: "allowed",
+      });
+      expect(await query("SELECT id FROM brain_sensitivity_events")).toEqual(
+        [],
+      );
+    });
+
     it("a changed capture with a null stored hash removes the stale canonical resource and derived knowledge", async () => {
       await write(publishInput());
       expect(await resourcePaths()).toHaveLength(1);

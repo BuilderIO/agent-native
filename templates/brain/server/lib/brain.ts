@@ -946,7 +946,9 @@ export async function prepareCapture(
       ownerEmail: source.ownerEmail,
       orgId: source.orgId,
     },
-    sourceConfig: parseJson<Record<string, unknown>>(source.configJson, {}),
+    sourceConfig: parseCaptureMetadata(source.configJson) ?? {
+      unreadableSourceConfig: true,
+    },
     settings: values.privacyClassifier
       ? { ...settings, privacyClassifier: values.privacyClassifier }
       : settings,
@@ -1757,7 +1759,6 @@ export async function recordBlockedCapture(input: {
       ),
     )
     .limit(1);
-  await deleteQuarantineHandle(prior?.quarantineBlobHandle);
   let disposition: "suppressed" | "quarantined" =
     input.decision.disposition === "suppressed" ? "suppressed" : "quarantined";
   let quarantineBlobHandle: string | null = null;
@@ -1784,34 +1785,14 @@ export async function recordBlockedCapture(input: {
     }
   }
   const eventId = prior?.id ?? `sensitivity_${nanoid(18)}`;
-  await db
-    .insert(schema.brainSensitivityEvents)
-    .values({
-      id: eventId,
-      sourceId: input.source.id,
-      captureId: input.existing?.id ?? null,
-      locatorHmac,
-      disposition,
-      categoriesJson: stableJson(input.decision.categories),
-      decisionScoresJson: input.decision.categoryScores
-        ? stableJson(input.decision.categoryScores)
-        : null,
-      classifierFailureReason: input.classifierFailureReason ?? null,
-      confidenceBand: input.decision.confidenceBand,
-      policyVersion: input.decision.policyVersion,
-      upstreamProvider: input.source.provider,
-      quarantineBlobHandle,
-      expiresAt,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        schema.brainSensitivityEvents.locatorHmac,
-        schema.brainSensitivityEvents.policyVersion,
-      ],
-      set: {
+  const writeSensitivityEvent = async (scoped: DbHandle) => {
+    await scoped
+      .insert(schema.brainSensitivityEvents)
+      .values({
+        id: eventId,
+        sourceId: input.source.id,
         captureId: input.existing?.id ?? null,
+        locatorHmac,
         disposition,
         categoriesJson: stableJson(input.decision.categories),
         decisionScoresJson: input.decision.categoryScores
@@ -1819,38 +1800,82 @@ export async function recordBlockedCapture(input: {
           : null,
         classifierFailureReason: input.classifierFailureReason ?? null,
         confidenceBand: input.decision.confidenceBand,
+        policyVersion: input.decision.policyVersion,
+        upstreamProvider: input.source.provider,
         quarantineBlobHandle,
         expiresAt,
-        reviewedBy: null,
-        reviewedAt: null,
+        createdAt: now,
         updatedAt: now,
-      },
-    });
-  if (input.existing) {
-    const existingId = input.existing.id;
-    const blockedContentHash = await contentHash("");
-    const { effects } = await transactWithResourceStore(
-      db,
-      await capturePublishesResources(existingId, db),
-      async (scoped, effects) => {
-        await lockCaptureRows([existingId], scoped);
-        await invalidateDerivedForLockedCapture(existingId, scoped, effects);
-        await scoped
-          .update(schema.brainRawCaptures)
-          .set({
-            title: "Privacy-blocked capture",
-            content: "",
-            contentHash: blockedContentHash,
-            metadataJson: "{}",
-            status: "ignored",
-            sensitivityDisposition: "pending",
-            sensitivityPolicyVersion: input.decision.policyVersion,
-            audienceAclHash: null,
-            updatedAt: now,
-          })
-          .where(eq(schema.brainRawCaptures.id, existingId));
-      },
-    );
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.brainSensitivityEvents.locatorHmac,
+          schema.brainSensitivityEvents.policyVersion,
+        ],
+        set: {
+          captureId: input.existing?.id ?? null,
+          disposition,
+          categoriesJson: stableJson(input.decision.categories),
+          decisionScoresJson: input.decision.categoryScores
+            ? stableJson(input.decision.categoryScores)
+            : null,
+          classifierFailureReason: input.classifierFailureReason ?? null,
+          confidenceBand: input.decision.confidenceBand,
+          quarantineBlobHandle,
+          expiresAt,
+          reviewedBy: null,
+          reviewedAt: null,
+          updatedAt: now,
+        },
+      });
+  };
+  let effects: AfterCommitEffects | undefined;
+  try {
+    if (input.existing) {
+      const existingId = input.existing.id;
+      const existingRevision = stableJson(input.existing);
+      const blockedContentHash = await contentHash("");
+      ({ effects } = await transactWithResourceStore(
+        db,
+        await capturePublishesResources(existingId, db),
+        async (scoped, effects) => {
+          await lockCaptureRows([existingId], scoped);
+          const [current] = await scoped
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, existingId))
+            .limit(1);
+          if (!current || stableJson(current) !== existingRevision)
+            throw new BrainCaptureConcurrentError();
+          await writeSensitivityEvent(scoped);
+          await invalidateDerivedForLockedCapture(existingId, scoped, effects);
+          await scoped
+            .update(schema.brainRawCaptures)
+            .set({
+              title: "Privacy-blocked capture",
+              content: "",
+              contentHash: blockedContentHash,
+              metadataJson: "{}",
+              status: "ignored",
+              sensitivityDisposition: "pending",
+              sensitivityPolicyVersion: input.decision.policyVersion,
+              audienceAclHash: null,
+              updatedAt: now,
+            })
+            .where(eq(schema.brainRawCaptures.id, existingId));
+        },
+      ));
+    } else {
+      await writeSensitivityEvent(db);
+    }
+  } catch (error) {
+    if (error instanceof BrainCaptureConcurrentError) {
+      await deleteQuarantineHandle(quarantineBlobHandle);
+    }
+    throw error;
+  }
+  await deleteQuarantineHandle(prior?.quarantineBlobHandle);
+  if (input.existing && effects) {
     await runAfterCommitEffects(effects);
     await enqueueBrainOperation({
       operation: "search-unindex",

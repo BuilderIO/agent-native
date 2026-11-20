@@ -40,11 +40,13 @@ Manual sources are push/import-driven and private by default. Use
 files; it preserves relative paths for deduplication and reports each file's
 import or privacy outcome. Files default to document captures; pass
 `kind: "transcript"` when every file in the batch is a meeting transcript.
-Transcript captures from every provider use passage withholding and the same
-whole-capture privacy screen. Imported partial files include a safe `passageQuarantine`
-receipt and `withheldPassages` count; disclose incompleteness and never infer
-omitted text. Use the
-standard sharing actions to change a source to organization visibility or grant
+Passage withholding applies to manual, Zoom, and Granola transcripts only when
+the source configuration contains only validated settings, not configured
+transcript items or unrecognized fields. Other providers and unsafe or unreadable
+configurations use whole-capture screening. Configured items remain in source
+config and are visible to source readers; Brain does not remove them. Imported
+partial files include a `passageQuarantine` receipt and `withheldPassages` count;
+disclose incompleteness and never infer omitted text. Use the standard sharing actions to change a source to organization visibility or grant
 specific access. Do not use `sync-source` for a manual source.
 
 ## Personal Google Sources
@@ -149,7 +151,7 @@ Captures use the organization audience. There are no Zoom webhooks. Only
 meetings cloud-recorded with audio transcript on reach Brain; Brain cannot
 read local recordings, live captions, or AI Companion transcripts.
 
-A restricted remark does not discard a Zoom transcript. Brain withholds the
+For eligible live Zoom sources, a restricted remark does not discard a transcript. Brain withholds the
 restricted transcript lines, plus one neighbouring line on each side, and keeps
 the rest: deterministic credential lines are dropped directly, and when Jev
 rejects the transcript, Brain bisects it with Jev down to the restricted lines.
@@ -157,9 +159,11 @@ Each withheld run becomes `[…]`. The remaining transcript must still pass the
 normal whole-capture screen, so anything restricted only as a whole meeting (a
 sensitive title, a workspace rule, a transcript over Jev's length limit, or a
 screen that exceeds its call or time budget) is still quarantined whole.
-Withheld text is never stored, and partial captures drop links to the original.
-`metadata.zoomPassageQuarantine.withheldPassages` (Zoom) or
-`metadata.passageQuarantine.withheldPassages` (other providers) counts the gaps and is
+Eligible partial captures do not store withheld text and drop links to the original.
+Existing source configurations and previously stored partial captures are not
+rewritten by this change. `metadata.zoomPassageQuarantine.withheldPassages` (Zoom) or
+`metadata.passageQuarantine.withheldPassages` (other providers, including legacy
+receipts) counts the gaps and is
 returned as `withheldPassages` by `get-capture`, `list-captures`, and capture
 search results (`null` means the count is unknown, not zero). Disclose that
 such captures are incomplete and never reconstruct omitted text. A meeting that

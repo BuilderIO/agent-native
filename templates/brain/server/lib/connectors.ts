@@ -446,7 +446,11 @@ function transcriptItems(config: Record<string, unknown>) {
   return raw
     .map((item) => {
       if (typeof item === "string") {
-        return { title: "Imported capture", content: item };
+        return {
+          title: "Imported capture",
+          content: item,
+          kind: "transcript" as const,
+        };
       }
       if (!item || typeof item !== "object") return null;
       const record = item as Record<string, unknown>;
