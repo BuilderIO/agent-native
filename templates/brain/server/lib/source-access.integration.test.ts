@@ -404,6 +404,30 @@ it.each(["sourceKey", "ingestTokenHash"] as const)(
   },
 );
 
+it.each([
+  { field: "ingestTokenHash", jsonValue: null },
+  { field: "ingestTokenHash", jsonValue: undefined },
+  { field: "ingestTokenHash", jsonValue: "different-hash" },
+  { field: "sourceKey", jsonValue: null },
+  { field: "sourceKey", jsonValue: undefined },
+  { field: "sourceKey", jsonValue: "different-key" },
+] as const)("does not reactivate an indexed credential when JSON $field is $jsonValue", async ({ field, jsonValue }) => {
+  await seedSharedIngestSource();
+  const oldToken = "example-old-token";
+  const newToken = "example-new-token";
+  const oldHash = await sha256Hex(oldToken);
+  const newHash = await sha256Hex(newToken);
+  const config = { sourceKey: "indexed-key", ingestTokenHash: oldHash, [field]: jsonValue };
+  await database.update(schema.brainSources).set({ sourceKey: "indexed-key", ingestTokenHash: oldHash, configJson: JSON.stringify(config) }).where(eq(schema.brainSources.id, "legacy-ingest"));
+  expect((await sendIngest("indexed-key", oldToken)).status).toBe(404);
+  const patch = field === "ingestTokenHash" ? { sourceKey: "new-key" } : { ingestTokenHash: newHash };
+  await asUser(qaEmail, () => updateSource.run({ id: "legacy-ingest", config: patch }));
+  expect((await sendIngest(field === "sourceKey" ? "indexed-key" : "new-key", field === "sourceKey" ? newToken : oldToken)).status).toBe(404);
+  const saved = await readIngestSource();
+  expect(saved[field]).toBe(field === "sourceKey" ? "indexed-key" : oldHash);
+  expect(JSON.parse(saved.configJson)[field]).toBe(jsonValue);
+});
+
 it("preserves authoritative indexed credentials when editing the other field", async () => {
   await seedSharedIngestSource();
   const token = "example-token";

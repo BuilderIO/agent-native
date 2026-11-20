@@ -214,14 +214,13 @@ export default defineAction({
             Object.prototype.hasOwnProperty.call(config, key),
           )
         ) {
+          const legacy = existing.sourceKey === null && existing.ingestTokenHash === null;
           for (const key of ["sourceKey", "ingestTokenHash"] as const) {
-            const submitted = Object.prototype.hasOwnProperty.call(config, key);
-            const stored =
-              existing[key] ??
-              (typeof nextConfig[key] === "string" ? nextConfig[key] : null);
-            const value = submitted ? config[key] : stored;
-            updates[key] = value;
-            nextConfig[key] = value;
+            if (Object.prototype.hasOwnProperty.call(config, key)) {
+              updates[key] = config[key];
+            } else if (legacy && typeof nextConfig[key] === "string") {
+              updates[key] = nextConfig[key];
+            }
           }
         }
         const nextConfigJson = stableJson(nextConfig);
