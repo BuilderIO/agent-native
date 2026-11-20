@@ -634,9 +634,12 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
-const PRIVATE_SAFE_ERROR_CODES: ReadonlySet<string> = new Set([
-  "private_history_unrecoverable",
-  "tool_call_journal_unreadable",
+const PRIVATE_RESUME_FAILED_MESSAGE =
+  "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.";
+
+const PRIVATE_SAFE_ERROR_DETAILS: ReadonlyMap<string, string> = new Map([
+  ["private_history_unrecoverable", PRIVATE_RESUME_FAILED_MESSAGE],
+  ["tool_call_journal_unreadable", PRIVATE_RESUME_FAILED_MESSAGE],
 ]);
 
 /**
@@ -2920,11 +2923,14 @@ export function startRun(
             .map(({ event }) => event)
             .reverse()
             .find((event) => event.type === "error")?.errorCode;
+          const safeDetail = reportedCode
+            ? PRIVATE_SAFE_ERROR_DETAILS.get(reportedCode)
+            : undefined;
           errorCode =
-            reportedCode && PRIVATE_SAFE_ERROR_CODES.has(reportedCode)
+            reportedCode && safeDetail
               ? reportedCode
               : "private_content_omitted";
-          errorDetail = "Private content omitted";
+          errorDetail = safeDetail ?? "Private content omitted";
         }
         for (let i = diagnosticEvents.length - 1; !privateRun && i >= 0; i--) {
           const ev = diagnosticEvents[i].event as {

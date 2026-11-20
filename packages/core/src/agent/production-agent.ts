@@ -8161,6 +8161,14 @@ export async function runAgentLoop(opts: {
   );
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const priorPrivateSideEffect =
+    journalRead.status === "read" &&
+    journalRead.events.some(
+      (event) =>
+        event.type === "tool_done" &&
+        event.omitFromPersistedHistory === true &&
+        event.completedSideEffect === true,
+    );
   turnHasActionWarnings =
     journalRead.status === "read" &&
     journalRead.events.some(
@@ -12213,10 +12221,9 @@ export async function runAgentLoop(opts: {
 
     const skipToolCallAfterStop = (
       toolCall: import("./engine/types.js").EngineToolCallPart,
+      result = `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
+        "Continue with the results already collected.",
     ): EngineContentPart => {
-      const result =
-        `Not executed: ${toolCall.name} was called after an earlier action stopped or paused this turn. ` +
-        "Continue with the results already collected.";
       send({
         type: "tool_start",
         id: toolCall.id,
@@ -12263,6 +12270,26 @@ export async function runAgentLoop(opts: {
       }
       if (turnYieldedToUser || requestedActionStop) {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
+        continue;
+      }
+      const privateResumeIntent = priorPrivateSideEffect
+        ? await resolveToolCallIntent(toolCall)
+        : undefined;
+      if (
+        priorPrivateSideEffect &&
+        (privateResumeIntent === undefined ||
+          (privateResumeIntent.status === "prepared" &&
+            privateResumeIntent.intent.valid &&
+            !intentIsReadOnly(privateResumeIntent.intent)))
+      ) {
+        await flushParallelBatch();
+        toolResultParts.push(
+          skipToolCallAfterStop(
+            toolCall,
+            `Not executed: a private action already completed earlier in this turn, and its details are not available after the run resumed. ` +
+              `Do not repeat it or guess its result. Tell the user that an earlier private step finished, ask them to check what was saved, and to send a new request for anything else.`,
+          ),
+        );
         continue;
       }
       const batchKind = await getParallelBatchKind(toolCall);
