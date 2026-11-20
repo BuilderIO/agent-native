@@ -52,8 +52,8 @@ presentation seam.
 
 Use the app's existing field components and validation pattern. Associate
 errors with their inputs and expose invalid state to assistive technology.
-Icon-only actions need an accessible name and a usable focus target. Use the
-icon package already installed by the app.
+Icon-only actions need an accessible name and a usable focus target. Use Tabler
+Icons (`@tabler/icons-react`) for UI icons.
 
 Do not recreate menus, popovers, dialogs, or confirmations with absolute
 positioning and custom click-outside handlers. Never use browser `alert`,

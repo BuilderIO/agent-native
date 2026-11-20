@@ -170,6 +170,19 @@
   --design-section-height: 40px;
   --design-action-slot-width: calc(var(--design-baseline-unit) * 4);
   --design-chrome-rail-width: calc(var(--design-baseline-unit) * 7);
+  /* Editor chrome brand. Scoped to Design's own chrome: shadcn `--primary`
+     stays neutral so every other surface keeps its color. */
+  --design-brand: #1a70eb;
+  --design-brand-foreground: #ffffff;
+  --design-brand-ink: #1263d3;
+  --design-destructive: #c9362c;
+  --design-focus-ring-color: var(--design-brand);
+  --design-focus-ring-width: 2px;
+  --design-focus-ring-gap: 2px;
+  --design-font-medium: 450;
+  /* New chrome icons read these, so the final size/stroke is a one-line change. */
+  --design-ui-icon-size: 16px;
+  --design-ui-icon-stroke: 1.25;
   --design-grid-columns: 28;
   --design-inspector-grid-columns: var(--design-grid-columns);
   --design-inspector-grid-unit: var(--design-baseline-unit);
@@ -292,6 +305,44 @@
   );
   --design-editor-canvas-bg: hsl(0 0% 10%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 11%);
+  --design-brand: #1a70eb;
+  --design-brand-foreground: #ffffff;
+  --design-brand-ink: #67a0f2;
+  --design-destructive: #c9362c;
+  --design-focus-ring-color: #67a0f2;
+}
+
+/* One brand ring with a gap around the whole control. */
+.design-focus-ring:focus-visible,
+.design-focus-ring-within:has(:focus-visible) {
+  outline: var(--design-focus-ring-width) solid var(--design-focus-ring-color);
+  outline-offset: var(--design-focus-ring-gap);
+}
+
+.design-focus-ring-within :focus-visible {
+  outline: none;
+}
+
+.design-ui-icon {
+  width: var(--design-ui-icon-size);
+  height: var(--design-ui-icon-size);
+  flex-shrink: 0;
+  stroke-width: var(--design-ui-icon-stroke);
+}
+
+.design-font-medium {
+  font-weight: var(--design-font-medium);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @layer base {
