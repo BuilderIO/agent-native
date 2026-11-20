@@ -535,10 +535,21 @@ export function agentWorkCallVerb(call: AgentWorkCall): AgentWorkVerb {
 
 const FAILURE_REASON_LIMIT = 160;
 
+function jsonText(text: string): boolean {
+  if (!/^\s*[[{]/.test(text)) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    // coercion-ok: text that only starts like JSON, such as `[Errno 2] No such file`, is a plain message and stays the reason.
+    return false;
+  }
+}
+
 /** A failed call's reason on one line: its HTTP status, or its first sentence. */
 function outputReason(output: unknown): string | undefined {
   if (typeof output !== "string" || !output.trim()) return undefined;
-  if (!/^\s*[[{]/.test(output)) return output.trim();
+  if (!jsonText(output)) return output.trim();
   const record = inputRecord(output);
   return (
     firstString(record, ["error", "message"]) ??
@@ -557,7 +568,7 @@ export function agentWorkFailureReason(
   const source =
     tool?.error?.message.trim() ||
     outputReason(tool?.output) ||
-    (summary && !/^\s*[[{]/.test(summary) ? summary.trim() : undefined) ||
+    (summary && !jsonText(summary) ? summary.trim() : undefined) ||
     call.activity.detail?.trim();
   if (!source) return undefined;
   const status = /\bHTTP\s+\d{3}\b[^\n]*/i.exec(source)?.[0];

@@ -1435,6 +1435,24 @@ describe("agentWorkFailureReason", () => {
     expect(reason("[1, 2]")).toBe(undefined);
   });
 
+  it("keeps a plain error that only starts like JSON as the reason", () => {
+    const reason = (overrides: Parameters<typeof call>[3]) =>
+      agentWorkFailureReason(
+        call("c", "x", {}, { status: "failed", ...overrides }),
+      );
+    const summary = (text: string) => ({
+      activity: { summary: [{ type: "text" as const, text }] },
+    });
+    expect(reason({ output: "[Errno 2] No such file" })).toBe(
+      "[Errno 2] No such file",
+    );
+    expect(reason({ output: "{Error: not found}" })).toBe("{Error: not found}");
+    expect(reason(summary("[Errno 13] Permission denied"))).toBe(
+      "[Errno 13] Permission denied",
+    );
+    expect(reason(summary('{"ok":false}'))).toBe(undefined);
+  });
+
   it("prefers the HTTP status, then the first sentence of the first line", () => {
     expect(
       agentWorkFailureReason(
