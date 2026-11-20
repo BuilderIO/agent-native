@@ -22084,8 +22084,8 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("refuses null placeholders beside an empty list on an action that may store it", async () => {
-    const run = vi.fn(async () => "ok");
+  it("preserves an empty list on an action that may store it beside a null", async () => {
+    const run = vi.fn(async (_input: unknown) => "ok");
     const action = defineAction({
       description: "Update a saved view",
       schema: z.object({
@@ -22101,13 +22101,16 @@ describe("runAgentLoop", () => {
       callId: "padded-stored-list",
       input: { viewId: "view-1", name: null, hiddenColumns: [] },
     });
-    expect(result.status).toBe("failed");
-    expect(result.output).toContain("No action was run");
-    expect(run).not.toHaveBeenCalled();
+    expect(result.status).toBe("completed");
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]?.[0]).toEqual({
+      viewId: "view-1",
+      hiddenColumns: [],
+    });
   });
 
-  it("still refuses null placeholders beside an empty string the schema accepts", async () => {
-    const run = vi.fn(async () => "ok");
+  it("preserves an empty string the schema accepts beside a null", async () => {
+    const run = vi.fn(async (_input: unknown) => "ok");
     const action = defineAction({
       description: "Update a design",
       schema: z.object({
@@ -22123,8 +22126,8 @@ describe("runAgentLoop", () => {
       callId: "padded-string",
       input: { designId: "design-1", note: "", primaryViewport: null },
     });
-    expect(result.status).toBe("failed");
-    expect(run).not.toHaveBeenCalled();
+    expect(result.status).toBe("completed");
+    expect(run.mock.calls[0]?.[0]).toEqual({ designId: "design-1", note: "" });
   });
 
   it("coerces a JSON-encoded string into the object/array the tool schema expects", async () => {
