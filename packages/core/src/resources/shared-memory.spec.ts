@@ -433,6 +433,11 @@ describe("shared-memory", () => {
     await expect(
       readAbandonedMemoryDelete("alice@example.com", "memory/p.md"),
     ).resolves.toBeNull();
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(`${file}.deleted`, old, old);
+    await expect(
+      readAbandonedMemoryDelete("alice@example.com", "memory/p.md"),
+    ).resolves.toBeNull();
     write(dead);
     await expect(
       readAbandonedMemoryDelete("alice@example.com", "memory/p.md"),

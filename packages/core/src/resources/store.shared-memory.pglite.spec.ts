@@ -1158,11 +1158,17 @@ describe("personal memory shared across local apps", () => {
       const stored = await resourcePut(OWNER, "memory/tx-commit.md", "x");
       const tombstone = `${sharedFile(dir, "tx-commit.md")}.deleted`;
       let seenBeforeCommit = false;
+      let stateBeforeCommit = "";
       let write: Awaited<ReturnType<typeof resourceDeleteWithDb>> | undefined;
       await sharedClient.transaction?.(async (tx) => {
         write = await resourceDeleteWithDb(tx, stored.id);
         seenBeforeCommit = fs.existsSync(tombstone);
+        stateBeforeCommit = JSON.parse(
+          fs.readFileSync(tombstone, "utf8"),
+        ).state;
       });
+      expect(stateBeforeCommit).toBe("pending");
+      expect(fs.readFileSync(tombstone, "utf8")).toMatch(/pending/);
       await write?.notifyAfterCommit();
       expect(seenBeforeCommit).toBe(true);
       expect(Number(fs.readFileSync(tombstone, "utf8"))).toBeGreaterThan(
@@ -1187,6 +1193,9 @@ describe("personal memory shared across local apps", () => {
         }),
       ).rejects.toThrow("rollback");
       expect(seenBeforeRollback).toBe(true);
+      expect(
+        fs.readFileSync(`${sharedFile(dir, "tx-back.md")}.deleted`, "utf8"),
+      ).toMatch(/pending/);
       await write?.onRollback?.();
       expect(fs.existsSync(`${sharedFile(dir, "tx-back.md")}.deleted`)).toBe(
         false,

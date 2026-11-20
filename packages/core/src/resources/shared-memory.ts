@@ -149,7 +149,7 @@ function isProcessAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }
 
@@ -487,8 +487,8 @@ export async function readMemoryTombstoneFloor(
 }
 
 /**
- * The revision of a pending tombstone whose delete can no longer finish: its
- * process is gone or it has outlived the lock bound. A committed tombstone is
+ * The revision of a pending tombstone whose delete can no longer finish
+ * because its process is gone. Age never counts, and a committed tombstone is
  * never abandoned.
  */
 export async function readAbandonedMemoryDelete(
@@ -501,13 +501,7 @@ export async function readAbandonedMemoryDelete(
   if (!tombstonePath) return null;
   const record = await readTombstoneRecord(tombstonePath);
   if (record?.pendingPid == null) return null;
-  const stat = await fs.promises.stat(tombstonePath).catch((error) => {
-    if (!isMissingPathError(error)) throw error;
-    return null;
-  });
-  if (!stat) return null;
-  const aged = Date.now() - stat.mtimeMs > LOCK_STALE_MS;
-  return aged || !isProcessAlive(record.pendingPid) ? record.deletedAt : null;
+  return isProcessAlive(record.pendingPid) ? null : record.deletedAt;
 }
 
 /** The raw tombstone value, whether or not the file still covers it. */

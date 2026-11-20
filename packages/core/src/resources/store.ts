@@ -3224,6 +3224,7 @@ export async function resourceDeleteWithDb(
             owner,
             path,
             removed.updatedAt + 1,
+            "pending",
           );
         } catch (error) {
           try {
@@ -3258,8 +3259,26 @@ export async function resourceDeleteWithDb(
     if (!deleted) await rollback();
     return {
       value: deleted !== null,
-      notifyAfterCommit: () => {
-        if (deleted) emitResourceDelete(id, path, owner);
+      notifyAfterCommit: async () => {
+        if (deleted) {
+          emitResourceDelete(id, path, owner);
+          try {
+            await deleteSharedPersonalMemory(
+              owner,
+              path,
+              deleted.updatedAt + 1,
+            );
+          } catch (error) {
+            leftover ??=
+              error instanceof MemoryMirrorStaleError
+                ? error
+                : new MemoryMirrorStaleError(
+                    `${path} was deleted but its deletion marker could not be committed`,
+                    { path, content: "", updatedAt: deleted.updatedAt + 1 },
+                    { cause: error },
+                  );
+          }
+        }
         if (leftover) throw leftover;
       },
       onRollback: rollback,
