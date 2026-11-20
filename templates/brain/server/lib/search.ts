@@ -597,6 +597,20 @@ async function searchKnowledgeResults(
   });
 }
 
+function captureSourceTime(
+  provider: string,
+  externalId: string | null,
+  capturedAt: string,
+  metadata: Record<string, unknown>,
+) {
+  if (provider !== "manual" || !externalId?.startsWith("markdown:"))
+    return capturedAt;
+  return metadata.capturedAtSource === "manual-markdown" &&
+    !Number.isNaN(Date.parse(capturedAt))
+    ? capturedAt
+    : undefined;
+}
+
 async function searchCaptureResults(
   terms: string[],
   limit: number,
@@ -679,7 +693,12 @@ async function searchCaptureResults(
             parseJson<Record<string, unknown>>(source.configJson, {}),
           ).authority /
             200,
-        capturedAt: row.capturedAt,
+        capturedAt: captureSourceTime(
+          source.provider,
+          row.externalId,
+          row.capturedAt,
+          metadata,
+        ),
         location: captureLocation(metadata),
         content: captureContent(row.content),
         withheldPassages: withheldZoomPassageCount(
@@ -754,7 +773,17 @@ async function searchSourceResults(
 async function semanticCaptureDetails(
   artifacts: Array<{ captureId: string; audienceId: string }>,
   accessibleSourceIds: string[],
-): Promise<Map<string, { content: string; metadataJson: string | null }>> {
+): Promise<
+  Map<
+    string,
+    {
+      content: string;
+      metadataJson: string | null;
+      externalId: string | null;
+      capturedAt: string;
+    }
+  >
+> {
   const captureIds = Array.from(
     new Set(artifacts.map((artifact) => artifact.captureId)),
   );
@@ -767,6 +796,8 @@ async function semanticCaptureDetails(
       id: schema.brainRawCaptures.id,
       content: schema.brainRawCaptures.content,
       metadataJson: schema.brainRawCaptures.metadataJson,
+      externalId: schema.brainRawCaptures.externalId,
+      capturedAt: schema.brainRawCaptures.capturedAt,
     })
     .from(schema.brainRawCaptures)
     .where(
@@ -910,7 +941,15 @@ export async function searchEverythingWithLanes(args: {
                 score: artifact.score * 100,
                 reasons: artifact.reasons,
                 lane: artifact.lane,
-                capturedAt: artifact.capturedAt,
+                capturedAt: captureSourceTime(
+                  source.provider,
+                  detail.externalId,
+                  source.provider === "manual" &&
+                    detail.externalId?.startsWith("markdown:")
+                    ? detail.capturedAt
+                    : artifact.capturedAt,
+                  metadata,
+                ),
                 location: captureLocation(metadata),
                 content: captureContent(detail.content),
                 withheldPassages: withheldZoomPassageCount(

@@ -207,6 +207,32 @@ describe("redacted evidence-backed knowledge stays retrievable", () => {
 });
 
 describe("redaction covers every displayed field", () => {
+  it("does not save or return a meeting time covered by an explicit redaction", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        externalId: "markdown:meeting.md",
+        metadataJson: JSON.stringify({ capturedAtSource: "manual-markdown" }),
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const saved = await asQa(() =>
+      writeKnowledgeRecord({
+        title: "Atlas launch",
+        body: "The launch is planned.",
+        evidence: [{ captureId: "capture", quote: "Morgan will ship Atlas" }],
+        redactions: ["2026-11"],
+        publishTier: "company",
+      }),
+    );
+    const row = await storedRow(saved.knowledge.id);
+    expect(row.status).toBe("redacted");
+    expect(row.evidenceJson).not.toContain("2026-11");
+    const fetched = await asQa(() =>
+      getKnowledgeAction.run({ id: saved.knowledge.id }),
+    );
+    expect(JSON.stringify(fetched)).not.toContain("2026-11-18T12:00:00.000Z");
+    expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
+  });
   const safeUrl = "https://example.test/notes/atlas";
   const encodedDestination = (times: number) => {
     let at = "@";

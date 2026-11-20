@@ -2095,6 +2095,10 @@ export function applyRedactions(values: {
       })),
     ).map((item) => {
       const next = { ...item };
+      if (next.capturedAt && redact(next.capturedAt) !== next.capturedAt) {
+        delete next.capturedAt;
+        delete next.capturedAtSource;
+      }
       for (const key of ["sourceUrl", "url"] as const) {
         const destination = next[key];
         if (destination && destinationRevealsRedaction(destination, redact)) {

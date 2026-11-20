@@ -829,6 +829,73 @@ describe("Brain semantic capture hits", () => {
     });
   }
 
+  it("omits an undated Markdown capture's fallback time from semantic results", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+      title: "Manual",
+    });
+    seedSemanticCapture({
+      id: "markdown:undated.md",
+      sourceId: "source-manual",
+      metadata: {},
+    });
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows[0]?.capturedAt).toBeUndefined();
+  });
+
+  it("returns the supplied Markdown time rather than an index timestamp", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+      title: "Manual",
+    });
+    seedSemanticCapture({
+      id: "markdown:dated.md",
+      sourceId: "source-manual",
+      metadata: { capturedAtSource: "manual-markdown" },
+    });
+    const capture = mocks.rows.captures.find(
+      (row) => row.id === "markdown:dated.md",
+    );
+    if (!capture) throw new Error("Missing capture fixture");
+    capture.capturedAt = "2026-05-20T15:00:00.000Z";
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows[0]?.capturedAt).toBe("2026-05-20T15:00:00.000Z");
+  });
+
+  it("preserves semantic timestamp behavior for other manual captures", async () => {
+    mocks.rows.sources.push({
+      ...mocks.rows.sources[0],
+      id: "source-manual",
+      provider: "manual",
+      title: "Manual",
+    });
+    seedSemanticCapture({
+      id: "ordinary-capture",
+      sourceId: "source-manual",
+      metadata: {},
+    });
+    const capture = mocks.rows.captures.find(
+      (row) => row.id === "ordinary-capture",
+    );
+    if (!capture) throw new Error("Missing capture fixture");
+    capture.capturedAt = "2026-05-20T15:00:00.000Z";
+    const { rows } = await searchEverythingWithLanes({
+      query: "reduce customer waiting",
+      type: "capture",
+    });
+    expect(rows[0]?.capturedAt).toBe(capturedAt);
+  });
+
   it("returns Slack channel, content, date and permalink for semantic hits", async () => {
     seedSemanticCapture({
       id: "capture-semantic-slack",

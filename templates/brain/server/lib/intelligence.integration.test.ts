@@ -444,6 +444,51 @@ describe("evidence-backed intelligence", () => {
     expect((await listIntelligence({ id: item.id })).records).toEqual([]);
   });
 
+  it("omits an unknown Markdown meeting time from raw search and answer citations", async () => {
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [
+        { path: "undated-raw.md", content: "Galileo launch planning notes." },
+        {
+          path: "dated-raw.md",
+          content: "Galileo launch planning notes.",
+          capturedAt: "2026-05-20T15:00:00.000Z",
+        },
+      ],
+      enqueueDistillation: false,
+    });
+    const undated = first(imported.files);
+    const dated = first(imported.files.slice(1));
+    if (undated.status !== "imported" || dated.status !== "imported")
+      throw new Error("Import failed");
+    const searched = await searchEverythingWithLanes({
+      query: "Galileo",
+      type: "capture",
+    });
+    expect(
+      searched.rows.find((entry) => entry.id === undated.captureId)?.capturedAt,
+    ).toBeUndefined();
+    expect(
+      searched.rows.find((entry) => entry.id === dated.captureId)?.capturedAt,
+    ).toBe("2026-05-20T15:00:00.000Z");
+    const answer = await askBrainAction.run({
+      question: "Galileo",
+      mode: "cited",
+    });
+    const citation = answer.citations.find(
+      (entry) => "captureId" in entry && entry.captureId === undated.captureId,
+    );
+    expect(citation).toBeDefined();
+    expect(citation?.capturedAt).toBeNull();
+    const persisted = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, undated.captureId)),
+    );
+    expect(answer.answer).not.toContain(persisted.capturedAt.slice(0, 10));
+  });
+
   it("does not cite connector fallback times or legacy untrusted citation dates", async () => {
     await database
       .update(schema.brainSources)
