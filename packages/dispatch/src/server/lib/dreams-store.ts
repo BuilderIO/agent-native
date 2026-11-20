@@ -2732,12 +2732,18 @@ async function savePersonalMemory(proposal: DreamProposalRow) {
     createdBy: "agent",
     metadata: { dreamId: proposal.dreamId, proposalId: proposal.id },
   }).catch(stale.absorb);
-  stale.finish();
+  let mirrorError: Error | undefined;
+  try {
+    stale.finish();
+  } catch (error) {
+    mirrorError = error instanceof Error ? error : new Error(String(error));
+  }
 
   return {
     resourcePath: targetPath,
     indexPath: MEMORY_INDEX_PATH,
     indexLineCount: updatedIndex.split("\n").length,
+    mirrorError,
   };
 }
 
@@ -2994,8 +3000,15 @@ async function applyDreamProposalDirect(
 ) {
   const db = getDb();
   let result: unknown;
+  let mirrorError: Error | undefined;
   if (proposal.targetType === "personal-memory") {
-    result = await savePersonalMemory(proposal);
+    const saved = await savePersonalMemory(proposal);
+    ({ mirrorError } = saved);
+    result = {
+      resourcePath: saved.resourcePath,
+      indexPath: saved.indexPath,
+      indexLineCount: saved.indexLineCount,
+    };
   } else if (proposal.targetType === "shared-learnings") {
     result = await appendSharedLearning(proposal);
   } else if (proposal.targetType.startsWith("workspace-")) {
@@ -3030,6 +3043,8 @@ async function applyDreamProposalDirect(
       result,
     },
   });
+
+  if (mirrorError) throw mirrorError;
 
   return {
     proposal: serializeProposal((await getProposalRow(proposal.id))!),

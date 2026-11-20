@@ -1,3 +1,4 @@
+import { MemoryMirrorStaleError } from "@agent-native/core/resources/shared-memory";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -1311,6 +1312,25 @@ describe("applyDreamProposal", () => {
         willRequestApproval: true,
       },
     });
+  });
+
+  it("marks the proposal applied and audits it when only the memory mirror fails", async () => {
+    mocks.getDb.mockReturnValue(createDbMock(pendingProposal()));
+    mocks.resourcePut.mockRejectedValueOnce(
+      new MemoryMirrorStaleError("mirror stale", {
+        path: "memory/custom.md",
+        content: "x",
+        updatedAt: 1,
+      }),
+    );
+
+    await expect(applyDreamProposal("proposal-1")).rejects.toBeInstanceOf(
+      MemoryMirrorStaleError,
+    );
+
+    expect(mocks.recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "dream.proposal.applied" }),
+    );
   });
 
   it("writes personal memory and updates the memory index before auditing", async () => {

@@ -1303,6 +1303,52 @@ describe("personal memory shared across local apps", () => {
       );
     });
 
+    it("reconciles a newer shared-file edit when a memory is read by id", async () => {
+      const dir = useMemoryDir();
+      const { resourceGet, resourcePut } = await import("./store.js");
+      const stored = await resourcePut(OWNER, "memory/by-id-edit.md", "old");
+      const file = sharedFile(dir, "by-id-edit.md");
+      fs.writeFileSync(file, "edited elsewhere");
+      const later = new Date(stored.updatedAt + 60_000);
+      fs.utimesSync(file, later, later);
+      await expect(
+        resourceGet(stored.id, { userEmail: OWNER }),
+      ).resolves.toMatchObject({ content: "edited elsewhere" });
+    });
+
+    it("reports an autocommit delete as done and emits the event when the restamp fails", async () => {
+      useMemoryDir();
+      const { resourceDelete, resourceGetByPath, resourcePut } =
+        await import("./store.js");
+      const { getResourcesEmitter } = await import("./emitter.js");
+      const stored = await resourcePut(OWNER, "memory/auto.md", "x");
+      const realRename = fs.promises.rename.bind(fs.promises);
+      let tombstones = 0;
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (String(to).endsWith(".deleted") && ++tombstones > 1) {
+            throw new Error("EROFS");
+          }
+          return realRename(from, to);
+        });
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      const events: unknown[] = [];
+      const onEvent = (event: unknown) => events.push(event);
+      getResourcesEmitter().on("resources", onEvent);
+      try {
+        await expect(resourceDelete(stored.id)).resolves.toBe(true);
+      } finally {
+        getResourcesEmitter().off("resources", onEvent);
+        rename.mockRestore();
+        log.mockRestore();
+      }
+      expect(events).toHaveLength(1);
+      await expect(
+        resourceGetByPath(OWNER, "memory/auto.md"),
+      ).resolves.toBeNull();
+    });
+
     it("keeps a restored memory visible past a newer tombstone when its mirror fails", async () => {
       const dir = useMemoryDir();
       const {

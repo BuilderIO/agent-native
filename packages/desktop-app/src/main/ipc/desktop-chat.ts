@@ -1760,7 +1760,7 @@ async function compareDispatchSession(
 const memoryOwnerFiles = new Map<string, string>();
 let currentMemoryAccount: string | null = null;
 
-const memorySessions = new Set<(account: string) => void>();
+const memorySessions = new Set<(account: string | null) => void>();
 
 export function setDesktopMemoryAccount(account: string | null): void {
   currentMemoryAccount = account;
@@ -1769,7 +1769,7 @@ export function setDesktopMemoryAccount(account: string | null): void {
     fs.rmSync(file, { force: true });
     memoryOwnerFiles.delete(file);
   }
-  if (account) for (const rebind of [...memorySessions]) rebind(account);
+  for (const rebind of [...memorySessions]) rebind(account);
 }
 
 export function sweepStaleMemoryOwnerFiles(): void {
@@ -1821,21 +1821,46 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
   );
   let account = currentMemoryAccount;
   let memoryDir: string | undefined;
-  if (account) {
-    const target = path.join(desktopMemoryDir(), encodeURIComponent(account));
+  try {
     memoryDir = path.join(
       app.getPath("userData"),
       "memory-roots",
       randomUUID(),
     );
-    fs.mkdirSync(target, { recursive: true });
     fs.mkdirSync(memoryDir, { recursive: true });
-    fs.symlinkSync(
-      target,
-      path.join(memoryDir, encodeURIComponent(account)),
-      "dir",
-    );
+  } catch (error) {
+    memoryDir = undefined;
+    console.error("[desktop-chat] Could not create the memory root:", error);
   }
+  const grant = (owner: string) => {
+    if (!memoryDir) return;
+    try {
+      const target = path.join(desktopMemoryDir(), encodeURIComponent(owner));
+      fs.mkdirSync(target, { recursive: true });
+      fs.symlinkSync(
+        target,
+        path.join(memoryDir, encodeURIComponent(owner)),
+        "junction",
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+      console.error("[desktop-chat] Could not link the memory root:", error);
+    }
+  };
+  const revoke = () => {
+    if (!memoryDir) return;
+    try {
+      for (const entry of fs.readdirSync(memoryDir)) {
+        fs.rmSync(path.join(memoryDir, entry), {
+          recursive: true,
+          force: true,
+        });
+      }
+    } catch (error) {
+      console.error("[desktop-chat] Could not revoke the memory root:", error);
+    }
+  };
+  if (account) grant(account);
   let released = false;
   const refresh = async () => {
     if (!account) return;
@@ -1886,12 +1911,17 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
       console.error("[desktop-chat] Could not watch shared memory:", error);
     }
   };
-  const rebind = (next: string) => {
-    if (released || (account && account !== next)) return;
+  const rebind = (next: string | null) => {
+    if (released) return;
+    if (!next || (account && account !== next)) {
+      revoke();
+      return;
+    }
     if (!account) {
       account = next;
       watch();
     }
+    grant(next);
     void scheduleRefresh();
   };
   if (account) watch();

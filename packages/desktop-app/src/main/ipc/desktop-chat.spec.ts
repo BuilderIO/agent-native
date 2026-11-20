@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import nodeFs from "node:fs";
 import {
   existsSync,
   mkdirSync,
@@ -1497,6 +1498,56 @@ describe("desktop Pi extension memory prompt", () => {
     session.release();
     expect(existsSync(root)).toBe(false);
     setDesktopMemoryAccount(null);
+  });
+
+  it("revokes a running terminal's memory root on sign-out and account switch", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+
+    noteDesktopBuilderRelayOwner("no-account");
+    expect(readdirSync(root)).toEqual([]);
+
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    noteDesktopBuilderRelayOwner("account:b@example.test");
+    expect(readdirSync(root)).toEqual([]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("gives a session started before sign-in access once an account binds", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("no-account");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    expect(root).toBeTruthy();
+    expect(readdirSync(root)).toEqual([]);
+
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("starts the session with an empty root when the link cannot be created", async () => {
+    seedAccounts();
+    const link = vi.spyOn(nodeFs, "symlinkSync").mockImplementation(() => {
+      throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      noteDesktopBuilderRelayOwner("account:a@example.test");
+      const session = await bindDesktopSessionMemoryOwner();
+      expect(readdirSync(session.memoryDir as string)).toEqual([]);
+      session.release();
+    } finally {
+      link.mockRestore();
+      log.mockRestore();
+      setDesktopMemoryAccount(null);
+    }
   });
 
   it("serializes refreshes so a slow stale read cannot restore deleted memory", async () => {

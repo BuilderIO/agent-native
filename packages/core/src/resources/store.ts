@@ -2030,8 +2030,13 @@ export async function resourceGet(
   if (!isLegacySharedResourceVisibleToOrganization(resource, orgId)) {
     return null;
   }
-  const [visible] = await filterLegacyDispatchWorkspaceRows([resource], orgId);
-  return hideTombstonedMemoryRow(visible);
+  const visible = (
+    await filterLegacyDispatchWorkspaceRows([resource], orgId)
+  ).at(0);
+  if (visible && isPersonalMemoryResourcePath(visible.owner, visible.path)) {
+    return resourceGetByPath(visible.owner, visible.path, options);
+  }
+  return visible ?? null;
 }
 
 async function adoptSharedMemory(
@@ -2330,20 +2335,6 @@ async function mirrorPutOrThrow(
     },
     { cause: outcome.error },
   );
-}
-
-async function hideTombstonedMemoryRow(
-  resource: Resource | undefined,
-): Promise<Resource | null> {
-  if (!resource) return null;
-  if (!isPersonalMemoryResourcePath(resource.owner, resource.path)) {
-    return resource;
-  }
-  const mirrored = await readMirroredMemory(resource.owner, resource.path);
-  return mirrored.state === "deleted" &&
-    resource.updatedAt <= mirrored.deletedAt
-    ? null
-    : resource;
 }
 
 async function withoutTombstonedMemories(
@@ -3047,6 +3038,7 @@ async function writeResourceIfCurrent(
 export async function resourceDeleteWithDb(
   client: DbExec,
   id: string,
+  options?: { autocommit?: boolean },
 ): Promise<TransactionScopedResourceWrite<boolean>> {
   if (isLocalWorkspaceResourceId(id)) {
     throw new Error(
@@ -3093,10 +3085,13 @@ export async function resourceDeleteWithDb(
             removed.updatedAt + 1,
           );
         } catch (error) {
-          await clearSharedMemoryTombstone(owner, path, marker).catch(
-            handleMirrorFailure,
-          );
-          throw error;
+          if (!options?.autocommit) {
+            await clearSharedMemoryTombstone(owner, path, marker).catch(
+              handleMirrorFailure,
+            );
+            throw error;
+          }
+          handleMirrorFailure(error);
         }
       }
       return removed;
@@ -3629,7 +3624,9 @@ export async function resourceDelete(id: string): Promise<boolean> {
     return resourceDeleteByPath(mirrored.owner, mirrored.path);
   }
 
-  const write = await resourceDeleteWithDb(getDbExec(), id);
+  const write = await resourceDeleteWithDb(getDbExec(), id, {
+    autocommit: true,
+  });
   await write.notifyAfterCommit();
   return write.value;
 }
