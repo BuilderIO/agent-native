@@ -10,20 +10,11 @@ import { partClassName } from "./part-class.js";
 import { splitPositionerProps } from "./positioning.js";
 import { splitProps } from "./props.js";
 
-/*
- * What Autocomplete and Combobox share. Base UI builds both from one set of
- * parts (Autocomplete's popup, list, groups, empty state and clear button are
- * Combobox's), so the popup and the list are built here once, each rendering
- * its own part's classes.
- */
-
 type PopupDefs = typeof comboboxPopupProps;
 
 interface ListboxRoot {
-  /** The input's size, which the portaled popup's rows repeat. */
   size: string | undefined;
   setSize: (size: string | undefined) => void;
-  /** The list renders without a popup, so it carries the popup's attributes. */
   inline: boolean;
 }
 

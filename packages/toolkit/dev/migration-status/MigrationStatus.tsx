@@ -31,20 +31,17 @@ function used(status: MigrationStatus, part: string) {
   return status.apps.some((app) => status.cells[app.id]?.[part] !== undefined);
 }
 
-/** Every Base UI component, then additions and patterns that exist or are in use, then names the catalog lacks. */
 function groups(status: MigrationStatus): Group[] {
-  const kinds: Group[] = (["component", "pattern"] as const).map(
-    (kind) => ({
-      label: KIND_LABELS[kind],
-      rows: PARTS.filter(
-        (part) =>
-          part.kind === kind &&
-          (kind === "component" ||
-            part.status !== "planned" ||
-            used(status, part.name)),
-      ).map((part) => ({ name: part.name, status: part.status })),
-    }),
-  );
+  const kinds: Group[] = (["component", "pattern"] as const).map((kind) => ({
+    label: KIND_LABELS[kind],
+    rows: PARTS.filter(
+      (part) =>
+        part.kind === kind &&
+        (kind === "component" ||
+          part.status !== "planned" ||
+          used(status, part.name)),
+    ).map((part) => ({ name: part.name, status: part.status })),
+  }));
   const known = new Set(PARTS.map((part) => part.name));
   const extra = [
     ...new Set(

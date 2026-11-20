@@ -73,10 +73,6 @@ export const ICON_PROPERTIES = [
 
 const BORDER_SIDES = ["top", "right", "bottom", "left"] as const;
 
-/**
- * Tailwind pads box-shadow with zero layers (offset, blur and spread all 0)
- * that paint nothing whatever their color.
- */
 function normalizeShadow(value: string): string {
   const layers = value
     .split(/,(?![^(]*\))/)
@@ -94,14 +90,12 @@ function normalizeShadow(value: string): string {
 function paintedValue(style: CSSStyleDeclaration, property: string): string {
   const value = style.getPropertyValue(property);
   if (property === "box-shadow") return normalizeShadow(value);
-  // An outline paints nothing when its style is none.
   if (
     (property === "outline-width" || property === "outline-color") &&
     style.getPropertyValue("outline-style") === "none"
   ) {
     return "(no outline)";
   }
-  // A border color paints nothing when that side has no width.
   const side = BORDER_SIDES.find((name) => property === `border-${name}-color`);
   if (side && style.getPropertyValue(`border-${side}-width`) === "0px") {
     return "(no border)";

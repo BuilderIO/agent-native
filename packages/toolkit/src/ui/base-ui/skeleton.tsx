@@ -8,7 +8,6 @@ import { isValidElement, type ComponentProps } from "react";
 
 import { splitProps } from "./props.js";
 
-/** An element's props plus the `data-*` attributes a part writes. */
 type OwnProps<Tag extends "div"> = ComponentProps<Tag> & {
   [attribute: `data-${string}`]: string | undefined;
 };

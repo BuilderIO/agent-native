@@ -39,7 +39,6 @@ const controls = propControls(menuContentProps);
 
 const trigger = <Button variant="surface" color="gray" />;
 
-/** One menu with every row kind. Pinned, it is open and non-modal. */
 function MenuSample({ pinned, ...props }: MenuProps & { pinned: boolean }) {
   const [checked, setChecked] = React.useState(true);
   const [sort, setSort] = React.useState("name");
@@ -106,7 +105,6 @@ function MenuSample({ pinned, ...props }: MenuProps & { pinned: boolean }) {
   );
 }
 
-/** Icons on some rows only: the rest, and the group labels, line up with them. */
 function SomeIconsSample() {
   return (
     <DropdownMenu open modal={false}>
@@ -143,7 +141,6 @@ function SomeIconsSample() {
   );
 }
 
-/** No leading elements anywhere: nothing is reserved, rows start at the edge. */
 function TextOnlySample() {
   return (
     <DropdownMenu open modal={false}>
@@ -163,10 +160,6 @@ function TextOnlySample() {
   );
 }
 
-/**
- * A popup drawn from the part's own classes, with its second row
- * highlighted, so every variant's highlight shows at rest.
- */
 function HighlightSample(props: MenuProps) {
   return (
     <div
@@ -196,7 +189,6 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: controls.args,
   argTypes: controls.argTypes,
-  // The controls set the content's props, which the root doesn't take.
 } satisfies Omit<Meta<MenuProps>, "component"> & {
   component: typeof DropdownMenu;
 };

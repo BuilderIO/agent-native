@@ -33,7 +33,6 @@ type ContextMenuProps = ContextMenuContentOwnProps;
 
 const controls = propControls(contextMenuContentProps);
 
-/** One context menu with every row kind, opened by a right click. */
 function ContextMenuSample(props: ContextMenuProps) {
   const [checked, setChecked] = React.useState(true);
   const [sort, setSort] = React.useState("name");

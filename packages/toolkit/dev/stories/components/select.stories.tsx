@@ -90,10 +90,6 @@ function Status({
   );
 }
 
-/**
- * An open list, portaled into the stage so its theme, appearance and
- * palette reach it. Not modal, so several can be open at once.
- */
 function OpenList(
   props: Pick<SelectContentProps, "variant" | "color" | "highContrast"> & {
     label: string;
@@ -126,11 +122,6 @@ function OpenList(
   );
 }
 
-/**
- * A select opened from inside a dialog, mounted on the body as in the apps:
- * it must paint above the dialog, take pointer events and keep Escape local
- * to itself.
- */
 function NestedInDialog() {
   const [open, setOpen] = React.useState(false);
   return (

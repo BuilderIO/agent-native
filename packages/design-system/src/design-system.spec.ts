@@ -41,7 +41,6 @@ describe("createPalette", () => {
             /^#[0-9a-f]{6}$/,
           );
           expect(srgb[`--${scale}-a${step}`], `${scale}-a${step}`).toMatch(
-            // An alpha step that needs full opacity is written opaque, as Radix does.
             /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/,
           );
           expect(p3[`--${scale}-${step}`], `${scale}-${step} p3`).toMatch(
@@ -53,9 +52,11 @@ describe("createPalette", () => {
         }
         expect(srgb[`--${scale}-contrast`]).toMatch(/^#[0-9a-f]{6}$/);
       }
-      for (const base of ["background", "panel", "field", "overlay"]) {
-        expect(srgb[`--base-${base}`], base).toBeTruthy();
-      }
+      expect(
+        ["background", "panel", "field", "overlay"].filter(
+          (base) => !srgb[`--base-${base}`],
+        ),
+      ).toEqual([]);
     },
   );
 
@@ -144,13 +145,11 @@ describe("themes", () => {
     "%s defines every role in every appearance, and every shape",
     (_name, theme) => {
       for (const appearance of [theme.base, theme.dark, theme.light]) {
-        for (const role of roleNames) {
-          expect(appearance[role], role).toBeTruthy();
-        }
+        expect(roleNames.filter((role) => !appearance[role])).toEqual([]);
       }
-      for (const shape of SHAPE_TOKEN_NAMES) {
-        expect(theme.tokens[shape], shape).toBeTruthy();
-      }
+      expect(SHAPE_TOKEN_NAMES.filter((shape) => !theme.tokens[shape])).toEqual(
+        [],
+      );
     },
   );
 
@@ -172,8 +171,6 @@ describe("themes", () => {
       for (const appearance of ["light", "dark"] as const) {
         const primary = theme[appearance]["--theme-primary"];
         if (!primary) throw new Error(`expected a ${appearance} primary`);
-        // The generator tints a near-black toward the theme's gray; under
-        // 2 ΔE2000 the step reads as the primary itself.
         const step9 = theme.palette[appearance].srgb["--brand-9"];
         if (!step9) throw new Error(`expected a ${appearance} brand step 9`);
         expect(
@@ -196,8 +193,6 @@ describe("themes", () => {
       .filter((rule) => rule.includes("--brand-9:"));
     expect(scaleRules.length).toBeGreaterThan(0);
     for (const rule of scaleRules) {
-      // The selector list is the text before the rule's own brace, after any
-      // enclosing @supports or @media.
       const selectors = (rule.split("{").at(-2) ?? "").trim();
       for (const selector of selectors
         .split(",\n")
@@ -217,7 +212,7 @@ describe("themes", () => {
   });
 
   it("resets the default theme's tokens so a nested theme starts clean", () => {
-    const [defaultTheme] = THEMES.filter((theme) => theme.isDefault);
+    const defaultTheme = THEMES.find((theme) => theme.isDefault);
     const baseline = THEMES.find((theme) => theme.name === "baseline");
     if (!defaultTheme || !baseline) {
       throw new Error("expected the default and baseline themes");
@@ -255,9 +250,18 @@ describe("agent-native theme and appearance tints", () => {
       "--agent-kit-composer-radius",
       "--agent-kit-composer-elevation",
     ]) {
-      expect(unscoped, key).not.toContain(`${key}:`);
-      expect(own.slice(own.indexOf("@scope")), key).toContain(`${key}:`);
-      expect(app, key).not.toContain(`${key}:`);
+      expect({ key, unscoped: unscoped.includes(`${key}:`) }).toEqual({
+        key,
+        unscoped: false,
+      });
+      expect({
+        key,
+        scoped: own.slice(own.indexOf("@scope")).includes(`${key}:`),
+      }).toEqual({ key, scoped: true });
+      expect({ key, inApp: app.includes(`${key}:`) }).toEqual({
+        key,
+        inApp: false,
+      });
     }
   });
 
@@ -332,7 +336,10 @@ describe("part catalog", () => {
         "g",
       );
       for (const [, className] of css.matchAll(pattern)) {
-        expect(reserved.has(className), className).toBe(true);
+        expect({ className, reserved: reserved.has(className) }).toEqual({
+          className,
+          reserved: true,
+        });
       }
     }
   });
@@ -343,7 +350,10 @@ describe("part catalog", () => {
         path.join(cssDir, "parts", `${part.name}.css`),
         "utf8",
       );
-      expect(css, part.name).toContain(`.${part.name}`);
+      expect({
+        part: part.name,
+        styled: css.includes(`.${part.name}`),
+      }).toEqual({ part: part.name, styled: true });
     }
   });
 });

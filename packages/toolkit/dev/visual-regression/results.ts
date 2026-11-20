@@ -35,7 +35,6 @@ export function shotFile(storyId: string, appearance: Appearance): string {
   return `${component}/${story}/${appearance}`;
 }
 
-// Vitest's toMatchScreenshot messages, in @vitest/browser's buildOutput.
 const MATCHER_OUTCOMES: readonly (readonly [string, Outcome])[] = [
   ["Screenshot does not match the stored reference", "changed"],
   ["No existing reference screenshot found", "new"],

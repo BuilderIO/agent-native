@@ -17,10 +17,8 @@ export interface InputProps
   children?: React.ReactNode;
 }
 
-// The types whose caret can be placed; the others throw on setSelectionRange.
 const CARET_TYPES = new Set(["text", "search", "url", "tel", "password"]);
 
-// The slots the CSS places after the text: the same rule as input.css.
 const TRAILING_SLOT =
   ".input-slot[data-side=right], .input-slot:not([data-side=right]) ~ .input-slot:not([data-side=left])";
 
@@ -42,8 +40,6 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>((props, ref) => {
       className={cn("input", className)}
       style={style}
       onPointerDown={(event) => {
-        // A press on a slot's icon or padding focuses the input, with the
-        // caret at the end nearest the slot. Controls in a slot keep the press.
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (target.closest("input, button, a, [role=button]")) return;
@@ -51,7 +47,6 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>((props, ref) => {
         if (input === null) return;
         const caret =
           target.closest(TRAILING_SLOT) === null ? 0 : input.value.length;
-        // After the press's own focus handling, which would blur the input.
         requestAnimationFrame(() => {
           if (CARET_TYPES.has(input.type)) {
             input.setSelectionRange(caret, caret);

@@ -37,8 +37,6 @@ function Autocomplete<ItemValue>({
     <ListboxRootProvider inline={props.inline}>
       <BaseAutocomplete.Root<ItemValue>
         {...props}
-        // Base UI's overloads type flat and grouped items apart; the root
-        // takes either.
         items={items as readonly ItemValue[] | undefined}
       />
     </ListboxRootProvider>
@@ -254,9 +252,6 @@ const AutocompleteSeparator = React.forwardRef<
   />
 ));
 AutocompleteSeparator.displayName = "AutocompleteSeparator";
-
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
 
 /**
  * Renders the filtered items of a group, or of the whole list, through a

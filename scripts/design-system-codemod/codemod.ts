@@ -16,7 +16,6 @@ import type {
 import { COMPONENT_NAMES } from "./types.ts";
 
 export interface Finding {
-  /** Relative to the directory the codemod ran on. */
   file: string;
   line: number;
   component: ComponentName;
@@ -27,7 +26,6 @@ export interface ShimResult {
   file: string;
   component: ComponentName;
   swapped: boolean;
-  /** Why it was left: the importers that kept it on the legacy component. */
   blockers: string[];
 }
 
@@ -40,12 +38,9 @@ export interface FileChange {
 
 export interface CodemodResult {
   changes: FileChange[];
-  /** Sites left as they were. */
   skipped: Finding[];
-  /** Sites transformed that a person should still look at. */
   review: Finding[];
   shims: ShimResult[];
-  /** Test mocks of a legacy module or shim, which stop matching what moved. */
   mocks: Finding[];
   counts: Record<ComponentName, number>;
 }
@@ -79,10 +74,6 @@ function listSources(dir: string): string[] {
   return out.sort();
 }
 
-/**
- * The project `dir` belongs to: the nearest directory at or above it with a
- * tsconfig.json or a package.json, whose files are searched for shim importers.
- */
 function projectRoot(dir: string): string {
   for (let at = dir; ; at = path.dirname(at)) {
     if (
@@ -164,7 +155,6 @@ function createResolver(root: string): Resolver {
   };
 }
 
-/** A file that only re-exports one legacy module: Design's `components/ui/button.tsx`. */
 function shimComponent(text: string): ComponentName | null {
   const source = ts.createSourceFile("shim.ts", text, ts.ScriptTarget.Latest);
   let found: ComponentName | null = null;
@@ -193,7 +183,6 @@ function legacyComponent(specifier: string): ComponentName | null {
 interface ImportRef {
   declaration: ts.ImportDeclaration | ts.ExportDeclaration;
   component: ComponentName;
-  /** The shim it goes through, or null for a direct import. */
   shim: string | null;
 }
 
@@ -207,9 +196,7 @@ interface FilePlan {
   file: string;
   source: ts.SourceFile;
   refs: ImportRef[];
-  /** Per component, the local names its sites reference. */
   referenced: Map<ComponentName, Set<string>>;
-  /** Per component: the sites, and the reasons it can't move, if any. */
   components: Map<
     ComponentName,
     { sites: Site[]; blockers: { node: ts.Node; reason: string }[] }
@@ -220,7 +207,6 @@ function lineOf(source: ts.SourceFile, node: ts.Node): number {
   return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
 }
 
-/** Runs the codemod over every source file under `dir`; writes nothing. */
 export function runCodemod(
   dir: string,
   options: CodemodOptions = {},
@@ -231,7 +217,6 @@ export function runCodemod(
   const resolver = createResolver(root);
   const rel = (file: string) => path.relative(absolute, file);
 
-  // Shims anywhere in the project, and every file that reaches one.
   const projectFiles = listSources(root);
   const shims = new Map<string, ComponentName>();
   const texts = new Map<string, string>();
@@ -302,7 +287,7 @@ export function runCodemod(
         /^(vi|jest)$/.test(node.expression.expression.getText(source)) &&
         /^(mock|doMock)$/.test(node.expression.name.text)
       ) {
-        const [first] = node.arguments;
+        const first = node.arguments.at(0);
         if (first && ts.isStringLiteral(first)) {
           const direct = legacyComponent(first.text);
           const target = direct ? null : resolver.resolve(file, first.text);
@@ -414,7 +399,7 @@ export function runCodemod(
       for (const element of bindings?.elements ?? []) {
         const imported = (element.propertyName ?? element.name).text;
         const local = element.name.text;
-        const next = def.names[imported];
+        const next = new Map(Object.entries(def.names)).get(imported);
         if (next === undefined || next === null) {
           state.blockers.push({
             node: element,
@@ -475,7 +460,6 @@ export function runCodemod(
     return { file, source, refs, components, referenced };
   }
 
-  // A shim swaps only when every file that reaches it moved that component.
   const shimResults: ShimResult[] = [];
   const swapped = new Set<string>();
   for (const [shim, component] of shims) {
@@ -562,7 +546,6 @@ export function runCodemod(
     const sites = [...plan.components]
       .filter(([component]) => moving.has(component))
       .flatMap(([, state]) => state.sites);
-    // Innermost first, so an outer rewrite carries the inner one along.
     sites.sort(
       (a, b) =>
         b.node.getStart(source) - a.node.getStart(source) ||
@@ -657,7 +640,6 @@ export function runCodemod(
   return result;
 }
 
-/** The local name an import element takes once its export is renamed. */
 function nextLocal(
   element: ts.ImportSpecifier,
   def: ComponentDef,
@@ -675,12 +657,6 @@ function importElements(
   return bindings && ts.isNamedImports(bindings) ? [...bindings.elements] : [];
 }
 
-/**
- * Rewrites one import of a moved component: each legacy name becomes its new
- * name, a name whose sites all moved to another one is dropped, and `extras`
- * (IconButton, InputSlot) are added. Through a swapped shim the specifier
- * stays; otherwise it points at the new module.
- */
 function rewriteImport(
   edits: Edits,
   ref: ImportRef,

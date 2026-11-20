@@ -1,11 +1,3 @@
-/**
- * Design tokens in the W3C Design Tokens Community Group format, the files
- * Figma imports and exports as variables (one file per mode). The design
- * system keeps the values designers edit in these files; code reads them
- * through the accessors below, which refuse a missing or malformed token
- * instead of falling back.
- */
-
 /** Our extension: the exact HSL text a color came from, so it round-trips without drift. */
 export const EXTENSION = "com.agent-native";
 

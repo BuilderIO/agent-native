@@ -8,12 +8,6 @@ export { SHADCN_SLOTS, shadcn, shadcnTheme } from "./shadcn.js";
 export type { ThemeDefinition, ThemeValues } from "./types.js";
 export { baselineTheme };
 
-/**
- * Values the Agent-Native theme sets beyond its colors and radius, for app
- * chrome that reads them; they stay in code rather than in its token files.
- * Only the Agent-Native scope writes them: every other app keeps toolkit's
- * and Tailwind's defaults for these keys.
- */
 const AGENT_NATIVE_EXTRAS = {
   base: {
     "font-sans": '"Inter Variable", "Inter", sans-serif',
@@ -53,7 +47,6 @@ export const agentNativeTheme: ThemeDefinition = {
   },
 };
 
-/** Each app's name, label, and the appearance its root renders with no class. */
 const APPS: ReadonlyArray<readonly [string, string, "light" | "dark"]> = [
   ["analytics", "Analytics", "dark"],
   ["assets", "Assets", "light"],

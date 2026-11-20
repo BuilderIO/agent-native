@@ -4696,7 +4696,7 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
   }
 });
 
-test("runs story tests for the stories, the source they render, and their config", () => {
+void test("runs story tests for the stories, the source they render, and their config", () => {
   for (const path of [
     "packages/toolkit/dev/stories/components/button.stories.tsx",
     "packages/toolkit/dev/foundations/themes.tsx",
@@ -4752,7 +4752,7 @@ test("runs story tests for the stories, the source they render, and their config
   assert.equal(ownWorkflow.checks.storybook_tests, true, "its own workflow");
 });
 
-test("the Storybook workflow records on main only paths that run story tests on a PR", () => {
+void test("the Storybook workflow records on main only paths that run story tests on a PR", () => {
   // source-read-ok: the workflow's push paths are the subject, checked against the classifier.
   const workflow = readFileSync(
     ".github/workflows/storybook-tests.yml",

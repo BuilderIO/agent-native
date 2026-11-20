@@ -20,8 +20,8 @@ function onButton(className: string) {
   return flagged(`const a = <Button className="${className}" />;`);
 }
 
-describe("part geometry class detection", () => {
-  it("flags height, size, padding, radius, type and width classes on a part", () => {
+void describe("part geometry class detection", () => {
+  void it("flags height, size, padding, radius, type and width classes on a part", () => {
     const forbidden = [
       "h-6",
       "h-[22px]",
@@ -65,14 +65,14 @@ describe("part geometry class detection", () => {
     }
   });
 
-  it("flags through variant and important prefixes", () => {
+  void it("flags through variant and important prefixes", () => {
     assert.deepEqual(onButton("hover:h-6"), ["1:Button:hover:h-6"]);
     assert.deepEqual(onButton("md:px-4"), ["1:Button:md:px-4"]);
     assert.deepEqual(onButton("!text-[11px]"), ["1:Button:!text-[11px]"]);
     assert.deepEqual(onButton("md:hover:!h-9"), ["1:Button:md:hover:!h-9"]);
   });
 
-  it("passes layout classes", () => {
+  void it("passes layout classes", () => {
     const allowed = [
       "w-full",
       "w-auto",
@@ -118,18 +118,18 @@ describe("part geometry class detection", () => {
     }
   });
 
-  it("ignores variants that target descendants", () => {
+  void it("ignores variants that target descendants", () => {
     assert.deepEqual(onButton("[&_svg]:size-3 *:p-2"), []);
   });
 
-  it("reports each forbidden class in a mixed class string", () => {
+  void it("reports each forbidden class in a mixed class string", () => {
     assert.deepEqual(onButton("w-full h-6 gap-1 px-2"), [
       "1:Button:h-6",
       "1:Button:px-2",
     ]);
   });
 
-  it("does not flag non-part elements", () => {
+  void it("does not flag non-part elements", () => {
     assert.deepEqual(flagged('const a = <div className="h-6 px-2" />;'), []);
     assert.deepEqual(
       flagged('const a = <Skeleton className="h-6 w-[120px]" />;'),
@@ -139,7 +139,7 @@ describe("part geometry class detection", () => {
     assert.deepEqual(flagged('const a = <MyButton className="h-6" />;'), []);
   });
 
-  it("flags every part tag, on opening and self-closing elements", () => {
+  void it("flags every part tag, on opening and self-closing elements", () => {
     assert.deepEqual(
       flagged(
         [
@@ -156,7 +156,7 @@ describe("part geometry class detection", () => {
     );
   });
 
-  it("flags string literals inside cn(), clsx() and conditionals", () => {
+  void it("flags string literals inside cn(), clsx() and conditionals", () => {
     const source = [
       "const a = (",
       "  <Button",
@@ -175,7 +175,7 @@ describe("part geometry class detection", () => {
     ]);
   });
 
-  it("uses the line of the class, not the element, in a multi-line string", () => {
+  void it("uses the line of the class, not the element, in a multi-line string", () => {
     const source = [
       "const a = (",
       "  <Button",
@@ -187,7 +187,7 @@ describe("part geometry class detection", () => {
     assert.deepEqual(flagged(source), ["4:Button:h-6"]);
   });
 
-  it("only reports classes on lines this branch added", () => {
+  void it("only reports classes on lines this branch added", () => {
     const source = [
       'const a = <Button className="h-6" />;',
       'const b = <Button className="h-8" />;',
@@ -196,7 +196,7 @@ describe("part geometry class detection", () => {
     assert.deepEqual(flagged(source, []), []);
   });
 
-  it("does not report a class on an unchanged line of an edited element", () => {
+  void it("does not report a class on an unchanged line of an edited element", () => {
     const source = [
       "const a = (",
       "  <Button",
@@ -209,23 +209,23 @@ describe("part geometry class detection", () => {
     assert.deepEqual(flagged(source, [3]), ["3:Button:h-6", "3:Button:px-2"]);
   });
 
-  it("accepts a reasoned opt-out on the line or the line above, and rejects a bare one", () => {
+  void it("accepts a reasoned opt-out on the line or the line above, and rejects a bare one", () => {
     const sameLine =
-      'const a = <Button className="h-6" />; // part-geometry-ok: matches the legacy toolbar row';
+      'const a = <Button className="h-6" />; // guard:allow-part-geometry matches the legacy toolbar row';
     const lineAbove = [
-      "// part-geometry-ok: matches the legacy toolbar row",
+      "// guard:allow-part-geometry matches the legacy toolbar row",
       'const a = <Button className="h-6" />;',
     ].join("\n");
     const jsxComment = [
       "const a = (",
       "  <div>",
-      "    {/* part-geometry-ok: matches the legacy toolbar row */}",
+      "    {/* guard:allow-part-geometry matches the legacy toolbar row */}",
       '    <Button className="h-6" />',
       "  </div>",
       ");",
     ].join("\n");
     const bare = [
-      "// part-geometry-ok: ok",
+      "// guard:allow-part-geometry ok",
       'const a = <Button className="h-6" />;',
     ].join("\n");
     assert.deepEqual(flagged(sameLine), []);
@@ -234,7 +234,7 @@ describe("part geometry class detection", () => {
     assert.deepEqual(flagged(bare), ["2:Button:h-6"]);
   });
 
-  it("judges an imported tag by the part it imports", () => {
+  void it("judges an imported tag by the part it imports", () => {
     const aliased = [
       'import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";',
       'const a = <ToolkitButton className="h-7" />;',
@@ -257,7 +257,7 @@ describe("part geometry class detection", () => {
     assert.deepEqual(flagged(primitive), []);
   });
 
-  it("scopes to migrated .tsx outside tests, stories and the design system", () => {
+  void it("scopes to migrated .tsx outside tests, stories and the design system", () => {
     assert.equal(isInScope("templates/design/app/components/Panel.tsx"), true);
     assert.equal(isInScope("packages/toolkit/src/app/sharing/Share.tsx"), true);
     assert.equal(isInScope("templates/mail/app/components/Panel.tsx"), false);

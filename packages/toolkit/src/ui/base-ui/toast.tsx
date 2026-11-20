@@ -23,21 +23,6 @@ import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 import { Spinner } from "./spinner.js";
 
-/*
- * Toast on Base UI. One `Toaster` at the app root renders Base UI's provider
- * and viewport, stacked at the bottom right, with Base UI's swipe, stacking
- * and expand-on-hover. `toast` is a module-level manager with Base UI's own
- * methods (`add`, `update`, `close`, `promise`), so code outside React can
- * raise one; `useToast()` adds the reactive `toasts` list. A toast's options
- * are Base UI's plus the part's props: `color` is the status (success,
- * danger, warning, info; gray, the default, is neutral), and `variant` and
- * `highContrast` override the Toaster's. `type: "loading"` is Base UI's
- * loading state: a Spinner, and no timeout until the type changes.
- *
- * A corner is easy to miss, so how long a toast stays and how urgently it is
- * announced are decided here, not at each call: see `toastDefaults`.
- */
-
 type Clearable<T> = { [K in keyof T]?: T[K] | undefined };
 
 /** What a toast keeps in Base UI's `data`: the part's props and a second action. */
@@ -72,8 +57,6 @@ export interface ToastPromiseOptions<Value> {
 }
 
 type BaseUpdate = ToastManagerUpdateOptions<ToastData>;
-
-/* ---- timing and announcement policy ---- */
 
 /**
  * How long a toast that closes on its own stays: 6 seconds, plus 60ms a
@@ -111,7 +94,6 @@ export function readingTimeout(
   );
 }
 
-/** The color of Base UI's promise types when the toast sets none. */
 const TYPE_COLOR: Readonly<Partial<Record<string, Color>>> = {
   success: "success",
   error: "danger",
@@ -157,7 +139,6 @@ export function toastDefaults(toast: ToastPolicyInput): {
   };
 }
 
-/** The data keys an options object names, kept when undefined so an update can clear one. */
 function pickData(options: ToastData): ToastData {
   const data: ToastData = {};
   for (const key of DATA_KEYS) {
@@ -176,10 +157,6 @@ function withoutData<O extends ToastData>(
   return rest as Omit<O, keyof ToastData>;
 }
 
-/**
- * A promise state, with the policy for the status it implies. It replaces
- * the toast's data whole, so the loading state's color doesn't outlive it.
- */
 function resolveState(
   state: string | ToastUpdateOptions,
   implied: Color | undefined,
@@ -207,7 +184,6 @@ function promiseState<Arg>(
   return resolveState(state, implied);
 }
 
-/** Options that change a toast's status, so its defaulted timeout and priority follow. */
 const STATUS_KEYS = [
   "color",
   "type",
@@ -217,14 +193,6 @@ const STATUS_KEYS = [
 
 const manager = BaseToast.createToastManager<ToastData>();
 
-/*
- * Base UI's manager drops whatever arrives before a Provider subscribes, and
- * the Provider subscribes in an effect that runs after its descendants'
- * effects. So until a Toaster has mounted, calls wait here in order and the
- * Toaster replays them. `rendered` is set while a Toaster renders, before
- * any effect, so a toast raised from a child's mount effect isn't reported
- * as missing its Toaster.
- */
 let mounted = 0;
 let rendered = false;
 let reported = false;
@@ -336,8 +304,6 @@ function useToast(): UseToastReturnValue {
   const { toasts } = BaseToast.useToastManager<ToastData>();
   return React.useMemo(() => ({ ...toast, toasts }), [toasts]);
 }
-
-/* ---- parts ---- */
 
 export interface ToastRootProps
   extends Omit<BaseToast.Root.Props, "color">, ToastOwnProps {}
@@ -480,15 +446,6 @@ const ToastClose = React.forwardRef<HTMLButtonElement, ToastCloseProps>(
 );
 ToastClose.displayName = "ToastClose";
 
-/* ---- where toasts sit ---- */
-
-/*
- * Toasts sit at the bottom right of the app's canvas, not the window's, so
- * they never cover the side panels. The canvas registers itself with
- * `useToastAnchor` (AppShellCanvas does), or the app passes the Toaster a
- * `container`. The registry is module-level, like the manager, because the
- * Toaster is usually mounted above or beside the shell, not inside it.
- */
 let anchors: readonly HTMLElement[] = [];
 const anchorListeners = new Set<() => void>();
 
@@ -538,10 +495,6 @@ function useAnchor(container: ToastContainer | undefined): HTMLElement | null {
   return isRef ? fromRef : container;
 }
 
-/**
- * The anchor's box, clipped to the window. The portal is fixed over it, so
- * the stack stays at the visible bottom right however the anchor scrolls.
- */
 function useVisibleRect(
   anchor: HTMLElement | null,
 ): React.CSSProperties | undefined {
@@ -585,8 +538,6 @@ function useVisibleRect(
   }, [anchor]);
   return rect;
 }
-
-/* ---- the Toaster ---- */
 
 const STATUS_ICON: Readonly<Partial<Record<Color, typeof IconX>>> = {
   success: IconCircleCheck,
@@ -692,7 +643,6 @@ type ToastRegionProps = Pick<
   "closeLabel" | "regionLabel" | "variant" | "highContrast"
 >;
 
-/** Whether the focused element, outside the region, sits under a showing toast. */
 function coversFocus(viewport: HTMLElement): boolean {
   const doc = viewport.ownerDocument;
   const focused = doc.activeElement;

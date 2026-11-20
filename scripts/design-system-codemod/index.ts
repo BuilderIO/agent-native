@@ -1,19 +1,3 @@
-/**
- * Moves app code from the legacy shadcn components and sonner onto
- * `@agent-native/design-system` components.
- *
- *   tsx scripts/design-system-codemod/index.ts <dir> [--transform button,badge,...]
- *     [--toaster-props '<JSX attributes>'] [--diff] [--write]
- *
- * Without --write it is a dry run; --diff prints each file's diff. Either way it prints every site it left
- * alone, with the reason, and every site it moved that still needs a look.
- * --write saves the files and runs oxfmt on them. Components: button, badge,
- * input, text-area, skeleton, spinner, toast. The new Toaster takes its
- * localized labels from --toaster-props, such as
- * `closeLabel={t("toast.close")} regionLabel={t("toast.region")}`.
- *
- * Specs: pnpm vitest run scripts/design-system-codemod
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -47,7 +31,6 @@ function unifiedDiff(before: string, after: string, name: string): string {
       execFileSync("diff", ["-u", "--label", name, "--label", name, a, b]);
       return "";
     } catch (error) {
-      // diff exits 1 when the files differ, which they do.
       const output = (error as { stdout?: Buffer }).stdout;
       if (!output) throw error;
       return output.toString().replace(/^/gm, "    ");

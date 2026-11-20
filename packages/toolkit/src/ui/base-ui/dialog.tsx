@@ -10,9 +10,6 @@ import { cn } from "../../utils.js";
 import { ModalLayerProvider } from "../modal-layer.js";
 import { splitProps } from "./props.js";
 
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
-
 /**
  * A window over the page for a task the user finishes or dismisses before
  * going back. Root, Trigger, Close and Portal are Base UI's Dialog parts.

@@ -1,7 +1,5 @@
 import { at } from "./at.js";
 import { TokenError, TokenReader } from "./dtcg.js";
-// The values designers edit, read from the token files Figma imports and
-// exports (`pnpm --filter @agent-native/design-system tokens:export` / `tokens:import`).
 import foundationsFile from "./files/foundations.tokens.json" with { type: "json" };
 import paletteFile from "./files/palette.tokens.json" with { type: "json" };
 import agentNativeDark from "./files/themes/agent-native.dark.tokens.json" with { type: "json" };
@@ -139,10 +137,6 @@ export interface TypeStep {
   readonly letterSpacing: string;
 }
 
-/**
- * The numbered steps a group holds (`size.box.1..8`), in order from `first`,
- * refusing a gap.
- */
 function steps(reader: TokenReader, group: string, first = 1): number[] {
   const numbers = reader
     .paths()
@@ -216,7 +210,6 @@ function readFoundations(files: TokenFiles) {
   };
 }
 
-/** The default palette's inputs: brand, gray, backgrounds and status scale names. */
 function readPalette(files: TokenFiles) {
   const palette = new TokenReader(PALETTE_FILE, file(files, PALETTE_FILE));
   return {
@@ -235,7 +228,6 @@ function readPalette(files: TokenFiles) {
   };
 }
 
-/** One theme mode's values, keyed as a theme expects (`primary`, `radius`). */
 function readThemeMode(
   files: TokenFiles,
   name: string,

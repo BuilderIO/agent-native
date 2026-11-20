@@ -1,15 +1,4 @@
-// Port of Radix's custom palette generator (radix-ui/website,
-// components/generate-radix-colors.tsx, MIT; see THIRD_PARTY_NOTICES.md).
 //
-// The algorithm is kept step for step so a brand color produces the same
-// scale the Radix palette tool shows; __fixtures__/radix-golden.json holds the
-// upstream output and the spec compares every value. Two colorjs.io changes
-// since the upstream pin (0.5) are absorbed here, and both would otherwise
-// corrupt gray scales silently:
-//   - an achromatic hue is `null` ("none") instead of NaN, so hue checks go
-//     through `hasHue`, never `isNaN`;
-//   - a neutral's chroma is exactly 0 instead of ~1e-16, so the chroma ratio
-//     can be 0/0 and must not reach Math.min as NaN.
 
 import * as RadixColors from "@radix-ui/colors";
 import Color from "colorjs.io";
@@ -155,7 +144,6 @@ export function generateRadixColors({
 
   const backgroundHex = toHex(backgroundColor);
 
-  // A pure white or black brand takes its tint from the gray scale.
   const accentBaseHex = toHex(accentBaseColor);
   if (accentBaseHex === "#000000" || accentBaseHex === "#ffffff") {
     accentScaleColors = grayScaleColors.map((color) =>
@@ -171,7 +159,6 @@ export function generateRadixColors({
   accentScaleColors[8] = accent9Color;
   accentScaleColors[9] = getButtonHoverColor(accent9Color, [accentScaleColors]);
 
-  // Limit the saturation of the text steps.
   const textChromaCap = Math.max(
     C(accentScaleColors[8]),
     C(accentScaleColors[7]),
@@ -246,8 +233,6 @@ function getStep9Colors(
   accentBaseColor: Color,
 ): [Color, Color] {
   const distance = accentBaseColor.deltaEOK(scale[0]) * 100;
-  // A brand this close to the page background (white on white) cannot be a
-  // solid fill, so the scale's own step 9 stands in for it.
   if (distance < 25) return [scale[8], getTextColor(scale[8])];
   return [accentBaseColor, getTextColor(accentBaseColor)];
 }
@@ -260,8 +245,6 @@ function getButtonHoverColor(source: Color, scales: Scale12<Color>[]): Color {
   const newC = l > 0.4 && hasHue(h) ? c * 0.93 + 0 : c;
   const buttonHoverColor = new Color("oklch", [newL, newC, h]);
 
-  // The nearest in-scale color donates chroma and hue, which matters when the
-  // source is pure white or black but the gray scale is tinted.
   let closestColor = buttonHoverColor;
   let minDistance = Infinity;
   for (const scale of scales) {
@@ -297,8 +280,6 @@ function getScaleFromColor<Name extends string>(
       index === array.findIndex((value) => value.scale === color.scale),
   );
 
-  // Grays sit so close together that a second gray says nothing about the
-  // direction of the source color, so skip past them to the first real hue.
   const grayNames = RADIX_GRAY_SCALE_NAMES as readonly string[];
   const allAreGrays = closestColors.every((color) =>
     grayNames.includes(color.scale),
@@ -312,10 +293,6 @@ function getScaleFromColor<Name extends string>(
   const colorA = at(closestColors, 0);
   const colorB = at(closestColors, 1);
 
-  // Treat source (C) and the two nearest scales (A, B) as a triangle. When
-  // neither angle at A nor B is obtuse, mixing A toward B in the ratio of the
-  // tangents of the opposite angles lands closer to C than either scale; an
-  // obtuse angle gives a ratio of 0 and A is used alone.
   const a = colorB.distance;
   const b = colorA.distance;
   const c = colorA.color.deltaEOK(colorB.color);
@@ -353,7 +330,6 @@ function getScaleFromColor<Name extends string>(
   if (L(scale[0]) > 0.5) {
     const lightnessScale = scale.map(L);
     const backgroundL = Math.max(0, Math.min(1, L(backgroundColor)));
-    // White is prepended as a virtual step so the lightest step can move.
     const newLightnessScale = transposeProgressionStart(
       backgroundL,
       [1, ...lightnessScale],
@@ -370,7 +346,6 @@ function getScaleFromColor<Name extends string>(
   const referenceBackgroundL = L(scale[0]);
   const backgroundL = Math.max(0, Math.min(1, L(backgroundColor)));
 
-  // A background lighter than step 1 eases gradually toward linear.
   const ratioL = backgroundL / referenceBackgroundL;
   if (ratioL > 1) {
     const maxRatio = 1.5;
@@ -404,9 +379,6 @@ function getTextColor(background: Color): Color {
   return white;
 }
 
-// target = background * (1 - alpha) + foreground * alpha, solved for the
-// smallest alpha that reaches the target, with the browser's per-channel
-// rounding reproduced so the overlay paints the exact opaque step.
 type Rgb = readonly [number | null, number | null, number | null];
 
 function channels(rgb: Rgb, precision: number): [number, number, number] {
@@ -428,8 +400,6 @@ function getAlphaColor(
   const [tr, tg, tb] = channels(targetRgb, rgbPrecision);
   const [br, bg, bb] = channels(backgroundRgb, rgbPrecision);
 
-  // Lighten the background if any target channel is lighter than it,
-  // otherwise darken it.
   const desiredRgb = tr > br || tg > bg || tb > bb ? rgbPrecision : 0;
 
   const alphaR = (tr - br) / (desiredRgb - br);
@@ -474,7 +444,6 @@ function getAlphaColor(
   return [R / rgbPrecision, G / rgbPrecision, B / rgbPrecision, A];
 }
 
-// Browsers round each blended term separately, not the sum.
 function blendAlpha(foreground: number, alpha: number, background: number) {
   return Math.round(background * (1 - alpha)) + Math.round(foreground * alpha);
 }
@@ -502,7 +471,6 @@ function getAlphaColorP3(
   const [r, g, b, a] = getAlphaColor(
     new Color(targetColor).to("p3").coords,
     new Color(backgroundColor).to("p3").coords,
-    // P3 alpha overlays blend most precisely in browsers at 255 steps too.
     255,
     1000,
     targetAlpha,
@@ -539,7 +507,6 @@ function transposeProgressionStart(
   return values.map((n, i) => n - diff * ease(1 - i / lastIndex));
 }
 
-// Lightness is written as a percentage (radix-ui/themes#420).
 function toOklchString(color: Color): string {
   const lightness = +(L(color) * 100).toFixed(1);
   return color

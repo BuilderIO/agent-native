@@ -81,9 +81,6 @@ const MenubarContent = React.forwardRef<
 ));
 MenubarContent.displayName = "MenubarContent";
 
-// The menu's parts are exported where they are declared: through the export
-// list, docgen documents the menu's own component and drops these comments.
-
 /**
  * A row that runs an action when chosen, with an optional icon before the
  * label and a shortcut or other content after it.

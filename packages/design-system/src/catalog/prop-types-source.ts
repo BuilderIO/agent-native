@@ -29,8 +29,6 @@ function tsType(def: PropDef): string | null {
     return def.values.map((value) => JSON.stringify(value)).join(" | ");
   }
   if (def.type === "boolean") return "boolean";
-  // Value props (strings, numbers, nodes) are declared by the component that
-  // reads them; `PropsOf` leaves them out too.
   return null;
 }
 
@@ -76,7 +74,6 @@ export function propTypesSource(): string {
       ),
     );
     const check = `Equal<${name}, PropsOf<typeof ${exportName}>>`;
-    // Wrapped as the formatter wraps it, so the file is formatted as written.
     checks.push(
       check.length + 11 > 80
         ? `  Expect<\n    ${check}\n  >,`

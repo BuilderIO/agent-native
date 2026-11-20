@@ -1,15 +1,3 @@
-/**
- * Token files to and from Figma.
- *
- *   pnpm --filter @agent-native/design-system tokens:export <dir>
- *   pnpm --filter @agent-native/design-system tokens:import <dir>
- *
- * Export writes `<dir>/<collection>/<mode>.tokens.json`: import each folder
- * into Figma as a collection, one file per mode. Import reads the same layout
- * back from a Figma export, refuses anything code cannot read, and rewrites
- * the source files under `src/tokens/files/`.
- */
-
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

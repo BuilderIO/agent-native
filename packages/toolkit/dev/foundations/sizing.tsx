@@ -112,7 +112,6 @@ function sizeDef(props: PropDefs | undefined): EnumPropDef | null {
   return def?.type === "enum" ? def : null;
 }
 
-/** Every component and sub-part whose props include `size`, from the catalog. */
 const SIZE_USES: readonly SizeUse[] = [...PARTS]
   .sort((a, b) => a.name.localeCompare(b.name))
   .flatMap((part) => {

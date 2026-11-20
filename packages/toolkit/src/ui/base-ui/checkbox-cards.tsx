@@ -59,8 +59,6 @@ const CheckboxCardsItem = React.forwardRef<HTMLElement, CheckboxCardsItemProps>(
       {},
     );
     const [attributes] = splitProps(checkboxCardsProps, group);
-    // The corner box is the checkbox part drawn at the card's size, always
-    // surface as in Radix; the card itself is the control.
     const [boxAttributes] = splitProps(checkboxProps, {
       ...group,
       variant: "surface",

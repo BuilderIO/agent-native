@@ -34,7 +34,6 @@ type DrawerProps = Omit<BaseDrawer.Root.Props, "swipeDirection"> &
  */
 function Drawer(props: DrawerProps) {
   const [attributes, rest] = splitProps(drawerProps, props);
-  // splitProps has checked the value and filled in the default.
   const side = attributes["data-side"] as DrawerSide;
   return (
     <DrawerSideContext.Provider value={side}>
@@ -51,9 +50,6 @@ function useDrawerSide(): DrawerSide {
   return side;
 }
 Drawer.displayName = "Drawer";
-
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
 
 /**
  * The button that opens the drawer. Compose your own with `render`.
@@ -77,11 +73,6 @@ export const DrawerClose = BaseDrawer.Close;
  */
 export const DrawerPortal = BaseDrawer.Portal;
 
-/**
- * `data-over-dialog` raises a drawer above a dialog. Base UI skips the
- * backdrop of a layer nested in a dialog, so one opened from a dialog forces
- * its own to dim the dialog too.
- */
 function useOverDialog() {
   const overDialog = useInModalLayer();
   return {

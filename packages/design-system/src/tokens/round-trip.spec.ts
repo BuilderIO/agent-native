@@ -14,7 +14,6 @@ const MAIL_DARK = "Theme mail/Dark.tokens.json";
 
 const clone = <T>(value: T): T => structuredClone(value);
 
-/** The export as Figma writes it back: no extension of ours, its own variable ids. */
 function asFigmaWrites(group: unknown): unknown {
   const tokens = flattenTokens(clone(group), "export");
   const root: Record<string, unknown> = {};
@@ -117,10 +116,12 @@ describe("token round trip", () => {
       ...TOKEN_FILES,
       ...Object.fromEntries(result.files),
     });
-    expect(read.themes.mail?.light.primary).toBe("0 100% 50%");
-    expect(read.themes.mail?.dark).toEqual(
-      readTokenFiles(TOKEN_FILES).themes.mail?.dark,
-    );
+    const mail = new Map(Object.entries(read.themes)).get("mail");
+    const original = new Map(
+      Object.entries(readTokenFiles(TOKEN_FILES).themes),
+    ).get("mail");
+    expect(mail?.light.primary).toBe("0 100% 50%");
+    expect(mail?.dark).toEqual(original?.dark);
   });
 
   it("writes a changed number", () => {

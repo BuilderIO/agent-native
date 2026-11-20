@@ -26,7 +26,6 @@ type ToastArgs = ToasterProps &
     description?: string;
   };
 
-/** The toast's own options from the controls, without the Toaster's labels. */
 function fromArgs({
   variant,
   color,
@@ -40,7 +39,6 @@ function fromArgs({
 const meta = {
   title: "Components/Toast",
   component: Toaster,
-  // Each story in its own frame, so the docs page doesn't mount one Toaster per story.
   parameters: {
     layout: "padded",
     docs: { story: { inline: false, iframeHeight: 360 } },
@@ -264,7 +262,6 @@ export const StepsAsideForFocus: Story = {
 
 const TOOLS = ["Move", "Frame", "Text", "Pen", "Shape", "Comment"];
 
-/** A mock editor: side panels, and a canvas with a toolbar at its bottom center. */
 function MockEditor({ wide }: { wide: boolean }) {
   const anchor = useToastAnchor<HTMLDivElement>();
   return (

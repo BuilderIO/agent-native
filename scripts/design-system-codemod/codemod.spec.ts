@@ -7,14 +7,6 @@ import { runCodemod } from "./codemod.ts";
 import { formatOxfmt, formatReport } from "./index.ts";
 import type { CodemodOptions } from "./types.ts";
 
-/*
- * Each fixture is a small project: `input/` is run through the codemod with
- * `options.json`, written and formatted with oxfmt, and must then equal
- * `output/` (files absent there are unchanged), with the report equal to
- * `report.txt`. UPDATE_CODEMOD_FIXTURES=1 rewrites `output/` and `report.txt`
- * from the current behavior, for review in the diff.
- */
-
 const FIXTURES = path.join(import.meta.dirname, "fixtures");
 const REPO = path.resolve(import.meta.dirname, "../..");
 fs.mkdirSync(path.join(REPO, ".tmp"), { recursive: true });
@@ -89,7 +81,10 @@ describe("design-system codemod fixtures", () => {
         const expected = changed.has(file)
           ? fs.readFileSync(path.join(outputDir, file), "utf8")
           : fs.readFileSync(path.join(fixture, "input", file), "utf8");
-        expect(actual, file).toBe(expected);
+        expect({ file, contents: actual }).toEqual({
+          file,
+          contents: expected,
+        });
       }
       expect(report).toBe(
         fs.readFileSync(path.join(fixture, "report.txt"), "utf8"),

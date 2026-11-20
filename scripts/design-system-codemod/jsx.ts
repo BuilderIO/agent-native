@@ -61,7 +61,6 @@ export function readAttr(tag: JsxTag, name: string): AttrValue {
   return { kind: "expression", node: undefined };
 }
 
-/** The attribute's value as it would sit inside JSX braces or quotes. */
 export function attrValueText(
   attribute: ts.JsxAttribute,
   source: ts.SourceFile,
@@ -93,24 +92,22 @@ export function containsJsx(node: ts.Node): boolean {
   return found;
 }
 
-/** Whether a JSX element sits inside an intrinsic `<form>` in the same file. */
 export function insideForm(node: ts.Node): boolean {
-  for (let at = node.parent; at; at = at.parent) {
-    if (ts.isJsxElement(at) && at.openingElement.tagName.getText() === "form") {
-      return true;
-    }
-  }
-  return false;
+  return (
+    ts.findAncestor(
+      node.parent,
+      (at) =>
+        ts.isJsxElement(at) && at.openingElement.tagName.getText() === "form",
+    ) !== undefined
+  );
 }
 
-/** The element a tag opens: the JsxElement for an opening tag, else the tag itself. */
 export function elementOf(
   tag: JsxTag,
 ): ts.JsxElement | ts.JsxSelfClosingElement {
   return ts.isJsxOpeningElement(tag) ? tag.parent : tag;
 }
 
-/** An element's children that are not whitespace-only text. */
 export function meaningfulChildren(element: ts.JsxElement): ts.JsxChild[] {
   return element.children.filter(
     (child) => !(ts.isJsxText(child) && child.containsOnlyTriviaWhiteSpaces),
@@ -121,5 +118,4 @@ export function classNames(value: string): string[] {
   return value.split(/\s+/).filter(Boolean);
 }
 
-/** A height or square size class: `h-8`, `size-7`, `h-[30px]`, `min-h-9`. */
 export const HEIGHT_CLASS = /^(?:[a-z0-9-]+:)*(?:min-)?(?:h|size)-(?:\d|\[)/;

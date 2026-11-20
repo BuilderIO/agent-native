@@ -108,10 +108,6 @@ function TimeZonePicker({
   );
 }
 
-/**
- * An open list, portaled into the stage so its theme, appearance and
- * palette reach it.
- */
 function OpenList({
   label,
   ...popup
@@ -180,9 +176,6 @@ export const Sizes: Story = {
  * fill the highlighted row, in gray and the accent and in high contrast.
  */
 export const Variants: Story = {
-  // Every list pinned open at once: each open combobox hides the rest of the
-  // page, the other open inputs included, which no app can reach. Empty
-  // tests a single open list.
   parameters: { a11y: { test: "todo" } },
   render: (args) => (
     <div className="flex flex-col gap-6">

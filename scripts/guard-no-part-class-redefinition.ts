@@ -1,21 +1,3 @@
-/**
- * guard:no-part-class-redefinition
- *
- * Design-system part classes are unprefixed (`.button`, `.menu-item`,
- * `.dialog-popup`), so an app stylesheet that writes `.button { ... }` or
- * `.sidebar .button { ... }` silently restyles every toolkit part it reaches,
- * under every theme. Parts are restyled through themes and their `--part-*`
- * inputs; layout belongs on a wrapper or in utilities on the element.
- *
- * Scope: lines this branch added to .css/.scss files under templates/** and
- * packages/**, except the design system's own part and theme CSS and the
- * toolkit gallery. The reserved names come from the part catalog, so a new
- * part is protected the moment it is cataloged.
- *
- * Opt out on the selector line or the line above, with a 10+ character reason:
- *   /* part-class-ok: <reason> *\/
- */
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -34,7 +16,7 @@ const OWNED_BY_DESIGN_SYSTEM =
   /^packages\/design-system\/css\/|^packages\/toolkit\/\.storybook\//;
 const SKIPPED_PATH =
   /(?:^|\/)(?:node_modules|dist|build|coverage|\.output|\.generated)\//;
-const PRAGMA = /part-class-ok:\s*(.*?)\s*(?:\*\/)?$/;
+const PRAGMA = /guard:allow-part-class\s+(.*?)\s*(?:\*\/)?$/;
 const MIN_REASON_LENGTH = 10;
 
 export interface PartClassFinding {
@@ -58,7 +40,6 @@ interface Prelude {
   endLine: number;
 }
 
-/** Selector preludes (the text before each `{`), with their line span. */
 function selectorPreludes(source: string): Prelude[] {
   const preludes: Prelude[] = [];
   let line = 1;
@@ -79,7 +60,6 @@ function selectorPreludes(source: string): Prelude[] {
       for (let skip = index; skip < stop; skip++) {
         if (source[skip] === "\n") line++;
       }
-      // A comment before any selector text is not part of the selector.
       if (source.slice(start, index).trim() === "") {
         start = stop;
         startLine = line;
@@ -141,8 +121,6 @@ export function findPartClassRedefinitions(
       ).some((lineNumber) => addedLines.has(lineNumber));
     if (!touched) continue;
     const selector = stripComments(prelude.text).replace(/\s+/g, " ");
-    // Attribute values and :not()/:is() contents are still selectors, but
-    // quoted strings are not.
     const unquoted = selector.replace(/(["'])(?:\\.|(?!\1).)*\1/g, '""');
     for (const match of unquoted.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) {
       const className = match[1];
@@ -199,7 +177,7 @@ function main(): void {
   }
   console.error(
     "\nIf this really must target the part, add on the selector line or the line above:\n" +
-      "  /* part-class-ok: <reason of 10+ characters> */\n",
+      "  /* guard:allow-part-class <reason of 10+ characters> */\n",
   );
   process.exit(1);
 }

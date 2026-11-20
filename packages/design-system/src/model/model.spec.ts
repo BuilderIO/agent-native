@@ -188,18 +188,17 @@ describe("rowAttributes", () => {
   });
 });
 
-/** Writes the row attributes onto an element string, as any part set must. */
 function attrs(row: ModelRow): string {
   return Object.entries(rowAttributes(row))
     .map(([name, value]) => `${name}="${value}"`)
     .join(" ");
 }
 
-const [main] = navigation.rows;
-const [inbox, create] = main?.rows ?? [];
+const main = navigation.rows.at(0);
+const inbox = main?.rows?.at(0);
+const create = main?.rows?.at(1);
 if (!main || !inbox || !create) throw new Error("fixture rows missing");
 
-/** Our part set: a sidebar list with links and buttons. */
 const ours = `
   <nav ${attrs(main)} aria-label="Main">
     <a ${attrs(inbox)} href="/inbox" aria-current="page">
@@ -208,7 +207,6 @@ const ours = `
     <button ${attrs(create)} type="button" aria-label="New issue"><svg></svg></button>
   </nav>`;
 
-/** A reference part set: a floating drawer of list options. */
 const reference = `
   <div role="listbox" ${attrs(main)} aria-label="Main">
     <div role="option" ${attrs(inbox)} aria-selected="true">Inbox <b aria-hidden="true">19</b></div>

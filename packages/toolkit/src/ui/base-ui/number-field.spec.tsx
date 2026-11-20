@@ -139,7 +139,7 @@ describe("Number Field part", () => {
       .closest<HTMLElement>(".number-field-scrub-area");
     expect(area?.classList.contains("input-slot")).toBe(true);
     expect(area?.dataset.side).toBe("left");
-    if (area === null || area === undefined) throw new Error("no scrub area");
+    if (area === null) throw new Error("no scrub area");
     act(() => {
       fireEvent.pointerDown(area, { pointerType: "mouse", button: 0 });
     });

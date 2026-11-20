@@ -4,12 +4,6 @@ import type { Edits } from "./edits.ts";
 import { attrName, containsJsx, hasSpread, type JsxTag } from "./jsx.ts";
 import type { Analysis, ComponentDef, SiteContext } from "./types.ts";
 
-/*
- * sonner to the design system's toast: `toast(m, o)` and its status methods
- * become `toast.add({ title: m, ... })`, `dismiss` becomes `close`, options
- * are renamed, and sonner's Toaster becomes the new one.
- */
-
 const STATUS: Readonly<Record<string, string[]>> = {
   "": [],
   message: [],
@@ -20,9 +14,7 @@ const STATUS: Readonly<Record<string, string[]>> = {
   loading: ['type: "loading"'],
 };
 
-/** Options sonner and the new toast share. */
 const KEPT_OPTIONS = new Set(["description", "id"]);
-/** sonner options with no counterpart that change nothing worth keeping. */
 const DROPPED_OPTIONS = new Set(["closeButton", "richColors", "position"]);
 
 function skip(reason: string): Analysis {
@@ -66,7 +58,6 @@ function isInfinity(node: ts.Expression): boolean {
   return text === "Infinity" || text === "Number.POSITIVE_INFINITY";
 }
 
-/** A handler wrapped so it also closes the toast, sonner's default for its buttons. */
 type HandlerPlan =
   | { kind: "none" }
   | {
@@ -81,7 +72,6 @@ type HandlerPlan =
     }
   | { kind: "reference"; handler: ts.Expression; passEvent: boolean };
 
-/** How many parameters a handler declared in this file takes, or null when unknown. */
 function localParameterCount(
   handler: ts.Identifier,
   checker: ts.TypeChecker,
@@ -198,7 +188,6 @@ const STATEMENT_PARENTS = new Set([
   ts.SyntaxKind.DefaultClause,
 ]);
 
-/** How the toast's id reaches its button handlers. */
 type IdPlan =
   | { kind: "option"; text: string }
   | { kind: "variable"; name: string }
@@ -244,7 +233,9 @@ function analyzeAdd(
   method: string,
   context: SiteContext,
 ): Analysis {
-  const [message, options, ...extra] = call.arguments;
+  const message = call.arguments.at(0);
+  const options = call.arguments.at(1);
+  const extra = call.arguments.slice(2);
   if (message === undefined) return skip("toast with no message");
   if (extra.length > 0) return skip("more than two arguments");
   if (call.arguments.some(ts.isSpreadElement)) return skip("spread arguments");
@@ -349,7 +340,6 @@ function analyzeAdd(
       ];
       for (const property of properties) {
         if (handled.get(property) === "drop") continue;
-        // Analysis only kept properties with a name.
         const name = propertyName(property) ?? "";
         const value = ts.isPropertyAssignment(property)
           ? property.initializer
@@ -389,7 +379,6 @@ function analyzeAdd(
         idPlan?.kind === "declare"
           ? idPlan.statement.getStart()
           : call.getStart();
-      // Claims what is left in the call: edits in dropped options go with them.
       edits.slice(start, call.end);
       edits.add(
         start,
@@ -450,7 +439,6 @@ function toastReference(
   return skip(`toast used as a value, not called${asMock(context)}`);
 }
 
-/** A test that reads sonner's toast as a mock rather than calling it. */
 function asMock(context: SiteContext): string {
   return /\.(spec|test)\.[cm]?[jt]sx?$|\/__tests__\//.test(
     context.source.fileName,
@@ -458,8 +446,6 @@ function asMock(context: SiteContext): string {
     ? " (a test reading sonner's mock: assert on toast.add instead)"
     : "";
 }
-
-/* ---- Toaster ---- */
 
 const TOASTER_DROPPED = new Set([
   "position",
@@ -472,7 +458,6 @@ const TOASTER_RENAMED: Readonly<Record<string, string>> = {
   visibleToasts: "limit",
 };
 
-/** The identifiers an attribute string reads, which must be in scope at the site. */
 function freeIdentifiers(attributes: string): string[] | null {
   const source = ts.createSourceFile(
     "toaster-props.tsx",
@@ -481,7 +466,7 @@ function freeIdentifiers(attributes: string): string[] | null {
     true,
     ts.ScriptKind.TSX,
   );
-  const statement = source.statements[0];
+  const statement = source.statements.at(0);
   if (
     source.statements.length !== 1 ||
     !statement ||

@@ -40,7 +40,6 @@ function Combobox<Value, Multiple extends boolean | undefined = false>(
   );
 }
 
-/** The chips' place in the input: `ComboboxChips` renders the input after them. */
 const ChipsInputContext = React.createContext<React.ReactNode>(null);
 
 export interface ComboboxInputProps
@@ -332,9 +331,6 @@ const ComboboxSeparator = React.forwardRef<
   />
 ));
 ComboboxSeparator.displayName = "ComboboxSeparator";
-
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
 
 /**
  * Renders the filtered items of a group, or of the whole list, through a

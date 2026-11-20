@@ -106,7 +106,6 @@ function input(name = "Language") {
   return screen.getByRole<HTMLInputElement>("combobox", { name });
 }
 
-/** Types as a keyboard does: Base UI opens the list only for typed input. */
 async function type(text: string, name?: string) {
   const element = input(name);
   await act(async () => {

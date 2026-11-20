@@ -29,10 +29,6 @@ const CASES: readonly TooltipCase[] = [
   },
 ];
 
-/**
- * Tooltips open in place, portaled into the stage so its skin, appearance
- * and brand reach them.
- */
 function TooltipSection() {
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
   return (

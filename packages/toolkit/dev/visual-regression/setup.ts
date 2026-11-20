@@ -23,18 +23,12 @@ interface StoryTestContext {
 
 const { mode, resultsDir } = inject("storybookVisual");
 
-// How long two consecutive screenshots may take to agree. Vitest's 5 s is
-// too short once every core is rendering a story.
 const SETTLE_TIMEOUT = 15_000;
 
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-// Runs after the story test's render, play function and axe check, while the
-// story is still mounted. The stage decorator draws an appearance as a class
-// on the stage, and the foundation pages watch that class, so swapping it is
-// the same change the toolbar makes.
 afterEach(async (context) => {
   const story = (context as typeof context & StoryTestContext).story;
   if (!story || (context.task.result?.errors?.length ?? 0) > 0) return;
@@ -84,8 +78,6 @@ afterEach(async (context) => {
           outcome: mode === "record" ? "recorded" : "matched",
         });
       } catch (error) {
-        // A visual difference is reported for review, not failed; anything
-        // the matcher did not report as a difference still fails the test.
         const outcome = outcomeFromError(error);
         if (!outcome) throw error;
         await record({

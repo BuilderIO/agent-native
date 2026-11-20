@@ -106,7 +106,6 @@ const ROW_SELECTOR = "[data-row-id]";
 const CONTROL_SELECTOR =
   "input,select,textarea,button,[role=switch],[role=checkbox],[role=radio],[role=option],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=tab],[role=treeitem],a[href]";
 
-/** The element's own text, leaving out any nested rows. */
 function ownText(element: Element): string {
   let text = "";
   for (const node of element.childNodes) {
@@ -137,7 +136,6 @@ function labelledByText(element: Element): string | null {
   return normalizeSpace(text) || null;
 }
 
-/** The row's control: the row element itself, or its first own control. */
 function rowControl(row: Element): Element {
   if (row.matches(CONTROL_SELECTOR)) return row;
   for (const candidate of row.querySelectorAll(CONTROL_SELECTOR)) {

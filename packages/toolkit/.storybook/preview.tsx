@@ -10,7 +10,6 @@ import * as React from "react";
 
 import "./storybook.css";
 
-/** Brand colors the toolbar generates palettes from; `none` keeps the default scales. */
 const BRANDS: Readonly<Record<string, string | null>> = {
   none: null,
   indigo: "#5b5bd6",
@@ -38,10 +37,6 @@ function globalString(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
 }
 
-/**
- * The stage every story renders on: the theme, appearance, density, radius,
- * corners and palette the toolbar picked, as the app root would set them.
- */
 const withStage: Decorator = (Story, { globals }) => {
   const theme = globalString(globals.theme, "agent-native");
   const appearance = globalString(globals.appearance, "light");
@@ -113,10 +108,7 @@ const preview: Preview = {
   },
   parameters: {
     a11y: {
-      // Any axe violation fails the story's test.
       test: "error",
-      // Base UI's focus guards are aria-hidden on purpose and take focus only
-      // to hand it on, so axe's aria-hidden-focus misreads them.
       context: { exclude: ["[data-base-ui-focus-guard]"] },
     },
     backgrounds: { disable: true },

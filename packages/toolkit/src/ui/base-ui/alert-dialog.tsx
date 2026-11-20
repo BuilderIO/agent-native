@@ -9,9 +9,6 @@ import { cn } from "../../utils.js";
 import { Button, type ButtonProps } from "./button.js";
 import { splitProps } from "./props.js";
 
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
-
 /**
  * A dialog that asks the user to confirm or cancel before going on, on Base
  * UI's Alert Dialog. Unlike Dialog, an outside press never dismisses it and
@@ -170,10 +167,6 @@ AlertDialogDescription.displayName = "AlertDialogDescription";
 
 type AlertDialogButtonProps = ButtonProps;
 
-/**
- * The close renders the Button. A Button rendered as a link tells the close
- * too (`nativeButton={false}`), so the close doesn't treat it as a button.
- */
 function AlertDialogClose({
   closeRef,
   ...props

@@ -30,7 +30,6 @@ export function readImportTags(dirs: string[]): Map<string, string> {
   return modules;
 }
 
-/** One named import, wrapped one name a line past 80 columns as Babel does. */
 function printImport(names: string[], module: string): string {
   const line = `import { ${names.join(", ")} } from '${module}';`;
   if (line.length <= 80) return line;

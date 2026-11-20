@@ -1,10 +1,3 @@
-/**
- * Moving the token files to Figma and back. Figma imports and exports
- * variables as DTCG files, one file per mode of a collection; `exportForFigma`
- * lays the source files out that way, and `importFromFigma` takes the same
- * layout back, checks it, and returns the source files to write.
- */
-
 import {
   colorComponents,
   colorToken,
@@ -76,12 +69,6 @@ export function formatTokenFile(group: unknown): string {
 
 const ALIAS = /^\{(.+)\}$/;
 
-/**
- * The source token for an exported one: the current token when its value is
- * unchanged, so the exact HSL text it came from survives, else a new token
- * with the new value. Figma's own extensions (variable ids, scopes) are kept
- * so the next import updates the same variables.
- */
 function importToken(
   file: string,
   tokenPath: string,

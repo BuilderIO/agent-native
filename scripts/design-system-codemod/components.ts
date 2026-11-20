@@ -29,7 +29,6 @@ function skip(reason: string): Analysis {
   return { ok: false, reason };
 }
 
-/** Removes attributes and inserts new ones right after the tag name. */
 function editTag(
   edits: Edits,
   tag: JsxTag,
@@ -60,7 +59,6 @@ function renameTag(edits: Edits, tag: JsxTag, name: string) {
   }
 }
 
-/** The height classes a literal className holds, or null when it isn't a literal. */
 function heightClasses(tag: JsxTag): string[] | null {
   const className = readAttr(tag, "className");
   if (className.kind === "absent") return [];
@@ -77,12 +75,9 @@ function heightReview(tag: JsxTag): string[] {
     : [];
 }
 
-/** The local name a renamed export takes: its new name, unless the import was aliased. */
 function localFor(context: SiteContext, next: string): string {
   return context.local === context.imported ? next : context.local;
 }
-
-/* ---- Button ---- */
 
 const BUTTON_VARIANTS: Readonly<Record<string, string[] | "link">> = {
   default: [],
@@ -95,7 +90,6 @@ const BUTTON_VARIANTS: Readonly<Record<string, string[] | "link">> = {
   link: "link",
 };
 
-// Controls are 24px, inside 32px rows; only `lg` takes the row's height.
 const BUTTON_SIZES: Readonly<Record<string, { size: string; icon: boolean }>> =
   {
     xs: { size: "3", icon: false },
@@ -108,7 +102,6 @@ const BUTTON_SIZES: Readonly<Record<string, { size: string; icon: boolean }>> =
     "icon-lg": { size: "4", icon: true },
   };
 
-/** The parts' default size, which a call site never needs to spell out. */
 const DEFAULT_CONTROL_SIZE = "3";
 
 function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
@@ -132,8 +125,10 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
   }
   const variantName = variant.kind === "string" ? variant.value : "default";
   const sizeName = size.kind === "string" ? size.value : "default";
-  const variantProps = BUTTON_VARIANTS[variantName];
-  const sizeProps = BUTTON_SIZES[sizeName];
+  const variantProps = new Map(Object.entries(BUTTON_VARIANTS)).get(
+    variantName,
+  );
+  const sizeProps = new Map(Object.entries(BUTTON_SIZES)).get(sizeName);
   if (variantProps === undefined) {
     return skip(`unknown variant "${variantName}"`);
   }
@@ -152,7 +147,7 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
   if (isAsChild) {
     if (!ts.isJsxElement(element)) return skip("asChild with no child");
     const children = meaningfulChildren(element);
-    const only = children[0];
+    const only = children.at(0);
     if (
       children.length !== 1 ||
       only === undefined ||
@@ -192,7 +187,6 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
     !findAttr(tag, "type") &&
     (insideForm(tag) || findAttr(tag, "form"))
   ) {
-    // Base UI's Button defaults to type="button"; the legacy one submitted.
     add.push('type="submit"');
   }
 
@@ -244,9 +238,6 @@ function buttonJsx(tag: JsxTag, context: SiteContext): Analysis {
   };
 }
 
-/* ---- Badge ---- */
-
-// Keeps today's look: the new Badge defaults to soft, the legacy one to solid.
 const BADGE_VARIANTS: Readonly<Record<string, string[]>> = {
   default: ['variant="solid"'],
   secondary: ['variant="soft"', 'color="gray"'],
@@ -254,8 +245,6 @@ const BADGE_VARIANTS: Readonly<Record<string, string[]>> = {
   outline: ['variant="outline"', 'color="gray"'],
 };
 
-// Legacy default is 22px with 12px type (size 2: 20px, 12px); sm is 18px
-// with 11px type (size 1: 16px, 11px).
 const BADGE_SIZES: Readonly<Record<string, string[]>> = {
   default: [],
   sm: ['size="1"'],
@@ -271,10 +260,12 @@ function badgeJsx(tag: JsxTag): Analysis {
   if (size.kind !== "absent" && size.kind !== "string") {
     return skip("size isn't a string literal");
   }
-  const variantProps =
-    BADGE_VARIANTS[variant.kind === "string" ? variant.value : "default"];
-  const sizeProps =
-    BADGE_SIZES[size.kind === "string" ? size.value : "default"];
+  const variantProps = new Map(Object.entries(BADGE_VARIANTS)).get(
+    variant.kind === "string" ? variant.value : "default",
+  );
+  const sizeProps = new Map(Object.entries(BADGE_SIZES)).get(
+    size.kind === "string" ? size.value : "default",
+  );
   if (!variantProps) return skip("unknown variant");
   if (!sizeProps) return skip("unknown size");
   const className = readAttr(tag, "className");
@@ -294,8 +285,6 @@ function badgeJsx(tag: JsxTag): Analysis {
     },
   };
 }
-
-/* ---- Input ---- */
 
 const NOT_TEXT_TYPES = new Set([
   "checkbox",
@@ -389,8 +378,6 @@ function inputJsx(tag: JsxTag, context: SiteContext): Analysis {
   };
 }
 
-/* ---- Text Area ---- */
-
 function textAreaJsx(tag: JsxTag, context: SiteContext): Analysis {
   const local = localFor(context, "TextArea");
   if (local !== context.local && context.nameInUse(local)) {
@@ -407,8 +394,6 @@ function textAreaJsx(tag: JsxTag, context: SiteContext): Analysis {
     },
   };
 }
-
-/* ---- Skeleton ---- */
 
 function skeletonJsx(tag: JsxTag, context: SiteContext): Analysis {
   if (
@@ -427,9 +412,6 @@ function skeletonJsx(tag: JsxTag, context: SiteContext): Analysis {
   };
 }
 
-/* ---- Spinner ---- */
-
-/** Tailwind spacing to pixels: `3.5` is 14px, `[14px]` is 14px. */
 function spacingPx(token: string): number | null {
   const arbitrary = /^\[(\d+(?:\.\d+)?)px\]$/.exec(token);
   if (arbitrary?.[1]) return Number(arbitrary[1]);
@@ -437,7 +419,6 @@ function spacingPx(token: string): number | null {
   return null;
 }
 
-/** The size classes of a Spinner's className, and the diameter they set. */
 function spinnerSizeClasses(
   classes: string[],
 ): { remove: string[]; px: number | null } | { error: string } {
@@ -453,11 +434,12 @@ function spinnerSizeClasses(
       }
       continue;
     }
-    const px = spacingPx(match[2] ?? "");
+    const [, kind, value = ""] = match;
+    const px = spacingPx(value);
     if (px === null) return { error: `size class ${name} isn't a fixed size` };
     remove.push(name);
-    if (match[1] === "size") size = px;
-    else if (match[1] === "h") height = px;
+    if (kind === "size") size = px;
+    else if (kind === "h") height = px;
     else width = px;
   }
   if (size !== null && (height !== null || width !== null)) {
@@ -477,10 +459,9 @@ const SPINNER_DIAMETERS: readonly [string, number][] = [
   ["3", 20],
 ];
 
-/** The nearest Spinner size; a tie goes to the larger. */
 function spinnerSize(px: number): { size: string; exact: boolean } | null {
   if (px < 10 || px > 22) return null;
-  let best = SPINNER_DIAMETERS[0];
+  let best = SPINNER_DIAMETERS.at(0);
   for (const entry of SPINNER_DIAMETERS) {
     if (
       best === undefined ||
@@ -535,7 +516,6 @@ function spinnerJsx(tag: JsxTag, context: SiteContext): Analysis {
       px = Number.parseInt(sizeAttr.value, 10);
     } else return skip("size isn't a pixel literal");
   }
-  // The legacy default was size-4: 16px, the new default ("2").
   const diameter = px ?? 16;
   const mapped = spinnerSize(diameter);
   if (!mapped) return skip(`${diameter}px is outside the Spinner's 12-20px`);

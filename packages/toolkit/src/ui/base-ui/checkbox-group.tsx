@@ -41,6 +41,4 @@ const CheckboxGroup = React.forwardRef<HTMLDivElement, CheckboxGroupProps>(
 );
 CheckboxGroup.displayName = "CheckboxGroup";
 
-// After CheckboxGroup: docgen also documents this object's members, and keeps
-// the first of two components it names alike.
 export { CheckboxGroup, checkboxGroupItemProps };

@@ -1128,9 +1128,6 @@ const STORYBOOK_TEST_FILES = new Set([
   ".github/workflows/storybook-tests.yml",
 ]);
 
-// Toolkit's stories render from toolkit and design-system source, and the
-// pattern stories reach well past src/ui (settings, chat, agentkit). Specs
-// beside that source cannot change what a story renders.
 export function isStorybookTestPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   if (

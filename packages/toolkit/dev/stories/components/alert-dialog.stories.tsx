@@ -23,7 +23,6 @@ type AlertDialogProps = AlertDialogContentOwnProps;
 
 const controls = propControls(alertDialogContentProps);
 
-/** Open in place, portaled into a transformed box that contains the fixed layers. */
 function AlertDialogSection(props: AlertDialogProps) {
   const [box, setBox] = React.useState<HTMLDivElement | null>(null);
   return (
@@ -73,8 +72,6 @@ export const Playground: Story = {
 
 /** Sizes 1 to 4 step the padding, the gap and the type together. */
 export const Sizes: Story = {
-  // Four modal dialogs open at once each hide the others, focusable buttons
-  // and all, which no app can reach; Playground tests one open dialog.
   parameters: { a11y: { test: "todo" } },
   render: () => (
     <div className="flex flex-col gap-4 p-4">

@@ -18,8 +18,8 @@ function flagged(source: string, added: number[] | null = null) {
   ).map((finding) => `${finding.line}:${finding.className}`);
 }
 
-describe("part class redefinition detection", () => {
-  it("flags a part class as the subject, a descendant, or inside :is()", () => {
+void describe("part class redefinition detection", () => {
+  void it("flags a part class as the subject, a descendant, or inside :is()", () => {
     const source = [
       ".button { color: red; }",
       ".sidebar .menu-item:hover { background: none; }",
@@ -34,7 +34,7 @@ describe("part class redefinition detection", () => {
     ]);
   });
 
-  it("does not flag look-alike classes, values, strings or comments", () => {
+  void it("does not flag look-alike classes, values, strings or comments", () => {
     const source = [
       ".button-row { display: flex; }",
       ".mail-button { color: red; }",
@@ -46,7 +46,7 @@ describe("part class redefinition detection", () => {
     assert.deepEqual(flagged(source), []);
   });
 
-  it("only flags selectors on lines this branch added", () => {
+  void it("only flags selectors on lines this branch added", () => {
     const source = [
       ".button { color: red; }",
       ".menu-item { color: blue; }",
@@ -55,12 +55,12 @@ describe("part class redefinition detection", () => {
     assert.deepEqual(flagged(source, []), []);
   });
 
-  it("checks a selector list split over lines when any of its lines was added", () => {
+  void it("checks a selector list split over lines when any of its lines was added", () => {
     const source = [".card,", ".button {", "  color: red;", "}"].join("\n");
     assert.deepEqual(flagged(source, [1]), ["1:button"]);
   });
 
-  it("skips at-rule preludes but checks the rules inside them", () => {
+  void it("skips at-rule preludes but checks the rules inside them", () => {
     const source = [
       "@media (max-width: 600px) {",
       "  .button { width: 100%; }",
@@ -69,29 +69,27 @@ describe("part class redefinition detection", () => {
     assert.deepEqual(flagged(source), ["2:button"]);
   });
 
-  it("accepts a reasoned opt-out and rejects a bare one", () => {
+  void it("accepts a reasoned opt-out and rejects a bare one", () => {
     const reasoned = [
-      "/* part-class-ok: print stylesheet hides every control */",
+      "/* guard:allow-part-class print stylesheet hides every control */",
       ".button { display: none; }",
     ].join("\n");
-    const bare = ["/* part-class-ok: ok */", ".button { display: none; }"].join(
-      "\n",
-    );
+    const bare = [
+      "/* guard:allow-part-class ok */",
+      ".button { display: none; }",
+    ].join("\n");
     assert.deepEqual(flagged(reasoned), []);
     assert.deepEqual(flagged(bare), ["2:button"]);
   });
 
-  it("scopes to app and package stylesheets outside the design system", () => {
+  void it("scopes to app and package stylesheets outside the design system", () => {
     assert.equal(isInScope("templates/mail/app/global.css"), true);
     assert.equal(isInScope("packages/toolkit/src/editor.css"), true);
     assert.equal(
       isInScope("packages/design-system/css/parts/button.css"),
       false,
     );
-    assert.equal(
-      isInScope("packages/toolkit/.storybook/storybook.css"),
-      false,
-    );
+    assert.equal(isInScope("packages/toolkit/.storybook/storybook.css"), false);
     assert.equal(isInScope("packages/toolkit/dist/styles.css"), false);
     assert.equal(isInScope("templates/mail/app/routes/inbox.tsx"), false);
   });

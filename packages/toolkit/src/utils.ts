@@ -1,9 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { extendTailwindMerge } from "tailwind-merge";
 
-// The design system's type steps (`text-0`…`text-9`) are font sizes. Unknown
-// to tailwind-merge, they would read as colors, and `cn("text-1",
-// "text-fg-muted")` would drop one of the two.
 const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {

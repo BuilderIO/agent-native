@@ -14,8 +14,6 @@ import { cn } from "../../utils.js";
 import { splitPositionerProps } from "./positioning.js";
 import { splitProps } from "./props.js";
 
-// Base UI's root renders no element, so the size reaches the trigger and
-// the popup through context.
 const SelectSizeContext = React.createContext<string | undefined>(undefined);
 
 export type SelectProps<
@@ -40,9 +38,6 @@ function Select<Value, Multiple extends boolean | undefined = false>(
     </SelectSizeContext.Provider>
   );
 }
-
-// Base UI's Group is exported where it is declared: through the export
-// list, docgen documents Base UI's own component and drops this comment.
 
 /**
  * Groups related options, labelled by a SelectLabel inside it. It is Base UI's

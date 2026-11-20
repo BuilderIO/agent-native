@@ -33,7 +33,6 @@ function mount(props: Partial<React.ComponentProps<typeof Toaster>> = {}) {
   );
 }
 
-/** The toast whose title or description is this text, not its live-region copy. */
 function toastElement(text: string): HTMLElement {
   const label = Array.from(
     document.querySelectorAll(".toast-title, .toast-description"),

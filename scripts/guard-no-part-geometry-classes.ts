@@ -1,33 +1,3 @@
-/**
- * guard:no-part-geometry-classes
- *
- * A design-system part owns its size through its `size` prop and the system's
- * roles. A utility that restates its height, padding, radius, type size or
- * weight (`h-6` on a SelectTrigger, `!text-[11px]` on a SelectItem, a
- * `min-w-[12rem]` on a Select popup) fights the part, and the part loses in
- * some themes and wins in others. Layout utilities (`w-full`, `flex-1`,
- * margins, `truncate`, positioning) stay allowed.
- *
- * Scope: lines this branch added to .tsx files in the code already on the
- * design system (`MIGRATED_ROOTS`), except tests, stories and the design
- * system's own parts. An app joins the list when it moves onto the parts;
- * until then its old classes are migration work, not new regressions. The
- * check reads the TypeScript AST: a JSX element whose tag is a part and whose
- * `className` holds a forbidden utility in any string literal, including those
- * inside `cn(...)`, `clsx(...)` and conditionals.
- *
- * A tag counts by what it imports: `Button as ToolkitButton` from a `ui/`
- * module is a part, while a `Button` re-exported from a local wrapper outside
- * `ui/` (an unstyled `PrimitiveButton`) is not, since the wrapper owns its
- * geometry.
- *
- * Variants on arbitrary selectors (`[&_svg]:size-3`, `*:p-2`) target the
- * part's descendants, not the part, so they are not checked.
- *
- * Opt out on the class line or the line above, with a 10+ character reason:
- *   // part-geometry-ok: <reason>
- */
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -42,7 +12,6 @@ import {
 const GUARD_NAME = "guard:no-part-geometry-classes";
 const rootDir = path.resolve(import.meta.dirname, "..");
 
-/** JSX tags that are design-system parts. Skeleton and Avatar are sized by the caller. */
 export const PART_TAGS: ReadonlySet<string> = new Set([
   "Button",
   "IconButton",
@@ -65,7 +34,6 @@ export const PART_TAGS: ReadonlySet<string> = new Set([
   "Spinner",
 ]);
 
-/** The shared toolkit and each app that has moved onto the design system's parts. */
 export const MIGRATED_ROOTS: readonly string[] = [
   "packages/toolkit/",
   "templates/design/",
@@ -78,24 +46,18 @@ const OWNED_BY_DESIGN_SYSTEM =
   /^packages\/toolkit\/src\/ui\/base-ui\/|^packages\/design-system\//;
 const SKIPPED_PATH =
   /(?:^|\/)(?:node_modules|dist|build|coverage|\.output|\.generated)\//;
-const PRAGMA = /part-geometry-ok:\s*(.*?)\s*(?:\*\/\s*\}?)?$/;
+const PRAGMA = /guard:allow-part-geometry\s+(.*?)\s*(?:\*\/\s*\}?)?$/;
 const MIN_REASON_LENGTH = 10;
 
 const TEXT_SIZES = "xs|sm|base|lg|xl|[2-9]xl";
 const FORBIDDEN: readonly RegExp[] = [
-  // height and size
   /^(?:h-(?:\d|\[|px\b|\()|min-h-|max-h-|size-)/,
-  // padding
   /^p[xytbselr]?-/,
-  // radius
   /^rounded(?:-|$)/,
-  // text size, with an optional line-height suffix (`text-sm/6`)
   new RegExp(`^text-(?:${TEXT_SIZES})(?:/.+)?$`),
   /^text-\[\s*[\d.]+(?:px|rem|em)\s*\]$/,
-  // font weight
   /^font-(?:thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/,
   /^font-\[\d+\]$/,
-  // arbitrary widths; `w-full`, `w-auto`, `w-fit` and `min-w-0` are layout
   /^(?:min-w|w|max-w)-\[/,
 ];
 
@@ -116,7 +78,6 @@ export function isInScope(relPath: string): boolean {
   );
 }
 
-/** Splits `md:hover:!h-6` into its variants and the bare utility. */
 function splitUtility(token: string): { variants: string[]; utility: string } {
   const variants: string[] = [];
   let depth = 0;
@@ -175,11 +136,6 @@ function classAttribute(
   return undefined;
 }
 
-/**
- * Each imported JSX name, mapped to the part it is, or to null when it comes
- * from a relative module outside a `ui/` directory. Names the file doesn't
- * import are judged by their own spelling.
- */
 function importedParts(
   file: string,
   sourceFile: ts.SourceFile,
@@ -236,7 +192,6 @@ export function findPartGeometryClasses(
   const inspectString = (tag: string, node: ts.Node): void => {
     const start = node.getStart(sourceFile);
     const raw = source.slice(start, node.end);
-    // Quotes, backticks and `${` `}` delimiters are not part of a class token.
     for (const match of raw.matchAll(/[^\s"'`{}$]+/g)) {
       const token = match[0];
       if (!isForbidden(token)) continue;
@@ -302,7 +257,7 @@ function main(): void {
   }
   console.error(
     "\nIf this really must override the part, add on the class line or the line above:\n" +
-      "  // part-geometry-ok: <reason of 10+ characters>\n",
+      "  // guard:allow-part-geometry <reason of 10+ characters>\n",
   );
   process.exit(1);
 }

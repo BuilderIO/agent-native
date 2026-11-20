@@ -72,7 +72,8 @@ describe("OTP Field part", () => {
 
   it("moves to the next box as a character is typed and back on Backspace", () => {
     render(<OTPField length={4} aria-label="Code" />);
-    const [first, second] = boxes();
+    const first = boxes().at(0);
+    const second = boxes().at(1);
     if (first === undefined || second === undefined)
       throw new Error("no boxes");
     act(() => first.focus());
@@ -86,7 +87,7 @@ describe("OTP Field part", () => {
   it("fills every box from a pasted code and reports it complete", () => {
     const onValueComplete = vi.fn();
     render(<OTPField length={6} onValueComplete={onValueComplete} />);
-    const [first] = boxes();
+    const first = boxes().at(0);
     if (first === undefined) throw new Error("no boxes");
     act(() => first.focus());
     fireEvent.paste(first, {

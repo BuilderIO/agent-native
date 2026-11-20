@@ -18,7 +18,6 @@ function Media({ className = "h-28" }: { className?: string }) {
 
 type Side = NonNullable<InsetProps["side"]>;
 
-/** Where the media sits in the card for each side, so it meets that edge. */
 const LAYOUT: Record<Side, { row: boolean; mediaFirst: boolean }> = {
   all: { row: false, mediaFirst: true },
   x: { row: false, mediaFirst: false },

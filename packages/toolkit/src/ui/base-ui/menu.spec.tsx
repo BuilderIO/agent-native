@@ -31,7 +31,6 @@ import {
 
 afterEach(cleanup);
 
-/** Base UI opens a menu on a press: pointer down, then click. */
 function press(element: Element) {
   fireEvent.pointerDown(element, { pointerType: "mouse", button: 0 });
   fireEvent.mouseDown(element, { button: 0 });
@@ -314,12 +313,12 @@ describe("menu item slots", () => {
     const duplicate = await screen.findByRole("menuitem", {
       name: /Duplicate/,
     });
-    const [leading, label, trailing] = Array.from(duplicate.childNodes);
+    const [leading, , trailing] = Array.from(duplicate.childNodes);
     expect((leading as HTMLElement).className).toBe("menu-item-leading");
     expect((leading as HTMLElement).querySelector("svg")).toBe(
       screen.getByTestId("icon"),
     );
-    expect(label?.textContent).toBe("Duplicate");
+    expect(duplicate.childNodes.item(1).textContent).toBe("Duplicate");
     expect((trailing as HTMLElement).className).toBe("menu-item-trailing");
     expect(
       (trailing as HTMLElement).querySelector(".menu-shortcut")?.textContent,
@@ -371,9 +370,9 @@ describe("menu item slots", () => {
       </DropdownMenu>,
     );
     const trigger = await screen.findByRole("menuitem", { name: "Export" });
-    const [leading, label, trailing] = Array.from(trigger.childNodes);
+    const [leading, , trailing] = Array.from(trigger.childNodes);
     expect((leading as HTMLElement).className).toBe("menu-item-leading");
-    expect(label?.textContent).toBe("Export");
+    expect(trigger.childNodes.item(1).textContent).toBe("Export");
     expect((trailing as HTMLElement).className).toBe("menu-item-trailing");
     expect((trailing as HTMLElement).querySelector("svg")).not.toBeNull();
   });

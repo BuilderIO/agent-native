@@ -67,7 +67,6 @@ function isRadixScaleName(value: string): value is RadixScaleName {
   return (RADIX_SCALE_NAMES as readonly string[]).includes(value);
 }
 
-/** A Radix scale name stands for its step 9, so status scales sit on the same background. */
 function statusSeed(value: string): string {
   if (!isRadixScaleName(value)) return value;
   const seed = radixPalettes[value]?.[`${value}9`];
@@ -174,7 +173,6 @@ interface ScaleSource {
   contrast: string;
   surface: string;
   surfaceP3: string;
-  /** The page background the alpha steps are drawn over. */
   background: string;
 }
 
@@ -198,10 +196,8 @@ function writeScale(
   writeReadableSteps(srgb, name, source);
 }
 
-/** WCAG 2.1 AA for normal text: controls draw their labels at 12px. */
 const TEXT_CONTRAST = 4.5;
 
-/** Steps 1 to 12, nearest to `from` first, the higher step winning a tie. */
 function stepsNearest(from: number): number[] {
   return Array.from({ length: 12 }, (_, index) => index + 1).sort(
     (a, b) => Math.abs(a - from) - Math.abs(b - from) || b - a,
@@ -227,11 +223,6 @@ function readableStep(
   return step;
 }
 
-/**
- * How far step 11 moves toward step 12, in 5% steps, before it holds AA on
- * every background: 0 keeps Radix's step. Mixing rather than jumping to step
- * 12 keeps the scale's hue, so a brand's text stays that brand's color.
- */
 function readableTextMix(
   source: ScaleSource,
   backgrounds: readonly string[],
@@ -253,7 +244,6 @@ function readableTextMix(
   );
 }
 
-/** An alpha step as it paints over an opaque background. */
 function over(alpha: string, background: string): string {
   const top = new Color(alpha).to("srgb");
   const bottom = new Color(background).to("srgb");
@@ -264,14 +254,6 @@ function over(alpha: string, background: string): string {
   return new Color("srgb", coords).toString({ format: "hex" });
 }
 
-/**
- * The steps a variant fills and writes with, where Radix's own fall short of
- * AA at our text size. `solid` is the step nearest 9 whose label color reads
- * on it; `text` is step 11, mixed toward 12 just enough to read on the page
- * and on the tints a soft control is drawn with at rest and on hover (a3 and
- * a4). Both are chosen per palette, so any brand gets readable controls, and
- * each stays Radix's step where it passes.
- */
 function writeReadableSteps(srgb: TokenMap, name: string, source: ScaleSource) {
   const solid = readableStep(
     source.solid,
@@ -284,7 +266,6 @@ function writeReadableSteps(srgb: TokenMap, name: string, source: ScaleSource) {
     over(at(source.alpha, 2), source.background),
     over(at(source.alpha, 3), source.background),
   ]);
-  // Away from the label color, so hovering only adds contrast.
   const toward = new Color(source.contrast).luminance > 0.5 ? "black" : "white";
   srgb[`--${name}-solid`] = `var(--${name}-${solid})`;
   srgb[`--${name}-solid-hover`] =

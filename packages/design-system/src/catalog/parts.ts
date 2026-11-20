@@ -70,12 +70,6 @@ import {
 import type { PropDefs } from "./props.js";
 
 /**
- * The part vocabulary. Every class a part renders is reserved: app CSS must
- * not define it. `status` says whether the part ships on Base UI with CSS in
- * `css/parts/`, or is still a shadcn component in toolkit.
- */
-
-/**
  * component: one control or element, named as Base UI names it, or as Radix
  * Themes does where Base UI has none.
  * pattern: a layout composed of components.
@@ -145,8 +139,6 @@ export const PARTS: readonly PartDefinition[] = [
   {
     name: "autocomplete",
     kind: "component",
-    // The field is the input part's; the popup and rows are shared with the
-    // combobox, whose classes autocomplete.css also draws.
     subParts: [
       "trigger",
       "clear",
@@ -213,7 +205,6 @@ export const PARTS: readonly PartDefinition[] = [
   {
     name: "combobox",
     kind: "component",
-    // The field is the input part's; autocomplete.css draws the popup and rows.
     subParts: [
       "trigger",
       "clear",
@@ -240,7 +231,6 @@ export const PARTS: readonly PartDefinition[] = [
   {
     name: "context-menu",
     kind: "component",
-    // Its popup, rows and submenus are the menu part's; only the trigger is its own.
     subParts: ["trigger"],
     baseUi: "@base-ui/react/context-menu",
     toolkit: "@agent-native/toolkit/ui/base-ui/context-menu",
@@ -839,7 +829,6 @@ export const PARTS: readonly PartDefinition[] = [
     ],
     toolkit: "@agent-native/toolkit/app/settings",
     status: "built",
-    // Its sub-parts draw as Navigation Menu, Item, Callout, Switch and Collapsible.
     stylesheet: false,
   },
   planned("filter-bar", "pattern", ["chip", "add"]),

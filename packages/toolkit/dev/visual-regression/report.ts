@@ -100,7 +100,6 @@ export function imagesFor(
           `${result.storyId} (${result.appearance}) changed but ${baseline} or ${diff("actual")} is missing`,
         );
       }
-      // No diff image when the dimensions changed.
       return { before: baseline, after, diff: found(diff("diff")) };
     }
     case "new": {
@@ -128,7 +127,6 @@ function escapeHtml(text: string): string {
     .replaceAll('"', "&quot;");
 }
 
-// Matcher messages carry the terminal's colors.
 function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/gu, "");
 }

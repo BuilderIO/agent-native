@@ -76,7 +76,6 @@ function TokenTable({
   );
 }
 
-/** One track whose dot crosses on Play, timed by the given duration and easing. */
 function Track({
   label,
   duration,

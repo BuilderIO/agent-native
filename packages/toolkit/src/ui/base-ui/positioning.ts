@@ -1,7 +1,3 @@
-/**
- * Props Base UI reads on a Positioner rather than on its Popup. The toolkit's
- * `*Content` components take both kinds on one element and route them here.
- */
 const POSITIONER_KEYS = [
   "anchor",
   "side",

@@ -48,16 +48,8 @@ const SLOTS: ReadonlySet<string> = new Set(SHADCN_SLOTS);
 
 const REFERENCE = /var\(--([a-z0-9-]+)(?:,\s*var\(--([a-z0-9-]+)\))?\)/g;
 
-/** Where a theme keeps a slot's value: its own name, never an app's. */
 const own = (slot: string) => `--theme-${slot}`;
 
-/**
- * Every slot reference in `tokens` pointed at the theme's own variable for
- * it, with a `var(--a, var(--b))` fallback taken when the theme lacks `a`. A
- * slot the theme lacks entirely throws: painting a guess would hide a missing
- * value. References stay variables, not literals, so a CSS minifier cannot
- * round them differently from the shadcn classes that read the same value.
- */
 function resolve(
   themeName: string,
   tokens: TokenMap,
@@ -87,7 +79,6 @@ function resolve(
   return resolved;
 }
 
-/** The roles, as slot references, that make parts paint like shadcn. */
 const SHADCN_ROLES: TokenMap = {
   ...STANDARD_ROLES,
 
@@ -100,19 +91,13 @@ const SHADCN_ROLES: TokenMap = {
   "--surface-inverse": shadcn("foreground"),
 
   "--fg-default": shadcn("foreground"),
-  // shadcn's muted text is under 4.5:1 on anything but the canvas (the nav
-  // surface, sunken tracks, selected rows); a fifth of the way toward the
-  // text color holds it above that on every surface, in both appearances.
   "--fg-muted":
     "color-mix(in oklab, hsl(var(--muted-foreground)) 80%, hsl(var(--foreground)))",
   "--fg-subtle": shadcn("muted-foreground"),
   "--fg-disabled": shadcn("muted-foreground"),
   "--fg-on-brand": shadcn("primary-foreground"),
   "--fg-on-danger": shadcn("destructive-foreground"),
-  // The primary fill color is under 4.5:1 as text on dark surfaces; the
-  // theme's own brand scale picks a text step that holds it.
   "--fg-brand": "var(--brand-text)",
-  // A destructive fill color is too dark as text on its own surface.
   "--fg-danger":
     "color-mix(in oklab, hsl(var(--destructive)) 60%, hsl(var(--foreground)))",
   "--fg-inverse": shadcn("background"),
@@ -131,11 +116,6 @@ const SHADCN_ROLES: TokenMap = {
   "--fill-brand": shadcn("primary"),
   "--fill-brand-hover": shadcn("primary", 0.9),
   "--fill-brand-subtle": shadcn("primary", 0.1),
-  // A danger fill carries text (`--fg-on-danger`), and every app theme's
-  // destructive color is under 4.5:1 with it in light or dark. A quarter of
-  // the way toward black clears every theme in both (lowest 4.87:1); the
-  // theme's destructive color itself stays, since it is also danger text on
-  // dark surfaces, where darkening it would lose contrast.
   "--fill-danger": "color-mix(in oklab, hsl(var(--destructive)) 74%, black)",
   "--fill-danger-hover":
     "color-mix(in oklab, hsl(var(--destructive)) 66%, black)",
@@ -159,12 +139,6 @@ const SHADCN_TOKENS: TokenMap = {
   "--shape-pill": "var(--radius-full)",
 };
 
-/**
- * A theme's own values: each slot under its own name, the shadcn name as a
- * one-way alias of it for components not yet migrated, and any other value
- * (`font-sans`) as is. Declared in every appearance, because an alias
- * resolves where it is declared.
- */
 function declarations(
   themeName: string,
   values: Readonly<Record<string, string>>,
@@ -197,17 +171,6 @@ export function themeProperties(
   return resolve(themeName, tokens, values);
 }
 
-/**
- * A theme with shadcn's sizes, whose colors and radius come from its own
- * values. Each appearance declares those values and its roles, which read
- * them, so a nested appearance re-resolves on its own.
- */
-/**
- * A theme's scales, generated from its own colors per appearance: the brand
- * from `primary` (a theme may swap it between appearances, as shadcn's
- * neutral themes do), gray tinted by `muted-foreground` over its background,
- * danger from `destructive`.
- */
 function themePalette(
   name: string,
   light: Readonly<Record<string, string>>,

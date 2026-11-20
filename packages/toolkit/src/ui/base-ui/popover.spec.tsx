@@ -21,7 +21,6 @@ import {
 
 afterEach(cleanup);
 
-/** Base UI opens a popover on a press: pointer down, then click. */
 function press(element: Element) {
   fireEvent.pointerDown(element, { pointerType: "mouse", button: 0 });
   fireEvent.mouseDown(element, { button: 0 });

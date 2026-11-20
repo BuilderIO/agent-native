@@ -59,8 +59,6 @@ const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
         required={required}
         {...attributes}
         className={partClassName("text-area", className)}
-        // The textarea's own attributes (rows, placeholder, handlers) go on
-        // the element Base UI renders; it merges them with its own.
         render={<textarea {...rest} />}
       />
     );

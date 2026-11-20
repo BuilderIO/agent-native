@@ -37,11 +37,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/**
- * jsdom has no input modality, so the test says whether focus comes from the
- * keyboard (the focused element matches `:focus-visible`) or is handed back
- * after a click (it doesn't).
- */
 function focusComesFrom(source: "keyboard" | "click") {
   const matches = Element.prototype.matches;
   vi.spyOn(Element.prototype, "matches").mockImplementation(function (

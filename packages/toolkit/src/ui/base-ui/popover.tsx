@@ -9,9 +9,6 @@ import { cn } from "../../utils.js";
 import { splitPositionerProps } from "./positioning.js";
 import { splitProps } from "./props.js";
 
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
-
 /**
  * A floating panel that opens from a button for related content or controls, on
  * Base UI's Popover. Root, Trigger and Close are Base UI's own parts.

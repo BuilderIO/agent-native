@@ -1,6 +1,5 @@
 const SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** FNV-1a over UTF-16 code units, in base 36: short, stable, not secret. */
 function hash(value: string): string {
   let h = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {

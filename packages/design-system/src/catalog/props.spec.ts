@@ -72,7 +72,7 @@ describe("the catalog's props", () => {
     (_name, part) => {
       for (const [sub, defs] of defsOf(part)) {
         for (const [prop, values] of Object.entries(shared)) {
-          const def = defs[prop];
+          const def = new Map(Object.entries(defs)).get(prop);
           if (def?.type !== "enum") continue;
           for (const value of def.values) {
             expect(values, `${part.name} ${sub} ${prop}="${value}"`).toContain(

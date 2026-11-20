@@ -62,7 +62,9 @@ describe("Item part", () => {
       "item-actions",
       "item-footer",
     ]) {
-      expect(row.querySelector(`.${piece}`), piece).not.toBeNull();
+      expect({ piece, found: row.querySelector(`.${piece}`) !== null }).toEqual(
+        { piece, found: true },
+      );
     }
   });
 

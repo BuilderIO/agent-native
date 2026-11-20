@@ -15,9 +15,6 @@ interface GoldenCase {
 
 const cases = golden as GoldenCase[];
 
-// The fixture is the output of radix-ui/website's generator run with its own
-// pinned dependencies (colorjs.io 0.5.2, bezier-easing 2.1.0). Upstream leaves
-// some opaque steps as short hex; the port always writes long hex.
 function normalize(value: string): string {
   return formatHex(value);
 }
@@ -31,17 +28,22 @@ describe("generateRadixColors", () => {
     "matches upstream for %s",
     (_label, testCase) => {
       const output = generateRadixColors(testCase.input);
-      for (const key of Object.keys(testCase.output) as Array<
+      const keys = Object.keys(testCase.output) as Array<
         keyof RadixColorsOutput
-      >) {
-        const expected = testCase.output[key];
-        const actual = output[key];
-        if (Array.isArray(expected)) {
-          expect(actual, key).toEqual(expected.map(normalize));
-        } else {
-          expect(actual, key).toBe(normalize(expected));
-        }
-      }
+      >;
+      expect(Object.fromEntries(keys.map((key) => [key, output[key]]))).toEqual(
+        Object.fromEntries(
+          keys.map((key) => {
+            const expected = testCase.output[key];
+            return [
+              key,
+              Array.isArray(expected)
+                ? expected.map(normalize)
+                : normalize(expected),
+            ];
+          }),
+        ),
+      );
     },
   );
 

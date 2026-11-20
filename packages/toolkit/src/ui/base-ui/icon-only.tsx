@@ -1,11 +1,6 @@
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import * as React from "react";
 
-/**
- * True inside a container that shows its controls as icons only, like a
- * collapsed sidebar. Parts that read it keep their label as the control's
- * name and show it beside the control in a tooltip instead.
- */
 const IconOnlyContext = React.createContext(false);
 
 /**

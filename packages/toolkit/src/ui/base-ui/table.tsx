@@ -94,7 +94,6 @@ function TableRow(props: TableRowProps) {
 }
 
 interface CellWidths {
-  /** A CSS width, such as `"240px"` or `"40%"`. */
   width?: string;
   minWidth?: string;
   maxWidth?: string;

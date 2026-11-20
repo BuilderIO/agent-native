@@ -1,5 +1,3 @@
-// Moved from toolkit's agent-native.css; the design system owns these tints now.
-
 /**
  * The color tints a person can pick (`data-appearance` on the root, set by
  * core's change-appearance action), as overrides of a theme's own values.

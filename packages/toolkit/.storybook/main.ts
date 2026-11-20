@@ -11,8 +11,6 @@ import { withImportTags } from "./manifest-imports.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-// Dev-only: renders toolkit parts from source under every theme, appearance,
-// density, radius and brand. Not part of the published package.
 const config: StorybookConfig & {
   experimental_manifests?: (manifests: Manifests) => Manifests;
 } = {
@@ -20,16 +18,12 @@ const config: StorybookConfig & {
   addons: [
     "@storybook/addon-docs",
     "@storybook/addon-a11y",
-    // Serves the MCP tools agents read the components from, at /mcp.
     "@storybook/addon-mcp",
-    // Runs every story as a Vitest browser test (vitest.storybook.config.ts).
     "@storybook/addon-vitest",
   ],
   framework: { name: "@storybook/react-vite", options: {} },
   core: { disableTelemetry: true },
-  // /manifests/components.json: each component's props, stories and docs.
   features: { componentsManifest: true },
-  // Each component's import, from the `@import` tag on its doc comment.
   experimental_manifests: (manifests) =>
     withImportTags(
       manifests,
@@ -40,8 +34,6 @@ const config: StorybookConfig & {
       "@agent-native/toolkit",
     ),
   typescript: {
-    // Reads each prop's JSDoc, which the catalog's generated prop types
-    // carry; react-docgen's faster parse drops it.
     reactDocgen: "react-docgen-typescript",
     reactDocgenTypescriptOptions: {
       tsconfigPath: path.resolve(here, "../dev/tsconfig.json"),
@@ -53,8 +45,6 @@ const config: StorybookConfig & {
     mergeConfig(viteConfig, {
       plugins: [tailwindcss(), migrationStatus(path.resolve(here, "../../.."))],
       resolve: {
-        // Exact match only: CSS subpaths (tokens.css, themes/*) resolve
-        // through the package's exports.
         alias: [
           {
             find: /^@agent-native\/design-system$/,

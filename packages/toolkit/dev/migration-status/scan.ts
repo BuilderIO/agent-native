@@ -51,7 +51,6 @@ const TOOLKIT_UI = "packages/toolkit/src/ui";
 const TOOLKIT_ROOT = "packages/toolkit/src/index.ts";
 const SYSTEM_DIR = `${TOOLKIT_UI}/base-ui`;
 
-/** Old names and package names, mapped onto the catalog's part names. */
 const ALIASES: Readonly<Record<string, string>> = {
   "dropdown-menu": "menu",
   "hover-card": "preview-card",
@@ -73,7 +72,6 @@ const ALIASES: Readonly<Record<string, string>> = {
   "filter-trigger": "filter-bar",
 };
 
-/** Helpers that sit beside the parts and are not components themselves. */
 const UTILITIES = new Set([
   "dismiss",
   "focus-return",
@@ -143,7 +141,6 @@ const SOURCE = /\.(tsx?|jsx?)$/;
 const SKIP =
   /(\.(spec|test|stories)\.[jt]sx?$|\.d\.ts$|\/(test-support|__tests__|__mocks__|node_modules|dist)\/)/;
 
-/** Every source file under `dir`, repo-relative, tests and stories left out. */
 function listSources(repo: string, dir: string): string[] {
   const out: string[] = [];
   const walk = (rel: string) => {
@@ -170,11 +167,8 @@ interface ModuleRef {
 
 interface Parsed {
   refs: ModuleRef[];
-  /** Exported names declared in this file. */
   declares: Set<string>;
-  /** `export { a as b } from` and `export * from`. */
   reexports: { specifier: string; names: [string, string][] | "*" }[];
-  /** Raw elements and roles standing in for a part, by part name. */
   custom: Map<string, string[]>;
 }
 
@@ -355,12 +349,9 @@ function resolveFile(repo: string, base: string): string | null {
 
 type Classified = { part: string; usage: Usage; detail: string };
 
-/** Parses kept across scans, so a rescan only reads the files that changed. */
 type Kept = { stamp: string; parsed: Parsed | "no-ui-imports" };
 const PARSED = new Map<string, Kept>();
 
-// The cache on disk is keyed by this file's own source, so a change to how
-// files are read can never serve parses made the old way.
 const SCANNER_HASH = createHash("sha1")
   .update(fs.readFileSync(fileURLToPath(import.meta.url)))
   .digest("hex");
@@ -440,8 +431,6 @@ export interface ScanOptions {
   cacheFile?: string | null;
 }
 
-// A .ts file holds no JSX, so as app code it matters only if it can import a
-// part. The repo's largest files are generated .ts data that never do.
 const MAY_IMPORT_UI =
   /\/ui\b|radix|sonner|cmdk|vaul|base-ui|input-otp|day-picker|@agent-native\/toolkit/;
 
@@ -468,7 +457,6 @@ export function scanMigration(
     return stamp;
   };
 
-  /** An app file's parse, or "no-ui-imports" for a .ts file that can't reach a part. */
   const appFile = (file: string): Parsed | "no-ui-imports" => {
     const full = path.join(repo, file);
     const stamp = stampOf(full);
@@ -484,7 +472,6 @@ export function scanMigration(
     return parsed;
   };
 
-  /** The full parse of a module an import reaches. */
   const parsedFile = (file: string): Parsed => {
     const full = path.join(repo, file);
     const stamp = stampOf(full);
@@ -563,21 +550,18 @@ export function scanMigration(
       const parts = sub
         ? [sub]
         : names.filter((name) => /^[A-Z]/.test(name)).map(kebab);
-      return (
-        parts
-          // Hooks, providers and prop helpers are not components.
-          .filter(
-            (part) =>
-              !part.startsWith("use-") &&
-              !part.endsWith("-provider") &&
-              part !== "merge-props",
-          )
-          .map((part) => ({
-            part: partName(part),
-            usage: "custom",
-            detail: `${specifier} (direct, not the system part)`,
-          }))
-      );
+      return parts
+        .filter(
+          (part) =>
+            !part.startsWith("use-") &&
+            !part.endsWith("-provider") &&
+            part !== "merge-props",
+        )
+        .map((part) => ({
+          part: partName(part),
+          usage: "custom",
+          detail: `${specifier} (direct, not the system part)`,
+        }));
     }
     if (LEGACY_PACKAGES.has(specifier)) {
       return [
@@ -587,8 +571,6 @@ export function scanMigration(
     return [];
   };
 
-  // Which module defines each name a barrel exports, so a barrel import is
-  // attributed to the part it actually pulls in.
   const definersCache = new Map<string, Map<string, string>>();
   const definers = (
     file: string,
@@ -617,8 +599,6 @@ export function scanMigration(
     return map;
   };
 
-  // A UI module is the system's when it is a system part, or only passes one
-  // through. A module with its own code over a part is a wrapper, not the part.
   const aliasFor = (app: AppSource, file: string) =>
     app.roots.find((root) => file.startsWith(`${root.dir}/`))?.alias ?? null;
 
@@ -727,7 +707,6 @@ export function scanMigration(
           isBarrel(target) &&
           (isUiFile(target, app.uiDirs) || target === TOOLKIT_ROOT);
         if (!uiBarrel && !isUiFile(target, app.uiDirs)) continue;
-        // Passing a barrel along is not using what it holds.
         if (uiBarrel && ref.names.includes("*")) continue;
         let modules = [target];
         if (uiBarrel) {
@@ -770,12 +749,10 @@ export function scanMigration(
   return status;
 }
 
-/** A directory whose `@/` points at itself, with its UI modules under components/ui. */
 function selfAliased(dir: string): Pick<AppSource, "roots" | "uiDirs"> {
   return { roots: [{ dir, alias: dir }], uiDirs: [`${dir}/components/ui`] };
 }
 
-/** Templates whose UI lives in a package the template only mounts. */
 const TEMPLATE_PACKAGES: Readonly<Partial<Record<string, SourceRoot>>> = {
   dispatch: { dir: "packages/dispatch/src", alias: "packages/dispatch/src" },
 };

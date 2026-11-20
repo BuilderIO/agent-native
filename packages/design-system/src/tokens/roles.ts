@@ -183,11 +183,6 @@ export const DENSITIES: readonly Density[] = [
 export const CONTROL_SIZES = ["1", "2", "3", "4"] as const;
 export type ControlSize = (typeof CONTROL_SIZES)[number];
 
-/**
- * The type step each control size sets its text in: 12px on a 16px line at
- * every size, so the padding around it stays on the 4px grid (4px in a
- * 24px control, 8px in a 32px one).
- */
 const CONTROL_TEXT_STEPS: Readonly<Record<ControlSize, number>> = {
   "1": 1,
   "2": 1,
@@ -208,10 +203,6 @@ type Nine = readonly [
   number,
 ];
 
-/**
- * What density changes: control paddings, the gap inside a control, and
- * `--space-1..9`. Every value is a multiple of 4 and every step is distinct.
- */
 const DENSITY_SCALES: Record<
   Density,
   { padding: Four; gap: number; space: Nine }

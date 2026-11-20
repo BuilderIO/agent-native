@@ -9,9 +9,6 @@ import { cn } from "../../utils.js";
 import { splitPositionerProps } from "./positioning.js";
 import { splitProps } from "./props.js";
 
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
-
 /**
  * A card that previews what a link leads to when the link is hovered or
  * focused, on Base UI's Preview Card, Radix Themes' HoverCard. Root and Trigger

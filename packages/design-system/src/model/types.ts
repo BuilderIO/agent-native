@@ -1,9 +1,3 @@
-/**
- * The headless model: a surface described once as rows, with no layout and no
- * styling. Any part set (ours, or a private reference set that reproduces an
- * original product) draws the same rows, and the row id joins them.
- */
-
 /** Dotted, lowercase, at least two segments: `sidebar.nav.inbox`. */
 export type RowId = string;
 
@@ -11,25 +5,16 @@ export type RowId = string;
 export type PartRef = string;
 
 export type RowKind =
-  /** Holds rows; draws a heading at most. */
   | "section"
-  /** Moves somewhere. */
   | "destination"
-  /** Does something. */
   | "action"
-  /** On or off. */
   | "toggle"
-  /** One value from a set. */
   | "choice"
-  /** Text or another value the user enters. */
   | "field"
-  /** Shows information and does nothing. */
   | "info";
 
 export type RowIcon =
-  /** A semantic key a part set maps to its own glyph (`inbox`, `compose`). */
   | { kind: "symbol"; key: string }
-  /** An image, such as an avatar or a logo. */
   | { kind: "image"; src: string; alt?: string | undefined };
 
 export type RowBadge =
@@ -59,9 +44,7 @@ export interface RowState {
 
 export type RowEffect =
   | { kind: "navigate"; to: string }
-  /** Runs the effect the app registered under this id. */
   | { kind: "action"; effectId: string }
-  /** Opens the row with this id (a menu, a dialog, a submenu). */
   | { kind: "open"; target: RowId };
 
 export interface ModelRow {

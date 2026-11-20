@@ -13,9 +13,6 @@ export function normalizeTooltipText(text: string): string {
   );
 }
 
-// Base UI's Provider is exported where it is declared: through the export
-// list, docgen documents Base UI's own component and drops this comment.
-
 /**
  * Shares the open delay across the tooltips inside it, so moving from one to
  * the next opens it at once. It is Base UI's own Provider.

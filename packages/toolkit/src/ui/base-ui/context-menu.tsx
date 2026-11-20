@@ -22,9 +22,6 @@ import {
 } from "./menu.js";
 import { partClassName } from "./part-class.js";
 
-// The parts are exported where they are declared: through the export list,
-// docgen documents the aliased component and drops these comments.
-
 /**
  * A menu that opens at the pointer when its area is right-clicked or
  * long-pressed, on Base UI's Context Menu. Its content, items and submenus

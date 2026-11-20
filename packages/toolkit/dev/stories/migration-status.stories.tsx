@@ -5,8 +5,6 @@ import { MigrationStatusPage } from "../migration-status/MigrationStatus.js";
 
 const meta = {
   title: "Migration status",
-  // A scan of every app's source, which moves with app code the story tests
-  // do not watch, so main's screenshot is stale on most pull requests.
   parameters: { layout: "fullscreen", screenshot: false },
   tags: ["!autodocs", "!manifest"],
 } satisfies Meta;

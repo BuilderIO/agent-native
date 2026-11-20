@@ -112,7 +112,6 @@ function Steps() {
   );
 }
 
-/** The shape expressions in force on the stage: a preset's, else the theme's. */
 function useShapeMapping(): TokenMap {
   const stage = useStage();
   const theme = stage === null ? undefined : getTheme(stage.theme);

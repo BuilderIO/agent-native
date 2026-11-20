@@ -21,11 +21,6 @@ type DialogProps = DialogContentOwnProps;
 
 const controls = propControls(dialogContentProps);
 
-/**
- * Opens in place, portaled into a transformed box so its fixed backdrop and
- * popup cover this section only. It is not modal, so two sections do not
- * fight over focus.
- */
 function DialogSection({
   motion = "default",
   ...props
@@ -65,7 +60,6 @@ function DialogSection({
   );
 }
 
-/** A dialog that opens a second one with an autofocused field. */
 function NestedDialogs() {
   const [outer, setOuter] = React.useState(false);
   const [inner, setInner] = React.useState(false);

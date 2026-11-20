@@ -12,8 +12,6 @@ import { splitProps } from "./props.js";
 export interface ToggleGroupProps
   extends Omit<BaseToggleGroup.Props, "color">, ToggleGroupOwnProps {}
 
-// Exported after ToggleGroup: docgen documents this object's members under
-// the file's name, and keeps whichever comes first.
 const toggleGroupItemProps = createGroupProps(toggleGroupProps);
 
 /**

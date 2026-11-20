@@ -1,9 +1,3 @@
-/**
- * Primitive scales: raw values, named by step. Components never read these
- * directly; semantic roles (roles.ts) and component tokens do. The values
- * designers edit come from `files/foundations.tokens.json`.
- */
-
 import { FOUNDATIONS, type TypeStep } from "./source.js";
 
 export type { TypeStep };
@@ -84,8 +78,6 @@ export function staticPrimitives(): TokenMap {
     tokens[`--font-weight-${name}`] = String(weight);
   }
   for (const [name, family] of Object.entries(FONT_FAMILIES)) {
-    // Not `--font-sans`: that is Tailwind's namespace, and an unlayered value
-    // here would retype every template that relies on Tailwind's default.
     tokens[`--font-family-${name}`] = family;
   }
   return { ...tokens, ...MOTION, ...LAYERS };

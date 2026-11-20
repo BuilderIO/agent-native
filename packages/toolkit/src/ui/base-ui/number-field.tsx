@@ -52,7 +52,6 @@ export interface NumberFieldProps
 
 const ROOT_PROP_NAMES = new Set<string>(ROOT_PROPS);
 
-// The steppers sit inside the edge, one size down from the field's height.
 const STEPPER_SIZE: Record<ControlSize, ControlSize> = {
   "1": "1",
   "2": "1",
@@ -179,7 +178,6 @@ function createStepper(
     NumberFieldStepperProps
   >(({ className, children, ...props }, ref) => {
     const { size, variant } = useNumberFieldContext(displayName);
-    // A surface field keeps neutral steppers; a soft one tints them its color.
     const color = variant === "surface" ? { "data-color": "gray" } : {};
     return (
       <Base

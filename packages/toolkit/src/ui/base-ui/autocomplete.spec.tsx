@@ -70,7 +70,6 @@ function input() {
   return screen.getByRole<HTMLInputElement>("combobox", { name: "Fruit" });
 }
 
-/** Types as a keyboard does: Base UI opens the list only for typed input. */
 async function type(text: string) {
   const element = input();
   await act(async () => {
@@ -201,8 +200,6 @@ describe("Autocomplete", () => {
   it("clears the text with the clear button", async () => {
     render(<Sample />);
     await type("ban");
-    // Base UI hides the field's other controls from assistive technology
-    // while the list is open; the clear button is a pointer affordance.
     const clear = screen.getByRole("button", { name: "Clear", hidden: true });
     expect(clear.className).toContain("autocomplete-clear");
     await act(async () => {

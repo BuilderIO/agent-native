@@ -47,12 +47,10 @@ export type DropdownMenuSubContentProps = Omit<
   keyof MenuContentDefs
 >;
 
-/** The content's attributes, which its submenus' popups repeat. */
 const MenuAttributesContext = React.createContext<
   Record<string, string | undefined>
 >({});
 
-/** Portal, positioner and popup, shared by top-level and submenu content. */
 const MenuPopup = React.forwardRef<
   HTMLDivElement,
   DropdownMenuSubContentProps & {
@@ -142,9 +140,6 @@ const DropdownMenuSubContent = React.forwardRef<
   />
 ));
 DropdownMenuSubContent.displayName = "DropdownMenuSubContent";
-
-// Base UI's parts are exported where they are declared: through the export
-// list, docgen documents Base UI's own component and drops these comments.
 
 /**
  * A list of actions or options that opens from a button, on Base UI's Menu
@@ -359,8 +354,6 @@ const DropdownMenuSeparator = React.forwardRef<
 ));
 DropdownMenuSeparator.displayName = "DropdownMenuSeparator";
 
-// Shortcuts, checks, and submenu chevrons share one trailing slot, so every
-// row's trailing content ends on the same edge.
 /**
  * The keyboard shortcut for an item, set in its `trailing` slot.
  *

@@ -13,7 +13,6 @@ export const badgeProps = {
   color: colorProp,
   highContrast: highContrastProp,
   radius: radiusProp,
-  // Not in Radix Themes: the settings nav marks an unread page with it.
   dot: booleanProp(
     "Shows only a dot in the badge's color; the label stays for assistive technology.",
   ),

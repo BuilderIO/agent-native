@@ -25,11 +25,6 @@ import {
   type DialogContentProps,
 } from "./dialog.js";
 
-/**
- * A pointer press as a browser delivers it. Base UI's focus manager reads the
- * pointer sequence; a bare click event leaves it in a state no real input
- * produces.
- */
 function press(element: Element) {
   fireEvent.pointerDown(element, { pointerType: "mouse", button: 0 });
   fireEvent.mouseDown(element, { button: 0 });

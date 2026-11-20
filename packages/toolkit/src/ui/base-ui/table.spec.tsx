@@ -69,7 +69,7 @@ describe("Table part", () => {
 
   it("aligns rows to the top and cells to the start by default", () => {
     render(<Runs />);
-    const row = screen.getAllByRole("row")[1];
+    const row = screen.getAllByRole("row").at(1);
     expect(row?.dataset.align).toBe("start");
     const cell = screen.getByRole("rowheader", { name: "Nightly sync" });
     expect(cell.dataset.justify).toBe("start");

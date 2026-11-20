@@ -40,7 +40,6 @@ function useMediaQuery(query: string): boolean {
   return React.useSyncExternalStore(
     subscribe,
     () => window.matchMedia(query).matches,
-    // The server renders the desktop frame; the client corrects it on hydration.
     () => false,
   );
 }

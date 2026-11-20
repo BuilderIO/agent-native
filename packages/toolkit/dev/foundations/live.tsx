@@ -47,7 +47,6 @@ function readStage(element: HTMLElement): Stage {
 interface LiveContextValue {
   probe: HTMLElement | null;
   stage: Stage | null;
-  /** Bumped whenever the stage's attributes or the palette stylesheet change. */
   version: number;
 }
 
@@ -93,8 +92,6 @@ export function LiveRoot({ children }: { children: React.ReactNode }) {
       }));
     refresh();
     const observer = new MutationObserver((records) => {
-      // The page's own renders happen inside the stage; only the stage's
-      // attributes and its sibling palette stylesheet change the values.
       if (
         records.some(
           (record) => record.target === stage || !stage.contains(record.target),
@@ -157,7 +154,6 @@ function rasterContext(): CanvasRenderingContext2D {
   return context;
 }
 
-/** The sRGB bytes a computed color paints, wide-gamut colors clamped. */
 function sampleColor(computed: string): Rgba {
   const context = rasterContext();
   context.clearRect(0, 0, 1, 1);
@@ -229,7 +225,6 @@ export function resolvedText(resolved: Resolved | undefined): string {
   return resolved.status === "unset" ? "Not set" : resolved.value;
 }
 
-/** WCAG 2.1 relative luminance of opaque sRGB bytes. */
 function luminance([r, g, b]: Rgba): number {
   const channel = (value: number) => {
     const c = value / 255;

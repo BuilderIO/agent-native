@@ -50,7 +50,6 @@ function PopoverSample({
   );
 }
 
-/** Popups mount into the stage so its theme, appearance and density reach them. */
 function Parts({ sizes }: { sizes: readonly PopoverProps[] }) {
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
   return (
@@ -70,11 +69,6 @@ function Parts({ sizes }: { sizes: readonly PopoverProps[] }) {
   );
 }
 
-/**
- * A popover opened from inside a dialog, mounted on the body as in the apps:
- * it must paint above the dialog, take pointer events and keep Escape local
- * to itself.
- */
 function NestedInDialog() {
   const [open, setOpen] = React.useState(false);
   return (

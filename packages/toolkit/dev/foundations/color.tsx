@@ -43,7 +43,6 @@ import {
 
 const STEPS = Array.from({ length: 12 }, (_, index) => index + 1);
 
-/** Radix's guidance for what each step of a scale is for. */
 const STEP_RANGES = [
   { from: 1, to: 2, use: "Backgrounds" },
   { from: 3, to: 5, use: "Interactive fills" },
@@ -67,7 +66,6 @@ const STEP_USES: Readonly<Record<number, string>> = {
   12: "High-contrast text",
 };
 
-/** The palette scales in the order the `color` prop lists them. */
 const SCALES = COLORS.map((color) => ({ color, scale: COLOR_SCALES[color] }));
 
 const label = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
@@ -220,7 +218,6 @@ function rgbaOf(resolved: Resolved | undefined) {
   return resolved?.status === "color" ? resolved.rgba : null;
 }
 
-/** The step whose color a readable token paints, found by comparing colors. */
 function matchingStep(
   values: ReadonlyMap<string, Resolved>,
   scale: string,
@@ -359,7 +356,6 @@ const ROLE_SECTIONS = (
   ["surface", "text", "line", "fill", "status", "gradient"] as const
 ).map((group) => ({ group, tokens: ROLE_GROUPS[group] }));
 
-/** The surface a role's sample sits on: on-brand text on the brand fill, and so on. */
 function sampleBackground(token: string): string {
   const on = /^--fg-on-(.+)$/.exec(token);
   if (on?.[1] !== undefined) return `var(--fill-${on[1]})`;

@@ -1,8 +1,3 @@
-// Port of bezier-easing 2.1.0 by Gaëtan Renaudeau (MIT); see
-// THIRD_PARTY_NOTICES.md. The palette generator's lightness easing must match
-// Radix's own output to the last hex digit, so the sampling table, Newton and
-// subdivision constants are kept exactly as upstream has them.
-
 import { at } from "../at.js";
 
 const NEWTON_ITERATIONS = 4;

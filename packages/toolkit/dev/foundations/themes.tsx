@@ -16,7 +16,6 @@ import { Code, Page, Prose, Section, Swatch } from "./page.js";
 
 const STEPS = Array.from({ length: 12 }, (_, index) => index + 1);
 
-/** The theme slots `shadcnTheme` generates each scale from. */
 const SOURCES = [
   { slot: "primary", scale: "Brand" },
   { slot: "muted-foreground", scale: "Gray" },
@@ -26,7 +25,6 @@ const SOURCES = [
 
 interface Source {
   scale: string;
-  /** A CSS color for the swatch, read inside the theme's own scope. */
   swatch: string;
   value: string;
 }
@@ -86,8 +84,6 @@ function ThemeCard({ theme, stage }: { theme: ThemeDefinition; stage: Stage }) {
             className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2"
           >
             <dt className="col-start-2 text-1 text-fg-muted">{source.scale}</dt>
-            {/* A <dl> group holds only <dt> and <dd>, so the swatch sits in the
-                value and the grid places it beside both lines. */}
             <dd className="contents">
               <span className="col-start-1 row-span-2 row-start-1">
                 <Swatch color={source.swatch} size="sm" />

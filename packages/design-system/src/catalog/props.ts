@@ -1,16 +1,3 @@
-/**
- * The prop vocabulary every component shares, named as Radix Themes names it:
- * `variant`, `color`, `size`, `radius` and `highContrast`. A component picks
- * the values it supports from these lists; it never adds its own spelling of
- * one of them.
- *
- * Each prop is written to the DOM as a data attribute (`size` becomes
- * `data-size`), which is all the part CSS reads. The definitions here are the
- * one source of a component's props: toolkit derives its TypeScript types
- * from them, and the catalog, the Storybook manifest and the Figma parity
- * check read them as data.
- */
-
 import {
   CONTROL_SIZES,
   type ControlSize,

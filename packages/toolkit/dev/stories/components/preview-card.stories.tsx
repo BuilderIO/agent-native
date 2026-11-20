@@ -41,7 +41,6 @@ function Card({
   );
 }
 
-/** Popups mount into the stage so its theme, appearance and density reach them. */
 function Parts(props: PreviewCardProps) {
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
   return (

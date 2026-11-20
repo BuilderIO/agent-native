@@ -18,7 +18,6 @@ const controls = propControls(tabNavProps);
 
 const PAGES = ["Overview", "Activity", "Settings"] as const;
 
-/** Links that stay on the story: a click marks its page current instead of leaving. */
 function Example(props: TabNavProps) {
   const [current, setCurrent] = useState<string>(PAGES[0]);
   return (
