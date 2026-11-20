@@ -212,7 +212,7 @@ function VerificationControls({
           </Button>
         </>
       ) : (
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button
               size="icon"
@@ -249,14 +249,19 @@ function VerificationControls({
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={verify.isPending}
-              onSelect={() =>
+              onSelect={() => {
+                if (currentState === "deprecated") {
+                  setRemindInDays("90");
+                  setConfirmAction("verified");
+                  return;
+                }
                 verify.mutate({
                   knowledgeId: item.id,
                   state: "verified",
                   attested: true,
                   expectedRevision: item.revision,
-                })
-              }
+                });
+              }}
             >
               <IconCircleCheck className="size-4 shrink-0" />
               <div className="flex flex-col">
@@ -377,6 +382,12 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
   const format = useFormatters();
   const write = useActionMutation("write-intelligence");
   const verify = useActionMutation("verify-knowledge");
+  const remindAtMs =
+    item.verification.state === "verified" && item.verification.remindAt
+      ? Date.parse(item.verification.remindAt)
+      : Number.NaN;
+  const hasValidReminder = Number.isFinite(remindAtMs);
+  const verificationDue = hasValidReminder && remindAtMs <= Date.now();
   return (
     <li className="border-b border-border py-5 last:border-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -394,6 +405,14 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
             {item.verification.state !== "unverified" && (
               <Badge variant="outline">
                 {t(`intelligence.verification.${item.verification.state}`)}
+              </Badge>
+            )}
+            {verificationDue && (
+              <Badge
+                variant="outline"
+                className="border-destructive/40 text-destructive"
+              >
+                {t("intelligence.reviewDue")}
               </Badge>
             )}
           </div>
@@ -419,6 +438,18 @@ function IntelligenceRow({ item }: { item: IntelligenceItem }) {
                 )}
                 {item.verification.verifiedAt
                   ? ` · ${format.formatDate(item.verification.verifiedAt, { dateStyle: "medium" })}`
+                  : ""}
+                {hasValidReminder && item.verification.remindAt
+                  ? ` · ${t(
+                      verificationDue
+                        ? "intelligence.reviewDueOn"
+                        : "intelligence.reviewScheduledOn",
+                      {
+                        date: format.formatDate(item.verification.remindAt, {
+                          dateStyle: "medium",
+                        }),
+                      },
+                    )}`
                   : ""}
               </p>
             )}

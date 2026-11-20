@@ -1167,6 +1167,15 @@ describe("evidence-backed intelligence", () => {
     );
     expect(deltaDays).toBe(90);
 
+    const reverified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(reverified.verification.state).toBe("verified");
+    expect(reverified.verification.remindAt).toBe(remindAt);
+
     const cleared = await verifyKnowledge({
       knowledgeId: item.id,
       state: "unverified",

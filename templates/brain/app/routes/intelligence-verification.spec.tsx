@@ -259,3 +259,81 @@ it("exposes direct Clear status action in overflow menu for verified and depreca
     }
   }
 });
+
+it("routes overflow Verify on deprecated records through the reminder dialog and keeps direct re-verify for verified records", async () => {
+  fixture.verification = {
+    state: "deprecated",
+    verifiedBy: "qa-fleet@builder.io",
+    verifiedAt: "2026-11-19T12:00:00.000Z",
+    remindAt: null,
+  };
+  const host = await mount();
+  const trigger = requireNode(
+    host.querySelector("button[aria-label='intelligence.verificationActions']"),
+    "overflow verification menu trigger must render for deprecated records",
+  );
+  await act(async () => {
+    trigger.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        ctrlKey: false,
+      }),
+    );
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  const verifyItem = requireNode(
+    [...document.querySelectorAll("[role='menuitem']")].find((item) =>
+      item.textContent.includes("intelligence.verifySubtitle"),
+    ),
+    "Verify menu item must exist for deprecated records",
+  );
+  await click(verifyItem);
+  expect(fixture.verifyMutate).not.toHaveBeenCalled();
+
+  const dialog = requireNode(
+    document.querySelector("[role='dialog']"),
+    "Verify confirmation dialog must open when verifying a deprecated record",
+  );
+  const confirmBtn = requireNode(
+    findButton(dialog, "intelligence.verify"),
+    "Confirm Verify button must render",
+  );
+  await click(confirmBtn);
+  expect(fixture.verifyMutate).toHaveBeenCalledWith(
+    {
+      knowledgeId: "action-one",
+      state: "verified",
+      attested: true,
+      expectedRevision: "rev-1",
+      remindInDays: 90,
+    },
+    expect.any(Object),
+  );
+});
+
+it("surfaces scheduled and due verification reminders on verified rows", async () => {
+  fixture.verification = {
+    state: "verified",
+    verifiedBy: "qa-fleet@builder.io",
+    verifiedAt: "2026-11-19T12:00:00.000Z",
+    remindAt: "2099-02-17T12:00:00.000Z",
+  };
+  const futureHost = await mount();
+  expect(futureHost.textContent).toContain("intelligence.reviewScheduledOn");
+  expect(futureHost.textContent).not.toContain("intelligence.reviewDue");
+  for (const { root, host: mountedHost } of owned.splice(0)) {
+    await act(async () => root.unmount());
+    mountedHost.remove();
+  }
+
+  fixture.verification = {
+    state: "verified",
+    verifiedBy: "qa-fleet@builder.io",
+    verifiedAt: "2026-08-01T12:00:00.000Z",
+    remindAt: "2026-11-01T12:00:00.000Z",
+  };
+  const dueHost = await mount();
+  expect(dueHost.textContent).toContain("intelligence.reviewDue");
+  expect(dueHost.textContent).toContain("intelligence.reviewDueOn");
+});

@@ -766,13 +766,26 @@ async function verifyKnowledgeLocked(input: {
       "The knowledge changed. Review its current content before verifying.",
       { errorCode: "save_conflict", statusCode: 409 },
     );
+  const existingVerifications = await getDb()
+    .select()
+    .from(schema.brainKnowledgeVerifications)
+    .where(eq(schema.brainKnowledgeVerifications.knowledgeId, row.id))
+    .limit(1);
+  const existingVerification = existingVerifications.find(
+    (entry) => entry.knowledgeId === row.id,
+  );
   const actedAt = nowIso();
   const remindAt =
-    input.state === "verified" && input.remindInDays
-      ? new Date(
-          Date.parse(actedAt) + input.remindInDays * 86_400_000,
-        ).toISOString()
-      : null;
+    input.state !== "verified"
+      ? null
+      : input.remindInDays !== undefined
+        ? new Date(
+            Date.parse(actedAt) + input.remindInDays * 86_400_000,
+          ).toISOString()
+        : existingVerification?.state === "verified" &&
+            existingVerification.knowledgeRevision === revision
+          ? (existingVerification.remindAt ?? null)
+          : null;
   const verification = {
     knowledgeId: row.id,
     knowledgeRevision: revision,

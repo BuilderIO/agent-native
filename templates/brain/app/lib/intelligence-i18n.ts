@@ -96,6 +96,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "Verify that {{title}} is up to date to help your teammates work from accurate information.",
       verifyReminderLabel: "Send reminder to verify again",
+      reviewDue: "Review due",
+      reviewScheduledOn: "Re-verify on {{date}}",
+      reviewDueOn: "Re-verify due {{date}}",
       deprecateDialogTitle: "Deprecate this document?",
       deprecateDialogBody:
         "This will heavily demote {{title}} in Brain search results.",
@@ -221,6 +224,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "確認 {{title}} 為最新內容，協助團隊成員依據準確資訊工作。",
       verifyReminderLabel: "傳送再次驗證提醒",
+      reviewDue: "需要重新驗證",
+      reviewScheduledOn: "預定於 {{date}} 重新驗證",
+      reviewDueOn: "應於 {{date}} 重新驗證",
       deprecateDialogTitle: "要將此文件標記為過時嗎？",
       deprecateDialogBody: "這將大幅降低 {{title}} 在 Brain 搜尋結果中的排序。",
       deprecateDialogNote: "文件不會被刪除或修改。",
@@ -344,6 +350,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "确认 {{title}} 为最新内容，帮助团队成员基于准确信息工作。",
       verifyReminderLabel: "发送再次验证提醒",
+      reviewDue: "需要重新验证",
+      reviewScheduledOn: "计划于 {{date}} 重新验证",
+      reviewDueOn: "应于 {{date}} 重新验证",
       deprecateDialogTitle: "将此文档标记为已弃用？",
       deprecateDialogBody: "这将在 Brain 搜索结果中大幅降低 {{title}} 的排名。",
       deprecateDialogNote: "文档不会被删除或更改。",
@@ -471,6 +480,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "Verifica que {{title}} está actualizado para ayudar a tu equipo a trabajar con información precisa.",
       verifyReminderLabel: "Enviar recordatorio para volver a verificar",
+      reviewDue: "Revisión pendiente",
+      reviewScheduledOn: "Volver a verificar el {{date}}",
+      reviewDueOn: "Verificación pendiente desde {{date}}",
       deprecateDialogTitle: "¿Marcar este documento como obsoleto?",
       deprecateDialogBody:
         "Esto reducirá notablemente la posición de {{title}} en los resultados de búsqueda de Brain.",
@@ -601,6 +613,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "Vérifiez que {{title}} est à jour pour aider vos collègues à travailler avec des informations exactes.",
       verifyReminderLabel: "Envoyer un rappel pour vérifier à nouveau",
+      reviewDue: "Révision requise",
+      reviewScheduledOn: "Vérifier à nouveau le {{date}}",
+      reviewDueOn: "Vérification requise depuis le {{date}}",
       deprecateDialogTitle: "Marquer ce document comme obsolète ?",
       deprecateDialogBody:
         "Cela rétrogradera fortement {{title}} dans les résultats de recherche Brain.",
@@ -731,6 +746,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "Bestätige, dass {{title}} aktuell ist, damit dein Team mit korrekten Informationen arbeitet.",
       verifyReminderLabel: "Erinnerung zur erneuten Verifizierung senden",
+      reviewDue: "Überprüfung fällig",
+      reviewScheduledOn: "Erneut prüfen am {{date}}",
+      reviewDueOn: "Überprüfung fällig seit {{date}}",
       deprecateDialogTitle: "Dieses Dokument als veraltet markieren?",
       deprecateDialogBody:
         "Dadurch wird {{title}} in den Brain-Suchergebnissen deutlich herabgestuft.",
@@ -860,6 +878,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "チームメンバーが正確な情報に基づいて作業できるよう、{{title}} が最新であることを確認してください。",
       verifyReminderLabel: "再検証のリマインダーを送信",
+      reviewDue: "再確認期限",
+      reviewScheduledOn: "{{date}} に再確認予定",
+      reviewDueOn: "{{date}} から再確認期限超過",
       deprecateDialogTitle: "このドキュメントを非推奨にしますか？",
       deprecateDialogBody:
         "これにより、Brain の検索結果で {{title}} の順位が大きく下がります。",
@@ -990,6 +1011,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "팀원들이 정확한 정보를 바탕으로 작업할 수 있도록 {{title}}이(가) 최신 상태인지 확인하세요.",
       verifyReminderLabel: "다시 검증할 알림 보내기",
+      reviewDue: "재검토 필요",
+      reviewScheduledOn: "{{date}} 재검증 예정",
+      reviewDueOn: "{{date}} 재검증 기한 도래",
       deprecateDialogTitle: "이 문서를 더 이상 사용 안 함으로 표시할까요?",
       deprecateDialogBody:
         "이렇게 하면 Brain 검색 결과에서 {{title}}의 순위가 크게 낮아집니다.",
@@ -1118,6 +1142,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "Verifique se {{title}} está atualizado para ajudar sua equipe a trabalhar com informações precisas.",
       verifyReminderLabel: "Enviar lembrete para verificar novamente",
+      reviewDue: "Revisão pendente",
+      reviewScheduledOn: "Verificar novamente em {{date}}",
+      reviewDueOn: "Verificação pendente desde {{date}}",
       deprecateDialogTitle: "Marcar este documento como obsoleto?",
       deprecateDialogBody:
         "Isso rebaixará significativamente {{title}} nos resultados de pesquisa do Brain.",
@@ -1245,6 +1272,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "सत्यापित करें कि {{title}} अद्यतन है ताकि आपकी टीम सटीक जानकारी के साथ काम कर सके।",
       verifyReminderLabel: "फिर से सत्यापित करने के लिए अनुस्मारक भेजें",
+      reviewDue: "समीक्षा देय",
+      reviewScheduledOn: "{{date}} को फिर से सत्यापित करें",
+      reviewDueOn: "{{date}} से सत्यापन देय",
       deprecateDialogTitle: "इस दस्तावेज़ को अप्रचलित चिह्नित करें?",
       deprecateDialogBody:
         "इससे Brain खोज परिणामों में {{title}} की रैंकिंग काफी नीचे चली जाएगी।",
@@ -1373,6 +1403,9 @@ export const intelligenceMessagesByLocale = {
       verifyDialogBody:
         "تحقق من أن {{title}} محدّث لمساعدة زملائك على العمل بمعلومات دقيقة.",
       verifyReminderLabel: "إرسال تذكير لإعادة التحقق",
+      reviewDue: "المراجعة مستحقة",
+      reviewScheduledOn: "إعادة التحقق في {{date}}",
+      reviewDueOn: "إعادة التحقق مستحقة منذ {{date}}",
       deprecateDialogTitle: "هل تريد تعيين هذا المستند كمهمل؟",
       deprecateDialogBody:
         "سيؤدي ذلك إلى خفض ترتيب {{title}} بشكل كبير في نتائج بحث Brain.",
