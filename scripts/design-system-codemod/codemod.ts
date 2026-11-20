@@ -18,7 +18,6 @@ import { COMPONENT_NAMES } from "./types.ts";
 export interface Finding {
   file: string;
   line: number;
-  /** The node's start offset, which tells apart two sites on one line. */
   offset: number;
   component: ComponentName;
   reason: string;
