@@ -242,4 +242,36 @@ describe("InlineReplyComposer attachments", () => {
 
     expect(onDiscard).toHaveBeenCalledWith(draft.id);
   });
+
+  it("won't pop out while a Content page is still attaching", async () => {
+    const onPopOut = vi.fn();
+    const { getByRole } = render(
+      <InlineReplyComposer
+        draft={draft}
+        messages={[]}
+        onUpdate={vi.fn()}
+        onDiscard={vi.fn()}
+        onClose={vi.fn()}
+        onPopOut={onPopOut}
+        onFlush={vi.fn()}
+        onReopen={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Start attaching Plan" }));
+    });
+
+    expect(getByRole("button", { name: "mail.compose.popOut" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Finish attaching Plan" }));
+    });
+    fireEvent.click(getByRole("button", { name: "mail.compose.popOut" }));
+
+    expect(onPopOut).toHaveBeenCalledWith(draft.id);
+  });
 });

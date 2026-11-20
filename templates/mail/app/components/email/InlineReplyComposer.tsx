@@ -192,6 +192,7 @@ export const InlineReplyComposer = forwardRef<
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const pendingAttachesRef = useRef(new Map<string, number>());
+  const [attachmentsPending, setAttachmentsPending] = useState(false);
   const hasQuote = quotedContent.length > 0;
   const editorContent = appendedSignature
     ? messageContent
@@ -452,6 +453,7 @@ export const InlineReplyComposer = forwardRef<
     const count = (pendingAttachesRef.current.get(draftId) ?? 0) + change;
     if (count > 0) pendingAttachesRef.current.set(draftId, count);
     else pendingAttachesRef.current.delete(draftId);
+    setAttachmentsPending(pendingAttachesRef.current.size > 0);
   };
 
   const handleAttachFiles = async (files: File[]) => {
@@ -552,7 +554,8 @@ export const InlineReplyComposer = forwardRef<
                   type="button"
                   aria-label={t("mail.compose.popOut")}
                   onClick={() => onPopOut(draft.id)}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  disabled={attachmentsPending}
+                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </button>
@@ -582,7 +585,8 @@ export const InlineReplyComposer = forwardRef<
                   type="button"
                   aria-label={t("mail.compose.popOut")}
                   onClick={() => onPopOut(draft.id)}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
+                  disabled={attachmentsPending}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0 disabled:opacity-50"
                 >
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </button>
