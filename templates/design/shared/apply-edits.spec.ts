@@ -52,6 +52,20 @@ describe("applyEdits", () => {
     expect(content).toBe(`<div><b>label</b></div>`);
   });
 
+  it("treats offsets in one leading whitespace run as one flexible match", () => {
+    expect(
+      applyEdits("start\n    color: red; end", [
+        { search: "\n  color: red;", replace: " UPDATED" },
+      ]).content,
+    ).toBe("start UPDATED end");
+  });
+
+  it("prefers a unique exact match over whitespace variants", () => {
+    expect(
+      applyEdits("a b | a  b", [{ search: "a b", replace: "X" }]).content,
+    ).toBe("X | a  b");
+  });
+
   it("treats $ in the replacement literally (no regex group expansion)", () => {
     const html = `<p>price</p>`;
     const { content } = applyEdits(html, [

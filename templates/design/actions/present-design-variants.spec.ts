@@ -388,7 +388,7 @@ describe("present-design-variants", () => {
       "must not be a direction board",
     );
     expect(guidedQuestions.submitMessage).toContain(
-      "Do not repeat cleanup/read cycles",
+      "On conflict, re-read the kept screen and retry without repeating cleanup",
     );
     expect(guidedQuestions.submitMessage).not.toContain("delete-file");
     expect(guidedQuestions.submitMessage).toContain(
@@ -399,7 +399,7 @@ describe("present-design-variants", () => {
     expect(firstOption?.value).toContain(
       "Delete each other variant screen at most once",
     );
-    expect(firstOption?.value).toContain("get-design-snapshot exactly once");
+    expect(firstOption?.value).toContain("get-design-snapshot with designId");
     expect(firstOption?.value).toContain("fileId file-a");
     expect(firstOption?.value).toContain("edit-design with fileId file-a");
     expect(firstOption?.value).toContain('mode "replace-file"');
@@ -412,7 +412,7 @@ describe("present-design-variants", () => {
     expect(firstOption?.value).toContain("not a direction board");
     expect(firstOption?.value).toContain("bounded single-file pass");
     expect(firstOption?.value).toContain(
-      "do not repeat delete/snapshot cycles",
+      "re-read the kept screen and retry without repeating deletion",
     );
     expect(firstOption?.value).toContain(
       "Do not call generate-design after this variant pick",
@@ -461,7 +461,7 @@ describe("present-design-variants", () => {
       "delete each unchosen variant screen with delete-file at most once",
     );
     expect(result.nextRequiredAction).toContain(
-      "call get-design-snapshot exactly once",
+      "call get-design-snapshot with fileId",
     );
     expect(result.nextRequiredAction).toContain("fileId");
     expect(result.nextRequiredAction).toContain("edit-design");
@@ -472,7 +472,7 @@ describe("present-design-variants", () => {
       "Do not leave a direction board",
     );
     expect(result.nextRequiredAction).toContain(
-      "Do not repeat delete/snapshot cycles",
+      "re-read the kept screen and retry without repeating deletion",
     );
     expect(result.nextRequiredAction).toContain(
       "Do not call generate-design after a variant pick",

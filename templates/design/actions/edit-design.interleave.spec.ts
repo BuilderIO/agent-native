@@ -303,9 +303,9 @@ describe("edit-design conflict retry", () => {
     ["overlapping exact text", "<p>aaa</p>", "aa"],
     ["overlapping whitespace-flexible text", "<p>a a a</p>", "a  a"],
     [
-      "ambiguous flexible match with a unique stripped fallback",
-      '<p>\t\tdata-agent-native-node-id="live"b</p>',
-      ' data-agent-native-node-id="live"b',
+      "ambiguous whitespace variants after stripping stable ids",
+      '<p  data-agent-native-node-id="one" >One</p><p data-agent-native-node-id="two" >One</p>',
+      '<p data-agent-native-node-id="old" >One</p>',
     ],
     [
       "overlapping stable-id fallback",

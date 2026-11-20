@@ -148,6 +148,25 @@ describe("edit-design action schema", () => {
     expect(content).toBe(`<main><button>Start</button></main>`);
   });
 
+  it("rejects whitespace-variant duplicates after stripping stable ids", () => {
+    const content =
+      '<p  data-agent-native-node-id="one" >One</p><p data-agent-native-node-id="two" >One</p>';
+    const search = '<p data-agent-native-node-id="old" >One</p>';
+    expect(() =>
+      applySearchReplaceEdits(content, [{ search, replace: "X" }]),
+    ).toThrow(/matched .* places/);
+  });
+
+  it("maps a unique flexible stable-id match to the precise original span", () => {
+    const content =
+      '<main><p data-agent-native-node-id="live"  class="item">Hi</p><aside>Keep</aside></main>';
+    const search = '<p data-agent-native-node-id="old" class="item">Hi</p>';
+    expect(
+      applySearchReplaceEdits(content, [{ search, replace: "<p>Updated</p>" }])
+        .content,
+    ).toBe("<main><p>Updated</p><aside>Keep</aside></main>");
+  });
+
   it("matches a unique whitespace-insensitive edit", () => {
     const { content, applied } = applySearchReplaceEdits(
       `<div>\n  <span>label</span>\n</div>`,

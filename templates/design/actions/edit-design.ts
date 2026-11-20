@@ -24,6 +24,7 @@ import {
 import {
   ApplyEditConflictError,
   applyOneEdit,
+  findWhitespaceFlexibleMatches,
   type ApplyEditsResult,
   type DesignEdit,
 } from "../shared/apply-edits.js";
@@ -88,26 +89,36 @@ function stripStableNodeIdAttributes(value: string): {
 function findUniqueStableIdAgnosticSpan(
   content: string,
   search: string,
+  editIndex: number,
 ): { start: number; end: number } | null {
   const strippedContent = stripStableNodeIdAttributes(content);
   const strippedSearch = stripStableNodeIdAttributes(search).content;
   if (!strippedSearch) return null;
 
-  let count = 0;
-  let onlyIndex = -1;
-  let index = strippedContent.content.indexOf(strippedSearch);
-  while (index !== -1) {
-    count += 1;
-    onlyIndex = index;
-    if (count > 1) return null;
-    index = strippedContent.content.indexOf(strippedSearch, index + 1);
+  const firstExact = strippedContent.content.indexOf(strippedSearch);
+  if (
+    firstExact !== -1 &&
+    strippedContent.content.indexOf(strippedSearch, firstExact + 1) !== -1
+  ) {
+    throw new DesignEditSearchConflictError(
+      `Edit ${editIndex + 1}: "search" matched multiple places (exact) — add more surrounding context so it matches exactly one location.`,
+    );
   }
-  if (count !== 1) return null;
+  const matches = findWhitespaceFlexibleMatches(
+    strippedContent.content,
+    strippedSearch,
+  );
+  if (matches.length > 1) {
+    throw new DesignEditSearchConflictError(
+      `Edit ${editIndex + 1}: "search" matched ${matches.length} places (whitespace-insensitive) — add more surrounding context so it matches exactly one location.`,
+    );
+  }
+  if (matches.length === 0) return null;
 
-  const lastMatched = onlyIndex + strippedSearch.length - 1;
+  const { start, end } = matches[0];
   return {
-    start: strippedContent.indexMap[onlyIndex] ?? 0,
-    end: (strippedContent.indexMap[lastMatched] ?? content.length - 1) + 1,
+    start: strippedContent.indexMap[start] ?? 0,
+    end: (strippedContent.indexMap[end - 1] ?? content.length - 1) + 1,
   };
 }
 
@@ -121,7 +132,7 @@ function applyOneEditWithStableIdFallback(
   } catch (error) {
     if (!(error instanceof ApplyEditConflictError)) throw error;
     if (error.kind === "not_found") {
-      const span = findUniqueStableIdAgnosticSpan(content, edit.search);
+      const span = findUniqueStableIdAgnosticSpan(content, edit.search, index);
       if (span) {
         return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
       }

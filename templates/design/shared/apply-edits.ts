@@ -33,6 +33,19 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
+export function findWhitespaceFlexibleMatches(
+  content: string,
+  search: string,
+): { start: number; end: number }[] {
+  const pattern = escapeRegExp(search).replace(/\s+/g, "\\s+");
+  const boundary = /^\s/.test(search) ? "(?<!\\s)" : "";
+  const re = new RegExp(`${boundary}(?=(${pattern}))`, "g");
+  return Array.from(content.matchAll(re), (match) => ({
+    start: match.index,
+    end: match.index + match[1].length,
+  }));
+}
+
 export function applyOneEdit(
   content: string,
   edit: DesignEdit,
@@ -49,10 +62,8 @@ export function applyOneEdit(
   const exact = countOccurrences(content, search);
   if (exact === 1) return content.split(search).join(replace);
 
-  const pattern = escapeRegExp(search).replace(/\s+/g, "\\s+");
-  const re = new RegExp(pattern, "g");
-  const matches = content.match(new RegExp(`(?=${pattern})`, "g"));
-  const flexible = matches ? matches.length : 0;
+  const matches = findWhitespaceFlexibleMatches(content, search);
+  const flexible = matches.length;
   if (exact > 1 || flexible > 1) {
     const detail =
       exact > 1
@@ -64,7 +75,8 @@ export function applyOneEdit(
     );
   }
   if (flexible === 1) {
-    return content.replace(re, () => replace);
+    const { start, end } = matches[0];
+    return `${content.slice(0, start)}${replace}${content.slice(end)}`;
   }
 
   throw new ApplyEditConflictError(
