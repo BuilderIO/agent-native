@@ -436,12 +436,18 @@ export const handleGoogleCallback = defineEventHandler(
             ? await exchangeSignInCode(code, redirectUri, stateOrgId)
             : {
                 ...(await exchangeIdentityCode(code, redirectUri)),
-                calendarConnected: false,
+                connectCalendar: async () => false,
               };
         if (!identity.id) {
           throw new Error("Could not get Google account id");
         }
-        if (identity.calendarConnected) {
+        const isNewUser = await ensureGoogleAuthIdentity({
+          email: identity.email,
+          accountId: identity.id,
+          name: identity.name,
+          image: identity.picture,
+        });
+        if (await identity.connectCalendar()) {
           track(
             "account_connected",
             {
@@ -453,12 +459,6 @@ export const handleGoogleCallback = defineEventHandler(
             { userId: identity.email },
           );
         }
-        const isNewUser = await ensureGoogleAuthIdentity({
-          email: identity.email,
-          accountId: identity.id,
-          name: identity.name,
-          image: identity.picture,
-        });
         const { sessionToken } = await createOAuthSession(
           event,
           identity.email,

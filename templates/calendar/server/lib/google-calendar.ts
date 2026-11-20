@@ -603,7 +603,7 @@ export interface GoogleSignInProfile {
   id?: string | undefined;
   name?: string | undefined;
   picture?: string | undefined;
-  calendarConnected: boolean;
+  connectCalendar: () => Promise<boolean>;
 }
 
 export async function exchangeSignInCode(
@@ -622,29 +622,27 @@ export async function exchangeSignInCode(
       "Google account email is not verified. Please verify your email with Google and try again.",
     );
   }
-  let calendarConnected = grantsCalendarScope(tokens.scope);
-  if (calendarConnected) {
-    try {
-      await saveExchangedTokens(tokens, email, photoUrl);
-    } catch (error) {
-      if (
-        !(error instanceof OAuthAccountOwnedByOtherUserError) &&
-        !(
-          error instanceof Error &&
-          error.name === "OAuthAccountOwnedByOtherUserError"
-        )
-      ) {
-        throw error;
-      }
-      calendarConnected = false;
-    }
-  }
   return {
     email,
     id: optionalString(userInfo.id),
     name: optionalString(userInfo.name),
     picture: photoUrl,
-    calendarConnected,
+    async connectCalendar() {
+      if (!grantsCalendarScope(tokens.scope)) return false;
+      try {
+        await saveExchangedTokens(tokens, email, photoUrl);
+        return true;
+      } catch (error) {
+        if (
+          error instanceof OAuthAccountOwnedByOtherUserError ||
+          (error instanceof Error &&
+            error.name === "OAuthAccountOwnedByOtherUserError")
+        ) {
+          return false;
+        }
+        throw error;
+      }
+    },
   };
 }
 

@@ -474,23 +474,26 @@ describe("Google sign-in code exchange", () => {
     );
   });
 
-  it("saves the account's tokens under its own login and returns the profile", async () => {
+  it("returns the profile and saves the tokens under its own login only on connect", async () => {
     mockGoogleExchange(calendarScopes);
 
-    await expect(
-      exchangeSignInCode("oauth-code", redirectUri),
-    ).resolves.toEqual({
+    const profile = await exchangeSignInCode("oauth-code", redirectUri);
+
+    expect(profile).toEqual({
       email: "new-user@example.com",
       id: "google-user-1",
       name: "New User",
       picture: "https://lh3.googleusercontent.com/a/avatar.jpg",
-      calendarConnected: true,
+      connectCalendar: expect.any(Function),
     });
     expect(createOAuth2ClientMock).toHaveBeenCalledWith(
       "client-id",
       "client-secret",
       redirectUri,
     );
+    expect(saveOAuthTokensMock).not.toHaveBeenCalled();
+
+    await expect(profile.connectCalendar()).resolves.toBe(true);
     expect(saveOAuthTokensMock).toHaveBeenCalledWith(
       "google",
       "new-user@example.com",
@@ -514,12 +517,10 @@ describe("Google sign-in code exchange", () => {
   ])("leaves stored tokens alone when %s", async (_case, scope) => {
     mockGoogleExchange(scope);
 
-    await expect(
-      exchangeSignInCode("oauth-code", redirectUri),
-    ).resolves.toMatchObject({
-      email: "new-user@example.com",
-      calendarConnected: false,
-    });
+    const profile = await exchangeSignInCode("oauth-code", redirectUri);
+
+    expect(profile.email).toBe("new-user@example.com");
+    await expect(profile.connectCalendar()).resolves.toBe(false);
     expect(saveOAuthTokensMock).not.toHaveBeenCalled();
   });
 
@@ -531,22 +532,18 @@ describe("Google sign-in code exchange", () => {
       }),
     );
 
-    await expect(
-      exchangeSignInCode("oauth-code", redirectUri),
-    ).resolves.toMatchObject({
-      email: "new-user@example.com",
-      id: "google-user-1",
-      calendarConnected: false,
-    });
+    const profile = await exchangeSignInCode("oauth-code", redirectUri);
+
+    await expect(profile.connectCalendar()).resolves.toBe(false);
   });
 
   it("fails sign-in when saving the tokens fails for another reason", async () => {
     mockGoogleExchange(calendarScopes);
     saveOAuthTokensMock.mockRejectedValueOnce(new Error("database offline"));
 
-    await expect(exchangeSignInCode("oauth-code", redirectUri)).rejects.toThrow(
-      "database offline",
-    );
+    const profile = await exchangeSignInCode("oauth-code", redirectUri);
+
+    await expect(profile.connectCalendar()).rejects.toThrow("database offline");
   });
 
   it("rejects an unverified Google email before saving tokens", async () => {
