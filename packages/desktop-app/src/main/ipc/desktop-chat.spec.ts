@@ -1392,17 +1392,22 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
-  it("reloads memory for existing sessions when the same account signs back in", async () => {
+  it("keeps a running terminal when the same account is bound again", async () => {
     seedAccounts();
     noteDesktopBuilderRelayOwner("account:a@example.test");
     const session = await bindDesktopSessionMemoryOwner();
+    const terminate = vi.fn();
+    session.bindTerminate(terminate);
     const prompt = await startSession(session.file);
     expect(prompt()).toContain("ALICE-SECRET");
 
-    noteDesktopBuilderRelayOwner("no-account");
-    expect(prompt()).not.toContain("SECRET");
     noteDesktopBuilderRelayOwner("account:a@example.test");
-    await vi.waitFor(() => expect(prompt()).toContain("ALICE-SECRET"));
+    setDesktopMemoryAccount(" A@Example.test ");
+    expect(terminate).not.toHaveBeenCalled();
+    expect(readdirSync(session.memoryDir as string)).toEqual([
+      encodeURIComponent("a@example.test"),
+    ]);
+    expect(prompt()).toContain("ALICE-SECRET");
     session.release();
     setDesktopMemoryAccount(null);
   });
@@ -1500,21 +1505,26 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
-  it("revokes a running terminal's memory root on sign-out and relinks the next account", async () => {
+  it("ends a running terminal on sign-out and when a different account signs in", async () => {
     seedAccounts();
     noteDesktopBuilderRelayOwner("account:a@example.test");
-    const session = await bindDesktopSessionMemoryOwner();
-    const root = session.memoryDir as string;
-    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
-
+    const signedOut = await bindDesktopSessionMemoryOwner();
+    const endedOnSignOut = vi.fn();
+    signedOut.bindTerminate(endedOnSignOut);
     noteDesktopBuilderRelayOwner("no-account");
-    expect(readdirSync(root)).toEqual([]);
+    expect(endedOnSignOut).toHaveBeenCalledTimes(1);
+    expect(readdirSync(signedOut.memoryDir as string)).toEqual([]);
 
     noteDesktopBuilderRelayOwner("account:a@example.test");
-    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    const switched = await bindDesktopSessionMemoryOwner();
+    const endedOnSwitch = vi.fn();
+    switched.bindTerminate(endedOnSwitch);
     noteDesktopBuilderRelayOwner("account:b@example.test");
-    expect(readdirSync(root)).toEqual([encodeURIComponent("b@example.test")]);
-    session.release();
+    expect(endedOnSwitch).toHaveBeenCalledTimes(1);
+    expect(endedOnSignOut).toHaveBeenCalledTimes(1);
+    expect(readdirSync(switched.memoryDir as string)).toEqual([]);
+    signedOut.release();
+    switched.release();
     setDesktopMemoryAccount(null);
   });
 
@@ -1526,22 +1536,6 @@ describe("desktop Pi extension memory prompt", () => {
 
     setDesktopMemoryAccount(" A@Example.test ");
     expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
-    session.release();
-    setDesktopMemoryAccount(null);
-  });
-
-  it("links a running terminal to the next account after a sign-out", async () => {
-    seedAccounts();
-    setDesktopMemoryAccount("a@example.test");
-    const session = await bindDesktopSessionMemoryOwner();
-    const root = session.memoryDir as string;
-    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
-
-    setDesktopMemoryAccount(null);
-    expect(readdirSync(root)).toEqual([]);
-
-    setDesktopMemoryAccount("b@example.test");
-    expect(readdirSync(root)).toEqual([encodeURIComponent("b@example.test")]);
     session.release();
     setDesktopMemoryAccount(null);
   });
@@ -1703,16 +1697,24 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
-  it("moves a running terminal straight from one account to the next", async () => {
+  it("ends only the terminals bound to the account that is switched away", async () => {
     seedAccounts();
     setDesktopMemoryAccount("a@example.test");
-    const session = await bindDesktopSessionMemoryOwner();
-    const root = session.memoryDir as string;
-    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
-
+    const bound = await bindDesktopSessionMemoryOwner();
+    const endedBound = vi.fn();
+    bound.bindTerminate(endedBound);
+    setDesktopMemoryAccount(null);
+    const unbound = await bindDesktopSessionMemoryOwner();
+    const endedUnbound = vi.fn();
+    unbound.bindTerminate(endedUnbound);
     setDesktopMemoryAccount("b@example.test");
-    expect(readdirSync(root)).toEqual([encodeURIComponent("b@example.test")]);
-    session.release();
+    expect(endedBound).toHaveBeenCalledTimes(1);
+    expect(endedUnbound).not.toHaveBeenCalled();
+    expect(readdirSync(unbound.memoryDir as string)).toEqual([
+      encodeURIComponent("b@example.test"),
+    ]);
+    bound.release();
+    unbound.release();
     setDesktopMemoryAccount(null);
   });
 

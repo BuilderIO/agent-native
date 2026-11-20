@@ -475,6 +475,33 @@ describe("personal memory shared across local apps", () => {
     expect(fs.existsSync(`${file}.deleted`)).toBe(true);
   });
 
+  it("does not adopt a file that turned older than the row between the two reads", async () => {
+    const dir = useMemoryDir();
+    const { resourceGetByPath, resourcePut } = await import("./store.js");
+    const put = await resourcePut(OWNER, "memory/flip.md", "from sql");
+    const file = sharedFile(dir, "flip.md");
+    fs.writeFileSync(file, "external edit");
+    const future = new Date(put.updatedAt + 60_000);
+    fs.utimesSync(file, future, future);
+    let reads = 0;
+    const spy = afterFileRead(file, () => {
+      if (++reads !== 1) return;
+      fs.writeFileSync(file, "older edit");
+      const past = new Date(put.updatedAt - 60_000);
+      fs.utimesSync(file, past, past);
+    });
+    try {
+      const got = await resourceGetByPath(OWNER, "memory/flip.md");
+      expect(got?.content).toBe("from sql");
+    } finally {
+      spy.mockRestore();
+    }
+    const { rows } = await pglite.query(
+      `SELECT content FROM resources WHERE owner = '${OWNER}' AND path = 'memory/flip.md'`,
+    );
+    expect(rows).toEqual([{ content: "from sql" }]);
+  });
+
   it("skips a mirror write whose SQL revision is no longer current", async () => {
     const dir = useMemoryDir();
     const { resourcePut, resourcePutWithDb } = await import("./store.js");

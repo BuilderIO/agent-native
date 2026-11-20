@@ -1768,7 +1768,9 @@ function terminateMemorySession(file: string): void {
   console.error(
     "[desktop-chat] Ending a terminal whose memory access cannot be revoked",
   );
-  memorySessionTerminators.get(file)?.();
+  const terminate = memorySessionTerminators.get(file);
+  memorySessionTerminators.delete(file);
+  terminate?.();
 }
 
 export function setDesktopMemoryAccount(rawAccount: string | null): void {
@@ -1882,7 +1884,11 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
       console.error("[desktop-chat] Could not link the memory root:", error);
     }
   };
-  let unrevocable = false;
+  let ended = false;
+  const end = () => {
+    ended = true;
+    terminateMemorySession(file);
+  };
   const revoke = () => {
     if (!memoryDir) return;
     try {
@@ -1898,8 +1904,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
         fs.rmSync(memoryDir, { recursive: true, force: true });
       } catch (rootError) {
         failures.push(rootError);
-        unrevocable = true;
-        terminateMemorySession(file);
+        end();
       }
       throw new AggregateError(failures, "Could not revoke the memory root");
     }
@@ -1956,8 +1961,9 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     }
   };
   const rebind = (next: string | null) => {
-    if (released) return;
-    if (!next) {
+    if (released || ended) return;
+    if (account && account !== next) {
+      end();
       try {
         revoke();
       } finally {
@@ -1967,10 +1973,8 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
       }
       return;
     }
-    if (account && account !== next) {
-      revoke();
-      account = next;
-    } else if (!account) {
+    if (!next) return;
+    if (!account) {
       account = next;
       watch();
     }
@@ -1985,7 +1989,7 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     memoryDir,
     bindTerminate: (terminate) => {
       memorySessionTerminators.set(file, terminate);
-      if (unrevocable) terminate();
+      if (ended) terminate();
     },
     release: () => {
       released = true;

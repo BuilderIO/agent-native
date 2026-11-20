@@ -2044,6 +2044,33 @@ export async function resourceGet(
   return visible ?? null;
 }
 
+async function selectResourceByPath(
+  owner: string,
+  path: string,
+): Promise<Resource | undefined> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  return rows[0] ? rowToResource(rows[0]) : undefined;
+}
+
+function isNewerSharedMemory(
+  path: string,
+  shared: { content: string; mtimeMs: number },
+  dbResource: Resource | undefined,
+): boolean {
+  if (!dbResource) return true;
+  const dbIsEmptyIndex =
+    path === "memory/MEMORY.md" &&
+    dbResource.content.trim() === "# Memory Index" &&
+    shared.content.trim() !== "# Memory Index";
+  return (
+    shared.content !== dbResource.content &&
+    (shared.mtimeMs > dbResource.updatedAt || dbIsEmptyIndex)
+  );
+}
+
 async function adoptSharedMemory(
   owner: string,
   path: string,
@@ -2521,27 +2548,20 @@ export async function resourceGetByPath(
         return null;
       }
       const shared = mirrored.state === "present" ? mirrored : null;
-      if (shared) {
-        const dbIsEmptyIndex =
-          path === "memory/MEMORY.md" &&
-          dbResource?.content.trim() === "# Memory Index" &&
-          shared.content.trim() !== "# Memory Index";
-        if (
-          !dbResource ||
-          (shared.content !== dbResource.content &&
-            (shared.mtimeMs > dbResource.updatedAt || dbIsEmptyIndex))
-        ) {
-          return serializeMemoryMirror(owner, path, async () => {
-            const fresh = await readMirroredMemory(owner, path);
-            if (fresh.state === "present") {
-              return adoptSharedMemory(owner, path, fresh, dbResource);
-            }
-            const hidden =
-              fresh.state === "deleted" &&
-              (!dbResource || dbResource.updatedAt <= fresh.deletedAt);
-            return hidden ? null : (dbResource ?? null);
-          });
-        }
+      if (shared && isNewerSharedMemory(path, shared, dbResource)) {
+        return serializeMemoryMirror(owner, path, async () => {
+          const current = await selectResourceByPath(owner, path);
+          const fresh = await readMirroredMemory(owner, path);
+          if (fresh.state === "present") {
+            return isNewerSharedMemory(path, fresh, current)
+              ? adoptSharedMemory(owner, path, fresh, current)
+              : (current ?? null);
+          }
+          const hidden =
+            fresh.state === "deleted" &&
+            (!current || current.updatedAt <= fresh.deletedAt);
+          return hidden ? null : (current ?? null);
+        });
       }
     }
     if (resources[0]) return resources[0];
