@@ -244,7 +244,7 @@
       .menu-submenu-trigger
     )[data-disabled] {
     pointer-events: none;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .menu-popup

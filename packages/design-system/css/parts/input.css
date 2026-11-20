@@ -183,7 +183,7 @@
 
   .input:has(.input-control:disabled) {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .input:has(.input-control:disabled) :is(.input-control, .input-slot) {
@@ -192,7 +192,7 @@
 
   .input:has(.input-control:disabled) .input-control::placeholder,
   .input:has(.input-control:disabled) .input-slot {
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .input[data-variant="surface"]:has(.input-control:disabled) {

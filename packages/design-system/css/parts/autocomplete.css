@@ -347,7 +347,7 @@
 
   :is(.autocomplete-item, .combobox-item)[data-disabled] {
     pointer-events: none;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   :is(.autocomplete-group-label, .combobox-group-label) {

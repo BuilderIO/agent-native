@@ -57,7 +57,7 @@
 
   .accordion-trigger[data-disabled] {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .accordion-trigger[data-disabled] .accordion-chevron {

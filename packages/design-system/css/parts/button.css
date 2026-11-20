@@ -213,7 +213,7 @@
     cursor: not-allowed;
     scale: 1;
     filter: none;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   :is(.button, .icon-button):is(:disabled, [data-disabled]):is(

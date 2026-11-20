@@ -118,7 +118,7 @@
   .checkbox[data-disabled][data-variant] {
     cursor: not-allowed;
     background-color: var(--gray-a3);
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .checkbox[data-disabled][data-variant="surface"] {

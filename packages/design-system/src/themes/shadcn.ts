@@ -94,7 +94,7 @@ const SHADCN_ROLES: TokenMap = {
   "--fg-muted":
     "color-mix(in oklab, hsl(var(--muted-foreground)) 80%, hsl(var(--foreground)))",
   "--fg-subtle": shadcn("muted-foreground"),
-  "--fg-disabled": shadcn("muted-foreground"),
+  "--fg-disabled": "var(--gray-a8)",
   "--fg-on-brand": shadcn("primary-foreground"),
   "--fg-on-danger": shadcn("destructive-foreground"),
   "--fg-brand": "var(--brand-text)",

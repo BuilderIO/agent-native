@@ -100,7 +100,7 @@
   .number-field
     :is(.number-field-decrement, .number-field-increment)[data-readonly] {
     background-color: transparent;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
     cursor: default;
     scale: 1;
   }

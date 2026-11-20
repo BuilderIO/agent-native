@@ -123,7 +123,7 @@
 
   .otp-field .otp-field-input:disabled {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .otp-field[data-variant="surface"] .otp-field-input:disabled {

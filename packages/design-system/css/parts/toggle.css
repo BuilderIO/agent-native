@@ -157,7 +157,7 @@
   .toggle:is(:disabled, [data-disabled]) {
     cursor: not-allowed;
     scale: 1;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .toggle:is(:disabled, [data-disabled])[data-variant] {

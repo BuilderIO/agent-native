@@ -176,11 +176,11 @@
 
   .segmented-control-item[data-disabled] {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .segmented-control .segmented-control-item[data-disabled][data-pressed] {
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .segmented-control

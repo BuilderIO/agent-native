@@ -114,7 +114,7 @@
   :where(.toolbar-button):where([data-disabled]) {
     cursor: not-allowed;
     background-color: transparent;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .toolbar-separator {

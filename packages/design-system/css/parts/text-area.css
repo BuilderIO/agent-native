@@ -122,11 +122,11 @@
 
   .text-area:disabled {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .text-area:disabled::placeholder {
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .text-area[data-variant="surface"]:disabled {

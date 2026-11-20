@@ -344,13 +344,13 @@ describe("part catalog", () => {
     }
   });
 
-  it("sets text color from a text role, never a solid gray step", () => {
+  it("sets text color from a text role, never a gray step", () => {
     const steps = STYLED.flatMap((part) => {
       const css = readFileSync(
         path.join(cssDir, "parts", `${part.name}.css`),
         "utf8",
       ).replace(/\/\*[\s\S]*?\*\//g, "");
-      return [...css.matchAll(/(?<![\w-])color:\s*var\(--gray-\d+\)/g)].map(
+      return [...css.matchAll(/(?<![\w-])color:\s*var\(--gray-a?\d+\)/g)].map(
         ([declaration]) => `${part.name}: ${declaration}`,
       );
     });

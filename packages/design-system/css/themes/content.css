@@ -12,7 +12,7 @@
     --fg-default: hsl(var(--theme-foreground));
     --fg-muted: color-mix(in oklab, hsl(var(--theme-muted-foreground)) 80%, hsl(var(--theme-foreground)));
     --fg-subtle: hsl(var(--theme-muted-foreground));
-    --fg-disabled: hsl(var(--theme-muted-foreground));
+    --fg-disabled: var(--gray-a8);
     --fg-on-brand: hsl(var(--theme-primary-foreground));
     --fg-on-danger: hsl(var(--theme-destructive-foreground));
     --fg-brand: var(--brand-text);
@@ -129,7 +129,7 @@
     --fg-default: hsl(var(--theme-foreground));
     --fg-muted: color-mix(in oklab, hsl(var(--theme-muted-foreground)) 80%, hsl(var(--theme-foreground)));
     --fg-subtle: hsl(var(--theme-muted-foreground));
-    --fg-disabled: hsl(var(--theme-muted-foreground));
+    --fg-disabled: var(--gray-a8);
     --fg-on-brand: hsl(var(--theme-primary-foreground));
     --fg-on-danger: hsl(var(--theme-destructive-foreground));
     --fg-brand: var(--brand-text);
@@ -246,7 +246,7 @@
     --fg-default: hsl(var(--theme-foreground));
     --fg-muted: color-mix(in oklab, hsl(var(--theme-muted-foreground)) 80%, hsl(var(--theme-foreground)));
     --fg-subtle: hsl(var(--theme-muted-foreground));
-    --fg-disabled: hsl(var(--theme-muted-foreground));
+    --fg-disabled: var(--gray-a8);
     --fg-on-brand: hsl(var(--theme-primary-foreground));
     --fg-on-danger: hsl(var(--theme-destructive-foreground));
     --fg-brand: var(--brand-text);

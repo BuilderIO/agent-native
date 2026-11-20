@@ -29,6 +29,6 @@
   }
 
   .fieldset[data-disabled] .fieldset-legend {
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 }

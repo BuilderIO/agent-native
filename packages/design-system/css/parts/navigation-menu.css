@@ -134,7 +134,7 @@
   .navigation-menu-link[aria-disabled="true"] {
     cursor: not-allowed;
     background-color: transparent;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   /* Inset: the sidebar scrolls, which would clip a ring drawn outside. */

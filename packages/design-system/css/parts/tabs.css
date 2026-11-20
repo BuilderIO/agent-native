@@ -159,7 +159,7 @@
 
   .tabs-tab[data-disabled] {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   /* The underline: Base UI's indicator under Tabs, the current link's own

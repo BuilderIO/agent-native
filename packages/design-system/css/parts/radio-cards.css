@@ -158,7 +158,7 @@
 
   :is(.radio-cards-item, .checkbox-cards-item)[data-disabled] {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   :is(

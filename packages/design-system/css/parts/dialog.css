@@ -246,6 +246,6 @@
   .dialog-close[data-disabled] {
     pointer-events: none;
     background-color: transparent;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 }

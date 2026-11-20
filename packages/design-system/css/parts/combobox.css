@@ -134,7 +134,7 @@
 
   .combobox-chip[data-disabled] {
     background-color: var(--gray-a3);
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .combobox-chip-remove {

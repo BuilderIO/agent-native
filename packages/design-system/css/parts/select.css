@@ -150,7 +150,7 @@
 
   .select-trigger[data-disabled] {
     cursor: not-allowed;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .select-trigger[data-disabled][data-variant="surface"] {
@@ -343,7 +343,7 @@
 
   .select-item[data-disabled] {
     pointer-events: none;
-    color: var(--gray-a8);
+    color: var(--fg-disabled);
   }
 
   .select-item-indicator {
