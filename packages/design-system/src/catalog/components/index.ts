@@ -1,4 +1,5 @@
 export * from "./alert-dialog.js";
+export * from "./alignment-picker.js";
 export * from "./aspect-ratio.js";
 export * from "./autocomplete.js";
 export * from "./avatar.js";
@@ -16,6 +17,7 @@ export * from "./context-menu.js";
 export * from "./data-list.js";
 export * from "./dialog.js";
 export * from "./drawer.js";
+export * from "./grid-size-picker.js";
 export * from "./heading.js";
 export * from "./input.js";
 export * from "./inset.js";

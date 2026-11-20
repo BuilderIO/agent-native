@@ -2,6 +2,7 @@
 
 import type {
   alertDialogPopupProps,
+  alignmentPickerProps,
   aspectRatioProps,
   autocompletePopupProps,
   autocompleteProps,
@@ -23,6 +24,7 @@ import type {
   dataListProps,
   dialogPopupProps,
   drawerProps,
+  gridSizePickerProps,
   headingProps,
   iconButtonProps,
   inputProps,
@@ -75,6 +77,32 @@ export interface AlertDialogPopupOwnProps {
    * @default "3"
    */
   size?: "1" | "2" | "3" | "4";
+}
+
+export interface AlignmentPickerOwnProps {
+  /**
+   * Matrix cell size, on a 4px gap: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
+   * @default "1"
+   */
+  size?: "1" | "2" | "3" | "4";
+  /**
+   * How the component applies its color.
+   * @default "surface"
+   */
+  variant?: "surface" | "soft";
+  /**
+   * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
+   */
+  color?: "accent" | "gray" | "danger" | "warning" | "success" | "info";
+  /**
+   * Overrides the theme's corner radius for this component.
+   */
+  radius?: "none" | "small" | "medium" | "large" | "full";
+  /**
+   * The layout's main axis. It orients the glyphs only: a row draws vertical bars, a column horizontal ones.
+   * @default "row"
+   */
+  direction?: "row" | "column";
 }
 
 export interface AspectRatioOwnProps {}
@@ -486,6 +514,27 @@ export interface DrawerOwnProps {
    * @default "bottom"
    */
   side?: "top" | "right" | "bottom" | "left";
+}
+
+export interface GridSizePickerOwnProps {
+  /**
+   * Tile cell size, as in Alignment Picker: 1 is 16px, 2 is 20px, 3 is 24px, 4 is 32px.
+   * @default "1"
+   */
+  size?: "1" | "2" | "3" | "4";
+  /**
+   * How the component applies its color.
+   * @default "surface"
+   */
+  variant?: "surface" | "soft";
+  /**
+   * The scale the component draws from. Unset, it inherits the nearest color, and the theme's accent at the root.
+   */
+  color?: "accent" | "gray" | "danger" | "warning" | "success" | "info";
+  /**
+   * Overrides the theme's corner radius for this component.
+   */
+  radius?: "none" | "small" | "medium" | "large" | "full";
 }
 
 export interface HeadingOwnProps {
@@ -1301,6 +1350,7 @@ export type PropTypesMatchDefinitions = [
   Expect<
     Equal<AlertDialogPopupOwnProps, PropsOf<typeof alertDialogPopupProps>>
   >,
+  Expect<Equal<AlignmentPickerOwnProps, PropsOf<typeof alignmentPickerProps>>>,
   Expect<Equal<AspectRatioOwnProps, PropsOf<typeof aspectRatioProps>>>,
   Expect<
     Equal<AutocompletePopupOwnProps, PropsOf<typeof autocompletePopupProps>>
@@ -1326,6 +1376,7 @@ export type PropTypesMatchDefinitions = [
   Expect<Equal<DataListOwnProps, PropsOf<typeof dataListProps>>>,
   Expect<Equal<DialogPopupOwnProps, PropsOf<typeof dialogPopupProps>>>,
   Expect<Equal<DrawerOwnProps, PropsOf<typeof drawerProps>>>,
+  Expect<Equal<GridSizePickerOwnProps, PropsOf<typeof gridSizePickerProps>>>,
   Expect<Equal<HeadingOwnProps, PropsOf<typeof headingProps>>>,
   Expect<Equal<IconButtonOwnProps, PropsOf<typeof iconButtonProps>>>,
   Expect<Equal<InputOwnProps, PropsOf<typeof inputProps>>>,

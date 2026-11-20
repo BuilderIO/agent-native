@@ -30,6 +30,8 @@
 @import "./parts/text-area.css";
 @import "./parts/number-field.css";
 @import "./parts/otp-field.css";
+@import "./parts/alignment-picker.css";
+@import "./parts/grid-size-picker.css";
 @import "./parts/field.css";
 @import "./parts/fieldset.css";
 @import "./parts/form.css";
