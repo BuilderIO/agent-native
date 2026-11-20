@@ -109,6 +109,8 @@ export interface ActiveRun {
   turnId: string;
   agentKitApprovalContinuation?: boolean;
   events: RunEvent[];
+  privateAssistantTextSequences?: ReadonlySet<number>;
+  privateCompletedUiTools?: ReadonlySet<number>;
   status: RunStatus;
   subscribers: Set<(event: RunEvent) => void>;
   abort: AbortController;
@@ -651,17 +653,29 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
  * it. The model has not read the error yet at this point, which makes a failed
  * tail strictly more unfinished than a successful one.
  */
+export function runEventHasAssistantText(
+  run: Pick<ActiveRun, "privateAssistantTextSequences">,
+  runEvent: RunEvent,
+): boolean {
+  if (runEvent.event.type !== "text") return false;
+  return (
+    runEvent.event.text.trim().length > 0 ||
+    run.privateAssistantTextSequences?.has(runEvent.seq) === true
+  );
+}
+
 export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
-  privateCompletedUiTools: ReadonlySet<number> = new Set(),
+  privateCompletedUiTools?: ReadonlySet<number>,
 ): boolean {
   let toolResultAfterLastAssistantText = false;
-  for (const { event, seq } of run.events) {
+  for (const runEvent of run.events) {
+    const { event, seq } = runEvent;
     if (event.type === "done" && event.reason === "action_settled") {
       toolResultAfterLastAssistantText = false;
       continue;
     }
-    if (event.type === "text" && event.text.trim().length > 0) {
+    if (runEventHasAssistantText(run, runEvent)) {
       toolResultAfterLastAssistantText = false;
       continue;
     }
@@ -671,7 +685,8 @@ export function endsAfterToolResultWithoutAssistantFinal(
         event.isError === true ||
         (event.chatUI === undefined &&
           event.mcpApp === undefined &&
-          !privateCompletedUiTools.has(seq));
+          run.privateCompletedUiTools?.has(seq) !== true &&
+          privateCompletedUiTools?.has(seq) !== true);
       continue;
     }
     if (
@@ -690,7 +705,8 @@ export function endsAfterToolResultWithoutAssistantFinal(
 
 export function endsDuringActionPreparation(run: ActiveRun): boolean {
   let preparingAction = false;
-  for (const { event } of run.events) {
+  for (const runEvent of run.events) {
+    const { event } = runEvent;
     if (
       isPreparingActionActivityEvent(event) ||
       event.type === "tool_input_start" ||
@@ -700,7 +716,7 @@ export function endsDuringActionPreparation(run: ActiveRun): boolean {
       continue;
     }
     if (
-      (event.type === "text" && event.text.trim().length > 0) ||
+      runEventHasAssistantText(run, runEvent) ||
       event.type === "tool_start" ||
       event.type === "tool_done" ||
       event.type === "approval_required" ||
@@ -715,6 +731,13 @@ export function endsDuringActionPreparation(run: ActiveRun): boolean {
     }
   }
   return preparingAction;
+}
+
+export function runHasUnfinishedToolOrActionBoundary(run: ActiveRun): boolean {
+  return (
+    endsAfterToolResultWithoutAssistantFinal(run) ||
+    endsDuringActionPreparation(run)
+  );
 }
 
 function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
@@ -2103,6 +2126,7 @@ export function startRun(
       runEvent.event.text.trim().length > 0
     ) {
       privateAssistantTextSequences.add(runEvent.seq);
+      run.privateAssistantTextSequences = privateAssistantTextSequences;
     }
     if (
       runEvent.event.omitFromPersistedHistory === true &&
@@ -2111,6 +2135,7 @@ export function startRun(
         runEvent.event.mcpApp !== undefined)
     ) {
       privateCompletedUiTools.add(runEvent.seq);
+      run.privateCompletedUiTools = privateCompletedUiTools;
     }
     run.events.push(retainedEvent);
     for (const subscriber of run.subscribers) {
@@ -2542,17 +2567,6 @@ export function startRun(
               ? "truncated"
               : "completed";
       run.status = finalStatus;
-      const runForCompletionChecks: ActiveRun = privateTurn
-        ? {
-            ...run,
-            events: run.events.map((runEvent) =>
-              privateAssistantTextSequences.has(runEvent.seq) &&
-              runEvent.event.type === "text"
-                ? { ...runEvent, event: { ...runEvent.event, text: "..." } }
-                : runEvent,
-            ),
-          }
-        : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
         !checkpointStatusReadFailed &&
@@ -2561,11 +2575,7 @@ export function startRun(
           terminalEventForCompletion?.event.type === "done" &&
           terminalEventForCompletion.event.reason === "action_settled"
         ) &&
-        (endsAfterToolResultWithoutAssistantFinal(
-          runForCompletionChecks,
-          privateCompletedUiTools,
-        ) ||
-          endsDuringActionPreparation(runForCompletionChecks)) &&
+        runHasUnfinishedToolOrActionBoundary(run) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
             terminalEventForCompletion.event.reason !== "user"));

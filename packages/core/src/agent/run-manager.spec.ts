@@ -289,6 +289,7 @@ import {
   abortTurnDurably,
   abortTurnByRefDurably,
   endsAfterToolResultWithoutAssistantFinal,
+  endsDuringActionPreparation,
   engineRequestShapeTags,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
@@ -9252,6 +9253,79 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
       expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
       expect(JSON.stringify(run.events)).not.toContain("private final answer");
+      expect(
+        run.events.some(({ event }) => event.type === "auto_continue"),
+      ).toBe(false);
+    }
+  });
+
+  it("exposes private final assistant text and UI completions consistently to onComplete completion predicates", async () => {
+    for (const kind of ["text", "ui", "action-prep-then-text"] as const) {
+      const runId = `run-private-oncomplete-predicate-${kind}`;
+      const observed: {
+        endsAfterTool: boolean;
+        endsDuringPrep: boolean;
+        serializedEvents: string;
+      }[] = [];
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          if (kind === "action-prep-then-text") {
+            await send({
+              type: "tool_input_start",
+              id: "prep-1",
+              tool: "manage-gmail-draft",
+              omitFromPersistedHistory: true,
+            });
+            await send({
+              type: "text",
+              text: "private final after prep",
+              omitFromPersistedHistory: true,
+            });
+            return;
+          }
+          await send({
+            type: "tool_start",
+            id: "call-1",
+            tool: "manage-gmail-draft",
+            input: { body: "private-draft-body" },
+            omitFromPersistedHistory: true,
+          });
+          await send({
+            type: "tool_done",
+            id: "call-1",
+            tool: "manage-gmail-draft",
+            input: { body: "private-draft-body" },
+            result: "private draft saved",
+            completedSideEffect: true,
+            ...(kind === "ui"
+              ? { chatUI: { renderer: "core.inline-extension" } }
+              : {}),
+          });
+          if (kind === "text") {
+            await send({ type: "text", text: "Saved the private draft." });
+          }
+        },
+        async (completionRun) => {
+          observed.push({
+            endsAfterTool:
+              endsAfterToolResultWithoutAssistantFinal(completionRun),
+            endsDuringPrep: endsDuringActionPreparation(completionRun),
+            serializedEvents: JSON.stringify(completionRun.events),
+          });
+        },
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(observed).toHaveLength(1);
+      const [first] = observed;
+      expect(first.endsAfterTool).toBe(false);
+      expect(first.endsDuringPrep).toBe(false);
+      expect(first.serializedEvents).not.toContain("Saved the private draft.");
+      expect(first.serializedEvents).not.toContain("private final after prep");
+      expect(first.serializedEvents).not.toContain("core.inline-extension");
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
       expect(
         run.events.some(({ event }) => event.type === "auto_continue"),
       ).toBe(false);

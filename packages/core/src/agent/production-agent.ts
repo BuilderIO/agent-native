@@ -471,8 +471,8 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
-  endsAfterToolResultWithoutAssistantFinal,
-  endsDuringActionPreparation,
+  runEventHasAssistantText,
+  runHasUnfinishedToolOrActionBoundary,
 } from "./run-manager.js";
 import type { ActiveRun, StartedRun } from "./run-manager.js";
 import {
@@ -12775,10 +12775,7 @@ export function backgroundContinuationReasonForRun(
       }),
     );
   }
-  if (
-    endsAfterToolResultWithoutAssistantFinal(run) ||
-    endsDuringActionPreparation(run)
-  ) {
+  if (runHasUnfinishedToolOrActionBoundary(run)) {
     return "stream_ended";
   }
   return "run_timeout";
@@ -12934,17 +12931,16 @@ export async function runAgentLoopWithMainChatInternalContinuations(
 export function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
-    endsAfterToolResultWithoutAssistantFinal(run) ||
-    endsDuringActionPreparation(run)
+    runHasUnfinishedToolOrActionBoundary(run)
   );
 }
 
 function chunkMadeForwardProgress(run: ActiveRun): boolean {
   return run.events.some(
-    ({ event }) =>
-      (event.type === "text" && event.text.trim().length > 0) ||
-      event.type === "tool_start" ||
-      event.type === "tool_done",
+    (runEvent) =>
+      runEventHasAssistantText(run, runEvent) ||
+      runEvent.event.type === "tool_start" ||
+      runEvent.event.type === "tool_done",
   );
 }
 

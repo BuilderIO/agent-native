@@ -229,6 +229,61 @@ describe("post-agent-run observer", () => {
     expect(observer).toHaveBeenCalledWith(scope, run, { turnContinues: true });
   });
 
+  it("tells the observer a private turn with redacted final text does not continue", async () => {
+    const observer = vi.fn();
+    const finishedRun: ActiveRun = {
+      ...makeRun([
+        {
+          type: "tool_done",
+          tool: "manage-gmail-draft",
+          result: "[Private content omitted]",
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "text",
+          text: "",
+          omitFromPersistedHistory: true,
+        },
+        { type: "done", omitFromPersistedHistory: true },
+      ]),
+      privateAssistantTextSequences: new Set([1]),
+    };
+
+    await runPostAgentRunComplete(observer, scope, finishedRun, {
+      turnContinues: endsAtContinuationBoundary(finishedRun),
+    });
+
+    expect(observer).toHaveBeenCalledWith(scope, finishedRun, {
+      turnContinues: false,
+    });
+  });
+
+  it("tells the observer a private turn with genuinely empty text continues", async () => {
+    const observer = vi.fn();
+    const unfinishedRun = makeRun([
+      {
+        type: "tool_done",
+        tool: "manage-gmail-draft",
+        result: "[Private content omitted]",
+        omitFromPersistedHistory: true,
+      },
+      {
+        type: "text",
+        text: "",
+        omitFromPersistedHistory: true,
+      },
+      { type: "done", omitFromPersistedHistory: true },
+    ]);
+
+    await runPostAgentRunComplete(observer, scope, unfinishedRun, {
+      turnContinues: endsAtContinuationBoundary(unfinishedRun),
+    });
+
+    expect(observer).toHaveBeenCalledWith(scope, unfinishedRun, {
+      turnContinues: true,
+    });
+  });
+
   it("reports observer errors without rejecting the completed run", async () => {
     const error = new Error("telemetry unavailable");
     const captured = vi.fn();
