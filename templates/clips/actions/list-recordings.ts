@@ -42,6 +42,7 @@ import {
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
 import { transcriptHasTextSql } from "./lib/transcript-text.js";
+import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 // A calendar date (2026-10-25) or a date-time with its offset
 // (2026-10-25T12:00:00Z). Date.parse alone would also take 10/25/2026 and
@@ -49,10 +50,6 @@ import { transcriptHasTextSql } from "./lib/transcript-text.js";
 const isoDate = z.union([z.iso.date(), z.iso.datetime({ offset: true })], {
   error: "Use an ISO date or date-time, like 2026-10-25.",
 });
-
-function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, "\\$1");
-}
 
 type RecordingMediaFields = {
   id: string;
@@ -198,7 +195,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. The from-content view returns the user's Clips uploaded from Agent-Native Content pages, each with `contentPageUrl`; Library leaves them out. Read-only: call navigate with view='library' and search='<query>' when showing matching clips in the Library UI.",
   schema: listRecordingsSchema,
   http: { method: "GET" },
   run: async (args, ctx) => {
@@ -283,10 +280,12 @@ export default defineAction({
       }
     }
 
+    const searchTerm = args.search?.trim();
+
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
-      } else {
+      } else if (!searchTerm) {
         whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
@@ -302,10 +301,14 @@ export default defineAction({
       whereClauses.push(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
     }
 
-    if (args.search) {
-      const pat = `%${escapeLike(args.search)}%`;
+    if (searchTerm) {
+      const pattern = buildCaseInsensitiveSearchPattern(searchTerm);
+      const email = ctx?.userEmail ?? getRequestUserEmail();
+      const canSearchTranscript = email
+        ? sql`(${ownerEmailMatches(schema.recordings.ownerEmail, email)} OR ${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '')`
+        : sql`(${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '')`;
       whereClauses.push(
-        sql`(${schema.recordings.title} LIKE ${pat} ESCAPE '\\' OR ${schema.recordings.description} LIKE ${pat} ESCAPE '\\')`,
+        sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\' OR (${canSearchTranscript} AND EXISTS (SELECT 1 FROM ${schema.recordingTranscripts} rt WHERE rt.recording_id = ${schema.recordings.id} AND lower(rt.full_text) LIKE ${pattern} ESCAPE '\\')))`,
       );
     }
 

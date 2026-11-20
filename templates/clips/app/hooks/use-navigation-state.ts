@@ -66,12 +66,19 @@ function decodePathSegment(value: string | undefined): string | null {
   }
 }
 
+function appendSearchQuery(path: string, search: string | undefined): string {
+  const trimmed = search?.trim();
+  if (!trimmed) return path;
+  const params = new URLSearchParams({ q: trimmed });
+  return `${path}?${params.toString()}`;
+}
+
 export function stateFromLocation(
   pathname: string,
   search: string,
 ): NavigationState {
   const params = new URLSearchParams(search);
-  const searchTerm = params.get("q") || undefined;
+  const searchTerm = params.get("q")?.trim() || undefined;
   const p = pathname.replace(/\/+$/, "") || "/";
 
   const recordingMatch = p.match(/^\/r\/([^/]+)$/);
@@ -112,10 +119,30 @@ export function stateFromLocation(
     };
   }
 
+  const spaceFolderMatch = p.match(/^\/spaces\/([^/]+)\/folder\/([^/]+)$/);
+  if (spaceFolderMatch) {
+    const spaceId = decodePathSegment(spaceFolderMatch[1]);
+    const folderId = decodePathSegment(spaceFolderMatch[2]);
+    return spaceId && folderId
+      ? {
+          view: "space",
+          spaceId,
+          folderId,
+          ...(searchTerm ? { search: searchTerm } : {}),
+        }
+      : { view: "library" };
+  }
+
   const spaceMatch = p.match(/^\/spaces\/([^/]+)$/);
   if (spaceMatch) {
     const spaceId = decodePathSegment(spaceMatch[1]);
-    return spaceId ? { view: "space", spaceId } : { view: "library" };
+    return spaceId
+      ? {
+          view: "space",
+          spaceId,
+          ...(searchTerm ? { search: searchTerm } : {}),
+        }
+      : { view: "library" };
   }
 
   const folderMatch = p.match(/^\/library\/folder\/([^/]+)$/);
@@ -154,12 +181,13 @@ export function stateFromLocation(
     };
   }
 
-  if (p === "/screenshots") return { view: "screenshots" };
+  const listSearch = searchTerm ? { search: searchTerm } : {};
+  if (p === "/screenshots") return { view: "screenshots", ...listSearch };
   if (p === "/spaces") return { view: "spaces" };
-  if (p === "/shared") return { view: "shared" };
-  if (p === "/from-content") return { view: "from-content" };
-  if (p === "/archive") return { view: "archive" };
-  if (p === "/trash") return { view: "trash" };
+  if (p === "/shared") return { view: "shared", ...listSearch };
+  if (p === "/from-content") return { view: "from-content", ...listSearch };
+  if (p === "/archive") return { view: "archive", ...listSearch };
+  if (p === "/trash") return { view: "trash", ...listSearch };
   if (p === "/record") return { view: "record" };
   if (p === "/bug-report") return { view: "bug-report" };
   if (p === "/bug-report/done") {
@@ -210,18 +238,25 @@ export function pathFromCommand(cmd: NavigateCommand): string {
         : "/library";
     case "space":
       return cmd.spaceId
-        ? `/spaces/${encodeURIComponent(cmd.spaceId)}`
+        ? appendSearchQuery(
+            cmd.folderId
+              ? `/spaces/${encodeURIComponent(cmd.spaceId)}/folder/${encodeURIComponent(cmd.folderId)}`
+              : `/spaces/${encodeURIComponent(cmd.spaceId)}`,
+            cmd.search,
+          )
         : "/spaces";
     case "spaces":
       return "/spaces";
+    case "screenshots":
+      return appendSearchQuery("/screenshots", cmd.search);
     case "shared":
-      return "/shared";
+      return appendSearchQuery("/shared", cmd.search);
     case "from-content":
-      return "/from-content";
+      return appendSearchQuery("/from-content", cmd.search);
     case "archive":
-      return "/archive";
+      return appendSearchQuery("/archive", cmd.search);
     case "trash":
-      return "/trash";
+      return appendSearchQuery("/trash", cmd.search);
     case "record":
       return "/record";
     case "bug-report":
@@ -245,11 +280,12 @@ export function pathFromCommand(cmd: NavigateCommand): string {
         ? `/dictate?dictationId=${encodeURIComponent(cmd.dictationId)}`
         : "/dictate";
     case "library":
-    default:
-      if (cmd.folderId) {
-        return `/library/folder/${encodeURIComponent(cmd.folderId)}`;
-      }
-      return "/library";
+    default: {
+      const basePath = cmd.folderId
+        ? `/library/folder/${encodeURIComponent(cmd.folderId)}`
+        : "/library";
+      return appendSearchQuery(basePath, cmd.search);
+    }
   }
 }
 
