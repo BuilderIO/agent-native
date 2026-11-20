@@ -3530,24 +3530,33 @@ describe("AgentChat lifecycle", () => {
       output: `Error running search-records: ${reason}`,
       status: "failed",
     };
-    const started: AgentEvent = {
-      id: `event-${search.id}`,
-      threadId,
-      runId,
-      sequence: 1,
-      occurredAt: "2026-08-31T00:00:01.000Z",
-      type: "tool.started",
-      toolCall: { ...search, status: "running" },
+    const emoji = `${"a".repeat(79)}😀 and more`;
+    const notes: AgentToolCall = {
+      id: "tool-notes",
+      name: "search-notes",
+      input: { query: emoji },
+      output: `Error running search-notes: ${reason}`,
+      status: "failed",
     };
     const thread = {
       ...createAgentThreadState(threadId),
-      tools: { [search.id]: search },
-      events: [started],
+      tools: { [search.id]: search, [notes.id]: notes },
+      events: [search, notes].map(
+        (tool, index): AgentEvent => ({
+          id: `event-${tool.id}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: `2026-08-31T00:00:0${index + 1}.000Z`,
+          type: "tool.started",
+          toolCall: { ...tool, status: "running" },
+        }),
+      ),
       runs: {
         [runId]: {
           id: runId,
           status: "completed" as const,
-          lastSequence: 1,
+          lastSequence: 2,
           startedAt: "2026-08-31T00:00:00.000Z",
           completedAt: "2026-08-31T00:00:02.000Z",
         },
@@ -3573,9 +3582,16 @@ describe("AgentChat lifecycle", () => {
     );
     const name = query.trim().slice(0, 80).trimEnd();
     expect(
-      failure?.querySelector(".agentkit-work-source-failure-label")
-        ?.textContent,
-    ).toBe(`Couldn't search for ${name}…`);
+      Array.from(
+        tree.container.querySelectorAll(
+          "[data-agentkit-work-sources] .agentkit-work-source-failure-label",
+        ),
+        (label) => label.textContent,
+      ),
+    ).toEqual([
+      `Couldn't search for ${name}…`,
+      `Couldn't search for ${"a".repeat(79)}😀…`,
+    ]);
     expect(
       failure?.querySelector(".agentkit-work-source-failure-reason")
         ?.textContent,

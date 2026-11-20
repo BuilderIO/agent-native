@@ -1015,7 +1015,8 @@ function readKind(call: AgentWorkCall): string {
 
 function readsSources(call: AgentWorkCall): boolean {
   const input = inputRecord(call.tool?.input);
-  if (sendsWriteMethod(input) || replacesText(input)) return false;
+  const sends = sendsWriteMethod(input) && firstString(input, URL_KEYS);
+  if (sends || replacesText(input)) return false;
   const words = toolWords(call);
   if (writesBy(words) || FRAMEWORK_TOOLS.has(words.join("-"))) return false;
   return (

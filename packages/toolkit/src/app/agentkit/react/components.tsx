@@ -2269,9 +2269,10 @@ function workSourceFailureLabel(
   labels: AgentKitLabels,
 ): string {
   const text = readableText(failure.text);
+  const characters = Array.from(text);
   const name =
-    text.length > WORK_SOURCE_FAILURE_NAME_LIMIT
-      ? `${text.slice(0, WORK_SOURCE_FAILURE_NAME_LIMIT).trimEnd()}…`
+    characters.length > WORK_SOURCE_FAILURE_NAME_LIMIT
+      ? `${characters.slice(0, WORK_SOURCE_FAILURE_NAME_LIMIT).join("").trimEnd()}…`
       : text;
   if (name) {
     const template =

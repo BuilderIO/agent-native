@@ -823,6 +823,25 @@ describe("agentWorkSources", () => {
     expect(failures).toEqual([]);
   });
 
+  it("counts a read with a method input as a source when it names no address", () => {
+    const { sources } = agentWorkSources([
+      call("a", "search-request-logs", { query: "checkout", method: "POST" }),
+      call(
+        "b",
+        "get-document",
+        { id: "d1", method: "markdown" },
+        { output: { id: "d1", title: "Launch plan" } },
+      ),
+      call("c", "list-transactions", { query: "refunds", method: "card" }),
+      call("d", "web-request", { url: "https://a.dev/hook", method: "POST" }),
+    ]);
+    expect(sources.map(({ kind, text }) => [kind, text])).toEqual([
+      ["search", "checkout"],
+      ["document", "Launch plan"],
+      ["search", "refunds"],
+    ]);
+  });
+
   it("never counts tools named for a write, even with read or search words", () => {
     const failed = { status: "failed" as const, output: "Denied" };
     const { sources, failures } = agentWorkSources([
