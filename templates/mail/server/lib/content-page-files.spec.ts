@@ -89,6 +89,60 @@ describe("Content page files", () => {
     });
   });
 
+  it("reads a page as a PDF and decodes its bytes", async () => {
+    const pdf = Buffer.from("%PDF-1.3\n%\xff\xfe\n", "latin1");
+    invokeAgentAction.mockResolvedValue(
+      completed({
+        ...pageFile,
+        format: "pdf",
+        filename: "Q3 plan.pdf",
+        encoding: "base64",
+        content: pdf.toString("base64"),
+        size: pdf.byteLength,
+      }),
+    );
+    const { readContentPageFile } = await import("./content-page-files.js");
+
+    const file = await readContentPageFile({ id: "plan-page", format: "pdf" });
+
+    expect(file.format).toBe("pdf");
+    expect(file.data.equals(pdf)).toBe(true);
+    expect(invokeAgentAction.mock.calls[0]?.[0].input).toMatchObject({
+      format: "pdf",
+    });
+  });
+
+  it("refuses a PDF that isn't base64, isn't a PDF, or is cut short", async () => {
+    const { readContentPageFile } = await import("./content-page-files.js");
+    const pdf = Buffer.from("%PDF-1.3\n", "latin1");
+    const pdfFile = {
+      ...pageFile,
+      format: "pdf",
+      filename: "Q3 plan.pdf",
+      encoding: "base64",
+      content: pdf.toString("base64"),
+      size: pdf.byteLength,
+    };
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pdfFile, encoding: "utf8" }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
+
+    for (const content of [
+      Buffer.from("not a pdf!").toString("base64"),
+      "%%%%",
+      pdfFile.content.slice(0, -4),
+    ]) {
+      invokeAgentAction.mockResolvedValue(completed({ ...pdfFile, content }));
+      await expect(
+        readContentPageFile({ id: "plan-page", format: "pdf" }),
+      ).rejects.toMatchObject({ errorCode: "content_file_incomplete" });
+    }
+  });
+
   it("refuses a file for another page or in another format", async () => {
     const { readContentPageFile } = await import("./content-page-files.js");
 
@@ -102,6 +156,13 @@ describe("Content page files", () => {
     invokeAgentAction.mockResolvedValue(completed(pageFile));
     await expect(
       readContentPageFile({ id: "plan-page", format: "csv" }),
+    ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
+
+    invokeAgentAction.mockResolvedValue(
+      completed({ ...pageFile, format: "csv" }),
+    );
+    await expect(
+      readContentPageFile({ id: "plan-page" }),
     ).rejects.toMatchObject({ errorCode: "content_invalid_response" });
 
     invokeAgentAction.mockResolvedValue(
@@ -223,6 +284,9 @@ describe("Content page files", () => {
         format: "csv",
       }),
     ).toBe("Tracker.csv");
+    expect(
+      attachmentNameForFile({ filename: "Poems.pdf", format: "pdf" }),
+    ).toBe("Poems.pdf");
     expect(attachmentNameForFile({ ...file, filename: "a/b\r\nc.exe" })).toBe(
       "a b c.exe.md",
     );

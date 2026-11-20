@@ -5,7 +5,7 @@ import {
 import { fail } from "@agent-native/core/action";
 import { z } from "zod";
 
-export const CONTENT_FILE_FORMATS = ["markdown", "csv"] as const;
+export const CONTENT_FILE_FORMATS = ["markdown", "csv", "pdf"] as const;
 export type ContentFileFormat = (typeof CONTENT_FILE_FORMATS)[number];
 const CONTENT_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const TOO_LARGE_MESSAGE =
@@ -14,12 +14,12 @@ const TOO_LARGE_MESSAGE =
 export const contentPageKindSchema = z.enum(["page", "collection"]);
 export const contentFileFormatSchema = z.enum(CONTENT_FILE_FORMATS);
 
-const FORMAT_BY_KIND: Record<
+const FORMATS_BY_KIND: Record<
   z.infer<typeof contentPageKindSchema>,
-  ContentFileFormat
+  readonly ContentFileFormat[]
 > = {
-  page: "markdown",
-  collection: "csv",
+  page: ["markdown", "pdf"],
+  collection: ["csv"],
 };
 
 const contentPageSchema = z.object({
@@ -41,14 +41,16 @@ const contentPageFileSchema = z.object({
   kind: contentPageKindSchema,
   format: contentFileFormatSchema,
   filename: z.string().min(1).max(255),
-  encoding: z.literal("utf8"),
+  encoding: z.enum(["utf8", "base64"]),
   content: z.string(),
   size: z.number().int().nonnegative(),
 });
 
 export type ContentPage = z.infer<typeof contentPageSchema>;
 export type ContentPageList = z.infer<typeof contentPageListSchema>;
-export type ContentPageFile = z.infer<typeof contentPageFileSchema>;
+export type ContentPageFile = z.infer<typeof contentPageFileSchema> & {
+  data: Buffer;
+};
 
 const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
   {
@@ -63,7 +65,7 @@ const CONTENT_ERRORS: Record<string, { message: string; statusCode: number }> =
     },
     document_file_format_unsupported: {
       message:
-        "That format doesn't fit this page: a page attaches as Markdown, a collection as CSV.",
+        "That format doesn't fit this page: a page attaches as Markdown or PDF, a collection as CSV.",
       statusCode: 400,
     },
     collection_export_limit_exceeded: {
@@ -163,7 +165,8 @@ export async function readContentPageFile(args: {
   if (
     !parsed.success ||
     parsed.data.id !== args.id ||
-    parsed.data.format !== FORMAT_BY_KIND[parsed.data.kind] ||
+    !FORMATS_BY_KIND[parsed.data.kind].includes(parsed.data.format) ||
+    (parsed.data.format === "pdf") !== (parsed.data.encoding === "base64") ||
     (args.format && parsed.data.format !== args.format)
   ) {
     fail("Content returned an invalid file. Try again.", {
@@ -171,33 +174,49 @@ export async function readContentPageFile(args: {
       errorCode: "content_invalid_response",
     });
   }
-  const size = Buffer.byteLength(parsed.data.content, "utf8");
-  if (size !== parsed.data.size) {
+  const data = decodeFile(parsed.data.content, parsed.data.encoding);
+  if (
+    !data ||
+    data.byteLength !== parsed.data.size ||
+    (parsed.data.format === "pdf" &&
+      data.subarray(0, 5).toString("latin1") !== "%PDF-")
+  ) {
     fail(
       "This page's file didn't reach Mail intact, so it wasn't attached. Export it from Content and attach the file instead.",
       { statusCode: 502, errorCode: "content_file_incomplete" },
     );
   }
-  if (size > CONTENT_FILE_MAX_BYTES) {
+  if (data.byteLength > CONTENT_FILE_MAX_BYTES) {
     fail(TOO_LARGE_MESSAGE, {
       statusCode: 413,
       errorCode: "document_file_too_large",
     });
   }
-  return parsed.data;
+  return { ...parsed.data, data };
+}
+
+function decodeFile(content: string, encoding: "utf8" | "base64") {
+  if (encoding === "utf8") return Buffer.from(content, "utf8");
+  if (content.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(content)) {
+    return null;
+  }
+  return Buffer.from(content, "base64");
 }
 
 const EXTENSION_BY_FORMAT: Record<ContentFileFormat, string> = {
   markdown: ".md",
   csv: ".csv",
+  pdf: ".pdf",
 };
 
-export function attachmentNameForFile(file: ContentPageFile) {
+export function attachmentNameForFile(
+  file: Pick<ContentPageFile, "filename" | "format">,
+) {
   const extension = EXTENSION_BY_FORMAT[file.format];
   const base =
     file.filename
       .replace(/[\\/\0\r\n]+/g, " ")
-      .replace(/\.(?:md|markdown|csv)$/i, "")
+      .replace(/\.(?:md|markdown|csv|pdf)$/i, "")
       .trim()
       .slice(0, 255 - extension.length) || "Untitled";
   return `${base}${extension}`;

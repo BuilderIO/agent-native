@@ -180,7 +180,7 @@ function readAs<T>(context: { userEmail?: string }, fn: () => Promise<T>) {
 
 const owner = { userEmail: OWNER };
 
-function read(id: string, format?: "markdown" | "csv") {
+function read(id: string, format?: "markdown" | "csv" | "pdf") {
   return readAs(owner, () =>
     action.run({ operation: "read", id, page: 1, format }),
   );
@@ -237,6 +237,23 @@ describe("Content read-document-file", () => {
     );
   });
 
+  it("reads a page as a PDF file, base64-encoded", async () => {
+    const result = await read("plan-page", "pdf");
+    expect(result).toMatchObject({
+      kind: "page",
+      format: "pdf",
+      filename: "Q3 plan draft.pdf",
+      mimeType: "application/pdf",
+      encoding: "base64",
+    });
+    const pdf = Buffer.from(
+      "content" in result ? result.content : "",
+      "base64",
+    );
+    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    expect("size" in result && result.size).toBe(pdf.byteLength);
+  });
+
   it("reads a collection as a CSV of its columns, leaving out always-hidden and Blocks fields", async () => {
     const result = await read("tracker-page");
     expect(result).toMatchObject({
@@ -255,11 +272,18 @@ describe("Content read-document-file", () => {
     await expect(read("tracker-page", "markdown")).rejects.toMatchObject({
       errorCode: "document_file_format_unsupported",
     });
+    await expect(read("tracker-page", "pdf")).rejects.toMatchObject({
+      errorCode: "document_file_format_unsupported",
+    });
   });
 
   it("refuses a page too large to send back in one response", async () => {
     await addDocument({ id: "huge-page", content: "x".repeat(2_200_000) });
     await expect(read("huge-page")).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_too_large",
+    });
+    await expect(read("huge-page", "pdf")).rejects.toMatchObject({
       statusCode: 413,
       errorCode: "document_file_too_large",
     });

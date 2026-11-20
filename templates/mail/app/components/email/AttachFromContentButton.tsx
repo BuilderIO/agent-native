@@ -45,6 +45,10 @@ interface ContentPageList {
   hasMore: boolean;
 }
 
+type PageFormat = "pdf" | "markdown";
+
+const PAGE_FORMATS: readonly PageFormat[] = ["pdf", "markdown"];
+
 const SEARCH_DELAY_MS = 250;
 
 export function AttachFromContentButton({
@@ -62,6 +66,7 @@ export function AttachFromContentButton({
   const [query, setQuery] = useState("");
   const [attachingId, setAttachingId] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState("");
+  const [pageFormat, setPageFormat] = useState<PageFormat>("pdf");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -97,7 +102,7 @@ export function AttachFromContentButton({
     try {
       const result = (await callAction("attach-content-page", {
         id: item.id,
-        format: item.format,
+        format: item.kind === "collection" ? item.format : pageFormat,
       })) as { attachment: ComposeAttachment };
       onAttach(result.attachment);
       close();
@@ -205,9 +210,11 @@ export function AttachFromContentButton({
                         {item.title}
                       </span>
                       <span className="ms-2 shrink-0 text-xs text-muted-foreground">
-                        {item.format === "csv"
+                        {item.kind === "collection"
                           ? t("mail.compose.contentFileCsv")
-                          : t("mail.compose.contentFileMarkdown")}
+                          : pageFormat === "pdf"
+                            ? t("mail.compose.contentFilePdf")
+                            : t("mail.compose.contentFileMarkdown")}
                       </span>
                     </CommandItem>
                   );
@@ -216,6 +223,32 @@ export function AttachFromContentButton({
             )}
           </CommandList>
         </Command>
+        <div
+          role="group"
+          aria-label={t("mail.compose.contentPageFormat")}
+          className="flex items-center justify-between gap-2 border-t border-border px-3 py-2"
+        >
+          <span className="text-xs text-muted-foreground">
+            {t("mail.compose.contentPageFormat")}
+          </span>
+          <div className="flex items-center gap-1">
+            {PAGE_FORMATS.map((format) => (
+              <Button
+                key={format}
+                type="button"
+                size="xs"
+                variant={pageFormat === format ? "secondary" : "ghost"}
+                aria-pressed={pageFormat === format}
+                disabled={Boolean(attachingId)}
+                onClick={() => setPageFormat(format)}
+              >
+                {format === "pdf"
+                  ? t("mail.compose.contentFormatPdf")
+                  : t("mail.compose.contentFormatMarkdown")}
+              </Button>
+            ))}
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );
