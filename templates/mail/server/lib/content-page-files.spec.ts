@@ -305,6 +305,22 @@ describe("Content page files", () => {
 
     invokeAgentAction.mockResolvedValue({
       target: { url: "https://content.example.com" },
+      result: {
+        status: "failed",
+        output:
+          "Error running read-document-file: Content couldn't make a PDF of this page. Attach it as Markdown instead. (errorCode: document_file_pdf_failed)",
+      },
+    });
+    await expect(
+      readContentPageFile({ id: "plan-page", format: "pdf" }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "content_page_pdf_unavailable",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+
+    invokeAgentAction.mockResolvedValue({
+      target: { url: "https://content.example.com" },
       result: { status: "failed", output: "Error running it: boom" },
     });
     await expect(

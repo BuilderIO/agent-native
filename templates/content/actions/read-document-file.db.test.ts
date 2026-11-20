@@ -5,7 +5,23 @@ import { join } from "node:path";
 import { isActionExposedToExternalAgents } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("../server/lib/document-pdf.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/lib/document-pdf.js")>();
+  return {
+    ...actual,
+    renderDocumentPdf: (
+      input: Parameters<typeof actual.renderDocumentPdf>[0],
+    ) => {
+      if (input.content.includes("The render breaks here.")) {
+        throw new Error("font files missing");
+      }
+      return actual.renderDocumentPdf(input);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -302,6 +318,27 @@ describe("Content read-document-file", () => {
       message: expect.stringContaining("over 200 pages"),
     });
     await expect(read("long-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
+  });
+
+  it("refuses a PDF the renderer fails on, and logs why", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    await addDocument({
+      id: "broken-page",
+      content: "The render breaks here.",
+    });
+    await expect(read("broken-page", "pdf")).rejects.toMatchObject({
+      statusCode: 500,
+      errorCode: "document_file_pdf_failed",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+    expect(logged).toHaveBeenCalledWith(
+      "[read-document-file] PDF render failed",
+      expect.any(Error),
+    );
+    logged.mockRestore();
+    await expect(read("broken-page")).resolves.toMatchObject({
       format: "markdown",
     });
   });

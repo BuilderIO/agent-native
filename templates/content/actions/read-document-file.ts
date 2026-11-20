@@ -321,11 +321,17 @@ export default defineAction({
               { statusCode: 413, errorCode: "document_file_pdf_too_long" },
             );
           }
-          if (!(error instanceof PdfUnsupportedTextError)) throw error;
-          fail(PDF_TEXT_UNSUPPORTED, {
-            statusCode: 422,
-            errorCode: "document_file_pdf_text_unsupported",
-          });
+          if (error instanceof PdfUnsupportedTextError) {
+            fail(PDF_TEXT_UNSUPPORTED, {
+              statusCode: 422,
+              errorCode: "document_file_pdf_text_unsupported",
+            });
+          }
+          console.error("[read-document-file] PDF render failed", error);
+          fail(
+            "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
+            { statusCode: 500, errorCode: "document_file_pdf_failed" },
+          );
         }
         content = pdf.toString("base64");
         size = pdf.byteLength;
