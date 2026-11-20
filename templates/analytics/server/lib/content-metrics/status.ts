@@ -29,6 +29,7 @@ export type ContentStepStatus = {
     bytesCap: number | null;
     errorCode: string | null;
     errorMessage: string | null;
+    detail: string | null;
   } | null;
 };
 
@@ -81,6 +82,7 @@ export async function readContentCollectionStatus(
             bytesCap: run.bytesCap,
             errorCode: run.errorCode,
             errorMessage: run.errorMessage,
+            detail: run.detail,
           }
         : null,
     });

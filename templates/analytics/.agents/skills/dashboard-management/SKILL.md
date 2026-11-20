@@ -151,6 +151,21 @@ collection stays off until a property owner adds the service account that
 `get-content-collection` returns as `serviceAccount.email`; then set its
 `searchConsoleSites` and turn it on.
 
+Search Console also writes `search_console_position_weighted`: average
+position times impressions, so a range's average position is
+`SUM(position_weighted) / SUM(impressions)`, never an average of daily
+averages. Each run fills about 90 more days of history backward, up to
+`searchConsoleHistoryMonths` (1 to 16, default 16, all Search Console keeps).
+The `search_console_queries` step writes `analytics_content_search_queries`:
+each article's top `searchConsoleQueriesPerPage` queries (default 25) per
+Monday-to-Sunday week, with `clicks`, `impressions` and `position_weighted`.
+It runs only while Search Console runs (turn it off alone with
+`searchConsoleQueries: false`), rereads the newest two finished weeks each run
+and fills a few older weeks a run. Search Console leaves rare and private
+queries out, so an article's queries add up to less than its clicks. A run's
+`detail` notes a day that hit Search Console's daily row limit or a week still
+waiting for the daily page numbers that say which weeks are final.
+
 The `signups` step writes `signups_first_touch` per article: people who
 first landed on the article and later signed up, on the day of that first
 visit, so a window's days add up to its total. It reads the warehouse. It
@@ -186,7 +201,12 @@ lists and `IS DISTINCT FROM`: list fixed rows with `SELECT … UNION ALL` and
 compare with `COALESCE(x, '') <> …`. Its daily signups chart uses wide
 rows (`yKeys`), not `pivot`: a pivot fills a missing series with 0, so an
 uncollected day would draw as a zero instead of a gap. Pivot only where a
-missing row is a real zero, like an author's week without signups. Content is a
+missing row is a real zero, like an author's week without signups. Each daily
+chart's "Since collection began" starts at the first day of its own metric, so
+16 months of search history doesn't stretch the signups charts. Its Search tab
+has monthly clicks, each article's clicks against the same 28 days a year
+before, top queries for the time range, and queries close to page one or seen
+near the top but rarely clicked. Content is a
 built-in: turning collection on with `configure-content-collection` lists it
 in the organization's Dashboards at `content-view` (`contentDashboardId` in the
 result). It is read-only; build on it with `duplicate-dashboard`.

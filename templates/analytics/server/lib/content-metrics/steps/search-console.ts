@@ -1,9 +1,16 @@
-import { querySearchAnalytics } from "../../search-console.js";
+import {
+  querySearchAnalytics,
+  type SearchAnalyticsRow,
+} from "../../search-console.js";
 import {
   searchConsoleConfigFingerprint,
   type SearchConsoleSite,
 } from "../config.js";
-import { ContentStepStop, type ContentStep } from "../step.js";
+import {
+  ContentStepStop,
+  type ContentStep,
+  type ContentStepContext,
+} from "../step.js";
 import {
   listContentItems,
   type ContentItemInput,
@@ -11,27 +18,65 @@ import {
   type StoredContentItem,
 } from "../store.js";
 import {
+  addDays,
+  BACKFILL_DAYS,
   collectionWindow,
+  coveredSince,
   DailyMetricValues,
+  daysFrom,
+  monthsEndingOn,
   pageKey,
   type ItemRef,
 } from "./daily-metrics.js";
 
 export const SEARCH_CONSOLE_CLICKS_METRIC = "search_console_clicks";
 export const SEARCH_CONSOLE_IMPRESSIONS_METRIC = "search_console_impressions";
+export const SEARCH_CONSOLE_POSITION_WEIGHTED_METRIC =
+  "search_console_position_weighted";
 const METRICS = [
   SEARCH_CONSOLE_CLICKS_METRIC,
   SEARCH_CONSOLE_IMPRESSIONS_METRIC,
+  SEARCH_CONSOLE_POSITION_WEIGHTED_METRIC,
 ];
 /**
  * Search Console's final numbers arrive two to three days late. Fetching the
  * last five days again picks each day up once it is final.
  */
 const LOOKBACK_DAYS = 5;
+const MAX_DAYS_PER_RUN = BACKFILL_DAYS + LOOKBACK_DAYS;
 const MAX_ROWS_PER_SITE = 500_000;
+
+async function historyRange(
+  collection: ContentStepContext["collection"],
+  window: { startDate: string; endDate: string },
+  configFingerprint: string,
+): Promise<{ startDate: string; endDate: string } | null> {
+  const historyStart = monthsEndingOn(
+    window.endDate,
+    collection.config.searchConsole.historyMonths,
+  );
+  const covered = await coveredSince(
+    collection,
+    "search_console",
+    configFingerprint,
+    window.startDate,
+  );
+  const days = Math.min(
+    MAX_DAYS_PER_RUN - (daysFrom(window.startDate, window.endDate) + 1),
+    daysFrom(historyStart, covered),
+  );
+  if (days <= 0) return null;
+  return { startDate: addDays(covered, -days), endDate: addDays(covered, -1) };
+}
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function sitePageRegex(site: SearchConsoleSite): string | undefined {
+  return site.pathPrefix
+    ? `^https?://[^/]+${escapeRegex(site.pathPrefix)}`
+    : undefined;
 }
 
 /** Whether a page URL belongs to a Domain or URL-prefix property. */
@@ -88,21 +133,28 @@ export const searchConsoleStep: ContentStep = {
       LOOKBACK_DAYS,
       configFingerprint,
     );
+    const history = await historyRange(collection, window, configFingerprint);
+    const ranges = history ? [history, window] : [window];
+    const firstDay = history?.startDate ?? window.startDate;
     const newPages = new Map<string, ContentItemInput>();
     const snapshots = new Map<string, ContentSnapshotInput>();
 
     for (const site of sites) {
-      const rows = await querySearchAnalytics({
-        siteUrl: site.siteUrl,
-        startDate: window.startDate,
-        endDate: window.endDate,
-        dimensions: ["date", "page"],
-        ...(site.pathPrefix
-          ? { pageRegex: `^https?://[^/]+${escapeRegex(site.pathPrefix)}` }
-          : {}),
-        maxRows: MAX_ROWS_PER_SITE,
-        ...(signal ? { signal } : {}),
-      });
+      const pageRegex = sitePageRegex(site);
+      const rows: SearchAnalyticsRow[] = [];
+      for (const range of ranges) {
+        for (const row of await querySearchAnalytics({
+          siteUrl: site.siteUrl,
+          startDate: range.startDate,
+          endDate: range.endDate,
+          dimensions: ["date", "page"],
+          ...(pageRegex ? { pageRegex } : {}),
+          maxRows: MAX_ROWS_PER_SITE,
+          ...(signal ? { signal } : {}),
+        })) {
+          rows.push(row);
+        }
+      }
 
       const values = new DailyMetricValues();
       let lastReturnedDate: string | null = null;
@@ -143,6 +195,14 @@ export const searchConsoleStep: ContentStep = {
           SEARCH_CONSOLE_IMPRESSIONS_METRIC,
           row.impressions,
         );
+        if (typeof row.position === "number" && Number.isFinite(row.position)) {
+          values.add(
+            item,
+            date,
+            SEARCH_CONSOLE_POSITION_WEIGHTED_METRIC,
+            row.position * row.impressions,
+          );
+        }
       }
 
       for (const snapshot of values.snapshots({
@@ -150,7 +210,7 @@ export const searchConsoleStep: ContentStep = {
           inScope(site, item.url),
         ),
         metrics: METRICS,
-        startDate: window.startDate,
+        startDate: firstDay,
         lastReturnedDate,
         fillMissing: false,
       })) {
@@ -171,7 +231,7 @@ export const searchConsoleStep: ContentStep = {
       snapshots: [...snapshots.values()],
       outcome: {
         rowCount: snapshots.size,
-        windowStart: window.startDate,
+        windowStart: firstDay,
         windowEnd: window.endDate,
         configFingerprint,
       },
