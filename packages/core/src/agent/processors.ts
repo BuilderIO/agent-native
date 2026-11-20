@@ -30,12 +30,7 @@ export interface ProcessOutputStreamArgs {
 
 export interface ProcessOutputStepArgs {
   toolCalls: { id: string; name: string; input: unknown }[];
-  finishReason?:
-    | "end_turn"
-    | "tool_use"
-    | "max_tokens"
-    | "stop_sequence"
-    | "error";
+  finishReason?: Extract<EngineEvent, { type: "stop" }>["reason"];
   usage?: {
     inputTokens: number;
     outputTokens: number;

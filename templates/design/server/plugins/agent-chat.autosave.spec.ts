@@ -18,6 +18,11 @@ vi.mock("../register-secrets.js", () => ({}));
 vi.mock("../lib/design-versions.js", () => ({
   createDesignChatBeginningSnapshot: mocks.checkpoint,
 }));
+vi.mock("../lib/first-prompt-intake.js", () => ({
+  applyDesignFirstPromptIntakePolicy: vi.fn(),
+  designFirstPromptIntakeInstructions: vi.fn(),
+  guardDesignFirstPromptActions: (actions: unknown) => actions,
+}));
 vi.mock("../lib/reprompt-action-guard.js", () => ({
   guardRepromptActionRegistry: (actions: unknown) => actions,
 }));

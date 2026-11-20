@@ -51,8 +51,14 @@ describe("integration client helpers", () => {
     ]);
 
     expect(fetch.mock.calls).toEqual([
-      ["/_agent-native/integrations/slack/enable", { method: "POST" }],
-      ["/_agent-native/integrations/telegram/setup", { method: "POST" }],
+      [
+        "/_agent-native/integrations/slack/enable",
+        { method: "POST", headers: { "X-Agent-Native-CSRF": "1" } },
+      ],
+      [
+        "/_agent-native/integrations/telegram/setup",
+        { method: "POST", headers: { "X-Agent-Native-CSRF": "1" } },
+      ],
       [
         "/_agent-native/env-vars",
         {

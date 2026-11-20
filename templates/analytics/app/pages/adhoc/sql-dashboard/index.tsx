@@ -2309,13 +2309,18 @@ function SqlDashboardPageContent({
 
   const shownFilters = useMemo(
     () =>
-      dashboardFiltersWithTraffic(dashboard?.filters, dashboard?.panels ?? [], {
-        label: t("sessions.traffic"),
-        all: t("sessions.allTraffic"),
-        production: t("sessions.productionTraffic"),
-        beta: t("sessions.betaTraffic"),
-      }),
-    [dashboard?.filters, dashboard?.panels, t],
+      dashboardFiltersWithTraffic(
+        dashboard?.filters,
+        dashboard?.panels ?? [],
+        {
+          label: t("sessions.traffic"),
+          all: t("sessions.allTraffic"),
+          production: t("sessions.productionTraffic"),
+          beta: t("sessions.betaTraffic"),
+        },
+        dashboard?.variables,
+      ),
+    [dashboard?.filters, dashboard?.panels, dashboard?.variables, t],
   );
 
   const vars = useMemo<Record<string, string>>(() => {

@@ -10,6 +10,15 @@ describe("reviewActorKindFromContext", () => {
       reviewActorKindFromContext({ caller: "agent", userEmail: EMAIL }),
     ).toBe("agent");
     expect(reviewActorKindFromContext({ caller: "tool" })).toBe("agent");
+    expect(
+      reviewActorKindFromContext({ caller: "mcp", userEmail: EMAIL }),
+    ).toBe("agent");
+    expect(
+      reviewActorKindFromContext({ caller: "webmcp", userEmail: EMAIL }),
+    ).toBe("agent");
+    expect(
+      reviewActorKindFromContext({ caller: "a2a", userEmail: EMAIL }),
+    ).toBe("agent");
   });
 
   it("counts any other signed-in caller as a person", () => {
@@ -45,6 +54,12 @@ describe("reviewReactionActor", () => {
       reviewReactionActor({ caller: "tool", userEmail: "Person@Example.com" }),
     ).toBe(`agent:${EMAIL}`);
     expect(reviewReactionActor({ caller: "agent", userEmail: EMAIL })).toBe(
+      `agent:${EMAIL}`,
+    );
+    expect(reviewReactionActor({ caller: "mcp", userEmail: EMAIL })).toBe(
+      `agent:${EMAIL}`,
+    );
+    expect(reviewReactionActor({ caller: "a2a", userEmail: EMAIL })).toBe(
       `agent:${EMAIL}`,
     );
   });

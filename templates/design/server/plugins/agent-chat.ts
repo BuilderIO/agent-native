@@ -9,6 +9,11 @@ import { eq } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { designFinalResponseGuard } from "../lib/design-response-guard.js";
+import {
+  applyDesignFirstPromptIntakePolicy,
+  designFirstPromptIntakeInstructions,
+  guardDesignFirstPromptActions,
+} from "../lib/first-prompt-intake.js";
 import { DESIGN_REALTIME_VOICE } from "../lib/realtime-voice.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import {
@@ -300,8 +305,14 @@ export default createAgentChatPlugin({
   onAgentTurnComplete: autosaveDesignAfterAgentTurn,
   resolveActionSurface: resolveReviewAgentActionSurface,
   onAgentRunComplete: finalizeReviewAgentRun,
+  prepareRequest: () => {
+    applyDesignFirstPromptIntakePolicy();
+  },
+  extraContext: () => designFirstPromptIntakeInstructions(),
   actions: guardRepromptActionRegistry(
-    loadActionsFromStaticRegistry(actionsRegistry),
+    guardDesignFirstPromptActions(
+      loadActionsFromStaticRegistry(actionsRegistry),
+    ),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
   realtimeVoice: DESIGN_REALTIME_VOICE,
