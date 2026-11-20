@@ -488,19 +488,20 @@ describe("upsertContentRow", () => {
     }
   });
 
-  it("says Content refused the row when the write comes back as an error", async () => {
-    const { deps } = content({
-      write: () =>
-        refusal("Row revision changed (errorCode: ROW_REVISION_CONFLICT)"),
-    });
+  it("says Content refused the row when the write comes back as one of its refusals", async () => {
+    for (const code of ["ROW_REVISION_CONFLICT", "SOURCE_READ_ONLY"]) {
+      const { deps } = content({
+        write: () => refusal(`Content said no (errorCode: ${code})`),
+      });
 
-    expect(
-      await failure(upsertContentRow({ identity, deps }, input)),
-    ).toMatchObject({
-      errorCode: "content_write_refused",
-      sideEffect: "none",
-      message: expect.stringContaining("ROW_REVISION_CONFLICT"),
-    });
+      expect(
+        await failure(upsertContentRow({ identity, deps }, input)),
+      ).toMatchObject({
+        errorCode: "content_write_refused",
+        sideEffect: "none",
+        message: expect.stringContaining(code),
+      });
+    }
   });
 
   it("says the row may have been written when the write's error is not one of Content's refusals", async () => {
