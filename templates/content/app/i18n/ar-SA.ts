@@ -2027,6 +2027,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
+    workspaceReferenceProtected:
+      "مراجع مساحات العمل محمية ولا يمكن تغييرها كصفحات.",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",
     failedMovePage: "فشل نقل الصفحة",
