@@ -1,5 +1,14 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +19,7 @@ import {
   createCodexAppServerClient,
   defaultCodexCommandRunner,
   probeCodexSubscription,
+  resolveCodexSpawnSpec,
   type CodexAppServerClient,
   type CodexJsonRpcChildProcess,
 } from "./codex-subscription.js";
@@ -101,6 +111,29 @@ describe("defaultCodexCommandRunner", () => {
       await result;
     } finally {
       vi.useRealTimers();
+    }
+  });
+  it("resolves codex and node from user bin directories when launchd PATH omits them", () => {
+    const tempHome = mkdtempSync(path.join(tmpdir(), "codex-spawn-spec-"));
+    try {
+      const localBin = path.join(tempHome, ".local", "bin");
+      mkdirSync(localBin, { recursive: true });
+      const fakeCodex = path.join(localBin, "codex");
+      const fakeNode = path.join(localBin, "node");
+      writeFileSync(fakeCodex, "#!/usr/bin/env node\n");
+      writeFileSync(fakeNode, "#!/bin/sh\n");
+      chmodSync(fakeCodex, 0o755);
+      chmodSync(fakeNode, 0o755);
+
+      const spec = resolveCodexSpawnSpec({
+        HOME: tempHome,
+        PATH: "/usr/bin:/bin",
+      });
+
+      expect(spec.command).toBe(fakeCodex);
+      expect(spec.env.PATH?.split(path.delimiter)).toContain(localBin);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
     }
   });
 });

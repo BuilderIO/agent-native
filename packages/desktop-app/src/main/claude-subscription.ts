@@ -4,6 +4,10 @@ import type {
   SubscriptionStatus,
   SubscriptionTelemetry,
 } from "../../shared/subscription-status.js";
+import {
+  resolveExecutable,
+  withResolvedExecutablePaths,
+} from "./code-agent-runner.js";
 
 export const DEFAULT_CLAUDE_AUTH_STATUS_TIMEOUT_MS = 10_000;
 
@@ -237,17 +241,30 @@ function stringValue(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+export function resolveClaudeSpawnSpec(
+  command: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): { command: string; env: NodeJS.ProcessEnv } {
+  return {
+    command: resolveExecutable(command, environment) ?? command,
+    env: withResolvedExecutablePaths(environment, [command]),
+  };
+}
+
 export function executeClaudeProcess(
   command: string,
   args: readonly string[],
   options: ClaudeProcessExecutorOptions,
-  spawnProcess: SpawnClaudeProcess = (processCommand, processArgs) =>
-    spawn(processCommand, processArgs, {
+  spawnProcess: SpawnClaudeProcess = (processCommand, processArgs) => {
+    const resolved = resolveClaudeSpawnSpec(processCommand);
+    return spawn(resolved.command, processArgs, {
       detached: false,
+      env: resolved.env,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-    }),
+    });
+  },
 ): Promise<ClaudeProcessResult> {
   return new Promise((resolve) => {
     let stdout = "";

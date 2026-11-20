@@ -7,6 +7,10 @@ import type {
   SubscriptionTelemetry,
   SubscriptionTelemetryCapabilities,
 } from "../../shared/subscription-status.js";
+import {
+  resolveExecutable,
+  withResolvedExecutablePaths,
+} from "./code-agent-runner.js";
 
 export interface CodexCommandResult {
   status: number | null;
@@ -792,14 +796,26 @@ function mergeRecords(
   };
 }
 
+export function resolveCodexSpawnSpec(
+  environment: NodeJS.ProcessEnv = process.env,
+): { command: string; env: NodeJS.ProcessEnv } {
+  return {
+    command: resolveExecutable("codex", environment) ?? "codex",
+    env: withResolvedExecutablePaths(environment, ["codex"]),
+  };
+}
+
 export function defaultCodexCommandRunner(
   args: string[],
   timeoutMs: number,
-  spawnCommand: SpawnCodexCommand = (commandArgs) =>
-    spawn("codex", commandArgs, {
+  spawnCommand: SpawnCodexCommand = (commandArgs) => {
+    const { command, env } = resolveCodexSpawnSpec();
+    return spawn(command, commandArgs, {
+      env,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-    }),
+    });
+  },
 ): Promise<CodexCommandResult> {
   return new Promise((resolve) => {
     let stdout = "";
@@ -883,7 +899,9 @@ function appendBoundedOutput(current: string, next: string): string {
 }
 
 function defaultSpawnCodexAppServer(): CodexJsonRpcChildProcess {
-  return spawn("codex", ["app-server"], {
+  const { command, env } = resolveCodexSpawnSpec();
+  return spawn(command, ["app-server"], {
+    env,
     stdio: ["pipe", "pipe", "ignore"],
     windowsHide: true,
   }) as CodexJsonRpcChildProcess;

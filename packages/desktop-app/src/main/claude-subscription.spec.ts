@@ -1,5 +1,14 @@
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +19,7 @@ import {
   getClaudeSubscriptionLoginLaunchSpec,
   isClaudeSubscriptionStatus,
   readClaudeSubscriptionStatus,
+  resolveClaudeSpawnSpec,
   type ClaudeProcessExecutor,
 } from "./claude-subscription.js";
 
@@ -252,6 +262,29 @@ describe("executeClaudeProcess", () => {
       await result;
     } finally {
       vi.useRealTimers();
+    }
+  });
+  it("resolves claude and node from user bin directories when launchd PATH omits them", () => {
+    const tempHome = mkdtempSync(path.join(tmpdir(), "claude-spawn-spec-"));
+    try {
+      const localBin = path.join(tempHome, ".local", "bin");
+      mkdirSync(localBin, { recursive: true });
+      const fakeClaude = path.join(localBin, "claude");
+      const fakeNode = path.join(localBin, "node");
+      writeFileSync(fakeClaude, "#!/usr/bin/env node\n");
+      writeFileSync(fakeNode, "#!/bin/sh\n");
+      chmodSync(fakeClaude, 0o755);
+      chmodSync(fakeNode, 0o755);
+
+      const spec = resolveClaudeSpawnSpec("claude", {
+        HOME: tempHome,
+        PATH: "/usr/bin:/bin",
+      });
+
+      expect(spec.command).toBe(fakeClaude);
+      expect(spec.env.PATH?.split(path.delimiter)).toContain(localBin);
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
     }
   });
 });
