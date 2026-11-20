@@ -157,14 +157,13 @@ describe("edit-design action schema", () => {
     ).toThrow(/matched .* places/);
   });
 
-  it("maps a unique flexible stable-id match to the precise original span", () => {
+  it("rejects a whitespace-only stable-id fallback match", () => {
     const content =
       '<main><p data-agent-native-node-id="live"  class="item">Hi</p><aside>Keep</aside></main>';
     const search = '<p data-agent-native-node-id="old" class="item">Hi</p>';
-    expect(
-      applySearchReplaceEdits(content, [{ search, replace: "<p>Updated</p>" }])
-        .content,
-    ).toBe("<main><p>Updated</p><aside>Keep</aside></main>");
+    expect(() =>
+      applySearchReplaceEdits(content, [{ search, replace: "<p>Updated</p>" }]),
+    ).toThrow(/search text was not found/);
   });
 
   it("matches a unique whitespace-insensitive edit", () => {

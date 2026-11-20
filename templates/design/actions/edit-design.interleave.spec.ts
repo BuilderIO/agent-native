@@ -333,6 +333,41 @@ describe("edit-design conflict retry", () => {
 
   it.each([
     [
+      "text",
+      '<main>label data-agent-native-node-id="live" hello  world</main>',
+      '<main>label data-agent-native-node-id="snapshot" hello world</main>',
+    ],
+    [
+      "script",
+      '<script>const marker = \' data-agent-native-node-id="live"\'; const label = "hello  world";</script>',
+      '<script>const marker = \' data-agent-native-node-id="snapshot"\'; const label = "hello world";</script>',
+    ],
+  ])(
+    "does not write a whitespace-only stable-ID fallback in %s",
+    async (_kind, content, search) => {
+      mocks.readLiveSourceFile.mockResolvedValue({
+        content,
+        versionHash: "h0",
+        language: "html",
+      });
+      const failure = action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search, replace: "replacement" }],
+      } as never);
+      await expect(failure).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        errorCode: "design_edit_conflict",
+      });
+      await expect(failure).rejects.not.toThrow(search);
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
       "start",
       '<p data-agent-native-node-id="live" class="old">Hi</p>',
       ' data-agent-native-node-id="stale" class="old"',

@@ -97,10 +97,8 @@ function findUniqueStableIdAgnosticSpan(
   if (!strippedSearch) return null;
 
   const firstExact = strippedContent.content.indexOf(strippedSearch);
-  if (
-    firstExact !== -1 &&
-    strippedContent.content.indexOf(strippedSearch, firstExact + 1) !== -1
-  ) {
+  if (firstExact === -1) return null;
+  if (strippedContent.content.indexOf(strippedSearch, firstExact + 1) !== -1) {
     throw new DesignEditSearchConflictError(
       `Edit ${editIndex + 1}: "search" matched multiple places (exact) — add more surrounding context so it matches exactly one location.`,
     );
@@ -114,9 +112,8 @@ function findUniqueStableIdAgnosticSpan(
       `Edit ${editIndex + 1}: "search" matched ${matches.length} places (whitespace-insensitive) — add more surrounding context so it matches exactly one location.`,
     );
   }
-  if (matches.length === 0) return null;
-
-  const { start, end } = matches[0];
+  const start = firstExact;
+  const end = start + strippedSearch.length;
   const originalStart = strippedContent.indexMap[start] ?? 0;
   const originalEnd =
     (strippedContent.indexMap[end - 1] ?? content.length - 1) + 1;
