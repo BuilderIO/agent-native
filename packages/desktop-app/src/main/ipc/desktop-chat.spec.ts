@@ -1576,11 +1576,39 @@ describe("desktop Pi extension memory prompt", () => {
       return realRm(target, options);
     }) as typeof nodeFs.rmSync);
     try {
-      expect(() => setDesktopMemoryAccount("b@example.test")).toThrow(
-        AggregateError,
+      expect(() => setDesktopMemoryAccount("b@example.test")).not.toThrow();
+    } finally {
+      rm.mockRestore();
+    }
+    expect(readdirSync(root)).toEqual([]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("does not throw into the relay flow when a revoke fails during an owner change", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+    await vi.waitFor(() => expect(existsSync(session.file)).toBe(true));
+    const realRm = nodeFs.rmSync;
+    const rm = vi.spyOn(nodeFs, "rmSync").mockImplementation(((
+      target: nodeFs.PathLike,
+      options?: nodeFs.RmOptions,
+    ) => {
+      if (String(target) === session.file) throw new Error("EBUSY");
+      return realRm(target, options);
+    }) as typeof nodeFs.rmSync);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => noteDesktopBuilderRelayOwner("no-account")).not.toThrow();
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("Could not fully switch"),
+        expect.any(AggregateError),
       );
     } finally {
       rm.mockRestore();
+      log.mockRestore();
     }
     expect(readdirSync(root)).toEqual([]);
     session.release();
@@ -1602,7 +1630,7 @@ describe("desktop Pi extension memory prompt", () => {
       return realRm(target, options);
     }) as typeof nodeFs.rmSync);
     try {
-      expect(() => setDesktopMemoryAccount(null)).toThrow(AggregateError);
+      expect(() => setDesktopMemoryAccount(null)).not.toThrow();
     } finally {
       rm.mockRestore();
     }

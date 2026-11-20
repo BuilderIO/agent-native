@@ -1783,9 +1783,9 @@ export function setDesktopMemoryAccount(rawAccount: string | null): void {
     }
   }
   if (failures.length > 0) {
-    throw new AggregateError(
-      failures,
-      "Could not fully switch the shared memory account",
+    console.error(
+      "[desktop-chat] Could not fully switch the shared memory account:",
+      new AggregateError(failures),
     );
   }
 }
