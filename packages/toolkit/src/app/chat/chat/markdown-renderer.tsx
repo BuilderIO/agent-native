@@ -251,6 +251,7 @@ function resolveMarkedAppLocalHref(href: string): string | undefined {
       mount.origin !== origin ||
       mount.pathname !== (basePath || "/") ||
       target.origin !== origin ||
+      target.pathname.startsWith("//") ||
       (basePath &&
         target.pathname !== basePath &&
         !target.pathname.startsWith(`${basePath}/`))

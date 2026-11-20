@@ -164,6 +164,32 @@ describe("markdown links", () => {
     }
   });
 
+  it("rejects paths that normalize to protocol-relative links at the root mount", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {});
+    window.history.replaceState(null, "", "/");
+    try {
+      for (const href of [
+        "/settings/..//evil.example/path#agent-native-app-local",
+        "/settings/%2e%2e//evil.example/path#agent-native-app-local",
+        "/settings/..\\\\evil.example/path#agent-native-app-local",
+      ]) {
+        expect(
+          markdownComponents.a({ href, children: "Open" }).props.href,
+        ).toBeUndefined();
+      }
+      expect(
+        markdownComponents.a({
+          href: "/settings/../automations?automationId=one#agent-native-app-local",
+          children: "Open",
+        }).props.href,
+      ).toBe("/automations?automationId=one");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("does not redirect an unmarked root automation link to the current app", () => {
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", {
       workspaceRuntime: true,
