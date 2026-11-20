@@ -674,6 +674,8 @@ const messages = {
         "Publie les commentaires ouverts dans l’agent côté application.",
       sending: "Envoi",
       sentAnswers: "Réponses envoyées à l'agent",
+      sendAnswersPrompt: "Envoyer vos réponses à l'agent ?",
+      sendAnswersAction: "Envoyer",
       sentComments: "Commentaires envoyés à l'agent",
       sentCommentsWithScreenshots:
         "Commentaires envoyés et captures d'écran ciblées à l'agent",

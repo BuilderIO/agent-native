@@ -1105,6 +1105,16 @@
       "checksum": null
     }
   ],
+  "runner_session_nonces": [
+    {
+      "name": "baseline",
+      "checksum": "c74da203e8c1aa11"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "8331ca3a62dda83d"
+    }
+  ],
   "sandbox_executions": [
     {
       "name": "baseline",

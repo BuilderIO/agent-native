@@ -1007,6 +1007,8 @@ const editor = {
     noFilesOrMedia: "Keine Dateien oder Medien",
     noMatchingOptions: "Keine passenden Optionen",
     noMatchingPropertyTypes: "Keine passenden Immobilientypen",
+    typeChangeUnavailable:
+      "Der Eigenschaftstyp kann zum Schutz bestehender Werte nicht geändert werden.",
     notMappedToBuilder: "Nicht dem Builder zugeordnet.",
     onlyBlocksPropertyWarning:
       "Dies ist die einzige Blockeigenschaft, die in diesem Objekttyp vorhanden ist. Dadurch wird der Hauptinhalt (Body) für alle Objekte dieses Typs gelöscht.",
@@ -1898,6 +1900,7 @@ const overrides = {
     heading6: "Überschrift 6",
     link: "Link",
     comment: "Kommentar",
+    suggestEdit: "Änderung vorschlagen",
     pasteLink: "Link einfügen...",
     apply: "Anwenden",
     plainText: "Nur Text",
@@ -2093,6 +2096,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
+    workspaceReferenceProtected:
+      "Arbeitsbereichsreferenzen sind geschützt und können nicht als Seiten geändert werden.",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
     failedMovePage: "Seite konnte nicht verschoben werden",

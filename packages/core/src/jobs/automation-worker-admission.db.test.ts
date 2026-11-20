@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, assert, describe, expect, it, vi } from "vitest";
 
 import {
   claimBackgroundRun,
@@ -22,6 +22,7 @@ import {
   RUNS_RETAINED_PER_AUTOMATION,
   startAutomationRun,
 } from "./run-history.js";
+import { processRecurringJobs } from "./scheduler.js";
 
 const db = await createDbExec({ url: "pglite:memory://" });
 afterAll(async () => {
@@ -29,6 +30,52 @@ afterAll(async () => {
 });
 
 describe("atomic automation firing marker", () => {
+  it("reserves recovery of an unscoped schedule for the app that started it", async () => {
+    await withDbExec(db, async () => {
+      const owner = "owner@example.com";
+      const automation = "shared-scheduler";
+      const path = `jobs/${automation}.md`;
+      const historyId = await startAutomationRun({
+        owner,
+        automation,
+        path,
+        appId: "reports",
+      });
+      await resourcePut(
+        owner,
+        path,
+        patchJobFrontmatterFields(
+          '---\nschedule: "*/2 * * * *"\nenabled: true\n---\nReply pong.',
+          {
+            lastHistoryId: historyId,
+            lastStatus: "running",
+            lastRun: new Date().toISOString(),
+          },
+        ),
+      );
+      await finishAutomationRun(historyId, "success", undefined, undefined, {
+        requirePersisted: true,
+      });
+
+      const deps = { getActions: () => ({}), getSystemPrompt: async () => "" };
+      await processRecurringJobs({ ...deps, appId: "mail" });
+      const pending = await resourceGetByPath(owner, path);
+      assert(pending);
+      expect(parseJobResource(pending.content).meta).toMatchObject({
+        lastHistoryId: historyId,
+        lastStatus: "running",
+      });
+
+      await processRecurringJobs({ ...deps, appId: "reports" });
+      const settled = await resourceGetByPath(owner, path);
+      assert(settled);
+      expect(parseJobResource(settled.content).meta).toMatchObject({
+        lastHistoryId: historyId,
+        lastStatus: "success",
+      });
+    });
+  });
+
   it("retains unfinished firings while pruning older finished history", async () => {
     await withDbExec(db, async () => {
       const owner = "owner@example.com";

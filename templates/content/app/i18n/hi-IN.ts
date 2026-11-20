@@ -957,6 +957,8 @@ const editor = {
     noFilesOrMedia: "कोई फ़ाइल या मीडिया नहीं",
     noMatchingOptions: "कोई मिलान विकल्प नहीं",
     noMatchingPropertyTypes: "कोई मेल खाता संपत्ति प्रकार नहीं",
+    typeChangeUnavailable:
+      "मौजूदा मानों की सुरक्षा के लिए प्रॉपर्टी का प्रकार नहीं बदला जा सकता।",
     notMappedToBuilder: "बिल्डर को मैप नहीं किया गया.",
     onlyBlocksPropertyWarning:
       "यह इस ऑब्जेक्ट प्रकार में मौजूद एकमात्र ब्लॉक प्रॉपर्टी है। यह इस प्रकार की सभी वस्तुओं के लिए मुख्य सामग्री (मुख्य भाग) को हटा देगा।",
@@ -1808,6 +1810,7 @@ const overrides = {
     heading6: "शीर्षक 6",
     link: "लिंक",
     comment: "टिप्पणी",
+    suggestEdit: "बदलाव सुझाएं",
     pasteLink: "लिंक चिपकाएं...",
     apply: "लागू करें",
     plainText: "सादा टेक्स्ट",
@@ -1994,6 +1997,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "इससे लंबित निर्माण और कोई भी सहेजा नहीं गया ड्राफ़्ट साफ़ हो जाएगा। अगर पेज पहले से सहेजा गया है, तो वह आपके कार्यक्षेत्र में बना रहेगा।",
     failedDeletePage: "पेज हटाया नहीं जा सका",
+    workspaceReferenceProtected:
+      "कार्यक्षेत्र के संदर्भ सुरक्षित हैं और उन्हें पेज की तरह बदला नहीं जा सकता।",
     failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
     failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",
     failedMovePage: "पेज स्थानांतरित नहीं हो सका",

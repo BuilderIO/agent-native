@@ -1,3 +1,9 @@
+import type { i18n as I18nInstance } from "i18next";
+import { I18nContext } from "react-i18next";
+
+import { ActionError, actionTransportError } from "./action-error.js";
+export { ActionError } from "./action-error.js";
+
 import {
   hashKey,
   CancelledError,
@@ -59,7 +65,11 @@ import {
 } from "./action-failure-circuit.js";
 import { fetchActionGet } from "./action-get-batch.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
-import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
+import {
+  advanceMutationEpoch,
+  readMutationEpoch,
+  requestActionCacheFlush,
+} from "./action-query-cache-mutation.js";
 import {
   claimActionQueryForeground,
   finishActionQueryOpening,
@@ -108,6 +118,7 @@ import {
   onSessionIdentityPublished,
   subscribeSessionScope,
 } from "./session-identity.js";
+import { retainFallbackToolDoneRefresh } from "./tool-done-refresh.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 import { reportWriteFailure } from "./write-failure-event.js";
 
@@ -147,7 +158,9 @@ export function defaultActionQueryRetry(
   if (isNetworkLevelFailure(error)) return failureCount < 1;
 
   const status = actionErrorStatus(error);
-  if (status === undefined) return failureCount < 3;
+  if (status === undefined) {
+    return !(error instanceof ActionError) && failureCount < 3;
+  }
 
   return isRetryableActionStatus(status) && failureCount < 3;
 }
@@ -156,6 +169,8 @@ export function defaultActionQueryRetry(
 export const shouldRetryActionQueryForError = defaultActionQueryRetry;
 
 function isBrowserResourceExhaustion(error: unknown): boolean {
+  if (error instanceof ActionError)
+    return isBrowserResourceExhaustion(error.cause);
   const message =
     error instanceof Error
       ? error.message
@@ -167,11 +182,16 @@ function isBrowserResourceExhaustion(error: unknown): boolean {
 
 /** @internal shared with `classifyWriteFailure` */
 export function isNetworkLevelFailure(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error as { status?: unknown }).status === undefined &&
-    /^Action .+ failed: /.test(error.message)
-  );
+  if (!(error instanceof Error)) return false;
+  const status = (error as { status?: unknown }).status;
+  if (error instanceof ActionError) {
+    return (
+      error.code === "network_error" &&
+      (status === undefined ||
+        (typeof status === "number" && status >= 200 && status < 300))
+    );
+  }
+  return status === undefined && /^Action .+ failed: /.test(error.message);
 }
 
 /**
@@ -191,10 +211,16 @@ export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.round(step / 2 + (Math.random() * step) / 2);
 }
 
-export function actionErrorMessage(error: unknown): string | undefined {
+export function actionErrorMessage(error: unknown, fallback: string): string;
+export function actionErrorMessage(error: unknown): string | undefined;
+export function actionErrorMessage(
+  error: unknown,
+  fallback?: string,
+): string | undefined {
+  if (error instanceof ActionError) return error.catalogMessage ?? fallback;
   const value = (error as { actionMessage?: unknown } | undefined)
     ?.actionMessage;
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +258,8 @@ type ActionParams<T extends string> = T extends keyof ActionRegistry
 export type ClientActionMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface ClientActionCallOptions {
+  /** Bind imperative calls to an isolated app catalog; hooks bind their provider automatically. */
+  errorI18n?: I18nInstance | undefined;
   method?: ClientActionMethod;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -288,6 +316,7 @@ function appendActionQueryParam(
 export const KEEPALIVE_BODY_LIMIT_BYTES = 60 * 1024;
 
 export interface ActionFetchOptions {
+  errorI18n?: I18nInstance | undefined;
   signal?: AbortSignal;
   timeoutMs?: number;
   keepalive?: boolean;
@@ -303,6 +332,8 @@ export interface ActionFetchOptions {
 
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
+  onPrivateError?: (metadata: PrivateActionErrorMetadata) => void;
+  privateErrorSchema?: PrivateActionMutationOptions["privateErrorSchema"];
   visibleOnly?: boolean;
   uiCapabilityRetry?: boolean;
   /** A GET that may share one request with the other GETs in its tick. */
@@ -470,17 +501,24 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       credentials: "same-origin",
       cache: "no-store",
       signal: controller?.signal,
-    }).then((res) => {
-      releaseMintBody(res);
-      if (!res.ok) {
-        throw new Error("Could not establish the browser UI capability.");
-      }
-      if (generation !== uiCapabilityGeneration) return;
-      uiCapability = { identity, at: Date.now() };
-      if (typeof identity === "string") {
-        rememberUiCapability(identity, uiCapability.at);
-      }
-    });
+    })
+      .catch((error: unknown) => {
+        throw actionTransportError(error);
+      })
+      .then((res) => {
+        releaseMintBody(res);
+        if (!res.ok) {
+          throw actionTransportError(
+            new Error("Could not establish the browser UI capability."),
+            res,
+          );
+        }
+        if (generation !== uiCapabilityGeneration) return;
+        uiCapability = { identity, at: Date.now() };
+        if (typeof identity === "string") {
+          rememberUiCapability(identity, uiCapability.at);
+        }
+      });
     const settled: Promise<void> = Promise.race([response, timedOut]).finally(
       () => {
         clearTimeout(timer);
@@ -788,7 +826,9 @@ async function performActionFetch<T>(
             })
           : (() => {
               try {
-                return fetch(url, init);
+                return fetch(url, init).catch((error: unknown) => {
+                  throw actionTransportError(error);
+                });
               } finally {
                 if (options?.privateInput) delete init.body;
               }
@@ -813,18 +853,48 @@ async function performActionFetch<T>(
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted || isCancelledError(err)) throw err;
       const cause = err instanceof Error ? err.message : String(err);
-      throw new Error(`Action ${name} failed: ${cause}`);
+      const source = err as {
+        code?: unknown;
+        status?: unknown;
+        requestId?: unknown;
+        retryAfterMs?: unknown;
+      } | null;
+      const code = source?.code;
+      const failure = Object.assign(
+        new Error(`Action ${name} failed: ${cause}`, { cause: err }),
+        {
+          code: typeof code === "string" ? code : "request_failed",
+        },
+      );
+      if (typeof source?.status === "number")
+        Object.assign(failure, { status: source.status });
+      if (typeof source?.retryAfterMs === "number")
+        Object.assign(failure, { retryAfterMs: source.retryAfterMs });
+      if (typeof source?.requestId === "string")
+        Object.assign(failure, { requestId: source.requestId });
+      throw failure;
     }
 
     throwIfAborted(outerSignal);
     if (options?.privateInput) {
-      // Private callers need the HTTP completion signal, never a response body.
-      // In particular, a reflected input must not become a public error/result.
-      void res.body?.cancel().catch(() => {});
+      if (res.ok) {
+        void res.body?.cancel().catch(() => {});
+        return undefined as T;
+      }
       if (res.status === 401) recheckSessionAfterUnauthorized();
       if (res.status === 403) forgetUiActionCapability();
-      if (!res.ok) throw privateMutationError();
-      return undefined as T;
+      const schema = options.privateErrorSchema;
+      if (schema) {
+        const body: unknown = await Promise.race([res.json(), timedOutSignal]);
+        const validation = schema.safeParse(body);
+        if (validation.success) options.onPrivateError?.(validation.data);
+      } else if (res.body) {
+        await Promise.race([
+          res.body.pipeTo(new WritableStream()),
+          timedOutSignal,
+        ]);
+      }
+      throw privateMutationError();
     }
 
     if (
@@ -985,11 +1055,13 @@ async function performActionFetch<T>(
   if (readFailed) {
     const cause =
       readError instanceof Error ? readError.message : String(readError);
-    const error = new Error(
-      `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+    throw actionTransportError(
+      new Error(
+        `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+        { cause: readError },
+      ),
+      res,
     );
-    (error as any).status = res.status;
-    throw error;
   }
 
   if (options?.responseType === "blob") {
@@ -1144,8 +1216,11 @@ async function actionFetch<T>(
       },
     });
   } catch (caught) {
-    error = caught;
-    throw caught;
+    error =
+      isAbortError(caught) || caught instanceof ActionError
+        ? caught
+        : new ActionError(caught, options?.errorI18n);
+    throw error;
   } finally {
     try {
       recordActionEnd({ error, response, signal: options?.signal });
@@ -1259,6 +1334,7 @@ export function callAction<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   return actionFetch<R>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1277,6 +1353,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
 ): Promise<Blob> {
   return actionFetch<Blob>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1428,6 +1505,7 @@ export function tryCallActionKeepalive<
 
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     keepalive: true,
     serializedBody,
@@ -1832,6 +1910,10 @@ export function useActionQuery<
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
+  useEffect(() => retainFallbackToolDoneRefresh(queryClient), [queryClient]);
   const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
   const surfaceOptions = useRef({ restOptions, callerEnabled, canFetch });
@@ -1898,6 +1980,7 @@ export function useActionQuery<
           (onResponse) =>
             actionFetch<R>(actionName, method, params, {
               signal,
+              errorI18n,
               ...(foreground
                 ? { headers: { "X-Agent-Native-Interactive": "1" } }
                 : {}),
@@ -1998,13 +2081,47 @@ export function useActionQuery<
       ),
     [queryClient, queryHash],
   );
-  if (!interactive || !foregroundRefetch) return result;
-  // Proxy, not spread: React Query tracks which result fields a component reads.
+
+  const readState = (target: typeof result): ActionReadState<R> => {
+    if (target.isError)
+      return {
+        status: "failed",
+        error: target.error,
+        data: target.data,
+        retry: foregroundRefetchFn,
+      };
+    if (target.isSuccess) return { status: "ready", data: target.data };
+    return { status: "pending" };
+  };
+
   return new Proxy(result, {
-    get: (target, key) =>
-      key === "refetch" ? foregroundRefetchFn : Reflect.get(target, key),
-  });
+    get: (target, key) => {
+      if (key === "readState") return readState(target);
+      return key === "refetch" && interactive && foregroundRefetch
+        ? foregroundRefetchFn
+        : Reflect.get(target, key);
+    },
+    has: (target, key) => key === "readState" || Reflect.has(target, key),
+    ownKeys: (target) => {
+      const keys = Reflect.ownKeys(target);
+      return keys.includes("readState") ? keys : [...keys, "readState"];
+    },
+    getOwnPropertyDescriptor: (target, key) =>
+      key === "readState"
+        ? { configurable: true, enumerable: true, get: () => readState(target) }
+        : Reflect.getOwnPropertyDescriptor(target, key),
+  }) as typeof result & { readonly readState: ActionReadState<R> };
 }
+
+export type ActionReadState<T> =
+  | { status: "pending" }
+  | {
+      status: "failed";
+      error: Error;
+      data?: T | undefined;
+      retry: () => Promise<unknown>;
+    }
+  | { status: "ready"; data: T };
 
 /**
  * A write that names its resources refreshes only the action queries tagged for
@@ -2103,7 +2220,7 @@ function trackCallOnError<D, V>(
 
 /**
  * Private writes accept inputs only at invocation. They do not create a
- * TanStack mutation, expose input callbacks, or return/store response bodies.
+ * TanStack mutation, expose input callbacks, or return/store raw response bodies.
  * The action must separately disable tools, input auditing and persistence.
  */
 export interface PrivateActionMutationOptions {
@@ -2114,8 +2231,20 @@ export interface PrivateActionMutationOptions {
   timeoutMs?: number;
   resources?: readonly string[];
   skipActionQueryInvalidation?: boolean;
+  privateErrorSchema?: {
+    safeParse: (
+      input: unknown,
+    ) =>
+      | { success: true; data: PrivateActionErrorMetadata }
+      | { success: false };
+  };
   onSuccess?: () => unknown;
   onError?: (error: Error) => unknown;
+}
+
+interface PrivateActionErrorMetadata {
+  errorCode: string;
+  details?: Record<string, unknown>;
 }
 
 export interface PrivateActionMutationResult<V> {
@@ -2221,11 +2350,19 @@ function serializePrivateInput(value: unknown): string | undefined {
   return JSON.stringify(value);
 }
 
-function privateMutationError(cancelled = false): Error {
+function privateMutationError(
+  cancelled = false,
+  status?: number,
+  metadata?: PrivateActionErrorMetadata,
+): Error {
   const error = new Error(
     cancelled ? "Private action cancelled." : "Private action failed.",
   );
   if (cancelled) error.name = "AbortError";
+  if (status !== undefined) Object.assign(error, { status });
+  if (metadata) Object.assign(error, { errorCode: metadata.errorCode });
+  if (metadata?.details !== undefined)
+    Object.assign(error, { details: metadata.details });
   return Object.freeze(error);
 }
 
@@ -2272,17 +2409,25 @@ function usePrivateInputMutation<V>(
     const opts = current.options;
     const scope = currentSessionScope();
     const privateScope = currentPrivateActionScope();
+    const sessionUnavailable =
+      typeof currentSessionIdentity() !== "string" ||
+      !privateScope ||
+      isEmbedAuthActive();
     if (
       !mounted.current ||
       !opts ||
       !hasPrivateMutationFlags(opts) ||
-      typeof currentSessionIdentity() !== "string" ||
-      !privateScope ||
-      isEmbedAuthActive() ||
+      sessionUnavailable ||
       active.current
     ) {
       params = undefined as V;
-      throw privateMutationError();
+      throw privateMutationError(
+        false,
+        undefined,
+        sessionUnavailable
+          ? { errorCode: "private_action_session_unavailable" }
+          : undefined,
+      );
     }
     const invocation = { controller: new AbortController(), scope };
     active.current = invocation;
@@ -2296,6 +2441,8 @@ function usePrivateInputMutation<V>(
       config.current.actionName === current.actionName;
     setState({ status: "pending", error: null });
     let body: string | undefined;
+    let rejectedStatus: number | undefined;
+    let rejectedMetadata: PrivateActionErrorMetadata | undefined;
     try {
       try {
         body = serializePrivateInput(params);
@@ -2313,6 +2460,14 @@ function usePrivateInputMutation<V>(
         {
           serializedBody: body,
           privateInput: true,
+          ...(opts.privateErrorSchema
+            ? {
+                privateErrorSchema: opts.privateErrorSchema,
+                onPrivateError: (metadata: PrivateActionErrorMetadata) => {
+                  rejectedMetadata = metadata;
+                },
+              }
+            : {}),
           headers: {
             [PRIVATE_ACTION_SCOPE_HEADER]:
               privateActionScopeHeader(privateScope),
@@ -2324,6 +2479,7 @@ function usePrivateInputMutation<V>(
           uiOnly: true,
           retryUiCapability: false,
           onResponse: (response) => {
+            if (response.status >= 400) rejectedStatus = response.status;
             outcome.markerFailed =
               response.headers.get(ACTION_CHANGE_MARKER_HEADER) ===
               ACTION_CHANGE_MARKER_FAILED;
@@ -2340,19 +2496,29 @@ function usePrivateInputMutation<V>(
       if (typeof window !== "undefined")
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       if (!valid()) throw privateMutationError(true);
+      let refetched: Promise<void> | undefined;
+      let ownEpoch: string | null | undefined;
       if (!opts.skipActionQueryInvalidation || outcome.markerFailed) {
-        if (!advanceMutationEpoch())
-          revokeActionQueryCacheForClient(queryClient);
-        void queryClient.invalidateQueries(
+        if (advanceMutationEpoch()) ownEpoch = readMutationEpoch();
+        else revokeActionQueryCacheForClient(queryClient);
+        refetched = queryClient.invalidateQueries(
           actionQueryInvalidation(opts.resources),
         );
       }
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
+      void Promise.allSettled([refetched]).then(() =>
+        requestActionCacheFlush(ownEpoch),
+      );
       setState({ status: "success", error: null });
     } catch {
-      const error = privateMutationError(!valid());
+      const isCurrent = valid();
+      const error = privateMutationError(
+        !isCurrent,
+        isCurrent ? rejectedStatus : undefined,
+        isCurrent ? rejectedMetadata : undefined,
+      );
       if (valid()) {
         setState({ status: "error", error });
         // Callback failures must not carry a reflected input to the caller.
@@ -2455,6 +2621,9 @@ function useNormalActionMutation<
   TVariables extends undefined ? ActionParams<TName> : TVariables
 > {
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
   const {
     method: methodOpt,
     onSuccess,
@@ -2529,6 +2698,7 @@ function useNormalActionMutation<
         params as Record<string, any>,
         {
           timeoutMs,
+          errorI18n,
           uiOnly,
           retryUiCapability,
           headers: interactive
@@ -2609,16 +2779,22 @@ function useNormalActionMutation<
       } catch {
         console.warn("Action mutation projection observer failed");
       }
+      let refetched: Promise<void> | undefined;
+      let ownEpoch: string | null | undefined;
       if (!skipActionQueryInvalidation) {
-        if (!advanceMutationEpoch())
-          revokeActionQueryCacheForClient(queryClient);
-        void invalidateForegroundActionQueries(
+        if (advanceMutationEpoch()) ownEpoch = readMutationEpoch();
+        else revokeActionQueryCacheForClient(queryClient);
+        refetched = invalidateForegroundActionQueries(
           queryClient,
           actionQueryInvalidation(resources),
           interactive,
         );
       }
-      return (onSuccess as Function)?.(...args);
+      const result = (onSuccess as Function | undefined)?.(...args);
+      void Promise.allSettled([result, refetched]).then(() =>
+        requestActionCacheFlush(ownEpoch),
+      );
+      return result;
     },
   });
 

@@ -868,6 +868,8 @@ const editorPropertiesMessages = {
   noFilesOrMedia: "No files or media",
   noMatchingOptions: "No matching options",
   noMatchingPropertyTypes: "No matching property types",
+  typeChangeUnavailable:
+    "Property type changes are unavailable to protect existing values.",
   notMappedToBuilder: "Not mapped to Builder.",
   onlyBlocksPropertyWarning:
     "This is the only blocks property present in this object type. This will delete the main content (body) for all objects of this type.",
@@ -1647,6 +1649,7 @@ const enUS = {
     heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
+    suggestEdit: "Suggest edit",
     pasteLink: "Paste link...",
     apply: "Apply",
     plainText: "Plain text",
@@ -2213,6 +2216,8 @@ const enUS = {
       "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
+    workspaceReferenceProtected:
+      "Workspace references are protected and cannot be changed as pages.",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",
     failedPermanentDeletePage: "Failed to permanently delete page",
     failedMovePage: "Failed to move page",

@@ -145,6 +145,7 @@ function safePredicate(tokens: AgentSqlToken[], alias: string): string | null {
       (token, index) =>
         token.kind === "parameter" ||
         token.kind === "quoted-identifier" ||
+        (token.kind === "string" && plainStringLiteral(token) === null) ||
         (token.kind === "word" &&
           ["timestamp", "date", "string"].includes(token.value) &&
           !(

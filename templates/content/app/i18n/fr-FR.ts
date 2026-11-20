@@ -1009,6 +1009,8 @@ const editor = {
     noFilesOrMedia: "Aucun fichier ni média",
     noMatchingOptions: "Aucune option correspondante",
     noMatchingPropertyTypes: "Aucun type de propriété correspondant",
+    typeChangeUnavailable:
+      "Le type de propriété ne peut pas être modifié afin de protéger les valeurs existantes.",
     notMappedToBuilder: "Non mappé à Builder.",
     onlyBlocksPropertyWarning:
       "C'est la seule propriété de blocs présente dans ce type d'objet. Cela supprimera le contenu principal (corps) de tous les objets de ce type.",
@@ -1904,6 +1906,7 @@ const overrides = {
     heading6: "Titre 6",
     link: "Lien",
     comment: "Commentaire",
+    suggestEdit: "Suggérer une modification",
     pasteLink: "Coller le lien...",
     apply: "Appliquer",
     plainText: "Texte brut",
@@ -2097,6 +2100,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
+    workspaceReferenceProtected:
+      "Les références aux espaces de travail sont protégées et ne peuvent pas être modifiées comme des pages.",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",
     failedMovePage: "Échec du déplacement de la page",

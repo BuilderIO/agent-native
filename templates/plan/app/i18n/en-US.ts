@@ -268,6 +268,8 @@ const messages = {
       linksDisabled: "Links are disabled in review so the document stays put.",
       visualPromptCopied: "Visual intake prompt copied",
       sentAnswers: "Sent answers to the agent",
+      sendAnswersPrompt: "Send your answers to the agent?",
+      sendAnswersAction: "Send",
       recapLinkCopied: "Recap link copied",
       planLinkCopied: "Plan link copied",
       localPathCopied: "Local path copied",

@@ -50,6 +50,10 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
+import {
+  buildAgentNavigationKeptResult,
+  isAgentNavigationRefusedError,
+} from "./application-state/navigate-write-guard.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { RecordActionAuditInput } from "./audit/record.js";
 import type { ActionAuditConfig } from "./audit/types.js";
@@ -113,6 +117,14 @@ export {
   currentActionOriginCaller,
   withoutWriteObservation,
 };
+export {
+  REVERSIBLE_WRITE_INLINE_APPROVAL_KEY,
+  createReversibleWriteApprovalPolicy,
+  isReversibleWriteInlineApprovalAction,
+  isReversibleWriteNoApprovalsMode,
+  reversibleWriteNeedsApproval,
+  type ReversibleWriteApprovalPredicate,
+} from "./approval/reversible-write-policy.js";
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -1032,6 +1044,15 @@ export type ActionOutputResult<
       | StandardSchemaV1.InferInput<TOutputSchema>
       | (TStrategy extends "fallback" ? undefined : never);
 
+/** An action's MCP decision; `mcpTool` on the action documents each value. */
+export type ActionMcpTool = boolean | "search";
+
+/** Whether `mcpTool` serves the action to external agents, listed or found
+ *  through `tool-search`. */
+export function isMcpToolServed(mcpTool: ActionMcpTool | undefined): boolean {
+  return mcpTool === true || mcpTool === "search";
+}
+
 /**
  * `"direct"` contract: the action must declare `needsApproval` as a function,
  * and it must not set `requiresUserTurn`. Over MCP the call is refused
@@ -1201,6 +1222,9 @@ interface DefineActionWithSchema<
   /** Returns an embed start URL that another app on its own origin minted
    *  for the caller, which the MCP server keeps instead of re-minting. */
   opensAnotherAppEmbed?: boolean;
+  /** Marks a write action whose explicit job is opening a view in the UI when
+   *  called by an agent without `intent: "open"`. Ignored on `readOnly` actions. */
+  allowsAgentNavigation?: boolean;
   agentTool?: boolean;
   /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
    *  A2A action surface, which shares the same policy).
@@ -1220,6 +1244,10 @@ interface DefineActionWithSchema<
    *    a template delete its hand-maintained `connectorCatalog` name list.
    *    Paired with `agentTool: false` it makes the action MCP-only — external
    *    agents get it, the app's own agent does not.
+   *  - `"search"` — served to external agents but left out of `tools/list`, so
+   *    the list stays short. `tool-search` finds it and the `call-tool` tool
+   *    runs it, with the same checks as a listed tool; it does not activate
+   *    the connector tier. The full catalog lists it like any other.
    *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
    *    whether it is advertised up front or found through `tool-search`.
    *
@@ -1230,7 +1258,7 @@ interface DefineActionWithSchema<
    *  that an action ending the in-app agent's turn is in-app only by default,
    *  because the user's answer flows back through the in-app chat that an
    *  external caller is not on. */
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** Lets an MCP connection on the script catalog call this action from
    *  `run-script`. Nothing is scriptable by default. `defineAction` throws
@@ -1416,8 +1444,11 @@ interface DefineActionWithParams<
   /** Returns an embed start URL that another app on its own origin minted
    *  for the caller, which the MCP server keeps instead of re-minting. */
   opensAnotherAppEmbed?: boolean;
+  /** Marks a write action whose explicit job is opening a view in the UI when
+   *  called by an agent without `intent: "open"`. Ignored on `readOnly` actions. */
+  allowsAgentNavigation?: boolean;
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   mcpAnnotations?: ActionMcpToolAnnotations;
   /** See `mcpScript` on the schema form above. */
   mcpScript?: "read" | "write";
@@ -1503,7 +1534,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly requiresSignedInBrowser?: boolean;
   readonly opensAnotherAppEmbed?: boolean;
   readonly agentTool?: boolean;
-  readonly mcpTool?: boolean;
+  readonly mcpTool?: ActionMcpTool;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly mcpScript?: "read" | "write";
   readonly mcpScriptWrite?: McpScriptWriteContract;
@@ -1851,6 +1882,8 @@ export function defineAction(options: any) {
     if (frame) {
       frame.writes = callReadOnly !== true;
       frame.emitsChange = options.changeEvents !== false;
+      frame.allowsAgentNavigation =
+        options.allowsAgentNavigation === true && callReadOnly !== true;
     }
     // What the call has done so far: whether a write entered its handler in
     // it or in a call nested in it. Without a frame nothing tracks that, so
@@ -1886,6 +1919,7 @@ export function defineAction(options: any) {
         nested = ctx !== undefined && f.context === ctx;
       }
       if (!nested) actionName = ctx?.actionName;
+      frame.isNavigateAction = actionName === "navigate";
     }
     let ran = false;
     try {
@@ -1895,6 +1929,17 @@ export function defineAction(options: any) {
         ? await checkOutput(output, { actionName, effect: effect() })
         : output;
     } catch (thrown) {
+      if (
+        !ran &&
+        frame?.isNavigateAction &&
+        isAgentNavigationRefusedError(thrown) &&
+        thrown.reason !== "read-only-action"
+      ) {
+        return buildAgentNavigationKeptResult(
+          thrown.reason,
+          thrown.currentView,
+        );
+      }
       const error = readableFailure(thrown);
       // Raised by this handler, not passed up through a nested call's
       // boundary, with no nested write entered.
@@ -1962,8 +2007,10 @@ export function defineAction(options: any) {
       : undefined;
   const agentTool: boolean | undefined =
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
-  const mcpTool: boolean | undefined =
-    typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const mcpTool: ActionMcpTool | undefined =
+    typeof options.mcpTool === "boolean" || options.mcpTool === "search"
+      ? options.mcpTool
+      : undefined;
   const mcpAnnotations: ActionMcpToolAnnotations | undefined =
     options.mcpAnnotations === undefined
       ? undefined
@@ -2131,7 +2178,7 @@ export function defineAction(options: any) {
       ? { opensAnotherAppEmbed: true }
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
-    ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(mcpTool !== undefined ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(mcpScript ? { mcpScript } : {}),
     ...(mcpScript === "write"
@@ -2248,27 +2295,27 @@ export function defineAction(options: any) {
 
 export function isActionExposedToExternalAgents(entry: {
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   endsTurn?: boolean;
   uiOnly?: boolean;
 }): boolean {
   if (entry.uiOnly === true) return false;
   if (entry.endsTurn === true) {
-    return entry.mcpTool === true;
+    return isMcpToolServed(entry.mcpTool);
   }
-  return typeof entry.mcpTool === "boolean"
-    ? entry.mcpTool
-    : entry.agentTool !== false;
+  return entry.mcpTool === undefined
+    ? entry.agentTool !== false
+    : isMcpToolServed(entry.mcpTool);
 }
 
 export function isActionHiddenFromEveryAgentSurface(entry: {
   agentTool?: boolean;
-  mcpTool?: boolean;
+  mcpTool?: ActionMcpTool;
   uiOnly?: boolean;
 }): boolean {
   return (
     entry.uiOnly === true ||
-    (entry.agentTool === false && entry.mcpTool !== true)
+    (entry.agentTool === false && !isMcpToolServed(entry.mcpTool))
   );
 }
 
@@ -2898,11 +2945,20 @@ export function describeToolParameterSignature(
  * `actionCallIntent`, the call also carries its classification and the action
  * it was classified for.
  */
+function extractNavigationIntent(args: unknown): string | undefined {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    return undefined;
+  }
+  const intent = (args as { intent?: unknown }).intent;
+  return typeof intent === "string" ? intent : undefined;
+}
+
 interface PreparedRun {
   readonly schema: StandardSchemaV1 | undefined;
   readonly value: unknown;
   readonly key?: object;
   readonly intent?: PreparedActionCall;
+  readonly navigationIntent?: string;
 }
 
 const preparedRuns = new WeakMap<object, PreparedRun>();
@@ -3060,6 +3116,12 @@ function wrapRunWithExecutionBoundary(
     frame.key = key;
     frame.boundaryPending = false;
     frame.handlerEntered = false;
+    const rawNavigationIntent =
+      extractNavigationIntent(args) ??
+      preparedRunFor(ctx, args)?.navigationIntent;
+    if (rawNavigationIntent !== undefined) {
+      frame.navigationIntent = rawNavigationIntent;
+    }
     const state: ActionExecutionState = {
       frame,
       failures: parent?.failures ?? new WeakMap(),
@@ -3251,7 +3313,14 @@ async function validatedActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (ctx) preparedRuns.set(ctx, { schema, value });
+  const navigationIntent = extractNavigationIntent(args);
+  if (ctx) {
+    preparedRuns.set(ctx, {
+      schema,
+      value,
+      ...(navigationIntent !== undefined ? { navigationIntent } : {}),
+    });
+  }
   return value;
 }
 
@@ -3295,6 +3364,7 @@ const preparedIntents = new WeakMap<
     readonly schema: StandardSchemaV1 | undefined;
     readonly key?: object;
     readonly snapshot: unknown;
+    readonly navigationIntent?: string;
   }
 >();
 
@@ -3315,6 +3385,7 @@ export async function actionCallIntent(
     "~standard" in entry.schema
       ? (entry.schema as StandardSchemaV1)
       : undefined;
+  const rawNavigationIntent = extractNavigationIntent(input);
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
     const repaired = getStrictToolInputValidator(entry)
@@ -3352,6 +3423,9 @@ export async function actionCallIntent(
     schema,
     ...(key !== null && typeof key === "object" ? { key } : {}),
     snapshot: snapshot.value,
+    ...(rawNavigationIntent !== undefined
+      ? { navigationIntent: rawNavigationIntent }
+      : {}),
   });
   return intent;
 }
@@ -3385,6 +3459,11 @@ export function preparedCallArguments(call: PreparedActionCall): unknown {
   return copyActionArguments(prepared.snapshot);
 }
 
+async function isNoApprovalsForCall(ctx: ActionRunContext): Promise<boolean> {
+  const { isNoApprovalsMode } = await import("./approval/no-approvals-mode.js");
+  return isNoApprovalsMode(ctx.userEmail);
+}
+
 /**
  * Whether `call` needs a person's approval before it runs, by the action's
  * `needsApproval`. Every surface that can run an action decides with this, so
@@ -3400,7 +3479,9 @@ export async function preparedCallNeedsApproval(
   ctx: ActionRunContext,
 ): Promise<boolean> {
   const gate = entry.needsApproval;
-  if (typeof gate !== "function") return gate === true;
+  if (typeof gate !== "function" && gate !== true) return false;
+  if (await isNoApprovalsForCall(ctx)) return false;
+  if (typeof gate !== "function") return true;
   try {
     return Boolean(await gate(preparedCallArguments(call), ctx));
   } catch {
@@ -3411,9 +3492,9 @@ export async function preparedCallNeedsApproval(
 
 /**
  * Whether the action's `needsApproval` predicate clears `call` of review: only
- * an answer of exactly `false`. Anything else, a throw or a non-boolean
- * included, leaves the call to review, so a direct write never runs on a
- * predicate that could not decide.
+ * an answer of exactly `false` (or no-approvals mode). Anything else, a throw
+ * or a non-boolean included, leaves the call to review, so a direct write
+ * never runs on a predicate that could not decide.
  */
 export async function preparedCallClearsReview(
   entry: {
@@ -3424,6 +3505,7 @@ export async function preparedCallClearsReview(
   call: PreparedActionCall,
   ctx: ActionRunContext,
 ): Promise<boolean> {
+  if (await isNoApprovalsForCall(ctx)) return true;
   const gate = entry.needsApproval;
   if (typeof gate !== "function") return false;
   try {
@@ -3490,6 +3572,9 @@ export function runPreparedActionCall(
     value: args,
     ...(prepared.key ? { key: prepared.key } : {}),
     intent: call,
+    ...(prepared.navigationIntent !== undefined
+      ? { navigationIntent: prepared.navigationIntent }
+      : {}),
   });
   return outcome
     ? runActionWithExecutionOutcome(

@@ -1,5 +1,9 @@
 import { withoutWriteObservation } from "../action-frame.js";
 import {
+  MODEL_REFUSAL_CODE,
+  MODEL_REFUSAL_MESSAGE,
+} from "../agent/engine/error-detail.js";
+import {
   getStoredModelForEngine,
   normalizeModelForEngine,
   registerBuiltinEngines,
@@ -232,6 +236,11 @@ async function runCompleteText(
           reasoningTokens: event.reasoningTokens,
         };
       } else if (event.type === "stop") {
+        if (event.reason === "refusal") {
+          throw new EngineError(MODEL_REFUSAL_MESSAGE, {
+            errorCode: MODEL_REFUSAL_CODE,
+          });
+        }
         if (event.reason === "error") {
           if (options.privateContent === true) {
             throw new PrivateCompletionError(engine.name, {

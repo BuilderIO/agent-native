@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   defineEventHandler,
+  getHeader,
   getMethod,
   setResponseStatus,
   setResponseHeader,
@@ -225,6 +226,10 @@ async function dispatch(
   }
 
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
+    if (getHeader(event, "sec-fetch-dest")?.toLowerCase() === "document") {
+      setResponseStatus(event, 403);
+      return { error: "Extensions open inside the app" };
+    }
     const localExtension = await getLocalExtension(parts[0]);
     if (localExtension) {
       const search = event.url?.search || "";

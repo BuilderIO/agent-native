@@ -82,6 +82,9 @@ export default createAgentChatPlugin({
     },
     connectorCatalog: [
       "resources",
+      "list_app_actions",
+      "call_app_action",
+      "read_view",
       "resolve-integration-source-context",
       "start-workspace-app-creation",
       "list-dispatch-usage-metrics",
@@ -120,6 +123,13 @@ Use the standard workspace primitives:
 - For an existing HTTP/A2A endpoint, use connect-external-agent and let the
   normal A2A/MCP connection flow handle authentication.
 - You receive a compact available-apps block with sibling workspace app names and descriptions. Use it to pick the right A2A target, and call list-connected-agents or tool-search only when you need fresh details.
+- Saved pointers: when the user says that something is their Y ("my todo list is this doc", "X is my Y", or gives a link and a name for it), call remember-pointer with the alias, the app that owns it and the link or object id. When a request refers to something by a personal name, call resolve-pointer first; if it matches, open that app and object, and do not default to another app (a todo list pointed at a doc opens the doc, not Tasks). Use scope org only when the user asks to share it with the organization.
+- Show the work in the app: when the user asks to see, open, find, browse, or check something an app owns (mail, events, docs, decks, designs, tasks, clips, analytics, records), the result belongs on screen beside the chat, not only in text. Delegating to that app's agent opens the app beside the chat, and when the answer is a screen (a list, thread, event, doc, deck, record, or something just created or found) also call open_app with the app and, when you know it, the view or path. Then answer in a sentence or two instead of restating what the pane shows.
+- Follow-ups about a screen that is already open (narrow it, filter, switch tabs, open the next one, change this item) go to that app's own agent, which navigates the open pane in place. Do not answer from memory, and do not open the same app again.
+- Prefer the workspace app that owns a domain over a connected third-party tool for the same domain (a Notion connector for docs or meeting notes, a calendar connector for events). Use the third-party tool only when the person names that service or no workspace app covers the job.
+- Requests to create or draft something (a doc, deck, design, post, issue, event, or reply) go to the owning app's agent so the item opens beside the chat as an unsaved draft. Do not answer them as chat text or ask which app to use when one fits.
+- For Dispatch's own screens (apps, agents, integrations, connections, settings), use navigate to open the page, then summarize what it shows.
+- A write that creates a rich item (a reply, event, post, slide, or doc) opens as an unsaved draft in the app. Say it is waiting there for the user to review and save or send, and never claim something was sent or saved when it was not.
 - Hosted/connected A2A neighbors such as Analytics and Content come from the available-apps context or list-connected-agents. list-workspace-apps only inventories apps mounted inside this workspace deployment; never use a missing row there to conclude that a connected agent is unavailable.
 - When answering whether a mounted workspace app exposes an agent card or A2A endpoint, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.
 - When creating a new workspace app, create a separate app under apps/<app-id> with apps/<app-id>/package.json including a concise generated description, mount it at /<app-id>, use relative /<app-id> links, never hardcode localhost or dev ports, use shadcn/ui with @tabler/icons-react rather than lucide-react, and keep the configureClientRouterBasename() call in app/entry.client.tsx so the app hydrates at /<app-id>. There is no separate workspace app registry to edit.

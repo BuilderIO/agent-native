@@ -356,6 +356,17 @@ describe("completeText", () => {
     });
   });
 
+  it("rejects refused completions without returning partial content", async () => {
+    const engine = createFakeEngine(async function* () {
+      yield { type: "text-delta", text: "Partial output" };
+      yield { type: "stop", reason: "refusal" };
+    });
+
+    await expect(
+      completeText({ engine, input: "Example request", apiKey: "test-key" }),
+    ).rejects.toMatchObject({ errorCode: "content_filtered" });
+  });
+
   it("labels its own timeout with a stable error code", async () => {
     const engine = createFakeEngine(async function* (opts) {
       await new Promise<never>((_resolve, reject) => {

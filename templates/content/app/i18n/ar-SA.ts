@@ -962,6 +962,7 @@ const editor = {
     noFilesOrMedia: "لا توجد ملفات أو وسائل الإعلام",
     noMatchingOptions: "لا توجد خيارات مطابقة",
     noMatchingPropertyTypes: "لا توجد أنواع عقارات مطابقة",
+    typeChangeUnavailable: "لا يمكن تغيير نوع الخاصية لحماية القيم الحالية.",
     notMappedToBuilder: "لم يتم تعيينه إلى Builder.",
     onlyBlocksPropertyWarning:
       "هذه هي خاصية الكتل الوحيدة الموجودة في هذا النوع من الكائنات. سيؤدي هذا إلى حذف المحتوى الرئيسي (النص) لجميع الكائنات من هذا النوع.",
@@ -1838,6 +1839,7 @@ const overrides = {
     heading6: "عنوان 6",
     link: "رابط",
     comment: "تعليق",
+    suggestEdit: "اقتراح تعديل",
     pasteLink: "الصق الرابط...",
     apply: "تطبيق",
     plainText: "نص عادي",
@@ -2025,6 +2027,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
+    workspaceReferenceProtected:
+      "مراجع مساحات العمل محمية ولا يمكن تغييرها كصفحات.",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",
     failedMovePage: "فشل نقل الصفحة",

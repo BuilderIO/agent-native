@@ -229,6 +229,28 @@ await writeAppStateForCurrentTab("navigate", {
 });
 ```
 
+**Agents keep the user's view.** Every agent caller counts — built-in chat,
+MCP, WebMCP, A2A (`isAgentCaller(ctx)`), not just `caller === "tool"`:
+
+- Reads never navigate: any read-only action writing `navigate` during an agent
+  call is refused at the app-state store.
+- Writes stay put by default: an agent write that tries to write `navigate`
+  without `intent: "open"` is refused. Use
+  `navigateAfterWrite(navigation, { ctx, intent })` when a write should open
+  its result for a person while skipping the move for an agent unless
+  `intent: "open"` is set (or set `allowsAgentNavigation: true` on an action
+  whose job is opening a UI).
+- Opening one item needs `intent: "open"`, set only when the user asked to see
+  it. `createNavigateAction()`, `defineAction()`, and the app-state store
+  enforce this by default for item ID fields (`id`, `*Id`) and detail paths
+  without per-app code; pass `isDetailView` to `createNavigateAction()` only
+  when an app needs custom matching. When a dispatched `navigate` action
+  (`actionName: "navigate"`) or `createNavigateAction()` is called by an agent
+  without `intent: "open"` and would move the user's view (for a detail item or
+  during/after agent writes), it keeps the current view and returns a
+  successful typed result (`{ kept: true, navigated: false, reason, currentView, message }`)
+  instead of throwing an error.
+
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
 dedupes `_writeId`, deletes consumed commands, and applies app-local routing.
 
@@ -327,6 +349,7 @@ The mail template demonstrates these patterns working together:
   navigation state when context is missing or stale
 - Don't hardcode navigation paths in scripts — read the current state and branch
 - Don't write to the `navigation` key from the agent — it belongs to the UI. Use `navigate` instead.
+- Don't move the user's view from a read or a write; open an item only when the user asked to see it.
 - Don't write both `navigate` and `__set_url__` for one app navigation; competing consumers can make the browser URL change before React Router commits the page.
 - Don't ignore the `<current-screen>` block — it tells you where the user is
 - Don't duplicate whole URL query strings into `navigation` when `<current-url>` already exposes them

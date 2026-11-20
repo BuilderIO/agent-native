@@ -58,6 +58,7 @@ function useResourceStore() {
         resources.set(key(write.owner, write.path), write.content);
         return {
           before: previous === undefined ? null : { content: previous },
+          mirror: "ok",
           resource: {
             owner: write.owner,
             path: write.path,
@@ -230,11 +231,34 @@ describe("save-memory", () => {
     expect(mocks.resourcePutSnapshotBatchIfCurrent).not.toHaveBeenCalled();
   });
 
+  it("does not claim success when a committed write did not sync to the shared directory", async () => {
+    mocks.resourceGetByPath.mockResolvedValue(null);
+    mocks.resourcePutSnapshotBatchIfCurrent.mockResolvedValue([
+      {
+        before: null,
+        mirror: "stale",
+        resource: { path: "memory/x.md", content: "" },
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext({}, async () => {
+        const context = ensureRequestRunContext();
+        if (context) context.owner = owner;
+        await saveMemoryScript(args);
+      }),
+    ).rejects.toThrow("did not sync with the shared memory directory");
+  });
+
   it("does not claim success when the committed batch omits a write", async () => {
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.resourcePutSnapshotBatchIfCurrent.mockResolvedValue([
-      { before: null, resource: { content: "" } },
-      { before: null, resource: { content: "# Memory Index\n" } },
+      { before: null, mirror: "ok", resource: { content: "" } },
+      {
+        before: null,
+        mirror: "ok",
+        resource: { content: "# Memory Index\n" },
+      },
     ]);
 
     await expect(

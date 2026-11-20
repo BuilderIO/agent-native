@@ -980,6 +980,8 @@ const editor = {
     noFilesOrMedia: "파일이나 미디어 없음",
     noMatchingOptions: "일치하는 옵션이 없습니다.",
     noMatchingPropertyTypes: "일치하는 속성 유형이 없습니다.",
+    typeChangeUnavailable:
+      "기존 값을 보호하기 위해 속성 유형을 변경할 수 없습니다.",
     notMappedToBuilder: "빌더에 매핑되지 않았습니다.",
     onlyBlocksPropertyWarning:
       "이는 이 객체 유형에 존재하는 유일한 블록 특성입니다. 이 유형의 모든 개체에 대한 기본 콘텐츠(본문)가 삭제됩니다.",
@@ -1838,6 +1840,7 @@ const overrides = {
     heading6: "제목 6",
     link: "링크",
     comment: "댓글",
+    suggestEdit: "수정 제안",
     pasteLink: "링크 붙여넣기...",
     apply: "적용",
     plainText: "일반 텍스트",
@@ -2024,6 +2027,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "대기 중인 생성과 저장되지 않은 초안을 지웁니다. 페이지가 이미 저장되었다면 워크스페이스에 계속 남아 있습니다.",
     failedDeletePage: "페이지를 삭제하지 못했습니다",
+    workspaceReferenceProtected:
+      "워크스페이스 참조는 보호되어 있으며 페이지로 변경할 수 없습니다.",
     failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
     failedRestorePage: "페이지를 복원하지 못했습니다",
     failedMovePage: "페이지를 이동하지 못했습니다",
