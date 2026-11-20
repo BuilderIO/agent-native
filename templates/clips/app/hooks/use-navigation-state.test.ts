@@ -180,6 +180,26 @@ describe("Clips shared navigation", () => {
       search: "onboarding",
     });
 
+    expect(
+      pathFromCommand({
+        view: "space",
+        spaceId: "team space",
+        folderId: "folder/1",
+        search: "onboarding",
+      }),
+    ).toBe("/spaces/team%20space/folder/folder%2F1?q=onboarding");
+    expect(
+      stateFromLocation(
+        "/spaces/team%20space/folder/folder%2F1",
+        "?q=onboarding",
+      ),
+    ).toEqual({
+      view: "space",
+      spaceId: "team space",
+      folderId: "folder/1",
+      search: "onboarding",
+    });
+
     expect(pathFromCommand({ view: "library", search: "   " })).toBe(
       "/library",
     );

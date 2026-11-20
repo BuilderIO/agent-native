@@ -119,6 +119,20 @@ export function stateFromLocation(
     };
   }
 
+  const spaceFolderMatch = p.match(/^\/spaces\/([^/]+)\/folder\/([^/]+)$/);
+  if (spaceFolderMatch) {
+    const spaceId = decodePathSegment(spaceFolderMatch[1]);
+    const folderId = decodePathSegment(spaceFolderMatch[2]);
+    return spaceId && folderId
+      ? {
+          view: "space",
+          spaceId,
+          folderId,
+          ...(searchTerm ? { search: searchTerm } : {}),
+        }
+      : { view: "library" };
+  }
+
   const spaceMatch = p.match(/^\/spaces\/([^/]+)$/);
   if (spaceMatch) {
     const spaceId = decodePathSegment(spaceMatch[1]);
@@ -225,7 +239,9 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "space":
       return cmd.spaceId
         ? appendSearchQuery(
-            `/spaces/${encodeURIComponent(cmd.spaceId)}`,
+            cmd.folderId
+              ? `/spaces/${encodeURIComponent(cmd.spaceId)}/folder/${encodeURIComponent(cmd.folderId)}`
+              : `/spaces/${encodeURIComponent(cmd.spaceId)}`,
             cmd.search,
           )
         : "/spaces";

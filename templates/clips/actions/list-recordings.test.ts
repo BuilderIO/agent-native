@@ -494,6 +494,10 @@ describe("list-recordings search", () => {
     );
     expect(searchSql?.text).toContain("lower(");
     expect(searchSql?.text).toContain("recording_id");
+    expect(whereArg.conditions).not.toContainEqual({
+      kind: "is-null",
+      column: "recordings.folderId",
+    });
   });
 
   it("points agents at navigate for showing filtered Library results", () => {

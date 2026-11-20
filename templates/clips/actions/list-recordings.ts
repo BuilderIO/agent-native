@@ -280,10 +280,12 @@ export default defineAction({
       }
     }
 
+    const searchTerm = args.search?.trim();
+
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
-      } else {
+      } else if (!searchTerm) {
         whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
@@ -299,7 +301,6 @@ export default defineAction({
       whereClauses.push(sql`${schema.recordings.spaceIds} LIKE ${needle}`);
     }
 
-    const searchTerm = args.search?.trim();
     if (searchTerm) {
       const pattern = buildCaseInsensitiveSearchPattern(searchTerm);
       const email = ctx?.userEmail ?? getRequestUserEmail();
