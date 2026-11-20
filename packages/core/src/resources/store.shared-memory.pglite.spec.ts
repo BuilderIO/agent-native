@@ -1349,6 +1349,165 @@ describe("personal memory shared across local apps", () => {
       ).resolves.toBeNull();
     });
 
+    it("reports a stale mirror when a deleted memory's shared file cannot be removed", async () => {
+      const dir = useMemoryDir();
+      const { resourceDeleteByPath, resourcePut } = await import("./store.js");
+      const { MemoryMirrorStaleError } = await import("./shared-memory.js");
+      const { getResourcesEmitter } = await import("./emitter.js");
+      await resourcePut(OWNER, "memory/stuck.md", "bye");
+      const file = sharedFile(dir, "stuck.md");
+      const realUnlink = fs.promises.unlink.bind(fs.promises);
+      const realRename = fs.promises.rename.bind(fs.promises);
+      const unlink = vi
+        .spyOn(fs.promises, "unlink")
+        .mockImplementation(async (target) => {
+          if (String(target) === file) throw new Error("EBUSY");
+          return realUnlink(target);
+        });
+      const rename = vi
+        .spyOn(fs.promises, "rename")
+        .mockImplementation(async (from, to) => {
+          if (String(from) === file) throw new Error("EBUSY");
+          return realRename(from, to);
+        });
+      const events: unknown[] = [];
+      const onEvent = (event: unknown) => events.push(event);
+      getResourcesEmitter().on("resources", onEvent);
+      try {
+        await expect(
+          resourceDeleteByPath(OWNER, "memory/stuck.md"),
+        ).rejects.toBeInstanceOf(MemoryMirrorStaleError);
+      } finally {
+        getResourcesEmitter().off("resources", onEvent);
+        unlink.mockRestore();
+        rename.mockRestore();
+      }
+      expect(events).toHaveLength(1);
+      const { rows } = await pglite.query(
+        `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/stuck.md'`,
+      );
+      expect(rows).toEqual([]);
+    });
+
+    it("does not adopt a file when a delete lands between the read and the insert", async () => {
+      const dir = useMemoryDir();
+      const { resourceGetByPath } = await import("./store.js");
+      const { deleteSharedPersonalMemory } = await import("./shared-memory.js");
+      const file = writeSharedFile(dir, "race-adopt.md", "doomed");
+      const realRead = fs.promises.readFile.bind(fs.promises);
+      let fired = false;
+      const read = vi
+        .spyOn(fs.promises, "readFile")
+        .mockImplementation(async (target, ...rest) => {
+          const content = await (
+            realRead as (...a: unknown[]) => Promise<never>
+          )(target, ...rest);
+          if (!fired && String(target) === file) {
+            fired = true;
+            await deleteSharedPersonalMemory(OWNER, "memory/race-adopt.md");
+          }
+          return content;
+        });
+      try {
+        await expect(
+          resourceGetByPath(OWNER, "memory/race-adopt.md"),
+        ).resolves.toBeNull();
+      } finally {
+        read.mockRestore();
+      }
+      const { rows } = await pglite.query(
+        `SELECT id FROM resources WHERE owner = '${OWNER}' AND path = 'memory/race-adopt.md'`,
+      );
+      expect(rows).toEqual([]);
+    });
+
+    it("confirms a delete whose statement errored after the row was removed", async () => {
+      useMemoryDir();
+      const { resourceDeleteByPath, resourcePut } = await import("./store.js");
+      await resourcePut(OWNER, "memory/ghost.md", "x");
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        await pglite.exec(
+          `DELETE FROM resources WHERE owner = '${OWNER}' AND path = 'memory/ghost.md'`,
+        );
+        throw new Error("connection reset");
+      });
+      try {
+        await expect(
+          resourceDeleteByPath(OWNER, "memory/ghost.md"),
+        ).resolves.toBe(true);
+      } finally {
+        restore();
+      }
+    });
+
+    it("reports an unknown outcome when the re-read after a delete error also fails", async () => {
+      useMemoryDir();
+      const { resourceDeleteByPath, resourcePut } = await import("./store.js");
+      const { MemoryDeleteStateUnknownError } =
+        await import("./shared-memory.js");
+      await resourcePut(OWNER, "memory/unknown.md", "x");
+      const restore = beforeStatement(/^DELETE FROM resources/, async () => {
+        const deleting = sharedClient.execute;
+        // raw-sql-ok: test wrapper only inspects statement text.
+        sharedClient.execute = (async (input: Statement) => {
+          const text = typeof input === "string" ? input : input.sql;
+          if (/^SELECT content, updated_at/.test(text)) {
+            throw new Error("db down");
+          }
+          return deleting(input);
+        }) as DbExec["execute"];
+        throw new Error("connection reset");
+      });
+      try {
+        await expect(
+          resourceDeleteByPath(OWNER, "memory/unknown.md"),
+        ).rejects.toBeInstanceOf(MemoryDeleteStateUnknownError);
+      } finally {
+        restore();
+      }
+    });
+
+    it("lists memories in order and reads each file at most once", async () => {
+      const dir = useMemoryDir();
+      const { resourceList, resourcePut } = await import("./store.js");
+      const names = ["a", "b", "c", "d"];
+      for (const name of names) {
+        await resourcePut(OWNER, `memory/order-${name}.md`, name);
+      }
+      const realRead = fs.promises.readFile.bind(fs.promises);
+      const contentReads: string[] = [];
+      const read = vi
+        .spyOn(fs.promises, "readFile")
+        .mockImplementation(async (target, ...rest) => {
+          const name = String(target);
+          if (name.endsWith(".deleted")) {
+            // fixed-sleep-ok: staggers tombstone reads so completion order differs from list order.
+            await new Promise((resolve) =>
+              setTimeout(
+                resolve,
+                40 -
+                  names.findIndex((n) => name.includes(`order-${n}.md`)) * 10,
+              ),
+            );
+          } else if (name.startsWith(dir)) {
+            contentReads.push(name);
+          }
+          return (realRead as (...a: unknown[]) => Promise<never>)(
+            target,
+            ...rest,
+          );
+        });
+      try {
+        const listed = await resourceList(OWNER, "memory/order-");
+        expect(listed.map((meta) => meta.path)).toEqual(
+          names.map((name) => `memory/order-${name}.md`),
+        );
+      } finally {
+        read.mockRestore();
+      }
+      expect(new Set(contentReads).size).toBe(contentReads.length);
+    });
+
     it("keeps a restored memory visible past a newer tombstone when its mirror fails", async () => {
       const dir = useMemoryDir();
       const {

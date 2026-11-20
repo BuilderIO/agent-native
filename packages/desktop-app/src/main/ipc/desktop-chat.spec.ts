@@ -1518,6 +1518,18 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
+  it("keeps terminal access when the account email changes only in case", async () => {
+    seedAccounts();
+    noteDesktopBuilderRelayOwner("account:a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const root = session.memoryDir as string;
+
+    setDesktopMemoryAccount(" A@Example.test ");
+    expect(readdirSync(root)).toEqual([encodeURIComponent("a@example.test")]);
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
   it("gives a session started before sign-in access once an account binds", async () => {
     seedAccounts();
     noteDesktopBuilderRelayOwner("no-account");

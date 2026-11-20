@@ -1762,7 +1762,8 @@ let currentMemoryAccount: string | null = null;
 
 const memorySessions = new Set<(account: string | null) => void>();
 
-export function setDesktopMemoryAccount(account: string | null): void {
+export function setDesktopMemoryAccount(rawAccount: string | null): void {
+  const account = rawAccount?.trim().toLowerCase() || null;
   currentMemoryAccount = account;
   for (const [file, owner] of memoryOwnerFiles) {
     if (owner === account) continue;

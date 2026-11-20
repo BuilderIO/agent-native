@@ -55,6 +55,7 @@ import {
   MemoryMirrorStaleError,
   MemoryTombstoneError,
   MemoryWriteConflictError,
+  readMemoryTombstoneFloor,
   readMirroredMemory,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
@@ -2146,10 +2147,15 @@ async function publishDeleteTombstone(
   owner: string,
   path: string,
   revisionHint: number,
-): Promise<number> {
+): Promise<{ marker: number; leftover?: MemoryMirrorStaleError }> {
   try {
-    return await deleteSharedPersonalMemory(owner, path, revisionHint + 1);
+    return {
+      marker: await deleteSharedPersonalMemory(owner, path, revisionHint + 1),
+    };
   } catch (error) {
+    if (error instanceof MemoryMirrorStaleError) {
+      return { marker: error.committed.updatedAt, leftover: error };
+    }
     throw new MemoryTombstoneError(
       `Could not record the deletion of ${path}; it was not deleted`,
       { cause: error },
@@ -2189,23 +2195,45 @@ function deleteMirroredMemory(
   revisionHint: number,
   deleteRow: () => Promise<DeletedRow | null>,
   precheck?: () => Promise<boolean>,
-): Promise<DeletedRow | null> {
+): Promise<{
+  deleted: DeletedRow | null;
+  leftover?: MemoryMirrorStaleError | undefined;
+}> {
   return serializeMemoryMirror(owner, path, async () => {
-    if (precheck && !(await precheck())) return null;
-    const marker = await publishDeleteTombstone(owner, path, revisionHint);
+    if (precheck && !(await precheck())) return { deleted: null };
+    const { marker, leftover } = await publishDeleteTombstone(
+      owner,
+      path,
+      revisionHint,
+    );
     let deleted: DeletedRow | null;
     try {
       deleted = await deleteRow();
     } catch (error) {
-      await abandonDeleteTombstone(owner, path, marker);
-      throw new MemoryDeleteFailedError(
-        `Could not delete ${path}; it is still stored`,
-        { cause: error },
-      );
+      let row: MirrorTarget | null;
+      try {
+        row = await selectMirrorTarget(owner, path);
+      } catch (readError) {
+        throw new MemoryDeleteStateUnknownError(
+          `Could not confirm whether ${path} was deleted`,
+          { cause: new AggregateError([error, readError]) },
+        );
+      }
+      if (row) {
+        await abandonDeleteTombstone(owner, path, marker);
+        throw new MemoryDeleteFailedError(
+          `Could not delete ${path}; it is still stored`,
+          { cause: error },
+        );
+      }
+      deleted = {
+        id: `shared-memory:${owner}:${path}`,
+        updatedAt: revisionHint,
+      };
     }
     if (!deleted && (await selectMirrorTarget(owner, path))) {
       await abandonDeleteTombstone(owner, path, marker);
-      return null;
+      return { deleted: null };
     }
     try {
       if (deleted) {
@@ -2216,7 +2244,7 @@ function deleteMirroredMemory(
     } catch (error) {
       handleMirrorFailure(error);
     }
-    return deleted;
+    return { deleted, leftover };
   });
 }
 
@@ -2343,16 +2371,17 @@ async function withoutTombstonedMemories(
   metas: ResourceMeta[],
 ): Promise<ResourceMeta[]> {
   if (workspace) return metas;
-  const live: ResourceMeta[] = [];
-  for (const meta of metas) {
-    const memory = isPersonalMemoryResourcePath(owner, meta.path)
-      ? await readMirroredMemory(owner, meta.path)
-      : null;
-    if (memory?.state !== "deleted" || meta.updatedAt > memory.deletedAt) {
-      live.push(meta);
-    }
-  }
-  return live;
+  const floors = await Promise.all(
+    metas.map((meta) =>
+      isPersonalMemoryResourcePath(owner, meta.path)
+        ? readMemoryTombstoneFloor(owner, meta.path)
+        : null,
+    ),
+  );
+  return metas.filter((meta, index) => {
+    const floor = floors[index] ?? null;
+    return floor === null || meta.updatedAt > floor;
+  });
 }
 
 async function postTombstoneFloor(
@@ -2360,8 +2389,8 @@ async function postTombstoneFloor(
   path: string,
 ): Promise<number> {
   if (!isPersonalMemoryResourcePath(owner, path)) return 0;
-  const mirrored = await readMirroredMemory(owner, path);
-  return mirrored.state === "deleted" ? mirrored.deletedAt + 1 : 0;
+  const floor = await readMemoryTombstoneFloor(owner, path);
+  return floor === null ? 0 : floor + 1;
 }
 
 const SHARED_MEMORY_ID_PREFIX = "shared-memory:";
@@ -2446,7 +2475,16 @@ export async function resourceGetByPath(
           (shared.content !== dbResource.content &&
             (shared.mtimeMs > dbResource.updatedAt || dbIsEmptyIndex))
         ) {
-          return adoptSharedMemory(owner, path, shared, dbResource);
+          return serializeMemoryMirror(owner, path, async () => {
+            const fresh = await readMirroredMemory(owner, path);
+            if (fresh.state === "present") {
+              return adoptSharedMemory(owner, path, fresh, dbResource);
+            }
+            const hidden =
+              fresh.state === "deleted" &&
+              (!dbResource || dbResource.updatedAt <= fresh.deletedAt);
+            return hidden ? null : (dbResource ?? null);
+          });
         }
       }
     }
@@ -3056,20 +3094,41 @@ export async function resourceDeleteWithDb(
   const path = String(rows[0].path);
   const owner = String(rows[0].owner);
   if (isPersonalMemoryResourcePath(owner, path)) {
-    let marker = 0;
-    const deleted = await serializeMemoryMirror(owner, path, async () => {
-      marker = await publishDeleteTombstone(
+    const deleteById = async () =>
+      deletedRowFrom(
+        (
+          await client.execute({
+            sql: `DELETE FROM resources WHERE id = ? RETURNING id, updated_at`,
+            args: [id],
+          })
+        ).rows,
+      );
+    if (options?.autocommit) {
+      const { deleted, leftover } = await deleteMirroredMemory(
         owner,
         path,
         Number(rows[0].updated_at),
+        deleteById,
       );
+      return {
+        value: deleted !== null,
+        notifyAfterCommit: () => {
+          if (deleted) emitResourceDelete(id, path, owner);
+          if (leftover) throw leftover;
+        },
+      };
+    }
+    let marker = 0;
+    let leftover: MemoryMirrorStaleError | undefined;
+    const deleted = await serializeMemoryMirror(owner, path, async () => {
+      ({ marker, leftover } = await publishDeleteTombstone(
+        owner,
+        path,
+        Number(rows[0].updated_at),
+      ));
       let removed: DeletedRow | null;
       try {
-        const result = await client.execute({
-          sql: `DELETE FROM resources WHERE id = ? RETURNING id, updated_at`,
-          args: [id],
-        });
-        removed = deletedRowFrom(result.rows);
+        removed = await deleteById();
       } catch (error) {
         await abandonDeleteTombstone(owner, path, marker);
         throw new MemoryDeleteFailedError(
@@ -3085,13 +3144,10 @@ export async function resourceDeleteWithDb(
             removed.updatedAt + 1,
           );
         } catch (error) {
-          if (!options?.autocommit) {
-            await clearSharedMemoryTombstone(owner, path, marker).catch(
-              handleMirrorFailure,
-            );
-            throw error;
-          }
-          handleMirrorFailure(error);
+          await clearSharedMemoryTombstone(owner, path, marker).catch(
+            handleMirrorFailure,
+          );
+          throw error;
         }
       }
       return removed;
@@ -3105,6 +3161,7 @@ export async function resourceDeleteWithDb(
       value: deleted !== null,
       notifyAfterCommit: () => {
         if (deleted) emitResourceDelete(id, path, owner);
+        if (leftover) throw leftover;
       },
       onRollback: rollback,
     };
@@ -3585,7 +3642,10 @@ export async function resourceDeleteIfCurrent(
     });
     return deletedRowFrom(result.rows);
   };
-  const deleted = isPersonalMemoryResourcePath(resource.owner, resource.path)
+  const { deleted, leftover } = isPersonalMemoryResourcePath(
+    resource.owner,
+    resource.path,
+  )
     ? await deleteMirroredMemory(
         resource.owner,
         resource.path,
@@ -3600,9 +3660,10 @@ export async function resourceDeleteIfCurrent(
           return rows.length === 1;
         },
       )
-    : await deleteRow();
+    : { deleted: await deleteRow(), leftover: undefined };
   if (!deleted) return false;
   emitResourceDelete(resource.id, resource.path, resource.owner);
+  if (leftover) throw leftover;
   return true;
 }
 
@@ -3669,7 +3730,7 @@ export async function resourceDeleteByPath(
     const mirrored = await readMirroredMemory(owner, path);
     if (mirrored.state !== "present") return false;
   }
-  const deleted = await deleteMirroredMemory(
+  const { deleted, leftover } = await deleteMirroredMemory(
     owner,
     path,
     existing?.updatedAt ?? 0,
@@ -3681,6 +3742,7 @@ export async function resourceDeleteByPath(
     path,
     owner,
   );
+  if (leftover) throw leftover;
   return true;
 }
 

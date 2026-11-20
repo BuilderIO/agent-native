@@ -59,6 +59,23 @@ describe("delete-memory", () => {
     log.mockRestore();
   });
 
+  it("reports a leftover shared file after a delete that committed", async () => {
+    mocks.resourceDeleteByPath.mockRejectedValueOnce(
+      new MemoryMirrorStaleError("memory/style.md could not be unlinked", {
+        path: "memory/style.md",
+        content: "",
+        updatedAt: 1,
+      }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(run()).resolves.toBeUndefined();
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/Deleted memory "style".*leftover shared file/),
+    );
+    log.mockRestore();
+  });
+
   it("does not swallow other delete errors", async () => {
     mocks.resourceDeleteByPath.mockRejectedValueOnce(new Error("db down"));
     await expect(run()).rejects.toThrow("db down");

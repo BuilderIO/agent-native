@@ -256,13 +256,49 @@ export async function deleteSharedPersonalMemory(
     await fs.promises.unlink(filePath);
   } catch (error) {
     if (!isMissingPathError(error)) {
-      console.error(
-        "[resources] Deleted memory's shared file could not be removed; the tombstone hides it:",
-        error,
-      );
+      await quarantineSharedFile(filePath).catch((quarantineError) => {
+        throw new MemoryMirrorStaleError(
+          `${resourcePath} was deleted but its shared file could not be removed; the leftover file stays readable outside the app`,
+          { path: resourcePath, content: "", updatedAt: deletedAt },
+          { cause: new AggregateError([error, quarantineError]) },
+        );
+      });
     }
   }
   return deletedAt;
+}
+
+async function quarantineSharedFile(filePath: string): Promise<void> {
+  const quarantine = path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${randomUUID()}.removed`,
+  );
+  await fs.promises.rename(filePath, quarantine);
+  await fs.promises.unlink(quarantine).catch((error) => {
+    console.error("[resources] Could not remove a quarantined file:", error);
+  });
+}
+
+/**
+ * The revision a tombstone covers, read without the file's contents. A file
+ * written after the tombstone voids it, as in readMirroredMemory.
+ */
+export async function readMemoryTombstoneFloor(
+  owner: string,
+  resourcePath: string,
+): Promise<number | null> {
+  const rootDir = getSharedMemoryDir();
+  if (!rootDir) return null;
+  const filePath = resolveSharedMemoryFilePath(rootDir, owner, resourcePath);
+  const tombstonePath = resolveTombstonePath(rootDir, owner, resourcePath);
+  if (!filePath || !tombstonePath) return null;
+  const deletedAt = await readTombstone(tombstonePath);
+  if (deletedAt === null) return null;
+  const stat = await fs.promises.stat(filePath).catch((error) => {
+    if (!isMissingPathError(error)) throw error;
+    return null;
+  });
+  return stat?.isFile() && stat.mtimeMs > deletedAt ? null : deletedAt;
 }
 
 /** Removes the marker only while it still holds the value this caller wrote. */

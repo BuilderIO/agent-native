@@ -1,5 +1,6 @@
 import {
   MemoryDeleteFailedError,
+  MemoryMirrorStaleError,
   MemoryTombstoneError,
   staleMirrorCollector,
 } from "../../resources/shared-memory.js";
@@ -32,16 +33,19 @@ export default async function deleteMemoryScript(
   const indexPath = "memory/MEMORY.md";
 
   let deleted = false;
+  let leftover: MemoryMirrorStaleError | undefined;
   try {
     deleted = await resourceDeleteByPath(owner, memoryPath);
   } catch (error) {
-    if (
+    if (error instanceof MemoryMirrorStaleError) {
+      deleted = true;
+      leftover = error;
+    } else if (
       error instanceof MemoryTombstoneError ||
       error instanceof MemoryDeleteFailedError
     ) {
       fail(`Memory "${name}" was not deleted: ${error.message}`);
-    }
-    throw error;
+    } else throw error;
   }
 
   const stale = staleMirrorCollector();
@@ -70,7 +74,11 @@ export default async function deleteMemoryScript(
 
   stale.finish();
 
-  if (deleted) {
+  if (leftover) {
+    console.log(
+      `Deleted memory "${name}", but a leftover shared file remains: ${leftover.message}`,
+    );
+  } else if (deleted) {
     console.log(`Deleted memory "${name}".`);
   } else {
     console.log(`Memory "${name}" not found.`);
