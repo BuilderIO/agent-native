@@ -594,6 +594,11 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+const PRIVATE_SAFE_ERROR_CODES: ReadonlySet<string> = new Set([
+  "private_history_unrecoverable",
+  "tool_call_journal_unreadable",
+]);
+
 /**
  * A tool result with no later assistant text is an unfinished turn, not a
  * successful terminal response. Keep this predicate beside the run-manager's
@@ -2472,6 +2477,7 @@ export function startRun(
         : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
+        !privateTurn &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
         !(
@@ -2828,7 +2834,14 @@ export function startRun(
           ? [...run.events, pendingTerminalEvent]
           : run.events;
         if (privateRun) {
-          errorCode = "private_content_omitted";
+          const reportedCode = diagnosticEvents
+            .map(({ event }) => event)
+            .reverse()
+            .find((event) => event.type === "error")?.errorCode;
+          errorCode =
+            reportedCode && PRIVATE_SAFE_ERROR_CODES.has(reportedCode)
+              ? reportedCode
+              : "private_content_omitted";
           errorDetail = "Private content omitted";
         }
         for (let i = diagnosticEvents.length - 1; !privateRun && i >= 0; i--) {

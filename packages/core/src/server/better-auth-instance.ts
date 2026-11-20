@@ -8,6 +8,7 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -210,6 +211,17 @@ export {
   resolveAuthLoginModeFromReadiness,
   type AuthLoginMode,
 } from "./auth-login-mode.js";
+
+const magicLinkIssuedTokenHookStorage = new AsyncLocalStorage<
+  (email: string, token: string) => Promise<void>
+>();
+
+export function runWithMagicLinkIssuedTokenHook<T>(
+  hook: (email: string, token: string) => Promise<void>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return magicLinkIssuedTokenHookStorage.run(hook, run);
+}
 
 const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
 // Signup delivery holds its transaction, connection, and per-address lock.
@@ -2386,6 +2398,24 @@ async function createBetterAuthInstance(
           urlPath,
           urlQueryKeys,
         });
+      }
+      if (typeof token === "string" && token) {
+        const hook = magicLinkIssuedTokenHookStorage.getStore();
+        if (hook) {
+          try {
+            await hook(email, token);
+          } catch (error) {
+            console.warn(
+              "[agent-native][magic-link] failed to record Builder signup challenge:",
+              error instanceof Error ? error.name : typeof error,
+            );
+            const { captureError } = await import("./capture-error.js");
+            captureError(error, {
+              route: "magic-link",
+              tags: { phase: "builder-signup-challenge" },
+            });
+          }
+        }
       }
       const deliveredMagicLinkUrl =
         desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;

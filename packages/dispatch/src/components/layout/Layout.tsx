@@ -2004,7 +2004,12 @@ function DispatchLayout({
   ]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || chatFirstPaneHydratedRef.current) {
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      chatFirstPaneHydratedRef.current
+    ) {
       return;
     }
     chatFirstPaneHydratedRef.current = true;
@@ -2028,7 +2033,14 @@ function DispatchLayout({
   }, [chatFirstMode, chatFirstPane, chatFirstSurfaceScope, isChatRoute]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || !pendingChatFirstPaneRestore) return;
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      !pendingChatFirstPaneRestore
+    ) {
+      return;
+    }
     if (chatFirstPane) {
       setPendingChatFirstPaneRestore(null);
       return;
@@ -2247,9 +2259,16 @@ function DispatchLayout({
             chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== sentPane;
           const plan = planChatFirstAppRoute({
             answer,
-            installedApp: (app) => {
+            installedApp: (app, object) => {
+              const objectPath = object?.objectId?.startsWith("/")
+                ? object.objectId
+                : undefined;
               const resolution = resolveChatFirstAppTarget(
-                { app },
+                {
+                  app,
+                  ...(object?.url ? { url: object.url } : {}),
+                  ...(!object?.url && objectPath ? { path: objectPath } : {}),
+                },
                 now.registrations,
                 { currentOrigin: window.location.origin },
               );

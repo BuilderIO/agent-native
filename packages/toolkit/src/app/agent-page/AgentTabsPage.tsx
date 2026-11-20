@@ -18,6 +18,7 @@ import {
   IconFolder,
   IconHistory,
   IconHierarchy2,
+  IconShieldCheck,
   IconNotes,
   IconApps,
   IconPlugConnected,
@@ -57,6 +58,7 @@ import type {
 } from "../settings/SettingsTabsPage.js";
 import { AgentEmptyState } from "./AgentEmptyState.js";
 import { AgentTabFrame } from "./AgentTabFrame.js";
+import { ApprovalsTab } from "./ApprovalsTab.js";
 import type { AgentPageScope, AgentPageTabProps } from "./types.js";
 
 export { MCP_ACCESS_DOCS_HREF as AGENT_ACCESS_DOCS_HREF } from "../resources/index.js";
@@ -563,6 +565,14 @@ export function AgentTabsPage({
             <AgentResourceTab scope={scope} view="agents" />
           </Suspense>
         ),
+      },
+      {
+        id: "approvals",
+        label: "Approvals",
+        icon: IconShieldCheck,
+        group: "resources",
+        keywords: "no approvals auto approve review card confirm",
+        content: <ApprovalsTab />,
       },
       {
         id: "memory",

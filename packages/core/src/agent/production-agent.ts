@@ -6344,6 +6344,8 @@ export function buildFirstRequestPayloadDetail(input: {
 
 const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "resources",
+  "save-memory",
+  "delete-memory",
   "framework-search",
   "docs-search",
   "get-framework-context",
