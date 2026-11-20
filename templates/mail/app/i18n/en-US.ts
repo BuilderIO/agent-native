@@ -479,6 +479,7 @@ const messages = {
         "This page is too long or too wide to attach as a PDF. Attach it as Markdown instead.",
       contentPagePdfUnavailable:
         "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
+      waitForAttachments: "Wait for attachments to finish, then send.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:
         "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io or use your own storage, then try again.",

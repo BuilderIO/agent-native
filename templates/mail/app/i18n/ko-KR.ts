@@ -480,6 +480,7 @@ const messages = {
         "이 페이지는 너무 길거나 너무 넓어서 PDF로 첨부할 수 없습니다. 대신 Markdown으로 첨부하세요.",
       contentPagePdfUnavailable:
         "Content에서 이 페이지의 PDF를 만들지 못했습니다. 대신 Markdown으로 첨부하세요.",
+      waitForAttachments: "첨부 파일 추가가 끝난 후 보내세요.",
       failedToUploadImage: "이미지 업로드 실패",
       storageBuilderRefused:
         "Builder.io가 Mail의 파일 저장소 연결을 거부해 파일을 첨부하지 못했습니다. Builder.io를 다시 연결하거나 자체 저장소를 사용한 뒤 다시 시도하세요.",

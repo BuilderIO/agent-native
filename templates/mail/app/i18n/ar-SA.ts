@@ -481,6 +481,7 @@ const messages = {
         "هذه الصفحة أطول أو أعرض من أن تُرفق كملف PDF. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       contentPagePdfUnavailable:
         "تعذّر على Content إنشاء ملف PDF لهذه الصفحة. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      waitForAttachments: "انتظر حتى تكتمل إضافة المرفقات، ثم أرسل.",
       failedToUploadImage: "فشل تحميل الصورة",
       storageBuilderRefused:
         "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو استخدم مساحة التخزين الخاصة بك، ثم حاول مرة أخرى.",

@@ -499,6 +499,8 @@ const messages = {
         "Cette page est trop longue ou trop large pour être jointe en PDF. Joignez-la plutôt en Markdown.",
       contentPagePdfUnavailable:
         "Content n’a pas pu créer de PDF pour cette page. Joignez-la plutôt en Markdown.",
+      waitForAttachments:
+        "Attendez la fin de l’ajout des pièces jointes, puis envoyez.",
       failedToUploadImage: "Échec du téléversement de l’image",
       storageBuilderRefused:
         "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou utilisez votre propre stockage, puis réessayez.",

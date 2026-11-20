@@ -467,6 +467,7 @@ const messages = {
         "此頁面太長或太寬，無法以 PDF 格式附加。請改以 Markdown 格式附加。",
       contentPagePdfUnavailable:
         "Content 無法為此頁面產生 PDF。請改以 Markdown 格式附加。",
+      waitForAttachments: "請等待附件新增完成後再傳送。",
       failedToUploadImage: "上傳圖片失敗",
       storageBuilderRefused:
         "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io 或使用自己的儲存空間，然後再試一次。",

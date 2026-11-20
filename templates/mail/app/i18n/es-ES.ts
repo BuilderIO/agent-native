@@ -494,6 +494,8 @@ const messages = {
         "Esta página es demasiado larga o ancha para adjuntarla como PDF. Adjúntala como Markdown.",
       contentPagePdfUnavailable:
         "Content no pudo crear un PDF de esta página. Adjúntala como Markdown.",
+      waitForAttachments:
+        "Espera a que terminen de añadirse los adjuntos y luego envía.",
       failedToUploadImage: "No se pudo subir la imagen",
       storageBuilderRefused:
         "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",

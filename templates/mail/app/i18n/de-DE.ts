@@ -500,6 +500,7 @@ const messages = {
         "Diese Seite ist zu lang oder zu breit, um sie als PDF anzuhängen. Hänge sie stattdessen als Markdown an.",
       contentPagePdfUnavailable:
         "Content konnte aus dieser Seite kein PDF erstellen. Hänge sie stattdessen als Markdown an.",
+      waitForAttachments: "Warte, bis die Anhänge fertig sind, und sende dann.",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       storageBuilderRefused:
         "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder nutze deinen eigenen Speicher und versuche es dann erneut.",

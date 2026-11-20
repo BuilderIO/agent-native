@@ -83,17 +83,52 @@ vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
 vi.mock("./AttachFromContentButton", () => ({
   AttachFromContentButton: ({
     onAttach,
+    onPendingChange,
   }: {
     onAttach: (attachment: ComposeAttachment) => void;
+    onPendingChange?: (pending: boolean) => void;
   }) => (
-    <button type="button" onClick={() => onAttach(contentFile)}>
-      Attach Plan
-    </button>
+    <>
+      <button type="button" onClick={() => onAttach(contentFile)}>
+        Attach Plan
+      </button>
+      <button type="button" onClick={() => onPendingChange?.(true)}>
+        Start attaching Plan
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onAttach(contentFile);
+          onPendingChange?.(false);
+        }}
+      >
+        Finish attaching Plan
+      </button>
+    </>
   ),
 }));
 vi.mock("./ComposeEditor", () => ({ ComposeEditor: () => null }));
 vi.mock("./RecipientInput", () => ({ RecipientInput: () => null }));
-vi.mock("./SendLaterButton", () => ({ SendLaterButton: () => null }));
+vi.mock("./SendLaterButton", () => ({
+  SendLaterButton: ({
+    onSend,
+    onSendLater,
+  }: {
+    onSend: () => void;
+    onSendLater: (runAt: number) => void;
+  }) => (
+    <>
+      <button type="button" onClick={onSend}>
+        Send
+      </button>
+      <button type="button" onClick={() => onSendLater(Date.now() + 60_000)}>
+        Send later
+      </button>
+    </>
+  ),
+}));
+
+import { toast } from "sonner";
 
 import { ComposeModal } from "./ComposeModal";
 
@@ -122,6 +157,7 @@ const draft: ComposeState = {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("ComposeModal attachments", () => {
@@ -162,5 +198,96 @@ describe("ComposeModal attachments", () => {
     expect(onUpdate).toHaveBeenLastCalledWith(draft.id, {
       attachments: [contentFile, uploadedFile],
     });
+  });
+
+  it("won't send or schedule while a file is still uploading", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let finishUpload: (files: ComposeAttachment[]) => void = () => {};
+    mocks.openFilePicker.mockResolvedValue(new File(["notes"], "notes.txt"));
+    mocks.uploadFiles.mockReturnValue(
+      new Promise<ComposeAttachment[]>((resolve) => {
+        finishUpload = resolve;
+      }),
+    );
+    const onStageForSend = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "mail.compose.attachFile" }));
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Send" }));
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Send later" }));
+    });
+
+    expect(toast.error).toHaveBeenCalledTimes(2);
+    expect(toast.error).toHaveBeenCalledWith("mail.toasts.waitForAttachments");
+    expect(onStageForSend).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishUpload([uploadedFile]);
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Send" }));
+    });
+
+    expect(onStageForSend).toHaveBeenCalledWith(draft.id);
+  });
+
+  it("won't send while a Content page is still attaching", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const onStageForSend = vi.fn();
+    const { getByRole } = render(
+      <ComposeModal
+        drafts={[draft]}
+        activeId={draft.id}
+        activeDraft={draft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={onStageForSend}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Start attaching Plan" }));
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Send" }));
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("mail.toasts.waitForAttachments");
+    expect(onStageForSend).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Finish attaching Plan" }));
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Send" }));
+    });
+
+    expect(onStageForSend).toHaveBeenCalledWith(draft.id);
   });
 });

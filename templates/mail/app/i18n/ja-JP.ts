@@ -486,6 +486,7 @@ const messages = {
         "このページは長すぎるか幅が広すぎるため、PDF として添付できません。代わりに Markdown として添付してください。",
       contentPagePdfUnavailable:
         "Content でこのページの PDF を作成できませんでした。代わりに Markdown として添付してください。",
+      waitForAttachments: "添付ファイルの追加が終わってから送信してください。",
       failedToUploadImage: "画像のアップロードに失敗しました",
       storageBuilderRefused:
         "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか独自のストレージを使ってから、もう一度お試しください。",

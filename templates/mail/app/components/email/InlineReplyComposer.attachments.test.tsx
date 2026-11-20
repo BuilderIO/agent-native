@@ -63,12 +63,28 @@ vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
 vi.mock("./AttachFromContentButton", () => ({
   AttachFromContentButton: ({
     onAttach,
+    onPendingChange,
   }: {
     onAttach: (attachment: ComposeAttachment) => void;
+    onPendingChange?: (pending: boolean) => void;
   }) => (
-    <button type="button" onClick={() => onAttach(contentFile)}>
-      Attach Plan
-    </button>
+    <>
+      <button type="button" onClick={() => onAttach(contentFile)}>
+        Attach Plan
+      </button>
+      <button type="button" onClick={() => onPendingChange?.(true)}>
+        Start attaching Plan
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onAttach(contentFile);
+          onPendingChange?.(false);
+        }}
+      >
+        Finish attaching Plan
+      </button>
+    </>
   ),
 }));
 vi.mock("./ComposeEditor", async () => {
@@ -76,6 +92,8 @@ vi.mock("./ComposeEditor", async () => {
   return { ComposeEditor: React.forwardRef(() => null) };
 });
 vi.mock("./RecipientInput", () => ({ RecipientInput: () => null }));
+
+import { toast } from "sonner";
 
 import { InlineReplyComposer } from "./InlineReplyComposer";
 
@@ -107,6 +125,7 @@ const draft: ComposeState = {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("InlineReplyComposer attachments", () => {
@@ -143,5 +162,84 @@ describe("InlineReplyComposer attachments", () => {
     expect(onUpdate).toHaveBeenLastCalledWith(draft.id, {
       attachments: [contentFile, uploadedFile],
     });
+  });
+
+  it("won't send while a file is still uploading", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let finishUpload: (files: ComposeAttachment[]) => void = () => {};
+    mocks.openFilePicker.mockResolvedValue(new File(["notes"], "notes.txt"));
+    mocks.uploadFiles.mockReturnValue(
+      new Promise<ComposeAttachment[]>((resolve) => {
+        finishUpload = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const { getByRole } = render(
+      <InlineReplyComposer
+        draft={draft}
+        messages={[]}
+        onUpdate={vi.fn()}
+        onDiscard={onDiscard}
+        onClose={vi.fn()}
+        onPopOut={vi.fn()}
+        onFlush={vi.fn()}
+        onReopen={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "mail.compose.attachFile" }));
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("mail.toasts.waitForAttachments");
+    expect(onDiscard).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishUpload([uploadedFile]);
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    });
+
+    expect(onDiscard).toHaveBeenCalledWith(draft.id);
+  });
+
+  it("won't send while a Content page is still attaching", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const onDiscard = vi.fn();
+    const { getByRole } = render(
+      <InlineReplyComposer
+        draft={draft}
+        messages={[]}
+        onUpdate={vi.fn()}
+        onDiscard={onDiscard}
+        onClose={vi.fn()}
+        onPopOut={vi.fn()}
+        onFlush={vi.fn()}
+        onReopen={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Start attaching Plan" }));
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("mail.toasts.waitForAttachments");
+    expect(onDiscard).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Finish attaching Plan" }));
+    });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "mail.compose.send" }));
+    });
+
+    expect(onDiscard).toHaveBeenCalledWith(draft.id);
   });
 });
