@@ -380,16 +380,24 @@ describe("list-analytics-chart-citations", () => {
     expect(cited.more).toBe(false);
   }, 60_000);
 
-  it("shortens a very long title", async () => {
-    const id = await page({ content: body("titled") });
-    await getDb()
-      .update(schema.documents)
-      .set({ title: "x".repeat(2_001) })
-      .where(eq(schema.documents.id, id));
-    await cite(id, "titled");
+  it("shortens a very long title without splitting a character", async () => {
+    const long = await page({ content: body("titled") });
+    const emoji = await page({ content: body("titled") });
+    for (const [id, title] of [
+      [long, "x".repeat(2_001)],
+      [emoji, `${"a".repeat(499)}😀 and more`],
+    ] as const) {
+      await getDb()
+        .update(schema.documents)
+        .set({ title })
+        .where(eq(schema.documents.id, id));
+      await cite(id, "titled");
+    }
 
     const cited = await list(OWNER, "titled");
-    expect(cited.pages[0]?.title).toHaveLength(500);
+    const titles = new Map(cited.pages.map((entry) => [entry.id, entry.title]));
+    expect(titles.get(long)).toHaveLength(500);
+    expect(titles.get(emoji)).toBe("a".repeat(499));
   });
 
   it("finds a page once it's saved with a chart", async () => {

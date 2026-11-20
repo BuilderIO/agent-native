@@ -1,4 +1,4 @@
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 
 import { ANALYTICS_CHART_TAG } from "../../shared/analytics-chart-block.js";
 import { analyticsChartDashboardIds } from "../../shared/analytics-charts-in-body.js";
@@ -34,4 +34,14 @@ export async function syncAnalyticsChartCitations(
       })),
     )
     .onConflictDoNothing();
+}
+
+export async function clearAnalyticsChartCitations(
+  db: Database,
+  documentIds: string[],
+): Promise<void> {
+  if (!documentIds.length) return;
+  await db
+    .delete(schema.analyticsChartCitations)
+    .where(inArray(schema.analyticsChartCitations.documentId, documentIds));
 }

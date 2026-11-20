@@ -111,9 +111,7 @@ describe("analyticsChartDashboardIds", () => {
       "dash-accounts",
       "dash-customers",
     ]);
-    await expect(analyticsChartDashboardIds("Just text.")).resolves.toEqual(
-      [],
-    );
+    await expect(analyticsChartDashboardIds("Just text.")).resolves.toEqual([]);
   });
 
   it("reads a tag written in another form the way the editor does", async () => {

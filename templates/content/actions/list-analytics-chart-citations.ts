@@ -43,9 +43,10 @@ async function holdsChartFrom(
 }
 
 function shortTitle(title: string): string {
-  return title.length > MAX_TITLE_CHARS
-    ? Array.from(title).slice(0, MAX_TITLE_CHARS).join("")
-    : title;
+  if (title.length <= MAX_TITLE_CHARS) return title;
+  const last = title.charCodeAt(MAX_TITLE_CHARS - 1);
+  const splitsPair = last >= 0xd800 && last <= 0xdbff;
+  return title.slice(0, splitsPair ? MAX_TITLE_CHARS - 1 : MAX_TITLE_CHARS);
 }
 
 export default defineAction({
@@ -73,37 +74,32 @@ export default defineAction({
     const db = getDb();
     const citations = schema.analyticsChartCitations;
     const pages: z.infer<typeof citedPageSchema>[] = [];
-    const seen = new Set<string>();
-    let scanned = 0;
-    let exhausted = false;
-    while (
-      !exhausted &&
-      pages.length <= MAX_PAGES &&
-      scanned < MAX_CANDIDATES
+    // guard:allow-unscoped — ids only; accessibleDocumentIds below keeps the pages the caller can open before anything about them is read.
+    const candidates = await db
+      .select({ id: schema.documents.id })
+      .from(citations)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, citations.documentId),
+      )
+      .where(
+        and(
+          eq(citations.dashboardId, dashboardId),
+          isNull(schema.documents.trashedAt),
+          ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
+        ),
+      )
+      .orderBy(desc(schema.documents.updatedAt), schema.documents.id)
+      .limit(MAX_CANDIDATES + 1);
+    const ids = candidates.slice(0, MAX_CANDIDATES).map((row) => row.id);
+    for (
+      let at = 0;
+      at < ids.length && pages.length <= MAX_PAGES;
+      at += CANDIDATES_AT_ONCE
     ) {
-      // guard:allow-unscoped — ids only; accessibleDocumentIds below keeps the pages the caller can open before anything about them is read.
-      const candidates = await db
-        .select({ id: schema.documents.id })
-        .from(citations)
-        .innerJoin(
-          schema.documents,
-          eq(schema.documents.id, citations.documentId),
-        )
-        .where(
-          and(
-            eq(citations.dashboardId, dashboardId),
-            isNull(schema.documents.trashedAt),
-            ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
-          ),
-        )
-        .orderBy(desc(schema.documents.updatedAt), schema.documents.id)
-        .limit(CANDIDATES_AT_ONCE)
-        .offset(scanned);
-      scanned += candidates.length;
-      exhausted = candidates.length < CANDIDATES_AT_ONCE;
-      const ids = candidates.map((row) => row.id);
-      const accessible = await accessibleDocumentIds(ids);
-      const openable = ids.filter((id) => accessible.has(id));
+      const slice = ids.slice(at, at + CANDIDATES_AT_ONCE);
+      const accessible = await accessibleDocumentIds(slice);
+      const openable = slice.filter((id) => accessible.has(id));
       for (
         let index = 0;
         index < openable.length && pages.length <= MAX_PAGES;
@@ -130,8 +126,7 @@ export default defineAction({
           }),
         );
         for (const row of held) {
-          if (!row || seen.has(row.id)) continue;
-          seen.add(row.id);
+          if (!row) continue;
           pages.push({
             id: row.id,
             title: shortTitle(row.title),
@@ -143,7 +138,7 @@ export default defineAction({
     }
     return {
       pages: pages.slice(0, MAX_PAGES),
-      more: pages.length > MAX_PAGES || !exhausted,
+      more: pages.length > MAX_PAGES || candidates.length > MAX_CANDIDATES,
     };
   },
 });
