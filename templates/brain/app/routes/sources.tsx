@@ -2167,7 +2167,10 @@ function SourceListItem({
                   </DropdownMenuItem>
                 ) : null}
                 {onRotateIngestToken ? (
-                  <DropdownMenuItem onSelect={onRotateIngestToken}>
+                  <DropdownMenuItem
+                    disabled={syncPending || updating}
+                    onSelect={onRotateIngestToken}
+                  >
                     <IconRefresh className="size-4" />
                     {t("sources.rotateIngestToken")}
                   </DropdownMenuItem>
@@ -2304,6 +2307,7 @@ export default function SourcesRoute() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [ingestHandoff, setIngestHandoff] =
     useState<OneTimeIngestHandoff | null>(null);
+  const rotatingIngestToken = useRef(false);
   const [copiedHandoffField, setCopiedHandoffField] = useState<string | null>(
     null,
   );
@@ -2629,17 +2633,26 @@ export default function SourcesRoute() {
     setArchiveSource(null);
   }
 
-  async function rotateIngestToken(source: BrainSource) {
-    const result = await rotateSourceIngestToken.mutateAsync({
-      sourceId: source.id,
-    });
-    const handoff = createOneTimeIngestHandoff({
-      origin: window.location.origin,
-      provider: source.provider ?? "",
-      result,
-      sourceKey: result.sourceKey,
-    });
-    if (handoff) setIngestHandoff(handoff);
+  function rotateIngestToken(source: BrainSource) {
+    if (rotatingIngestToken.current) return;
+    rotatingIngestToken.current = true;
+    rotateSourceIngestToken.mutate(
+      { sourceId: source.id },
+      {
+        onSuccess: (result) => {
+          const handoff = createOneTimeIngestHandoff({
+            origin: window.location.origin,
+            provider: source.provider ?? "",
+            result,
+            sourceKey: result.sourceKey,
+          });
+          if (handoff) setIngestHandoff(handoff);
+        },
+        onSettled: () => {
+          rotatingIngestToken.current = false;
+        },
+      },
+    );
   }
 
   function toggleCaptureSelection(captureId: string, checked: boolean) {
@@ -2734,7 +2747,7 @@ export default function SourcesRoute() {
                   (source.provider === "clips" ||
                     source.provider === "generic") &&
                   source.hasIngestSourceKey
-                    ? () => void rotateIngestToken(source)
+                    ? () => rotateIngestToken(source)
                     : undefined
                 }
                 // Manual sources have no remote, so sync only reports an error.
