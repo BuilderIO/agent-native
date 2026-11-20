@@ -8,6 +8,7 @@ import {
 import { resolveAccess } from "@agent-native/core/sharing";
 
 import type { schema } from "../server/db/index.js";
+import { isHeldForRedaction } from "../server/lib/pending-redactions.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
@@ -38,7 +39,12 @@ export default defineAction({
           access.resource as typeof schema.recordings.$inferSelect;
         const viewerIsOwner = access.role === "owner";
         const hasPassword = Boolean(recording.password);
+        // The same gates the Clip's player applies before it shows anything:
+        // a takedown hides it from everyone, a pending redaction from all but
+        // its editors.
         if (
+          recording.failureCode === "taken_down" ||
+          isHeldForRedaction(recording.editsJson, access.role) ||
           isRecordingTrashedForViewer({
             trashedAt: recording.trashedAt,
             viewerIsOwner,

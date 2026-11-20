@@ -66,6 +66,8 @@ async function seed(
     password?: string | null;
     expiresAt?: string | null;
     trashedAt?: string | null;
+    failureCode?: string | null;
+    editsJson?: string;
   } = {},
 ) {
   await db.insert(schema.recordings).values({
@@ -79,6 +81,8 @@ async function seed(
     password: options.password ?? null,
     expiresAt: options.expiresAt ?? null,
     trashedAt: options.trashedAt ?? null,
+    failureCode: options.failureCode ?? null,
+    editsJson: options.editsJson ?? "{}",
     createdAt: now,
     updatedAt: now,
   });
@@ -174,6 +178,25 @@ describe("read-link-summary (Clips)", () => {
       available(share("trashed"), "trashed"),
       available(share("expired"), "expired"),
       available(share("locked"), "locked"),
+    ]);
+  });
+
+  it("hides a taken-down Clip from everyone, and one held for redaction from all but its editors", async () => {
+    await seed("taken-down", { failureCode: "taken_down" });
+    await seed("redacting", {
+      editsJson: JSON.stringify({
+        burnInProgress: { staleUrls: ["https://media.example.test/old.mp4"] },
+      }),
+    });
+    const links = [share("taken-down"), share("redacting")];
+    expect((await action.run({ links })).summaries).toEqual([
+      { status: "unavailable" },
+      { status: "unavailable" },
+    ]);
+    mocks.role = "owner";
+    expect((await action.run({ links })).summaries).toEqual([
+      { status: "unavailable" },
+      available(share("redacting"), "redacting"),
     ]);
   });
 
