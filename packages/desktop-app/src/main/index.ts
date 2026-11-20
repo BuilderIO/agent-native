@@ -247,6 +247,11 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
+import {
+  contentFilesIdKey,
+  legacyContentFilesGrantId,
+  persistentContentFilesGrantId,
+} from "./content-files/grant-ids";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
@@ -9595,10 +9600,6 @@ function resolveUsableContentFolder(value: unknown): string | null {
   }
 }
 
-function contentFilesGrantId(folder: string): string {
-  return `folder-${Buffer.from(path.resolve(folder)).toString("base64url")}`;
-}
-
 function contentFilesSourcePrefixBase(name: string): string {
   const prefix = name
     .replace(/[\\/]/g, "-")
@@ -9635,7 +9636,8 @@ function normalizeContentFilesGrant(
   if (!storedPath || storedPath.includes("\0")) return null;
   const folder = path.resolve(expandPathCandidate(storedPath) ?? storedPath);
   if (isFilesystemRoot(folder)) return null;
-  const id = firstStringValue(value.id)?.trim() || contentFilesGrantId(folder);
+  const id =
+    firstStringValue(value.id)?.trim() || legacyContentFilesGrantId(folder);
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
     path.basename(folder) || folder,
@@ -9821,7 +9823,11 @@ function setContentFilesGrant(folder: string): {
 } {
   const store = loadContentFilesStore();
   const grants = { ...(store.grants ?? {}) };
-  const id = contentFilesGrantId(folder);
+  const id = persistentContentFilesGrantId(
+    folder,
+    grants,
+    contentFilesIdKey(app.getPath("userData")),
+  );
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
     path.basename(folder) || folder,
