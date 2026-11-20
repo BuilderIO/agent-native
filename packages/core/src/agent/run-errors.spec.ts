@@ -143,33 +143,33 @@ describe("incompleteAgentRunFailure", () => {
 
 describe("resolvePrivateSafeError", () => {
   it.each([
-    [
-      PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
-      "private_history_unrecoverable",
-      PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
-      "private steps could not be safely resumed",
-    ],
-    [
-      TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
-      "tool_call_journal_unreadable",
-      TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
-      "could not read this turn's run ledger",
-    ],
-    [
-      PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_ERROR_CODE,
-      "private_history_provenance_unavailable",
-      PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_MESSAGE,
-      "Private turn provenance is unavailable",
-    ],
-    [
-      WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
-      "write_tool_outcome_unknown",
-      PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
-      "earlier attempt may have already saved changes",
-    ],
+    {
+      expectedCode: "private_history_unrecoverable",
+      codeConst: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+      messageConst: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
+      expectedPhrase: "private steps could not be safely resumed",
+    },
+    {
+      expectedCode: "tool_call_journal_unreadable",
+      codeConst: TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
+      messageConst: TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
+      expectedPhrase: "could not read this turn's run ledger",
+    },
+    {
+      expectedCode: "private_history_provenance_unavailable",
+      codeConst: PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_ERROR_CODE,
+      messageConst: PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_MESSAGE,
+      expectedPhrase: "Private turn provenance is unavailable",
+    },
+    {
+      expectedCode: "write_tool_outcome_unknown",
+      codeConst: WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+      messageConst: PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+      expectedPhrase: "earlier attempt may have already saved changes",
+    },
   ])(
-    "resolves allowlisted private safe error %s",
-    (codeConst, expectedCode, messageConst, expectedPhrase) => {
+    "resolves allowlisted private safe error $expectedCode",
+    ({ expectedCode, codeConst, messageConst, expectedPhrase }) => {
       expect(codeConst).toBe(expectedCode);
       expect(messageConst).toContain(expectedPhrase);
       expect(PRIVATE_SAFE_ERROR_MESSAGES[codeConst]).toBe(messageConst);
