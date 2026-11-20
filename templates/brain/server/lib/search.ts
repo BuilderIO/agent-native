@@ -23,6 +23,7 @@ import {
 } from "./hybrid-search.js";
 import {
   parseCaptureMetadata,
+  publicCaptureMetadata,
   withheldPassageCount,
 } from "./search-index-contracts.js";
 import { personalGoogleSourceFilter } from "./source-access.js";
@@ -378,7 +379,7 @@ export function sourceUrlFromMetadata(
   metadata: Record<string, unknown>,
 ): string | null {
   for (const key of ["sourceUrl", "url", "permalink", "webUrl", "web_url"]) {
-    const value = safeCitationUrl(metadata[key]);
+    const value = safeCitationUrl(publicCaptureMetadata(metadata)[key]);
     if (value) return value;
   }
   return null;
@@ -394,10 +395,7 @@ function firstCitation(evidenceJson: string) {
 const CAPTURE_CONTENT_LIMIT = 4000;
 
 function captureMetadata(metadataJson: string | null): Record<string, unknown> {
-  const parsed = parseJson<unknown>(metadataJson, {});
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+  return publicCaptureMetadata(parseCaptureMetadata(metadataJson));
 }
 
 function captureLocation(metadata: Record<string, unknown>): string | null {

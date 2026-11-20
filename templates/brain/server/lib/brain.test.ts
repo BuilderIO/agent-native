@@ -1411,6 +1411,8 @@ describe("Brain knowledge quality gates", () => {
       externalId,
       metadataJson: JSON.stringify({
         passageQuarantine: { version: 1, withheldPassages: 1 },
+        sourceUrl: externalId,
+        nested: { original: externalId },
       }),
     });
     const list = await listCapturesAction.run({
@@ -1420,6 +1422,7 @@ describe("Brain knowledge quality gates", () => {
     });
     expect(list.captures[0]).toMatchObject({
       externalId: null,
+      sourceUrl: null,
       withheldPassages: 1,
     });
     for (const includeRawContent of [false, true]) {
@@ -1430,7 +1433,9 @@ describe("Brain knowledge quality gates", () => {
       expect(result.capture).toMatchObject({
         externalId: null,
         withheldPassages: 1,
+        metadata: { passageQuarantine: { version: 1, withheldPassages: 1 } },
       });
+      expect(JSON.stringify(result.capture?.metadata)).not.toContain(externalId);
     }
     expect(stored.externalId).toBe(externalId);
   });

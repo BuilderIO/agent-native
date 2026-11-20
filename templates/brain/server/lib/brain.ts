@@ -87,6 +87,8 @@ import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
   parseCaptureMetadata,
   publicCaptureExternalId,
+  publicCaptureMetadata,
+  readWithheldPassages,
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
@@ -192,7 +194,7 @@ export function sourceUrlFromMetadataRecord(
   metadata: Record<string, unknown>,
 ): string | null {
   for (const key of SOURCE_URL_METADATA_KEYS) {
-    const value = safeCitationUrl(metadata[key]);
+    const value = safeCitationUrl(publicCaptureMetadata(metadata)[key]);
     if (value) return value;
   }
   return null;
@@ -500,7 +502,7 @@ export function serializeCapture(
     kind: row.kind as BrainCaptureKind,
     content: row.content,
     contentHash: row.contentHash,
-    metadata: parseJson(row.metadataJson, {}),
+    metadata: publicCaptureMetadata(parseCaptureMetadata(row.metadataJson)),
     capturedAt: row.capturedAt,
     importedBy: row.importedBy,
     status: row.status,
@@ -1957,9 +1959,10 @@ export async function validateEvidenceWithContent(
       access.capture.metadataJson,
       {},
     );
-    const sourceUrl = safeCitationUrl(
-      item.sourceUrl ?? item.url ?? metadata.sourceUrl,
-    );
+    const sourceUrl =
+      readWithheldPassages(metadata) === undefined
+        ? safeCitationUrl(item.sourceUrl ?? item.url ?? metadata.sourceUrl)
+        : null;
     const result: BrainEvidence = {
       captureId: item.captureId,
       sourceId: access.capture.sourceId,

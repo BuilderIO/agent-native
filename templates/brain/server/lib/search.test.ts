@@ -901,7 +901,11 @@ describe("Brain semantic capture hits", () => {
     seedSemanticCapture({
       id: "capture-semantic-manual",
       sourceId: "source-manual",
-      metadata: { passageQuarantine: { version: 1, withheldPassages: 2 } },
+      metadata: {
+        passageQuarantine: { version: 1, withheldPassages: 2 },
+        sourceUrl: "https://example.test/private-transcript",
+        meetingTopic: "https://example.test/private-transcript",
+      },
     });
     const capture = mocks.rows.captures.find(
       (row) => row.id === "capture-semantic-manual",
@@ -913,7 +917,12 @@ describe("Brain semantic capture hits", () => {
       type: "capture",
     });
     expect(rows).toMatchObject([
-      { id: "capture-semantic-manual", withheldPassages: 2, sourceUrl: null },
+      {
+        id: "capture-semantic-manual",
+        withheldPassages: 2,
+        sourceUrl: null,
+        location: null,
+      },
     ]);
   });
 

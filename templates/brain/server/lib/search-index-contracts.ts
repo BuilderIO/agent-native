@@ -48,6 +48,17 @@ export function withheldPassageCount(
   return withheld === undefined ? 0 : withheld;
 }
 
+export function publicCaptureMetadata(
+  metadata: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (metadata === null) return {};
+  const withheld = readWithheldPassages(metadata);
+  if (withheld === undefined) return metadata;
+  return {
+    passageQuarantine: { version: 1, withheldPassages: withheld },
+  };
+}
+
 export function publicCaptureExternalId(
   externalId: string | null,
   metadata: Record<string, unknown> | null,
