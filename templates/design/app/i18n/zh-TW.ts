@@ -1823,7 +1823,7 @@ export default {
       saveConflict: "此頁面已在別處變更。你的上一次編輯未儲存。",
       versionHistoryUnavailable: "此設計暫無法使用版本歷史。您的編輯已儲存。",
       removeAutoLayoutFailed: "無法移除自動版面配置",
-      autoLayoutScreensUnsupported: "新增自動版面配置不適用於頁面",
+      autoLayoutScreensUnsupported: "新增自動布局不適用於頁面",
       booleanSubtractUnsupported:
         "請選取相鄰且使用純色填滿的矩形或橢圓以執行減法。",
       booleanSubtractFailed: "無法減去所選圖層。",
@@ -2071,7 +2071,7 @@ export default {
       permissionPromptRetry: "重試連線",
       previewCredentialsUnavailableTitle: "本機預覽認證資訊無法使用",
       previewCredentialsUnavailableDescription:
-        "請在檢閱器中重新連線此頁面的 localhost 連線，然後再試一次。",
+        "請在檢查器中重新連線此頁面的 localhost 連線，然後再試一次。",
       publicPreviewUnavailableDescription:
         "localhost 預覽不會與公開檢視者分享。請以協作者身分開啟此 Design 來檢視此頁面。",
       previewCredentialsRetry: "重新取得認證資訊",

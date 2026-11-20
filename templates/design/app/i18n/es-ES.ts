@@ -2011,7 +2011,7 @@ export default {
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "Añadir el punto de corte {{label}} ({{width}}px) a todas las páginas",
+      "Añadir el punto de quiebre {{label}} ({{width}}px) a todas las páginas",
     preparingLiveEditor: "Preparando el editor en vivo…",
     duplicate: "Duplicar",
     fork: "Bifurcar",

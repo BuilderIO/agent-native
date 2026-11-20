@@ -1844,7 +1844,7 @@ export default {
       swapFillStrokeLayeredFill:
         "एक से ज़्यादा फ़िल या इमेज फ़िल अभी स्ट्रोक में नहीं बदल सकते",
       alignNeedsTwoLayers: "संरेखित करने के लिए दो या अधिक परतें चुनें",
-      alignNeedsTwoScreens: "अलाइन करने के लिए दो या अधिक पेज चुनें",
+      alignNeedsTwoScreens: "संरेखित करने के लिए दो या अधिक पेज चुनें",
       layoutUnmeasurable:
         "चुनी गई किसी परत को मापा नहीं जा सका। पक्का करें कि वह कैनवस पर दिख रही है, फिर से कोशिश करें।",
       layoutAutoLayoutChildren:

@@ -1256,7 +1256,7 @@ export default {
     templateSaved: "模板已保存到模板库",
     templateSaveFailed: "无法保存此模板",
     appMenu: {
-      backToDashboard: "返回仪表板",
+      backToDashboard: "返回仪表盘",
       file: "文件",
       preferences: "偏好设置",
       newDesign: "新建设计",

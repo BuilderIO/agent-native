@@ -417,7 +417,7 @@ export default {
       addRecordRow: "Ajouter {{item}}",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "Supprimer {{item}} {{index}}",
-      selectElementFirst: "Sélectionnez d'abord un élément de la page",
+      selectElementFirst: "Sélectionnez d’abord un élément de la page",
       selectCanvasElementFirst:
         "Sélectionnez d'abord un élément sur le canevas",
       saveFailed: "Impossible d'enregistrer le shader",
@@ -1098,7 +1098,7 @@ export default {
       zoomFit: "Ajusté au canevas",
       zoomFitOption: "Ajuster",
       exit: "Quitter l'aperçu adaptatif",
-      noScreens: "Ce design n'a aucune page à prévisualiser.",
+      noScreens: "Ce design n’a aucune page à prévisualiser.",
       unknownScreen: "Cette page ne fait pas partie de ce design.",
     },
     applyToSource: "Appliquer à la source",
@@ -1225,7 +1225,7 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Collez ou importez du HTML autonome. Design l'enregistre comme une nouvelle page sans l'injecter dans l'interface de cet éditeur.",
+        "Collez ou importez du HTML autonome. Design l’enregistre comme une nouvelle page sans l’injecter dans l’interface de cet éditeur.",
       allSupportedFiles: "Tous les fichiers pris en charge",
       githubDescription:
         "Bientôt : importez des pages et des composants directement depuis un dépôt.",
@@ -1529,9 +1529,9 @@ export default {
     delete: "Delete",
     view: "View",
     returnToCurrentScreen: "Revenir à la page actuelle",
-    openScreenOverview: "Ouvrir la vue d'ensemble des pages",
+    openScreenOverview: "Ouvrir la vue d’ensemble des pages",
     currentScreen: "Page actuelle",
-    screenOverview: "Vue d'ensemble des pages",
+    screenOverview: "Vue d’ensemble des pages",
     devicePreview: "Aperçu de l’appareil",
     devices: {
       responsive: "Sensible",
@@ -1633,13 +1633,13 @@ export default {
       rollback: "Revenir",
       keep: "Garder",
       selectorMissing:
-        "L'élément sélectionné n'a aucune correspondance modifiable dans le code source de cette page. Si un composant l'affiche, appliquez la modification via l'agent.",
+        "L’élément sélectionné n’a aucune correspondance modifiable dans le code source de cette page. Si un composant l’affiche, appliquez la modification via l’agent.",
       noRenderedBox:
         "Le calque sélectionné n’a aucune boîte rendue ; la modification de style n’a pas été appliquée.",
       clientRenderedShell:
-        "Cette page est rendue côté client, donc le HTML servi ne contient aucun balisage d'app à modifier. Demandez à l'agent d'appliquer cette modification au code source du composant.",
+        "Cette page est rendue côté client, donc le HTML servi ne contient aucun balisage d’app à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
       snapshotNotLoaded:
-        "Le code source de cette page n'est pas encore chargé, la modification n'a donc pas été écrite. Attendez la fin du chargement de la page et réessayez.",
+        "Le code source de cette page n’est pas encore chargé, la modification n’a donc pas été écrite. Attendez la fin du chargement de la page et réessayez.",
       selectorAmbiguous:
         "Cet élément est l’une des {{count}} instances identiques dans le code source ; la modification n’a donc pas été écrite. Demandez à l’agent de la limiter à cette instance.",
       status: {
@@ -1701,12 +1701,12 @@ export default {
       searchPlaceholder: "Rechercher des routes…",
       noRoutes: "Aucune route correspondante",
       noDiscoveredRoutes:
-        "Aucune route n'a été trouvée pour cette app. Saisissez un chemin pour ajouter une page.",
+        "Aucune route n’a été trouvée pour cette app. Saisissez un chemin pour ajouter une page.",
       useCustomPath: "Ajouter « {{path}} »",
       viewportDesktop: "Bureau",
       viewportMobile: "Mobile",
       added: "Page ajoutée",
-      addFailed: "Impossible d'ajouter la page",
+      addFailed: "Impossible d’ajouter la page",
     },
     localhostConsent: {
       approvedTitle: "Approuvé — relancez la modification",
@@ -1792,7 +1792,7 @@ export default {
       zipCreateError: "Impossible de créer le téléchargement ZIP",
       zipDownloaded: "ZIP téléchargé",
       zipExportError: "Impossible d’exporter ZIP",
-      openScreenPng: "Ouvrez une page avant d'exporter en PNG",
+      openScreenPng: "Ouvrez une page avant d’exporter en PNG",
       pngCreateError: "Impossible de créer le téléchargement PNG",
       pngDownloaded: "PNG téléchargé",
       pngCopied: "PNG copié dans le presse-papiers",
@@ -1821,7 +1821,7 @@ export default {
       pdfExportError: "Impossible d’exporter le PDF",
       pdfDownloaded: "PDF téléchargé",
       pdfAllScreensDownloaded: "PDF téléchargé (toutes les pages)",
-      openScreenSvg: "Ouvrez une page avant d'exporter en SVG",
+      openScreenSvg: "Ouvrez une page avant d’exporter en SVG",
       svgDownloaded: "SVG téléchargé",
       svgExportError: "Impossible d’exporter SVG",
       figmaSvgCopied: "Copié en tant que SVG Figma",
@@ -1839,9 +1839,9 @@ export default {
       deleted: "Deleted",
       propsCopied: "Propriétés copiées",
       propsPasted: "Propriétés collées",
-      primitiveInsertFailed: "Impossible d'ajouter ce calque à la page",
+      primitiveInsertFailed: "Impossible d’ajouter ce calque à la page",
       designStateLiveScreen:
-        "Les états de design ne peuvent pas être prévisualisés sur une page en direct : son contenu est l'app en cours d'exécution, pas un document.",
+        "Les états de design ne peuvent pas être prévisualisés sur une page en direct : son contenu est l’app en cours d’exécution, pas un document.",
       layerMoveFailed: "Impossible de déplacer ce calque",
       groupFillApplyFailed:
         "Impossible d’appliquer ce remplissage à tous les calques du groupe.",
@@ -1869,12 +1869,12 @@ export default {
       redoSkippedConcurrentEdit:
         "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
       saveConflict:
-        "Cette page a été modifiée ailleurs. Votre dernière modification n'a pas été enregistrée.",
+        "Cette page a été modifiée ailleurs. Votre dernière modification n’a pas été enregistrée.",
       versionHistoryUnavailable:
         "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
       removeAutoLayoutFailed: "Impossible de supprimer l'auto layout",
       autoLayoutScreensUnsupported:
-        "L'ajout de la mise en page automatique ne s'applique pas aux pages",
+        "L’ajout de la mise en page automatique ne s’applique pas aux pages",
       booleanSubtractUnsupported:
         "Sélectionnez des rectangles ou des ellipses adjacents avec un remplissage uni pour les soustraire.",
       booleanSubtractFailed: "Impossible de soustraire ces calques.",
@@ -2013,7 +2013,7 @@ export default {
       previewCredentialsUnavailableTitle:
         "Les identifiants de l’aperçu local ne sont pas disponibles",
       previewCredentialsUnavailableDescription:
-        "Reconnectez la connexion localhost de cette page dans l'inspecteur, puis réessayez.",
+        "Reconnectez la connexion localhost de cette page dans l’inspecteur, puis réessayez.",
       publicPreviewUnavailableDescription:
         "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce Design en tant que collaborateur pour voir cette page.",
       previewCredentialsRetry: "Réessayer les identifiants",

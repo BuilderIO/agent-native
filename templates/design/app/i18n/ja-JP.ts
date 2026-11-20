@@ -1221,7 +1221,7 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "単体の HTML を貼り付けるかアップロードします。Design はこのエディタ UI に挿入せず、新しいページとして保存します。",
+        "単体の HTML を貼り付けるかアップロードします。Design はこのエディター UI に挿入せず、新しいページとして保存します。",
       allSupportedFiles: "対応しているすべてのファイル",
       githubDescription:
         "近日公開: リポジトリからページとコンポーネントを直接インポートできます。",
@@ -1777,7 +1777,7 @@ export default {
       zipCreateError: "ZIP ダウンロードを作成できませんでした",
       zipDownloaded: "ZIP をダウンロードしました",
       zipExportError: "ZIP をエクスポートできませんでした",
-      openScreenPng: "PNG を書き出す前にページを開いてください",
+      openScreenPng: "PNG をエクスポートする前にページを開いてください",
       pngCreateError: "PNG ダウンロードを作成できませんでした",
       pngDownloaded: "PNG をダウンロードしました",
       pngCopied: "PNG をクリップボードにコピーしました",
@@ -1805,7 +1805,7 @@ export default {
       pdfExportError: "PDF をエクスポートできませんでした",
       pdfDownloaded: "PDF をダウンロードしました",
       pdfAllScreensDownloaded: "PDF をダウンロードしました（全ページ）",
-      openScreenSvg: "SVG を書き出す前にページを開いてください",
+      openScreenSvg: "SVG をエクスポートする前にページを開いてください",
       svgDownloaded: "SVG をダウンロードしました",
       svgExportError: "SVG をエクスポートできませんでした",
       figmaSvgCopied: "Figma SVG としてコピーしました",
@@ -1826,7 +1826,7 @@ export default {
       propsPasted: "プロパティを貼り付けました",
       primitiveInsertFailed: "そのレイヤーをページに追加できませんでした",
       designStateLiveScreen:
-        "ライブページではデザインステートをプレビューできません。その内容はドキュメントではなく、実行中のアプリです。",
+        "ライブページではデザイン状態をプレビューできません。その内容はドキュメントではなく、実行中のアプリです。",
       layerMoveFailed: "そのレイヤーを移動できませんでした",
       groupFillApplyFailed:
         "この塗りをグループ内のすべてのレイヤーに適用できませんでした。",
@@ -1883,7 +1883,7 @@ export default {
       swapFillStrokeLayeredFill:
         "複数の塗りや画像の塗りはまだ線に移動できません",
       alignNeedsTwoLayers: "整列するには2つ以上のレイヤーを選択してください",
-      alignNeedsTwoScreens: "整列するには 2 つ以上のページを選択してください",
+      alignNeedsTwoScreens: "整列するには 2つ以上のページを選択してください",
       layoutUnmeasurable:
         "選択したレイヤーを測定できませんでした。キャンバス上に表示されていることを確認して、もう一度お試しください。",
       layoutAutoLayoutChildren:
@@ -1994,7 +1994,7 @@ export default {
       previewCredentialsUnavailableTitle:
         "ローカルプレビューの認証情報を利用できません",
       previewCredentialsUnavailableDescription:
-        "インスペクタでこのページの localhost 接続を再接続してから、もう一度お試しください。",
+        "インスペクターでこのページの localhost 接続を再接続してから、もう一度お試しください。",
       publicPreviewUnavailableDescription:
         "localhost のプレビューは公開閲覧者には共有されません。このページを表示するには、共同編集者としてこの Design を開いてください。",
       previewCredentialsRetry: "認証情報を再取得",
