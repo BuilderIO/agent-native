@@ -805,6 +805,7 @@ describe("resolveNitroBuildReplacements", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
       AGENT_NATIVE_BETA_SCHEMA_OWNER: " production ",
+      AUTH_REQUIRE_EMAIL_VERIFICATION: " 0 ",
     });
 
     expect(replacements["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"]).toBe(
@@ -812,6 +813,9 @@ describe("resolveNitroBuildReplacements", () => {
     );
     expect(replacements["process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER"]).toBe(
       JSON.stringify("production"),
+    );
+    expect(replacements["process.env.AUTH_REQUIRE_EMAIL_VERIFICATION"]).toBe(
+      JSON.stringify("0"),
     );
   });
 

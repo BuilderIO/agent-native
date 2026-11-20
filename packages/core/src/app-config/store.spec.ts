@@ -315,6 +315,26 @@ describe("app config store", () => {
       }
     }
   });
+
+  it("keeps a build-time email verification policy but lets the runtime env override it", () => {
+    const previous = process.env.AUTH_REQUIRE_EMAIL_VERIFICATION;
+    delete process.env.AUTH_REQUIRE_EMAIL_VERIFICATION;
+    try {
+      const embedded = { AUTH_REQUIRE_EMAIL_VERIFICATION: "0" };
+      expect(
+        readEnvConfigLayer(appConfigSchema, readConfigEnvironment(embedded))
+          .auth,
+      ).toMatchObject({ requireEmailVerification: false });
+      process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = "1";
+      expect(
+        readEnvConfigLayer(appConfigSchema, readConfigEnvironment(embedded))
+          .auth,
+      ).toMatchObject({ requireEmailVerification: true });
+    } finally {
+      if (previous === undefined) delete process.env.AUTH_REQUIRE_EMAIL_VERIFICATION;
+      else process.env.AUTH_REQUIRE_EMAIL_VERIFICATION = previous;
+    }
+  });
 });
 
 describe("app identity", () => {

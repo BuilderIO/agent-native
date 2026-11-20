@@ -6442,6 +6442,9 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
       env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
     ),
+    "process.env.AUTH_REQUIRE_EMAIL_VERIFICATION": JSON.stringify(
+      env.AUTH_REQUIRE_EMAIL_VERIFICATION?.trim() || "",
+    ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
