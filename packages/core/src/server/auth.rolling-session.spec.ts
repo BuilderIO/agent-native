@@ -99,7 +99,7 @@ describe("rolling framework session cookies", () => {
     expect(session?.email).toBe("active@example.test");
     expect(updates).toHaveLength(1);
     expect(storedCreatedAt).toBe(FIXED_NOW);
-    const setCookies = ev.res.headers.getSetCookie?.() ?? [];
+    const setCookies = ev.res.headers.getSetCookie();
     expect(setCookies.some((c) => c.includes(`an_session=${token}`))).toBe(
       true,
     );
@@ -161,7 +161,7 @@ describe("rolling framework session cookies", () => {
 
     expect(session?.email).toBe("fresh@example.test");
     expect(updates).toHaveLength(0);
-    const setCookies = ev.res.headers.getSetCookie?.() ?? [];
+    const setCookies = ev.res.headers.getSetCookie();
     expect(setCookies.some((c) => c.includes(`an_session=${token}`))).toBe(
       false,
     );
@@ -226,7 +226,7 @@ describe("rolling framework session cookies", () => {
 
     expect(session?.email).toBe("oauth@example.test");
     expect(updates).toHaveLength(1);
-    const setCookies = ev.res.headers.getSetCookie?.() ?? [];
+    const setCookies = ev.res.headers.getSetCookie();
     expect(setCookies.some((c) => c.includes(`an_session=${token}`))).toBe(
       true,
     );
