@@ -6,6 +6,10 @@ import {
 } from "../../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+  PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
+} from "../run-errors.js";
+import {
   AgentRunJournalUnreadableError,
   getCompletedAgentExecutionSteps,
   getCurrentTurnEventsForThread,
@@ -242,6 +246,7 @@ export async function overlayCompletedExecutionStepOutcomes(
     }>
   >();
   events.forEach((event, index) => {
+    if (event.omitFromPersistedHistory === true) return;
     if (event.type === "tool_start" && event.id) {
       const stepId = event.executionStepId ?? event.id;
       const starts = startsById.get(stepId) ?? [];
@@ -471,20 +476,19 @@ export async function loadPriorTurnToolCallJournal(
     return { status: "unreadable", error };
   }
   const privateStarts = new Map<string, string>();
-  const privatePauses = new Set<string>();
+  const privateCompleted = new Set<string>();
   for (const event of priorEvents) {
     if (event.omitFromPersistedHistory !== true) continue;
     if (event.type === "tool_start") {
       if (
         !event.id ||
         privateStarts.has(event.id) ||
-        privatePauses.has(event.id)
+        privateCompleted.has(event.id)
       ) {
         return {
           status: "unreadable",
-          code: "private_history_unrecoverable",
-          error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+          code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+          error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
         };
       }
       privateStarts.set(event.id, event.tool);
@@ -492,26 +496,26 @@ export async function loadPriorTurnToolCallJournal(
       if (
         !event.id ||
         privateStarts.get(event.id) !== event.tool ||
-        privatePauses.has(event.id) ||
-        event.approvalPause !== true ||
-        event.completedSideEffect !== false
+        privateCompleted.has(event.id) ||
+        event.outcomeUnknown === true
       ) {
         return {
           status: "unreadable",
-          code: "private_history_unrecoverable",
-          error:
-            "Private tool history cannot be safely resumed. Start a new turn.",
+          code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+          error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
         };
       }
       privateStarts.delete(event.id);
-      privatePauses.add(event.id);
+      if (event.approvalPause !== true || event.completedSideEffect !== false) {
+        privateCompleted.add(event.id);
+      }
     }
   }
   if (privateStarts.size > 0) {
     return {
       status: "unreadable",
-      code: "private_history_unrecoverable",
-      error: "Private tool history cannot be safely resumed. Start a new turn.",
+      code: PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
+      error: PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
     };
   }
   if (options.recoverCompletedExecutionSteps) {

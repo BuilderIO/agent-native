@@ -65,6 +65,7 @@ import {
   type ExecutionFence,
   withFencedExecutionWrite,
 } from "./execution-fence.js";
+import { resolvePrivateSafeError } from "./run-errors.js";
 import {
   AGENT_RUN_MIGRATIONS,
   AGENT_RUN_MIGRATIONS_TABLE,
@@ -4700,15 +4701,18 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
           ? { durationMs: event.durationMs }
           : {}),
       };
-    case "error":
+    case "error": {
+      const safeError = resolvePrivateSafeError(event.errorCode);
       return {
         ...base,
-        error: "Private content omitted",
+        error: safeError ? safeError.message : "Private content omitted",
+        ...(safeError ? { errorCode: safeError.errorCode } : {}),
         ...(event.recoverable === true ? { recoverable: true } : {}),
         ...(event.providerRetryable === true
           ? { providerRetryable: true }
           : {}),
       };
+    }
     case "loop_limit":
       return {
         ...base,

@@ -448,7 +448,10 @@ import { applyUncheckedDefaultModelReplacement } from "./provider-model-selectio
 import {
   IncompleteAgentRunError,
   incompleteAgentRunFailure,
+  PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE,
   RUN_RATE_LIMITED_MESSAGE,
+  TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
+  TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
 } from "./run-errors.js";
 import {
   startRun,
@@ -8159,6 +8162,13 @@ export async function runAgentLoop(opts: {
         opts.recoverCompletedExecutionSteps === true,
     },
   );
+  if (
+    journalRead.status === "read" &&
+    journalRead.events.some((event) => event.omitFromPersistedHistory === true)
+  ) {
+    if (opts.runId) await ensurePrivateTurnRecorded();
+    else send.markPrivate();
+  }
   const toolCallJournal =
     journalRead.status === "read" ? journalRead.toolCallJournal : null;
   turnHasActionWarnings =
@@ -8397,14 +8407,12 @@ export async function runAgentLoop(opts: {
   }
   const unreadableJournalStop: TerminalActionStop | null =
     journalRead.status === "unreadable" &&
-    (journalRead.code === "private_history_unrecoverable" ||
+    (journalRead.code === PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE ||
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message:
-            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-            "Retrying would risk repeating a step that already completed. Please send the request again.",
-          errorCode: "tool_call_journal_unreadable",
+          message: TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
+          errorCode: TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE,
           details: journalRead.error,
         }
       : null;
