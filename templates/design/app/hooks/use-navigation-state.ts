@@ -238,7 +238,6 @@ export function useNavigationState(enabled = true) {
 
   useAgentRouteState<NavigationState>({
     browserTabId,
-    // Search typing updates the URL on every keystroke; coalesce the writes.
     writeDebounceMs: 300,
     getNavigationState: ({ pathname, search }) => {
       const state: NavigationState = { view: "list" };

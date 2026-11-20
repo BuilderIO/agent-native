@@ -184,8 +184,6 @@ export default function Index() {
   const [search, setSearch] = useState(urlSearch);
   const [designFilter, setDesignFilter] = useState<DesignFilter>(() => {
     const stored = readStoredDesignFilter() ?? "mine";
-    // A search that arrived in the URL (for example from the agent) covers
-    // every accessible design, so the home must not hide matches behind Mine.
     return urlSearch.trim() && stored === "mine" ? "all" : stored;
   });
   const [page, setPage] = useState(1);
