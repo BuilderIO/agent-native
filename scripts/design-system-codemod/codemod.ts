@@ -18,6 +18,8 @@ import { COMPONENT_NAMES } from "./types.ts";
 export interface Finding {
   file: string;
   line: number;
+  /** The node's start offset, which tells apart two sites on one line. */
+  offset: number;
   component: ComponentName;
   reason: string;
 }
@@ -496,6 +498,7 @@ export function runCodemod(
     mocks: mocks.map(({ file, source, specifier, component, shim }) => ({
       file: rel(file),
       line: lineOf(source, specifier),
+      offset: specifier.getStart(source),
       component,
       reason:
         shim !== null && swapped.has(shim)
@@ -516,6 +519,7 @@ export function runCodemod(
     ): Finding => ({
       file: rel(plan.file),
       line: lineOf(source, node),
+      offset: node.getStart(source),
       component,
       reason,
     });

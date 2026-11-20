@@ -42,11 +42,8 @@ function unifiedDiff(before: string, after: string, name: string): string {
 }
 
 function sites(findings: Finding[]): number {
-  return new Set(
-    findings.map(
-      (finding) => `${finding.file}:${finding.line}:${finding.component}`,
-    ),
-  ).size;
+  return new Set(findings.map((finding) => `${finding.file}:${finding.offset}`))
+    .size;
 }
 
 function group(findings: Finding[], dir: string): string[] {
