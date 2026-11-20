@@ -31,6 +31,37 @@ export function hasDbSyncForQueryClient(queryClient: object): boolean {
   return (dbSyncClientCounts.get(queryClient) ?? 0) > 0;
 }
 
+function invalidateActionQueriesInPlace(queryClient: QueryClient): void {
+  const matchesActionQuery = (query: Query) =>
+    !isTerminalAuthFailure(query.state.error);
+  const busyQueries = new Set<Query>();
+  queryClient.isFetching({
+    queryKey: ["action"],
+    predicate: (query: Query) => {
+      const matches = matchesActionQuery(query);
+      if (matches) busyQueries.add(query);
+      return matches;
+    },
+  });
+  const completion = queryClient.invalidateQueries(
+    {
+      queryKey: ["action"],
+      predicate: matchesActionQuery,
+    },
+    { cancelRefetch: false },
+  );
+  if (busyQueries.size > 0) {
+    void completion.then(() => {
+      if (!fallbackClientEntries.has(queryClient)) return;
+      void queryClient.invalidateQueries({
+        queryKey: ["action"],
+        predicate: (query: Query) =>
+          busyQueries.has(query) && matchesActionQuery(query),
+      });
+    });
+  }
+}
+
 export function retainFallbackToolDoneRefresh(
   queryClient: QueryClient,
 ): () => void {
@@ -58,14 +89,7 @@ export function retainFallbackToolDoneRefresh(
       }
       if (clients.has(queryClient)) return;
       clients.add(queryClient);
-      void queryClient.invalidateQueries(
-        {
-          queryKey: ["action"],
-          predicate: (query: Query) =>
-            !isTerminalAuthFailure(query.state.error),
-        },
-        { cancelRefetch: false },
-      );
+      invalidateActionQueriesInPlace(queryClient);
     };
     window.addEventListener("agent-native:tool-done", listener);
     entry = { count: 0, listener };

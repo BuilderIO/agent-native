@@ -2091,45 +2091,58 @@ export function useDbSync(
       invalidatedClients: WeakMap<Event, WeakSet<QueryClient>>,
     ) => {
       if (events.length === 0) return;
-      const firstForEvent = !processedEvents.has(event);
-      if (firstForEvent) {
-        processedEvents.add(event);
-        const sources = events
-          .map((syncEvent) => syncEvent.source)
-          .filter((source): source is string => typeof source === "string");
-        for (const source of new Set(sources)) {
-          bumpLocalChangeVersion(source);
+      const hasCustomFilter = Boolean(
+        actionInvalidatePredicateRef.current ||
+        ignoreSourceRef.current ||
+        suppressActionInvalidationForRef.current?.length,
+      );
+      if (processedEvents.has(event)) {
+        if (queryClient) {
+          let clients = invalidatedClients.get(event);
+          if (!clients) {
+            clients = new WeakSet<QueryClient>();
+            invalidatedClients.set(event, clients);
+          }
+          if (hasCustomFilter || !clients.has(queryClient)) {
+            if (!hasCustomFilter) clients.add(queryClient);
+            queueInvalidateBatch(events);
+            return;
+          }
         }
-        if (
-          events.some((syncEvent) => syncEvent.source === "action") &&
-          events.every(
-            (syncEvent) =>
-              syncEvent.source === "action" ||
-              syncEvent.source === "app-state" ||
-              syncEvent.source === "screen-refresh",
-          )
-        ) {
-          bumpActiveLocalChangeVersions(sources);
-        }
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("agentNative:syncActivity"));
-        }
+        for (const syncEvent of events) onEventRef.current?.(syncEvent);
+        return;
       }
-      if (queryClient) {
+      processedEvents.add(event);
+      const sources = events
+        .map((syncEvent) => syncEvent.source)
+        .filter((source): source is string => typeof source === "string");
+      for (const source of new Set(sources)) {
+        bumpLocalChangeVersion(source);
+      }
+      if (
+        events.some((syncEvent) => syncEvent.source === "action") &&
+        events.every(
+          (syncEvent) =>
+            syncEvent.source === "action" ||
+            syncEvent.source === "app-state" ||
+            syncEvent.source === "screen-refresh",
+        )
+      ) {
+        // Tool completion has no domain scope, so wake mounted raw-query counters too.
+        bumpActiveLocalChangeVersions(sources);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("agentNative:syncActivity"));
+      }
+      if (queryClient && !hasCustomFilter) {
         let clients = invalidatedClients.get(event);
         if (!clients) {
           clients = new WeakSet<QueryClient>();
           invalidatedClients.set(event, clients);
         }
-        if (clients.has(queryClient)) {
-          for (const syncEvent of events) onEventRef.current?.(syncEvent);
-          return;
-        }
         clients.add(queryClient);
-        queueInvalidateBatch(events);
-        return;
       }
-      for (const syncEvent of events) onEventRef.current?.(syncEvent);
+      queueInvalidateBatch(events);
     };
     const handleRunToolDone = (event: Event) => {
       const detail = (

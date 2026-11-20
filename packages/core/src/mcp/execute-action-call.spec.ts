@@ -37,7 +37,9 @@ import { runWithMcpTurnGrantScope } from "./turn-grant-scope.js";
 
 const grants = vi.hoisted(() => new Map<string, any>());
 const getUserSettingMock = vi.hoisted(() =>
-  vi.fn<() => Promise<Record<string, unknown> | null>>(async () => null),
+  vi.fn<
+    (email?: string, key?: string) => Promise<Record<string, unknown> | null>
+  >(async () => null),
 );
 
 vi.mock("../settings/user-settings.js", async (importOriginal) => {
@@ -521,8 +523,12 @@ describe("executeMcpActionCall", () => {
       run: async () => ({ ok: "approval" }),
     }) as unknown as ActionEntry;
 
+    const previousAmbientEmail = process.env.AGENT_USER_EMAIL;
     try {
-      getUserSettingMock.mockResolvedValue({ enabled: true });
+      process.env.AGENT_USER_EMAIL = "deploy-admin@example.com";
+      getUserSettingMock.mockImplementation(async (email?: string) =>
+        email === "user@example.com" ? { enabled: true } : { enabled: false },
+      );
       await expect(
         runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
           executeMcpActionCall(context, {
@@ -546,7 +552,11 @@ describe("executeMcpActionCall", () => {
         ),
       ).resolves.toMatchObject({ status: "completed" });
 
-      getUserSettingMock.mockResolvedValue({ enabled: false });
+      getUserSettingMock.mockImplementation(async (email?: string) =>
+        email === "deploy-admin@example.com"
+          ? { enabled: true }
+          : { enabled: false },
+      );
       await expect(
         runWithMcpTurnGrantScope("direct", "direct", Date.now() + 60_000, () =>
           executeMcpActionCall(context, {
@@ -570,6 +580,11 @@ describe("executeMcpActionCall", () => {
         ),
       ).resolves.toMatchObject({ status: "approval-required" });
     } finally {
+      if (previousAmbientEmail === undefined) {
+        delete process.env.AGENT_USER_EMAIL;
+      } else {
+        process.env.AGENT_USER_EMAIL = previousAmbientEmail;
+      }
       getUserSettingMock.mockReset();
       getUserSettingMock.mockResolvedValue(null);
       resetAppConfigForTests();

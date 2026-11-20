@@ -259,4 +259,256 @@ describe("window agent-native:tool-done in-place action query refetch", () => {
     });
     expect(fetchCount).toBe(2);
   });
+
+  it("schedules a trailing refresh in the fallback when a query is already in flight during agent-native:tool-done", async () => {
+    let fetchCount = 0;
+    let resolveFirstFetch: ((res: Response) => void) | undefined;
+    const fetchMock = vi.fn(() => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirstFetch = resolve;
+        });
+      }
+      return Promise.resolve(jsonActionResponse({ version: fetchCount }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: 60_000, retry: false } },
+    });
+
+    function Probe() {
+      const query = useActionQuery<{ version: number }>(
+        "list-events",
+        {},
+        { method: "POST" },
+      );
+      return <div data-version={query.data?.version ?? "loading"} />;
+    }
+
+    const { container, root } = mount();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(fetchCount).toBe(1);
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "manage-event",
+            completedSideEffect: true,
+            isError: false,
+          },
+        }),
+      );
+    });
+
+    await act(async () => {
+      resolveFirstFetch?.(jsonActionResponse({ version: 1 }));
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-version]")?.getAttribute("data-version"),
+      ).toBe("2");
+    });
+    expect(fetchCount).toBe(2);
+  });
+
+  it("delivers onEvent to every useDbSync hook and respects distinct predicates sharing one QueryClient", async () => {
+    let tasksFetchCount = 0;
+    let eventsFetchCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("list-tasks")) {
+        tasksFetchCount += 1;
+        return jsonActionResponse({ version: tasksFetchCount });
+      }
+      eventsFetchCount += 1;
+      return jsonActionResponse({ version: eventsFetchCount });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: 60_000, retry: false } },
+    });
+    const observedFirst: string[] = [];
+    const observedSecond: string[] = [];
+
+    function NarrowedFirst() {
+      useDbSync({
+        queryClient,
+        actionInvalidatePredicate: (query) =>
+          query.queryKey[1] === "list-events",
+        onEvent: (evt) => {
+          if (evt.key) observedFirst.push(evt.key);
+        },
+      });
+      const query = useActionQuery<{ version: number }>(
+        "list-events",
+        {},
+        { method: "POST" },
+      );
+      return <div data-events={query.data?.version ?? "loading"} />;
+    }
+
+    function NarrowedSecond() {
+      useDbSync({
+        queryClient,
+        actionInvalidatePredicate: (query) =>
+          query.queryKey[1] === "list-tasks",
+        onEvent: (evt) => {
+          if (evt.key) observedSecond.push(evt.key);
+        },
+      });
+      const query = useActionQuery<{ version: number }>(
+        "list-tasks",
+        {},
+        { method: "POST" },
+      );
+      return <div data-tasks={query.data?.version ?? "loading"} />;
+    }
+
+    const { container, root } = mount();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <NarrowedFirst />
+          <NarrowedSecond />
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-events]")?.getAttribute("data-events"),
+      ).toBe("1");
+      expect(
+        container.querySelector("[data-tasks]")?.getAttribute("data-tasks"),
+      ).toBe("1");
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "update-task",
+            completedSideEffect: true,
+            isError: false,
+          },
+        }),
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-tasks]")?.getAttribute("data-tasks"),
+      ).toBe("2");
+      expect(
+        container.querySelector("[data-events]")?.getAttribute("data-events"),
+      ).toBe("2");
+    });
+    expect(observedFirst).toContain("update-task");
+    expect(observedSecond).toContain("update-task");
+  });
+
+  it("resumes fallback tool-done refreshes after useDbSync unmounts and stops after all queries unmount", async () => {
+    let fetchCount = 0;
+    const fetchMock = vi.fn(async () => {
+      fetchCount += 1;
+      return jsonActionResponse({ version: fetchCount });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: 60_000, retry: false } },
+    });
+
+    function App({ withDbSync }: { withDbSync: boolean }) {
+      const query = useActionQuery<{ version: number }>(
+        "list-events",
+        {},
+        { method: "POST" },
+      );
+      return (
+        <>
+          {withDbSync ? <SyncOwner queryClient={queryClient} /> : null}
+          <div data-version={query.data?.version ?? "loading"} />
+        </>
+      );
+    }
+
+    function SyncOwner({ queryClient: qc }: { queryClient: QueryClient }) {
+      useDbSync({
+        queryClient: qc,
+        actionInvalidatePredicate: () => false,
+      });
+      return null;
+    }
+
+    const { container, root } = mount();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <App withDbSync={true} />
+        </QueryClientProvider>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-version]")?.getAttribute("data-version"),
+      ).toBe("1");
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <App withDbSync={false} />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "manage-event",
+            completedSideEffect: true,
+            isError: false,
+          },
+        }),
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-version]")?.getAttribute("data-version"),
+      ).toBe("2");
+    });
+    expect(fetchCount).toBe(2);
+
+    act(() => root.unmount());
+    roots.pop();
+
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    window.dispatchEvent(
+      new CustomEvent("agent-native:tool-done", {
+        detail: {
+          tool: "manage-event",
+          completedSideEffect: true,
+          isError: false,
+        },
+      }),
+    );
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
 });

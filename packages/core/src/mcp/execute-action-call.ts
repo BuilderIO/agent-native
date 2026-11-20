@@ -32,6 +32,7 @@ import {
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -988,7 +989,10 @@ async function authorizeApproval(
     identity?.identityAssurance === "user"
       ? identity.userEmail?.trim() || undefined
       : undefined;
-  const approvalUserEmail = getRequestUserEmail() ?? verifiedIdentityEmail;
+  const approvalUserEmail =
+    getRequestContext()?.userEmail ??
+    verifiedIdentityEmail ??
+    getRequestUserEmail();
   if (
     direct &&
     (await preparedCallClearsReview(entry, prepared, {
