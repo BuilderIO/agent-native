@@ -1,7 +1,8 @@
 /*
  * Part: text
  *
- *   <span|div|label|p class="text" [data-size="0–9"]
+ *   <span|div|label|p class="text" [data-text-style="body|label|…"]
+ *         [data-size="0–9"]
  *         [data-weight="light|regular|medium|semibold|bold"]
  *         [data-align="left|center|right"]
  *         [data-trim="normal|start|end|both"] [data-truncate]
@@ -14,12 +15,15 @@
  * around it. A color draws it in the scale's text step; high contrast in
  * step 12, which also applies inside any element that sets a color.
  *
- * This file also holds the text props the other text components share, as
- * Radix keeps them in shared utilities, each taking the ones its
- * definition lists: heading all of them; link all but alignment;
- * blockquote size, weight, truncate, wrap and color; code weight,
- * truncate and wrap; em, strong and quote truncate and wrap. Truncating needs a block or a flex or grid item: an inline
- * element doesn't clip.
+ * A text style (`text-styles.css`, loaded before this file) sets the size,
+ * line height, letter spacing, weight and family together; `data-size` and
+ * `data-weight` here override it.
+ *
+ * This file also holds the text props the other typography components share,
+ * each taking the ones its definition lists: heading all of them; link all
+ * but alignment; blockquote size, weight, truncate, wrap and color; code
+ * weight, truncate and wrap. Truncating needs a block or a flex or grid item:
+ * an inline element doesn't clip.
  */
 
 @layer components {
@@ -163,71 +167,26 @@
 
   /* ---- truncate and wrap ---- */
 
-  :is(
-    .text,
-    .heading,
-    .link,
-    .blockquote,
-    .code,
-    .em,
-    .strong,
-    .quote
-  )[data-truncate] {
+  :is(.text, .heading, .link, .blockquote, .code)[data-truncate] {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  :is(
-    .text,
-    .heading,
-    .link,
-    .blockquote,
-    .code,
-    .em,
-    .strong,
-    .quote
-  )[data-wrap="wrap"] {
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="wrap"] {
     white-space: normal;
   }
 
-  :is(
-    .text,
-    .heading,
-    .link,
-    .blockquote,
-    .code,
-    .em,
-    .strong,
-    .quote
-  )[data-wrap="nowrap"] {
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="nowrap"] {
     white-space: nowrap;
   }
 
-  :is(
-    .text,
-    .heading,
-    .link,
-    .blockquote,
-    .code,
-    .em,
-    .strong,
-    .quote
-  )[data-wrap="pretty"] {
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="pretty"] {
     white-space: normal;
     text-wrap: pretty;
   }
 
-  :is(
-    .text,
-    .heading,
-    .link,
-    .blockquote,
-    .code,
-    .em,
-    .strong,
-    .quote
-  )[data-wrap="balance"] {
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="balance"] {
     white-space: normal;
     text-wrap: balance;
   }

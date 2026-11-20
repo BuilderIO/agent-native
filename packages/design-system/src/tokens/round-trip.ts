@@ -13,6 +13,7 @@ import { createPalette } from "./palette.js";
 import {
   FOUNDATIONS_FILE,
   PALETTE_FILE,
+  type TextStyle,
   readTokenFiles,
   THEME_MODES,
   THEME_NAMES,
@@ -57,6 +58,39 @@ export function exportForFigma(sources: TokenFiles): Map<string, unknown> {
     }
   }
   return files;
+}
+
+/** A text style as the Figma sync creates it, bound to Foundations variables by name. */
+export interface FigmaTextStyle {
+  name: string;
+  description: string;
+  variables: {
+    fontFamily: string;
+    fontSize: string;
+    lineHeight: string;
+    letterSpacing: string;
+    fontWeight: string;
+  };
+}
+
+/**
+ * The text styles for Figma, which its variable import cannot create: each
+ * style's name and the Foundations variable each property binds to.
+ */
+export function textStylesForFigma(
+  styles: readonly TextStyle[],
+): FigmaTextStyle[] {
+  return styles.map((style) => ({
+    name: style.name,
+    description: style.description,
+    variables: {
+      fontFamily: `font/family/${style.family}`,
+      fontSize: `font/size/${style.step}`,
+      lineHeight: `font/line-height/${style.step}`,
+      letterSpacing: `font/letter-spacing/${style.step}`,
+      fontWeight: `font/weight/${style.weight}`,
+    },
+  }));
 }
 
 /** Token files as the formatter writes them: two-space JSON, number arrays on one line. */

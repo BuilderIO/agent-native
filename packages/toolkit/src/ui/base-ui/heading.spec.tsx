@@ -7,13 +7,27 @@ import { Heading, type HeadingProps } from "./heading.js";
 afterEach(cleanup);
 
 describe("Heading part", () => {
-  it("renders an h1 at size 6 by default", () => {
+  it("renders an h1 in the title-large text style by default", () => {
     render(<Heading>Billing</Heading>);
     const heading = screen.getByRole("heading", { level: 1, name: "Billing" });
     expect(heading.className).toBe("heading");
-    expect(heading.dataset.size).toBe("6");
+    expect(heading.dataset.textStyle).toBe("title-large");
+    expect(heading.dataset.size).toBeUndefined();
     expect(heading.dataset.weight).toBeUndefined();
     expect(heading.hasAttribute("data-as")).toBe(false);
+  });
+
+  it("takes another text style, which a size or weight overrides", () => {
+    render(
+      <Heading as="h2" textStyle="title-small" size="5">
+        Members
+      </Heading>,
+    );
+    const heading = screen.getByRole("heading", { level: 2, name: "Members" });
+    expect({
+      textStyle: heading.dataset.textStyle,
+      size: heading.dataset.size,
+    }).toEqual({ textStyle: "title-small", size: "5" });
   });
 
   it("chooses its level and its size apart", () => {

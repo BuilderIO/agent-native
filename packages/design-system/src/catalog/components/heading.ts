@@ -1,3 +1,4 @@
+import { TEXT_STYLE_NAMES } from "../../tokens/primitives.js";
 import { enumProp, TEXT_SIZES, textProps } from "../props.js";
 
 export const headingProps = {
@@ -6,6 +7,14 @@ export const headingProps = {
     "The heading level it renders.",
     "h1",
   ),
-  size: enumProp(TEXT_SIZES, "A step of the type scale.", "6"),
+  textStyle: enumProp(
+    TEXT_STYLE_NAMES,
+    "A named text style: its size, line height, letter spacing, weight and family. `size` and `weight` override it.",
+    "title-large",
+  ),
+  size: enumProp(
+    TEXT_SIZES,
+    "A step of the type scale, overriding the text style's.",
+  ),
   ...textProps,
 } as const;

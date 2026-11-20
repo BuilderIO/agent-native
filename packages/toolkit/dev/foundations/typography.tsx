@@ -1,11 +1,13 @@
 import {
   FONT_FAMILIES,
   FONT_WEIGHTS,
+  TEXT_STYLES,
   TYPE_RAMP,
 } from "@agent-native/design-system";
 import * as React from "react";
 
 import { Link } from "../../src/ui/base-ui/link.js";
+import { Text } from "../../src/ui/base-ui/text.js";
 import { useResolved } from "./live.js";
 import {
   Cell,
@@ -146,39 +148,81 @@ function ControlText() {
   );
 }
 
-const TEXT_COMPONENTS = [
+function TextStyles() {
+  return (
+    <>
+      <Prose>
+        A text style names one step, a weight and a family, so text is set by
+        its job rather than by its numbers. Text and Heading take it as{" "}
+        <Code>textStyle</Code>; app chrome takes it as a <Code>type-*</Code>{" "}
+        utility, such as <span className="type-label">type-label</span>. Figma
+        has the same styles, bound to these variables.
+      </Prose>
+      <Table
+        caption="Text styles"
+        columns={[
+          { label: "Style" },
+          { label: "Step", className: "w-12" },
+          { label: "Weight" },
+          { label: "Family" },
+          { label: "Sample" },
+        ]}
+      >
+        {TEXT_STYLES.map((style) => (
+          <Row key={style.name}>
+            <Cell header>
+              <Code>{style.name}</Code>
+            </Cell>
+            <Cell>{style.step}</Cell>
+            <Cell>{style.weight}</Cell>
+            <Cell>{style.family}</Cell>
+            <Cell>
+              <Text
+                as="div"
+                textStyle={style.name}
+                truncate
+                className="max-w-[360px]"
+                title={style.description}
+              >
+                {style.description}
+              </Text>
+            </Cell>
+          </Row>
+        ))}
+      </Table>
+    </>
+  );
+}
+
+const TYPOGRAPHY_COMPONENTS = [
   "Text",
   "Heading",
-  "Link",
   "Code",
+  "Kbd",
   "Blockquote",
-  "Em",
-  "Strong",
-  "Quote",
 ] as const;
 
-function TextComponents() {
+function TypographyComponents() {
   return (
     <Prose>
-      The text components set text on this scale:{" "}
-      {TEXT_COMPONENTS.map((name, index) => (
+      The typography components set text in these styles:{" "}
+      {TYPOGRAPHY_COMPONENTS.map((name, index) => (
         <React.Fragment key={name}>
           {index === 0
             ? ""
-            : index === TEXT_COMPONENTS.length - 1
+            : index === TYPOGRAPHY_COMPONENTS.length - 1
               ? " and "
               : ", "}
           <Link
-            href={`./?path=/docs/components-${name.toLowerCase()}--docs`}
+            href={`./?path=/docs/typography-${name.toLowerCase()}--docs`}
             target="_top"
           >
             {name}
           </Link>
         </React.Fragment>
       ))}
-      . Their <Code>size</Code> is a step, so size 3 sets step 3&apos;s size,
-      line height and letter spacing together, and their <Code>weight</Code> is
-      one of these weights.
+      . Inside them, plain <Code>&lt;strong&gt;</Code>, <Code>&lt;em&gt;</Code>{" "}
+      and <Code>&lt;q&gt;</Code> inherit the style.
     </Prose>
   );
 }
@@ -187,7 +231,7 @@ export function TypographyPage() {
   return (
     <Page
       title="Typography"
-      intro={`${Object.keys(FONT_FAMILIES).length} families, a ${TYPE_RAMP.length}-step type scale and ${Object.keys(FONT_WEIGHTS).length} weights. Each step pairs a size with its line height and letter spacing, so text set on a step needs no other value.`}
+      intro={`${Object.keys(FONT_FAMILIES).length} families, a ${TYPE_RAMP.length}-step type scale, ${Object.keys(FONT_WEIGHTS).length} weights and ${TEXT_STYLES.length} text styles. Each step pairs a size with its line height and letter spacing, and each text style names a step, a weight and a family.`}
     >
       <Section title="Families">
         <Families />
@@ -199,8 +243,11 @@ export function TypographyPage() {
       <Section title="Weights">
         <Weights />
       </Section>
-      <Section title="Text components">
-        <TextComponents />
+      <Section title="Text styles">
+        <TextStyles />
+      </Section>
+      <Section title="Typography components">
+        <TypographyComponents />
       </Section>
     </Page>
   );

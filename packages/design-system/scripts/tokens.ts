@@ -6,9 +6,10 @@ import {
   exportForFigma,
   formatTokenFile,
   importFromFigma,
+  textStylesForFigma,
   TokenImportError,
 } from "../src/tokens/round-trip.js";
-import { TOKEN_FILES } from "../src/tokens/source.js";
+import { TEXT_STYLE_DEFINITIONS, TOKEN_FILES } from "../src/tokens/source.js";
 
 const FILES_DIR = fileURLToPath(
   new URL("../src/tokens/files/", import.meta.url),
@@ -56,8 +57,12 @@ function main(): number {
       mkdirSync(path.dirname(target), { recursive: true });
       writeFileSync(target, formatTokenFile(group));
     }
+    writeFileSync(
+      path.join(root, "text-styles.json"),
+      formatTokenFile(textStylesForFigma(TEXT_STYLE_DEFINITIONS)),
+    );
     console.log(
-      `Wrote ${files.size} files to ${root}. In Figma, import each folder as a collection, one file per mode.`,
+      `Wrote ${files.size} files to ${root}. In Figma, import each folder as a collection, one file per mode; text-styles.json lists the text styles for the Figma sync to create, bound to the Foundations variables.`,
     );
     return 0;
   }

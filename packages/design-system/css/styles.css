@@ -5,6 +5,7 @@
  */
 @layer components;
 
+@import "./text-styles.css";
 @import "./parts/button.css";
 @import "./parts/icon-button.css";
 @import "./parts/visually-hidden.css";
@@ -51,9 +52,6 @@
 @import "./parts/link.css";
 @import "./parts/code.css";
 @import "./parts/blockquote.css";
-@import "./parts/em.css";
-@import "./parts/strong.css";
-@import "./parts/quote.css";
 @import "./parts/badge.css";
 @import "./parts/kbd.css";
 @import "./parts/spinner.css";

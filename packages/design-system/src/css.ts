@@ -10,6 +10,8 @@ import {
 import {
   staticPrimitives,
   RADIUS_STEPS,
+  TEXT_STYLES,
+  textStyleDeclarations,
   type TokenMap,
 } from "./tokens/primitives.js";
 import {
@@ -315,4 +317,37 @@ export function paletteCss(
     block(dark, palette.dark.srgb),
     p3Block([block(light, palette.light.p3), block(dark, palette.dark.p3)]),
   ].join("\n\n");
+}
+
+function declarations(
+  properties: Readonly<Record<string, string>>,
+  indent: string,
+): string {
+  return Object.entries(properties)
+    .map(([name, value]) => `${indent}${name}: ${value};`)
+    .join("\n");
+}
+
+/** Text and Heading's `textStyle`: one rule per text style, in `@layer components`. */
+export function textStylesCss(): string {
+  const rules = TEXT_STYLES.map(
+    (style) =>
+      `  :is(.text, .heading)[data-text-style="${style.name}"] {\n${declarations(
+        textStyleDeclarations(style),
+        "    ",
+      )}\n  }`,
+  );
+  return `${GENERATED_HEADER}\n\n@layer components {\n${rules.join("\n\n")}\n}\n`;
+}
+
+/** A Tailwind `type-<style>` utility per text style, for app chrome. */
+export function textStyleUtilitiesCss(): string {
+  const rules = TEXT_STYLES.map(
+    (style) =>
+      `@utility type-${style.name} {\n${declarations(
+        textStyleDeclarations(style),
+        "  ",
+      )}\n}`,
+  );
+  return `${GENERATED_HEADER}\n\n${rules.join("\n\n")}\n`;
 }

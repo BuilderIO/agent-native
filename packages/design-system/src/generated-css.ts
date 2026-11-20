@@ -1,4 +1,10 @@
-import { appearancesCss, themeCss, tokensCss } from "./css.js";
+import {
+  appearancesCss,
+  textStylesCss,
+  textStyleUtilitiesCss,
+  themeCss,
+  tokensCss,
+} from "./css.js";
 import { agentNativeTheme, THEMES } from "./themes/index.js";
 
 /**
@@ -10,6 +16,8 @@ export function generatedStylesheets(): Record<string, string> {
   const files: Record<string, string> = {
     "tokens.css": tokensCss(),
     "appearances.css": appearancesCss(),
+    "text-styles.css": textStylesCss(),
+    "text-style-utilities.css": textStyleUtilitiesCss(),
   };
   for (const theme of THEMES) {
     files[`themes/${theme.name}.css`] = themeCss(

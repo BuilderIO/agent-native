@@ -12,7 +12,10 @@
    `--font-family-*`, `--duration-*`, `--ease-*`, `--layer-*`. The UI sets
    text in steps 0–2 (10, 12 and 13px, each on a 16px line), with 12px for
    almost everything; steps 3 and up (16px and larger) are for content and
-   titles only. There is no 14px step.
+   titles only. There is no 14px step. Text styles
+   (`text-styles.tokens.json`) name a step, a weight and a family together;
+   set text by style (`textStyle="body"`, `type-label`) rather than by step,
+   and add a style rather than combine a step and weight by hand twice.
 2. **Roles** (`src/tokens/roles.ts`, mapped per theme). `--surface-*`, `--fg-*`,
    `--line-*`, `--fill-*`, `--status-<s>-{solid,subtle,fg,line}`,
    `--shadow-1..6`, `--gradient-*`; shape tokens `--shape-*`; focus ring.

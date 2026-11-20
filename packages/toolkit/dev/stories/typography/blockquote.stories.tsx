@@ -10,7 +10,7 @@ const SAMPLE =
   "Ship the draft before the review, so the review is about the work and not the plan.";
 
 const meta = {
-  title: "Components/Blockquote",
+  title: "Typography/Blockquote",
   component: Blockquote,
   parameters: { layout: "padded" },
   args: { ...controls.args, children: SAMPLE },

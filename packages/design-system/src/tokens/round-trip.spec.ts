@@ -5,9 +5,10 @@ import {
   exportForFigma,
   formatTokenFile,
   importFromFigma,
+  textStylesForFigma,
   TokenImportError,
 } from "./round-trip.js";
-import { readTokenFiles, TOKEN_FILES } from "./source.js";
+import { readTokenFiles, TEXT_STYLES_FILE, TOKEN_FILES } from "./source.js";
 
 const MAIL_LIGHT = "Theme mail/Light.tokens.json";
 const MAIL_DARK = "Theme mail/Dark.tokens.json";
@@ -63,7 +64,30 @@ describe("token round trip", () => {
     expect(files.get(MAIL_LIGHT)).toBe(
       TOKEN_FILES["themes/mail.light.tokens.json"],
     );
-    expect(files.size).toBe(Object.keys(TOKEN_FILES).length);
+    expect([...files.values()]).toEqual(
+      Object.entries(TOKEN_FILES)
+        .filter(([file]) => file !== TEXT_STYLES_FILE)
+        .map(([, group]) => group),
+    );
+  });
+
+  it("lists each text style with the Foundations variables it binds", () => {
+    const [body] = textStylesForFigma(
+      readTokenFiles(TOKEN_FILES).textStyles.filter(
+        ({ name }) => name === "body",
+      ),
+    );
+    expect(body).toEqual({
+      name: "body",
+      description: expect.any(String),
+      variables: {
+        fontFamily: "font/family/sans",
+        fontSize: "font/size/2",
+        lineHeight: "font/line-height/2",
+        letterSpacing: "font/letter-spacing/2",
+        fontWeight: "font/weight/regular",
+      },
+    });
   });
 
   it("imports an unchanged export as the same files", () => {
@@ -227,6 +251,66 @@ describe("token round trip", () => {
       }),
     ).toBe(
       '{\n  "a": {\n    "$type": "color",\n    "$value": {\n      "components": [1, 0.5, 0]\n    }\n  }\n}\n',
+    );
+  });
+});
+
+describe("text styles", () => {
+  const withStyle = (
+    value: Record<string, string>,
+    description = "A style.",
+  ) => ({
+    ...TOKEN_FILES,
+    [TEXT_STYLES_FILE]: {
+      "text-style": {
+        body: { $type: "typography", $description: description, $value: value },
+      },
+    },
+  });
+  const body = {
+    fontFamily: "{font.family.sans}",
+    fontSize: "{font.size.2}",
+    fontWeight: "{font.weight.regular}",
+    lineHeight: "{font.line-height.2}",
+    letterSpacing: "{font.letter-spacing.2}",
+  };
+
+  it("reads a style as one step, a weight and a family", () => {
+    expect(readTokenFiles(withStyle(body)).textStyles).toEqual([
+      {
+        name: "body",
+        description: "A style.",
+        step: 2,
+        weight: "regular",
+        family: "sans",
+      },
+    ]);
+  });
+
+  it("refuses a style that mixes steps, leaves the scale, or names no description", () => {
+    expect(() =>
+      readTokenFiles(
+        withStyle({ ...body, lineHeight: "{font.line-height.3}" }),
+      ),
+    ).toThrow(/different steps/);
+    expect(() =>
+      readTokenFiles(
+        withStyle({
+          ...body,
+          fontSize: "{font.size.12}",
+          lineHeight: "{font.line-height.12}",
+          letterSpacing: "{font.letter-spacing.12}",
+        }),
+      ),
+    ).toThrow(/not a step of the type scale/);
+    expect(() =>
+      readTokenFiles(withStyle({ ...body, fontWeight: "{font.weight.heavy}" })),
+    ).toThrow(/not a weight/);
+    expect(() =>
+      readTokenFiles(withStyle({ ...body, fontFamily: "Inter" })),
+    ).toThrow(/not an alias/);
+    expect(() => readTokenFiles(withStyle(body, " "))).toThrow(
+      /no \$description/,
     );
   });
 });

@@ -9,7 +9,7 @@ import { propControls } from "../prop-controls.js";
 const controls = propControls(codeProps);
 
 const meta = {
-  title: "Components/Code",
+  title: "Typography/Code",
   component: Code,
   parameters: { layout: "padded" },
   args: { ...controls.args, children: "pnpm install" },

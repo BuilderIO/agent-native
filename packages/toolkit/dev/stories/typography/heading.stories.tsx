@@ -9,7 +9,7 @@ const controls = propControls(headingProps);
 const SAMPLE = "Quarterly review";
 
 const meta = {
-  title: "Components/Heading",
+  title: "Typography/Heading",
   component: Heading,
   parameters: { layout: "padded" },
   args: { ...controls.args, children: SAMPLE },

@@ -1,7 +1,8 @@
 import { at } from "./at.js";
-import { TokenError, TokenReader } from "./dtcg.js";
+import { flattenTokens, TokenError, TokenReader } from "./dtcg.js";
 import foundationsFile from "./files/foundations.tokens.json" with { type: "json" };
 import paletteFile from "./files/palette.tokens.json" with { type: "json" };
+import textStylesFile from "./files/text-styles.tokens.json" with { type: "json" };
 import agentNativeDark from "./files/themes/agent-native.dark.tokens.json" with { type: "json" };
 import agentNativeLight from "./files/themes/agent-native.light.tokens.json" with { type: "json" };
 import analyticsDark from "./files/themes/analytics.dark.tokens.json" with { type: "json" };
@@ -47,6 +48,7 @@ export type TokenFiles = Readonly<Record<string, unknown>>;
 export const TOKEN_FILES: TokenFiles = {
   "foundations.tokens.json": foundationsFile,
   "palette.tokens.json": paletteFile,
+  "text-styles.tokens.json": textStylesFile,
   "themes/agent-native.light.tokens.json": agentNativeLight,
   "themes/agent-native.dark.tokens.json": agentNativeDark,
   "themes/analytics.light.tokens.json": analyticsLight,
@@ -89,6 +91,7 @@ export const TOKEN_FILES: TokenFiles = {
 
 export const FOUNDATIONS_FILE = "foundations.tokens.json";
 export const PALETTE_FILE = "palette.tokens.json";
+export const TEXT_STYLES_FILE = "text-styles.tokens.json";
 export const THEME_NAMES: readonly string[] = [
   "agent-native",
   "analytics",
@@ -125,6 +128,36 @@ const FONT_WEIGHT_NAMES = [
   "bold",
 ] as const;
 const FONT_FAMILY_NAMES = ["sans", "heading", "mono", "wordmark"] as const;
+
+type TextStyleGroup = (typeof textStylesFile)["text-style"];
+
+/** A text style's name, from the keys of `text-styles.tokens.json`. */
+export type TextStyleName = keyof TextStyleGroup;
+
+function isTextStyleName(name: string): name is TextStyleName {
+  return Object.hasOwn(textStylesFile["text-style"], name);
+}
+
+/** Each text style's name, in the order the file lists them. */
+export const TEXT_STYLE_NAMES: readonly TextStyleName[] = Object.keys(
+  textStylesFile["text-style"],
+).filter(isTextStyleName);
+
+export type FontWeightName = (typeof FONT_WEIGHT_NAMES)[number];
+export type FontFamilyName = (typeof FONT_FAMILY_NAMES)[number];
+
+/**
+ * A named text style: one step of the type scale (its size, line height and
+ * letter spacing together), a weight and a family. It is what a Figma text
+ * style and a `type-*` utility apply.
+ */
+export interface TextStyle {
+  readonly name: TextStyleName;
+  readonly description: string;
+  readonly step: number;
+  readonly weight: FontWeightName;
+  readonly family: FontFamilyName;
+}
 
 /** The type scale starts at step 0, the 10px step below the 12px UI base. */
 export const TYPE_FIRST_STEP = 0;
@@ -210,6 +243,74 @@ function readFoundations(files: TokenFiles) {
   };
 }
 
+const TEXT_STYLE_PREFIX = "text-style.";
+const TEXT_STYLE_PARTS = [
+  ["fontSize", "size"],
+  ["lineHeight", "line-height"],
+  ["letterSpacing", "letter-spacing"],
+] as const;
+
+function isOneOf<T extends string>(
+  values: readonly T[],
+  value: string,
+): value is T {
+  return values.some((candidate) => candidate === value);
+}
+
+function readTextStyles(
+  files: TokenFiles,
+  steps: ReadonlySet<number>,
+): TextStyle[] {
+  const tokens = flattenTokens(file(files, TEXT_STYLES_FILE), TEXT_STYLES_FILE);
+  const styles: TextStyle[] = [];
+  for (const [tokenPath, token] of tokens) {
+    const fail: (problem: string) => never = (problem) => {
+      throw new TokenError(TEXT_STYLES_FILE, tokenPath, problem);
+    };
+    if (!tokenPath.startsWith(TEXT_STYLE_PREFIX)) fail("is not a text-style.*");
+    const name = tokenPath.slice(TEXT_STYLE_PREFIX.length);
+    if (!isTextStyleName(name))
+      fail("is not a style text-styles.tokens.json names");
+    if (String(token.$type) !== "typography") fail("is not a typography token");
+    const description = token.$description ?? "";
+    if (description.trim() === "") fail("has no $description");
+    const value: unknown = token.$value;
+    if (typeof value !== "object" || value === null) fail("has no value");
+    const fields = new Map(Object.entries(value));
+    const alias = (key: string, group: string): string => {
+      const raw = fields.get(key);
+      const match =
+        typeof raw === "string"
+          ? new RegExp(`^\\{font\\.${group}\\.([a-z0-9-]+)\\}$`).exec(raw)
+          : null;
+      const target = match?.at(1);
+      return target ?? fail(`${key} is not an alias of a font.${group} token`);
+    };
+    const [first, ...rest] = TEXT_STYLE_PARTS.map(([key, group]) =>
+      Number(alias(key, group)),
+    );
+    if (first === undefined || !steps.has(first)) {
+      fail("fontSize is not a step of the type scale");
+    }
+    if (rest.some((step) => step !== first)) {
+      fail(
+        "sets its size, line height and letter spacing from different steps",
+      );
+    }
+    const weight = alias("fontWeight", "weight");
+    const family = alias("fontFamily", "family");
+    if (!isOneOf(FONT_WEIGHT_NAMES, weight))
+      fail(`fontWeight ${weight} is not a weight`);
+    if (!isOneOf(FONT_FAMILY_NAMES, family))
+      fail(`fontFamily ${family} is not a family`);
+    styles.push({ name, description, step: first, weight, family });
+  }
+  if (styles.length === 0) {
+    throw new TokenError(TEXT_STYLES_FILE, "text-style", "has no text styles");
+  }
+  return styles;
+}
+
 function readPalette(files: TokenFiles) {
   const palette = new TokenReader(PALETTE_FILE, file(files, PALETTE_FILE));
   return {
@@ -257,8 +358,13 @@ function readThemeMode(
  * the first file that is missing a token or holds one of the wrong shape.
  */
 export function readTokenFiles(files: TokenFiles) {
+  const foundations = readFoundations(files);
   return {
-    foundations: readFoundations(files),
+    foundations,
+    textStyles: readTextStyles(
+      files,
+      new Set(foundations.typeRamp.map(({ step }) => step)),
+    ),
     palette: readPalette(files),
     themes: Object.fromEntries(
       THEME_NAMES.map((name) => [
@@ -275,6 +381,7 @@ export function readTokenFiles(files: TokenFiles) {
 const tokens = readTokenFiles(TOKEN_FILES);
 
 export const FOUNDATIONS = tokens.foundations;
+export const TEXT_STYLE_DEFINITIONS = tokens.textStyles;
 export const PALETTE_DEFAULTS = tokens.palette;
 
 /**

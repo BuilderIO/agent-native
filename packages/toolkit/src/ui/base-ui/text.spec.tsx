@@ -13,8 +13,24 @@ describe("Text part", () => {
     expect(text.tagName).toBe("SPAN");
     expect(text.className).toBe("text");
     expect(text.dataset.size).toBeUndefined();
+    expect(text.dataset.textStyle).toBeUndefined();
     expect(text.dataset.color).toBeUndefined();
     expect(text.hasAttribute("data-as")).toBe(false);
+  });
+
+  it("sets a text style, and refuses a name the system doesn't define", () => {
+    render(
+      <Text as="p" textStyle="caption">
+        Updated 2 minutes ago
+      </Text>,
+    );
+    expect(screen.getByText("Updated 2 minutes ago").dataset.textStyle).toBe(
+      "caption",
+    );
+    const props = { textStyle: "subtitle" } as unknown as TextProps;
+    expect(() => render(<Text {...props}>Bad</Text>)).toThrow(
+      /textStyle="subtitle" is not one of/,
+    );
   });
 
   it("renders the element `as` picks, keeping its attributes", () => {

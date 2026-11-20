@@ -7,7 +7,7 @@ import { propControls } from "../prop-controls.js";
 const controls = propControls(kbdProps);
 
 const meta = {
-  title: "Components/Kbd",
+  title: "Typography/Kbd",
   component: Kbd,
   parameters: { layout: "padded" },
   args: { ...controls.args, children: "⇧⌘P" },

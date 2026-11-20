@@ -13,6 +13,8 @@
  * the utilities inside it too.
  */
 
+@import "./text-style-utilities.css";
+
 @theme inline {
   --color-surface-app: var(--surface-app);
   --color-surface-nav: var(--surface-nav);

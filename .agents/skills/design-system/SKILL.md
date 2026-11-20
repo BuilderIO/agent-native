@@ -25,6 +25,7 @@ sequence are in `docs/plans/2026-11-17-design-system-base-ui.md`.
 | --- | --- |
 | An app's colors or radius | its token files, `src/tokens/files/themes/<app>.{light,dark}.tokens.json`, or Figma and `tokens:import`; never in the app's CSS |
 | Sizes, radius steps, type ramp, font families | `src/tokens/files/foundations.tokens.json` |
+| A named text style (`body`, `label`, `title`) | `src/tokens/files/text-styles.tokens.json`; Text and Heading read it as `textStyle`, app chrome as `type-<style>` |
 | The default palette's inputs | `src/tokens/files/palette.tokens.json` |
 | Generated color scales | `createPalette` inputs (brand, gray, background, status); never a hex in CSS |
 | What a color is for | a semantic role in `src/tokens/roles.ts` and the themes' mapping |
@@ -74,16 +75,22 @@ After editing anything under `src/`, run `pnpm --filter @agent-native/design-sys
 
 ## Building a component
 
-Components follow Base UI's component list one to one
-(base-ui.com/react/components), and Radix Themes for everything Base UI
-lacks. A component takes Base UI's name where Base UI has it (Menu, Preview
-Card, Input, Meter, Toast) and Radix Themes' name otherwise (Kbd, Callout,
-Text Area, Segmented Control, Icon Button). It gets one source file, one CSS
+Base UI's component list (base-ui.com/react/components) and Radix Themes'
+set the breadth: what the system covers. How it is built follows Material,
+Carbon, Stripe and Atlassian, and where Radix's structure differs, theirs
+wins. So type is a foundation: text is set by a named text style
+(`src/tokens/files/text-styles.tokens.json`: `body`, `label`, `title`), never
+by a raw step, and Strong, Em and Quote are not components because plain
+`<strong>`, `<em>` and `<q>` inherit the style. A component takes Base UI's
+name where Base UI has it (Menu, Preview Card, Input, Meter, Toast) and Radix
+Themes' name otherwise (Kbd, Callout, Text Area, Segmented Control, Icon
+Button). It gets one source file, one CSS
 file, one catalog entry and one story page under that name: Checkbox Group is
 `checkbox-group.tsx`, `checkbox-group.css` and `Components/Checkbox Group`,
-never folded into Checkbox. Its classes stay in its own family. A layout of
-components (Sidebar, Settings) is a pattern under `Patterns/`; it adds layout
-CSS, never restyles a component.
+never folded into Checkbox. Its classes stay in its own family. Text, Heading, Code,
+Kbd and Blockquote are under `Typography/`. A layout of components (Sidebar,
+Settings) is a pattern under `Patterns/`; it adds layout CSS, never restyles a
+component.
 
 Props are Radix Themes': `variant` (solid, soft, surface, outline, ghost),
 `color` (accent, gray, danger, warning, success, info), `size` ("1"–"4" for

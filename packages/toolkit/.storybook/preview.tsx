@@ -130,6 +130,8 @@ const preview: Preview = {
             "Motion",
             "Themes",
           ],
+          "Typography",
+          ["Text", "Heading", "Code", "Kbd", "Blockquote"],
           "Components",
           "Patterns",
         ],

@@ -1,6 +1,14 @@
-import { FOUNDATIONS, type TypeStep } from "./source.js";
+import {
+  FOUNDATIONS,
+  TEXT_STYLE_DEFINITIONS,
+  TEXT_STYLE_NAMES,
+  type TextStyle,
+  type TextStyleName,
+  type TypeStep,
+} from "./source.js";
 
-export type { TypeStep };
+export type { TextStyle, TextStyleName, TypeStep };
+export { TEXT_STYLE_NAMES };
 
 export type TokenName = `--${string}`;
 export type TokenMap = Record<TokenName, string>;
@@ -25,6 +33,22 @@ export const RADIUS_STEPS: readonly number[] = FOUNDATIONS.radiusSteps;
 
 /** The type scale's steps, `--font-size-0..9` and their line heights and letter spacings. */
 export const TYPE_RAMP: readonly TypeStep[] = FOUNDATIONS.typeRamp;
+
+/** The named text styles, in the order the system lists them. */
+export const TEXT_STYLES: readonly TextStyle[] = TEXT_STYLE_DEFINITIONS;
+
+/** The declarations a text style sets, each reading a scale token. */
+export function textStyleDeclarations(
+  style: TextStyle,
+): Readonly<Record<string, string>> {
+  return {
+    "font-family": `var(--font-family-${style.family})`,
+    "font-size": `var(--font-size-${style.step})`,
+    "line-height": `var(--line-height-${style.step})`,
+    "letter-spacing": `var(--letter-spacing-${style.step})`,
+    "font-weight": `var(--font-weight-${style.weight})`,
+  };
+}
 
 export const FONT_WEIGHTS: Readonly<Record<string, number>> =
   FOUNDATIONS.fontWeights;

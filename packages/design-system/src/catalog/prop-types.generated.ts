@@ -23,7 +23,6 @@ import type {
   dataListProps,
   dialogContentProps,
   drawerProps,
-  emProps,
   headingProps,
   iconButtonProps,
   inputProps,
@@ -44,7 +43,6 @@ import type {
   popoverContentProps,
   previewCardContentProps,
   progressProps,
-  quoteProps,
   radioCardsProps,
   radioGroupProps,
   scrollAreaProps,
@@ -56,7 +54,6 @@ import type {
   skeletonProps,
   sliderProps,
   spinnerProps,
-  strongProps,
   switchProps,
   tableCellProps,
   tableProps,
@@ -501,18 +498,6 @@ export interface DrawerOwnProps {
   side?: "top" | "right" | "bottom" | "left";
 }
 
-export interface EmOwnProps {
-  /**
-   * Truncates to one line with an ellipsis.
-   * @default false
-   */
-  truncate?: boolean;
-  /**
-   * How lines break: `pretty` avoids orphans, `balance` evens line lengths.
-   */
-  wrap?: "wrap" | "nowrap" | "pretty" | "balance";
-}
-
 export interface HeadingOwnProps {
   /**
    * The heading level it renders.
@@ -520,8 +505,12 @@ export interface HeadingOwnProps {
    */
   as?: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
   /**
-   * A step of the type scale.
-   * @default "6"
+   * A named text style: its size, line height, letter spacing, weight and family. `size` and `weight` override it.
+   * @default "title-large"
+   */
+  textStyle?: "display" | "headline" | "title-large" | "title" | "title-small" | "body-large" | "body" | "body-small" | "label-large" | "label" | "label-small" | "caption" | "code";
+  /**
+   * A step of the type scale, overriding the text style's.
    */
   size?: "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
   /**
@@ -877,18 +866,6 @@ export interface ProgressOwnProps {
   radius?: "none" | "small" | "medium" | "large" | "full";
 }
 
-export interface QuoteOwnProps {
-  /**
-   * Truncates to one line with an ellipsis.
-   * @default false
-   */
-  truncate?: boolean;
-  /**
-   * How lines break: `pretty` avoids orphans, `balance` evens line lengths.
-   */
-  wrap?: "wrap" | "nowrap" | "pretty" | "balance";
-}
-
 export interface RadioCardsOwnProps {
   /**
    * Padding and type step of each card.
@@ -1069,18 +1046,6 @@ export interface SpinnerOwnProps {
   loading?: boolean;
 }
 
-export interface StrongOwnProps {
-  /**
-   * Truncates to one line with an ellipsis.
-   * @default false
-   */
-  truncate?: boolean;
-  /**
-   * How lines break: `pretty` avoids orphans, `balance` evens line lengths.
-   */
-  wrap?: "wrap" | "nowrap" | "pretty" | "balance";
-}
-
 export interface SwitchOwnProps {
   /**
    * Track height: 1 is 12px, 2 is 16px, 3 is 20px.
@@ -1227,6 +1192,10 @@ export interface TextComponentOwnProps {
    * @default "span"
    */
   as?: "span" | "div" | "label" | "p";
+  /**
+   * A named text style: its size, line height, letter spacing, weight and family. `size` and `weight` override it; unset, it inherits.
+   */
+  textStyle?: "display" | "headline" | "title-large" | "title" | "title-small" | "body-large" | "body" | "body-small" | "label-large" | "label" | "label-small" | "caption" | "code";
   /**
    * A step of the type scale; unset, it inherits.
    */
@@ -1377,7 +1346,6 @@ export type PropTypesMatchDefinitions = [
   Expect<Equal<DataListOwnProps, PropsOf<typeof dataListProps>>>,
   Expect<Equal<DialogContentOwnProps, PropsOf<typeof dialogContentProps>>>,
   Expect<Equal<DrawerOwnProps, PropsOf<typeof drawerProps>>>,
-  Expect<Equal<EmOwnProps, PropsOf<typeof emProps>>>,
   Expect<Equal<HeadingOwnProps, PropsOf<typeof headingProps>>>,
   Expect<Equal<IconButtonOwnProps, PropsOf<typeof iconButtonProps>>>,
   Expect<Equal<InputOwnProps, PropsOf<typeof inputProps>>>,
@@ -1400,7 +1368,6 @@ export type PropTypesMatchDefinitions = [
     Equal<PreviewCardContentOwnProps, PropsOf<typeof previewCardContentProps>>
   >,
   Expect<Equal<ProgressOwnProps, PropsOf<typeof progressProps>>>,
-  Expect<Equal<QuoteOwnProps, PropsOf<typeof quoteProps>>>,
   Expect<Equal<RadioCardsOwnProps, PropsOf<typeof radioCardsProps>>>,
   Expect<Equal<RadioGroupOwnProps, PropsOf<typeof radioGroupProps>>>,
   Expect<Equal<ScrollAreaOwnProps, PropsOf<typeof scrollAreaProps>>>,
@@ -1414,7 +1381,6 @@ export type PropTypesMatchDefinitions = [
   Expect<Equal<SkeletonOwnProps, PropsOf<typeof skeletonProps>>>,
   Expect<Equal<SliderOwnProps, PropsOf<typeof sliderProps>>>,
   Expect<Equal<SpinnerOwnProps, PropsOf<typeof spinnerProps>>>,
-  Expect<Equal<StrongOwnProps, PropsOf<typeof strongProps>>>,
   Expect<Equal<SwitchOwnProps, PropsOf<typeof switchProps>>>,
   Expect<Equal<TableCellOwnProps, PropsOf<typeof tableCellProps>>>,
   Expect<Equal<TableOwnProps, PropsOf<typeof tableProps>>>,

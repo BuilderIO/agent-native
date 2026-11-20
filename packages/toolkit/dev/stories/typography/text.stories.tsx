@@ -11,7 +11,7 @@ const LONG_SAMPLE =
   "Ship the draft before the review, then send the summary to everyone who joined the call and file the follow-ups in the tracker.";
 
 const meta = {
-  title: "Components/Text",
+  title: "Typography/Text",
   component: Text,
   parameters: { layout: "padded" },
   args: { ...controls.args, children: SAMPLE },
@@ -25,7 +25,20 @@ type Story = StoryObj<typeof meta>;
 /** Text with the props from the controls. */
 export const Playground: Story = {};
 
-/** Every step of the type scale, 12 to 60px. */
+/** Each text style, set by its job: body for UI text, label for controls. */
+export const TextStyles: Story = {
+  render: () => (
+    <div className="flex flex-col gap-3">
+      {textComponentProps.textStyle.values.map((textStyle) => (
+        <Text key={textStyle} as="div" textStyle={textStyle} truncate>
+          {textStyle}: {SAMPLE}
+        </Text>
+      ))}
+    </div>
+  ),
+};
+
+/** Every step of the type scale, 10 to 60px. */
 export const Sizes: Story = {
   render: () => (
     <div className="flex flex-col gap-3">
