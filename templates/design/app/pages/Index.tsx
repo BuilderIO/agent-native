@@ -1622,7 +1622,7 @@ export default function Index() {
                                   onClick={() =>
                                     setTimeout(() => setDeleteId(design.id))
                                   }
-                                  className="text-destructive focus:text-destructive"
+                                  variant="destructive"
                                 >
                                   <IconTrash />
                                   {t("home.delete")}

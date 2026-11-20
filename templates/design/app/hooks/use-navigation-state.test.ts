@@ -132,7 +132,25 @@ describe("design navigation state", () => {
     });
   });
 
+  // oracle-change: the Tokens panel id became `library`; the round trip now uses the new id and the old id is pinned as an alias below
   it("round-trips an enabled left rail panel through editor navigation", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      leftPanel: "library" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123?panel=library");
+    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
+      designId: "design_123",
+      leftPanel: "library",
+      path,
+    });
+  });
+
+  it("opens the Library tab for the legacy tokens panel id", () => {
     const command = {
       view: "editor",
       designId: "design_123",
@@ -141,11 +159,10 @@ describe("design navigation state", () => {
 
     const path = editorPathFromCommand(command);
 
-    expect(path).toBe("/design/design_123?panel=tokens");
-    expect(editorCommandFromNavigate(command, path!)).toMatchObject({
-      designId: "design_123",
-      leftPanel: "tokens",
-      path,
+    expect(path).toBe("/design/design_123?panel=library");
+    if (!path) throw new Error("expected an editor path");
+    expect(editorCommandFromNavigate(command, path)).toMatchObject({
+      leftPanel: "library",
     });
   });
 

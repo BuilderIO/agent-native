@@ -168,7 +168,7 @@ function StateRow({
               e.stopPropagation();
               onDelete();
             }}
-            className="text-destructive focus:text-destructive"
+            variant="destructive"
           >
             <IconTrash className="mr-2 size-3.5" />
             Delete

@@ -827,7 +827,7 @@ test("Shift-picking a Screen extends the Delete selection in All screens", async
   await expect.poll(() => selectedScreenIds(page)).toContain(homeId);
 
   await expect(
-    page.getByRole("button", { name: "Design", exact: true }),
+    page.getByRole("button", { name: "Edit", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   const secondTitle = page.locator(
     `[data-frame-id="${secondId}"] [data-frame-title]`,
@@ -838,7 +838,7 @@ test("Shift-picking a Screen extends the Delete selection in All screens", async
     .poll(() => selectedScreenIds(page))
     .toEqual(expect.arrayContaining([homeId, secondId]));
   await expect(
-    page.getByRole("button", { name: "Design", exact: true }),
+    page.getByRole("button", { name: "Edit", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
 
   await page.keyboard.press("Delete");
@@ -1278,14 +1278,16 @@ test("a newer sidebar Screen selection survives failed Screen deletion settlemen
     const homeSidebarRow = page
       .locator("[data-screen-row]")
       .filter({ hasText: "Home" });
-    const allScreensRow = page.locator('button[title="All screens"]');
+    const currentPageRow = page.locator(
+      '[data-screen-row][aria-current="page"]',
+    );
     await homeSidebarRow.click();
     await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
-    await expect(allScreensRow).toHaveAttribute("aria-current", "page");
+    await expect(currentPageRow).toHaveCount(0);
     releaseFirstDelete();
 
     await expect.poll(() => selectedScreenIds(page)).toEqual([homeId]);
-    await expect(allScreensRow).toHaveAttribute("aria-current", "page");
+    await expect(currentPageRow).toHaveCount(0);
     await expect(
       page.locator("[data-screen-row]").filter({ hasText: "Second" }),
     ).toHaveCount(1);

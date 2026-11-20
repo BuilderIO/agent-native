@@ -191,7 +191,7 @@ export function useEditorSourceAndSync({
     clearPendingLiveEditState,
     clearPendingLiveEditStateRef,
     clearReloadedPendingLiveEdits,
-    activeLeftPanel,
+    designLeftPanel,
     setExpandedLayerIds,
     revealLayerIds,
     selectedLayerIdsState,
@@ -1472,7 +1472,7 @@ export function useEditorSourceAndSync({
       currentSearch: location.search,
       viewMode,
       screenId: activeFileId ?? activeFile?.id,
-      leftPanel: activeLeftPanel,
+      leftPanel: designLeftPanel,
       selectionId:
         selectedUrlSelectionId ??
         (preserveInitialRouteSelection
@@ -1523,7 +1523,7 @@ export function useEditorSourceAndSync({
   }, [
     activeFile?.id,
     activeFileId,
-    activeLeftPanel,
+    designLeftPanel,
     activeTool,
     codeLayerOwnerByNodeId.size,
     fileIdentityKey,

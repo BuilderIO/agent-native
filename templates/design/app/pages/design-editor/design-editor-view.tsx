@@ -20,12 +20,13 @@ import {
 import { BreakpointDeviceControl } from "@/components/design/BreakpointBar";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
-import { EditorTopBar } from "@/components/design/editor/EditorTopBar";
+import { InteractZoomControl } from "@/components/design/editor/InteractZoomControl";
 import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls";
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
 import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
 import { ShareLivePreview } from "@/components/design/ShareLivePreview";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,6 @@ import { cn } from "@/lib/utils";
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
 import { layoutMoveRefusalMessageKey } from "./commands/align-selection";
 import { resolveUrlScreen } from "./derive/url-screen";
-import { pageHasWebMcpHost } from "./design-editor-shared";
 import type { EditorActiveScreenAndGeometry } from "./domains/use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./domains/use-editor-canvas-and-screens";
 import type { EditorClipboard } from "./domains/use-editor-clipboard";
@@ -97,7 +97,6 @@ import {
 import { mergePresenceUsers } from "./presence-users";
 import { shouldDisableExportsUntilCanvasFramesExist } from "./selection-state";
 import { getDesignBottomToolbarMode } from "./tool-state";
-import { TOP_BAR_HEIGHT_PX, getTopBarModes, isTopBarVisible } from "./top-bar";
 import { type EditorMode } from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
@@ -110,10 +109,7 @@ import { renderProjectMenu } from "./view/project-menu";
 import { renderProjectTitleControl } from "./view/project-title-control";
 import { renderPromptPopovers } from "./view/prompt-popovers";
 import { renderPublishWaitlistControl } from "./view/publish-waitlist-control";
-import {
-  renderInteractFloatingBar,
-  renderInteractTopBarSlots,
-} from "./view/responsive-interact-toolbar";
+import { renderInteractFloatingBar } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
@@ -124,12 +120,6 @@ import { VisualEditWebMcp } from "./VisualEditWebMcp";
 /* i18n-ignore */
 /* i18n-ignore */
 /* i18n-ignore */
-
-// Mirrors `--design-chrome-rail-width` in app/global.css (7 baseline units ×
-// 8px). The rail is always-on chrome (not measured via a ref) so the very
-// first overview camera render — before any layout effect could measure the
-// DOM — already accounts for it; see chromeInsetLeft below.
-const DESIGN_CHROME_RAIL_WIDTH_PX = 56;
 
 function getActiveFileId(file: { id: string } | undefined): string | undefined {
   return file?.id;
@@ -203,7 +193,6 @@ export function renderDesignEditorView({
   const {
     isBuilderDesignEmbed,
     builderPreviewUrl,
-    activeLeftPanel,
     leftSidebarWidth,
     rightSidebarWidth,
     minimalUi,
@@ -215,6 +204,7 @@ export function renderDesignEditorView({
     setRuntimeLayerSnapshotRequest,
     pinMode,
     reviewFeedbackApplying,
+    reviewUnreadCount,
     pendingQuestions,
     pendingQuestionsTitle,
     pendingQuestionsDescription,
@@ -363,6 +353,9 @@ export function renderDesignEditorView({
     handleModeChange,
     handlePinToolToggle,
     handleScreenReload,
+    interactZoom,
+    interactZoomChoice,
+    handleInteractZoomChange,
     handleCloseKeyboardShortcuts,
   } = editorModes;
   const {
@@ -440,7 +433,7 @@ export function renderDesignEditorView({
   } = editorScreenRendering;
   const signInToShareHref = buildSignInHrefForDesignIntent("share");
   const canApplyPendingVisualEditsWithAgent =
-    canEditDesign && (isSignedIn || hostEmbeddedEditor || pageHasWebMcpHost());
+    editorToolsAndVectors.canChatWithAgent;
 
   const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
   const activeNodeRewriteProposal = activeFile
@@ -858,7 +851,7 @@ export function renderDesignEditorView({
     </Tooltip>
   );
 
-  const renderZoomControl = (controlId: "toolbar" | "inspector" | "topbar") =>
+  const renderZoomControl = (controlId: "toolbar" | "inspector") =>
     renderZoomMenu({
       editorCore,
       editorActiveScreenAndGeometry,
@@ -927,13 +920,19 @@ export function renderDesignEditorView({
     />
   );
 
-  const reviewFeedbackControl =
-    canEditDesign && reviewAgentQueueCount > 0 ? (
+  const renderReviewFeedbackControl = (compact: boolean) => {
+    if (!canEditDesign || reviewAgentQueueCount <= 0) return null;
+    const label = reviewFeedbackApplying
+      ? t("review.applyingFeedback")
+      : t("review.applyFeedback", { count: reviewAgentQueueCount });
+    const button = (
       <Button
         type="button"
         variant="outline"
         size="sm"
-        className="h-[var(--design-row-height)] gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
+        data-design-apply-feedback
+        aria-label={compact ? label : undefined}
+        className="design-focus-ring h-[var(--design-control-height)] min-w-0 shrink-0 gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-xs"
         onClick={handleApplyReviewFeedback}
         disabled={reviewFeedbackApplying}
       >
@@ -942,11 +941,21 @@ export function renderDesignEditorView({
         ) : (
           <IconMessageCircle className="size-3.5" />
         )}
-        {reviewFeedbackApplying
-          ? t("review.applyingFeedback")
-          : t("review.applyFeedback", { count: reviewAgentQueueCount })}
+        {compact ? (
+          <span aria-hidden="true">{reviewAgentQueueCount}</span>
+        ) : (
+          label
+        )}
       </Button>
-    ) : null;
+    );
+    if (!compact) return button;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    );
+  };
 
   const shareSegmentClassName =
     "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
@@ -978,7 +987,7 @@ export function renderDesignEditorView({
     }
 
     return (
-      <div className="flex items-center">
+      <div className="flex shrink-0 items-center [&_[data-slot=button-group]>button+button]:size-[var(--design-control-height)] [&_[data-slot=button-group]>button]:h-[var(--design-control-height)]">
         {canEditDesign && activeOverviewScreen?.sourceType === "localhost" ? (
           <ShareLivePreview
             key={activeOverviewScreen.id}
@@ -1005,7 +1014,10 @@ export function renderDesignEditorView({
           shareTabs={designShareTabs}
           sendTo={designShareSendTo}
           popoverClassName="z-[100010]"
-          triggerClassName={shareSegmentClassName}
+          triggerClassName={cn(
+            shareSegmentClassName,
+            "px-[var(--design-baseline-unit)] text-xs",
+          )}
         />
       </div>
     );
@@ -1093,79 +1105,62 @@ export function renderDesignEditorView({
       </div>
     ) : null;
 
-  const topBarVisible = isTopBarVisible({
-    embedded,
-    isVisualEditSurface,
-    minimalUi,
-    uiHidden,
-  });
-
-  // Minimal UI hides the top bar, so its floating right bar carries the same
-  // controls.
   const rightSidebarActions = renderRightSidebarActions({
     editorCore,
     editorHistory,
-    renderZoomControl,
     renderPendingNodeRewriteControl,
     publishWaitlistControl,
     presenceControl,
-    reviewFeedbackControl,
+    renderReviewFeedbackControl,
     renderShareControl: (dense) =>
-      renderShareControl(
-        dense,
-        !topBarVisible ? nextStepShareActionEvent : undefined,
-      ),
+      renderShareControl(dense, nextStepShareActionEvent),
     localPreviewRow,
+    showCommentsToggle: Boolean(editorToolsAndVectors.reviewCommentsPanelProps),
+    reviewUnreadCount,
   });
+  const commentsPanel =
+    editorToolsAndVectors.commentsPanelShown &&
+    editorToolsAndVectors.reviewCommentsPanelProps ? (
+      <ReviewCommentsPanel
+        {...editorToolsAndVectors.reviewCommentsPanelProps}
+        onNewThread={() => {
+          if (!pinMode) handlePinToolToggle();
+        }}
+      />
+    ) : null;
 
-  const topBarControlsVisible = !initialGenerationChromeLimited;
-  // The mode switch used to live in the bottom toolbar, so it keeps that
-  // toolbar's gating.
-  const topBarShowsModes =
-    designBottomToolbarMode === "editor" && design && !questionFlowActive;
+  const chromeControlsVisible = !initialGenerationChromeLimited;
   // Leaving Interact for Design needs a fresh runtime layer snapshot, same
   // as the Interact bar's own Edit button.
-  const handleTopBarModeChange = (next: EditorMode) => {
+  const handleToolbarModeChange = (next: EditorMode) => {
     if (mode === "interact" && next === "edit") {
       setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
     }
     handleModeChange(next);
   };
-  const topBarActions = (
-    <>
-      <SaveStatusIndicator
-        unsavedChangeCount={unsavedChangeCount}
-        onRetry={retryUnsavedChanges}
+  const toolbarZoomControl =
+    !chromeControlsVisible ? null : responsiveInteractActive ? (
+      <InteractZoomControl
+        zoom={interactZoom}
+        choice={interactZoomChoice}
+        onChange={handleInteractZoomChange}
       />
-      {renderPendingNodeRewriteControl(isMobileViewport)}
-      {reviewFeedbackControl}
-      {publishWaitlistControl}
-      {renderShareControl(
-        true,
-        topBarVisible ? nextStepShareActionEvent : undefined,
-      )}
-    </>
-  );
+    ) : (
+      renderZoomControl("toolbar")
+    );
 
-  // Interact's device, theme and screen controls: in the top bar when it is
-  // docked, in a floating bar (with an Exit, since there is no mode switch)
-  // wherever the top bar is absent: minimal UI (which includes a widget), hidden
-  // UI, the visual-edit route.
   const interactControlArgs = {
     editorActiveScreenAndGeometry,
     editorModes,
     activeScreenId: activeFile?.id ?? null,
   };
-  const interactInTopBar = topBarVisible;
-  const interactTopBarSlots =
-    responsiveInteractActive && interactInTopBar
-      ? renderInteractTopBarSlots(interactControlArgs)
-      : null;
-  // A URL screen in Design carries its route, Reload and Open in browser in
-  // the bar's centre, where Interact keeps its screen controls. It is a
-  // reading of the app's URL, not a picker.
   const activeUrlScreen =
-    mode === "edit" && topBarVisible && !responsiveInteractActive
+    mode === "edit" &&
+    !responsiveInteractActive &&
+    !minimalUi &&
+    !uiHidden &&
+    !isVisualEditSurface &&
+    !embedded
       ? resolveUrlScreen({
           screen: overviewScreens.find(
             (screen) => screen.id === activeFile?.id,
@@ -1177,14 +1172,24 @@ export function renderDesignEditorView({
         })
       : null;
   const interactFloatingBar =
-    responsiveInteractActive && !interactInTopBar && !hostOwnsChrome
-      ? renderInteractFloatingBar(interactControlArgs)
-      : null;
+    hostOwnsChrome ? null : responsiveInteractActive ? (
+      renderInteractFloatingBar(interactControlArgs)
+    ) : activeUrlScreen ? (
+      <div
+        data-design-url-screen-floating
+        className="pointer-events-auto flex h-10 min-w-0 items-center rounded-lg border border-border bg-[var(--design-editor-panel-bg)] px-2 shadow-xl"
+      >
+        <UrlScreenControls
+          screen={activeUrlScreen}
+          onReload={handleScreenReload}
+        />
+      </div>
+    ) : null;
 
   const leftContentWidth = resolveLeftSidebarWidth(leftSidebarWidth);
   const leftSidebarVisible = !hostOwnsChrome && !uiHidden && !minimalUi;
   const leftChromeOverlayInset = leftSidebarVisible
-    ? `calc(var(--design-chrome-rail-width) + ${activeLeftPanel ? leftContentWidth : 0}px)`
+    ? `${leftContentWidth}px`
     : undefined;
   const minimalInspectorHasSelection = hasMinimalInspectorSelection({
     selectedElement,
@@ -1202,18 +1207,15 @@ export function renderDesignEditorView({
     responsiveInteractActive,
     minimalUi,
     minimalInspectorHasSelection,
-    topBarVisible,
-    mode,
-    canEdit: canEditActiveVisualScreen,
+    commentsPanelShown: editorToolsAndVectors.commentsPanelShown,
   });
   const questionFlowInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
     minimalUi,
   });
-  const chromeInsetLeft = leftSidebarVisible
-    ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
-    : 0;
+  const chromeInsetLeft = leftSidebarVisible ? leftContentWidth : 0;
+  const leftDrawerCoversCanvas = isMobileViewport && leftSidebarVisible;
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
   );
@@ -1428,44 +1430,7 @@ export function renderDesignEditorView({
           />
         </div>
       )}
-      <div
-        className="flex-1 flex overflow-hidden relative"
-        style={topBarVisible ? { paddingTop: TOP_BAR_HEIGHT_PX } : undefined}
-      >
-        {topBarVisible ? (
-          <EditorTopBar
-            mode={mode}
-            onModeChange={handleTopBarModeChange}
-            modes={getTopBarModes({
-              showsModes: Boolean(topBarShowsModes),
-            })}
-            leading={interactTopBarSlots?.leading}
-            center={
-              interactTopBarSlots?.center ??
-              (activeUrlScreen ? (
-                <UrlScreenControls
-                  screen={activeUrlScreen}
-                  onReload={handleScreenReload}
-                />
-              ) : null)
-            }
-            zoomControl={
-              topBarControlsVisible
-                ? (interactTopBarSlots?.zoomControl ??
-                  (!responsiveInteractActive
-                    ? renderZoomControl("topbar")
-                    : null))
-                : null
-            }
-            presence={topBarControlsVisible ? presenceControl : null}
-            actions={topBarControlsVisible ? topBarActions : null}
-            leftInset={chromeInsetLeft}
-            narrowLeftInset={
-              leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0
-            }
-            inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
-          />
-        ) : null}
+      <div className="flex-1 flex overflow-hidden relative">
         {renderLeftSidebar({
           editorCore,
           editorHistory,
@@ -1474,7 +1439,6 @@ export function renderDesignEditorView({
           editorCanvasAndScreens,
           editorLiveEditsAndPresence,
           editorContentAndComponents,
-          editorToolsAndVectors,
           editorSelectionAndStyles,
           editorClipboard,
           editorModes,
@@ -1486,20 +1450,22 @@ export function renderDesignEditorView({
           canApplyPendingVisualEditsWithAgent,
           projectMenu,
           projectTitleControl,
+          saveStatus: chromeControlsVisible ? (
+            <SaveStatusIndicator
+              unsavedChangeCount={unsavedChangeCount}
+              onRetry={retryUnsavedChanges}
+            />
+          ) : null,
           minimalUiToggle,
           leftContentWidth,
           leftSidebarVisible,
         })}
 
-        {/* Interact shows no tools: the running app owns the surface and
-            nothing in it is selectable. The top bar's mode switch (the
-            floating bar's Exit in minimal UI, or Escape) is the way back; only
-            a shell with none of those keeps the switch here. */}
         {!hostOwnsChrome &&
           designBottomToolbarMode === "editor" &&
           design &&
           !questionFlowActive &&
-          !(isMobileViewport && leftSidebarVisible && activeLeftPanel) && (
+          !leftDrawerCoversCanvas && (
             <DesignBottomToolbar
               mode={mode}
               pinMode={pinMode}
@@ -1517,8 +1483,9 @@ export function renderDesignEditorView({
               onPen={handlePenTool}
               onCommentPin={handlePinToolToggle}
               canComment={canCommentDesign}
-              onModeChange={handleModeChange}
-              showModeTabs={!topBarVisible && !responsiveInteractActive}
+              onModeChange={handleToolbarModeChange}
+              showModeTabs
+              zoomControl={toolbarZoomControl}
             />
           )}
 
@@ -1599,11 +1566,13 @@ export function renderDesignEditorView({
           editorContentAndComponents,
           projectTitleControl,
           minimalUiToggle,
-          localPreviewRow,
           rightSidebarActions,
-          topBarVisible,
           interactFloatingBar,
           rightSidebarVisible,
+          floatingHeadAllowed: chromeControlsVisible,
+          leftDrawerCoversCanvas,
+          leftInset: chromeInsetLeft,
+          commentsPanel,
           editPanelProps,
         })}
       </div>
