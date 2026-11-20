@@ -49,14 +49,16 @@ function pinTimeZone(timeZone: string): void {
   });
 }
 
-function stubServer(region: "consent" | "none"): void {
+type ServerRegion = "consent" | "none";
+
+function stubServer(region: ServerRegion | Promise<ServerRegion>): void {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push({ url, method: init?.method ?? "GET" });
       const body = url.includes("/_agent-native/auth/consent-region")
-        ? { region }
+        ? { region: await region }
         : url.includes("/_agent-native/auth/attribution") ||
             url.includes("/_agent-native/auth/consent")
           ? { ok: true }
@@ -75,9 +77,9 @@ function sentToSignInFrom(at: string): string {
   return `${ORIGIN}${signInHref}`;
 }
 
-async function openSignInPage(
-  region: "consent" | "none",
-  url: string = SIGN_IN_URL,
+async function renderSignInPage(
+  region: ServerRegion | Promise<ServerRegion>,
+  url: string,
 ) {
   stubServer(region);
   window.happyDOM.setURL(url);
@@ -93,6 +95,11 @@ async function openSignInPage(
   await act(async () => {
     created.render(<AuthPage {...props} identitySsoAuto={false} />);
   });
+  return consent;
+}
+
+async function openSignInPage(region: ServerRegion, url: string = SIGN_IN_URL) {
+  const consent = await renderSignInPage(region, url);
   await act(async () => {
     await consent.resolveConsentRegion();
   });
@@ -282,6 +289,66 @@ describe("AuthPage cookie banner", () => {
     const stored = cookieJson("an_ft");
     expect(stored).toMatchObject({ utm_source: "site" });
     expect(stored).not.toHaveProperty("utm_campaign");
+  });
+
+  it("reads the page a visitor was sent from when the sign-in link's own source is blank", async () => {
+    pinTimeZone("America/Los_Angeles");
+    await openSignInPage(
+      "none",
+      `${sentToSignInFrom("/recordings?utm_source=ad")}&utm_source=%20`,
+    );
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      utm_source: "ad",
+      landing_path: "/recordings",
+    });
+  });
+
+  it("waits for the server's region, not the time zone, before storing the page a visitor was sent from", async () => {
+    pinTimeZone("America/Los_Angeles");
+    let answer: (region: ServerRegion) => void = () => {};
+    const region = new Promise<ServerRegion>((resolve) => {
+      answer = resolve;
+    });
+    const consent = await renderSignInPage(
+      region,
+      sentToSignInFrom("/recordings?gclid=abc"),
+    );
+
+    expect(cookie("an_ft")).toBeNull();
+    expect(attributionPosts()).toHaveLength(0);
+
+    answer("consent");
+    await act(async () => {
+      await consent.resolveConsentRegion();
+    });
+    expect(cookie("an_ft")).toBeNull();
+    expect(attributionPosts()).toHaveLength(0);
+
+    await click(bannerButton(english.acceptAll));
+    expect(cookieJson("an_ft")).toMatchObject({
+      gclid: "abc",
+      landing_path: "/recordings",
+    });
+    expect(attributionPosts()).toHaveLength(1);
+  });
+
+  it("keeps the site's latest visit carried in from the page a visitor was sent from", async () => {
+    pinTimeZone("America/Los_Angeles");
+    await openSignInPage(
+      "none",
+      sentToSignInFrom(
+        "/recordings?utm_source=site&last_utm_source=newsletter&last_at=2026-11-01T00%3A00%3A00.000Z",
+      ),
+    );
+
+    expect(cookieJson("an_ft")).toMatchObject({ utm_source: "site" });
+    expect(
+      JSON.parse(window.localStorage.getItem("an_last_touch") ?? "null"),
+    ).toMatchObject({
+      utm_source: "newsletter",
+      touched_at: "2026-11-01T00:00:00.000Z",
+    });
   });
 
   it("shows nothing outside the consent region and captures at once", async () => {
