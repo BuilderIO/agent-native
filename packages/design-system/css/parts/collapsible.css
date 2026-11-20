@@ -1,0 +1,40 @@
+/*
+ * Part: collapsible
+ *
+ *   <div class="collapsible">                      Base UI Collapsible.Root
+ *     <button class="collapsible-trigger"          Collapsible.Trigger [data-panel-open]
+ *     <div class="collapsible-panel">              Collapsible.Panel [data-open]
+ *
+ * Behavior only, as Radix's Collapsible primitive: the trigger takes the
+ * look of whatever it renders as (an Icon Button, an Item), a chevron
+ * marked `collapsible-chevron` turning as the panel opens, and the panel
+ * animates its height open and closed.
+ */
+
+@layer components {
+  .collapsible-chevron {
+    transition: rotate var(--duration-2) var(--ease-standard);
+  }
+
+  .collapsible-trigger[data-panel-open] .collapsible-chevron {
+    rotate: 180deg;
+  }
+
+  .collapsible-panel {
+    height: var(--collapsible-panel-height);
+    overflow: hidden;
+    transition: height var(--duration-2) var(--ease-standard);
+  }
+
+  .collapsible-panel[data-starting-style],
+  .collapsible-panel[data-ending-style] {
+    height: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .collapsible-chevron,
+    .collapsible-panel {
+      transition: none;
+    }
+  }
+}

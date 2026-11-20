@@ -1,0 +1,88 @@
+/*
+ * Part: callout
+ *
+ *   <div class="callout" data-variant="soft|surface|outline"
+ *        [data-color="accent|gray|danger|warning|success|info"]
+ *        [data-high-contrast]>
+ *     <div class="callout-icon" aria-hidden>    an icon, before the message
+ *     <p class="callout-text">                  what happened; several stack
+ *     <div class="callout-actions">             what answers it, at the end
+ *
+ * Radix Themes' callout on the system's scale: a message standing in a
+ * page or a list, its text and icon in the nearest `data-color`. Soft is a
+ * tint, surface a lighter tint with an edge, outline the edge alone. Texts
+ * stack in the middle column; the icon and the actions sit beside the
+ * first. Actions are the system's addition, so a notice can carry its
+ * Retry button.
+ */
+
+@layer components {
+  .callout {
+    --_callout-gap: var(--space-3);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    row-gap: var(--space-2);
+    box-sizing: border-box;
+    padding: var(--space-3) var(--space-4);
+    border-radius: calc(var(--shape-panel) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    color: var(--accent-text);
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    text-align: start;
+  }
+
+  .callout > * {
+    grid-column: 2;
+  }
+
+  /* The edge columns' spacing is on their content, so an absent icon or
+     action leaves no gap. */
+  .callout-icon {
+    display: flex;
+    grid-row: 1;
+    grid-column: 1;
+    align-items: center;
+    margin-inline-end: var(--_callout-gap);
+  }
+
+  .callout-icon svg {
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+  }
+
+  .callout-text {
+    margin: 0;
+  }
+
+  .callout-actions {
+    display: flex;
+    grid-row: 1;
+    grid-column: 3;
+    align-items: center;
+    gap: var(--space-2);
+    margin-inline-start: var(--_callout-gap);
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  .callout[data-variant="soft"] {
+    background-color: var(--accent-a3);
+  }
+
+  .callout[data-variant="surface"] {
+    background-color: var(--accent-a2);
+    box-shadow: inset 0 0 0 1px var(--accent-a6);
+  }
+
+  .callout[data-variant="outline"] {
+    box-shadow: inset 0 0 0 1px var(--accent-a7);
+  }
+
+  .callout[data-high-contrast] {
+    color: var(--accent-12);
+  }
+}

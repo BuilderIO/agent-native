@@ -2086,6 +2086,8 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/core",
+        "@agent-native/design-system",
+        "@base-ui/react",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-aspect-ratio",
