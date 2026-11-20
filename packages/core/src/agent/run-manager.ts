@@ -40,6 +40,7 @@ import {
   withExecutionLeaseRequested,
   type ExecutionFence,
 } from "./execution-fence.js";
+import { privateSafeErrorMessage } from "./private-safe-errors.js";
 import {
   AGENT_RUN_NO_OUTPUT_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
@@ -593,11 +594,6 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
     !isTerminalRunEvent(event)
   );
 }
-
-const PRIVATE_SAFE_ERROR_CODES: ReadonlySet<string> = new Set([
-  "private_history_unrecoverable",
-  "tool_call_journal_unreadable",
-]);
 
 /**
  * A tool result with no later assistant text is an unfinished turn, not a
@@ -2477,7 +2473,6 @@ export function startRun(
         : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
-        !privateTurn &&
         !checkpointStatusReadFailed &&
         checkpointUnknownStatus === null &&
         !(
@@ -2838,11 +2833,12 @@ export function startRun(
             .map(({ event }) => event)
             .reverse()
             .find((event) => event.type === "error")?.errorCode;
+          const safeMessage = privateSafeErrorMessage(reportedCode);
           errorCode =
-            reportedCode && PRIVATE_SAFE_ERROR_CODES.has(reportedCode)
+            safeMessage !== undefined && reportedCode
               ? reportedCode
               : "private_content_omitted";
-          errorDetail = "Private content omitted";
+          errorDetail = safeMessage ?? "Private content omitted";
         }
         for (let i = diagnosticEvents.length - 1; !privateRun && i >= 0; i--) {
           const ev = diagnosticEvents[i].event as {

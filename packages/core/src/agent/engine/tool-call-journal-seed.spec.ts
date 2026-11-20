@@ -642,7 +642,7 @@ describe("loadedSkillPagesContext", () => {
 });
 
 describe("private prior-turn recovery", () => {
-  it("refuses to resume an executed private tool whose identity was omitted", async () => {
+  it("seeds a continuation after a completed private tool pair", async () => {
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue([
@@ -662,11 +662,51 @@ describe("private prior-turn recovery", () => {
           completedSideEffect: true,
           omitFromPersistedHistory: true,
         },
+        {
+          type: "tool_start",
+          id: "private-read",
+          tool: "read",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+        {
+          type: "tool_done",
+          id: "private-read",
+          tool: "read",
+          input: {},
+          result: "[Private content omitted]",
+          completedSideEffect: false,
+          omitFromPersistedHistory: true,
+        },
       ]);
     try {
       expect(
         await loadPriorTurnToolCallJournal("thread", "turn"),
-      ).toMatchObject({ status: "unreadable" });
+      ).toMatchObject({ status: "read", privateCompletedTools: ["write"] });
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("refuses to resume a private tool that started but never finished", async () => {
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([
+        {
+          type: "tool_start",
+          id: "private-call",
+          tool: "write",
+          input: {},
+          omitFromPersistedHistory: true,
+        },
+      ]);
+    try {
+      expect(
+        await loadPriorTurnToolCallJournal("thread", "turn"),
+      ).toMatchObject({
+        status: "unreadable",
+        code: "private_history_unrecoverable",
+      });
     } finally {
       read.mockRestore();
     }
@@ -732,7 +772,7 @@ it("continues to read a public prior tool journal", async () => {
   }
 });
 
-it("does not dispatch another call in the same turn after private execution", async () => {
+it("does not re-run a private write that already completed earlier in the turn", async () => {
   const read = vi
     .spyOn(runStore, "getCurrentTurnEventsForThread")
     .mockResolvedValue([
@@ -753,6 +793,9 @@ it("does not dispatch another call in the same turn after private execution", as
         omitFromPersistedHistory: true,
       },
     ]);
+  const recordPrivate = vi
+    .spyOn(runStore, "recordThreadPrivateRun")
+    .mockResolvedValue(undefined as never);
   const { runAgentLoop } = await import("../production-agent.js");
   const { z } = await import("zod");
   const run = vi.fn(async () => "saved");
@@ -811,6 +854,7 @@ it("does not dispatch another call in the same turn after private execution", as
       },
       threadId: "thread",
       turnId: "same-turn",
+      runId: "same-turn-run",
       send: (event) => events.push(event),
       signal: new AbortController().signal,
     });
@@ -818,12 +862,22 @@ it("does not dispatch another call in the same turn after private execution", as
     expect(events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          isError: true,
+          errorCode: "private_action_already_completed",
+        }),
+        expect.objectContaining({
           type: "error",
-          errorCode: "tool_call_journal_unreadable",
+          errorCode: "private_action_already_completed",
         }),
       ]),
     );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "tool_call_journal_unreadable" }),
+    );
   } finally {
     read.mockRestore();
+    recordPrivate.mockRestore();
   }
 });

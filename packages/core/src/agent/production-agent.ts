@@ -437,6 +437,7 @@ import {
   schemaAcceptsToolValue,
   type ToolInputRepair,
 } from "./optional-placeholders.js";
+import { requirePrivateSafeErrorMessage } from "./private-safe-errors.js";
 import {
   ProcessorChain,
   TripWire,
@@ -7316,12 +7317,10 @@ async function prepareToolCall(
   );
   try {
     return await Promise.race([
-      toolCallIntent(entry, input).then(
-        (intent): PreparedToolCall => ({
-          status: "prepared",
-          intent,
-        }),
-      ),
+      toolCallIntent(entry, input).then((intent): PreparedToolCall => ({
+        status: "prepared",
+        intent,
+      })),
       stopped,
     ]);
   } finally {
@@ -8402,13 +8401,16 @@ export async function runAgentLoop(opts: {
       internalContinuationTurn ||
       opts.recoverCompletedExecutionSteps === true)
       ? {
-          message:
-            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
-            "Retrying would risk repeating a step that already completed. Please send the request again.",
+          message: requirePrivateSafeErrorMessage(
+            "tool_call_journal_unreadable",
+          ),
           errorCode: "tool_call_journal_unreadable",
           details: journalRead.error,
         }
       : null;
+  const privateCompletedTools = new Set(
+    journalRead.status === "read" ? journalRead.privateCompletedTools : [],
+  );
 
   const historyReadOnlyCalls = await readOnlyToolCallsFromHistory(
     messages,
@@ -10920,6 +10922,48 @@ export async function runAgentLoop(opts: {
           errorCode: "write_tool_outcome_unknown",
           blockedTool: toolCall.name,
           blockedBy: unknownOutcomeCause ?? "interruption",
+        };
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          isError: true,
+        };
+      }
+
+      if (
+        !actionIsReadOnly &&
+        actionEntry?.persistInChatHistory === false &&
+        privateCompletedTools.has(toolCall.name)
+      ) {
+        rollbackRepeatedToolCall();
+        const result = requirePrivateSafeErrorMessage(
+          "private_action_already_completed",
+        );
+        await send({
+          type: "tool_start",
+          id: toolCall.id,
+          ...(executionStepId ? { executionStepId } : {}),
+          tool: toolCall.name,
+          input: liveToolInput as Record<string, string>,
+        });
+        await emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: liveToolInput as Record<string, unknown>,
+          result,
+          isError: true,
+          errorCode: "private_action_already_completed",
+          notExecuted: true,
+        });
+        recordToolResult(result, true);
+        requestedActionStop ??= {
+          message: result,
+          errorCode: "private_action_already_completed",
+          blockedTool: toolCall.name,
         };
         return {
           type: "tool-result" as const,
@@ -17038,12 +17082,10 @@ export function createProductionAgentHandler(
       ) ??
       requestHistory
         .filter((m) => m.content.trim())
-        .map(
-          (m): EngineMessage => ({
-            role: m.role as "user" | "assistant",
-            content: [{ type: "text" as const, text: m.content }],
-          }),
-        );
+        .map((m): EngineMessage => ({
+          role: m.role as "user" | "assistant",
+          content: [{ type: "text" as const, text: m.content }],
+        }));
 
     const messages: EngineMessage[] = [
       ...historyMessages,

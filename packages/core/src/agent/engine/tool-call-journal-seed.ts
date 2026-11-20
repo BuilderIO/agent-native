@@ -56,6 +56,8 @@ export type PriorTurnToolCallJournalRead =
       priorToolCalls: PriorTurnToolCallSummary[];
       priorToolResults: PriorTurnToolResultSummary[];
       priorToolCallSequence: PriorTurnToolCallSequenceEntry[];
+      /** Private tools that may have changed something earlier in this turn; their inputs are not kept. */
+      privateCompletedTools: string[];
     }
   | {
       status: "unreadable";
@@ -458,6 +460,7 @@ export async function loadPriorTurnToolCallJournal(
       priorToolCalls: [],
       priorToolResults: [],
       priorToolCallSequence: [],
+      privateCompletedTools: [],
     };
   }
   let priorEvents: AgentChatEvent[];
@@ -471,14 +474,15 @@ export async function loadPriorTurnToolCallJournal(
     return { status: "unreadable", error };
   }
   const privateStarts = new Map<string, string>();
-  const privatePauses = new Set<string>();
+  const privateDone = new Set<string>();
+  const privateCompletedTools = new Set<string>();
   for (const event of priorEvents) {
     if (event.omitFromPersistedHistory !== true) continue;
     if (event.type === "tool_start") {
       if (
         !event.id ||
         privateStarts.has(event.id) ||
-        privatePauses.has(event.id)
+        privateDone.has(event.id)
       ) {
         return {
           status: "unreadable",
@@ -492,9 +496,7 @@ export async function loadPriorTurnToolCallJournal(
       if (
         !event.id ||
         privateStarts.get(event.id) !== event.tool ||
-        privatePauses.has(event.id) ||
-        event.approvalPause !== true ||
-        event.completedSideEffect !== false
+        privateDone.has(event.id)
       ) {
         return {
           status: "unreadable",
@@ -504,7 +506,14 @@ export async function loadPriorTurnToolCallJournal(
         };
       }
       privateStarts.delete(event.id);
-      privatePauses.add(event.id);
+      privateDone.add(event.id);
+      if (
+        event.approvalPause !== true &&
+        event.notExecuted !== true &&
+        event.completedSideEffect !== false
+      ) {
+        privateCompletedTools.add(event.tool);
+      }
     }
   }
   if (privateStarts.size > 0) {
@@ -585,6 +594,7 @@ export async function loadPriorTurnToolCallJournal(
     priorToolCalls,
     priorToolResults,
     priorToolCallSequence,
+    privateCompletedTools: [...privateCompletedTools],
   };
 }
 

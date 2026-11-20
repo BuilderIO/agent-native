@@ -860,6 +860,44 @@ describe("run store", () => {
     });
   });
 
+  it("keeps a private-safe error code with its fixed message and drops other private errors", () => {
+    const body = "synthetic-private-error-sentinel";
+    const safe = JSON.parse(
+      persistedRunEventData(
+        JSON.stringify({
+          type: "error",
+          omitFromPersistedHistory: true,
+          error: body,
+          errorCode: "private_action_already_completed",
+        }),
+      ),
+    );
+    expect(JSON.stringify(safe)).not.toContain(body);
+    expect(safe).toMatchObject({
+      type: "error",
+      errorCode: "private_action_already_completed",
+      error: expect.stringContaining(
+        "Anything completed before this is saved.",
+      ),
+    });
+
+    const other = JSON.parse(
+      persistedRunEventData(
+        JSON.stringify({
+          type: "error",
+          omitFromPersistedHistory: true,
+          error: body,
+          errorCode: "provider_specific_code",
+        }),
+      ),
+    );
+    expect(other).toEqual({
+      type: "error",
+      omitFromPersistedHistory: true,
+      error: "Private content omitted",
+    });
+  });
+
   it("omits marked private event content while retaining default event payloads", () => {
     const body = "synthetic-private-body-sentinel";
     const privateEvent = JSON.parse(

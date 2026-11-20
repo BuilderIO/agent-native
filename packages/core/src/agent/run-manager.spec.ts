@@ -9256,7 +9256,7 @@ describe("run manager soft timeout", () => {
     }
   });
 
-  it("does not auto-continue a private turn that ends after a completed side-effect tool with empty text", async () => {
+  it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {
     const runId = "run-private-empty-final";
     const run = startRun(
       runId,
@@ -9288,20 +9288,13 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
     await run.finalized;
-    expect(run.status).toBe("completed");
-    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
-    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
-      runId,
-      "truncated",
-      expect.anything(),
-    );
-    expect(run.events.some(({ event }) => event.type === "auto_continue")).toBe(
-      false,
-    );
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "truncated", {
+      terminalReason: "stream_ended",
+    });
     expect(setRunError).not.toHaveBeenCalled();
   });
 
-  it("keeps a real framework error code on a private run instead of overwriting it", async () => {
+  it("keeps a private-safe error code and its fixed message on a private run", async () => {
     const runId = "run-private-real-error-code";
     const run = startRun(
       runId,
@@ -9326,11 +9319,16 @@ describe("run manager soft timeout", () => {
     expect(setRunError).toHaveBeenCalledWith(
       runId,
       "private_history_unrecoverable",
-      "Private content omitted",
+      expect.stringContaining("Please send the request again."),
+    );
+    expect(setRunError).not.toHaveBeenCalledWith(
+      runId,
+      expect.anything(),
+      expect.stringContaining("private sentinel text"),
     );
   });
 
-  it("completes a failed private UI result or a later unfinished tool without a doomed continuation", async () => {
+  it("continues after a failed private UI result or a later unfinished tool", async () => {
     for (const kind of ["failed-ui", "later-tool"] as const) {
       const runId = `run-private-unfinished-${kind}`;
       const run = startRun(
@@ -9363,10 +9361,11 @@ describe("run manager soft timeout", () => {
         { softTimeoutMs: 0 },
       );
       await run.finalized;
-      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
-      expect(
-        run.events.some(({ event }) => event.type === "auto_continue"),
-      ).toBe(false);
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        "truncated",
+        { terminalReason: "stream_ended" },
+      );
     }
   });
 
