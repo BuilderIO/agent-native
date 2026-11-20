@@ -15,15 +15,8 @@ import {
 } from "./design-screen-share";
 
 const NO_SCREENS: DesignScreenData[] = [];
-// A widget can't make a page public when that would carry sub-pages: core
-// refuses the change and sends the person to the app.
 const WIDGET_SUB_PAGES: ScreensRead = { screens: NO_SCREENS, unread: false };
 
-/**
- * The share dialog's read of the Design screens a change would show to more
- * people: the page's own, from its body, and its sub-pages', from the
- * server. Reads only while Share is open.
- */
 export function useDesignScreenShareCheck(args: {
   documentId: string;
   documentContent: string | undefined;
@@ -62,8 +55,6 @@ export function useDesignScreenShareCheck(args: {
   const scanned =
     scan !== null && scan.content === documentContent ? scan : null;
   const screens = scanned ? scanned.screens : NO_SCREENS;
-  // Until the body has been read, or while a screen in it can't be, any
-  // wider share asks first.
   const unread =
     Boolean(documentContent?.includes(`<${DESIGN_SCREEN_TAG}`)) &&
     (!scanned || scanned.unreadable > 0);

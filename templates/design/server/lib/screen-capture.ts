@@ -1,10 +1,3 @@
-/**
- * Design's side of a screen pinned in another app's page, such as a Content
- * page: one screen rendered for the signed-in person, handed back as image
- * bytes so no public copy is made, with what the other app keeps alongside
- * it (who can open the design, a fingerprint that moves when the screen
- * does, and the screen's open comment threads).
- */
 import { createHash } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
@@ -38,7 +31,6 @@ const DEFAULT_WIDTH_PX = 1440;
 export interface CaptureDesign {
   id: string;
   title: string;
-  /** Who can open the design, for the organization asking. */
   visibility: EmbedVisibility;
   data: Record<string, unknown>;
 }
@@ -64,10 +56,6 @@ function readDesignData(raw: unknown): Record<string, unknown> {
   }
 }
 
-/**
- * A design shared with an organization reaches only its own members, so
- * for a person asking from another organization (or none) it is private.
- */
 export function visibilityForRequest(
   visibility: unknown,
   designOrgId: unknown,
@@ -84,10 +72,6 @@ export function visibilityForRequest(
   return "private";
 }
 
-/**
- * The design the signed-in person can open, or a refusal that says why.
- * Someone who can't open it gets the same answer as for a missing design.
- */
 export async function loadCaptureDesign(
   designId: string,
 ): Promise<CaptureDesign> {
@@ -120,7 +104,6 @@ export async function loadCaptureDesign(
   };
 }
 
-/** The design's HTML screens among `screenIds`, by id. */
 export async function loadCaptureScreens(
   designId: string,
   screenIds: readonly string[],
@@ -150,7 +133,6 @@ export async function loadCaptureScreens(
   );
 }
 
-/** The screen's own frame width, as export-png reads it, else 1440. */
 export function screenWidthPx(
   data: Record<string, unknown>,
   screenId: string,
@@ -173,16 +155,11 @@ export function screenWidthPx(
     : DEFAULT_WIDTH_PX;
 }
 
-/** The screen's name as Design lists it: its file name without `.html`. */
 export function screenName(filename: string): string {
   const base = filename.replace(/\\/g, "/").split("/").pop() ?? filename;
   return (base.replace(/\.html?$/i, "") || base).slice(0, 300);
 }
 
-/**
- * Moves whenever the screen's saved source or its frame settings change, so
- * a page holding a picture of it can say the design moved on.
- */
 export function screenFingerprint(
   screen: Pick<CaptureScreen, "content">,
   data: Record<string, unknown>,
@@ -203,7 +180,6 @@ export function screenFingerprint(
     .slice(0, 12);
 }
 
-/** Open comment threads on one screen, as the comments panel counts them. */
 export async function openCommentCount(
   designId: string,
   screenId: string,
@@ -221,7 +197,6 @@ export async function openCommentCount(
   return summary.openCount;
 }
 
-/** The design's and the screen's links in this Design. */
 export function captureLinks(
   designId: string,
   screenId: string,
@@ -247,7 +222,6 @@ async function liveContent(screen: CaptureScreen): Promise<string> {
   ).content;
 }
 
-/** Reads a PNG's pixel size from its header. */
 export function pngSize(png: Buffer): { width: number; height: number } {
   if (png.length < 24 || png.toString("ascii", 12, 16) !== "IHDR") {
     throw new Error("Not a PNG");
@@ -255,11 +229,6 @@ export function pngSize(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
-/**
- * Renders the whole screen at `widthPx` in headless Chromium, at 2x where
- * that fits the hand-over limit and at 1x where it doesn't. The PNG is
- * returned, never uploaded.
- */
 export async function renderScreenPng(
   screen: CaptureScreen,
   widthPx: number,

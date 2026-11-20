@@ -6,10 +6,6 @@ import {
 
 export const designScreenDocumentIdSchema = embedDocumentIdSchema;
 
-/**
- * The page a pinned screen goes in, for a signed-in reader (`viewer`) or one
- * of its editors (`editor`); see `authorizeEmbedPage`.
- */
 export async function authorizeDesignScreenPage(
   documentId: string,
   role: "viewer" | "editor",

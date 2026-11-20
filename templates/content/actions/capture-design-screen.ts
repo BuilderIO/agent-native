@@ -39,10 +39,8 @@ import {
 } from "./_design-screen-access.js";
 import { visibilityForPageOrganization } from "./_embed-page-access.js";
 
-// Design answers within 55 seconds; leave room for the hop.
 const CAPTURE_TIMEOUT_MS = 58_000;
 
-/** The editor draws the picture from the block data; agents place the tag. */
 function isEditorCall(ctx: ActionRunContext | undefined): boolean {
   return ctx?.caller === "frontend" || ctx?.caller === "http";
 }
@@ -59,14 +57,12 @@ function audienceMessage(reason: EmbedAudienceReason, title: string): string {
   return `More people can open this page than ${design}. Everyone who can open the page will see this screen.`;
 }
 
-/** The name on the stamp: the person's name, else their email's first part. */
 function capturerName(): string {
   const name = getRequestUserName()?.trim();
   if (name) return name.slice(0, 200);
   return (getRequestUserEmail() ?? "").split("@")[0]?.slice(0, 200) ?? "";
 }
 
-/** Keeps the picture as one of the page's private images. */
 async function storePicture(args: {
   documentId: string;
   orgId: string | null;
@@ -115,8 +111,6 @@ const audienceSchema = z.object({
   reason: z.enum(["public-page", "wider", "unknown-source"]).nullable(),
 });
 
-// The pinned screen goes out once: as block data to the editor, or as the
-// tag to agents.
 const outputSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("captured"),
@@ -184,11 +178,8 @@ export default defineAction({
   }),
   outputSchema,
   http: { method: "POST" },
-  // An outside agent pins a screen as the app's own agent does: it gets the
-  // tag to write with edit-document, under the same checks.
   mcpTool: true,
   run: async (args, ctx) => {
-    // A refresh replaces the tag with the same id, so it must be given.
     if (args.purpose === "refresh" && !args.blockId) {
       fail(
         "To refresh a screen, pass its blockId: the id in its DesignScreen tag.",

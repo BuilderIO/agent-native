@@ -6,13 +6,11 @@ import {
 
 type Screen = Pick<DesignScreenData, "screen" | "design">;
 
-/** Screens read from saved pages; `unread` while some can't be weighed yet. */
 export interface ScreensRead {
   screens: readonly Screen[];
   unread: boolean;
 }
 
-/** The screens a change would show to more people, from one set of pages. */
 export interface ScreensGoingWider {
   wider: Screen[];
   unread: boolean;
@@ -20,14 +18,9 @@ export interface ScreensGoingWider {
 
 export interface DesignShareCheck {
   page: ScreensGoingWider;
-  /**
-   * Going public carries the sub-pages that aren't public yet, so their
-   * screens count too; null for any other change.
-   */
   subPages: ScreensGoingWider | null;
 }
 
-/** What the share dialog has read of the sub-pages' screens. */
 export interface SubPageScreensQuery {
   data?:
     | {
@@ -40,11 +33,6 @@ export interface SubPageScreensQuery {
   isFetching: boolean;
 }
 
-/**
- * The sub-pages' screens, or unread while they're loading, when the last
- * read failed (a failed refetch keeps the earlier answer), when the answer
- * isn't whole, or when some can't be weighed.
- */
 export function subPageScreensRead(query: SubPageScreensQuery): ScreensRead {
   const { data } = query;
   if (
@@ -67,11 +55,6 @@ function goingWider(to: EmbedVisibility, read: ScreensRead): ScreensGoingWider {
   return { wider: designScreensWiderThan(to, read.screens), unread: false };
 }
 
-/**
- * What opening a page to `to` shows to more people: the page's own pinned
- * screens, and when it goes public, those in the sub-pages that go public
- * with it. Sharing is a deliberate step, so it asks and never refuses.
- */
 export function designShareCheck(
   to: EmbedVisibility,
   page: ScreensRead,
@@ -83,14 +66,12 @@ export function designShareCheck(
   };
 }
 
-/** Whether the share dialog asks before making the change. */
 export function designShareAsks(check: DesignShareCheck): boolean {
   return [check.page, check.subPages].some(
     (part) => part !== null && (part.unread || part.wider.length > 0),
   );
 }
 
-/** The share dialog's line about the screens going wider, if any. */
 export function designShareDetail(
   check: DesignShareCheck,
   t: (key: string, options?: Record<string, unknown>) => string,

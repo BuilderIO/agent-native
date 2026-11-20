@@ -9,10 +9,6 @@ import {
 
 export const analyticsChartDocumentIdSchema = embedDocumentIdSchema;
 
-/**
- * The page a chart goes in, for a signed-in reader (`viewer`) or one of its
- * editors (`editor`); see `authorizeEmbedPage`.
- */
 export async function authorizeAnalyticsChartPage(
   documentId: string,
   role: "viewer" | "editor",
@@ -30,10 +26,6 @@ export async function authorizeAnalyticsChartPage(
   });
 }
 
-/**
- * Analytics reports a dashboard's sharing for the organization that opened
- * the page; see `visibilityForPageOrganization`.
- */
 export function chartForPageOrganization<
   Chart extends { dashboard: { visibility: EmbedVisibility } },
 >(chart: Chart, page: Pick<EmbedPage, "orgId" | "authorityOrgId">): Chart {

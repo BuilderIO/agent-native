@@ -23,10 +23,6 @@ type CaptureResult =
       design: { title: string };
     };
 
-/**
- * The screen a paste names, when it is exactly one Design screen link. A
- * link to a whole board stays a link: only one screen can be pinned.
- */
 export function designScreenLinkFromPaste(
   text: string,
   origins: readonly string[],
@@ -38,12 +34,6 @@ export function designScreenLinkFromPaste(
     : null;
 }
 
-/**
- * Pasting a Design screen link (Copy link on a screen) into a page an editor
- * can change pastes the link as usual, then asks Design for a picture of the
- * screen as that editor and swaps the link for the pinned screen. If Design
- * refuses, the link stays.
- */
 export const DesignScreenPaste = createSourceLinkPaste<{
   designId: string;
   screenId: string;

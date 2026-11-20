@@ -88,7 +88,6 @@ import listSubPageDesignScreens from "./list-sub-page-design-screens";
 
 const LINK = "https://design.example.test/design/checkout?screen=pay";
 const MEDIA_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
-// A 1×1 PNG.
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
@@ -210,7 +209,6 @@ describe("capture-design-screen", () => {
     expect(result.designScreenTag).toContain("<DesignScreen");
     expect(result.designScreenTag).toContain(`id="${result.blockId}"`);
     expect(result.designScreenTag).toContain(`/api/private-media/${MEDIA_ID}`);
-    // The picture's bytes stay in storage, never in the page.
     expect(result.designScreenTag).not.toContain(PNG_BASE64);
     expect(mocks.track).toHaveBeenCalledWith(
       "design_screen_captured",
@@ -654,7 +652,6 @@ ${designScreenBlockRaw("design-screen-00000001", pinned())}
 `,
       ),
       sub_2: subPage("sub_2", "admin", "No screens here."),
-      // Already public, so it doesn't go public with the page.
       sub_3: subPage(
         "sub_3",
         "owner",

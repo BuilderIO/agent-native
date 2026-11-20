@@ -8,15 +8,8 @@ import {
 import { publicSubPageIds } from "../server/lib/public-sub-pages.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 
-/** Sub-pages read at once, as core checks a page's followers. */
 const SUB_PAGES_AT_ONCE = 10;
 
-/**
- * Reads the saved bodies of the sub-pages that would go public with a page
- * the caller can share, for the share dialog to weigh what they copied from
- * other apps. `more` is set when there are more sub-pages than a change can
- * carry; such a change is refused.
- */
 export async function readSubPagesGoingPublic<T>(
   documentId: string,
   read: (content: string | null) => Promise<T>,
@@ -36,9 +29,6 @@ export async function readSubPagesGoingPublic<T>(
       statusCode: 403,
     });
   }
-  // The sub-pages that aren't public yet go public with the page. Core
-  // carries only the ones the caller can share, read with its own access
-  // check (not Content's space fallback), so only those count here.
   const ids = await publicSubPageIds(page.resource, { isPublic: false });
   const more = ids.length > MAX_PUBLIC_FOLLOWERS;
   const found: T[] = [];

@@ -39,12 +39,6 @@ export function analyticsPanelLinkFromPaste(
   return parseAnalyticsPanelLink(text, origins);
 }
 
-/**
- * Pasting an Analytics panel link (Copy link on a dashboard panel) into a
- * page an editor can change pastes the link as usual, then asks Analytics
- * for the panel's numbers as that editor and swaps the link for the chart.
- * If Analytics refuses, the link stays.
- */
 export const AnalyticsChartPaste =
   createSourceLinkPaste<AnalyticsPanelCaptureRequest>({
     name: "analyticsChartPaste",

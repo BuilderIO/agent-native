@@ -111,7 +111,6 @@ describe("subPageScreensRead", () => {
       { data: undefined, ...settled },
       { data: {}, ...settled },
       { data: whole, isError: false, isFetching: true },
-      // A failed refetch keeps the earlier answer, which may be out of date.
       { data: whole, isError: true, isFetching: false },
       { data: { ...whole, unreadable: 1 }, ...settled },
       { data: { ...whole, more: true }, ...settled },

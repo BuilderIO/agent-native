@@ -2357,7 +2357,6 @@ interface VisualEditorExtensionOptions {
   findCommentQuote?: CommentHighlightOptions["findQuote"];
   /** Turns a pasted Analytics panel link into a chart while it returns one. */
   analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
-  /** Turns a pasted Design screen link into a pinned screen while it returns one. */
   designScreenPaste?: DesignScreenPasteOptions["getContext"];
 }
 

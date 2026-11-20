@@ -1,12 +1,5 @@
 import { z } from "zod";
 
-/**
- * The contract between Design and an app that keeps a picture of one Design
- * screen, such as a screen pinned in a Content page. Design owns access,
- * rendering and the screen's history; the other app stores the returned
- * image privately and links back to the screen.
- */
-
 /** The largest picture a capture hands over, before base64. */
 export const DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
@@ -36,7 +29,6 @@ const httpUrlSchema = z
 
 const visibilitySchema = z.enum(["private", "org", "public"]);
 
-/** Changes when the screen's source or its frame settings change. */
 const fingerprintSchema = z.string().regex(/^[a-f0-9]{12}$/);
 
 const widthSchema = z
@@ -66,13 +58,11 @@ export const designScreenSourceSchema = z.object({
     id: idSchema,
     title: z.string().max(300),
     url: httpUrlSchema,
-    /** Who can open the design right now, as Design stores it. */
     visibility: visibilitySchema,
   }),
   screen: z.object({
     id: idSchema,
     name: z.string().max(300),
-    /** The width the screen was rendered at, in CSS pixels. */
     width: widthSchema,
     fingerprint: fingerprintSchema,
     url: httpUrlSchema,
@@ -81,16 +71,13 @@ export const designScreenSourceSchema = z.object({
 export type DesignScreenSource = z.infer<typeof designScreenSourceSchema>;
 
 export const designScreenCaptureSchema = designScreenSourceSchema.extend({
-  /** Open comment threads on the screen, for the person who captured it. */
   openComments: z.number().int().min(0),
   image: z.object({
     mimeType: z.literal("image/png"),
-    /** The PNG, base64 encoded. */
     data: z
       .string()
       .min(1)
       .max(Math.ceil(DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES / 3) * 4),
-    /** Pixel size of the PNG; twice the CSS size for a 2x render. */
     width: z.number().int().min(1),
     height: z.number().int().min(1),
   }),
@@ -120,7 +107,6 @@ export const designScreenStatusSchema = z.object({
     .array(
       z.object({
         id: idSchema,
-        /** Null when the screen is gone from the design. */
         fingerprint: fingerprintSchema.nullable(),
         openComments: z.number().int().min(0),
       }),

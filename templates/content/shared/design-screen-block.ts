@@ -14,18 +14,11 @@ import { z } from "zod";
 
 import { privateMediaIdFromSrc } from "./private-media.js";
 
-/**
- * A picture of one Design screen pinned in a page: one screen at one width
- * from one moment, stamped with when and by whom, and the link back. The
- * picture is one of the page's private images, so it loads only for people
- * who can open the page. It changes only when an editor refreshes it.
- */
 export const DESIGN_SCREEN_BLOCK_TYPE = "design-screen";
 export const DESIGN_SCREEN_TAG = "DesignScreen";
 
 export const designScreenSchema = designScreenSourceSchema.extend({
   image: z.object({
-    /** The page's private image: `/api/private-media/<id>`, nothing else. */
     src: z
       .string()
       .max(200)
@@ -37,15 +30,11 @@ export const designScreenSchema = designScreenSourceSchema.extend({
     alt: z.string().max(1000),
   }),
   capturedAt: z.string().datetime(),
-  /** The name of the person who captured it, for the stamp. */
   capturedBy: z.string().max(200),
 });
 
 export type DesignScreenData = z.infer<typeof designScreenSchema>;
 
-// A tag without its design or screen reads with these empty values: the
-// frame shows no link, nothing asks Design about it, and the schema check
-// leaves it out of sharing checks, as it does any other malformed copy.
 const MISSING_DESIGN: DesignScreenData["design"] = {
   id: "",
   title: "",
@@ -112,7 +101,6 @@ export function designScreenBlockRaw(
   return serializeSpecBlock(designScreenBlockConfig, { id: blockId, data });
 }
 
-/** One pinned screen checked against the page's audience. */
 export function designScreenAudience(
   action: "insert" | "widen",
   page: EmbedVisibility,
@@ -125,7 +113,6 @@ export function designScreenAudience(
   });
 }
 
-/** The pinned screens in a page more people would see if it opened to `page`. */
 export function designScreensWiderThan(
   page: EmbedVisibility,
   screens: readonly Pick<DesignScreenData, "design" | "screen">[],
@@ -135,10 +122,6 @@ export function designScreensWiderThan(
   );
 }
 
-/**
- * The picture's text for screen readers and anyone who can't see it: the
- * screen, its design and the width it was captured at.
- */
 export function describeDesignScreen(
   data: Pick<DesignScreenData, "design" | "screen">,
 ): string {

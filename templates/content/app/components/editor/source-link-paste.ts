@@ -4,9 +4,7 @@ import { toast } from "sonner";
 
 export interface SourceLinkPasteContext {
   documentId: string;
-  /** False for readers and while suggesting: the paste stays a link. */
   canEdit: boolean;
-  /** The source app's origins whose links turn into blocks. */
   linkOrigins: readonly string[];
   t: (key: string, options?: Record<string, unknown>) => string;
 }
@@ -15,25 +13,19 @@ export interface SourceLinkPasteOptions {
   getContext: () => SourceLinkPasteContext | null;
 }
 
-/** What the source app sent back for a pasted link. */
 export type SourceLinkCapture =
   | { status: "captured"; blockId: string; raw: string }
   | { status: "needs_confirmation"; message: string };
 
 export interface SourceLinkPasteSpec<Request> {
-  /** The extension's name, such as `analyticsChartPaste`. */
   name: string;
-  /** The block the link turns into, such as `analytics-chart`. */
   blockType: string;
-  /** The request a paste names, when it is exactly one link to the source. */
   parse: (text: string, origins: readonly string[]) => Request | null;
-  /** Asks the source app for the block, as the editor pasting. */
   capture: (
     context: SourceLinkPasteContext,
     request: Request,
     acknowledgeWiderAudience: boolean,
   ) => Promise<SourceLinkCapture>;
-  /** The message keys for the toasts while it's added. */
   messages: {
     adding: string;
     added: string;
@@ -49,11 +41,6 @@ type PendingMeta =
   | { add: { id: string; from: number; to: number; text: string } }
   | { remove: string };
 
-/**
- * Where a just-pasted link landed between the paste point and the cursor
- * after it, so stray whitespace or a trailing newline in the clipboard
- * doesn't lose it. Looks inside one text block at a time.
- */
 export function findPastedLink(
   state: EditorState,
   from: number,
@@ -68,14 +55,12 @@ export function findPastedLink(
     if (found) return false;
     if (!node.isTextblock) return true;
     const blockStart = pos + 1;
-    // One character per inline leaf keeps offsets equal to positions.
     const blockText = doc.textBetween(
       blockStart,
       blockStart + node.content.size,
       undefined,
       "￼",
     );
-    // The last copy that ends by the cursor and starts after the paste point.
     const limit = Math.min(blockText.length, end - blockStart) - text.length;
     const index = limit < 0 ? -1 : blockText.lastIndexOf(text, limit);
     if (index >= 0 && blockStart + index >= start) {
@@ -89,10 +74,6 @@ export function findPastedLink(
   return found;
 }
 
-/**
- * Puts the block where its link was: in place of the paragraph when the link
- * is all it holds, otherwise after that paragraph, leaving the sentence.
- */
 export function replaceLinkWithBlock(
   editor: Editor,
   range: { from: number; to: number },
@@ -123,19 +104,11 @@ export function replaceLinkWithBlock(
     .run();
 }
 
-/**
- * Pasting a link to one resource in another app (an Analytics panel, a
- * Design screen) into a page an editor can change pastes the link as usual,
- * then asks that app for the resource as that editor and swaps the link for
- * its block. Runs before Content's other paste handling, and changes nothing
- * about the paste itself: if the app refuses, the link stays.
- */
 export function createSourceLinkPaste<Request>(
   spec: SourceLinkPasteSpec<Request>,
 ) {
   const pendingKey = new PluginKey<PendingLinks>(`${spec.name}PendingLinks`);
 
-  /** Where a pasted link is now, if its text is still there unchanged. */
   function pendingLinkRange(
     state: EditorState,
     id: string,
@@ -189,7 +162,6 @@ export function createSourceLinkPaste<Request>(
       }
       const range = pendingLinkRange(editor.state, id);
       remember(editor, { remove: id });
-      // The link was edited or removed while the app answered: leave it.
       if (!range) {
         toast.dismiss(toastId);
         return;
@@ -266,7 +238,6 @@ export function createSourceLinkPaste<Request>(
               if (!request) return false;
               const from = view.state.selection.from;
               const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-              // Let the paste land, then remember where the link went.
               setTimeout(() => {
                 if (editor.isDestroyed) return;
                 const range = findPastedLink(

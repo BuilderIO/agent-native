@@ -36,16 +36,11 @@ type CaptureResult =
 
 const STATUS_STALE_MS = 5 * 60_000;
 
-/** What Design says about the screen now, for someone who can open it. */
 interface ScreenStatus {
   state: "changed" | "gone" | null;
   openComments: number;
 }
 
-/**
- * A tag the block contract doesn't accept, such as one written by hand, is
- * never shown: its picture could be any image.
- */
 function UnreadableScreen() {
   const t = useT();
   return (
@@ -58,10 +53,6 @@ function UnreadableScreen() {
   );
 }
 
-/**
- * The picture at its own proportions, as wide as the page allows; choosing
- * it opens it full size.
- */
 function ScreenPicture({ image }: { image: DesignScreenData["image"] }) {
   const t = useT();
   const [failed, setFailed] = useState(false);
@@ -81,7 +72,6 @@ function ScreenPicture({ image }: { image: DesignScreenData["image"] }) {
   }
   return (
     <>
-      {/* The button takes its name from the picture's alt text. */}
       <button
         type="button"
         aria-haspopup="dialog"
@@ -195,11 +185,6 @@ function DesignScreenView({
   );
 }
 
-/**
- * Whether the screen changed in Design since its picture, or is gone, and
- * its open comments, for someone signed in. Design answers only for designs
- * they can open; anyone else sees the picture alone.
- */
 function useScreenStatus(
   documentId: string | null | undefined,
   data: DesignScreenData,
@@ -212,7 +197,6 @@ function useScreenStatus(
       designs: [{ designId: data.design.id, screenIds: [data.screen.id] }],
     },
     {
-      // The action answers POST only, which keeps its list of designs in the body.
       method: "POST",
       enabled: Boolean(
         session?.email && documentId && data.design.id && data.screen.id,
@@ -324,7 +308,6 @@ function DesignScreenEditor({
       status={status}
       forEditor
       actions={
-        // A screen gone from its design has nothing to refresh from.
         documentId && status?.state !== "gone" ? (
           <Button
             type="button"

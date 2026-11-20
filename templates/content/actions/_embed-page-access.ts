@@ -20,25 +20,17 @@ export const embedDocumentIdSchema = z
   .max(256)
   .describe("Page id");
 
-/** A page a copy from another app goes in, as an embed action sees it. */
 export interface EmbedPage {
-  /** Who can open the page, counting its shares. */
   visibility: EmbedVisibility;
   orgId: string | null;
-  /**
-   * The organization that let the caller open it: their current one, or
-   * for a page in a space, the space's.
-   */
   authorityOrgId: string | null;
 }
 
-/** What a refusal says, for each embed kind. */
 export interface EmbedPageRefusals {
   signedOut: { message: string; errorCode: string };
   editRequired: { message: string; errorCode: string };
 }
 
-/** Who a page's shares reach; see `sharesAudience`. */
 async function pageSharesAudience(
   documentId: string,
   orgId: string | null,
@@ -53,13 +45,6 @@ async function pageSharesAudience(
   return sharesAudience(orgId, shares);
 }
 
-/**
- * The page a copy goes in, for a signed-in reader (`viewer`) or one of its
- * editors (`editor`). A page in Trash, or one the caller can't open, reads as
- * missing either way. Its audience counts its shares too: one with a
- * colleague opens it to the organization, one with anyone outside it to
- * everyone.
- */
 export async function authorizeEmbedPage(
   documentId: string,
   role: "viewer" | "editor",
@@ -99,12 +84,6 @@ export async function authorizeEmbedPage(
   };
 }
 
-/**
- * The other app reports its resource's sharing for the organization that
- * opened the page. A resource shared with that organization reaches none of
- * the readers of a page from another one, such as the editor's own page
- * from an organization they've since left, so there it counts as private.
- */
 export function visibilityForPageOrganization(
   visibility: EmbedVisibility,
   page: Pick<EmbedPage, "orgId" | "authorityOrgId">,

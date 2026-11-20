@@ -6,7 +6,6 @@ import { designScreensInBody } from "../shared/design-screens-in-body.js";
 import { designScreenDocumentIdSchema } from "./_design-screen-access.js";
 import { readSubPagesGoingPublic } from "./_sub-pages-going-public.js";
 
-/** A pinned screen without its picture: what the share dialog weighs. */
 const subPageScreenSchema = designScreenSchema.pick({
   screen: true,
   design: true,
@@ -18,9 +17,7 @@ export default defineAction({
   schema: z.object({ documentId: designScreenDocumentIdSchema }),
   outputSchema: z.object({
     screens: z.array(subPageScreenSchema),
-    /** Screen tags in those sub-pages that don't read as screens. */
     unreadable: z.number(),
-    /** More sub-pages than a change can carry; such a change is refused. */
     more: z.boolean(),
   }),
   http: { method: "GET" },

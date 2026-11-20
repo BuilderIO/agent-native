@@ -1176,7 +1176,6 @@ export function DocumentToolbar({
   );
   const { dataUpdatedAt: subPagesReadAt, refetch: readSubPagesAgain } =
     subPageCharts;
-  // Pinned Design screens ask the same way; they never block a share.
   const designScreenShare = useDesignScreenShareCheck({
     documentId,
     documentContent,

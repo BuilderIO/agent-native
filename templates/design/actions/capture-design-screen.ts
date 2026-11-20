@@ -19,7 +19,6 @@ import {
 } from "../server/lib/screen-capture.js";
 import "../server/db/index.js";
 
-// The picture travels inside the result as base64, with room for the rest.
 const CAPTURE_MAX_RESULT_CHARS =
   Math.ceil(DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES / 3) * 4 + 20_000;
 
@@ -30,13 +29,11 @@ export default defineAction({
   outputSchema: designScreenCaptureSchema,
   readOnly: true,
   agentTool: false,
-  // Other apps reach Design's read-only actions through its MCP surface.
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   timeoutMs: 55_000,
   maxResultChars: CAPTURE_MAX_RESULT_CHARS,
   run: async (args, ctx) => {
-    // The image bytes are for an app to store, not for a model to read.
     if (ctx?.caller !== "a2a") {
       fail(
         "capture-design-screen hands a screen's picture to another Agent-Native app. For an image of a screen, use export-png.",

@@ -7,12 +7,6 @@ function walk(node: PMNode | undefined, visit: (node: PMNode) => void) {
   for (const child of node.content ?? []) walk(child, visit);
 }
 
-/**
- * The copies of one kind of embed (an Analytics chart, a Design screen) a
- * page body holds, wherever they sit (in toggles and columns too). A tag
- * that doesn't read as that kind is counted in `unreadable`: what it copied
- * can still be in the page, so nobody can say who may see it.
- */
 export async function embedsInBody<T>(
   content: string | null | undefined,
   kind: { tag: string; blockType: string; read: (data: unknown) => T | null },

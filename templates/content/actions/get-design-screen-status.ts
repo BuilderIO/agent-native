@@ -44,8 +44,6 @@ export default defineAction({
   readOnly: true,
   agentTool: false,
   run: async (args) => {
-    // Readers see the comment count too, but Design answers each of them only
-    // for designs they can open themselves.
     const page = await authorizeDesignScreenPage(args.documentId, "viewer");
     const designs = await Promise.all(
       args.designs.map(async ({ designId, screenIds }) => {
