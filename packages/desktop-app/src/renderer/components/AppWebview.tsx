@@ -1289,6 +1289,31 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
     }, [app.placeholder, executeGuestScript, isActive]);
 
+    // webpreferences only apply at guest creation, so a guest that was
+    // launch-preloaded keeps backgroundThrottling=false until told otherwise.
+    // Flip it live; recreating the webview would reload the page.
+    const prevPreloadRef = useRef(preload);
+    useEffect(() => {
+      const wasPreload = prevPreloadRef.current;
+      prevPreloadRef.current = preload;
+      const wv = webviewRef.current;
+      if (!wasPreload || preload || !wv || app.placeholder) return;
+      const apply = () => {
+        try {
+          window.electronAPI?.setWebviewBackgroundThrottling?.(
+            wv.getWebContentsId(),
+            true,
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      if (apply()) return;
+      wv.addEventListener("dom-ready", apply, { once: true });
+      return () => wv.removeEventListener("dom-ready", apply);
+    }, [app.placeholder, preload]);
+
     function reportActiveWebview() {
       const wv = webviewRef.current;
       if (!wv) return;
