@@ -437,5 +437,6 @@ export const brainKnowledgeVerifications = table(
     state: text("state").notNull(),
     actorEmail: text("actor_email").notNull(),
     actedAt: text("acted_at").notNull(),
+    remindAt: text("remind_at"),
   },
 );
