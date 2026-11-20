@@ -1418,6 +1418,71 @@ describe("desktop Pi extension memory prompt", () => {
     setDesktopMemoryAccount(null);
   });
 
+  it("sees a memory change made while the initial read is still running", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >("@agent-native/core/resources/shared-memory");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let slowStarted = false;
+    vi.mocked(readMirroredMemory).mockImplementationOnce(async (...args) => {
+      const result = await actual.readMirroredMemory(...args);
+      slowStarted = true;
+      await gate;
+      return result;
+    });
+    const binding = bindDesktopSessionMemoryOwner();
+    await vi.waitFor(() => expect(slowStarted).toBe(true));
+    writeFileSync(index, "ALICE-LATE");
+    // fixed-sleep-ok: the watcher event has no completion signal to await
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    const session = await binding;
+    const prompt = await startSession(session.file);
+
+    await vi.waitFor(() => expect(prompt()).toContain("ALICE-LATE"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
+  it("keeps the last good prompt when a memory read fails", async () => {
+    const dir = seedAccounts();
+    const index = path.join(
+      dir,
+      "memory",
+      encodeURIComponent("a@example.test"),
+      "MEMORY.md",
+    );
+    setDesktopMemoryAccount("a@example.test");
+    const session = await bindDesktopSessionMemoryOwner();
+    const prompt = await startSession(session.file);
+    expect(prompt()).toContain("ALICE-SECRET");
+
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const actual = await vi.importActual<
+      typeof import("@agent-native/core/resources/shared-memory")
+    >("@agent-native/core/resources/shared-memory");
+    vi.mocked(readMirroredMemory).mockRejectedValue(new Error("EIO"));
+    writeFileSync(index, "ALICE-NEXT");
+    await vi.waitFor(() => expect(logged).toHaveBeenCalled());
+    expect(prompt()).toContain("ALICE-SECRET");
+    vi.mocked(readMirroredMemory).mockImplementation(actual.readMirroredMemory);
+    logged.mockRestore();
+
+    writeFileSync(index, "ALICE-RECOVERED");
+    await vi.waitFor(() => expect(prompt()).toContain("ALICE-RECOVERED"));
+    session.release();
+    setDesktopMemoryAccount(null);
+  });
+
   it("injects nothing for a memory whose tombstone is newer than its file", async () => {
     const dir = seedAccounts();
     const index = path.join(

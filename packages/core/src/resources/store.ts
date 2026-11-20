@@ -48,6 +48,7 @@ import {
   deleteSharedPersonalMemory,
   isPersonalMemoryResourcePath,
   listSharedPersonalMemories,
+  MemoryTombstoneError,
   readMirroredMemory,
   writeSharedPersonalMemory,
 } from "./shared-memory.js";
@@ -2123,7 +2124,14 @@ function sameMirrorTarget(a: MirrorTarget, b: MirrorTarget): boolean {
 
 function deleteMirroredMemory(owner: string, path: string): Promise<void> {
   return serializeMemoryMirror(owner, path, async () => {
-    await deleteSharedPersonalMemory(owner, path);
+    try {
+      await deleteSharedPersonalMemory(owner, path);
+    } catch (error) {
+      throw new MemoryTombstoneError(
+        `Could not record the deletion of ${path}; the shared copy may reappear`,
+        { cause: error },
+      );
+    }
     const row = await selectMirrorTarget(owner, path);
     if (row) await mirrorMemoryUnlocked(row);
   });
@@ -2852,7 +2860,12 @@ export async function resourceDeleteWithDb(
     notifyAfterCommit: async () => {
       if (deleted) {
         if (isPersonalMemoryResourcePath(owner, path)) {
-          await deleteMirroredMemory(owner, path).catch(() => {});
+          try {
+            await deleteMirroredMemory(owner, path);
+          } finally {
+            emitResourceDelete(id, path, owner);
+          }
+          return;
         }
         emitResourceDelete(id, path, owner);
       }
@@ -3277,7 +3290,12 @@ export async function resourceDeleteIfCurrent(
   const deleted = result.rowsAffected === 1;
   if (deleted) {
     if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
-      await deleteMirroredMemory(resource.owner, resource.path).catch(() => {});
+      try {
+        await deleteMirroredMemory(resource.owner, resource.path);
+      } finally {
+        emitResourceDelete(resource.id, resource.path, resource.owner);
+      }
+      return deleted;
     }
     emitResourceDelete(resource.id, resource.path, resource.owner);
   }
@@ -3337,6 +3355,7 @@ export async function resourceDeleteByPath(
       const mirrored = await readMirroredMemory(owner, path);
       if (mirrored.state !== "present") return false;
       await deleteMirroredMemory(owner, path);
+      emitResourceDelete(`shared-memory:${owner}:${path}`, path, owner);
       return true;
     }
     return false;
@@ -3349,7 +3368,12 @@ export async function resourceDeleteByPath(
   const deleted = result.rowsAffected > 0;
   if (deleted) {
     if (isPersonalMemoryResourcePath(owner, path)) {
-      await deleteMirroredMemory(owner, path).catch(() => {});
+      try {
+        await deleteMirroredMemory(owner, path);
+      } finally {
+        emitResourceDelete(rows[0].id as string, path, owner);
+      }
+      return deleted;
     }
     emitResourceDelete(rows[0].id as string, path, owner);
   }

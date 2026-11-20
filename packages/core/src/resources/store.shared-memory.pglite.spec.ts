@@ -586,4 +586,47 @@ describe("personal memory shared across local apps", () => {
       true,
     );
   });
+
+  it("fails a delete loudly when the tombstone cannot be written", async () => {
+    useMemoryDir();
+    const { resourceDeleteByPath, resourcePut } = await import("./store.js");
+    const { MemoryTombstoneError } = await import("./shared-memory.js");
+    await resourcePut(OWNER, "memory/no-tomb.md", "x");
+    const realRename = fs.promises.rename.bind(fs.promises);
+    const rename = vi
+      .spyOn(fs.promises, "rename")
+      .mockImplementation(async (from, to) => {
+        if (String(to).endsWith(".deleted")) throw new Error("EROFS");
+        return realRename(from, to);
+      });
+    try {
+      await expect(
+        resourceDeleteByPath(OWNER, "memory/no-tomb.md"),
+      ).rejects.toBeInstanceOf(MemoryTombstoneError);
+    } finally {
+      rename.mockRestore();
+    }
+  });
+
+  it("emits a delete event when a file-only memory is deleted", async () => {
+    const dir = useMemoryDir();
+    const { resourceDeleteByPath } = await import("./store.js");
+    const { getResourcesEmitter } = await import("./emitter.js");
+    writeSharedFile(dir, "only-file.md", "x");
+    const events: unknown[] = [];
+    const onEvent = (event: unknown) => events.push(event);
+    getResourcesEmitter().on("resources", onEvent);
+    try {
+      await expect(
+        resourceDeleteByPath(OWNER, "memory/only-file.md"),
+      ).resolves.toBe(true);
+    } finally {
+      getResourcesEmitter().off("resources", onEvent);
+    }
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      path: "memory/only-file.md",
+      owner: OWNER,
+    });
+  });
 });

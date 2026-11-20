@@ -1774,19 +1774,14 @@ function desktopMemoryDir(): string {
 }
 
 async function renderMemoryPrompt(account: string): Promise<string> {
-  try {
-    const index = await readMirroredMemory(
-      account,
-      "memory/MEMORY.md",
-      desktopMemoryDir(),
-    );
-    const content = index.state === "present" ? index.content.trim() : "";
-    if (!content || content === "# Memory Index") return "";
-    return `\n\n<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n${content}\n</resource>`;
-  } catch (error) {
-    console.error("[desktop-chat] Could not read shared memory:", error);
-    return "";
-  }
+  const index = await readMirroredMemory(
+    account,
+    "memory/MEMORY.md",
+    desktopMemoryDir(),
+  );
+  const content = index.state === "present" ? index.content.trim() : "";
+  if (!content || content === "# Memory Index") return "";
+  return `\n\n<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n${content}\n</resource>`;
 }
 
 export async function bindDesktopSessionMemoryOwner(): Promise<{
@@ -1802,7 +1797,16 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
   let released = false;
   const refresh = async () => {
     if (!account) return;
-    const prompt = await renderMemoryPrompt(account);
+    let prompt: string;
+    try {
+      prompt = await renderMemoryPrompt(account);
+    } catch (error) {
+      console.error(
+        "[desktop-chat] Could not read shared memory; keeping the last prompt:",
+        error,
+      );
+      return;
+    }
     if (released || currentMemoryAccount !== account) return;
     if (!prompt) {
       fs.rmSync(file, { force: true });
@@ -1813,24 +1817,28 @@ export async function bindDesktopSessionMemoryOwner(): Promise<{
     fs.writeFileSync(file, prompt, { mode: 0o600 });
     memoryOwnerFiles.set(file, account);
   };
-  await refresh();
   let refreshes: Promise<void> = Promise.resolve();
+  const scheduleRefresh = () => {
+    refreshes = refreshes.then(() =>
+      refresh().catch((error) =>
+        console.error("[desktop-chat] Could not refresh memory:", error),
+      ),
+    );
+    return refreshes;
+  };
   let watcher: fs.FSWatcher | undefined;
   if (account) {
     try {
       fs.mkdirSync(desktopMemoryDir(), { recursive: true });
       watcher = fs.watch(desktopMemoryDir(), { recursive: true }, () => {
-        refreshes = refreshes.then(() =>
-          refresh().catch((error) =>
-            console.error("[desktop-chat] Could not refresh memory:", error),
-          ),
-        );
+        void scheduleRefresh();
       });
       watcher.on("error", () => watcher?.close());
     } catch (error) {
       console.error("[desktop-chat] Could not watch shared memory:", error);
     }
   }
+  await scheduleRefresh();
   return {
     file,
     release: () => {
