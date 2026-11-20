@@ -333,6 +333,84 @@ describe("edit-design conflict retry", () => {
 
   it.each([
     [
+      "start",
+      '<p data-agent-native-node-id="live" class="old">Hi</p>',
+      ' data-agent-native-node-id="stale" class="old"',
+      ' data-agent-native-node-id="stale" class="new"',
+    ],
+    [
+      "end",
+      '<p class="old" data-agent-native-node-id="live">Hi</p>',
+      ' class="old" data-agent-native-node-id="stale"',
+      ' class="new" data-agent-native-node-id="stale"',
+    ],
+    [
+      "search start with separated live ID",
+      '<p data-agent-native-node-id="live" title="x" class="old">Hi</p>',
+      ' data-agent-native-node-id="stale" class="old"',
+      ' data-agent-native-node-id="stale" class="new"',
+    ],
+    [
+      "search end with separated live ID",
+      '<p class="old" title="x" data-agent-native-node-id="live">Hi</p>',
+      ' class="old" data-agent-native-node-id="stale"',
+      ' class="new" data-agent-native-node-id="stale"',
+    ],
+  ])(
+    "rejects a stripped stable ID at the %s boundary without writing",
+    async (_boundary, content, search, replace) => {
+      mocks.readLiveSourceFile.mockResolvedValue({
+        content,
+        versionHash: "h0",
+        language: "html",
+      });
+      await expect(
+        action.run({
+          designId: "design_1",
+          filename: "index.html",
+          edits: [{ search, replace }],
+        } as never),
+      ).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        errorCode: "design_edit_conflict",
+      });
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still rejects a locked layer changed through stable-ID fallback", async () => {
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content:
+        '<main><div data-agent-native-node-id="live" data-agent-native-locked="true">Legal</div></main>',
+      versionHash: "h0",
+      language: "html",
+    });
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [
+          {
+            search:
+              '<div data-agent-native-node-id="stale" data-agent-native-locked="true">Legal</div>',
+            replace:
+              '<div data-agent-native-node-id="stale" data-agent-native-locked="true">Changed</div>',
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "locked_layer_edit_rejected",
+    });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
       "missing",
       "<main><p>First</p><p>Private repeated text</p></main>",
       "Private absent text",
@@ -374,6 +452,8 @@ describe("edit-design conflict retry", () => {
       );
       await expect(failure).rejects.toThrow("get-design-snapshot");
       await expect(failure).rejects.toThrow("smaller");
+      await expect(failure).rejects.toThrow("selected variant expansion");
+      await expect(failure).rejects.toThrow("one complete replace-file edit");
       await expect(failure).rejects.toThrow(
         "all intended edits in the rejected batch",
       );

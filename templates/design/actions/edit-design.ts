@@ -92,7 +92,8 @@ function findUniqueStableIdAgnosticSpan(
   editIndex: number,
 ): { start: number; end: number } | null {
   const strippedContent = stripStableNodeIdAttributes(content);
-  const strippedSearch = stripStableNodeIdAttributes(search).content;
+  const searchProjection = stripStableNodeIdAttributes(search);
+  const strippedSearch = searchProjection.content;
   if (!strippedSearch) return null;
 
   const firstExact = strippedContent.content.indexOf(strippedSearch);
@@ -116,10 +117,23 @@ function findUniqueStableIdAgnosticSpan(
   if (matches.length === 0) return null;
 
   const { start, end } = matches[0];
-  return {
-    start: strippedContent.indexMap[start] ?? 0,
-    end: (strippedContent.indexMap[end - 1] ?? content.length - 1) + 1,
-  };
+  const originalStart = strippedContent.indexMap[start] ?? 0;
+  const originalEnd =
+    (strippedContent.indexMap[end - 1] ?? content.length - 1) + 1;
+  const previousEnd =
+    start === 0 ? 0 : (strippedContent.indexMap[start - 1] ?? -1) + 1;
+  const nextStart = strippedContent.indexMap[end] ?? content.length;
+  if (
+    originalStart !== previousEnd ||
+    originalEnd !== nextStart ||
+    searchProjection.indexMap[0] !== 0 ||
+    searchProjection.indexMap[strippedSearch.length - 1] !== search.length - 1
+  ) {
+    throw new DesignEditSearchConflictError(
+      `Edit ${editIndex + 1}: search text has an ambiguous stable-ID boundary. Read the current file (get-design-snapshot) and include the complete element in the search.`,
+    );
+  }
+  return { start: originalStart, end: originalEnd };
 }
 
 function applyOneEditWithStableIdFallback(
@@ -166,7 +180,7 @@ export function applySearchReplaceEdits(
   } catch (error) {
     if (!(error instanceof DesignEditSearchConflictError)) throw error;
     throw new NoWriteError(
-      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry all intended edits in the rejected batch in smaller sequential batches with enough context to uniquely identify each match.`,
+      `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry all intended edits in the rejected batch in smaller sequential batches with enough context to uniquely identify each match. For a selected variant expansion, instead retry one complete replace-file edit, not partial batches.`,
       designEditConflictOptions(),
     );
   }

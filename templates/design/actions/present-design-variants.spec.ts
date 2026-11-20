@@ -456,6 +456,18 @@ describe("present-design-variants", () => {
         }),
       ]),
     });
+    expect(result.fallbackInstructions).toContain(
+      "retry one complete replace-file edit",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "retry one complete replace-file edit",
+    );
+    expect(firstOption?.value).toContain(
+      "retry one complete replace-file edit",
+    );
+    expect(guidedQuestions.submitMessage).toContain(
+      "retry one complete replace-file edit",
+    );
     expect(result.nextRequiredAction).toContain("get-design-snapshot");
     expect(result.nextRequiredAction).toContain(
       "delete each unchosen variant screen with delete-file at most once",

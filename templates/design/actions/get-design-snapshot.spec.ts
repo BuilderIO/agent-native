@@ -92,6 +92,10 @@ describe("get-design-snapshot", () => {
     expect(result.nextRequiredAction).toContain("call edit-design");
     expect(result.nextRequiredAction).toContain("fileId file-b");
     expect(result.nextRequiredAction).toContain("smaller sequential batches");
+    expect(result.nextRequiredAction).toContain("selected variant");
+    expect(result.nextRequiredAction).toContain(
+      "one complete replace-file edit",
+    );
     expect(result.nextRequiredAction).toContain("none of its edits were saved");
     expect(result.nextRequiredAction).toContain("re-read the current file");
     expect(result.nextRequiredAction).toContain(

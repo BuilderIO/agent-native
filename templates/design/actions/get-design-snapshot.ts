@@ -157,7 +157,7 @@ export default defineAction({
               filename: boundedFile.filename,
             },
             nextRequiredAction:
-              `For an in-place refinement, call edit-design with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). Use smaller sequential batches when appropriate. If a batch conflicts, none of its edits were saved; re-read the current file with get-design-snapshot and retry all intended edits in the rejected batch with unique context. ` +
+              `For an in-place refinement, call edit-design with designId ${designId} and fileId ${boundedFile.id} (${boundedFile.filename}). Use smaller sequential batches when appropriate. If a batch conflicts, none of its edits were saved; re-read the current file with get-design-snapshot and retry all intended edits in the rejected batch with unique context. For a selected variant expansion, instead retry one complete replace-file edit, not partial batches. ` +
               'For a requested HubSpot email rebuild, use this source to author a new email-safe HTML sibling with create-file and frameType "hubspot-email", and preserve the original. ' +
               "Do not call delete-file unless the user requests it.",
           }
