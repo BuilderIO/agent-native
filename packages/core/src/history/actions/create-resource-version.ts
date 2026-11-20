@@ -89,7 +89,7 @@ function actorKindFromContext(
   ctx: VersionedResourceContext | undefined,
 ): HistoryActorKind {
   const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || isAgentCaller(caller)) {
+  if (isAgentCaller(caller)) {
     return "agent";
   }
   return ctx?.userEmail ? "human" : "system";

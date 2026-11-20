@@ -76,7 +76,7 @@ describe("isOutsideAgentCall", () => {
 });
 
 describe("isAgentCaller", () => {
-  it.each(["tool", "mcp", "webmcp", "a2a"] as const)(
+  it.each(["agent", "tool", "mcp", "webmcp", "a2a"] as const)(
     "treats a %s call as an agent",
     (caller) => {
       expect(isAgentCaller({ caller })).toBe(true);

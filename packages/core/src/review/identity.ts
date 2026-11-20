@@ -22,7 +22,7 @@ export function reviewActorKindFromContext(
   ctx: ReviewResourceContext | undefined,
 ): ReviewActorKind {
   const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || isAgentCaller(caller)) {
+  if (isAgentCaller(caller)) {
     return "agent";
   }
   return ctx?.userEmail ? "human" : "system";

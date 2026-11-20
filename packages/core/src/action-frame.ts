@@ -150,9 +150,19 @@ export function currentActionOriginCaller(): ActionCaller | undefined {
   return caller;
 }
 
-/** Whether the innermost action call running now was declared read-only. */
-export function currentActionReadOnly(): boolean {
-  return actionExecutionStorage?.getStore()?.frame?.writes === false;
+/**
+ * Whether a read-only action call is running now: the innermost call or any
+ * call it runs inside, so a write nested in a read stays inside the read.
+ */
+export function insideReadOnlyAction(): boolean {
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.writes === false) return true;
+  }
+  return false;
 }
 
 /**

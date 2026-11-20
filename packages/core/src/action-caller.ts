@@ -13,7 +13,8 @@ export function isOutsideAgentCall(
   );
 }
 
-const AGENT_CALLERS: ReadonlySet<string> = new Set<ActionCaller>([
+const AGENT_CALLERS: ReadonlySet<string> = new Set<ActionCaller | "agent">([
+  "agent",
   "tool",
   "mcp",
   "webmcp",

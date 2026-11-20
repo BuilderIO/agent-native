@@ -513,3 +513,74 @@ describe("application-state write order", () => {
     await expect(appStateGet(SESSION, "draft")).resolves.toBeNull();
   });
 });
+
+describe("agent reads keep the user's view", () => {
+  async function inAction<T>(
+    caller: "mcp" | "frontend",
+    readOnly: boolean,
+    write: () => Promise<T>,
+  ): Promise<T> {
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+    const action = defineAction({
+      description: "Run a write inside an action.",
+      schema: z.object({}),
+      readOnly,
+      run: async () => write(),
+    });
+    return action.run({}, { caller }) as Promise<T>;
+  }
+
+  const value = { path: "/tasks/t1" };
+  const writes = {
+    put: (key: string) => appStatePut(SESSION, key, value),
+    cas: (key: string) => appStateCompareAndSet(SESSION, key, null, value),
+    casMany: (key: string) =>
+      appStateCompareAndSetMany(SESSION, [
+        { key: "other", expectedValue: null, nextValue: { x: 1 } },
+        { key, expectedValue: null, nextValue: value },
+      ]),
+  };
+
+  it.each([
+    ["put", "navigate"],
+    ["put", "navigate:tab-1"],
+    ["cas", "navigate"],
+    ["casMany", "navigate:tab-1"],
+  ] as const)("refuses a %s of %s from an agent's read", async (kind, key) => {
+    await expect(
+      inAction("mcp", true, () => writes[kind](key)),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+    });
+    expect(await appStateGet(SESSION, key)).toBeNull();
+    expect(await appStateGet(SESSION, "other")).toBeNull();
+  });
+
+  it("refuses a navigate write from a write nested in an agent's read", async () => {
+    await expect(
+      inAction("mcp", true, () =>
+        inAction("mcp", false, () => writes.put("navigate")),
+      ),
+    ).rejects.toThrow(/read-only action cannot move the user's view/);
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+  });
+
+  it("lets an agent's read clear navigate and write other keys", async () => {
+    await appStatePut(SESSION, "navigate", value);
+    await inAction("mcp", true, async () => {
+      await appStateCompareAndSet(SESSION, "navigate", value, null);
+      await appStatePut(SESSION, "draft", { body: "x" });
+    });
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+    expect(await appStateGet(SESSION, "draft")).toEqual({ body: "x" });
+  });
+
+  it("lets an agent's write and a person's read navigate", async () => {
+    await inAction("mcp", false, () => writes.put("navigate"));
+    await inAction("frontend", true, () => writes.cas("navigate:tab-1"));
+    expect(await appStateGet(SESSION, "navigate")).toEqual(value);
+    expect(await appStateGet(SESSION, "navigate:tab-1")).toEqual(value);
+  });
+});

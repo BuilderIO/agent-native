@@ -17,14 +17,8 @@ vi.mock("../db/client.js", () => ({
   isLocalDatabase: () => true,
 }));
 
-import { z } from "zod";
-
-import { defineAction } from "../action.js";
-import {
-  AgentNavigationRefusedError,
-  navigateAfterWrite,
-} from "./agent-navigation.js";
-import { writeAppState } from "./script-helpers.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import { navigateAfterWrite } from "./agent-navigation.js";
 
 function navigatedPaths(): unknown[] {
   return mockAppStatePut.mock.calls
@@ -37,25 +31,6 @@ describe("agent navigation keeps the user's view", () => {
     vi.clearAllMocks();
     process.env.AGENT_USER_EMAIL = "person@example.com";
   });
-
-  it.each(["navigate", "navigate:tab-1"])(
-    "refuses a %s write from a read-only action an agent called",
-    async (key) => {
-      const getTask = defineAction({
-        description: "Read a task.",
-        schema: z.object({ id: z.string() }),
-        readOnly: true,
-        run: async ({ id }) => {
-          await writeAppState(key, { path: `/tasks/${id}` });
-          return { id };
-        },
-      });
-      await expect(
-        getTask.run({ id: "t1" }, { caller: "mcp" }),
-      ).rejects.toThrow(/read-only action cannot move the user's view/);
-      expect(navigatedPaths()).toEqual([]);
-    },
-  );
 
   it("skips a write's follow-up navigation for an agent, keeps it for a person", async () => {
     await expect(
@@ -76,5 +51,25 @@ describe("agent navigation keeps the user's view", () => {
       ),
     ).resolves.toEqual({ navigated: true });
     expect(navigatedPaths()).toEqual(["/tasks/t1", "/tasks/t2"]);
+  });
+
+  it("says no tab moved when a call from no tab finds none", async () => {
+    const result = await runWithRequestContext(
+      {
+        userEmail: "person@example.com",
+        run: {
+          browserTabTarget: {
+            resolve: async () => ({ kind: "unavailable" as const }),
+          },
+        },
+      },
+      () =>
+        navigateAfterWrite(
+          { path: "/tasks/t1" },
+          { ctx: { caller: "frontend" } },
+        ),
+    );
+    expect(result).toEqual({ navigated: false, reason: "no-tab" });
+    expect(navigatedPaths()).toEqual([]);
   });
 });

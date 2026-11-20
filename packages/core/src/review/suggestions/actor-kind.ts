@@ -7,7 +7,7 @@ export function suggestionActorKind(
   ctx: unknown,
 ): "agent" | "human" | "system" {
   const caller = (ctx as { caller?: unknown })?.caller;
-  if (caller === "agent" || isAgentCaller(caller)) return "agent";
+  if (isAgentCaller(caller)) return "agent";
   return (ctx as { userEmail?: unknown })?.userEmail ? "human" : "system";
 }
 

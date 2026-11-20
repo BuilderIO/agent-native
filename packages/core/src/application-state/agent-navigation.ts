@@ -1,12 +1,15 @@
 import { z } from "zod";
 
 import { isAgentCaller } from "../action-caller.js";
-import {
-  currentActionOriginCaller,
-  currentActionReadOnly,
-} from "../action-frame.js";
+import { currentActionOriginCaller } from "../action-frame.js";
 import type { ActionRunContext } from "../action.js";
-import { writeAppStateForCurrentTab } from "./script-helpers.js";
+import { AgentNavigationRefusedError } from "./navigate-write-guard.js";
+import {
+  resolveCurrentRequestStateTab,
+  writeAppStateForCurrentTab,
+} from "./script-helpers.js";
+
+export { AgentNavigationRefusedError };
 
 /**
  * The one intent that lets an agent open a view: the user asked to see it.
@@ -26,14 +29,6 @@ export const navigationIntentSchema = z
 export type DetailViewPredicate = (
   navigation: Record<string, unknown>,
 ) => boolean;
-
-export class AgentNavigationRefusedError extends Error {
-  readonly code = "agent_navigation_refused";
-  constructor(message: string) {
-    super(message);
-    this.name = "AgentNavigationRefusedError";
-  }
-}
 
 function agentCallRunning(ctx?: Pick<ActionRunContext, "caller">): boolean {
   return isAgentCaller(currentActionOriginCaller() ?? ctx?.caller);
@@ -60,22 +55,9 @@ export function assertAgentNavigationAllowed(
   );
 }
 
-/**
- * Refuses a navigate command written by a read-only action during an agent
- * call. Reading data never moves the user's view.
- */
-export function assertNavigateWriteAllowed(key: string): void {
-  const navigateKey = key === "navigate" || key.startsWith("navigate:");
-  if (!navigateKey || !currentActionReadOnly()) return;
-  if (!agentCallRunning()) return;
-  throw new AgentNavigationRefusedError(
-    'Refused: a read-only action cannot move the user\'s view. Read the data and answer; call navigate with intent: "open" only if the user asked to see it.',
-  );
-}
-
 export type NavigateAfterWriteResult =
   | { navigated: true }
-  | { navigated: false; reason: "agent-keeps-view" };
+  | { navigated: false; reason: "agent-keeps-view" | "no-tab" };
 
 /**
  * For a write action that follows its result in the UI (say, opening a new
@@ -94,6 +76,9 @@ export async function navigateAfterWrite(
     options.intent !== NAVIGATION_OPEN_INTENT
   ) {
     return { navigated: false, reason: "agent-keeps-view" };
+  }
+  if ((await resolveCurrentRequestStateTab()).unavailable) {
+    return { navigated: false, reason: "no-tab" };
   }
   await writeAppStateForCurrentTab("navigate", {
     ...navigation,
