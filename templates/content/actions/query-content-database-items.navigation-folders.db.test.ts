@@ -146,10 +146,10 @@ function navigate(
   databaseId: string,
   navigation: {
     parentId: string | null;
-    sort?: ContentDatabaseNavigationSort;
+    sort?: ContentDatabaseNavigationSort | undefined;
     cursor?: string;
     expand?: string[];
-    pagesOnly?: boolean;
+    pagesOnly?: boolean | undefined;
   },
   limit?: number,
 ) {

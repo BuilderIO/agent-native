@@ -146,7 +146,7 @@ export default defineAction({
         limit: limit ?? 20,
         cursor: navigation.cursor,
         expand: navigation.expand,
-        pagesOnly: navigation.pagesOnly,
+        pagesOnly: navigation.pagesOnly ?? false,
       });
     }
 
