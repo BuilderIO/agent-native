@@ -94,23 +94,30 @@ async function openChat({ withToolSlot = false } = {}) {
         controller={controller}
         threadId={threadId}
         slots={{
-          widget: AgentKitActionWidget,
+          widget: (props) => (
+            <div data-widget-slot={props.value.id}>
+              <AgentKitActionWidget {...props} />
+            </div>
+          ),
           ...(withToolSlot
             ? {
                 tool: ({ value }) => (
-                  <ToolCallDisplay
-                    toolName={value.name}
-                    toolCallId={value.id}
-                    args={{}}
-                    argsText="{}"
-                    result={
-                      typeof value.output === "string"
-                        ? value.output
-                        : JSON.stringify(value.output)
-                    }
-                    status={value.status}
-                    chatUI={value.metadata?.chatUI ? { renderer } : undefined}
-                  />
+                  <div data-tool-slot={value.id}>
+                    <ToolCallDisplay
+                      toolName={value.name}
+                      toolCallId={value.id}
+                      args={{}}
+                      argsText="{}"
+                      result={
+                        typeof value.output === "string"
+                          ? value.output
+                          : JSON.stringify(value.output)
+                      }
+                      status={value.status}
+                      isRunning={value.status === "running"}
+                      chatUI={value.metadata?.chatUI as never}
+                    />
+                  </div>
                 ),
               }
             : {}),
@@ -159,7 +166,14 @@ async function openChat({ withToolSlot = false } = {}) {
 }
 
 function summary() {
-  return container.querySelector(".agentkit-activities-summary");
+  return Array.from(
+    container.querySelectorAll(".agentkit-activities-summary"),
+  ).at(-1);
+}
+
+function count() {
+  return summary()?.querySelector('[title="Tool calls"]')?.lastChild
+    ?.textContent;
 }
 
 it("advances the visible tool count while consecutive calls have the same label", async () => {
@@ -171,8 +185,6 @@ it("advances the visible tool count while consecutive calls have the same label"
   await send(startTool("db-query", "query-first"));
   expect(summary()?.textContent).toContain("Db query");
 
-  const count = () =>
-    summary()?.querySelector('[title="Tool calls"]')?.lastChild?.textContent;
   expect.soft(count()).toBe("46");
   await send(
     { type: "tool_done", tool: "db-query", id: "query-first", result: "{}" },
@@ -184,6 +196,74 @@ it("advances the visible tool count while consecutive calls have the same label"
   });
   expect(summary()?.textContent).toContain("Db query");
   expect(count()).toBe("59");
+});
+
+it("counts only the calls since the user's message reached the run", async () => {
+  const { send } = await openChat();
+  await send(...calls("db-query", 3));
+  await send({
+    type: "user_message",
+    message: {
+      id: "steer-1",
+      text: "Check the archive too.",
+      createdAt: "2026-11-21T00:00:00.000Z",
+    },
+    continuationMessageId: `${runId}:after:steer-1`,
+  });
+  await send(startTool("db-query", "query-after-steer"));
+  expect(summary()?.textContent).toContain("Db query");
+  expect(count()).toBe("1");
+});
+
+it.each([
+  {
+    card: "an unregistered card",
+    metadata: { chatUI: { renderer: "test.unregistered" } },
+  },
+  {
+    card: "a card with an MCP app",
+    metadata: {
+      chatUI: { renderer },
+      mcpApp: {
+        serverId: "lab",
+        toolName,
+        originalToolName: "check_ingredient_compatibility",
+        resourceUri: "ui://lab/compatibility",
+        toolInput: {},
+        toolResult: payload,
+      },
+    },
+  },
+])("leaves $card to the host's tool slot", async ({ metadata }) => {
+  const unregister = registerActionChatRenderer({
+    id: renderer,
+    renderer,
+    Component: () => <p data-verdict-card>{verdict}</p>,
+  });
+  try {
+    const { controller, send } = await openChat({ withToolSlot: true });
+    await send(startTool(toolName, toolId), {
+      type: "tool_done",
+      id: toolId,
+      tool: toolName,
+      result: JSON.stringify(payload),
+      chatUIResult: payload,
+      ...metadata,
+    });
+    await act(async () => {
+      await vi.waitFor(() => {
+        if (!(`${toolId}:chat-ui` in controller.getThread(threadId).widgets)) {
+          throw new Error("The card's widget has not arrived yet");
+        }
+      });
+    });
+    expect(
+      container.querySelector(`[data-tool-slot="${toolId}"]`)?.textContent,
+    ).toMatch(/\S/);
+    expect(container.querySelector("[data-widget-slot]")).toBeNull();
+  } finally {
+    unregister();
+  }
 });
 
 it.each([
