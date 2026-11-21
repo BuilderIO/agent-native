@@ -368,7 +368,6 @@ export interface GoogleAuthStatus {
     expiresAt?: string;
     photoUrl?: string;
     shared?: boolean;
-    /** What the account is for, written by the user or an agent. */
     description?: string;
   }>;
 }
@@ -384,7 +383,6 @@ export interface GoogleCalendarSource {
   primary: boolean;
   accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
   readOnly: boolean;
-  /** The description of the account this calendar is read through. */
   accountDescription?: string;
   sourcePaths?: Array<{
     sourceKey: string;
@@ -399,7 +397,6 @@ export interface ExternalCalendar {
   name: string;
   url: string;
   color: string;
-  /** What the feed is for, written by the user or an agent. */
   description?: string;
 }
 

@@ -7,10 +7,6 @@ import {
   normalizeCalendarDescription,
 } from "@shared/calendar-descriptions";
 
-/**
- * Edits what a connected account or feed is for. Saves when the field loses
- * focus or on Enter, since a description is a single line.
- */
 export function CalendarDescriptionField({
   value,
   onSave,

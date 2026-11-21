@@ -1,7 +1,10 @@
 import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 
 import type { ExternalCalendar } from "../../shared/api.js";
-import { normalizeCalendarDescription } from "../../shared/calendar-descriptions.js";
+import {
+  normalizeCalendarDescription,
+  withFeedDescription,
+} from "../../shared/calendar-descriptions.js";
 
 const ACCOUNT_DESCRIPTIONS_KEY = "calendar-account-descriptions";
 const EXTERNAL_CALENDARS_KEY = "external-calendars";
@@ -10,11 +13,9 @@ function accountKey(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function readAccountDescriptions(
-  stored: Record<string, unknown> | null,
-): Record<string, string> {
+function readAccountDescriptions(stored: unknown): Record<string, string> {
   const descriptions: Record<string, string> = {};
-  if (!stored || typeof stored !== "object" || Array.isArray(stored)) {
+  if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
     return descriptions;
   }
   for (const [email, value] of Object.entries(stored)) {
@@ -24,11 +25,6 @@ function readAccountDescriptions(
   return descriptions;
 }
 
-/**
- * The owner's descriptions of their connected Google accounts, keyed by
- * lowercased account email. Agents read them to choose the right account.
- * A failed read returns none, so schedule and status reads still answer.
- */
 export async function getAccountDescriptions(
   owner: string,
 ): Promise<Record<string, string>> {
@@ -42,7 +38,6 @@ export async function getAccountDescriptions(
   }
 }
 
-/** One account's description from {@link getAccountDescriptions}, if any. */
 export function accountDescriptionFor(
   descriptions: Record<string, string>,
   email: string | undefined,
@@ -50,7 +45,6 @@ export function accountDescriptionFor(
   return email ? descriptions[accountKey(email)] : undefined;
 }
 
-/** Saves or, with no description, clears one account's description. */
 export async function setAccountDescription(
   owner: string,
   accountEmail: string,
@@ -65,10 +59,6 @@ export async function setAccountDescription(
   });
 }
 
-/**
- * Saves or clears one subscribed feed's description. Returns the updated
- * feed, or null when the owner has no feed with that id.
- */
 export async function setFeedDescription(
   owner: string,
   feedId: string,
@@ -81,9 +71,7 @@ export async function setFeedDescription(
       : [];
     const next = feeds.map((feed) => {
       if (feed.id !== feedId) return feed;
-      const changed: ExternalCalendar = { ...feed };
-      if (description) changed.description = description;
-      else delete changed.description;
+      const changed = withFeedDescription(feed, description);
       updated = changed;
       return changed;
     });

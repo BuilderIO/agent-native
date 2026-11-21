@@ -398,7 +398,6 @@ function ColorPickerPopover({
 }: {
   color: string;
   onColorChange: (color: string) => void;
-  /** Adds a Description field, which agents read to tell calendars apart. */
   description?: {
     value: string | undefined;
     onSave: (description: string) => void;
@@ -435,7 +434,6 @@ function ColorPickerPopover({
   );
 }
 
-/** A sidebar row's name, showing its description on hover when it has one. */
 function CalendarRowName({
   name,
   description,

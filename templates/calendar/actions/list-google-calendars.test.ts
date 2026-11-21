@@ -59,16 +59,19 @@ describe("list-google-calendars action", () => {
       "me@example.com": "   ",
     });
 
-    const result = await (action as any).run({});
+    const result = await action.run({});
 
     expect(getUserSettingMock).toHaveBeenCalledWith(
       "owner@example.com",
       "calendar-account-descriptions",
     );
-    expect(result.calendars[0].accountDescription).toBe(
-      "Builder work; meetings with Steve go here",
-    );
-    expect(result.calendars[1]).not.toHaveProperty("accountDescription");
+    expect(result.calendars).toEqual([
+      expect.objectContaining({
+        sourceKey: "s1",
+        accountDescription: "Builder work; meetings with Steve go here",
+      }),
+      expect.not.objectContaining({ accountDescription: expect.anything() }),
+    ]);
   });
 
   it("refuses unauthenticated discovery", async () => {

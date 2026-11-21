@@ -727,7 +727,7 @@ describe("list-events inventory contract", () => {
     });
     fetchICalEventsMock.mockResolvedValue([]);
 
-    const result = await (listEventsAction as any).run(
+    const result = await listEventsAction.run(
       {
         from: "2026-06-17",
         to: "2026-06-18",
@@ -736,14 +736,14 @@ describe("list-events inventory contract", () => {
       { caller: "mcp" },
     );
 
-    expect(result.accounts).toEqual([
+    expect(result).toHaveProperty("accounts", [
       expect.objectContaining({
         accountEmail: "work@example.com",
         description: "Builder work; meetings with Steve go here",
       }),
       expect.not.objectContaining({ description: expect.anything() }),
     ]);
-    expect(result.sourceCoverage).toEqual([
+    expect(result).toHaveProperty("sourceCoverage", [
       {
         source: "ics",
         id: "talks",

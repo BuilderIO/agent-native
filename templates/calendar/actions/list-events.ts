@@ -1024,7 +1024,9 @@ export default defineAction({
               key: last.key,
             })
           : undefined;
-      const accountDescriptions = await getAccountDescriptions(owner!);
+      const accountDescriptions = owner
+        ? await getAccountDescriptions(owner)
+        : {};
       const accounts = result.queriedAccounts.map((accountEmail) => {
         const error = result.errors.find(
           (entry) =>

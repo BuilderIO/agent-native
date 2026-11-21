@@ -16,7 +16,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 import { useUpdateCalendarDescription } from "./use-calendar-descriptions";
 import { useUpdateExternalCalendarColor } from "./use-external-calendars";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const FEEDS_KEY = ["action", "list-external-calendars", undefined];
 const FEEDS: ExternalCalendar[] = [
@@ -29,6 +29,11 @@ let root: Root | null = null;
 let describeCalendar: ReturnType<typeof useUpdateCalendarDescription> | null =
   null;
 let recolor: ReturnType<typeof useUpdateExternalCalendarColor> | null = null;
+
+function hooks() {
+  if (!describeCalendar || !recolor) throw new Error("Harness isn't rendered");
+  return { describeCalendar, recolor };
+}
 
 function Harness() {
   const describeHook = useUpdateCalendarDescription();
@@ -43,9 +48,10 @@ function Harness() {
 async function renderHarness(queryClient: QueryClient) {
   container = document.createElement("div");
   document.body.appendChild(container);
-  root = createRoot(container);
+  const created = createRoot(container);
+  root = created;
   await act(async () => {
-    root!.render(
+    created.render(
       <QueryClientProvider client={queryClient}>
         <Harness />
       </QueryClientProvider>,
@@ -59,8 +65,8 @@ describe("useUpdateCalendarDescription", () => {
     recolor = null;
   });
 
-  afterEach(() => {
-    act(() => root?.unmount());
+  afterEach(async () => {
+    await act(async () => root?.unmount());
     container?.remove();
     root = null;
     container = null;
@@ -83,15 +89,14 @@ describe("useUpdateCalendarDescription", () => {
     queryClient.setQueryData(FEEDS_KEY, FEEDS);
     await renderHarness(queryClient);
 
-    // Leaving the field saves the description; the click lands on a color.
     await act(async () => {
-      describeCalendar!.mutate({
+      hooks().describeCalendar.mutate({
         feedId: "talks",
         description: " Conference talks\n I might attend ",
       });
     });
     await act(async () => {
-      recolor!.mutate({ id: "talks", color: "red" });
+      hooks().recolor.mutate({ id: "talks", color: "red" });
     });
 
     await vi.waitFor(() =>
@@ -129,7 +134,7 @@ describe("useUpdateCalendarDescription", () => {
     await renderHarness(queryClient);
 
     await act(async () => {
-      describeCalendar!.mutate({ feedId: "talks", description: "  " });
+      hooks().describeCalendar.mutate({ feedId: "talks", description: "  " });
     });
 
     expect(callAction).toHaveBeenCalledWith(

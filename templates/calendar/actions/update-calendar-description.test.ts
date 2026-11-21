@@ -1,3 +1,4 @@
+import { actionCallIntent } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -35,7 +36,9 @@ vi.mock("../server/lib/google-calendar.js", () => ({
 import action from "./update-calendar-description.js";
 
 const owner = "owner@example.com";
-const run = (args: Record<string, unknown>) => (action as any).run(args);
+const run = (args: Parameters<typeof action.run>[0]) => action.run(args);
+const isValid = async (args: unknown) =>
+  (await actionCallIntent(action, args)).valid;
 
 describe("update-calendar-description", () => {
   beforeEach(() => {
@@ -132,20 +135,18 @@ describe("update-calendar-description", () => {
     );
   });
 
-  it("takes exactly one of an account or a feed", () => {
-    const schema = (action as any).schema;
-    expect(schema.safeParse({ description: "x" }).success).toBe(false);
-    expect(
-      schema.safeParse({
+  it("takes exactly one of an account or a feed", async () => {
+    await expect(isValid({ description: "x" })).resolves.toBe(false);
+    await expect(
+      isValid({
         accountEmail: "work@example.com",
         feedId: "talks",
         description: "x",
-      }).success,
-    ).toBe(false);
-    expect(
-      schema.safeParse({ accountEmail: "work@example.com", description: "x" })
-        .success,
-    ).toBe(true);
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      isValid({ accountEmail: "work@example.com", description: "x" }),
+    ).resolves.toBe(true);
   });
 
   it("refuses unauthenticated calls", async () => {

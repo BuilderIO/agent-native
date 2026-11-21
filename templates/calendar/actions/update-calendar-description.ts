@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -33,7 +33,9 @@ export default defineAction({
         .string()
         .min(1)
         .optional()
-        .describe("id of a subscribed calendar feed, from list-external-calendars"),
+        .describe(
+          "id of a subscribed calendar feed, from list-external-calendars",
+        ),
       description: z
         .string()
         .max(MAX_CALENDAR_DESCRIPTION_LENGTH)
@@ -45,28 +47,55 @@ export default defineAction({
       message: "Set exactly one of accountEmail or feedId",
       path: ["accountEmail"],
     }),
+  outputSchema: z.union([
+    z.object({
+      accountEmail: z.string(),
+      description: z.string().nullable(),
+    }),
+    z.object({
+      feedId: z.string(),
+      name: z.string(),
+      description: z.string().nullable(),
+    }),
+  ]),
   http: { method: "PUT" },
-  run: async (args) => {
+  run: async ({ accountEmail, feedId, description: text }) => {
     const owner = getRequestUserEmail();
-    if (!owner) throw new Error("no authenticated user");
-    const description = normalizeCalendarDescription(args.description);
+    if (!owner) {
+      fail("no authenticated user", {
+        errorCode: "unauthenticated",
+        statusCode: 401,
+      });
+    }
+    const description = normalizeCalendarDescription(text);
 
-    if (args.accountEmail) {
-      const target = args.accountEmail.trim().toLowerCase();
-      const accountEmail = (await getOwnedAccountEmails(owner)).find(
+    if (accountEmail) {
+      const target = accountEmail.trim().toLowerCase();
+      const owned = (await getOwnedAccountEmails(owner)).find(
         (email) => email.trim().toLowerCase() === target,
       );
-      if (!accountEmail) {
-        throw new Error(
-          `${args.accountEmail} isn't one of your connected Google accounts`,
-        );
+      if (!owned) {
+        fail(`${accountEmail} isn't one of your connected Google accounts`, {
+          errorCode: "calendar_account_not_connected",
+          statusCode: 404,
+        });
       }
-      await setAccountDescription(owner, accountEmail, description);
-      return { accountEmail, description: description ?? null };
+      await setAccountDescription(owner, owned, description);
+      return { accountEmail: owned, description: description ?? null };
     }
 
-    const feed = await setFeedDescription(owner, args.feedId!, description);
-    if (!feed) throw new Error(`No calendar feed has the id ${args.feedId}`);
+    if (!feedId) {
+      fail("Set exactly one of accountEmail or feedId", {
+        errorCode: "calendar_description_target_missing",
+      });
+    }
+    const feed = await setFeedDescription(owner, feedId, description);
+    if (!feed) {
+      fail(`No calendar feed has the id ${feedId}`, {
+        errorCode: "calendar_feed_not_found",
+        statusCode: 404,
+      });
+    }
     return { feedId: feed.id, name: feed.name, description: description ?? null };
   },
 });

@@ -117,6 +117,27 @@ Creating without `accountEmail` is only unambiguous when one Google account is
 connected. The action does not support arbitrary non-primary Google calendar
 IDs.
 
+### Account and feed descriptions
+
+The user can describe what each connected account and subscribed feed is for,
+such as "Builder work; meetings with Steve go here". Reads return it:
+`description` on `list-events` inventory `accounts` and `sourceCoverage`, on the
+Google status accounts, and on `list-external-calendars` feeds;
+`accountDescription` on each `list-google-calendars` calendar. Use it to choose
+`accountEmail` for a new event, and ask only when no description settles it.
+
+When the user says what an account or feed is for, offer to save it, then pass
+exactly one target:
+
+```bash
+pnpm action update-calendar-description --accountEmail work@example.com \
+  --description "Builder work; meetings with Steve go here"
+pnpm action update-calendar-description --feedId feed-id --description ""
+```
+
+An empty description clears it. The note lives in Calendar only; Google
+Calendar is not changed.
+
 When attendees are invited and no video link/provider is supplied, Calendar
 automatically adds a Google Meet link by default. Pass `--addGoogleMeet=false`
 only when the user explicitly wants no video conferencing. If the user provides
