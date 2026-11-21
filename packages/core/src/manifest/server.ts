@@ -34,7 +34,7 @@ export function getManifestActions(app: object): readonly string[] {
 
 export function getAppManifest(
   actionNames: readonly string[] = [],
-  defaults: { id?: string; name?: string } = {},
+  defaults: { id?: string | undefined; name?: string | undefined } = {},
 ) {
   const { app, manifest } = getAppConfig();
   return (

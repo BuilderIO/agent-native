@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   defineAppManifest,
   deriveAppManifest,
+  resolveScreenPath,
   appCapabilityManifestSchema,
 } from "./index.js";
 
@@ -39,6 +40,12 @@ describe("app capability manifest", () => {
       },
       entities: { task: { show: "task" } },
     });
+    expect(resolveScreenPath(manifest, "task", { id: "group/one" })).toBe(
+      "/tasks/group%2Fone",
+    );
+    expect(() => resolveScreenPath(manifest, "task", { id: ".." })).toThrow();
+    expect(() => resolveScreenPath(manifest, "task")).toThrow();
+    expect(() => resolveScreenPath(manifest, "missing")).toThrow();
     expect(manifest.screens.definitions.task.show.params).toMatchObject({
       properties: { id: { type: "string" } },
       required: ["id"],

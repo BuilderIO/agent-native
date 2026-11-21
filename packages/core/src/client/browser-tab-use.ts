@@ -7,8 +7,7 @@ import {
 } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 
-// Ignore repeated focus signals while the tab is already active.
-const ROUTE_CHANGE_RECORD_INTERVAL_MS = 60_000;
+const FOCUS_RECORD_INTERVAL_MS = 60_000;
 
 let mounts = 0;
 let removeListeners: (() => void) | undefined;
@@ -46,7 +45,7 @@ function record(): void {
 function recordIfReturned(): void {
   if (
     leftSinceRecorded ||
-    Date.now() - lastRecordedAt >= ROUTE_CHANGE_RECORD_INTERVAL_MS
+    Date.now() - lastRecordedAt >= FOCUS_RECORD_INTERVAL_MS
   ) {
     record();
   }

@@ -384,14 +384,15 @@ export function useSemanticNavigationState<
       getCommandDedupKeyRef.current?.(envelope.command) ??
       defaultCommandDedupKey(envelope.command);
     const consume = () => {
+      const writeOptions = requestSource ? { requestSource } : {};
       queryClient.setQueryData(commandQueryKey, null);
       if (
         envelope.command === null ||
         typeof envelope.command !== "object" ||
         Array.isArray(envelope.command)
       ) {
-        void deleteClientAppState(envelope.key, { requestSource }).catch(
-          (error) => onErrorRef.current?.(error),
+        void deleteClientAppState(envelope.key, writeOptions).catch((error) =>
+          onErrorRef.current?.(error),
         );
         return;
       }
@@ -399,7 +400,7 @@ export function useSemanticNavigationState<
         envelope.key,
         envelope.command as Record<string, unknown>,
         null,
-        { requestSource },
+        writeOptions,
       ).then(
         (changed) => {
           if (!changed)

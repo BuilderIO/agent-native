@@ -55,7 +55,12 @@ export const appCapabilityManifestSchema = z
       ),
   })
   .superRefine(({ screens, entities }, ctx) => {
-    if (!Object.hasOwn(screens.definitions, screens.defaultLandingScreen)) {
+    if (
+      !Object.prototype.hasOwnProperty.call(
+        screens.definitions,
+        screens.defaultLandingScreen,
+      )
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["screens", "defaultLandingScreen"],
@@ -63,7 +68,9 @@ export const appCapabilityManifestSchema = z
       });
     }
     for (const [id, entity] of Object.entries(entities)) {
-      if (!Object.hasOwn(screens.definitions, entity.show)) {
+      if (
+        !Object.prototype.hasOwnProperty.call(screens.definitions, entity.show)
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["entities", id, "show"],
@@ -112,9 +119,9 @@ export function defineAppManifest(input: ManifestInput): AppCapabilityManifest {
 
 export function deriveAppManifest(
   app: {
-    id?: string;
-    name?: string;
-    homePath?: string;
+    id?: string | undefined;
+    name?: string | undefined;
+    homePath?: string | undefined;
   },
   actionNames: readonly string[] = [],
 ): AppCapabilityManifest {
@@ -158,14 +165,19 @@ export function resolveScreenPath(
   screen: string,
   params: Record<string, unknown> = {},
 ): string {
-  const definition = Object.hasOwn(manifest.screens.definitions, screen)
+  const definition = Object.prototype.hasOwnProperty.call(
+    manifest.screens.definitions,
+    screen,
+  )
     ? manifest.screens.definitions[screen]
     : undefined;
   if (!definition) throw new Error(`Unknown screen: ${screen}`);
   return definition.show.route.replace(
     /(^|\/):([A-Za-z_][A-Za-z0-9_]*)(?=\/|$)/g,
     (_, prefix: string, key: string) => {
-      const value = Object.hasOwn(params, key) ? params[key] : undefined;
+      const value = Object.prototype.hasOwnProperty.call(params, key)
+        ? params[key]
+        : undefined;
       if (
         (typeof value !== "string" && typeof value !== "number") ||
         String(value) === "" ||

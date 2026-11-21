@@ -1,4 +1,4 @@
-import { isProductionServerlessFunctionRuntime } from "../db/client.js";
+import { isProductionServerlessFunctionRuntime } from "../db/migration-runtime.js";
 import { recordChange } from "./poll.js";
 import { getRequestUserEmail } from "./request-context.js";
 

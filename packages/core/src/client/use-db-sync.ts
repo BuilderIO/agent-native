@@ -1677,7 +1677,6 @@ export function useDbSync(
   options: {
     queryClient?: QueryClient;
     queryKeys?: string[];
-    /** Set false to disable remote sync. The legacy reason is optional. */
     realtime?: false | { reason: string };
     resourceType?: string;
     pollUrl?: string;
@@ -1910,7 +1909,7 @@ export function useDbSync(
                       busyQueries.has(query) &&
                       (normalizedFilters.predicate?.(query) ?? true),
                   },
-                  refetchOptions,
+                  requireSuccess ? refetchOptions : undefined,
                 );
               },
               (error: unknown) => {

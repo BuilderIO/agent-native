@@ -275,10 +275,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       return actionError(err);
     }
 
-    const callableEntry = callableActions[name];
+    const callableEntry = Object.hasOwn(callableActions, name)
+      ? callableActions[name]
+      : undefined;
     if (
       effectiveIdentity?.userEmail &&
-      Object.hasOwn(callableActions, name) &&
+      callableEntry &&
       isAdvertisable(name) &&
       actionCallReadOnly(callableEntry, args) !== true
     ) {

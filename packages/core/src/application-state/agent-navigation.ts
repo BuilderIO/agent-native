@@ -115,10 +115,10 @@ export interface NavigationResult {
 export type NavigateAfterWriteResult = NavigationResult;
 
 type NavigationOptions = {
-  ctx?: Pick<ActionRunContext, "caller">;
-  navigationMode?: NavigationMode;
-  intent?: string;
-  isDetailView?: DetailViewPredicate;
+  ctx?: Pick<ActionRunContext, "caller"> | undefined;
+  navigationMode?: NavigationMode | undefined;
+  intent?: string | undefined;
+  isDetailView?: DetailViewPredicate | undefined;
   isNavigateAction?: boolean;
   stateKey?: string;
 };
