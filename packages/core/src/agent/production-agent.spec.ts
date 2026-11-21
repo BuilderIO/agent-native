@@ -18536,7 +18536,7 @@ describe("runAgentLoop", () => {
       details: string;
     };
     expect(stop.error).toContain(headline);
-    expect(stop.error).not.toMatch(/…./);
+    expect(stop.error).not.toContain("….");
     expect(stop.details).toContain(thrown);
   });
 
