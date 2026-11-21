@@ -1266,6 +1266,7 @@ export default {
     saveTemplate: "टेम्पलेट सहेजें",
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
+    templateRequiresScreen: "टेम्पलेट सहेजने से पहले कम से कम एक डिज़ाइन स्क्रीन जोड़ें।",
     appMenu: {
       file: "फ़ाइल",
       preferences: "प्राथमिकताएँ",

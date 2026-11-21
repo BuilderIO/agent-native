@@ -272,6 +272,80 @@ test("built-in template preserves its dimensions and locks and can be saved agai
   }
 });
 
+test("saving a design without a screen explains how to fix it", async ({
+  app,
+  page,
+  request,
+}) => {
+  const created = await postAction(request, "create-design", {
+    title: "Template without a screen",
+    projectType: "prototype",
+  });
+  const designId: string = created.id;
+  app.adopt(designId);
+  await postAction(request, "create-file", {
+    designId,
+    filename: "styles.css",
+    content: "body { margin: 0; }",
+    fileType: "css",
+  });
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  await openAppMenuSubmenu(page, "File");
+  await page.getByRole("menuitem", { name: "Save as template…" }).click();
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "agent-native:locale-preference",
+        newValue: "fr-FR",
+      }),
+    );
+  });
+  const dialog = page.getByRole("dialog", {
+    name: "Enregistrer comme modèle…",
+  });
+  await expect(dialog).toBeVisible();
+  const save = dialog.getByRole("button", {
+    name: "Enregistrer le modèle",
+    exact: true,
+  });
+  await expect(save).toBeEnabled();
+
+  app.allowFailure(
+    /http 400 POST .*save-design-as-template/,
+    "Expected validation failure",
+  );
+  app.allowFailure(
+    /console.error .*status of 400/,
+    "Expected validation failure",
+  );
+  app.allowFailure(
+    /error toast Ajoutez au moins un écran de design avant d’enregistrer un modèle\./,
+    "Expected validation message",
+  );
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response
+        .url()
+        .endsWith("/_agent-native/actions/save-design-as-template") &&
+      response.request().method() === "POST",
+  );
+  await save.click();
+  const response = await responsePromise;
+  expect(response.status()).toBe(400);
+  expect(await response.json()).toMatchObject({
+    errorCode: "template_requires_screen",
+  });
+  await expect(
+    page.getByText(
+      "Ajoutez au moins un écran de design avant d’enregistrer un modèle.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(dialog).toBeVisible();
+});
+
 test("the Home Templates tab opens a fresh copy of a built-in template in the editor with its screen rendered", async ({
   app,
   page,

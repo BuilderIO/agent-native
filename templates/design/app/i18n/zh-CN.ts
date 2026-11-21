@@ -1242,6 +1242,7 @@ export default {
     saveTemplate: "保存模板",
     templateSaved: "模板已保存到模板库",
     templateSaveFailed: "无法保存此模板",
+    templateRequiresScreen: "保存模板前，请至少添加一个设计画面。",
     appMenu: {
       file: "文件",
       preferences: "偏好设置",

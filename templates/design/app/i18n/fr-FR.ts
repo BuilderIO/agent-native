@@ -1293,6 +1293,8 @@ export default {
     saveTemplate: "Enregistrer le modèle",
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
+    templateRequiresScreen:
+      "Ajoutez au moins un écran de design avant d’enregistrer un modèle.",
     appMenu: {
       file: "Fichier",
       preferences: "Préférences",

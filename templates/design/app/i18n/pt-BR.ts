@@ -1285,6 +1285,8 @@ export default {
     saveTemplate: "Salvar modelo",
     templateSaved: "Modelo salvo na biblioteca",
     templateSaveFailed: "Não foi possível salvar este modelo",
+    templateRequiresScreen:
+      "Adicione pelo menos uma tela de design antes de salvar um modelo.",
     appMenu: {
       file: "Arquivo",
       preferences: "Preferências",
