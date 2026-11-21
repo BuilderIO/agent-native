@@ -151,8 +151,9 @@ function config(): MCPConfig {
 async function clientFor(
   identity: MCPCallerIdentity,
   requestMeta: Record<string, unknown> = { scriptCatalog: true },
+  app: MCPConfig = config(),
 ) {
-  const server = await createMCPServerForRequest(config(), identity, {
+  const server = await createMCPServerForRequest(app, identity, {
     origin: "http://localhost:8100",
     transport: "http",
     inlineMcpApps: false,
@@ -307,6 +308,67 @@ describe("the MCP script catalog", () => {
 
     vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "false");
     expect((await clientFor(user, {})).getInstructions()).not.toContain(
+      "catalog=script",
+    );
+  });
+
+  it("says scripts can change items only when the caller could script a write", async () => {
+    const base = config();
+    const withWrite: MCPConfig = {
+      ...base,
+      actions: {
+        ...base.actions,
+        "rank-documents": {
+          tool: { description: "Rank documents", parameters: undefined },
+          run: async () => ({ ok: true }),
+          readOnly: false,
+          mcpTool: true,
+          mcpScript: "write",
+          mcpScriptWrite: {
+            rowBound: () => 1,
+            receiptLocator: () => ({
+              scope: "documents",
+              idempotencyKey: "key",
+              payloadDigest: "digest",
+            }),
+            reconcile: async () => ({ status: "absent" }),
+            fence: async () => ({ status: "fenced" }),
+            destructive: false,
+          },
+        } as any,
+      },
+    };
+    const instructions = async (identity: MCPCallerIdentity) =>
+      (await clientFor(identity, {}, withWrite)).getInstructions();
+
+    expect(await instructions(user)).toContain("reading many items");
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_WRITES", "true");
+    expect(await instructions(user)).toContain(
+      "reading or changing many items",
+    );
+    // A token that can only read reaches no write, so it is told only reads.
+    expect(
+      await instructions({ ...user, oauthScopes: ["mcp:read"] }),
+    ).toContain("reading many items");
+  });
+
+  it("points a service principal at the script catalog only when its grant covers the script tools", async () => {
+    const granted = (allowedActions: string[]) =>
+      evaluateServicePrincipalMock.mockResolvedValue({
+        status: "active",
+        policy: { lifecycle: "active", allowedActions },
+      });
+
+    granted(["list-documents"]);
+    expect((await clientFor(service, {})).getInstructions()).not.toContain(
+      "catalog=script",
+    );
+    granted(["run-script", "search-actions", "plain-read"]);
+    expect((await clientFor(service, {})).getInstructions()).not.toContain(
+      "catalog=script",
+    );
+    granted(["run-script", "search-actions", "list-documents"]);
+    expect((await clientFor(service, {})).getInstructions()).toContain(
       "catalog=script",
     );
   });

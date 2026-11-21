@@ -3826,6 +3826,10 @@ export async function createMCPServerForRequest(
   const servedKeyToolNames = config.keyToolNames?.filter(
     (name) => name in advertisedActions && isAdvertisable(name),
   );
+  const pointedScriptCatalog =
+    scriptCatalogOffered && !scriptCatalog
+      ? await scriptCatalogForPointer()
+      : undefined;
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
@@ -3838,8 +3842,7 @@ export async function createMCPServerForRequest(
               TOOL_SEARCH_TOOL_NAME in advertisedActions &&
                 isAdvertisable(TOOL_SEARCH_TOOL_NAME),
             ),
-            scriptCatalogOffered ? visibleActions : undefined,
-            { writes: getAppConfig().mcp.scriptWrites === true },
+            pointedScriptCatalog,
           ),
     capabilities: {
       tools: {},
@@ -4399,6 +4402,30 @@ export async function createMCPServerForRequest(
     return buildMcpScriptCatalog(directlyReachable(allowedActions), {
       writes: scriptWrites,
     });
+  }
+
+  // What a script connection would offer this caller on the usual catalog,
+  // for the instructions pointer: nothing without the read scope or a grant
+  // covering the script tools, or when the grant can't be read.
+  async function scriptCatalogForPointer() {
+    if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:read")) {
+      return undefined;
+    }
+    let allowedActions: string[] | null;
+    try {
+      ({ allowedActions } = await resolveServiceGrant());
+    } catch {
+      return undefined;
+    }
+    const toolsGranted = [MCP_SCRIPT_SEARCH_TOOL, MCP_SCRIPT_RUN_TOOL].every(
+      (name) =>
+        isActionGranted(allowedActions, name) && !deniedToolNames.has(name),
+    );
+    return toolsGranted
+      ? buildMcpScriptCatalog(directlyReachable(allowedActions), {
+          writes: getAppConfig().mcp.scriptWrites === true,
+        })
+      : undefined;
   }
 
   async function callScriptTool(

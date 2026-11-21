@@ -1538,6 +1538,32 @@ describe("patch-database-items through the MCP script catalog", () => {
     return { result, payload: JSON.parse(text) };
   }
 
+  // Reads a collection, then gives its rows ranks 30, 29, 28, ... in one
+  // patch.
+  function rankScript(
+    ids: Awaited<ReturnType<typeof fixture>>,
+    idempotencyKey: string,
+  ) {
+    return `
+      const read = await api.getContentDatabase({ databaseId: ${JSON.stringify(ids.databaseId)} });
+      const contract = read.mutationContract;
+      const written = await api.patchDatabaseItems({
+        target: contract.target,
+        expectedSchemaRevision: contract.schemaRevision,
+        idempotencyKey: ${JSON.stringify(idempotencyKey)},
+        rows: read.items.map((item, index) => ({
+          itemId: item.id,
+          documentId: item.document.id,
+          expectedRowRevision: item.rowRevision,
+          propertyEntries: [
+            { propertyId: ${JSON.stringify(ids.properties.rank)}, propertyType: "number", value: 30 - index },
+          ],
+        })),
+      });
+      return written.receipt.counts;
+    `;
+  }
+
   it("lets an allowlisted organization read a collection and patch its rows from one script", async () => {
     vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
     vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", PILOT_ORG);
@@ -1567,27 +1593,7 @@ describe("patch-database-items through the MCP script catalog", () => {
       result: ["object", "object", "object", "object"],
     });
 
-    const patched = await runScript(
-      client,
-      `
-        const read = await api.getContentDatabase({ databaseId: ${JSON.stringify(ids.databaseId)} });
-        const contract = read.mutationContract;
-        const written = await api.patchDatabaseItems({
-          target: contract.target,
-          expectedSchemaRevision: contract.schemaRevision,
-          idempotencyKey: "scripted-ranks",
-          rows: read.items.map((item, index) => ({
-            itemId: item.id,
-            documentId: item.document.id,
-            expectedRowRevision: item.rowRevision,
-            propertyEntries: [
-              { propertyId: ${JSON.stringify(ids.properties.rank)}, propertyType: "number", value: 30 - index },
-            ],
-          })),
-        });
-        return written.receipt.counts;
-      `,
-    );
+    const patched = await runScript(client, rankScript(ids, "scripted-ranks"));
     expect(patched.payload, JSON.stringify(patched.payload)).toMatchObject({
       ok: true,
       result: { requested: 3, updated: 3 },
@@ -1613,9 +1619,7 @@ describe("patch-database-items through the MCP script catalog", () => {
     expect(listed).toContain("patch-database-items");
     const refused = await client.callTool({
       name: "run-script",
-      arguments: {
-        code: `return await api.listContentDatabases({});`,
-      },
+      arguments: { code: rankScript(ids, "unlisted-ranks") },
     });
     expect(refused.isError).toBe(true);
     expect(
