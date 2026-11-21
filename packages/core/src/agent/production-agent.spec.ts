@@ -18243,7 +18243,6 @@ describe("runAgentLoop", () => {
     expect(
       permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
     ).toBeLessThanOrEqual(240);
-    // The headline would add a period, so 240 characters no longer fit.
     expect(
       permanentPreconditionReason("t", `Error running t: ${"y".repeat(240)}`),
     ).toBe(`${"y".repeat(239)}…`);
@@ -18468,9 +18467,8 @@ describe("runAgentLoop", () => {
 
   it.each([
     {
-      // The reason Dispatch's chat cut to "…and this run resolves
-      // credentials as the ow…." on November 20.
-      label: "ends a long reason on its last whole sentence",
+      label:
+        "ends the reason Dispatch cut to 'as the ow….' on Nov 20 on its last whole sentence",
       thrown:
         'github credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
         "key is saved in this workspace with Personal scope. Personal keys are " +
@@ -18497,9 +18495,7 @@ describe("runAgentLoop", () => {
         "… That needs to be fixed outside this chat",
     },
     {
-      // The longest scope-gap error a provider throws: the fix must survive
-      // the cut, so the key list comes after it.
-      label: "keeps a missing key's fix and drops the key list",
+      label: "keeps the longest missing-key error's fix and drops its key list",
       thrown:
         'hubspot credential not configured. "HUBSPOT_ACCESS_TOKEN" is saved ' +
         "in this workspace only as a Personal key, which works only for the " +

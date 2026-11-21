@@ -6855,32 +6855,25 @@ export function permanentPreconditionReason(
   return shortenPreconditionReason(reason);
 }
 
-/**
- * Fit a reason into the headline, ending on a whole sentence where one ends
- * past the halfway mark, else on a whole word. The full error stays under the
- * stop's details; a cut mid-word ("as the ow…") reads as a broken message.
- */
+const SENTENCE_END_NOT_ABBREVIATION = /(?<!\b[a-z]\.[a-z])[.!?](?=\s)/gi;
+
 function shortenPreconditionReason(reason: string): string {
-  // One character stays free for the closing "." or "…".
-  const max = PERMANENT_PRECONDITION_REASON_MAX_CHARS - 1;
-  if (reason.length <= max) return reason;
+  const maxBeforeClosingMark = PERMANENT_PRECONDITION_REASON_MAX_CHARS - 1;
+  if (reason.length <= maxBeforeClosingMark) return reason;
   let sentenceEnd = 0;
-  // "e.g." and "i.e." don't end a sentence.
-  for (const match of reason.matchAll(/(?<!\b[a-z]\.[a-z])[.!?](?=\s)/gi)) {
-    const index = match.index ?? max;
-    if (index >= max) break;
+  for (const { index } of reason.matchAll(SENTENCE_END_NOT_ABBREVIATION)) {
+    if (index >= maxBeforeClosingMark) break;
     sentenceEnd = index + 1;
   }
-  if (sentenceEnd >= max / 2) {
-    // A period comes back from the headline; "?" and "!" stay.
+  if (sentenceEnd >= maxBeforeClosingMark / 2) {
     return reason.slice(0, sentenceEnd).replace(/\.$/, "");
   }
-  const wordEnd = reason.lastIndexOf(" ", max);
-  const cut = wordEnd >= max / 2 ? wordEnd : max;
+  const wordEnd = reason.lastIndexOf(" ", maxBeforeClosingMark);
+  const cut =
+    wordEnd >= maxBeforeClosingMark / 2 ? wordEnd : maxBeforeClosingMark;
   return `${reason.slice(0, cut).replace(/[\s,;:—–-]+$/, "")}…`;
 }
 
-/** The headline's sentence: a reason ending in "…", "?" or "!" keeps it. */
 function asSentence(text: string): string {
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }

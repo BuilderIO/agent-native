@@ -439,8 +439,6 @@ export async function describeCredentialScopeGap(
 
   for (const key of keys) {
     if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
-      // Kept short: the chat headline shows about 240 characters of the
-      // error, whole sentences only (`permanentPreconditionReason`).
       return (
         `"${key}" is saved in this workspace only as a Personal key, which ` +
         `works only for the member who saved it. Ask an organization owner ` +

@@ -4661,8 +4661,6 @@ describe("provider API runtime", () => {
         (err: Error) => err,
       );
 
-    // The fix comes before the key list, so a chat stop's ~240-character
-    // headline keeps it.
     expect(error?.message).toMatch(
       /^hubspot credential not configured\. "HUBSPOT_ACCESS_TOKEN" is saved .* Organization scope\. Tried: \S/,
     );
@@ -4673,8 +4671,6 @@ describe("provider API runtime", () => {
   });
 
   it("gives no shared-key advice when the selected connection lacks the key", async () => {
-    // A selected connection never falls back to a generic key, so saving one
-    // with Workspace scope would not fix the request.
     describeCredentialScopeGap.mockResolvedValue("SAVE A SHARED KEY");
     resolveWorkspaceConnectionForApp.mockResolvedValue({
       available: true,

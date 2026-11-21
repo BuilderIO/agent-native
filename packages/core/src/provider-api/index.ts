@@ -5136,8 +5136,6 @@ async function resolveAnyCredential(options: {
       message: `${options.provider} requires an available workspace connection.`,
     });
   }
-  // The fix goes before the key list: a chat stop's headline keeps only about
-  // 240 characters, and a long list would push the fix out of it.
   throw new Error(
     `${options.provider} credential not configured. ` +
       `${scopeGap ? `${scopeGap} ` : ""}Tried: ${options.keys.join(", ")}`,
@@ -5168,10 +5166,6 @@ async function resolveRequiredCredential(options: {
   );
 }
 
-/**
- * A selected workspace connection is authoritative: the default resolver never
- * falls back to a generic key for it, so advice to save one would not help.
- */
 async function describeGenericScopeGap(
   keys: readonly string[],
   options: {
@@ -5183,8 +5177,7 @@ async function describeGenericScopeGap(
   if (options.workspaceProvider && options.connectionId?.trim()) return null;
   return (
     describeCredentialScopeGap(keys, options.ctx)
-      // coercion-ok: only enriches an error we throw either way — losing the scope
-      // hint still surfaces the real "not configured" failure, never a success.
+      // coercion-ok: only enriches an error we throw either way, never a success.
       .catch(() => null)
   );
 }

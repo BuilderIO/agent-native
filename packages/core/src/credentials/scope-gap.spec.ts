@@ -51,9 +51,6 @@ describe("describeCredentialScopeGap", () => {
     resolveOrgIdForEmailResult = null;
   });
 
-  // Who reads the error is unknown here (a person's own chat, a job's other
-  // readers, a Slack channel), so every run gets the cause and the fix that
-  // hold for all of them, and none is told an integration did it.
   it.each([
     ["a person's own chat", {}, {}],
     ["an integration delivery", { isIntegrationCaller: true }, {}],
@@ -70,7 +67,7 @@ describe("describeCredentialScopeGap", () => {
     ],
     ["a shared-keys-only lookup", {}, { credentialScope: "org" }],
   ] as const)(
-    "gives %s the same cause and fix",
+    "gives %s the cause and fix that hold for every reader",
     async (_label, requestContext, lookup) => {
       execute = async () => ({ rows: [{ 1: 1 }] });
 
@@ -88,6 +85,8 @@ describe("describeCredentialScopeGap", () => {
           "organization owner or admin to save one with Workspace or " +
           "Organization scope.",
       );
+      expect(message).not.toContain("integration");
+      expect(message).not.toContain("Save your own");
     },
   );
 
