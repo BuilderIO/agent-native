@@ -152,14 +152,6 @@ mutation. Route every Factory approval decision through
 `govern-factory-pull-request` and follow its result; only that action may submit
 an approval, under its code-enforced gates.
 
-<!-- framework-repo-only:start -->
-Runs of the `factory-run` skill on the factory VM are also Factory governance:
-the blanket override is unavailable there too. Their only approval path is
-`factory-github approve <PR url> --sha <reviewed head>`, which refuses forks,
-non-members, unverifiable membership, drafts, and a moved head. A PR with a
-standing approval gets no further factory approval on later pushes.
-<!-- framework-repo-only:end -->
-
 Only an explicit instruction from the user, given directly in the current request
 or in the user-authorized prompt for this invocation, triggers this override.
 It must expressly request approval of every currently open, non-draft PR by
@@ -712,10 +704,9 @@ local work without explicit authorization.
 
 During review-only work, do not sync `origin/main`. During an explicitly
 authorized `/ship` for the same PR, follow that skill's safe-sync rule: merge
-fresh `origin/main` only through `node scripts/merge-main-into-pr.ts <n>`,
-which refuses unless the PR targets main, GitHub reports `CONFLICTING` or
-`DIRTY`, HEAD is the live PR head, and the worktree is clean. Never run
-`git merge origin/main` by hand. Never sync just to
+fresh `origin/main` only when `gh pr view <n> --json baseRefName,mergeable,mergeStateStatus`
+reports base `main` and `CONFLICTING` or `DIRTY`, after verifying HEAD is the
+live PR head and the worktree is clean. Use a normal merge, never a rebase. Never sync just to
 clear a behind count or restart checks.
 
 ## End-of-run recap
