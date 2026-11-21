@@ -538,35 +538,80 @@ it("allows an admin to explicitly replace both inconsistent credentials", async 
 });
 
 it.each([
-  { column: "indexed-key", jsonValue: null },
-  { column: "indexed-key", jsonValue: "different-key" },
-  { column: null, jsonValue: "stale-key" },
+  {
+    column: "indexed-key",
+    jsonValue: null,
+    expectedKey: "indexed-key",
+    hashMismatch: false,
+  },
+  {
+    column: "indexed-key",
+    jsonValue: "different-key",
+    expectedKey: "indexed-key",
+    hashMismatch: false,
+  },
+  {
+    column: null,
+    jsonValue: "stale-key",
+    expectedKey: "stale-key",
+    hashMismatch: false,
+  },
+  {
+    column: "indexed-key",
+    jsonValue: "indexed-key",
+    expectedKey: "indexed-key",
+    hashMismatch: true,
+  },
 ] as const)(
-  "rejects token rotation when the source key representations disagree",
-  async ({ column, jsonValue }) => {
+  "repairs inconsistent source credentials with a fresh token during rotation",
+  async ({ column, jsonValue, expectedKey, hashMismatch }) => {
     await seedSharedIngestSource();
-    const hash = await sha256Hex("example-token");
+    const oldToken = "example-old-token";
+    const oldHash = await sha256Hex(oldToken);
     await database
       .update(schema.brainSources)
       .set({
         sourceKey: column,
-        ingestTokenHash: hash,
+        ingestTokenHash: oldHash,
         configJson: JSON.stringify({
           sourceKey: jsonValue,
-          ingestTokenHash: hash,
+          ingestTokenHash: hashMismatch ? "different-hash" : oldHash,
+          pollMinutes: 60,
         }),
       })
       .where(eq(schema.brainSources.id, "legacy-ingest"));
     const before = await readIngestSource();
     await expect(
-      asUser(qaEmail, () =>
+      asUser("recipient@example.test", () =>
         rotateSourceIngestToken.run({ sourceId: "legacy-ingest" }),
       ),
-    ).rejects.toMatchObject({
-      errorCode: "source_config_conflict",
-      statusCode: 409,
-    });
+    ).rejects.toThrow();
     expect(await readIngestSource()).toEqual(before);
+    expect((await sendIngest(expectedKey, oldToken)).status).toBe(404);
+    const result = await asUser(qaEmail, () =>
+      rotateSourceIngestToken.run({ sourceId: "legacy-ingest" }),
+    );
+    const saved = await readIngestSource();
+    const newHash = await sha256Hex(result.ingestToken);
+    expect(result.sourceKey).toBe(expectedKey);
+    expect(result.ingestToken).not.toBe(oldToken);
+    expect(saved.sourceKey).toBe(expectedKey);
+    expect(saved.ingestTokenHash).toBe(newHash);
+    expect(JSON.parse(saved.configJson)).toMatchObject({
+      sourceKey: expectedKey,
+      ingestTokenHash: newHash,
+      pollMinutes: 60,
+    });
+    expect((await sendIngest(expectedKey, result.ingestToken)).status).toBe(
+      200,
+    );
+    expect((await sendIngest(expectedKey, oldToken)).status).toBe(404);
+    if (jsonValue && jsonValue !== expectedKey) {
+      expect((await sendIngest(jsonValue, oldToken)).status).toBe(404);
+      expect((await sendIngest(jsonValue, result.ingestToken)).status).toBe(
+        404,
+      );
+    }
   },
 );
 

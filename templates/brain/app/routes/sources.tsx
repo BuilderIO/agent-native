@@ -1,6 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import {
-  actionErrorMessage as getActionErrorMessage,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -2812,11 +2811,8 @@ export default function SourcesRoute() {
                   "source_config_conflict",
                 ) &&
                 "status" in rotateSourceIngestToken.error &&
-                rotateSourceIngestToken.error.status === 409 &&
-                "cause" in rotateSourceIngestToken.error
-                  ? (getActionErrorMessage(
-                      rotateSourceIngestToken.error.cause,
-                    ) ?? t("sources.actionFailedDetail"))
+                rotateSourceIngestToken.error.status === 409
+                  ? t("sources.rotationConflictDetail")
                   : t("sources.actionFailedDetail")
               }
             />

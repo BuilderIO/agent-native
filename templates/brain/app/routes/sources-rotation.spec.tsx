@@ -83,9 +83,15 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
     };
   },
 }));
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
-}));
+vi.mock("@agent-native/core/client/i18n", async () => {
+  const { messagesByLocale } = await import("../i18n-data");
+  return {
+    useT: () => (key: string) =>
+      key === "sources.rotationConflictDetail"
+        ? messagesByLocale["fr-FR"].sources.rotationConflictDetail
+        : key,
+  };
+});
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
   ShareButton: () => null,
 }));
@@ -178,8 +184,7 @@ it("prevents overlapping rotations while a token is pending", async () => {
 
 it("shows the existing failure state and allows retrying a failed rotation", async () => {
   fixture.rotate.mockClear();
-  const detail =
-    "The source key is inconsistent. Update the source credentials before rotating the token.";
+  const detail = "The source changed. Reload it and retry the rotation.";
   const cause = Object.assign(
     new Error(`Action rotate-source-ingest-token failed: ${detail}`),
     { actionMessage: detail, errorCode: "source_config_conflict", status: 409 },
@@ -206,7 +211,10 @@ it("shows the existing failure state and allows retrying a failed rotation", asy
       button.click();
     });
     expect(host.textContent).toContain("sources.actionFailedTitle");
-    expect(host.textContent).toContain(detail);
+    expect(host.textContent).toContain(
+      "La source a changé. Rechargez la page et réessayez de renouveler le jeton.",
+    );
+    expect(host.textContent).not.toContain(detail);
     expect(document.querySelector("#ingest-handoff-ingest-token")).toBeNull();
     expect(button.disabled).toBe(false);
     await act(async () => {

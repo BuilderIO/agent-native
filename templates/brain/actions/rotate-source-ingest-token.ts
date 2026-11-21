@@ -31,21 +31,6 @@ export default defineAction({
       );
     }
 
-    const storedConfig = parseJson<Record<string, unknown>>(
-      existing.configJson,
-      {},
-    );
-    const legacy =
-      existing.sourceKey === null && existing.ingestTokenHash === null;
-    if (!legacy && (storedConfig.sourceKey ?? null) !== existing.sourceKey) {
-      fail(
-        "The source key is inconsistent. Update the source credentials before rotating the token.",
-        {
-          errorCode: "source_config_conflict",
-          statusCode: 409,
-        },
-      );
-    }
     const sourceKey = sourceKeyFor(existing);
     if (!sourceKey) {
       throw new Error("This source is missing a signed-ingest source key.");
