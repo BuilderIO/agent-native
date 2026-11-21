@@ -272,6 +272,7 @@ async function copyPlan(
         ...plan,
       };
       if (plans.length === 0) {
+        await deleteMirroredPlanComments(planId, "all");
         const { differences } = await comparePlanComments(resource, []);
         return { comments: 0, differences };
       }
@@ -298,7 +299,13 @@ async function copyPlan(
         await deleteMirroredPlanComments(planId, ids, by);
       }
       const { differences } = await comparePlanComments(resource, copies);
-      return { comments: copies.length, differences };
+      const extra = differences
+        .filter((difference) => difference.problem === "extra")
+        .map((difference) => difference.id);
+      if (extra.length === 0) return { comments: copies.length, differences };
+      await deleteMirroredPlanComments(planId, extra);
+      const recheck = await comparePlanComments(resource, copies);
+      return { comments: copies.length, differences: recheck.differences };
     });
     report.plans += 1;
     report.comments += copied.comments;

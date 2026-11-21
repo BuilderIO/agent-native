@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
-import { getReviewCommentById } from "@agent-native/core/review";
+import {
+  getReviewCommentById,
+  mirrorReviewComments,
+} from "@agent-native/core/review";
 import consumeReviewFeedback from "@agent-native/core/review/actions/consume-review-feedback";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
 import deleteReviewComment from "@agent-native/core/review/actions/delete-review-comment";
@@ -648,6 +651,44 @@ describe("Plan comments in the review kit", () => {
       status: "deleted",
       deletedBy: "ops@x.test",
     });
+    await expectStoresAgree(planId);
+  });
+
+  it("clears comments only the kit holds, so the copy can finish", async () => {
+    const planId = await newPlan([
+      { id: "orphan-root", message: "Copied, then removed without the mirror" },
+      { id: "orphan-kept", message: "Still in Plan" },
+    ]);
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .delete(schema.planComments)
+      .where(eq(schema.planComments.id, "orphan-root"));
+    const at = "2026-11-20T12:00:00.000Z";
+    await mirrorReviewComments(
+      { resourceType: "plan", resourceId: "plan-deleted-elsewhere" },
+      [
+        {
+          id: "kit-only-root",
+          threadId: "kit-only-root",
+          parentCommentId: null,
+          body: "On a plan another server deleted",
+          authorEmail: OWNER.userEmail,
+          authorName: null,
+          createdBy: "human",
+          resolved: false,
+          createdAt: at,
+          updatedAt: at,
+        },
+      ],
+    );
+
+    const report = await mirror.copyPlanCommentsToReviewKit();
+
+    expect(report.failedPlans).toEqual([]);
+    expect(report.differences).toEqual([]);
+    expect(await stored("orphan-root")).toMatchObject({ status: "deleted" });
+    expect(await stored("orphan-kept")).toMatchObject({ status: "open" });
+    expect(await stored("kit-only-root")).toMatchObject({ status: "deleted" });
     await expectStoresAgree(planId);
   });
 
