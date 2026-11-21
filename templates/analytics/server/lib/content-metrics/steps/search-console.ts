@@ -180,7 +180,7 @@ export const searchConsoleStep: ContentStep = {
           if (!key) continue;
           let item: ItemRef | undefined = byKey.get(key);
           if (!item) {
-            const url = page.split("#")[0]!;
+            const url = page.replace(/#.*$/s, "");
             const created: StoredContentItem = {
               source: "search_console",
               externalId: key,
