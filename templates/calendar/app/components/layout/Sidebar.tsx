@@ -51,7 +51,10 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { CalendarDescriptionField } from "@/components/calendar/CalendarDescriptionField";
+import {
+  CalendarDescriptionField,
+  keepEscapeWhileComposing,
+} from "@/components/calendar/CalendarDescriptionField";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -408,7 +411,12 @@ function ColorPickerPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent side="right" align="start" className="w-auto p-2">
+      <PopoverContent
+        side="right"
+        align="start"
+        className="w-auto p-2"
+        onEscapeKeyDown={keepEscapeWhileComposing}
+      >
         <div className="flex flex-wrap gap-1.5" style={{ width: 120 }}>
           {CALENDAR_COLORS.map((c) => (
             <button
@@ -537,7 +545,12 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
               />
             </button>
           </PopoverTrigger>
-          <PopoverContent side="right" align="start" className="w-auto p-2">
+          <PopoverContent
+            side="right"
+            align="start"
+            className="w-auto p-2"
+            onEscapeKeyDown={keepEscapeWhileComposing}
+          >
             <div className="mb-1.5 text-xs font-medium">
               {t("eventForm.color")}
             </div>

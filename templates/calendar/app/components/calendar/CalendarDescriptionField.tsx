@@ -55,3 +55,7 @@ export function CalendarDescriptionField({
     </div>
   );
 }
+
+export function keepEscapeWhileComposing(event: KeyboardEvent) {
+  if (isComposingKey(event)) event.preventDefault();
+}
