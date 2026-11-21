@@ -887,10 +887,26 @@ export async function resolveGrantedDispatchMcpApp(
   const target = normalizeAppId(app);
   if (!target) throw new Error("app is required");
   const { apps } = await listDispatchMcpApps();
-  const match = apps.find(
-    (candidate) =>
-      candidate.id === target || candidate.name.toLowerCase() === target,
+  const exact = apps.filter(
+    (candidate) => normalizeAppId(candidate.id) === target,
   );
+  const qualified = apps.filter((candidate) =>
+    normalizeAppId(candidate.id).endsWith(`/${target}`),
+  );
+  const named = apps.filter(
+    (candidate) => normalizeAppId(candidate.name) === target,
+  );
+  const candidates = exact.length
+    ? exact
+    : qualified.length
+      ? qualified
+      : named;
+  if (candidates.length > 1) {
+    throw new Error(
+      `Ambiguous app "${app}". Choose one of: ${candidates.map((candidate) => candidate.id).join(", ")}.`,
+    );
+  }
+  const match = candidates[0];
   if (!match) {
     throw new Error(
       `Unknown app "${app}". Call list_apps to see apps available through Dispatch MCP.`,
@@ -992,10 +1008,26 @@ async function resolveWorkspaceSsoApp(
   const target = normalizeAppId(app);
   if (!target) throw new Error("app is required");
   const apps = await listWorkspaceSsoApps();
-  const match = apps.find(
-    (candidate) =>
-      candidate.id === target || candidate.name.toLowerCase() === target,
+  const exact = apps.filter(
+    (candidate) => normalizeAppId(candidate.id) === target,
   );
+  const qualified = apps.filter((candidate) =>
+    normalizeAppId(candidate.id).endsWith(`/${target}`),
+  );
+  const named = apps.filter(
+    (candidate) => normalizeAppId(candidate.name) === target,
+  );
+  const candidates = exact.length
+    ? exact
+    : qualified.length
+      ? qualified
+      : named;
+  if (candidates.length > 1) {
+    throw new Error(
+      `Ambiguous app "${app}". Choose one of: ${candidates.map((candidate) => candidate.id).join(", ")}.`,
+    );
+  }
+  const match = candidates[0];
   if (!match) {
     throw new Error(
       `Workspace app "${app}" is not registered for workspace sign-in.`,

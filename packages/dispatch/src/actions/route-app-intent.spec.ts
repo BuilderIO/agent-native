@@ -103,19 +103,25 @@ describe("route-app-intent", () => {
       provider: "jev",
       model: "jev-1",
       cached: false,
-      answers: { app: { type: "choice", name: "app", choice: "mail" } },
+      answers: {
+        app: { type: "choice", name: "app", choice: "mail", confidence: 0.91 },
+      },
     });
 
     const result = await run({ text: "whats on my todo list" });
 
-    expect(result).toMatchObject({ status: "ok", app: "mail" });
+    expect(result).toMatchObject({
+      status: "ok",
+      app: "mail",
+      confidence: 0.91,
+    });
     expect(result).not.toHaveProperty("pointer");
     const parts = mocks.decide.mock.calls[0][0].input;
     expect(parts).toContainEqual({
       type: "json",
       value: { savedPointers: [{ alias: "standup notes", appId: "mail" }] },
     });
-    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v3$/);
+    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v4$/);
   });
 
   it.each(["mail", "tasks"])(

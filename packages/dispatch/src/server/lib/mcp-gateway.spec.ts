@@ -466,6 +466,34 @@ describe("Dispatch direct app actions", () => {
 });
 
 describe("Dispatch MCP gateway app discovery", () => {
+  it("resolves qualified workspace identities before display names and reports ties", async () => {
+    const asOwner = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        fn,
+      );
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, id: "fleet-2", name: "Fleet" },
+      { ...analyticsAgent, id: "workspace/fleet", name: "Fleet" },
+    ]);
+    expect(
+      (await asOwner(() => resolveGrantedDispatchMcpApp("workspace/fleet"))).id,
+    ).toBe("workspace/fleet");
+    expect(
+      (await asOwner(() => resolveGrantedDispatchMcpApp("fleet"))).id,
+    ).toBe("workspace/fleet");
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, id: "one/fleet", name: "Fleet" },
+      { ...analyticsAgent, id: "two/fleet", name: "Fleet" },
+    ]);
+    await expect(
+      asOwner(() => resolveGrantedDispatchMcpApp("fleet")),
+    ).rejects.toThrow(/one\/fleet, two\/fleet/);
+  });
+
   it("lists a discovered app without a description as an empty description", async () => {
     const { description: _omitted, ...agent } = analyticsAgent;
     mocks.discoverAgents.mockResolvedValue([agent]);

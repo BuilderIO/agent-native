@@ -2,6 +2,7 @@ export type ChatFirstAppRouteAnswer =
   | {
       status: "ok";
       app: string;
+      confidence?: number;
       cached?: boolean;
       latencyMs?: number;
       model?: string;
@@ -14,6 +15,7 @@ export type ChatFirstAppRouteAnswer =
 
 export type ChatFirstAppRouteSkip =
   | "none"
+  | "low_confidence"
   | "not_configured"
   | "failed"
   | "timeout"
@@ -44,6 +46,13 @@ export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   const { answer } = input;
   if (answer === "timeout") return { kind: "skip", reason: "timeout" };
   if (answer.status !== "ok") return { kind: "skip", reason: answer.status };
+  if (
+    typeof answer.confidence !== "number" ||
+    !Number.isFinite(answer.confidence) ||
+    answer.confidence < 0.85 ||
+    answer.confidence > 1
+  )
+    return { kind: "skip", reason: "low_confidence" };
   if (answer.app === "none") return { kind: "skip", reason: "none" };
   const object = answer.pointer
     ? { url: answer.url, objectId: answer.objectId }

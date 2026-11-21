@@ -2217,11 +2217,28 @@ function DispatchLayout({
     sentPane: string;
     pane: DispatchChatFirstPane;
   } | null>(null);
+  useEffect(() => {
+    if (!chatFirstMode || !isChatRoute) return;
+    const cancelPendingRoute = (event: Event) => {
+      const detail = (event as CustomEvent<{ tool?: unknown }>).detail;
+      if (detail?.tool !== "open_app" && detail?.tool !== "open-app") return;
+      const current = chatFirstRouteSendRef.current;
+      chatFirstRouteSendRef.current = { seq: current.seq + 1, id: null };
+      chatFirstRoutedPaneRef.current = null;
+    };
+    window.addEventListener("agent-native:tool-start", cancelPendingRoute);
+    return () =>
+      window.removeEventListener("agent-native:tool-start", cancelPendingRoute);
+  }, [chatFirstMode, isChatRoute]);
   const chatFirstRouteLatest = {
     onChatRoute: chatFirstMode && isChatRoute,
     scope: chatFirstSurfaceScope,
     tabsStore: chatFirstSurfaceTabsStore,
     shownAppId: chatFirstPaneAppId ?? null,
+    openPath:
+      visibleChatFirstSurfaceTab?.kind === "app"
+        ? visibleChatFirstSurfaceTab.path
+        : undefined,
     registrations: chatFirstAppRegistrations,
     openPane: openChatFirstPane,
     prefetch: prefetchChatFirstEmbedSession,
@@ -2274,6 +2291,7 @@ function DispatchLayout({
         {
           text: detail.text.slice(0, 4000),
           ...(sent.shownAppId ? { openApp: sent.shownAppId } : {}),
+          ...(sent.openPath ? { openPath: sent.openPath } : {}),
           ...(detail.previousTurn ? { previousTurn: detail.previousTurn } : {}),
         },
         { timeoutMs: CHAT_FIRST_ROUTE_TIMEOUT_MS },
