@@ -55,7 +55,11 @@ import {
   isTrustedSelfHostedRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/credential-provider.js";
-import { sendEmail, isEmailConfigured } from "../server/email.js";
+import {
+  sendEmail,
+  isEmailConfigured,
+  type SendEmailResult,
+} from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -1125,11 +1129,13 @@ export async function inviteOne(
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
     try {
-      await sendOrgInvitationEmail(
+      const delivery = await sendOrgInvitationEmail(
         { orgId: ctx.orgId, orgName: ctx.orgName, inviter: ctx.email, email },
         event,
       );
-      emailSent = true;
+      if (delivery.status === "sent") emailSent = true;
+      else
+        emailError = `Invitation email was not delivered (${delivery.reason})`;
     } catch (err) {
       emailError = err instanceof Error ? err.message : String(err);
       console.error("[org/invitations] failed to send invite email", err);
@@ -1139,7 +1145,7 @@ export async function inviteOne(
   return { id, email, role, status: "pending", emailSent, emailError };
 }
 
-/** Sends the framework invitation email for an invite; throws when the send fails. */
+/** Sends the framework invitation email for an invite; throws when the send fails; returns the delivery result. */
 export async function sendOrgInvitationEmail(
   invite: {
     orgId: string;
@@ -1148,7 +1154,7 @@ export async function sendOrgInvitationEmail(
     email: string;
   },
   event?: H3Event,
-): Promise<void> {
+): Promise<SendEmailResult> {
   const { subject, html, text } = await renderTransactionalEmail(
     CORE_INVITE_EMAIL_ID,
     {
@@ -1158,7 +1164,7 @@ export async function sendOrgInvitationEmail(
       inviter: invite.inviter,
     },
   );
-  await sendEmail({
+  return sendEmail({
     to: invite.email,
     subject,
     html,
