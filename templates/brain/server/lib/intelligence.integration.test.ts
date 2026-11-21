@@ -885,6 +885,7 @@ describe("evidence-backed intelligence", () => {
     await expect(
       writeKnowledgeRecord({
         knowledgeId: item.id,
+        expectedRevision: item.revision,
         title: item.title,
         body: item.body,
         evidence: item.evidence,
@@ -1173,7 +1174,7 @@ describe("evidence-backed intelligence", () => {
       knowledgeId: item.id,
       state: "verified",
       attested: true,
-      expectedRevision: item.revision,
+      expectedRevision: verified.revision,
     });
     expect(reverified.verification.state).toBe("verified");
     expect(reverified.verification.remindAt).toBe(remindAt);
@@ -1186,7 +1187,7 @@ describe("evidence-backed intelligence", () => {
       knowledgeId: item.id,
       state: "verified",
       attested: true,
-      expectedRevision: item.revision,
+      expectedRevision: reverified.revision,
     });
     expect(reverifiedOverdue.verification.state).toBe("verified");
     expect(reverifiedOverdue.verification.remindAt).toBeNull();
@@ -1195,9 +1196,131 @@ describe("evidence-backed intelligence", () => {
       knowledgeId: item.id,
       state: "unverified",
       attested: true,
-      expectedRevision: item.revision,
+      expectedRevision: reverifiedOverdue.revision,
     });
     expect(cleared.verification.state).toBe("unverified");
     expect(cleared.verification.remindAt).toBeNull();
+  });
+});
+
+describe("intelligence writes send the revision they read", () => {
+  const storedState = async () => ({
+    knowledge: await database.select().from(schema.brainKnowledge),
+    details: await database.select().from(schema.brainKnowledgeIntelligence),
+    verifications: await database
+      .select()
+      .from(schema.brainKnowledgeVerifications),
+  });
+
+  it("counts an exact resend of a structured change as applied, without writing again", async () => {
+    const { item } = await writeIntelligence(input());
+    const change = {
+      ...input(),
+      id: item.id,
+      expectedRevision: item.revision,
+      status: "completed" as const,
+      owner: null,
+      ownershipConfidence: "ambiguous" as const,
+      dueDate: null,
+      entities: [{ type: "project" as const, name: "Atlas" }],
+      publishTier: undefined,
+    };
+    const saved = await writeIntelligence(change);
+    expect(saved.item).toMatchObject({ status: "completed", owner: null });
+    expect(saved.item.revision).not.toBe(item.revision);
+    const applied = await storedState();
+    const resent = await writeIntelligence(change);
+    expect(resent.item).toEqual(saved.item);
+    expect(await storedState()).toEqual(applied);
+  });
+
+  it.each([
+    ["task status", { status: "dismissed" as const }],
+    ["owner", { owner: null, ownershipConfidence: "ambiguous" as const }],
+    ["due date", { dueDate: null }],
+    ["title", { title: "Ship Atlas soon" }],
+  ])(
+    "refuses a stale write that differs in %s, returning the current record",
+    async (_field, difference) => {
+      const { item } = await writeIntelligence(input());
+      const saved = await writeIntelligence({
+        ...input(),
+        id: item.id,
+        expectedRevision: item.revision,
+        status: "completed",
+      });
+      const applied = await storedState();
+      await expect(
+        writeIntelligence({
+          ...input(),
+          id: item.id,
+          expectedRevision: item.revision,
+          status: "completed",
+          ...difference,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: { id: item.id, status: "completed" },
+          currentRevision: saved.item.revision,
+        },
+      });
+      expect(await storedState()).toEqual(applied);
+    },
+  );
+
+  it("refuses the second of two opposing verifications made on the same read", async () => {
+    const { item } = await writeIntelligence(input());
+    const verified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    const listed = first((await listIntelligence({ id: item.id })).records);
+    expect(listed.revision).toBe(verified.revision);
+    expect(listed.revision).not.toBe(item.revision);
+    const applied = await storedState();
+    await expect(
+      verifyKnowledge({
+        knowledgeId: item.id,
+        state: "deprecated",
+        attested: true,
+        expectedRevision: item.revision,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: {
+        current: { id: item.id, verification: { state: "verified" } },
+        currentRevision: verified.revision,
+      },
+    });
+    expect(await storedState()).toEqual(applied);
+
+    const resent = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(resent).toEqual(verified);
+    expect(await storedState()).toEqual(applied);
+
+    await expect(
+      writeIntelligence({
+        ...input(),
+        id: item.id,
+        expectedRevision: item.revision,
+        status: "completed",
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    const deprecated = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "deprecated",
+      attested: true,
+      expectedRevision: verified.revision,
+    });
+    expect(deprecated.verification.state).toBe("deprecated");
   });
 });

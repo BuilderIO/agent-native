@@ -620,6 +620,7 @@ describe("editing evidence-backed knowledge", () => {
       asQa(() =>
         writeKnowledgeRecord({
           knowledgeId: id,
+          expectedRevision: knowledgeRevision(before),
           title: "Atlas contact",
           body: "Edited without evidence.",
         }),
@@ -655,6 +656,7 @@ describe("editing evidence-backed knowledge", () => {
     await expect(
       saveKnowledge({
         knowledgeId: id,
+        expectedRevision: knowledgeRevision(before),
         evidence: [{ captureId: "capture", quote: "Morgan will not ship" }],
       }),
     ).rejects.toThrow("exact substring");
@@ -1007,6 +1009,202 @@ describe("knowledge updates send the revision they read", () => {
     const resent = await update(id, "Morgan will ship Atlas on Friday.", read);
     expect(resent.knowledge).toEqual(first.knowledge);
     expect(await storedRow(id)).toEqual(applied);
+  });
+
+  it.each([
+    ["body", { body: "Unread edit about Atlas." }],
+    ["confidence", { confidence: 10 }],
+    ["tags", { tags: ["launch"] }],
+    ["publish tier", { publishTier: "private" as const }],
+    ["redactions", { redactions: ["Atlas"] }],
+    ["canonical mirror", { publishCanonical: true }],
+  ])(
+    "refuses an update that sends no revision and differs in %s, returning the current record",
+    async (_field, change) => {
+      const id = await saveKnowledge({ evidence: [] });
+      const before = await storedRow(id);
+      const conflict = await conflictOf(
+        asQa(() =>
+          writeKnowledgeRecord({
+            knowledgeId: id,
+            title: "Atlas launch",
+            body: "Morgan will ship Atlas.",
+            publishTier: "company",
+            ...change,
+          }),
+        ),
+      );
+      expect(conflict).toMatchObject({ statusCode: 409 });
+      expect(conflict.details.current).toMatchObject({
+        id,
+        revision: knowledgeRevision(before),
+      });
+      expect(await storedRow(id)).toEqual(before);
+    },
+  );
+
+  it("refuses a stale resend that asks for a canonical mirror the first save did not publish", async () => {
+    const id = await saveKnowledge({ evidence: [] });
+    const read = knowledgeRevision(await storedRow(id));
+    await asQa(() =>
+      writeKnowledgeRecord({
+        knowledgeId: id,
+        expectedRevision: read,
+        title: "Atlas launch",
+        body: "Morgan will ship Atlas on Friday.",
+        evidence: [],
+        publishTier: "company",
+      }),
+    );
+    const applied = await storedRow(id);
+    expect(applied.publishedResourcePath).toBeNull();
+    const conflict = await conflictOf(
+      asQa(() =>
+        writeKnowledgeRecord({
+          knowledgeId: id,
+          expectedRevision: read,
+          title: "Atlas launch",
+          body: "Morgan will ship Atlas on Friday.",
+          evidence: [],
+          publishTier: "company",
+          publishCanonical: true,
+        }),
+      ),
+    );
+    expect(conflict.details.current).toMatchObject({
+      id,
+      publishedResourcePath: null,
+      revision: knowledgeRevision(applied),
+    });
+    expect(await storedRow(id)).toEqual(applied);
+  });
+
+  describe("after an edit that redacted the stored quote", () => {
+    async function redactInPlace() {
+      const id = await saveKnowledge({
+        title: "Atlas contact",
+        body: "Morgan will ship Atlas.",
+        evidence: [{ captureId: "capture", quote: captureContent }],
+      });
+      const read = knowledgeRevision(await storedRow(id));
+      const edit = {
+        knowledgeId: id,
+        expectedRevision: read,
+        title: "Atlas contact",
+        body: "Morgan will ship Atlas.",
+        redactions: [contact],
+        publishTier: "company" as const,
+      };
+      const first = await asQa(() => writeKnowledgeRecord(edit));
+      const applied = await storedRow(id);
+      expect(applied.status).toBe("redacted");
+      expect(applied.evidenceJson).not.toContain(contact);
+      return { id, read, edit, first, applied };
+    }
+
+    it("answers an identical resend with the current record, not an evidence error", async () => {
+      const { edit, first, applied, id } = await redactInPlace();
+      const conflict = await conflictOf(asQa(() => writeKnowledgeRecord(edit)));
+      expect(conflict.details).toMatchObject({
+        current: first.knowledge,
+        currentRevision: first.knowledge.revision,
+      });
+      expect(await storedRow(id)).toEqual(applied);
+    });
+
+    it("refuses a different stale edit with the current record, not an evidence error", async () => {
+      const { edit, applied, id } = await redactInPlace();
+      const conflict = await conflictOf(
+        asQa(() =>
+          writeKnowledgeRecord({ ...edit, body: "A different stale edit." }),
+        ),
+      );
+      expect(conflict.details).toMatchObject({
+        current: { id, body: "Morgan will ship Atlas." },
+        currentRevision: knowledgeRevision(applied),
+      });
+      expect(await storedRow(id)).toEqual(applied);
+    });
+  });
+
+  it("writes no audience or dependency rows when an update backed by two audiences is resent", async () => {
+    await client.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS brain_audience_dependency_unique_idx ON brain_audience_dependencies (audience_id, depends_on_audience_id); CREATE UNIQUE INDEX IF NOT EXISTS brain_audience_source_dependency_unique_idx ON brain_audience_source_dependencies (audience_id, source_id); CREATE UNIQUE INDEX IF NOT EXISTS brain_audience_member_principal_idx ON brain_audience_members (audience_id, principal_type, principal_id)",
+    );
+    await addSecondCapture();
+    await database.insert(schema.brainAudiences).values({
+      id: "audience-2",
+      sourceId: "source",
+      kind: "restricted",
+      aclHash: "acl-2",
+      membershipState: "current",
+    });
+    await database.insert(schema.brainAudienceMembers).values({
+      id: "member-2",
+      audienceId: "audience-2",
+      principalType: "user",
+      principalId: qaEmail,
+      syncedAt: "2026-11-18T12:00:00.000Z",
+    });
+    await database
+      .update(schema.brainCaptureAudiences)
+      .set({ audienceId: "audience-2", aclHash: "acl-2" })
+      .where(eq(schema.brainCaptureAudiences.captureId, "capture-2"));
+    const id = await saveKnowledge();
+    const read = knowledgeRevision(await storedRow(id));
+    const edit = {
+      knowledgeId: id,
+      expectedRevision: read,
+      title: "Atlas launch",
+      body: "Morgan will ship Atlas after the security review.",
+      evidence: [
+        { captureId: "capture", quote: plainQuote },
+        { captureId: "capture-2", quote: "Atlas ships" },
+      ],
+      publishTier: "company" as const,
+    };
+    const first = await asQa(() => writeKnowledgeRecord(edit));
+    const audienceState = async () => ({
+      knowledge: await storedRow(id),
+      audiences: await database
+        .select()
+        .from(schema.brainAudiences)
+        .orderBy(schema.brainAudiences.id),
+      dependencies: await database
+        .select()
+        .from(schema.brainAudienceDependencies)
+        .orderBy(schema.brainAudienceDependencies.id),
+      sourceDependencies: await database
+        .select()
+        .from(schema.brainAudienceSourceDependencies)
+        .orderBy(schema.brainAudienceSourceDependencies.id),
+      members: await database
+        .select()
+        .from(schema.brainAudienceMembers)
+        .orderBy(schema.brainAudienceMembers.id),
+    });
+    const applied = await audienceState();
+    expect(applied.knowledge.audienceId).not.toBe("audience");
+    expect(applied.dependencies).toHaveLength(2);
+    const resent = await asQa(() => writeKnowledgeRecord(edit));
+    expect(resent.knowledge).toEqual(first.knowledge);
+    expect(await audienceState()).toEqual(applied);
+  });
+
+  it("refuses an update that supersedes itself", async () => {
+    const id = await saveKnowledge();
+    const before = await storedRow(id);
+    await expect(
+      saveKnowledge({
+        knowledgeId: id,
+        expectedRevision: knowledgeRevision(before),
+        supersedesId: id,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "knowledge_supersedes_self",
+      statusCode: 400,
+    });
+    expect(await storedRow(id)).toEqual(before);
   });
 
   it("creates without a revision", async () => {

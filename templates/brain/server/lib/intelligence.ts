@@ -4,7 +4,12 @@ import {
   normalizeLocalizationPreference,
   normalizeTimezonePreference,
 } from "@agent-native/core/localization";
-import { saveConflict } from "@agent-native/core/save-conflict/server";
+import {
+  changedRowCount,
+  checkSaveRevision,
+  countSaveOutcome,
+  saveConflict,
+} from "@agent-native/core/save-conflict/server";
 import { formatDateInTimezone } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -53,6 +58,7 @@ import {
   searchKnowledgePage,
   serializeKnowledge,
   sha256Hex,
+  touchKnowledgeRevision,
   validateEvidence,
   writeKnowledgeRecordInTransaction,
 } from "./brain.js";
@@ -479,6 +485,38 @@ export async function writeIntelligence(input: WriteIntelligenceInput) {
   };
 }
 
+function intelligenceUpdateAlreadyStored(
+  input: WriteIntelligenceInput,
+  stored: IntelligenceItem,
+  row: KnowledgeRow,
+) {
+  const evidence = (
+    items: Array<Pick<BrainEvidenceInput, "captureId" | "quote" | "note">>,
+  ) =>
+    JSON.stringify(
+      items.map((item) => [
+        item.captureId,
+        item.quote.trim(),
+        item.note ?? null,
+      ]),
+    );
+  const entities = (items: IntelligenceItem["entities"]) =>
+    JSON.stringify(items.map((item) => [item.type, item.name]));
+  return (
+    stored.kind === input.kind &&
+    stored.title === input.title &&
+    stored.body === input.body &&
+    stored.owner === (input.owner?.trim() || null) &&
+    stored.dueDate === (input.dueDate ?? null) &&
+    stored.status === input.status &&
+    stored.ownershipConfidence === input.ownershipConfidence &&
+    stored.confidence === input.confidence &&
+    entities(stored.entities) === entities(input.entities) &&
+    evidence(stored.evidence) === evidence(input.evidence) &&
+    (!input.publishTier || row.publishTier === input.publishTier)
+  );
+}
+
 async function writeIntelligenceLocked(
   input: WriteIntelligenceInput,
   effects: AfterCommitEffects,
@@ -488,7 +526,8 @@ async function writeIntelligenceLocked(
       knowledgeId: input.id,
       evidence: input.evidence,
     });
-    await assertAccess("brain-knowledge", input.id, "editor");
+    const access = await assertAccess("brain-knowledge", input.id, "editor");
+    const row = access.resource as KnowledgeRow;
     const current = (
       await listIntelligence({ id: input.id, limit: 1 })
     ).records.find((record) => record.id === input.id);
@@ -497,8 +536,15 @@ async function writeIntelligenceLocked(
         errorCode: "evidence_unavailable",
         statusCode: 403,
       });
-    if (input.expectedRevision !== current.revision)
-      throw saveConflict("intelligence_record", current, current.revision);
+    const decision = checkSaveRevision({
+      record: "intelligence_record",
+      expectedRevision: input.expectedRevision,
+      requireRevision: true,
+      current: { value: current, revision: current.revision },
+      isSameSave: (stored) =>
+        intelligenceUpdateAlreadyStored(input, stored, row),
+    });
+    if (decision === "already_applied") return { item: current };
   }
   const evidence = await validateEvidence(input.evidence);
   if (!evidence.length)
@@ -571,10 +617,20 @@ async function writeIntelligenceLocked(
         access.capture.contentHash ?? (await sha256Hex(access.capture.content)),
     });
   }
-  await getDb()
+  const marked = await getDb()
     .update(schema.brainKnowledge)
     .set({ intelligenceKind: input.kind })
-    .where(eq(schema.brainKnowledge.id, result.knowledge.id));
+    .where(
+      and(
+        eq(schema.brainKnowledge.id, result.knowledge.id),
+        eq(schema.brainKnowledge.updatedAt, result.knowledge.updatedAt),
+      ),
+    )
+    .returning({ id: schema.brainKnowledge.id });
+  if (changedRowCount(marked) !== 1)
+    throw new Error(
+      `Marking knowledge ${result.knowledge.id} as intelligence did not change exactly one row.`,
+    );
   const savedKnowledge = await getDb()
     .select()
     .from(schema.brainKnowledge)
@@ -604,13 +660,18 @@ async function writeIntelligenceLocked(
     evidenceSnapshotsJson: JSON.stringify(snapshots),
     updatedAt: nowIso(),
   };
-  await getDb()
+  const savedDetail = await getDb()
     .insert(schema.brainKnowledgeIntelligence)
     .values(detail)
     .onConflictDoUpdate({
       target: schema.brainKnowledgeIntelligence.knowledgeId,
       set: detail,
-    });
+    })
+    .returning({ knowledgeId: schema.brainKnowledgeIntelligence.knowledgeId });
+  if (changedRowCount(savedDetail) !== 1)
+    throw new Error(
+      `Saving intelligence detail for ${knowledge.id} did not change exactly one row.`,
+    );
   const savedVerifications = await getDb()
     .select()
     .from(schema.brainKnowledgeVerifications)
@@ -771,13 +832,27 @@ async function verifyKnowledgeLocked(input: {
   const existingVerification = existingVerifications.find(
     (entry) => entry.knowledgeId === row.id,
   );
-  if (input.expectedRevision !== knowledgeRevision(row))
+  const revision = await intelligenceRevision(row, detail);
+  if (input.expectedRevision !== knowledgeRevision(row)) {
+    if (
+      existingVerification?.knowledgeRevision === revision &&
+      existingVerification.state === input.state &&
+      existingVerification.actorEmail === actorEmail
+    ) {
+      countSaveOutcome("intelligence_record", "already_applied");
+      return {
+        verification: verificationFor(existingVerification, revision),
+        revision: knowledgeRevision(row),
+      };
+    }
     throw saveConflict(
       "intelligence_record",
       await itemFromRows(row, detail, existingVerification),
       knowledgeRevision(row),
     );
-  const revision = await intelligenceRevision(row, detail);
+  }
+  const touched = await touchKnowledgeRevision(row);
+  if (!touched) throw new Error(`Knowledge ${row.id} changed while locked.`);
   const actedAt = nowIso();
   const actedAtMs = Date.parse(actedAt);
   const existingRemindAt =
@@ -801,15 +876,22 @@ async function verifyKnowledgeLocked(input: {
     actedAt,
     remindAt,
   };
-  await getDb()
+  const saved = await getDb()
     .insert(schema.brainKnowledgeVerifications)
     .values(verification)
     .onConflictDoUpdate({
       target: schema.brainKnowledgeVerifications.knowledgeId,
       set: verification,
-    });
+    })
+    .returning({ knowledgeId: schema.brainKnowledgeVerifications.knowledgeId });
+  if (changedRowCount(saved) !== 1)
+    throw new Error(
+      `Saving the verification of ${row.id} did not change exactly one row.`,
+    );
+  countSaveOutcome("intelligence_record", "written");
   return {
     verification: verificationFor(verification, verification.knowledgeRevision),
+    revision: knowledgeRevision(touched),
   };
 }
 

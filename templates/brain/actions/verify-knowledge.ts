@@ -42,6 +42,11 @@ export default defineAction({
         "Optional verification reminder interval in days (7, 14, 30, 90, 180, or 365) when verifying.",
       ),
   }),
-  outputSchema: z.object({ verification: verificationSchema }),
+  outputSchema: z.object({
+    verification: verificationSchema,
+    revision: z
+      .string()
+      .describe("The record's new revision, for the next write to it."),
+  }),
   run: verifyKnowledge,
 });

@@ -6,6 +6,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
   createSource,
+  firstRow,
   getAccessibleCapture,
   knowledgeRevision,
   nowIso,
@@ -664,7 +665,7 @@ async function findKnowledgeByTitle(title: string) {
       ),
     )
     .limit(1);
-  return rows.find((row) => row.title === title) ?? null;
+  return firstRow(rows) ?? null;
 }
 
 async function upsertDemoKnowledge(input: WriteKnowledgeInput) {

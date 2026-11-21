@@ -212,7 +212,7 @@ facts from inference and disclose incomplete transcripts.
 
 `list-intelligence` reads the current accessible records and their evidence.
 Use the existing record id and its current `revision` as `expectedRevision` when changing its status; a knowledge record has one revision, so
-the one from `get-knowledge` works too. On `save_conflict`, redo the change on `details.current`. Do not create a second
+the one from `get-knowledge` works too. `verify-knowledge` changes the revision and returns the new one. On `save_conflict`, redo the change on `details.current`. Do not create a second
 record to complete or dismiss work. `read-priorities` supports daily/weekly
 views: distinguish explicitly owned work from ambiguous items, disclose the
 selected owner and period, and keep overdue open work visible. It is a cited
