@@ -26,16 +26,34 @@ function hostnameOf(url: string | undefined): string | undefined {
   return new URL(url).hostname;
 }
 
-/** The deployment's built-in Analytics, on Content's own lane. */
-export function resolveAnalyticsAppUrl(): string | null {
+function builtinAnalyticsUrl(): string | null {
   const analytics = getBuiltinAgents("content").find(
     (app) => app.id === "analytics",
   );
   if (!analytics?.url || !URL.canParse(analytics.url)) return null;
+  return analytics.url.replace(/\/+$/, "");
+}
+
+/** The deployment's built-in Analytics, on Content's own lane. */
+export function resolveAnalyticsAppUrl(): string | null {
+  const builtinUrl = builtinAnalyticsUrl();
+  if (!builtinUrl) return null;
   return resolveLaneEndpoint(
-    analytics.url,
+    builtinUrl,
     hostnameOf(getAppConfig().app.url),
   ).replace(/\/+$/, "");
+}
+
+/**
+ * Where Content's calls to Analytics go. Asking for "analytics" by name
+ * reaches the catalog's production URL, so beta Content would be answered by
+ * production Analytics, which can lag beta by days. On beta it is beta
+ * Analytics' own URL; everywhere else, the name, as before.
+ */
+function analyticsTarget(): string {
+  const builtinUrl = builtinAnalyticsUrl();
+  const appUrl = resolveAnalyticsAppUrl();
+  return appUrl && appUrl !== builtinUrl ? appUrl : "analytics";
 }
 
 /**
@@ -121,7 +139,7 @@ export async function requestAnalytics<T>(
   let response;
   try {
     response = await invokeAgentAction({
-      target: "analytics",
+      target: analyticsTarget(),
       selfAppId: "content",
       action,
       input,
