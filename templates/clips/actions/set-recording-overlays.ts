@@ -28,13 +28,15 @@ export default defineAction({
     if (!isOutsideAgentCall(ctx)) return false;
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) return false;
-    const kept = new Set(
+    const kept = new Map(
       typeof args.overlays === "string"
         ? []
-        : parseRedactions(args.overlays).map(({ id }) => id),
+        : parseRedactions(args.overlays).map(
+            (redaction) => [redaction.id, JSON.stringify(redaction)] as const,
+          ),
     );
     return parseRedactions(parseEdits(access.resource.editsJson).overlays).some(
-      ({ id }) => !kept.has(id),
+      (redaction) => kept.get(redaction.id) !== JSON.stringify(redaction),
     );
   },
   mcpTool: "search",

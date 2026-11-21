@@ -41,7 +41,6 @@ const SERVED = [
   "get-organization-insights",
   "get-recording-app-activity",
   "get-recording-insights",
-  "get-screen-memory-status",
   "get-video-storage-status",
   "list-ai-requests",
   "list-clip-views",
@@ -117,6 +116,7 @@ const IN_APP_ONLY = [
   "get-clips-ai-prefs",
   "get-clips-notification-prefs",
   "get-clips-recording-defaults",
+  "get-screen-memory-status",
   "list-calendar-accounts",
   "list-pending-recording-context",
   "list-recording-media-cleanups",
@@ -183,6 +183,26 @@ const WIDENS_ACCESS = [
   [
     "set-recording-overlays",
     { recordingId: "rec-1", overlays: "[]" },
+    REDACTED,
+  ],
+  [
+    "set-recording-overlays",
+    { recordingId: "rec-1", overlays: [{ ...REDACTION, endMs: 500 }] },
+    REDACTED,
+  ],
+  [
+    "set-recording-overlays",
+    {
+      recordingId: "rec-1",
+      overlays: [
+        { ...REDACTION, keys: [{ atMs: 0, x: 0.5, y: 0.5, w: 0.1, h: 0.1 }] },
+      ],
+    },
+    REDACTED,
+  ],
+  [
+    "set-recording-overlays",
+    { recordingId: "rec-1", overlays: [{ ...REDACTION, style: "mosaic" }] },
     REDACTED,
   ],
   ["request-transcript", { recordingId: "rec-1", regenerate: true }, IMPORTED],
