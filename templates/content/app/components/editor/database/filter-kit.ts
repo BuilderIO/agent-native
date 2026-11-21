@@ -45,7 +45,6 @@ const KIT_FIELD_TYPES: Partial<Record<DocumentPropertyType, FilterFieldType>> =
     last_edited_time: "date",
   };
 
-/** A value a filter on an option or person property can pick. */
 export interface ContentFilterChoice {
   id: string;
   name: string;
@@ -57,10 +56,6 @@ export interface ContentFilterFieldOptions {
   choices: (property: DocumentProperty) => readonly ContentFilterChoice[];
 }
 
-/**
- * The kit's fields for a collection: its name, then each property. A field
- * offers only the operators Content's server keeps for that property's type.
- */
 export function contentFilterFields(
   properties: readonly DocumentProperty[],
   { nameLabel, choices }: ContentFilterFieldOptions,
@@ -134,11 +129,6 @@ function picksManyOptions(type: DocumentPropertyType) {
   return type === "multi_select" || type === "person";
 }
 
-/**
- * The kit's operator for a saved one. Content saves "is any of" on a one-choice
- * property as `contains`, and "has none of" on a many-choice one as
- * `does_not_equal`; the kit names them `equals` and `does_not_contain`.
- */
 export function kitFilterOperator(
   operator: ContentFilterOperator,
   type: DocumentPropertyType,
@@ -151,7 +141,6 @@ export function kitFilterOperator(
   return operator;
 }
 
-/** The operator Content saves for a kit rule's. */
 export function contentFilterOperator(
   operator: KitFilterOperator,
   type: DocumentPropertyType,
@@ -182,10 +171,6 @@ function contentValue(rule: FilterRule): string {
   return databaseFilterEncodeSelectedValues(rule.value);
 }
 
-/**
- * The kit's state for a view's filters. Groups keep their ids; a rule's id is
- * its place in `filters`, so the same filters always give the same ids.
- */
 export function contentFiltersToKitState(
   filters: readonly DatabaseFilter[],
   filterMode: DatabaseFilterMode,
@@ -223,12 +208,6 @@ export function contentFiltersToKitState(
   };
 }
 
-/**
- * The filters Content saves for the kit's state. Every grouped rule carries
- * its group's mode, and a rule in a nested group its parent's too, so no group
- * goes on inheriting the view's mode. A label comes from the property, or from
- * `previous` when the property is gone.
- */
 export function kitStateToContentFilters(
   state: FilterState,
   properties: readonly DocumentProperty[],
@@ -281,10 +260,6 @@ export function kitStateToContentFilters(
   return filters;
 }
 
-/**
- * The same text for any two sets of filters that filter alike, whatever their
- * order within a group or which group modes they spell out.
- */
 export function contentFilterQueryKey(
   filters: readonly DatabaseFilter[],
   filterMode: DatabaseFilterMode,
@@ -299,11 +274,6 @@ export function contentFilterQueryKey(
   return JSON.stringify([filterMode, canonical]);
 }
 
-/**
- * The kit's state for a view's filters, kept between edits so a rule keeps the
- * id the kit gave it. It starts again from `filters` when they change some
- * other way, such as an agent's edit or a reset.
- */
 export function useContentFilterKitState({
   filters,
   filterMode,

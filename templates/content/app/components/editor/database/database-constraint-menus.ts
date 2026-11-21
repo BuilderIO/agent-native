@@ -9,11 +9,6 @@ const ALL_CLOSED: ConstraintMenusState = {
   sortIndex: null,
 };
 
-/**
- * Holds the bar's open menus outside the table's React state: opening or
- * closing a sort chip then re-renders only the bar, not every column
- * header and row of a large table.
- */
 export function createConstraintMenus() {
   let state = ALL_CLOSED;
   const listeners = new Set<() => void>();

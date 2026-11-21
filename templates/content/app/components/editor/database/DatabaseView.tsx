@@ -1385,7 +1385,7 @@ function DatabaseTable({
   const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
   const { session } = useSession();
-  const currentUserEmail = session?.email?.trim() ?? "";
+  const currentUserEmail = session?.email.trim() ?? "";
   const filterFields = useMemo(
     () =>
       contentFilterFields(orderedProperties, {
@@ -7537,11 +7537,10 @@ type SourceNavStep =
   | { kind: "fieldPicker"; sourceId: string; sourceName: string }
   | { kind: "github" };
 
-/** A request to open Sources at a given page; a new id repeats it. */
 type SourceNavRequest = { id: number; stack: SourceNavStep[] };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
-  const top = stack[stack.length - 1];
+  const top = stack.at(-1);
   if (!top) return dbText("sources");
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;

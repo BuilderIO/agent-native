@@ -107,10 +107,10 @@ function button(name: string) {
   const match = [...document.querySelectorAll<HTMLElement>("button")].find(
     (candidate) =>
       candidate.getAttribute("aria-label") === name ||
-      candidate.textContent?.trim() === name,
+      candidate.textContent.trim() === name,
   );
-  expect(match, `button ${name}`).toBeDefined();
-  return match!;
+  if (!match) throw new Error(`No button named ${name}`);
+  return match;
 }
 
 describe("the filter row on the shared filter kit", () => {
@@ -160,10 +160,10 @@ describe("the filter row on the shared filter kit", () => {
     const item = [
       ...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
     ].find((candidate) =>
-      candidate.textContent?.includes("One matching rule is enough"),
+      candidate.textContent.includes("One matching rule is enough"),
     );
-    expect(item).toBeDefined();
-    await click(item!);
+    if (!item) throw new Error("No any-mode item");
+    await click(item);
     expect(latest.filterMode).toBe("or");
     expect(latest.filters.map((filter) => filter.value)).toEqual(["a", "b"]);
   });
