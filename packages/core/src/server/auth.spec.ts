@@ -13105,6 +13105,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_google_1",
         sessionId: "session_google_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -13181,6 +13182,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_state_1",
         sessionId: "session_state_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -13241,6 +13243,7 @@ describe("server/auth", () => {
           origin: "mcp_oauth",
           anonymousId: undefined,
           sessionId: undefined,
+          consent: { performance: "withheld", targeting: "withheld" },
         }),
       );
       expect(trackSignupEvent.mock.calls[0]?.[0].attribution).toBeUndefined();
@@ -13307,6 +13310,7 @@ describe("server/auth", () => {
           attribution: undefined,
           anonymousId: "anon_state_targeting_revoked",
           sessionId: "session_state_targeting_revoked",
+          consent: { performance: "allowed", targeting: "withheld" },
         }),
       );
     });

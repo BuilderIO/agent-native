@@ -1,0 +1,31 @@
+Changed files:
+  waits.tsx  (spinner 6)
+
+Sites transformed:
+  button     0
+  badge      0
+  input      0
+  text-area  0
+  skeleton   0
+  spinner    6
+  toast      0
+
+Shims:
+
+Not transformed (3 sites), by reason:
+  [spinner] 32px is too far from the Spinner's 16px (1)
+    blocked.tsx:9
+  [spinner] className isn't a string literal, so its size can't be read (1)
+    blocked.tsx:8
+  [spinner] CubeLoader prop `strokeWidth` (1)
+    blocked.tsx:10
+
+Transformed, needs a look (3 sites), by reason:
+  [spinner] 12px becomes the Spinner's 16px (1)
+    waits.tsx:7
+  [spinner] 14px becomes the Spinner's 16px (1)
+    waits.tsx:8
+  [spinner] was announced as "Loading"; it is decorative now, so give it a label if nothing else names the wait (1)
+    waits.tsx:6
+
+Test mocks of a legacy module (0):

@@ -70,6 +70,7 @@ import {
   useDashboardNameDraft,
 } from "./DashboardNameDrafts";
 import {
+  customRangeStartingBounds,
   FILTER_PARAM_PREFIX,
   isDateRangePresetFilter,
   MAX_FILTER_PRESETS,
@@ -1140,17 +1141,18 @@ function FilterControl({
           open={selectOpen && !disabled}
           onOpenChange={(open) => setSelectOpen(open && !disabled)}
           value={current}
-          onValueChange={(v) =>
+          onValueChange={(v) => {
+            const bounds =
+              supportsCustomRange && v === "custom"
+                ? customRangeStartingBounds(filter, vars)
+                : { start: "", end: "" };
             setValue({
               [filter.id]: v,
               ...(supportsCustomRange
-                ? {
-                    [startKey]: v === "custom" ? vars[startKey] || "" : "",
-                    [endKey]: v === "custom" ? vars[endKey] || "" : "",
-                  }
+                ? { [startKey]: bounds.start, [endKey]: bounds.end }
                 : {}),
-            })
-          }
+            });
+          }}
         >
           <SelectTrigger
             size="sm"
