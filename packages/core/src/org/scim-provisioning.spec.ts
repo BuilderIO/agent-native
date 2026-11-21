@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/store.js";
-import { createFrameworkSCIMIdentity } from "./scim-provisioning.js";
+import {
+  createFrameworkSCIMIdentity,
+  resolveFrameworkSSOUser,
+} from "./scim-provisioning.js";
 
 type Row = Record<string, any>;
 
@@ -78,8 +81,18 @@ describe("framework SCIM identity bridge", () => {
   });
 
   it("links a user and writes the first audit event with the migration-provisioned table", async () => {
+    vi.stubEnv("AUTH_SSO", "true");
+    resetAppConfigForTests();
     const rows: Record<string, Row[]> = {
       user: [{ id: "user-1", email: "Jane@Example.com" }],
+      ssoProvider: [
+        {
+          providerId: "example-sso",
+          organizationId: "org-1",
+          domain: "example.com",
+          domainVerified: true,
+        },
+      ],
       frameworkOrganization: [{ id: "org-1", name: "Example" }],
       orgMember: [],
       orgScimMembership: [],
@@ -382,5 +395,154 @@ describe("framework SCIM identity bridge", () => {
       memberId: rows.orgMember[0]!.id,
       createdMembership: true,
     });
+  });
+
+  it("does not attach an existing user outside the organization's verified domain", async () => {
+    vi.stubEnv("AUTH_SSO", "true");
+    resetAppConfigForTests();
+    const rows: Record<string, Row[]> = {
+      user: [{ id: "user-2", email: "other@second.example" }],
+      ssoProvider: [
+        {
+          providerId: "example-sso",
+          organizationId: "org-1",
+          domain: "example.com",
+          domainVerified: true,
+        },
+      ],
+      orgMember: [],
+    };
+    const database = adapterFor(rows);
+    const identity = createFrameworkSCIMIdentity();
+    const input = (primaryEmail: string) =>
+      ({
+        connectionId: "connection-1",
+        provisioningDomainId: "org-1",
+        resource: { userName: primaryEmail, primaryEmail, active: true },
+      }) as never;
+    const resolveUser = identity.resolveUser;
+    if (!resolveUser) throw new Error("SCIM identity has no resolveUser.");
+
+    await expect(
+      resolveUser(input("other@second.example"), { database }),
+    ).resolves.toEqual({ action: "create" });
+
+    rows.orgMember.push({
+      id: "member-1",
+      orgId: "org-1",
+      email: "other@second.example",
+      role: "member",
+    });
+    await expect(
+      resolveUser(input("other@second.example"), { database }),
+    ).resolves.toEqual({
+      action: "link",
+      userId: "user-2",
+      profile: "preserve",
+    });
+  });
+});
+
+describe("resolveFrameworkSSOUser", () => {
+  function ssoRows(provider: Partial<Row> = {}): Record<string, Row[]> {
+    return {
+      user: [
+        { id: "user-1", email: "owner@example.com" },
+        { id: "user-2", email: "other@second.example" },
+      ],
+      ssoProvider: [
+        {
+          providerId: "example-sso",
+          organizationId: "org-1",
+          domain: "example.com",
+          domainVerified: true,
+          ...provider,
+        },
+      ],
+      orgMember: [],
+    };
+  }
+
+  it("links an existing user whose address is in the provider's verified domain", async () => {
+    const database = adapterFor(ssoRows());
+    await expect(
+      resolveFrameworkSSOUser(
+        { providerId: "example-sso", email: "Owner@Example.com" },
+        database,
+      ),
+    ).resolves.toEqual({
+      action: "link",
+      userId: "user-1",
+      profile: "preserve",
+    });
+    await expect(
+      resolveFrameworkSSOUser(
+        { providerId: "example-sso", email: "new@eu.example.com" },
+        database,
+      ),
+    ).resolves.toEqual({ action: "continue" });
+  });
+
+  it("refuses addresses outside the provider's domain", async () => {
+    const database = adapterFor(ssoRows());
+    for (const email of ["other@second.example", "new@notexample.com"]) {
+      await expect(
+        resolveFrameworkSSOUser({ providerId: "example-sso", email }, database),
+      ).resolves.toMatchObject({ action: "reject" });
+    }
+  });
+
+  it("refuses every address while the provider's domain is unverified", async () => {
+    const database = adapterFor(ssoRows({ domainVerified: false }));
+    await expect(
+      resolveFrameworkSSOUser(
+        { providerId: "example-sso", email: "owner@example.com" },
+        database,
+      ),
+    ).resolves.toMatchObject({ action: "reject" });
+    await expect(
+      resolveFrameworkSSOUser(
+        { providerId: "missing-sso", email: "owner@example.com" },
+        database,
+      ),
+    ).resolves.toMatchObject({ action: "reject" });
+  });
+
+  it("links an address outside the domain when it is already a member of the provider's org", async () => {
+    const rows = ssoRows();
+    rows.orgMember.push({
+      id: "member-1",
+      orgId: "org-1",
+      email: "Other@Second.example",
+      role: "member",
+    });
+    const database = adapterFor(rows);
+    await expect(
+      resolveFrameworkSSOUser(
+        { providerId: "example-sso", email: "other@second.example" },
+        database,
+      ),
+    ).resolves.toEqual({
+      action: "link",
+      userId: "user-2",
+      profile: "preserve",
+    });
+
+    rows.orgMember[0].federationRemovalPendingAt = 1;
+    await expect(
+      resolveFrameworkSSOUser(
+        { providerId: "example-sso", email: "other@second.example" },
+        database,
+      ),
+    ).resolves.toMatchObject({ action: "reject" });
+
+    rows.orgMember[0].orgId = "org-2";
+    rows.orgMember[0].federationRemovalPendingAt = null;
+    await expect(
+      resolveFrameworkSSOUser(
+        { providerId: "example-sso", email: "other@second.example" },
+        database,
+      ),
+    ).resolves.toMatchObject({ action: "reject" });
   });
 });

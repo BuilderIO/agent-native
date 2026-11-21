@@ -382,6 +382,11 @@ const electronAPI = {
   },
 
   setActiveApp: (appId: string) => ipcRenderer.send(IPC.SET_ACTIVE_APP, appId),
+  setWebviewBackgroundThrottling: (webContentsId: number, throttle: boolean) =>
+    ipcRenderer.send(IPC.SET_WEBVIEW_BACKGROUND_THROTTLING, {
+      webContentsId,
+      throttle,
+    }),
   setActiveWebview: (target: ActiveWebviewTarget) =>
     ipcRenderer.send(IPC.SET_ACTIVE_WEBVIEW, target),
 

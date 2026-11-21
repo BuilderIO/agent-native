@@ -1,3 +1,4 @@
+import { isAgentCaller } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -13,6 +14,7 @@ import {
 } from "../server/lib/require-workspace-member.js";
 
 export default defineAction({
+  allowsAgentNavigation: true,
   description:
     "Create a named empty Factory the same way /new-factory does. Opens that factory's Workflows tab. Reply with the factory name and that workflows start empty. Add workflows later with save-factory-workflow.",
   schema: z.object({
@@ -70,11 +72,7 @@ export default defineAction({
       throw new Error("Could not allocate a unique factory id.");
     }
 
-    if (
-      context?.caller === "tool" ||
-      context?.caller === "mcp" ||
-      context?.caller === "a2a"
-    ) {
+    if (isAgentCaller(context)) {
       await writeAppStateForCurrentTab("navigate", {
         view: "factory",
         path: `/factory?factoryId=${encodeURIComponent(factoryId)}`,

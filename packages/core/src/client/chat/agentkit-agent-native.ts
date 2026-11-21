@@ -3335,7 +3335,12 @@ export function createAgentNativeAgentKitTransport(
       updatedAt,
     );
     const agentKitMessages = Array.isArray(agentKit?.messages)
-      ? (agentKit.messages as AgentMessage[])
+      ? (agentKit.messages.map((value: unknown) => {
+          const message = asRecord(value);
+          return message && !Object.hasOwn(message, "parts")
+            ? { ...message, parts: [] }
+            : value;
+        }) as AgentMessage[])
       : undefined;
     const agentKitMessageIds = new Set(
       agentKitMessages?.map((message) => message.id) ?? [],

@@ -25,16 +25,6 @@ import {
 } from "./iframe-csp.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXTENSION_HOST_DIR = join(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "toolkit",
-  "src",
-  "app",
-  "extensions",
-);
 
 // The CSP resolves app config, so an unset config has to be the baseline every
 // other assertion in this file measures against.
@@ -539,6 +529,8 @@ describe("extension iframe display-only media sources", () => {
     expect(sources(csp, "img-src")).toEqual(["'self'", "https:"]);
     expect(csp).toContain(`frame-ancestors ${EXTENSION_FRAME_ANCESTORS};`);
     expect(csp).not.toContain("frame-ancestors *");
+    expect(csp).toContain("sandbox allow-scripts allow-forms allow-downloads;");
+    expect(csp).not.toContain("allow-same-origin");
   });
 
   // SECURITY: img-src / media-src are the configurable directives. connect-src
@@ -602,37 +594,5 @@ describe("extension iframe display-only media sources", () => {
       defineAppConfig({ extensions: { iframeImageSources: [] } }),
     ).toThrow();
   });
-});
-
-describe("extension iframe sandbox attribute (CI guard)", () => {
-  // SECURITY: the host-side iframe MUST be rendered with a sandbox attribute
-  // that does NOT include `allow-same-origin`. Adding it would let the
-  // attacker-authored content reach the parent's DOM. See audit C1/H3.
-  const HOST_FILES = [
-    "ExtensionViewer.tsx",
-    "EmbeddedExtension.tsx",
-    "InlineExtensionFrame.tsx",
-    "ExtensionEditor.tsx",
-  ];
-
-  for (const file of HOST_FILES) {
-    it(`${file} renders the iframe without allow-same-origin`, () => {
-      const text = readFileSync(join(EXTENSION_HOST_DIR, file), "utf8");
-      const sandboxMatches = text.match(/sandbox="([^"]*)"/g) ?? [];
-      const usesNormalizedSandbox = text.includes(
-        "sandbox={EXTENSION_IFRAME_SANDBOX}",
-      );
-      if (usesNormalizedSandbox) {
-        expect(text).toMatch(
-          /normalizeAgentNativeExtensionSandbox\(\s*undefined,\s*\{\s*mode:\s*"nonce"\s*\},?\s*\)/,
-        );
-      } else {
-        expect(sandboxMatches.length).toBeGreaterThan(0);
-      }
-      for (const sandbox of sandboxMatches) {
-        expect(sandbox).not.toContain("allow-same-origin");
-      }
-    });
-  }
-  // oracle-change: Rendered Toolkit hosts now cover shared chat confirmation.
+  // oracle-change: frame host sandbox checks moved to extension-host-frames.spec.ts
 });

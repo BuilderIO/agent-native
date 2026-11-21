@@ -19,6 +19,10 @@ import {
   withExecutionFence,
 } from "./execution-fence.js";
 import {
+  currentLeaseRenewalDiagnostics,
+  type LeaseRenewalDiagnostics,
+} from "./lease-renewal-diagnostics.js";
+import {
   AgentRunEventNotPersistedError,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
 } from "./run-store.js";
@@ -130,6 +134,7 @@ vi.mock("./run-store.js", () => ({
       omitFromPersistedHistory: true,
       ...(event.type === "text" ? { text: "" } : {}),
       ...(event.type === "error" ? { error: "Private content omitted" } : {}),
+      ...(event.type === "auto_continue" ? { reason: event.reason } : {}),
       ...(event.type === "tool_start" ? { tool: event.tool, input: {} } : {}),
       ...(event.type === "tool_done"
         ? {
@@ -302,6 +307,7 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  readAbortStateBeforeDeadline,
   replayCompletedTurn,
   nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
@@ -674,6 +680,116 @@ describe("run manager soft timeout", () => {
 
     abortRun(run.runId, "user");
     await run.finalized;
+  });
+
+  it("records overdue and settled renewals without holding the heartbeat retry slot", async () => {
+    const renewal = Promise.withResolvers<void>();
+    const bodyDone = Promise.withResolvers<void>();
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockReturnValueOnce(renewal.promise);
+    const run = startRun(
+      "run-lease-diagnostics",
+      "thread-lease-diagnostics",
+      async () => {
+        diagnostics = currentLeaseRenewalDiagnostics("run-lease-diagnostics");
+        await bodyDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(7_500);
+    const pending = diagnostics?.snapshot();
+    expect(pending?.attempts).toHaveLength(2);
+    expect(pending?.attempts[0]).toMatchObject({
+      outcome: "pending",
+      deadlineReachedAtMs: expect.any(Number),
+    });
+    expect(pending?.attempts[1]).toMatchObject({
+      pendingAtStart: 1,
+      outcome: "renewed",
+    });
+    renewal.reject(
+      Object.assign(new Error("Synthetic renewal failure"), { code: "57014" }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(diagnostics?.snapshot().attempts[0]).toMatchObject({
+      outcome: "error",
+      failureCode: "57014",
+      settledAtMs: expect.any(Number),
+    });
+    bodyDone.resolve();
+    await run.finalized;
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it("records a lost fence while preserving the existing abort behavior", async () => {
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
+      new StaleExecutionFenceError({
+        threadId: "thread-lease-diagnostic-loss",
+        turnId: "run-lease-diagnostic-loss",
+        runId: "run-lease-diagnostic-loss",
+        generation: "1",
+      }),
+    );
+    const run = startRun(
+      "run-lease-diagnostic-loss",
+      "thread-lease-diagnostic-loss",
+      async (_send, signal) => {
+        diagnostics = currentLeaseRenewalDiagnostics(
+          "run-lease-diagnostic-loss",
+        );
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await run.finalized;
+    expect(diagnostics?.snapshot().attempts).toEqual([
+      expect.objectContaining({
+        outcome: "fence_lost",
+        settledAtMs: expect.any(Number),
+      }),
+    ]);
+    expect(run.abortReason).toBe("execution_lease_lost");
+  });
+
+  it("does not expose parent renewal diagnostics to an unleased nested run", async () => {
+    let parentDiagnostics: LeaseRenewalDiagnostics | undefined;
+    let childDiagnostics: LeaseRenewalDiagnostics | undefined;
+    const parentDone = Promise.withResolvers<void>();
+    const childDone = Promise.withResolvers<void>();
+    const parent = startRun(
+      "run-lease-parent",
+      "thread-lease-parent",
+      async () => {
+        parentDiagnostics = currentLeaseRenewalDiagnostics("run-lease-parent");
+        const child = startRun(
+          "run-unleased-child",
+          "thread-unleased-child",
+          async () => {
+            childDiagnostics =
+              currentLeaseRenewalDiagnostics("run-unleased-child");
+          },
+          undefined,
+          { softTimeoutMs: 0, noProgressTimeoutMs: 0 },
+        );
+        await child.finalized;
+        childDone.resolve();
+        await parentDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await childDone.promise;
+    expect(childDiagnostics).toBeUndefined();
+    expect(parentDiagnostics?.snapshot().attempts).toHaveLength(1);
+    parentDone.resolve();
+    await parent.finalized;
   });
 
   it("does not start a run when an execution lease returns no fence", async () => {
@@ -9256,6 +9372,103 @@ describe("run manager soft timeout", () => {
     }
   });
 
+  it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {
+    const runId = "run-private-empty-final";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_start",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "tool_done",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          result: "private draft saved",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "text",
+          text: "",
+          omitFromPersistedHistory: true,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "truncated", {
+      terminalReason: "stream_ended",
+    });
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "completed",
+    );
+    expect(
+      run.events.some(
+        ({ event }) =>
+          event.type === "auto_continue" && event.reason === "stream_ended",
+      ),
+    ).toBe(true);
+    expect(setRunError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a real framework error code and safe user message on a private run instead of Private content omitted", async () => {
+    for (const [code, expectedMessage] of [
+      [
+        "private_history_unrecoverable",
+        "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      ],
+      [
+        "tool_call_journal_unreadable",
+        "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. Retrying would risk repeating a step that already completed. Please send the request again.",
+      ],
+      [
+        "private_history_provenance_unavailable",
+        "Private turn provenance is unavailable. Please send the request again.",
+      ],
+      [
+        "write_tool_outcome_unknown",
+        "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
+      ],
+    ] as const) {
+      const runId = `run-private-real-error-code-${code}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: {},
+            omitFromPersistedHistory: true,
+          });
+          await send({
+            type: "error",
+            error: "private sentinel text",
+            errorCode: code,
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, `error:${code}`);
+      expect(setRunError).toHaveBeenCalledWith(runId, code, expectedMessage);
+      expect(JSON.stringify(setRunError.mock.calls)).not.toContain(
+        "private sentinel text",
+      );
+    }
+  });
+
   it("continues after a failed private UI result or a later unfinished tool", async () => {
     for (const kind of ["failed-ui", "later-tool"] as const) {
       const runId = `run-private-unfinished-${kind}`;
@@ -9294,6 +9507,12 @@ describe("run manager soft timeout", () => {
         "truncated",
         { terminalReason: "stream_ended" },
       );
+      expect(
+        run.events.some(
+          ({ event }) =>
+            event.type === "auto_continue" && event.reason === "stream_ended",
+        ),
+      ).toBe(true);
     }
   });
 
@@ -11224,5 +11443,68 @@ describe("engineRequestShapeTags", () => {
 
   it("emits nothing when the failure happened before a request was built", () => {
     expect(engineRequestShapeTags(undefined)).toEqual({});
+  });
+});
+
+describe("readAbortStateBeforeDeadline", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries a failed read until one succeeds", async () => {
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(new Error("connection reset"))
+      .mockResolvedValueOnce({ aborted: true });
+
+    await expect(readAbortStateBeforeDeadline(read, 2_000)).resolves.toEqual({
+      aborted: true,
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up on a read still pending at the deadline", async () => {
+    vi.useFakeTimers();
+    const result = readAbortStateBeforeDeadline(
+      () => new Promise<{ aborted: boolean }>(() => {}),
+      2_000,
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it("gives up when every read fails until the deadline", async () => {
+    vi.useFakeTimers();
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValue(new Error("database unavailable"));
+    const result = readAbortStateBeforeDeadline(read, 1_000);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(read.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("hands each failed read's error to the caller", async () => {
+    vi.useFakeTimers();
+    const first = new Error("connection reset");
+    const last = new Error("database unavailable");
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(first)
+      .mockRejectedValue(last);
+    const failures: unknown[] = [];
+    const result = readAbortStateBeforeDeadline(read, 1_000, (error) =>
+      failures.push(error),
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(failures[0]).toBe(first);
+    expect(failures.at(-1)).toBe(last);
   });
 });

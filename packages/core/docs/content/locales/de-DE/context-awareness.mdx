@@ -361,6 +361,18 @@ Framework URL-Tools (`set-url-path`, `set-search-params`) und reiner URL-Filter
 mit `navigate(path, { replace: true, flushSync: true })`, anstatt es zu umschließen
 in einem Ansichtsübergang, damit die Adressleiste und die sichtbare Seite zusammen bleiben.
 
+### Agenten lassen die Ansicht des Benutzers stehen {#agent-keeps-view}
+
+Der Bildschirm des Benutzers wechselt nur, wenn er etwas sehen wollte. Das gilt für jeden Agenten: den eingebauten Chat, externe Agenten über MCP oder WebMCP und Peers über A2A (`isAgentCaller(ctx)` aus `@agent-native/core`).
+
+- Lesen navigiert nie. Eine schreibgeschützte Aktion, die während eines Agentenaufrufs `navigate` schreibt, wird im App-State-Store abgelehnt.
+- Schreiben bleibt standardmäßig an Ort und Stelle. Ein Agenten-Schreibvorgang, der `navigate` ohne `intent: "open"` schreibt, wird abgelehnt; rufe `navigateAfterWrite(navigation, { ctx, intent })` aus `@agent-native/core/application-state` auf, damit der Wechsel für Agenten ohne `intent: "open"` sauber entfällt, oder setze `allowsAgentNavigation: true` bei einer Aktion, deren Aufgabe das Öffnen einer Ansicht ist.
+- Ein einzelnes Element zu öffnen braucht `intent: "open"`. `createNavigateAction()` und der App-State-Store erzwingen das standardmäßig für Element-ID-Felder (`id`, `*Id`) und Detailpfade ohne App-spezifischen Code. Übergib `isDetailView` an `createNavigateAction()` nur für eigene Regeln.
+
+```ts
+export const navigate = createNavigateAction();
+```
+
 ## Der useNavigationState-Hook {#use-navigation-state}
 
 `useNavigationState` ist **der Hook Ihrer App, kein Framework-Import.** Jede Vorlage liefert eine unter `app/hooks/use-navigation-state.ts` und ruft sie einmal aus der App-Shell (`root.tsx`) auf. Es ist der einzige Ort, der die Navigation in beide Richtungen verbindet:

@@ -1,191 +1,347 @@
 // @vitest-environment happy-dom
+import type { ReviewComment } from "@agent-native/core/review";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReplyInput, SlideCommentsPanel } from "./SlideCommentsPanel";
+import type { CommentThread } from "@/hooks/use-slide-comments";
 
-const refetch = vi.fn();
-const useSlideCommentsArgs = vi.fn();
-const commentFiltersStorage = new Map<string, string>();
+import { SlideCommentsPanel } from "./SlideCommentsPanel";
+
+const mocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  reply: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+  resolve: vi.fn(),
+  react: vi.fn(),
+  sendToAgent: vi.fn(),
+  toastError: vi.fn(),
+  refetch: vi.fn(),
+  useSlideCommentsArgs: vi.fn(),
+}));
+
+const storage = new Map<string, string>();
 const localStorageMock = {
   get length() {
-    return commentFiltersStorage.size;
+    return storage.size;
   },
-  clear: () => commentFiltersStorage.clear(),
-  getItem: (key: string) => commentFiltersStorage.get(key) ?? null,
-  key: (index: number) =>
-    Array.from(commentFiltersStorage.keys())[index] ?? null,
+  clear: () => storage.clear(),
+  getItem: (key: string) => storage.get(key) ?? null,
+  key: (index: number) => Array.from(storage.keys())[index] ?? null,
   removeItem: (key: string) => {
-    commentFiltersStorage.delete(key);
+    storage.delete(key);
   },
   setItem: (key: string, value: string) => {
-    commentFiltersStorage.set(key, value);
+    storage.set(key, value);
   },
 } as Storage;
-const {
-  createComment,
-  deleteComment,
-  resolveComment,
-  toggleReaction,
-  updateComment,
-} = vi.hoisted(() => ({
-  createComment: vi.fn(),
-  deleteComment: vi.fn(),
-  resolveComment: vi.fn(),
-  toggleReaction: vi.fn(),
-  updateComment: vi.fn(),
-}));
-let commentQueryState:
-  | {
-      data: unknown[] | undefined;
-      isError: boolean;
-    }
-  | undefined;
 
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => {
-    const messages: Record<string, string> = {
-      "comments.title": "Comments",
-      "comments.addComment": "Add comment",
-      "comments.close": "Close",
-      "comments.loadFailed": "Couldn't load comments",
-      "comments.retry": "Retry",
-      "comments.addCommentPlaceholder": "Add a comment...",
-      "comments.replyPlaceholder": "Write a reply...",
-      "comments.cancel": "Cancel",
-      "comments.saving": "Saving...",
-      "comments.comment": "Comment",
-      "comments.deleteComment": "Delete comment",
-      "comments.editComment": "Edit comment",
-      "comments.save": "Save",
-      "comments.reopenThread": "Reopen thread",
-      "comments.resolveThread": "Resolve thread",
-      "comments.updateFailed": "Could not update this comment.",
-      "comments.deleteFailed": "Could not delete this comment.",
-      "comments.reactionFailed": "Could not update this reaction.",
-      "comments.addReaction": "Add reaction",
-      "comments.toggleReaction": "Toggle reaction {{emoji}}",
-      "comments.reactWith": "React with {{emoji}}",
-      "comments.filters": "Comment filters",
-      "comments.scope": "Comment scope",
-      "comments.thisSlide": "This slide",
-      "comments.allComments": "All slides",
-      "comments.audience": "Comment audience",
-      "comments.all": "All",
-      "comments.forYou": "For you",
-      "comments.goToSlide": "Go to slide",
-      "comments.hideResolved": "Hide resolved",
-      "comments.showResolved": "Show resolved comments",
-      "comments.search": "Search comments",
-      "comments.searchPlaceholder": "Search all comments...",
-    };
-    return messages[key] ?? key;
-  },
+let queryState: {
+  threads: CommentThread[] | undefined;
+  isError: boolean;
+  reactions?: Record<string, unknown[]>;
+} = { threads: [], isError: false };
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  actionErrorMessage: (error: unknown) =>
+    error instanceof Error ? error.message : null,
+  useSession: () => ({
+    session: { email: "writer@example.com", orgId: null },
+  }),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
-  actionErrorMessage: (error: Error) => error.message,
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/i18n")>();
+  const { default: english } =
+    await vi.importActual<typeof import("@/i18n/en-US")>("@/i18n/en-US");
+  const lookup = (key: string): unknown =>
+    key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          typeof node === "object" && node !== null
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        english,
+      );
+  return {
+    ...actual,
+    useT:
+      () =>
+      (key: string, values: Record<string, unknown> = {}) => {
+        const plural =
+          typeof values.count === "number"
+            ? `_${new Intl.PluralRules("en").select(values.count)}`
+            : "";
+        const message = lookup(`${key}${plural}`) ?? lookup(key);
+        return typeof message === "string"
+          ? message.replace(/\{\{(\w+)\}\}/g, (_, name: string) =>
+              String(values[name]),
+            )
+          : key;
+      },
+  };
+});
+
+vi.mock("@agent-native/core/client/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/review")
+  >()),
+  useCreateReviewComment: () => ({
+    mutateAsync: mocks.create,
+    isPending: false,
+  }),
+  useReplyReviewComment: () => ({ mutateAsync: mocks.reply, isPending: false }),
+  useUpdateReviewComment: () => ({
+    mutateAsync: mocks.update,
+    isPending: false,
+  }),
+  useDeleteReviewComment: () => ({
+    mutateAsync: mocks.remove,
+    isPending: false,
+  }),
+  useResolveReviewThread: () => ({
+    mutateAsync: mocks.resolve,
+    isPending: false,
+  }),
+  useReactToReviewComment: () => ({
+    mutateAsync: mocks.react,
+    isPending: false,
+  }),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  sendToAgentChatAndConfirm: mocks.sendToAgent,
+}));
+
+vi.mock("@agent-native/core/client/use-avatar", () => ({
   useAvatarUrl: () => null,
-  useReconciledState: (value: string) => useState(value),
 }));
 
-const PopoverContext = createContext<{
-  open: boolean;
-  onOpenChange?: (open: boolean) => void;
-} | null>(null);
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
+  useReviewMentionPeople: () => ({
+    people: [{ label: "Pat", email: "pat@example.com" }],
+    searching: false,
+    failed: false,
+    onMentionQueryChange: () => {},
+  }),
+}));
 
-vi.mock("@/components/ui/popover", () => ({
-  Popover: ({
-    children,
-    open = false,
-    onOpenChange,
-  }: {
-    children: ReactNode;
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-  }) => (
-    <PopoverContext.Provider value={{ open, onOpenChange }}>
-      {children}
-    </PopoverContext.Provider>
-  ),
-  PopoverTrigger: ({ children }: { children: ReactNode }) => {
-    const context = useContext(PopoverContext);
-    return (
-      <span onClick={() => context?.onOpenChange?.(!context.open)}>
-        {children}
-      </span>
-    );
-  },
-  PopoverContent: ({ children }: { children: ReactNode }) => {
-    const context = useContext(PopoverContext);
-    return context?.open ? <div>{children}</div> : null;
-  },
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError, success: vi.fn() },
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
   TooltipTrigger: ({ children }: { children: ReactNode }) => children,
-  TooltipContent: ({ children }: { children: ReactNode }) => children,
+  TooltipContent: () => null,
 }));
 
 vi.mock("@/hooks/use-slide-comments", () => ({
   useSlideComments: (...args: unknown[]) => {
-    useSlideCommentsArgs(...args);
+    mocks.useSlideCommentsArgs(...args);
     return {
-      data: commentQueryState?.data,
-      isError: commentQueryState?.isError ?? false,
-      refetch,
+      data: queryState.threads
+        ? {
+            threads: queryState.threads,
+            discussion: {
+              reactions: queryState.reactions ?? {},
+              threadPreferences: {},
+              canReact: true,
+              canSetThreadPreferences: true,
+            },
+          }
+        : undefined,
+      isError: queryState.isError,
+      refetch: mocks.refetch,
     };
   },
-  useCreateSlideComment: () => ({
-    mutateAsync: createComment,
-    isPending: false,
-  }),
-  useResolveSlideComment: () => ({ mutate: resolveComment }),
-  useDeleteSlideComment: () => ({ mutate: deleteComment }),
-  useUpdateSlideComment: () => ({
-    mutateAsync: updateComment,
-    isPending: false,
-  }),
-  useToggleSlideCommentReaction: () => ({ mutate: toggleReaction }),
-  emailToColor: () => "#000",
-  formatRelativeTime: () => "just now",
 }));
+
+type EditorElement = HTMLElement & {
+  editor: {
+    commands: { focus: (position: "end") => boolean };
+    state: { tr: { insertText: (text: string) => unknown } };
+    view: { dispatch: (transaction: unknown) => void };
+  };
+};
+
+function comment(
+  id: string,
+  extra: Partial<ReviewComment> = {},
+): ReviewComment {
+  return {
+    id,
+    resourceType: "deck",
+    resourceId: "deck-1",
+    threadId: "thread-1",
+    parentCommentId: null,
+    targetId: null,
+    surfaceId: "slide-1",
+    kind: "comment",
+    status: "open",
+    anchor: null,
+    anchorKind: null,
+    anchorVersion: null,
+    body: "Review this slide",
+    authorEmail: "other@example.com",
+    authorName: "Other",
+    createdBy: "human",
+    resolutionTarget: "human",
+    mentions: [],
+    metadata: null,
+    canDelete: false,
+    canDeleteThread: false,
+    createdAt: "2026-08-13T00:00:00.000Z",
+    updatedAt: "2026-08-13T00:00:00.000Z",
+    ...extra,
+  } as ReviewComment;
+}
+
+function thread(
+  root: ReviewComment,
+  replies: ReviewComment[] = [],
+  extra: Partial<CommentThread> = {},
+): CommentThread {
+  return {
+    threadId: root.threadId,
+    slideId: root.surfaceId ?? null,
+    quotedText: null,
+    anchor: null,
+    resolved: root.status === "resolved",
+    root,
+    replies,
+    ...extra,
+  };
+}
+
+type PanelProps = ComponentProps<typeof SlideCommentsPanel>;
+
+function panelProps(extra: Partial<PanelProps> = {}): PanelProps {
+  return {
+    deckId: "deck-1",
+    slideId: "slide-1",
+    canComment: true,
+    currentUserEmail: "writer@example.com",
+    pendingComment: null,
+    onPendingDone: vi.fn(),
+    onClose: vi.fn(),
+    ...extra,
+  };
+}
+
+async function editorNamed(name: string): Promise<EditorElement> {
+  const element = await screen.findByRole("textbox", { name });
+  return element as EditorElement;
+}
+
+function typeInto(element: EditorElement, text: string) {
+  act(() => {
+    element.editor.commands.focus("end");
+  });
+  act(() => {
+    const { state, view } = element.editor;
+    view.dispatch(state.tr.insertText(text));
+  });
+}
+
+function pressEnter(element: HTMLElement, init: KeyboardEventInit = {}) {
+  act(() => {
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      }),
+    );
+  });
+}
+
+function openMenu(trigger: HTMLElement) {
+  act(() => {
+    trigger.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
+  });
+}
+
+function menuItems(): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+  );
+}
+
+function menuItem(name: string): HTMLElement {
+  const item = menuItems().find(
+    (element) => element.textContent.trim() === name,
+  );
+  if (!item) throw new Error(`no menu item named ${name}`);
+  return item;
+}
+
+function deferred<T>() {
+  const handlers = {
+    resolve: (_value: T) => {},
+    reject: (_reason: unknown) => {},
+  };
+  const promise = new Promise<T>((resolve, reject) => {
+    handlers.resolve = resolve;
+    handlers.reject = reject;
+  });
+  return { promise, resolve: handlers.resolve, reject: handlers.reject };
+}
+
+const revenueSelection = {
+  slideId: "slide-1",
+  quotedText: "Revenue",
+  anchor: { x: 42, y: 33, textStartOffset: 0, textEndOffset: 7 },
+};
+const costsSelection = {
+  slideId: "slide-1",
+  quotedText: "Costs",
+  anchor: { x: 42, y: 60, textStartOffset: 12, textEndOffset: 17 },
+};
+
+function reactionChoice(item: HTMLElement): string | null | undefined {
+  return item.querySelector('[aria-hidden="true"]')?.textContent;
+}
 
 afterEach(() => {
   cleanup();
-  commentFiltersStorage.clear();
+  storage.clear();
 });
 
 beforeEach(() => {
-  commentFiltersStorage.clear();
+  storage.clear();
   Object.defineProperty(window, "localStorage", {
     configurable: true,
     value: localStorageMock,
   });
-  useSlideCommentsArgs.mockClear();
+  queryState = { threads: [], isError: false };
+  for (const mock of Object.values(mocks)) mock.mockReset();
+  mocks.sendToAgent.mockResolvedValue({ delivered: true });
 });
 
 describe("SlideCommentsPanel", () => {
   it("keeps filters collapsed by default and remembers the disclosure state", () => {
-    commentQueryState = { data: [], isError: false };
-    const props = {
-      deckId: "deck-1",
-      slideId: "slide-1",
-      canComment: true,
-      canEdit: true,
-      currentUserEmail: "writer@example.com",
-      pendingComment: null,
-      onPendingDone: vi.fn(),
-      onClose: vi.fn(),
-    };
+    const props = panelProps();
 
     const view = render(<SlideCommentsPanel {...props} />);
     const filtersButton = screen.getByRole("button", {
@@ -194,7 +350,7 @@ describe("SlideCommentsPanel", () => {
     expect(filtersButton.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("group", { name: "Comment scope" })).toBeNull();
     expect(screen.queryByPlaceholderText("Search all comments...")).toBeNull();
-    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+    expect(mocks.useSlideCommentsArgs).toHaveBeenLastCalledWith(
       "deck-1",
       "slide-1",
       "slide",
@@ -203,9 +359,8 @@ describe("SlideCommentsPanel", () => {
     fireEvent.click(filtersButton);
     expect(filtersButton.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("group", { name: "Comment scope" })).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search all comments...")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "All slides" }));
-    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+    expect(mocks.useSlideCommentsArgs).toHaveBeenLastCalledWith(
       "deck-1",
       "slide-1",
       "deck",
@@ -216,24 +371,16 @@ describe("SlideCommentsPanel", () => {
     });
     fireEvent.click(filtersButton);
     expect(filtersButton.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByRole("group", { name: "Comment scope" })).toBeNull();
     expect(
       screen.queryByRole("group", { name: "Comment audience" }),
     ).toBeNull();
-    expect(screen.queryByPlaceholderText("Search all comments...")).toBeNull();
-    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
+    expect(mocks.useSlideCommentsArgs).toHaveBeenLastCalledWith(
       "deck-1",
       "slide-1",
       "slide",
     );
 
     fireEvent.click(filtersButton);
-    expect(filtersButton.getAttribute("aria-expanded")).toBe("true");
-    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
-      "deck-1",
-      "slide-1",
-      "slide",
-    );
     view.unmount();
     render(<SlideCommentsPanel {...props} />);
     expect(
@@ -241,85 +388,23 @@ describe("SlideCommentsPanel", () => {
         .getByRole("button", { name: "Comment filters" })
         .getAttribute("aria-expanded"),
     ).toBe("true");
-    expect(useSlideCommentsArgs).toHaveBeenLastCalledWith(
-      "deck-1",
-      "slide-1",
-      "slide",
-    );
   });
 
-  it("keeps Add comment available when the slide already has threads", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Review this slide",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
+  it("keeps Add comment available when the slide already has threads", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
 
-    const view = render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
-
+    const view = render(<SlideCommentsPanel {...panelProps()} />);
     fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
 
-    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
+    expect(await editorNamed("Add comment")).toBeTruthy();
     expect(
       view.container.querySelector('[data-slide-comment-thread="thread-1"]'),
     ).toBeTruthy();
   });
 
   it("scrolls to and highlights a selected thread", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Review this slide",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
-    const props = {
-      deckId: "deck-1",
-      slideId: "slide-1",
-      canComment: false,
-      canEdit: false,
-      currentUserEmail: "viewer@example.com",
-      pendingComment: null,
-      onPendingDone: vi.fn(),
-      onClose: vi.fn(),
-    };
+    queryState.threads = [thread(comment("comment-1"))];
+    const props = panelProps({ canComment: false });
 
     const view = render(<SlideCommentsPanel {...props} />);
     const card = view.container.querySelector<HTMLElement>(
@@ -342,37 +427,12 @@ describe("SlideCommentsPanel", () => {
   });
 
   it("re-scrolls when the same selected thread is requested again", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Review this slide",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
-    const props = {
-      deckId: "deck-1",
-      slideId: "slide-1",
+    queryState.threads = [thread(comment("comment-1"))];
+    const props = panelProps({
       canComment: false,
-      canEdit: false,
-      currentUserEmail: "viewer@example.com",
-      pendingComment: null,
-      onPendingDone: vi.fn(),
-      onClose: vi.fn(),
       selectedThreadId: "thread-1",
       selectedThreadRequestId: 1,
-    };
+    });
     const view = render(<SlideCommentsPanel {...props} />);
     const card = view.container.querySelector<HTMLElement>(
       '[data-slide-comment-thread="thread-1"]',
@@ -391,35 +451,11 @@ describe("SlideCommentsPanel", () => {
   });
 
   it("keeps an anchored selected thread visible through active filters", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Review this slide",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
-    const props = {
-      deckId: "deck-1",
-      slideId: "slide-1",
+    queryState.threads = [thread(comment("comment-1"))];
+    const props = panelProps({
       canComment: false,
-      canEdit: false,
       currentUserEmail: "viewer@example.com",
-      pendingComment: null,
-      onPendingDone: vi.fn(),
-      onClose: vi.fn(),
-    };
+    });
 
     const view = render(<SlideCommentsPanel {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Comment filters" }));
@@ -436,144 +472,120 @@ describe("SlideCommentsPanel", () => {
       '[data-slide-comment-thread="thread-1"]',
     );
     expect(card?.getAttribute("data-selected-comment")).toBe("true");
-    expect(screen.queryByText("comments.noCommentsYet")).toBeNull();
+    expect(screen.queryByText("No comments yet")).toBeNull();
   });
 
-  it("hands selection back when the selected thread is resolved so it collapses into the resolved disclosure", () => {
-    const thread = (resolved: boolean) => ({
-      threadId: "thread-1",
-      resolved,
-      quotedText: null,
-      comments: [
-        {
-          id: "comment-1",
-          author_email: "other@example.com",
-          author_name: "Other",
-          created_at: "2026-08-13T00:00:00.000Z",
-          content: "Please check this value",
-        },
-      ],
-    });
-    commentQueryState = { data: [thread(false)], isError: false };
-    resolveComment
-      .mockReset()
-      .mockImplementation(
-        (_args: unknown, options: { onSuccess?: () => void }) =>
-          options.onSuccess?.(),
-      );
+  it("hands selection back when the selected thread is resolved so it collapses into the resolved disclosure", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
+    mocks.resolve.mockResolvedValue({});
     const onThreadResolved = vi.fn();
-    const props = {
-      deckId: "deck-1",
-      slideId: "slide-1",
-      canComment: true,
-      canEdit: false,
-      currentUserEmail: "writer@example.com",
-      pendingComment: null,
-      onPendingDone: vi.fn(),
-      onClose: vi.fn(),
-      onThreadResolved,
-    };
+    const props = panelProps({ onThreadResolved });
 
     const view = render(
       <SlideCommentsPanel {...props} selectedThreadId="thread-1" />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
-    expect(onThreadResolved).toHaveBeenCalledWith("thread-1");
 
-    commentQueryState = { data: [thread(true)], isError: false };
+    expect(mocks.resolve).toHaveBeenCalledWith({
+      resourceType: "deck",
+      resourceId: "deck-1",
+      threadId: "thread-1",
+      status: "resolved",
+    });
+    await waitFor(() =>
+      expect(onThreadResolved).toHaveBeenCalledWith("thread-1"),
+    );
+
+    queryState.threads = [thread(comment("comment-1", { status: "resolved" }))];
     view.rerender(<SlideCommentsPanel {...props} selectedThreadId={null} />);
     expect(
       view.container.querySelector('[data-slide-comment-thread="thread-1"]'),
     ).toBeNull();
     expect(
-      screen.getByRole("button", { name: "Show resolved comments" }),
+      screen.getByRole("button", { name: "Show 1 resolved" }),
     ).toBeTruthy();
   });
 
-  it("does not clear selection when resolving fails or an unselected thread is resolved", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "other@example.com",
-              author_name: "Other",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Please check this value",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
-    resolveComment.mockReset();
+  it("does not clear selection when resolving fails or an unselected thread is resolved", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
+    mocks.resolve.mockRejectedValueOnce(new Error("Resolve failed"));
     const onThreadResolved = vi.fn();
 
-    render(
+    const view = render(
       <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit={false}
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
+        {...panelProps({ onThreadResolved })}
         selectedThreadId="thread-1"
-        onThreadResolved={onThreadResolved}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Resolve failed"),
+    );
 
-    expect(resolveComment).toHaveBeenCalled();
+    view.rerender(
+      <SlideCommentsPanel
+        {...panelProps({ onThreadResolved })}
+        selectedThreadId={null}
+      />,
+    );
+    mocks.resolve.mockResolvedValueOnce({});
+    fireEvent.click(screen.getByRole("button", { name: "Resolve thread" }));
+    await waitFor(() => expect(mocks.resolve).toHaveBeenCalledTimes(2));
     expect(onThreadResolved).not.toHaveBeenCalled();
   });
 
-  it("keeps the add-reaction picker available from the smile affordance", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Review this slide",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
+  it("offers Slides' reactions from the add-reaction picker", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
+    mocks.react.mockResolvedValue({});
 
-    render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
-      />,
+    render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "Add reaction" }));
+
+    expect(menuItems().map(reactionChoice)).toEqual([
+      "👍",
+      "❤️",
+      "😂",
+      "🎉",
+      "😮",
+      "😢",
+      "🙏",
+    ]);
+    act(() =>
+      menuItems()
+        .find((item) => reactionChoice(item) === "🎉")
+        ?.click(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add reaction" }));
-    expect(
-      screen.getAllByRole("button", { name: "React with {{emoji}}" }),
-    ).toHaveLength(7);
+    await waitFor(() =>
+      expect(mocks.react).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "comment-1",
+        reaction: "🎉",
+        active: true,
+      }),
+    );
   });
 
-  it("saves a selected-text comment with its object anchor", async () => {
+  it("says why a reaction failed", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
+    mocks.react.mockRejectedValue(new Error("Reaction failed"));
+
+    render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "Add reaction" }));
+    act(() =>
+      menuItems()
+        .find((item) => reactionChoice(item) === "🎉")
+        ?.click(),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Reaction failed"),
+    );
+    expect(mocks.toastError).toHaveBeenCalledOnce();
+  });
+
+  it("saves a selected-text comment with its quote and object anchor", async () => {
     const anchor = {
       x: 42,
       y: 33,
@@ -583,209 +595,257 @@ describe("SlideCommentsPanel", () => {
       targetText: "Revenue",
     };
     const onPendingDone = vi.fn();
-    commentQueryState = { data: [], isError: false };
-    createComment.mockReset().mockResolvedValue({
-      id: "comment-1",
-      threadId: "thread-1",
-    });
+    const onBeforeCommentSubmit = vi.fn(async () => {});
+    mocks.create.mockResolvedValue(
+      comment("comment-1", { body: "Check this total" }),
+    );
 
     render(
       <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit
-        currentUserEmail="writer@example.com"
+        {...panelProps({ onPendingDone, onBeforeCommentSubmit })}
         pendingComment={{ slideId: "slide-1", quotedText: "Revenue", anchor }}
-        onPendingDone={onPendingDone}
-        onClose={vi.fn()}
       />,
     );
 
-    fireEvent.change(screen.getByPlaceholderText("Add a comment..."), {
-      target: { value: "Check this total" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Comment" }));
+    const editor = await editorNamed("Add comment");
+    typeInto(editor, "Check this total");
+    pressEnter(editor);
 
     await waitFor(() =>
-      expect(createComment).toHaveBeenCalledWith({
-        deckId: "deck-1",
-        slideId: "slide-1",
-        content: "Check this total",
-        quotedText: "Revenue",
+      expect(mocks.create).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        surfaceId: "slide-1",
+        body: "Check this total",
+        mentions: [],
         anchor,
+        anchorKind: "slide-point",
+        metadata: { quotedText: "Revenue" },
       }),
     );
+    expect(onBeforeCommentSubmit).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onPendingDone).toHaveBeenCalledOnce());
+    expect(mocks.sendToAgent).not.toHaveBeenCalled();
+  });
+
+  it("keeps a selection's draft to that selection and throws it away on Cancel", async () => {
+    const revenue = revenueSelection;
+    const costs = costsSelection;
+    const view = render(
+      <SlideCommentsPanel {...panelProps()} pendingComment={revenue} />,
+    );
+    typeInto(await editorNamed("Add comment"), "Half a thought");
+
+    view.rerender(
+      <SlideCommentsPanel {...panelProps()} pendingComment={costs} />,
+    );
+    expect((await editorNamed("Add comment")).textContent).toBe("");
+
+    view.rerender(
+      <SlideCommentsPanel {...panelProps()} pendingComment={revenue} />,
+    );
+    expect((await editorNamed("Add comment")).textContent).toBe(
+      "Half a thought",
+    );
+
+    const onPendingDone = vi.fn();
+    view.rerender(
+      <SlideCommentsPanel
+        {...panelProps({ onPendingDone })}
+        pendingComment={revenue}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onPendingDone).toHaveBeenCalledOnce();
+    view.rerender(<SlideCommentsPanel {...panelProps()} />);
+    view.rerender(
+      <SlideCommentsPanel {...panelProps()} pendingComment={revenue} />,
+    );
+    expect((await editorNamed("Add comment")).textContent).toBe("");
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("leaves a newer selection's box open when an earlier send finishes", async () => {
+    const creating = deferred<unknown>();
+    mocks.create.mockReturnValue(creating.promise);
+    const onPendingDone = vi.fn();
+    const view = render(
+      <SlideCommentsPanel
+        {...panelProps({ onPendingDone })}
+        pendingComment={revenueSelection}
+      />,
+    );
+    const editor = await editorNamed("Add comment");
+    typeInto(editor, "Check this total");
+    pressEnter(editor);
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <SlideCommentsPanel
+        {...panelProps({ onPendingDone })}
+        pendingComment={costsSelection}
+      />,
+    );
+    await act(async () => {
+      creating.resolve(comment("comment-1"));
+      await creating.promise;
+    });
+
+    expect(onPendingDone).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Add comment" })).toBeTruthy();
+    expect(mocks.create).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a pending comment open while IME keys are composing", async () => {
+    const onPendingDone = vi.fn();
+    render(
+      <SlideCommentsPanel
+        {...panelProps({ onPendingDone })}
+        pendingComment={{ slideId: "slide-1", quotedText: "Revenue" }}
+      />,
+    );
+
+    const editor = await editorNamed("Add comment");
+    typeInto(editor, "変換");
+    pressEnter(editor, { isComposing: true });
+
+    expect(screen.getByRole("textbox", { name: "Add comment" })).toBeTruthy();
+    expect(onPendingDone).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("offers the Slides agent alongside people in the mention list", async () => {
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add comment" }));
+
+    const editor = await editorNamed("Add comment");
+    act(() => {
+      editor.editor.commands.focus("end");
+    });
+    act(() => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "@",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(
+        Array.from(document.querySelectorAll('[role="option"]')).map(
+          (option) => option.textContent,
+        ),
+      ).toEqual([
+        expect.stringContaining("Pat"),
+        expect.stringContaining("Agent"),
+      ]),
+    );
   });
 
   it("shows a retryable error instead of the empty-comments state", () => {
-    commentQueryState = {
-      data: undefined,
-      isError: true,
-    };
+    queryState = { threads: undefined, isError: true };
 
-    render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
+    render(<SlideCommentsPanel {...panelProps()} />);
 
     expect(screen.getByText("Couldn't load comments")).toBeTruthy();
-    expect(screen.queryByText("comments.noCommentsYet")).toBeNull();
-
+    expect(screen.queryByText("No comments yet")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(refetch).toHaveBeenCalledOnce();
+    expect(mocks.refetch).toHaveBeenCalledOnce();
   });
 
   it("shows existing reactions but hides reaction controls for viewers", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Review this slide",
-              reactions: [{ emoji: "👍", count: 2, reacted: false }],
-            },
-          ],
-        },
-      ],
-      isError: false,
+    queryState.threads = [thread(comment("comment-1"))];
+    queryState.reactions = {
+      "comment-1": [{ reaction: "👍", count: 1, reactedByMe: false }],
     };
 
     render(
       <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment={false}
-        canEdit={false}
-        currentUserEmail="viewer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
+        {...panelProps({
+          canComment: false,
+          currentUserEmail: "viewer@example.com",
+        })}
       />,
     );
 
     expect(screen.getByText("Review this slide")).toBeTruthy();
-    expect(screen.getByText("👍")).toBeTruthy();
+    const reaction = screen.getByRole("button", { name: "👍, 1 reaction" });
+    expect(reaction.hasAttribute("disabled")).toBe(true);
     expect(screen.queryByRole("button", { name: "Add reaction" })).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: /Toggle reaction/ }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
   });
 
   it("excludes a self-authored-only thread from For you", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Only my note",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
+    queryState.threads = [
+      thread(
+        comment("comment-1", {
+          body: "Only my note",
+          authorEmail: "writer@example.com",
+          authorName: "Writer",
+        }),
+      ),
+    ];
 
-    render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit={false}
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
-
+    render(<SlideCommentsPanel {...panelProps()} />);
     fireEvent.click(screen.getByRole("button", { name: "Comment filters" }));
     fireEvent.click(screen.getByRole("button", { name: "For you" }));
 
     expect(screen.queryByText("Only my note")).toBeNull();
   });
 
+  it("keeps a thread that mentions the viewer in For you", () => {
+    queryState.threads = [
+      thread(
+        comment("comment-1", {
+          body: "@Writer can you check this?",
+          mentions: [{ label: "Writer", email: "Writer@Example.com" }],
+        }),
+      ),
+    ];
+
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Comment filters" }));
+    fireEvent.click(screen.getByRole("button", { name: "For you" }));
+
+    expect(
+      document.querySelector('[data-slide-comment-thread="thread-1"]'),
+    ).toBeTruthy();
+  });
+
   it("clears a pending comment that belongs to another slide", async () => {
     const onPendingDone = vi.fn();
-    commentQueryState = { data: [], isError: false };
 
     render(
       <SlideCommentsPanel
-        deckId="deck-1"
+        {...panelProps({ onPendingDone })}
         slideId="slide-2"
-        canComment
-        canEdit
-        currentUserEmail="writer@example.com"
-        pendingComment={{ slideId: "slide-1", quotedText: "Old title" }}
-        onPendingDone={onPendingDone}
-        onClose={vi.fn()}
+        pendingComment={{ slideId: "slide-1", quotedText: "Revenue" }}
       />,
     );
 
-    expect(screen.queryByPlaceholderText("Add a comment...")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Add comment" })).toBeNull();
     await waitFor(() => expect(onPendingDone).toHaveBeenCalledOnce());
   });
 
   it("keeps the current slide context for all-slides navigation", () => {
     const onSelectSlide = vi.fn();
-    commentQueryState = {
-      data: [
-        {
+    queryState.threads = [
+      thread(
+        comment("comment-2", {
           threadId: "thread-2",
-          slideId: "slide-2",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-2",
-              author_email: "other@example.com",
-              author_name: "Other",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Review the second slide",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
+          surfaceId: "slide-2",
+          body: "Review the second slide",
+        }),
+      ),
+    ];
 
     render(
       <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment={false}
-        canEdit={false}
-        currentUserEmail="viewer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onSelectSlide={onSelectSlide}
-        onClose={vi.fn()}
+        {...panelProps({ canComment: false, onSelectSlide })}
       />,
     );
-
     fireEvent.click(screen.getByRole("button", { name: "Comment filters" }));
     fireEvent.click(screen.getByRole("button", { name: "All slides" }));
     fireEvent.click(screen.getByRole("button", { name: "Go to slide" }));
@@ -794,38 +854,11 @@ describe("SlideCommentsPanel", () => {
   });
 
   it("renders inline markdown in comment bodies without block headings", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "**bold** `code` and # Heading",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
+    queryState.threads = [
+      thread(comment("comment-1", { body: "**bold** `code` and # Heading" })),
+    ];
 
-    const { container } = render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
+    const { container } = render(<SlideCommentsPanel {...panelProps()} />);
 
     expect(screen.getByText("bold", { selector: "strong" })).toBeTruthy();
     expect(screen.getByText("code", { selector: "code" })).toBeTruthy();
@@ -833,266 +866,222 @@ describe("SlideCommentsPanel", () => {
     expect(container.textContent).toContain("Heading");
   });
 
-  it("lets a commenter reopen a resolved thread without gaining delete access", () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: true,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "other@example.com",
-              author_name: "Other",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Please check this value",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
-    deleteComment.mockReset();
-    resolveComment.mockReset();
+  it("lets a commenter reopen a resolved thread without gaining delete access", async () => {
+    queryState.threads = [thread(comment("comment-1", { status: "resolved" }))];
+    mocks.resolve.mockResolvedValue({});
 
-    render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit={false}
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Show resolved comments" }),
-    );
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show 1 resolved" }));
     fireEvent.click(screen.getByRole("button", { name: "Reopen thread" }));
 
-    expect(resolveComment).toHaveBeenCalledWith(
-      {
-        id: "comment-1",
-        deckId: "deck-1",
-        resolved: false,
-      },
-      expect.objectContaining({ onError: expect.any(Function) }),
-    );
-    expect(screen.queryByRole("button", { name: "Delete comment" })).toBeNull();
-    expect(deleteComment).not.toHaveBeenCalled();
+    expect(mocks.resolve).toHaveBeenCalledWith({
+      resourceType: "deck",
+      resourceId: "deck-1",
+      threadId: "thread-1",
+      status: "open",
+    });
+    expect(
+      screen.queryByRole("button", { name: "More actions for Other" }),
+    ).toBeNull();
+    expect(mocks.remove).not.toHaveBeenCalled();
   });
 
-  it("lets the author edit their comment with the deck scoped", async () => {
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Original wording",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
-    updateComment.mockReset().mockResolvedValue({ ok: true });
+  it("deletes a thread only when the server allows it", async () => {
+    queryState.threads = [
+      thread(comment("comment-1", { canDelete: true, canDeleteThread: true })),
+    ];
+    mocks.remove.mockResolvedValue({});
 
-    render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit={false}
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={vi.fn()}
-        onClose={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Edit comment" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Edit comment" }), {
-      target: { value: "Updated wording" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "More actions for Other" }));
+    expect(() => menuItem("Edit comment")).toThrow();
+    act(() => menuItem("Delete thread").click());
 
     await waitFor(() =>
-      expect(updateComment).toHaveBeenCalledWith({
-        id: "comment-1",
-        deckId: "deck-1",
-        content: "Updated wording",
+      expect(mocks.remove).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "comment-1",
       }),
     );
   });
 
-  it("keeps a pending comment open while IME keys are composing", () => {
-    const onPendingDone = vi.fn();
-    createComment.mockReset();
-    commentQueryState = { data: [], isError: false };
+  it("says why a delete failed after the comment has left the list", async () => {
+    queryState.threads = [
+      thread(comment("comment-1", { canDelete: true, canDeleteThread: true })),
+    ];
+    const removing = deferred<unknown>();
+    mocks.remove.mockReturnValue(removing.promise);
 
-    render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit
-        currentUserEmail="writer@example.com"
-        pendingComment={{ slideId: "slide-1", quotedText: "" }}
-        onPendingDone={onPendingDone}
-        onClose={vi.fn()}
-      />,
+    const view = render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "More actions for Other" }));
+    act(() => menuItem("Delete thread").click());
+    await waitFor(() => expect(mocks.remove).toHaveBeenCalledOnce());
+
+    queryState.threads = [];
+    view.rerender(<SlideCommentsPanel {...panelProps()} />);
+    expect(screen.getByText("No comments yet")).toBeTruthy();
+    await act(async () => {
+      removing.reject(new Error("Delete failed"));
+      await removing.promise.catch(() => undefined);
+    });
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith("Delete failed"),
     );
+    expect(mocks.toastError).toHaveBeenCalledOnce();
+  });
 
-    const input = screen.getByPlaceholderText("Add a comment...");
-    fireEvent.change(input, { target: { value: "candidate" } });
-    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+  it("lets the author edit their own comment", async () => {
+    queryState.threads = [
+      thread(
+        comment("comment-1", {
+          body: "Old text",
+          authorEmail: "writer@example.com",
+          authorName: "Writer",
+        }),
+      ),
+    ];
+    mocks.update.mockResolvedValue({});
 
-    expect(screen.getByPlaceholderText("Add a comment...")).toBeTruthy();
-    expect(onPendingDone).not.toHaveBeenCalled();
-    expect(createComment).not.toHaveBeenCalled();
+    render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "More actions for Writer" }));
+    act(() => menuItem("Edit comment").click());
+
+    const editor = await editorNamed("Edit comment");
+    expect(editor.textContent).toBe("Old text");
+    typeInto(editor, " and more");
+    pressEnter(editor);
+
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "comment-1",
+        body: "Old text and more",
+        mentions: [],
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("textbox", { name: "Edit comment" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("keeps a comment edit open while IME keys are composing", async () => {
+    queryState.threads = [
+      thread(
+        comment("comment-1", {
+          authorEmail: "writer@example.com",
+          authorName: "Writer",
+        }),
+      ),
+    ];
+
+    render(<SlideCommentsPanel {...panelProps()} />);
+    openMenu(screen.getByRole("button", { name: "More actions for Writer" }));
+    act(() => menuItem("Edit comment").click());
+    const editor = await editorNamed("Edit comment");
+    pressEnter(editor, { isComposing: true });
+
+    expect(screen.getByRole("textbox", { name: "Edit comment" })).toBeTruthy();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   it("sends a reply on Enter and keeps Shift+Enter for a new line", async () => {
-    const onDone = vi.fn();
-    createComment.mockReset().mockResolvedValue({ id: "comment-2" });
-
-    render(
-      <ReplyInput
-        deckId="deck-1"
-        slideId="slide-1"
-        threadId="thread-1"
-        parentId="comment-1"
-        onDone={onDone}
-      />,
+    queryState.threads = [thread(comment("comment-1"))];
+    mocks.reply.mockResolvedValue(
+      comment("reply-1", { parentCommentId: "comment-1" }),
     );
 
-    const input = screen.getByPlaceholderText("Write a reply...");
-    fireEvent.change(input, { target: { value: "Agreed" } });
-    const shiftEnter = fireEvent.keyDown(input, {
-      key: "Enter",
-      shiftKey: true,
-    });
-    expect(shiftEnter).toBe(true);
-    expect(createComment).not.toHaveBeenCalled();
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const editor = await editorNamed("Reply");
+    typeInto(editor, "Looks good");
+    pressEnter(editor, { shiftKey: true });
+    expect(mocks.reply).not.toHaveBeenCalled();
+    typeInto(editor, "Ship it");
 
-    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    pressEnter(editor);
     await waitFor(() =>
-      expect(createComment).toHaveBeenCalledWith(
-        expect.objectContaining({ content: "Agreed", threadId: "thread-1" }),
-      ),
+      expect(mocks.reply).toHaveBeenCalledWith({
+        resourceType: "deck",
+        resourceId: "deck-1",
+        commentId: "comment-1",
+        body: "Looks good\nShip it",
+        mentions: [],
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
     );
   });
 
   it("sends a reply once while the first send is still pending", async () => {
-    const onDone = vi.fn();
-    const send: { finish?: (value: { id: string }) => void } = {};
-    createComment.mockReset().mockReturnValue(
-      new Promise((resolve) => {
-        send.finish = resolve;
-      }),
+    queryState.threads = [thread(comment("comment-1"))];
+    let finish: (value: ReviewComment) => void = () => {};
+    mocks.reply.mockImplementation(
+      () =>
+        new Promise<ReviewComment>((resolve) => {
+          finish = resolve;
+        }),
     );
 
-    render(
-      <ReplyInput
-        deckId="deck-1"
-        slideId="slide-1"
-        threadId="thread-1"
-        parentId="comment-1"
-        onDone={onDone}
-      />,
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const editor = await editorNamed("Reply");
+    typeInto(editor, "Once");
+    pressEnter(editor);
+    pressEnter(editor);
+    await waitFor(() => expect(mocks.reply).toHaveBeenCalledTimes(1));
+
+    await act(async () =>
+      finish(comment("reply-1", { parentCommentId: "comment-1" })),
     );
-
-    const input = screen.getByPlaceholderText("Write a reply...");
-    fireEvent.change(input, { target: { value: "Agreed" } });
-    // A held Enter repeats.
-    fireEvent.keyDown(input, { key: "Enter" });
-    fireEvent.keyDown(input, { key: "Enter", repeat: true });
-    fireEvent.keyDown(input, { key: "Enter", repeat: true });
-    await waitFor(() => expect(createComment).toHaveBeenCalledTimes(1));
-
-    send.finish?.({ id: "comment-2" });
-    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(createComment).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
+    );
+    expect(mocks.reply).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a reply open while IME keys are composing", () => {
-    const onDone = vi.fn();
-    createComment.mockReset();
+  it("keeps a failed reply's draft and says why", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
+    mocks.reply.mockRejectedValue(new Error("Reply failed"));
 
-    render(
-      <ReplyInput
-        deckId="deck-1"
-        slideId="slide-1"
-        threadId="thread-1"
-        parentId="comment-1"
-        onDone={onDone}
-      />,
-    );
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const editor = await editorNamed("Reply");
+    typeInto(editor, "Keep me");
+    pressEnter(editor);
 
-    const input = screen.getByPlaceholderText("Write a reply...");
-    fireEvent.change(input, { target: { value: "candidate" } });
-    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
-
-    expect(screen.getByPlaceholderText("Write a reply...")).toBeTruthy();
-    expect(onDone).not.toHaveBeenCalled();
-    expect(createComment).not.toHaveBeenCalled();
+    expect((await screen.findByRole("alert")).textContent).toBe("Reply failed");
+    expect(
+      screen.getByRole("textbox", { name: "Reply" }).textContent,
+    ).toContain("Keep me");
   });
 
-  it("keeps a comment edit open while IME keys are composing", () => {
-    const onPendingDone = vi.fn();
-    updateComment.mockReset();
-    commentQueryState = {
-      data: [
-        {
-          threadId: "thread-1",
-          resolved: false,
-          quotedText: null,
-          comments: [
-            {
-              id: "comment-1",
-              author_email: "writer@example.com",
-              author_name: "Writer",
-              created_at: "2026-08-13T00:00:00.000Z",
-              content: "Original wording",
-            },
-          ],
-        },
-      ],
-      isError: false,
-    };
+  it("keeps a reply's draft through Escape and throws it away on Cancel", async () => {
+    queryState.threads = [thread(comment("comment-1"))];
 
-    render(
-      <SlideCommentsPanel
-        deckId="deck-1"
-        slideId="slide-1"
-        canComment
-        canEdit={false}
-        currentUserEmail="writer@example.com"
-        pendingComment={null}
-        onPendingDone={onPendingDone}
-        onClose={vi.fn()}
-      />,
+    render(<SlideCommentsPanel {...panelProps()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const editor = await editorNamed("Reply");
+    typeInto(editor, "Half a reply");
+    pressEnter(editor, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit comment" }));
-    const input = screen.getByRole("textbox", { name: "Edit comment" });
-    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
-    fireEvent.keyDown(input, { key: "Escape", keyCode: 229 });
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect((await editorNamed("Reply")).textContent).toBe("Half a reply");
 
-    expect(screen.getByRole("textbox", { name: "Edit comment" })).toBeTruthy();
-    expect(updateComment).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect((await editorNamed("Reply")).textContent).toBe("");
+    expect(mocks.reply).not.toHaveBeenCalled();
   });
 });

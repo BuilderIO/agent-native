@@ -2514,13 +2514,18 @@ const AgentKitAssistantChatBody = forwardRef<
             persistenceKey,
             threadData: snapshot.threadData,
           };
-          try {
-            props.onThreadSnapshotPersisted?.(threadId, snapshot.messageCount);
-          } catch (error) {
-            console.error(
-              "Failed to report the saved chat thread snapshot.",
-              error,
-            );
+          if (!isUnmountingRef.current) {
+            try {
+              props.onThreadSnapshotPersisted?.(
+                threadId,
+                snapshot.messageCount,
+              );
+            } catch (error) {
+              console.error(
+                "Failed to report the saved chat thread snapshot.",
+                error,
+              );
+            }
           }
           if (retryThreadSaveTimerRef.current !== null) {
             window.clearTimeout(retryThreadSaveTimerRef.current);
@@ -2774,7 +2779,8 @@ const AgentKitAssistantChatBody = forwardRef<
   // A send that has no run id yet already holds the thread's turn, so what
   // follows it queues instead of starting a second turn.
   const isThreadRunning = useCallback(
-    () => agentKitTurnInProgress(controller, threadId),
+    (ownSubmissionId?: string) =>
+      agentKitTurnInProgress(controller, threadId, ownSubmissionId),
     [controller, threadId],
   );
   const reconcileServerSettled = useCallback(
@@ -3723,7 +3729,7 @@ const AgentKitAssistantChatBody = forwardRef<
       }
       const submittedComposerOptions = captureQueuedRunState(
         composerOptions,
-        isThreadRunning(),
+        isThreadRunning(composerOptions.submissionId),
       );
       const release = await acquireSubmission();
       if (!release) {
@@ -4034,7 +4040,9 @@ const AgentKitAssistantChatBody = forwardRef<
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
       const noticeAttempt = beginNoticeAttempt();
-      const runWasActiveAtSubmit = isThreadRunning();
+      const runWasActiveAtSubmit = isThreadRunning(
+        composerOptions.submissionId,
+      );
       const announced = announceComposerSubmit(text, runWasActiveAtSubmit);
       setContinueSubmissionFailed(false);
       const release = await acquireSubmission();
@@ -4663,15 +4671,16 @@ const AgentKitAssistantChatBody = forwardRef<
       const promoteNotice = noticeTracked
         ? undefined
         : beginNoticeAttempt().promote;
+      const runWasActiveAtSubmit = isThreadRunning();
       const announced = options?.hideUserMessage
         ? null
-        : announceComposerSubmit(text, isThreadRunning());
+        : announceComposerSubmit(text, runWasActiveAtSubmit);
       try {
         const result = await submit(
           text,
           [],
           [],
-          { intent: isThreadRunning() ? "queued" : "immediate" },
+          { intent: runWasActiveAtSubmit ? "queued" : "immediate" },
           {
             ...options,
             attachments: [
@@ -4978,7 +4987,7 @@ const AgentKitAssistantChatBody = forwardRef<
       sendRecoveryMessage: (text, recoveryAction, images) =>
         sendRecoveryMessage(text, recoveryAction, images),
       queueMessage: (text, images) => queueImperativeMessage(text, images),
-      isRunning: isThreadRunning,
+      isRunning: () => isThreadRunning(),
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
         Object.values(thread.activities).some(

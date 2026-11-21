@@ -65,8 +65,8 @@ export const SourceEmbedFrame = React.forwardRef<
         )}
         {...props}
       >
-        <figcaption className="flex items-start gap-3 px-3 pt-2.5">
-          <div className="min-w-0 flex-1">
+        <figcaption className="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 pt-2.5">
+          <div className="min-w-0 flex-1 basis-48">
             <div
               id={titleId}
               className="truncate text-sm font-medium text-foreground"
@@ -74,7 +74,7 @@ export const SourceEmbedFrame = React.forwardRef<
               {title}
             </div>
             {meta ? (
-              <div className="truncate text-xs text-muted-foreground">
+              <div className="break-words text-xs text-muted-foreground">
                 {meta}
               </div>
             ) : null}

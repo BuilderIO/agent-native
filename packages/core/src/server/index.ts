@@ -699,6 +699,7 @@ export {
   NETLIFY_PREVIEW_GOOGLE_OAUTH_CALLBACK_URL,
   logOAuthStateDecodeFailure,
   resolveOAuthOwner,
+  oauthCallbackOwner,
   createOAuthSession,
   oauthCallbackResponse,
   oauthErrorPage,
@@ -993,6 +994,7 @@ export {
   runRecurringSweepHandlers,
   type RecurringSweepContext,
   type RecurringSweepHandler,
+  type RecurringSweepHandlerOptions,
 } from "../jobs/sweep-hooks.js";
 export {
   hasJobRunner,

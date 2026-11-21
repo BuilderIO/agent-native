@@ -159,9 +159,9 @@ describe("useSession", () => {
       new MessageEvent("message", {
         data: {
           type: "agentNative.frameOrigin",
-          origin: "https://host.example",
+          origin: "https://dispatch.agent-native.com",
         },
-        origin: "https://host.example",
+        origin: "https://dispatch.agent-native.com",
         source: parentWindow as Window,
       }),
     );
@@ -179,7 +179,7 @@ describe("useSession", () => {
           type: "agentNative.authState",
           data: { status: "unauthenticated" },
         },
-        "https://host.example",
+        "https://dispatch.agent-native.com",
       );
     } finally {
       if (parentDescriptor) {
@@ -582,9 +582,9 @@ describe("useSession", () => {
       new MessageEvent("message", {
         data: {
           type: "agentNative.frameOrigin",
-          origin: "https://host.example",
+          origin: "https://dispatch.agent-native.com",
         },
-        origin: "https://host.example",
+        origin: "https://dispatch.agent-native.com",
         source: parentWindow as Window,
       }),
     );
@@ -601,7 +601,7 @@ describe("useSession", () => {
           type: "agentNative.authState",
           data: { status: "unauthenticated" },
         },
-        "https://host.example",
+        "https://dispatch.agent-native.com",
       );
     } finally {
       if (parentDescriptor) {

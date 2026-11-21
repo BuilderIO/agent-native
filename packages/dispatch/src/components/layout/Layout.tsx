@@ -114,6 +114,7 @@ import {
 } from "../../lib/chat-first-pane";
 import { getDispatchRunThreadContext } from "../../lib/dispatch-run-thread.js";
 import {
+  chatFirstExternalApps,
   filterBuiltInApps,
   type ConnectedAppSummary,
 } from "../../lib/other-apps";
@@ -1424,7 +1425,18 @@ function DispatchLayout({
     location.pathname,
     useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
   );
-  const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
+  const [sentNewChat, setSentNewChat] = useState<{
+    locationKey: string;
+    threadId: string;
+    submitId: string;
+  } | null>(null);
+  const pathThreadId = threadIdFromPath(localPathname);
+  const chatFirstSurfaceScope =
+    pathThreadId ??
+    (isChatRoute && sentNewChat?.locationKey === location.key
+      ? sentNewChat.threadId
+      : null) ??
+    "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
   );
@@ -1445,6 +1457,35 @@ function DispatchLayout({
   const chatFirstMode =
     extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const chatFirstHasActiveChat = chatFirstSurfaceScope !== "new";
+  const newChatLocationKey =
+    chatFirstMode && isChatRoute && !pathThreadId ? location.key : null;
+  useEffect(() => {
+    if (newChatLocationKey === null) return;
+    return subscribeAgentChatComposerSubmit((detail) => {
+      if (detail.withdrawn) {
+        setSentNewChat((current) =>
+          current?.locationKey === newChatLocationKey &&
+          current.submitId === detail.id
+            ? null
+            : current,
+        );
+        return;
+      }
+      const threadId = detail.threadId;
+      if (!threadId) return;
+      setSentNewChat((current) =>
+        current?.locationKey === newChatLocationKey &&
+        current.threadId === threadId &&
+        current.submitId === detail.id
+          ? current
+          : { locationKey: newChatLocationKey, threadId, submitId: detail.id },
+      );
+    });
+  }, [newChatLocationKey]);
+  useEffect(() => {
+    if (!pathThreadId) return;
+    setSentNewChat((current) => (current ? null : current));
+  }, [pathThreadId]);
   useEffect(() => {
     if (!electronEmbedded || typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -1507,18 +1548,16 @@ function DispatchLayout({
       mergeChatFirstWorkspaceApps(
         chatFirstAppsQuery.data,
         chatFirstEnabledBuiltinAppIds,
-        chatFirstBuiltinApps.map((app) => ({
-          id: app.id,
-          name: app.name,
-          description: app.description,
-          url: app.homeUrl?.trim() || app.url,
-          source: "builtin" as const,
-          hiddenFromLaunchers: app.hiddenFromLaunchers,
-        })),
+        chatFirstExternalApps(
+          chatFirstConnectedAppsQuery.data ?? [],
+          chatFirstAppsQuery.data ??
+            (chatFirstAppsQuery.isError ? "unreadable" : "loading"),
+        ),
       ).filter((app) => app.status !== "pending" && app.archived !== true),
     [
       chatFirstAppsQuery.data,
-      chatFirstBuiltinApps,
+      chatFirstAppsQuery.isError,
+      chatFirstConnectedAppsQuery.data,
       chatFirstEnabledBuiltinAppIds,
     ],
   );
@@ -2004,7 +2043,12 @@ function DispatchLayout({
   ]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || chatFirstPaneHydratedRef.current) {
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      chatFirstPaneHydratedRef.current
+    ) {
       return;
     }
     chatFirstPaneHydratedRef.current = true;
@@ -2028,7 +2072,14 @@ function DispatchLayout({
   }, [chatFirstMode, chatFirstPane, chatFirstSurfaceScope, isChatRoute]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || !pendingChatFirstPaneRestore) return;
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      !pendingChatFirstPaneRestore
+    ) {
+      return;
+    }
     if (chatFirstPane) {
       setPendingChatFirstPaneRestore(null);
       return;

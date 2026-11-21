@@ -5,6 +5,12 @@ import { cancelBookingById } from "../server/handlers/bookings.js";
 import { requireActionUserEmail } from "./event-action-helpers.js";
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   description:
     "Cancel a booking and its linked calendar and Zoom meetings. Use this instead of delete-event or delete-events for booking-backed events. If Zoom needs review, first confirm the meeting was canceled or no meeting exists.",
   schema: z.object({

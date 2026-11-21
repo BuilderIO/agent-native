@@ -38,6 +38,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "actor-scoped retry receipts; access is rechecked through database setup actions",
   "content:content_database_builder_blob_cleanup":
     "private payload cleanup outbox processed by Content source actions",
+  "content:content_database_builder_autosaves":
+    "per-article automatic save state for a Builder source; the autosave actions check the row page's access before reading or changing it",
   "content:document_property_value_tombstones":
     "property generation bookkeeping written only by a database trigger; holds no content",
   "content:content_private_media_references":

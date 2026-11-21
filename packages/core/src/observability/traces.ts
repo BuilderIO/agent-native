@@ -4,6 +4,7 @@ import {
 } from "../agent/engine/credential-owner.js";
 import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
 import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
+import { currentLeaseRenewalDiagnostics } from "../agent/lease-renewal-diagnostics.js";
 import type {
   ModelAttemptMetrics,
   ModelAttemptObserver,
@@ -701,6 +702,7 @@ export async function instrumentAgentLoop(opts: {
   const orgId = getRequestOrgId() ?? null;
   const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
+  const leaseRenewalDiagnostics = currentLeaseRenewalDiagnostics(runId);
   const parentSpanId = spanId();
   const precedingResponsePromise =
     config.inferredSentimentEnabled && opts.sentimentInput && threadId && userId
@@ -1890,6 +1892,9 @@ export async function instrumentAgentLoop(opts: {
       const runPaused =
         runStatus !== "error" &&
         effectiveTerminalOutcome?.state === "input_required";
+      const leaseRenewals = privateTurn
+        ? undefined
+        : leaseRenewalDiagnostics?.snapshot();
       const parentSpan: TraceSpan = {
         id: parentSpanId,
         runId,
@@ -1906,7 +1911,9 @@ export async function instrumentAgentLoop(opts: {
         durationMs: totalDurationMs,
         status: runPaused ? "paused" : runStatus,
         errorMessage: redactCapturedError(errorMessage),
-        metadata: runMetadata,
+        metadata: leaseRenewals
+          ? { ...runMetadata, leaseRenewals }
+          : runMetadata,
         createdAt: runStart,
       };
       spans.push(parentSpan);
