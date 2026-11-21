@@ -478,7 +478,6 @@ export function patchDocumentInDatabaseCache<
   documentId: string,
   patch: Partial<Document>,
 ): T | undefined {
-  // A removed collection's read is { available: false }, with no rows.
   if (!current || isContentDatabaseUnavailable(current)) return current;
   let changed = false;
   const items = current.items.map((item) => {
