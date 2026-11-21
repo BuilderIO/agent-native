@@ -1166,8 +1166,6 @@ export function resolveChatFirstAppTarget(
         return { status: "unresolved", reason: "invalid-url" };
       }
     } else {
-      // The most specific base path wins, so an app mounted at an origin's
-      // root never captures another app served under a path on that origin.
       const matchingApp = availableApps
         .flatMap((candidate) => {
           const registeredUrl = appMatchesUrl(
