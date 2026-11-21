@@ -754,13 +754,19 @@ describe("SuggestionHighlight", () => {
       /\.content-editor \.suggestion-insert\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
     )?.[1];
     const active = css.match(
-      /\.content-editor\s+\.suggestion-insert\.suggestion-highlight--active\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+      /\.content-editor\s+\.suggestion-insert\.suggestion-inline-widget\.suggestion-highlight--active\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
     )?.[1];
 
     expect(resting).toContain("background: hsl(var(--suggestion) / 0.12);");
     expect(active).toContain("background: hsl(var(--suggestion) / 0.16);");
     expect(active).toContain(
       "box-shadow: inset 0 -2px hsl(var(--suggestion));",
+    );
+    expect(css).not.toMatch(
+      /\.suggestion-insert\.suggestion-highlight--active/,
+    );
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]\s*\{\s*box-shadow: inset 3px 0 hsl\(var\(--suggestion\)\);/,
     );
   });
 

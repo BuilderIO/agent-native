@@ -3045,7 +3045,7 @@ button.discussion-subject-quote:hover {
   text-underline-offset: 3px;
 }
 .content-editor
-  .suggestion-insert.suggestion-highlight--active[data-suggestion-widget],
+  .suggestion-insert.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget],
 .content-editor
   .suggestion-add-block.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget] {
   background: hsl(var(--suggestion) / 0.16);
