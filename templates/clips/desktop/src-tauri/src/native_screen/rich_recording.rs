@@ -13,6 +13,8 @@
 //! the flattened file only), so a folder left behind would never be read
 //! again; the screen file runs to gigabytes.
 //!
+//! The tracks are the input, the mic and the sound of the Mac when the
+//! recording has them, the camera when the bubble shows it, and the screen.
 //! Tracks are kept only for display and region recordings on the custom
 //! capture pipeline with live upload. Track times are that pipeline's:
 //! milliseconds from the flattened recording's first frame on the host clock
@@ -28,6 +30,10 @@ use super::*;
 use std::collections::BTreeMap;
 use std::sync::MutexGuard;
 
+use super::audio_track::{audio_track_finish, AudioSource, AUDIO_TRACK_CONTENT_TYPE};
+use super::camera_track::{
+    camera_track_finish, CAMERA_TRACK_CONTENT_TYPE, CAMERA_TRACK_FILE, CAMERA_TRACK_ID,
+};
 use super::input_track::{
     event_host_nanos, input_capture_allowed, recording_ms, start_input_capture, DisplayGeometry,
     InputCapture, INPUT_TRACK_CONTENT_TYPE, INPUT_TRACK_FILE, INPUT_TRACK_ID, MOVE_INTERVAL_MS,
@@ -39,7 +45,11 @@ use super::track_upload::{
     post_tracks_finalize, spawn_track_uploader, TrackSendGate, TrackUpload, TrackUploadCtrl,
     TrackUploadOutcome, TrackUploadTarget,
 };
-use super::ScreenCapture;
+use super::{
+    start_audio_capture, start_camera_capture, AudioCapture, CameraCapture, RichAudioTaps,
+    ScreenCapture,
+};
+use tauri::{EventId, Listener};
 
 /// How long a track's upload may go without storing a byte before the end of
 /// the recording gives up on it.
@@ -393,6 +403,39 @@ impl TrackSource for InputCapture {
     }
 }
 
+impl TrackSource for AudioCapture {
+    fn stop(&self) {
+        AudioCapture::stop(self);
+    }
+
+    fn finish(&self, duration_ms: u64) -> TrackFinish {
+        audio_track_finish(&self.report(), duration_ms)
+    }
+}
+
+/// The camera track, which also ends when the bubble lets go of the camera.
+struct CameraTrack {
+    capture: Arc<CameraCapture>,
+    app: AppHandle,
+    release_listener: EventId,
+}
+
+impl TrackSource for CameraTrack {
+    fn stop(&self) {
+        self.capture.stop();
+    }
+
+    fn finish(&self, duration_ms: u64) -> TrackFinish {
+        camera_track_finish(&self.capture.report(), duration_ms)
+    }
+}
+
+impl Drop for CameraTrack {
+    fn drop(&mut self) {
+        self.app.unlisten(self.release_listener);
+    }
+}
+
 impl TrackSource for ScreenCapture {
     fn stop(&self) {
         ScreenCapture::stop(self);
@@ -452,6 +495,7 @@ pub(super) fn attach_rich_recording(
     auth_token: Option<&str>,
     cookie: Option<&str>,
     has_camera: bool,
+    camera_label: Option<&str>,
 ) {
     let skip = |reason: &str| {
         eprintln!("[rich-tracks] {recording_id}: no tracks for this recording: {reason}");
@@ -459,9 +503,9 @@ pub(super) fn attach_rich_recording(
     if session.rich_recording.is_some() {
         return;
     }
-    let clock_bits = match session.backend.as_ref() {
+    let (clock_bits, audio_taps) = match session.backend.as_ref() {
         Some(NativeFullscreenBackend::CustomScreenCaptureKit { writer, .. }) => {
-            writer.recording_clock_bits()
+            (writer.recording_clock_bits(), writer.rich_audio_taps())
         }
         _ => return skip("it is not on the custom capture pipeline"),
     };
@@ -507,14 +551,32 @@ pub(super) fn attach_rich_recording(
     let (session_start_bits, pause_offset_bits) = clock_bits;
     let clock = RecordingClock::new(session_start_bits, pause_offset_bits, host_timebase());
 
-    // Input first: tracks send their last chunks in this order, small first.
+    // Tracks send their last chunks in this order, small first.
+    let mut starts = vec![input_track_start(&clock, &capture)];
+    if session.restart.include_audio {
+        starts.push(audio_track_start(
+            &clock,
+            &audio_taps,
+            AudioSource::Mic,
+            recording_id,
+        ));
+    }
+    if session.restart.capture_system_audio {
+        starts.push(audio_track_start(
+            &clock,
+            &audio_taps,
+            AudioSource::System,
+            recording_id,
+        ));
+    }
+    if has_camera {
+        starts.push(camera_track_start(app, &clock, camera_label, recording_id));
+    }
+    starts.push(screen_track_start(&clock, &capture, recording_id));
     let started = start_sources(
         recording_id,
         &folder,
-        vec![
-            input_track_start(&clock, &capture),
-            screen_track_start(&clock, &capture, recording_id),
-        ],
+        starts,
         || {
             Arc::new(TrackUploadCtrl::new(
                 Arc::clone(&tracks_stopped),
@@ -589,6 +651,71 @@ fn input_track_start(clock: &RecordingClock, capture: &CaptureInfo) -> TrackStar
             let source: Arc<dyn TrackSource> =
                 Arc::new(start_input_capture(path, clock, space, ctrl)?);
             Ok(source)
+        }),
+    }
+}
+
+fn audio_track_start(
+    clock: &RecordingClock,
+    taps: &Arc<RichAudioTaps>,
+    source: AudioSource,
+    recording_id: &str,
+) -> TrackStart {
+    let clock = clock.clone();
+    let taps = Arc::clone(taps);
+    let recording_id = recording_id.to_string();
+    TrackStart {
+        id: source.track_id(),
+        file: source.file(),
+        content_type: AUDIO_TRACK_CONTENT_TYPE,
+        start: Box::new(move |path, ctrl| {
+            let track: Arc<dyn TrackSource> = Arc::new(start_audio_capture(
+                path,
+                source,
+                &taps,
+                clock,
+                ctrl,
+                &recording_id,
+            )?);
+            Ok(track)
+        }),
+    }
+}
+
+fn camera_track_start(
+    app: &AppHandle,
+    clock: &RecordingClock,
+    camera_label: Option<&str>,
+    recording_id: &str,
+) -> TrackStart {
+    let app = app.clone();
+    let clock = clock.clone();
+    let camera_label = camera_label.map(str::to_string);
+    let recording_id = recording_id.to_string();
+    TrackStart {
+        id: CAMERA_TRACK_ID,
+        file: CAMERA_TRACK_FILE,
+        content_type: CAMERA_TRACK_CONTENT_TYPE,
+        start: Box::new(move |path, ctrl| {
+            let capture = Arc::new(start_camera_capture(
+                path,
+                camera_label.as_deref(),
+                clock,
+                ctrl,
+                &recording_id,
+            )?);
+            let released = Arc::downgrade(&capture);
+            let release_listener = app.listen(crate::clips::RELEASE_CAMERA_EVENT, move |_| {
+                if let Some(capture) = released.upgrade() {
+                    capture.release();
+                }
+            });
+            let track: Arc<dyn TrackSource> = Arc::new(CameraTrack {
+                capture,
+                app,
+                release_listener,
+            });
+            Ok(track)
         }),
     }
 }
