@@ -123,6 +123,15 @@ const targets: PackageTarget[] = [
     ],
   },
   {
+    id: "design-system",
+    name: "@agent-native/design-system",
+    dir: "packages/design-system",
+    expectedOutputs: exportedDistOutputs("packages/design-system"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/design-system.tsbuildinfo",
+    ],
+  },
+  {
     id: "toolkit",
     name: "@agent-native/toolkit",
     dir: "packages/toolkit",
@@ -206,11 +215,12 @@ const targets: PackageTarget[] = [
 ];
 
 const modeTargets: Record<PrebuildMode, string[]> = {
-  "agentkit-acceptance": ["agentkit", "toolkit", "core"],
+  "agentkit-acceptance": ["agentkit", "design-system", "toolkit", "core"],
   dev: [
     "agentkit",
     "recap-cli",
     "shared-app-config",
+    "design-system",
     "toolkit",
     "core",
     "creative-context",
@@ -224,6 +234,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "agentkit",
     "recap-cli",
     "shared-app-config",
+    "design-system",
     "toolkit",
     "core",
     "creative-context",

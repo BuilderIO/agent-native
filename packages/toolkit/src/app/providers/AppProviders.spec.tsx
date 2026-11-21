@@ -42,6 +42,7 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
   ),
 }));
 
+import { openConsentSettings } from "@agent-native/core/client/consent";
 import { useLocale } from "@agent-native/core/client/i18n";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
@@ -168,6 +169,7 @@ function renderProviders(props: {
   enableThemeFamily?: boolean;
   holdThemeFamilyUntilResolved?: boolean;
   disableWebMcp?: boolean;
+  automaticConsentPrompt?: boolean;
   children?: React.ReactNode;
 }) {
   const { children, ...providerProps } = props;
@@ -233,6 +235,39 @@ const SIGNED_IN_SESSION = {
   isLoading: false,
   status: "authenticated" as const,
 };
+
+it("keeps automatic consent on public pages and opens private consent on request", async () => {
+  useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+  window.sessionStorage.setItem("an_consent_region", "consent");
+  const banner = () =>
+    container.querySelector("[data-agent-native-consent-banner]");
+
+  try {
+    renderProviders({ isPublicPath: true, automaticConsentPrompt: false });
+    expect(banner()?.textContent).toContain("Accept all");
+
+    renderProviders({ automaticConsentPrompt: false, disableWebMcp: true });
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+    expect(banner()).toBeNull();
+
+    await act(async () => openConsentSettings());
+    expect(banner()?.textContent).toContain("Reject all");
+    const reject = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Reject all",
+    );
+    await act(async () => reject?.click());
+    expect(banner()).toBeNull();
+  } finally {
+    window.sessionStorage.removeItem("an_consent_region");
+    document.cookie = "an_consent=; path=/; max-age=0";
+    Reflect.deleteProperty(
+      globalThis,
+      Symbol.for("agent-native.client.consent"),
+    );
+  }
+});
 
 function LocaleToaster() {
   const { locale } = useLocale();

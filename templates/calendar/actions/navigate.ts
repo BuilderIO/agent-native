@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -34,8 +37,10 @@ export default defineAction({
       .describe(
         "Open the add-a-peer's-calendar dialog prefilled with this email. Prefills the search only; the user still confirms the add.",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     if (
       !args.view &&

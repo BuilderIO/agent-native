@@ -264,6 +264,21 @@ function dateRangeStart(range: string): string {
   return daysAgo(parseDayCount(range) ?? 30);
 }
 
+export function customRangeStartingBounds(
+  filter: DashboardFilter,
+  vars: Record<string, string>,
+): { start: string; end: string } {
+  const start = vars[filter.id + "Start"];
+  const end = vars[filter.id + "End"] || daysAgo(0);
+  if (start && start !== ALL_TIME_START && start <= end) return { start, end };
+  const period =
+    filter.default && parseDayCount(filter.default) !== null
+      ? filter.default
+      : "30d";
+  const fromToday = dateRangeStart(period);
+  return { start: fromToday, end: fromToday <= end ? end : daysAgo(0) };
+}
+
 /**
  * The variables a dashboard's SQL gets, as the page resolves them from its URL
  * (`f_<filter id>` search params), each filter's default where the URL has

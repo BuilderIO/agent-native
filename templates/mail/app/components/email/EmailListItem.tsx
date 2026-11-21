@@ -210,6 +210,20 @@ export const EmailListItem = memo(function EmailListItem({
     prevT: number;
   } | null>(null);
   const didSwipeRef = useRef(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!isFocused || !row) return;
+    const active = document.activeElement;
+    if (
+      active !== row &&
+      active instanceof HTMLElement &&
+      active.hasAttribute("data-mail-email-row")
+    ) {
+      row.focus({ preventScroll: true });
+    }
+  }, [isFocused]);
 
   const canSwipe = Boolean(onSwipeArchive || onSwipeSnooze);
 
@@ -873,6 +887,7 @@ export const EmailListItem = memo(function EmailListItem({
       )}
 
       <div
+        ref={rowRef}
         role="row"
         tabIndex={0}
         data-mail-email-row

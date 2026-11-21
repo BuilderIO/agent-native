@@ -13,6 +13,7 @@ import {
 import { getGoogleEventColorHex } from "../shared/google-event-colors.js";
 
 export default defineAction({
+  mcpTool: true,
   description: "Fetch a single Google Calendar event by id",
   schema: z.object({
     id: z

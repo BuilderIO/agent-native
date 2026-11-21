@@ -169,6 +169,7 @@ import {
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
+import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -265,6 +266,7 @@ import { ContentImportDialog } from "./ContentImportDialog";
 import { convergedContentNeedsSave } from "./converged-remote-save";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
+import { BuilderArticleRowAutosaveRunner } from "./database-sources/BuilderArticleAutosave";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import {
   type DatabaseRowView,
@@ -347,6 +349,7 @@ import {
   localSourceRevisionForSave,
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
+import { NewPageStartingPoints } from "./NewPageStartingPoints";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournalGeneration,
@@ -422,6 +425,7 @@ import {
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
+  carryOwnSuggestions,
   readPageOnLiveCopyChange,
   suggestionPageFollow,
 } from "./suggestions/follow-page";
@@ -510,8 +514,9 @@ export function observeAcceptedCanonicalSettlement(args: {
 
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
+  fromSelectionToolbar = false,
 ) {
-  return capturedSelection == null;
+  return capturedSelection == null && !fromSelectionToolbar;
 }
 
 export function restoreCapturedEditorSelection(
@@ -2345,6 +2350,13 @@ export function isSavedContentLocalEcho(
   return sentContent !== undefined && sentContent === savedContent;
 }
 
+export function newerMergedLocalSave<T extends { sequence: number }>(
+  current: T | null,
+  next: T,
+): T {
+  return current && current.sequence > next.sequence ? current : next;
+}
+
 export function resolveAcknowledgedDocumentSnapshot<
   T extends { id: string; updatedAt: string },
 >(args: {
@@ -3768,7 +3780,11 @@ function PageEditorSessionBody({
       }
       toast.error(t("sidebar.failedDeletePage"), {
         description:
-          error instanceof Error ? error.message : t("empty.genericError"),
+          workspaceReferenceErrorMessage(
+            error,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ??
+          (error instanceof Error ? error.message : t("empty.genericError")),
       });
     }
   }, [
@@ -3943,6 +3959,12 @@ function PageEditorSessionBody({
     sequence: number;
   } | null>(null);
   const acknowledgedLocalSnapshotSequenceRef = useRef(0);
+  const [mergedLocalSave, setMergedLocalSave] = useState<{
+    sent: string;
+    value: string;
+    revision: string;
+    sequence: number;
+  } | null>(null);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -4797,7 +4819,8 @@ function PageEditorSessionBody({
   );
   const persistDocumentUpdates = useCallback(
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
-      options.persistenceSequence = ++persistenceSequenceRef.current;
+      const persistenceSequence = ++persistenceSequenceRef.current;
+      options.persistenceSequence = persistenceSequence;
       const persistenceIdentity = {
         editorSessionId: options.editorSessionId ?? editorSessionIdRef.current!,
         editGeneration:
@@ -4842,6 +4865,16 @@ function PageEditorSessionBody({
                 !current || snapshot.sequence > current.sequence
                   ? snapshot
                   : current,
+              );
+            } else if (updates.content !== undefined && result.revision) {
+              const merged = {
+                sent: updates.content,
+                value: result.content,
+                revision: result.revision,
+                sequence: persistenceSequence,
+              };
+              setMergedLocalSave((current) =>
+                newerMergedLocalSave(current, merged),
               );
             }
             if (
@@ -6867,6 +6900,8 @@ function PageEditorSessionBody({
       ),
     [allSavedSuggestions],
   );
+  const savedSuggestionsRef = useRef(savedSuggestions);
+  savedSuggestionsRef.current = savedSuggestions;
   const rememberFieldSuggestions = useCallback(
     (saved: ResourceSuggestion[]) => {
       setLocallyCreatedSuggestions((current) => {
@@ -7306,16 +7341,23 @@ function PageEditorSessionBody({
           const amended = await saveUnlessSuggestionChanged(
             target,
             async () => {
+              const baseRevision =
+                target.baseRevision === base.baseRevision
+                  ? undefined
+                  : base.baseRevision;
               const idempotencyKey = suggestionAmendmentIdempotencyKey(
                 suggestionAmendmentKeysRef.current,
                 target,
-                amendment.key,
+                baseRevision === undefined
+                  ? amendment.key
+                  : JSON.stringify([amendment.key, baseRevision]),
               );
               const suggestion = await updateSuggestion.mutateAsync({
                 id: target.id,
                 observedRevision: target.revision,
                 idempotencyKey,
                 operations: [amendment.operation],
+                ...(baseRevision === undefined ? {} : { baseRevision }),
               });
               return { idempotencyKey, suggestion };
             },
@@ -7683,18 +7725,34 @@ function PageEditorSessionBody({
   ]);
 
   const continueSuggestionModeFrom = useCallback(
-    (nextDocument: Document) => {
+    (nextDocument: Document, options?: { keepOwnSuggestions?: boolean }) => {
       clearSuggestionAutosave();
-      createdSuggestionOperationsRef.current.clear();
-      suggestionAmendmentKeysRef.current.clear();
       const initial = createDocumentSuggestionDraftSession({
         id: globalThis.crypto.randomUUID(),
         baseContent: nextDocument.content,
         baseRevision: canonicalSuggestionRevision(nextDocument),
         startedAt: new Date().toISOString(),
       });
+      const previous = suggestionBaseRef.current;
+      const carried =
+        options?.keepOwnSuggestions && previous
+          ? carryOwnSuggestions({
+              session: previous,
+              draft: suggestionDraftRef.current,
+              next: initial.session,
+              entries: createdSuggestionOperationsRef.current,
+              latest: (id) =>
+                savedSuggestionsRef.current.find(
+                  (suggestion) => suggestion.id === id,
+                ),
+            })
+          : null;
+      createdSuggestionOperationsRef.current.clear();
+      for (const [key, entry] of carried?.entries ?? [])
+        createdSuggestionOperationsRef.current.set(key, entry);
+      suggestionAmendmentKeysRef.current.clear();
       suggestionBaseRef.current = initial.session;
-      setSuggestionDraft(initial.content);
+      setSuggestionDraft(carried?.content ?? initial.content);
       setSuggestionDraftUpdatedAt(nextDocument.updatedAt);
       setEditingSuggestionId(null);
       setSuggestionInitialSelection(null);
@@ -7756,7 +7814,7 @@ function PageEditorSessionBody({
         timer = setTimeout(() => {
           timer = null;
           if (suggestionDraftChangedAtRef.current === changedAt)
-            continueSuggestionModeFrom(document);
+            continueSuggestionModeFrom(document, { keepOwnSuggestions: true });
           else check();
         }, 0);
       }
@@ -8083,7 +8141,7 @@ function PageEditorSessionBody({
   ]);
 
   const handleSuggestionModeChange = useCallback(
-    async (next: boolean) => {
+    async (next: boolean, { fromSelectionToolbar = false } = {}) => {
       if (next) {
         if (!canSuggest || startingSuggestionRef.current) return;
         const initialSelection = pageActionsSelectionRef.current;
@@ -8124,7 +8182,10 @@ function PageEditorSessionBody({
             return;
           }
           if (
-            !shouldResumeSelectedSuggestionFromPageActions(initialSelection)
+            !shouldResumeSelectedSuggestionFromPageActions(
+              initialSelection,
+              fromSelectionToolbar,
+            )
           ) {
             if (
               !startSuggestionDraft(readyDocument, undefined, initialSelection)
@@ -8178,6 +8239,14 @@ function PageEditorSessionBody({
     canResume: documentFresh && canSuggest && (!canEdit || editorCanEdit),
     resume: resumeSuggestionMode,
   });
+
+  const handleSuggestEdit = useCallback(
+    (selection: VisualEditorSelectionSnapshot | null) => {
+      pageActionsSelectionRef.current = selection;
+      void handleSuggestionModeChange(true, { fromSelectionToolbar: true });
+    },
+    [handleSuggestionModeChange],
+  );
 
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
@@ -9183,6 +9252,9 @@ function PageEditorSessionBody({
     ? pagePropertiesQuery.data
     : undefined;
   const pageProperties = pagePropertiesInScope?.properties;
+  const builderArticleRow = pageProperties?.find(
+    (property) => property.definition.systemRole === "builder_status",
+  );
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const pendingHeld = pendingCommentHeld(
     { propertyId: pendingPropertyId, written: pendingWritten },
@@ -11445,6 +11517,17 @@ function PageEditorSessionBody({
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const showNewPageStartingPoints =
+    host === "page" &&
+    !isDatabasePage &&
+    editorCanEdit &&
+    !isSuggesting &&
+    !isStartingSuggestion &&
+    !mcpDirectoryWidgetReadOnly &&
+    !bodyHydrationError &&
+    !awaitingLiveCopy &&
+    isEffectivelyEmptyDocumentContent(localContent) &&
+    isEffectivelyEmptyDocumentContent(document.content);
   const iconRow: DocumentEditorIconRow = document.icon
     ? "icon"
     : canEdit && !isSuggesting
@@ -11978,6 +12061,13 @@ function PageEditorSessionBody({
                     )}
                   />
                 </div>
+                {builderArticleRow ? (
+                  <BuilderArticleRowAutosaveRunner
+                    documentId={documentId}
+                    databaseId={builderArticleRow.definition.databaseId}
+                    canEdit={editorCanEdit}
+                  />
+                ) : null}
                 {host === "preview" &&
                 document.databaseMembership &&
                 !isLocalFileDocument ? (
@@ -12035,7 +12125,10 @@ function PageEditorSessionBody({
                 {!isDatabasePage ? (
                   <div
                     {...(host === "page" ? startupAnchor("body") : {})}
-                    className={documentEditorBodyClassName(host)}
+                    className={cn(
+                      documentEditorBodyClassName(host),
+                      showNewPageStartingPoints && "content-new-page-body",
+                    )}
                     onClick={(e) => {
                       if (e.target === e.currentTarget) {
                         cancelPaddingScrollRestore();
@@ -12058,6 +12151,13 @@ function PageEditorSessionBody({
                       }
                     }}
                   >
+                    {showNewPageStartingPoints ? (
+                      <NewPageStartingPoints
+                        documentId={documentId}
+                        title={localTitle}
+                        onImport={canImportPages ? openImport : undefined}
+                      />
+                    ) : null}
                     {(() => {
                       if (bodyHydrationPending) {
                         return (
@@ -12285,6 +12385,7 @@ function PageEditorSessionBody({
                                 acknowledgedLocalSnapshot={
                                   acknowledgedLocalSnapshot
                                 }
+                                mergedLocalSave={mergedLocalSave}
                                 onBaseAwareReconcile={
                                   suggestionEditorIsolation.reconcileCanonical
                                     ? handleBaseAwareReconcile
@@ -12349,6 +12450,11 @@ function PageEditorSessionBody({
                                 onComment={
                                   canComment ? handleComment : undefined
                                 }
+                                onSuggestEdit={
+                                  canSuggest && !mcpDirectoryWidgetReadOnly
+                                    ? handleSuggestEdit
+                                    : undefined
+                                }
                                 onBlockComment={
                                   canComment ? handleBlockComment : undefined
                                 }
@@ -12381,6 +12487,11 @@ function PageEditorSessionBody({
                                   handleSuggestionAnchorsChange
                                 }
                                 showCommentIndicators={showCommentIndicators}
+                                emptyDocumentPlaceholder={
+                                  showNewPageStartingPoints
+                                    ? t("editor.newPagePlaceholder")
+                                    : null
+                                }
                                 onJoinTitle={joinFirstBodyBlockToTitle}
                                 onOpenNotionPageLink={handleOpenNotionPageLink}
                                 notionPageId={document.notionPageId}

@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -33,6 +34,13 @@ const hostsSchema = z
   .optional();
 
 export default defineAction({
+  mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   searchHints: [
     "booking page",
     "scheduling link",

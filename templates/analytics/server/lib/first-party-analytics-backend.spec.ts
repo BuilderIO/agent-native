@@ -610,6 +610,27 @@ describe("first-party BigQuery backend", () => {
     ).toHaveLength(1);
   });
 
+  it("translates every JSON read around literal look-alikes and nested reads", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT properties::jsonb ->> 'a' AS a, 'properties::jsonb ->> ''b''' AS marker, (properties::jsonb ->> 'c')::jsonb ->> 'd' AS d, coalesce(nullif(path, ')'), '(', path) AS p, properties::jsonb ->> 'e' AS e FROM analytics_events",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain(`JSON_VALUE(properties, '$."a"') AS a`);
+    expect(sql).toContain(String.raw`'properties::jsonb ->> \'b\'' AS marker`);
+    expect(sql).toContain(
+      `JSON_VALUE((JSON_VALUE(properties, '$."c"')), '$."d"') AS d`,
+    );
+    expect(sql).toContain(`COALESCE(nullif(path, ')'), '(', path) AS p`);
+    expect(sql).toContain(`JSON_VALUE(properties, '$."e"') AS e`);
+  });
+
   it("translates quoted identifiers without binding their marker text", () => {
     const sql = renderFirstPartyAnalyticsBigQuerySql(
       'SELECT "$1?" AS marker FROM "analytics_events" WHERE owner_email = $1',
