@@ -45,11 +45,6 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * The alt text of the image in the page's saved body, counting images with
- * this URL in document order, as the editor does. Null when the image isn't
- * there.
- */
 export function savedImageAlt(
   content: string,
   imageUrl: string,
@@ -105,10 +100,6 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
     setState(next);
   }, []);
 
-  // The run's write reaches an open editor only when the page next syncs.
-  // With no chat running, a page on a serverless host checks once a minute
-  // or less, so ask for the saved page now, give the editor a moment, and
-  // judge from the saved page itself when the editor hasn't caught up.
   const altLanded = useCallback(async (request: QuietAltTextRequest) => {
     const { altAtStart } = request;
     if (currentAltRef.current !== altAtStart) return true;
@@ -126,17 +117,17 @@ export function useQuietAltText({ currentAlt }: { currentAlt: string }) {
         { method: "GET" },
       );
       const savedAlt = savedImageAlt(
-        saved?.content ?? "",
+        saved.content ?? "",
         request.imageUrl,
         request.imageOccurrence,
       );
-      // set-image-alt-text writes trimmed, nonempty alt text.
       return (
         savedAlt !== null &&
         savedAlt.trim() !== "" &&
         savedAlt.trim() !== altAtStart.trim()
       );
     } catch {
+      // coercion-ok: an unreadable page can't confirm the save, so the line reports a failure.
       return false;
     }
   }, []);
