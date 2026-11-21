@@ -1,4 +1,18 @@
 export const ACTION_CHAT_UI_DATA_TABLE_RENDERER = "core.data-table";
+export const APP_LOCAL_MARKDOWN_LINK_HASH = "#agent-native-app-local";
+
+export function appLocalMarkdownLinkPath(href: string): string | null {
+  if (
+    !href.startsWith("/") ||
+    href.startsWith("//") ||
+    href.includes("\\") ||
+    !href.endsWith(APP_LOCAL_MARKDOWN_LINK_HASH)
+  ) {
+    return null;
+  }
+  return href.slice(0, -APP_LOCAL_MARKDOWN_LINK_HASH.length);
+}
+
 export const ACTION_CHAT_UI_DATA_CHART_RENDERER = "core.data-chart";
 export const ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER = "core.data-insights";
 export const ACTION_CHAT_UI_DATA_WIDGET_RENDERER = "core.data-widget";

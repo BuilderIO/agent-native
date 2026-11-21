@@ -396,6 +396,46 @@ describe("core.record-change", () => {
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
+  it.each(["/workspace", "/settings"])(
+    "opens a created automation under the %s app mount",
+    async (mount) => {
+      vi.stubEnv("VITE_APP_BASE_PATH", mount);
+      window.history.replaceState(null, "", `${mount}/chat`);
+      try {
+        await act(async () => {
+          root.render(
+            <AgentNativeI18nProvider
+              catalog={catalog}
+              persistPreference={false}
+            >
+              <RecordChangeWidget
+                context={{
+                  toolName: "manage-automations",
+                  args: {},
+                  resultJson: {
+                    change: {
+                      verb: "created",
+                      kind: "automation",
+                      title: "digest",
+                      url: "/settings/automations?automationId=resource-1",
+                    },
+                  },
+                  isRunning: false,
+                }}
+              />
+            </AgentNativeI18nProvider>,
+          );
+        });
+        expect(container.querySelector("a")?.getAttribute("href")).toBe(
+          `${mount}/settings/automations?automationId=resource-1`,
+        );
+      } finally {
+        window.history.replaceState(null, "", "/");
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
   it("does not render unsafe change URLs as links", async () => {
     await act(async () => {
       root.render(

@@ -40,7 +40,8 @@ import {
   IconPlayerPlay,
   IconTrash,
 } from "@tabler/icons-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
 import { AgentAskPopover } from "../chat/index.js";
 import { automationCreationContext } from "../settings/AutomationsSection.js";
@@ -317,13 +318,7 @@ export function organizationAutomationCreationContext(): string {
   return "The user wants to create a new organization automation. Use manage-automations with action=define and scope=organization to create it. Ask clarifying questions if needed about whether it runs on a schedule, event, or webhook, any conditions, and what actions to take.";
 }
 
-export function AgentJobsTab({
-  canManageOrg = false,
-  hideHeader = false,
-  organizationId,
-  organizationName,
-  variant = "page",
-}: AgentPageTabProps & {
+type AgentJobsTabProps = AgentPageTabProps & {
   hideHeader?: boolean;
   organizationId?: string | null;
   /** Titles the organization group in the `"settings"` variant. */
@@ -334,6 +329,52 @@ export function AgentJobsTab({
    * no create button in the body, because the page header carries it.
    */
   variant?: "page" | "settings";
+};
+
+export function AgentJobsTab(props: AgentJobsTabProps) {
+  const inRouter = useInRouterContext();
+  return inRouter ? (
+    <RoutedAgentJobsTab {...props} />
+  ) : (
+    <AgentJobsTabContent {...props} />
+  );
+}
+
+function RoutedAgentJobsTab(props: AgentJobsTabProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <AgentJobsTabContent
+      {...props}
+      routerSearch={location.search}
+      clearRouterLink={() => {
+        const search = new URLSearchParams(location.search);
+        search.delete("automationId");
+        const query = search.toString();
+        void navigate(
+          {
+            pathname: location.pathname,
+            search: query ? `?${query}` : "",
+            hash: location.hash,
+          },
+          { replace: true, state: location.state },
+        );
+      }}
+    />
+  );
+}
+
+function AgentJobsTabContent({
+  canManageOrg = false,
+  hideHeader = false,
+  organizationId,
+  organizationName,
+  variant = "page",
+  routerSearch,
+  clearRouterLink,
+}: AgentJobsTabProps & {
+  routerSearch?: string;
+  clearRouterLink?: () => void;
 }) {
   const settingsVariant = variant === "settings";
   const t = useT();
@@ -358,6 +399,27 @@ export function AgentJobsTab({
   const [detailsTarget, setDetailsTarget] = useState<ListedAutomation | null>(
     null,
   );
+  const [standaloneLinkedId, setStandaloneLinkedId] = useState(() =>
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("automationId"),
+  );
+  const linkedId =
+    routerSearch === undefined
+      ? standaloneLinkedId
+      : new URLSearchParams(routerSearch).get("automationId");
+  useEffect(() => {
+    if (routerSearch !== undefined) return;
+    const syncLink = () =>
+      setStandaloneLinkedId(
+        new URLSearchParams(window.location.search).get("automationId"),
+      );
+    window.addEventListener("popstate", syncLink);
+    return () => window.removeEventListener("popstate", syncLink);
+  }, [routerSearch]);
+  useEffect(() => {
+    setDetailsTarget(null);
+  }, [linkedId]);
   const [scheduleTarget, setScheduleTarget] = useState<ListedAutomation | null>(
     null,
   );
@@ -399,6 +461,34 @@ export function AgentJobsTab({
     ...listRecurringJobs(organizationJobs, organizationAutomations),
     ...listAutomations(organizationAutomations, organizationJobs),
   ];
+  const linkedTarget = linkedId
+    ? [...personalEntries, ...organizationEntries].find(
+        (entry) =>
+          entry.kind === "automation" && entry.resource.resourceId === linkedId,
+      )
+    : undefined;
+  const activeDetailsTarget = detailsTarget ?? linkedTarget;
+  const linkedNotFound =
+    linkedId &&
+    !linkedTarget &&
+    !personalAutomationsQuery.isLoading &&
+    !organizationAutomationsQuery.isLoading &&
+    !personalAutomationsQuery.isFetching &&
+    !organizationAutomationsQuery.isFetching &&
+    !personalAutomationsQuery.error &&
+    !organizationAutomationsQuery.error;
+  const closeDetails = () => {
+    setDetailsTarget(null);
+    if (!linkedId) return;
+    if (clearRouterLink) {
+      clearRouterLink();
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("automationId");
+    window.history.replaceState(window.history.state, "", url);
+    setStandaloneLinkedId(null);
+  };
   const mutationPending =
     personalJobsMutation.isPending ||
     personalAutomationsMutation.isPending ||
@@ -824,6 +914,13 @@ export function AgentJobsTab({
     >
       <div className={settingsVariant ? "space-y-8" : "space-y-7"}>
         <ScheduledTriggerNotice state={scheduledTriggerState} />
+        {linkedNotFound ? (
+          <Alert>
+            <AlertDescription>
+              {t("agentChat.settingsShell.integrationDetail.notFoundTitle")}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {hideHeader && !settingsVariant ? (
           <div className="flex justify-end">
             {newAutomationButton("personal")}
@@ -996,38 +1093,40 @@ export function AgentJobsTab({
         </DialogContent>
       </Dialog>
 
-      {detailsTarget ? (
+      {activeDetailsTarget ? (
         <AutomationDetailsDialog
           open
-          resourceId={detailsTarget.resource.id}
-          name={detailsTarget.resource.name}
+          resourceId={activeDetailsTarget.resource.id}
+          name={activeDetailsTarget.resource.name}
           scope={
-            detailsTarget.resource.scope === "organization" ? "org" : "user"
+            activeDetailsTarget.resource.scope === "organization"
+              ? "org"
+              : "user"
           }
-          triggerSummary={describeTrigger(detailsTarget, t)}
+          triggerSummary={describeTrigger(activeDetailsTarget, t)}
           fields={detailsFields(
-            detailsTarget,
+            activeDetailsTarget,
             t,
             formatDateTime,
             scheduleFiring,
           )}
           condition={
-            detailsTarget.kind === "automation"
-              ? detailsTarget.resource.condition
+            activeDetailsTarget.kind === "automation"
+              ? activeDetailsTarget.resource.condition
               : null
           }
           instructions={
-            detailsTarget.kind === "automation"
-              ? detailsTarget.resource.body
-              : detailsTarget.resource.instructions
+            activeDetailsTarget.kind === "automation"
+              ? activeDetailsTarget.resource.body
+              : activeDetailsTarget.resource.instructions
           }
-          mcpTools={detailsTarget.resource.mcpTools ?? []}
-          lastError={detailsTarget.resource.lastError}
-          lastStatus={detailsTarget.resource.lastStatus}
+          mcpTools={activeDetailsTarget.resource.mcpTools}
+          lastError={activeDetailsTarget.resource.lastError}
+          lastStatus={activeDetailsTarget.resource.lastStatus}
           formatTimestamp={(value) =>
             formatDateTime(new Date(value).toISOString()) ?? String(value)
           }
-          onClose={() => setDetailsTarget(null)}
+          onClose={closeDetails}
         />
       ) : null}
 

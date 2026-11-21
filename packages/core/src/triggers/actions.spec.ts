@@ -125,6 +125,7 @@ function tool() {
 }
 
 describe("manage-automations tool", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getUserSetting.mockResolvedValue(null);
@@ -163,6 +164,88 @@ describe("manage-automations tool", () => {
       userEmail: owner,
       orgId: "org-1",
     });
+  });
+
+  it("returns a record link in the creation result and its chat card", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/workspace");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    try {
+      const entry = tool();
+      const args = {
+        action: "define",
+        name: "digest",
+        trigger_type: "manual",
+        body: "Build it.",
+      };
+      const result = await entry.run(args);
+      expect(JSON.parse(result)).not.toHaveProperty("urlPath");
+      expect(JSON.parse(result)).toMatchObject({
+        resourceId: "resource-1",
+        change: {
+          verb: "created",
+          title: "digest",
+          url: "/settings/automations?automationId=resource-1",
+        },
+      });
+      expect(entry.chatUI?.when?.(args, result)).toBe(true);
+      expect(entry.chatUI?.projectResult?.(args, result)).toMatchObject({
+        change: { url: "/settings/automations?automationId=resource-1" },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("guides the agent to include the app-local markdown link in its reply", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/server-mount");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    const result = await executeAgentToolCall({
+      actions: { "manage-automations": tool() },
+      name: "manage-automations",
+      input: {
+        action: "define",
+        name: "digest",
+        trigger_type: "manual",
+        body: "Build it.",
+      },
+      callId: "create-link",
+      caller: "tool",
+      ownerEmail: owner,
+      orgId: "org-1",
+    });
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") throw new Error("Tool did not complete");
+    const output = JSON.parse(result.output);
+    expect(output.replyGuidance).toContain(
+      "[label](/settings/automations?automationId=resource-1#agent-native-app-local)",
+    );
+    expect(output.replyGuidance).toMatch(/reply/i);
+    expect(output).not.toHaveProperty("urlPath");
+    expect(output.change.url).toBe(
+      "/settings/automations?automationId=resource-1",
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it("encodes the automation id as a query value", async () => {
+    mocks.defineAutomation.mockResolvedValueOnce({
+      ...definition,
+      resourceId: "id&next=//evil.example/path",
+    });
+    const result = JSON.parse(
+      await tool().run({
+        action: "define",
+        name: "digest",
+        trigger_type: "manual",
+        body: "Build it.",
+      }),
+    );
+    const url = new URL(result.change.url, "https://app.example");
+    expect(url.origin).toBe("https://app.example");
+    expect(url.searchParams.get("automationId")).toBe(
+      "id&next=//evil.example/path",
+    );
+    expect(url.searchParams.has("next")).toBe(false);
   });
 
   it("forwards complete sharing and external acknowledgement on define/update", async () => {
