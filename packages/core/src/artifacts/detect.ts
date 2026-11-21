@@ -268,8 +268,7 @@ function databaseRowReceipt(
   const row = asRecord(mutationReceipt?.row);
   const target = asRecord(mutationReceipt?.target);
   const rowLink = asRecord(mutationReceipt?.rowLink);
-  const id =
-    stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
+  const id = stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
   const createdDocument = asRecord(asRecord(result.createdItem)?.document);
   const title =
     id && stringValue(createdDocument?.id) === id
