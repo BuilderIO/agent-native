@@ -188,6 +188,11 @@ export default defineAction({
     ) {
       return { id: args.id, recording: null, reason: "unavailable" as const };
     }
-    return { id: args.id, recording: updated };
+    if (!updated) return { id: args.id, recording: updated };
+    const { password, sharePasswordVersion, ...recording } = updated;
+    return {
+      id: args.id,
+      recording: { ...recording, hasPassword: Boolean(password) },
+    };
   },
 });

@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 const Views = [
@@ -43,6 +46,10 @@ export default defineAction({
         .string()
         .optional()
         .describe("Meeting id — for view=meeting"),
+      meetingsTab: z
+        .enum(["agenda", "past"])
+        .optional()
+        .describe("Meetings tab — for view=meetings ('agenda' or 'past')"),
       dictationId: z
         .string()
         .optional()
@@ -86,6 +93,7 @@ export default defineAction({
         .describe(
           "Nonempty raw URL path; required unless view is provided. Use only when a view/id combo does not express the target",
         ),
+      intent: navigationIntentSchema,
     })
     .refine((args) => Boolean(args.view || args.path?.trim()), {
       message: "A nonempty view or path is required",
@@ -97,6 +105,7 @@ export default defineAction({
     if (args.view) nav.view = args.view;
     if (args.recordingId) nav.recordingId = args.recordingId;
     if (args.meetingId) nav.meetingId = args.meetingId;
+    if (args.meetingsTab) nav.meetingsTab = args.meetingsTab;
     if (args.dictationId) nav.dictationId = args.dictationId;
     if (args.spaceId) nav.spaceId = args.spaceId;
     if (args.folderId) nav.folderId = args.folderId;
@@ -112,6 +121,7 @@ export default defineAction({
         args.view,
         args.recordingId,
         args.meetingId,
+        args.meetingsTab,
         args.dictationId,
         args.spaceId,
         args.folderId,

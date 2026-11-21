@@ -280,6 +280,64 @@ beforeEach(async () => {
   store.settings.set(activeOrgKey(ADMIN), { orgId: ORG });
 });
 
+describe("a scheduled job's frontmatter", () => {
+  function legacyJob(owner: string, meta: Record<string, unknown>) {
+    return {
+      name: "daily-digest",
+      body: "Summarize the day.",
+      resource: { id: "job-1", owner, path: "jobs/daily-digest.md" },
+      meta: { schedule: "* * * * *", enabled: true, ...meta },
+    } as never;
+  }
+
+  it("does not run a personal job as the user its createdBy names", async () => {
+    const resolved = await resolveBackgroundAutomationIdentity(
+      legacyJob(OUTSIDER, { createdBy: MEMBER, orgId: ORG, runAs: "creator" }),
+    );
+
+    expect(resolved).toMatchObject({ ok: false, code: "config_invalid" });
+  });
+
+  it("does not run another organization's job inside this organization", async () => {
+    await addMember(OTHER_ORG, OUTSIDER, "owner");
+    const { organizationResourceOwner } = await import("../resources/store.js");
+
+    const resolved = await resolveBackgroundAutomationIdentity(
+      legacyJob(organizationResourceOwner(OTHER_ORG), {
+        createdBy: MEMBER,
+        orgId: ORG,
+        runAs: "creator",
+      }),
+    );
+
+    expect(resolved).toMatchObject({ ok: false, code: "config_invalid" });
+  });
+
+  it("does not let a deployment-wide job name an organization", async () => {
+    const resolved = await resolveBackgroundAutomationIdentity(
+      legacyJob("__shared__", { createdBy: MEMBER, orgId: ORG }),
+    );
+
+    expect(resolved).toMatchObject({ ok: false, code: "config_invalid" });
+  });
+
+  it("runs an organization's job as its creator when the creator is a member", async () => {
+    const { organizationResourceOwner } = await import("../resources/store.js");
+
+    const resolved = await resolveBackgroundAutomationIdentity(
+      legacyJob(organizationResourceOwner(ORG), {
+        createdBy: MEMBER,
+        runAs: "creator",
+      }),
+    );
+
+    expect(resolved).toMatchObject({
+      ok: true,
+      identity: { userEmail: MEMBER, orgId: ORG },
+    });
+  });
+});
+
 describe("a personal automation whose provider key is saved at organization scope", () => {
   it("runs on the organization's key when its creator has none", async () => {
     secret("org", ORG, "ANTHROPIC_API_KEY", "sk-ant-org");

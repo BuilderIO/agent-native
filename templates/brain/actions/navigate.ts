@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
+import {
+  navigationIntentSchema,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -54,10 +57,12 @@ export default defineAction({
       .describe(
         "With view settings, the Brain › General tab to open: general, identity, behavior, publishing, safety, or privacy.",
       ),
+    intent: navigationIntentSchema,
   }),
   http: false,
   run: async (args) => {
-    await writeAppStateForCurrentTab("navigate", { ...args, ts: Date.now() });
-    return { navigate: args };
+    const { intent: _intent, ...nav } = args;
+    await writeAppStateForCurrentTab("navigate", { ...nav, ts: Date.now() });
+    return { navigate: nav };
   },
 });

@@ -6116,6 +6116,77 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("asks approval for an unlisted tool run through call-tool, then runs it", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const actions = {
+      "restrict-personal-keys": {
+        tool: {
+          description: "Restrict personal API keys",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        needsApproval: true,
+        mcpTool: "search" as const,
+        run,
+      },
+    };
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          ...actions,
+          "tool-search": createToolSearchEntry(() => actions),
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: {
+          ...(await mcpAppsAuthHeaders()),
+          "x-agent-native-mcp-full-catalog": "0",
+        },
+      },
+    );
+    try {
+      const { tools } = await client.listTools();
+      const callTool = tools.find((tool) => tool.name === "call-tool");
+      expect(callTool?.annotations?.destructiveHint).toBe(true);
+      expect(tools.map((tool) => tool.name)).not.toContain(
+        "restrict-personal-keys",
+      );
+
+      const callWithInput = client.callTool.bind(client) as unknown as (
+        params: Record<string, unknown>,
+        options?: { allowInputRequired: boolean },
+      ) => Promise<{
+        resultType?: string;
+        requestState?: unknown;
+        isError?: boolean;
+      }>;
+      const request = {
+        name: "call-tool",
+        arguments: { name: "restrict-personal-keys", arguments: {} },
+      };
+      const first = await callWithInput(request, { allowInputRequired: true });
+      expect(first.resultType).toBe("input_required");
+      expect(run).not.toHaveBeenCalled();
+
+      const approved = await callWithInput({
+        ...request,
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      });
+      expect(approved.isError).not.toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("records an accepted elicitation on the accepted action's row, not on a child it calls", async () => {
     auditInserts.length = 0;
     const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
@@ -14290,5 +14361,94 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
     expect(init.properties.$mcp_vendor_client).toBe("claude-code");
     expect(init.properties.$mcp_protocol_version).toBe("2025-06-18");
     expect(init.properties.$mcp_source).toBe("http");
+  });
+});
+
+describe("handleMcpRequest — x-agent-native-browser-tab header", () => {
+  beforeEach(() => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+
+  afterEach(() => {
+    delete process.env.BETTER_AUTH_SECRET;
+    vi.restoreAllMocks();
+  });
+
+  it("targets the tab named in x-agent-native-browser-tab without setting getCurrentRequestBrowserTabId", async () => {
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const { getCurrentRequestBrowserTabId, resolveCurrentRequestStateTab } =
+      await import("../application-state/script-helpers.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-tab-test",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+
+    const tabConfig = {
+      ...config,
+      actions: {
+        "inspect-tab": defineAction({
+          description: "Inspect the resolved browser tab target.",
+          readOnly: true,
+          mcpTool: true,
+          run: async () => ({
+            ownTabId: getCurrentRequestBrowserTabId(),
+            stateTab: await resolveCurrentRequestStateTab(),
+          }),
+        }),
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "inspect-tab", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-browser-tab": "replay-tab-1",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: tabConfig,
+      },
+    );
+
+    const texts: string[] = (out.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(texts[0])).toEqual({
+      ownTabId: null,
+      stateTab: { tabId: "replay-tab-1", unavailable: false },
+    });
+    expect(texts.at(-1)).toMatch(/targeted the requested browser tab/);
+
+    const bad = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "inspect-tab", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-browser-tab": "bad tab!",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: tabConfig,
+      },
+    );
+
+    const badTexts: string[] = (bad.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(badTexts[0]).stateTab.tabId).not.toBe("bad tab!");
   });
 });

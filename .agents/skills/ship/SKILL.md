@@ -53,8 +53,9 @@ git rev-list --count HEAD..origin/main
 - If a dirty path isn't part of this task, leave it untouched and say so in
   the report.
 - Being behind `main` is fine. Merge `origin/main` only when GitHub reports
-  `CONFLICTING` or a required check needs a fix that's already on `main`. Use
-  a normal merge, never a rebase.
+  `CONFLICTING`; if a required check needs a fix that exists only on `main`,
+  stop and report blocked instead of syncing. Use a normal merge, never a
+  rebase.
 
 ## 2. Validate and push
 

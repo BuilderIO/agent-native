@@ -19,8 +19,11 @@ import {
   confirmCreatedFilesRow,
   filesNavigationPageParams,
   filesNavigationQueryKey,
+  filesRowMove,
   forgetCreatedFilesRows,
   isFilesRowCreationPending,
+  keepMovedFilesRow,
+  moveCachedFilesRow,
   readFilesNavigationPage,
   removeCreatedFilesRows,
   showCreatedFilesRow,
@@ -101,7 +104,10 @@ function ids(queryClient: QueryClient, parentId: string | null = null) {
 async function reread(
   queryClient: QueryClient,
   answer: ContentDatabaseNavigationPageResponse,
-  { parentId = null, expanded = [] as string[] } = {},
+  {
+    parentId = null,
+    expanded = [],
+  }: { parentId?: string | null; expanded?: string[] } = {},
 ) {
   callActionWithRetry.mockResolvedValueOnce(answer);
   const params = filesNavigationPageParams({ databaseId: FILES, parentId });
@@ -354,5 +360,174 @@ describe("cachedFilesRootDocumentIds", () => {
       "hiring",
     ]);
     expect(cachedFilesRootDocumentIds(new QueryClient(), "draft")).toEqual([]);
+  });
+});
+
+describe("a page moved in the Files tree", () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    callActionWithRetry.mockReset();
+    queryClient = new QueryClient();
+  });
+
+  function plan(documentId: string, parentId: string | null) {
+    const planned = filesRowMove(queryClient, { documentId, parentId });
+    if (!planned) throw new Error(`${documentId} has no cached Files row`);
+    return planned;
+  }
+
+  function move(documentId: string, parentId: string | null) {
+    moveCachedFilesRow(queryClient, plan(documentId, parentId));
+  }
+
+  /** The server answered the move, as `useMoveDocument` handles it. */
+  function moved(documentId: string, parentId: string | null) {
+    const planned = plan(documentId, parentId);
+    keepMovedFilesRow(queryClient, planned);
+    moveCachedFilesRow(queryClient, planned);
+  }
+
+  function hasChildren(documentId: string, parentId: string | null = null) {
+    return cachedRows(queryClient, parentId).find(
+      (item) => item.documentId === documentId,
+    )?.hasChildren;
+  }
+
+  it("leaves its old branch and joins the end of its new branch, whose parent gains children", () => {
+    queryClient.setQueryData(
+      branchKey(),
+      page([row("folder"), row("a"), row("b")]),
+    );
+    queryClient.setQueryData(
+      branchKey("folder"),
+      page([row("child", { parentId: "folder" })]),
+    );
+
+    move("b", "folder");
+
+    expect(ids(queryClient)).toEqual(["folder", "a"]);
+    expect(ids(queryClient, "folder")).toEqual(["child", "b"]);
+    expect(cachedRows(queryClient, "folder")[1]?.parentId).toBe("folder");
+  });
+
+  it("gives a folder without children its first one, and an emptied folder none", () => {
+    queryClient.setQueryData(
+      branchKey(),
+      page([row("empty"), row("full", { hasChildren: true })]),
+    );
+    queryClient.setQueryData(
+      branchKey("full"),
+      page([row("only", { parentId: "full" })]),
+    );
+
+    move("only", "empty");
+
+    expect(hasChildren("empty")).toBe(true);
+    expect(hasChildren("full")).toBe(false);
+    expect(ids(queryClient, "full")).toEqual([]);
+  });
+
+  it("keeps an old parent with children it hasn't read past", () => {
+    queryClient.setQueryData(
+      branchKey(),
+      page([row("target"), row("long", { hasChildren: true })]),
+    );
+    queryClient.setQueryData(
+      branchKey("long"),
+      page([row("first", { parentId: "long" })], true),
+    );
+
+    move("first", "target");
+
+    expect(hasChildren("long")).toBe(true);
+  });
+
+  it("moves to the top level without listing the page twice", () => {
+    queryClient.setQueryData(
+      branchKey(),
+      page([row("folder", { hasChildren: true }), row("b")]),
+    );
+    queryClient.setQueryData(
+      branchKey("folder"),
+      page([row("nested", { parentId: "folder" })]),
+    );
+
+    move("nested", null);
+    // The server's reread already lists it where it went.
+    move("nested", null);
+
+    expect(ids(queryClient)).toEqual(["folder", "b", "nested"]);
+    expect(cachedRows(queryClient)[2]?.parentId).toBeNull();
+  });
+
+  it("keeps a branch marked for its reread marked", async () => {
+    queryClient.setQueryData(branchKey(), page([row("folder"), row("b")]));
+    await queryClient.invalidateQueries({
+      queryKey: branchKey(),
+      refetchType: "none",
+    });
+
+    move("b", "folder");
+
+    expect(ids(queryClient)).toEqual(["folder"]);
+    expect(
+      queryClient.getQueryCache().find({ queryKey: branchKey(), exact: true })
+        ?.state.isInvalidated,
+    ).toBe(true);
+  });
+
+  it("stays in a folder that hadn't loaded when the folder's first read answers from before the move", async () => {
+    queryClient.setQueryData(branchKey(), page([row("folder"), row("b")]));
+    // The folder opens with the click and reads its children while the move
+    // is still on its way.
+    const answers: Array<
+      (answer: ContentDatabaseNavigationPageResponse) => void
+    > = [];
+    callActionWithRetry.mockReturnValueOnce(
+      new Promise((resolve) => answers.push(resolve)),
+    );
+    const read = readFilesNavigationPage(
+      queryClient,
+      filesNavigationPageParams({ databaseId: FILES, parentId: "folder" }),
+      [],
+    );
+
+    moved("b", "folder");
+    for (const answer of answers) answer(page([]));
+
+    const answered = await read;
+    if ("available" in answered) throw new Error("The Files read failed");
+    expect(answered.items.map((item) => item.documentId)).toEqual(["b"]);
+  });
+
+  it("stays at the end of a long folder's first page while the server lists it further on", async () => {
+    const children = Array.from({ length: 20 }, (_, index) =>
+      row(`child-${index}`, { parentId: "folder" }),
+    );
+    queryClient.setQueryData(
+      branchKey(),
+      page([row("folder", { hasChildren: true }), row("b")]),
+    );
+    queryClient.setQueryData(branchKey("folder"), page(children, true));
+
+    moved("b", "folder");
+    const shown = await reread(queryClient, page(children, true), {
+      parentId: "folder",
+    });
+    expect(shown).toHaveLength(21);
+    expect(shown[20]).toBe("b");
+
+    // A read of the whole folder without it, once it moved on, lets it go.
+    expect(
+      await reread(queryClient, page(children), { parentId: "folder" }),
+    ).toHaveLength(20);
+  });
+
+  it("has no move to plan for a page no Files page lists", () => {
+    queryClient.setQueryData(branchKey(), page([row("a")]));
+    expect(
+      filesRowMove(queryClient, { documentId: "elsewhere", parentId: "a" }),
+    ).toBeUndefined();
   });
 });

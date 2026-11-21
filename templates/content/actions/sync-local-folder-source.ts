@@ -1053,6 +1053,13 @@ export default defineAction({
       unchanged,
       conflicts,
       outbound,
+      removed:
+        policy === "source_primary"
+          ? missingRows.map((row) => ({
+              id: row.documentId,
+              path: deletedFilePath(row),
+            }))
+          : [],
       skipped,
       errors: parseErrors,
       idByPath: Object.fromEntries(
