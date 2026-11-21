@@ -88,15 +88,15 @@ export function carryOwnSuggestions(args: {
   latest: (
     id: string,
   ) => Pick<ResourceSuggestion, "status" | "revision"> | undefined;
-}): { content: string; entries: Map<string, SuggestionPersistenceEntry> } | null {
+}): {
+  content: string;
+  entries: Map<string, SuggestionPersistenceEntry>;
+} | null {
   const { session, draft, next, entries } = args;
   if (entries.size === 0 || session.existingSuggestion) return null;
   for (const { suggestion } of entries.values()) {
     const latest = args.latest(suggestion.id);
-    if (
-      latest?.status !== "pending" ||
-      latest.revision !== suggestion.revision
-    )
+    if (latest?.status !== "pending" || latest.revision !== suggestion.revision)
       return null;
   }
   try {
@@ -117,10 +117,9 @@ export function carryOwnSuggestions(args: {
     if (after.length !== before.length) return null;
     const carried = new Map<string, SuggestionPersistenceEntry>();
     for (const [index, previous] of before.entries()) {
-      const operation = after.at(index);
+      const operation = after[index];
       const entry = entries.get(suggestionOperationKey(previous));
       if (
-        !operation ||
         !entry ||
         operation.kind !== previous.kind ||
         operation.before.changedText !== previous.before.changedText ||
