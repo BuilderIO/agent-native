@@ -23,7 +23,8 @@ vi.mock("@agent-native/core/tracking", () => ({
   track: vi.fn(),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   eq: vi.fn(() => ({})),
 }));
 

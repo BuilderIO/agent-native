@@ -18,7 +18,8 @@ const mocks = vi.hoisted(() => ({
   signOut: vi.fn(async () => undefined),
 }));
 
-vi.mock("@agent-native/core/client/use-action", () => ({
+vi.mock("@agent-native/core/client/use-action", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/client/use-action")>()),
   useActionQuery: (_name: string, params: unknown) => {
     mocks.queryParams.push(params);
     return { refetch: mocks.refetch, ...mocks.query };

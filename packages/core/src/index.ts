@@ -56,6 +56,12 @@ export {
   type ActionMcpAppPermissions,
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
+  REVERSIBLE_WRITE_INLINE_APPROVAL_KEY,
+  createReversibleWriteApprovalPolicy,
+  isReversibleWriteInlineApprovalAction,
+  isReversibleWriteNoApprovalsMode,
+  reversibleWriteNeedsApproval,
+  type ReversibleWriteApprovalPredicate,
 } from "./action.js";
 export { isAgentCaller, isOutsideAgentCall } from "./action-caller.js";
 export * from "./user-profile/index.js";

@@ -146,6 +146,7 @@ import {
   getRunById,
   readBackgroundRunClaim,
   retryRunThreadProjection,
+  type UserStopOptions,
 } from "../agent/run-store.js";
 import { buildAssistantTurnFromRunJournal } from "../agent/run-thread-projector.js";
 import {
@@ -7730,10 +7731,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             let reason = "user";
             let safeBoundary = false;
+            let stop: UserStopOptions = {};
             try {
               const body = await readBody(event);
               reason = clientAbortReason(body?.reason);
               safeBoundary = body?.safeBoundary === true;
+              if (
+                Number.isSafeInteger(body?.shownThroughSeq) &&
+                body.shownThroughSeq >= -1
+              ) {
+                stop = { shownThroughSeq: body.shownThroughSeq };
+              }
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
@@ -7745,6 +7753,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 aborted = isUserStop
                   ? await abortRunAndTurnDurably(runId, reason, {
                       safeBoundary: true,
+                      ...stop,
                     })
                   : await abortRunAtSafeBoundaryDurably(runId, reason);
                 if (isUserStop && !aborted) {
@@ -7758,7 +7767,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // the cross-isolate abort + terminal event to be durable. Returning
                 // early lets Retry collide with the still-running row.
                 if (isUserStop) {
-                  await abortRunAndTurnDurably(runId, reason);
+                  await abortRunAndTurnDurably(runId, reason, stop);
                 } else {
                   await abortRunDurably(runId, reason);
                 }

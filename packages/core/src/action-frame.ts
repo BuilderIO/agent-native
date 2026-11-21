@@ -66,6 +66,8 @@ export type ActionExecutionFrame = {
   navigationIntent?: string;
   /** Declared on an explicit UI-opening write action (never on a read). */
   allowsAgentNavigation?: boolean;
+  /** True when this frame is executing the `navigate` action itself. */
+  isNavigateAction?: boolean;
   /** The call's record, and the context it ran with, once validated. */
   record?: ActionCallRecord;
   context?: ActionRunContext;
@@ -186,16 +188,25 @@ export function currentActionNavigationIntent(): string | undefined {
   return found;
 }
 
-/** Whether the running action (or an ancestor) explicitly declared `allowsAgentNavigation`. */
+/**
+ * Whether the active action chain is authorized to navigate by an action's
+ * declared `allowsAgentNavigation: true`. Only the outermost write action can
+ * grant this: a nested action with `allowsAgentNavigation: true` (such as an
+ * app's own `navigate` action) cannot bypass a parent write action that did
+ * not declare it.
+ */
 export function currentActionAllowsAgentNavigation(): boolean {
+  let outermostWrite: ActionExecutionFrame | undefined;
   for (
     let frame = actionExecutionStorage?.getStore()?.frame;
     frame;
     frame = frame.parent
   ) {
-    if (frame.allowsAgentNavigation === true) return true;
+    if (frame.writes === true) {
+      outermostWrite = frame;
+    }
   }
-  return false;
+  return outermostWrite?.allowsAgentNavigation === true;
 }
 
 /** Whether any write has already been observed in the active action chain. */
@@ -236,17 +247,17 @@ export function insideWriteAction(): boolean {
 
 /**
  * Whether the running call is a top-level `navigate` action (no outer write
- * action and no observed write yet). Lets hand-written `actions/navigate.ts`
- * switch section/list views while refusing non-navigate write actions that
- * try to navigate before their first write.
+ * action). Lets hand-written `actions/navigate.ts` switch section/list views
+ * while refusing non-navigate write actions that try to move the view.
  */
 export function isStandaloneNavigateAction(): boolean {
   const current = actionExecutionStorage?.getStore()?.frame;
   if (!current || current.writes !== true) return false;
-  if (insideParentWriteAction() || hasObservedWriteInActionChain()) {
-    return false;
-  }
-  return current.context?.actionName === "navigate";
+  if (insideParentWriteAction()) return false;
+  return (
+    current.isNavigateAction === true ||
+    current.context?.actionName === "navigate"
+  );
 }
 
 /**

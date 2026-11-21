@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { installBuiltinDashboardOnce } from "../server/lib/builtin-dashboards.js";
 import {
+  agentNativeSignupsSettingsUpdateSchema,
   contentCollectionConfigSchema,
   ga4PropertyIdSchema,
   searchConsoleSiteSchema,
@@ -60,7 +61,12 @@ export default defineAction({
     signups: signupsSettingsUpdateSchema
       .optional()
       .describe(
-        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own, as Source signups), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+        "Per-article signups settings, merged into the saved ones: enabled, signupEventsTable and firstPageviewsTable (project.dataset.table), signupSource (its signups are also counted on their own), signupsSince (YYYY-MM-DD) and maxBytesBilled. The step stays not set up until all are set; measure maxBytesBilled with estimate-content-signups-cost, and get it approved before turning the step on, since every run scans the warehouse.",
+      ),
+    agentNativeSignups: agentNativeSignupsSettingsUpdateSchema
+      .optional()
+      .describe(
+        "Agent-Native signups settings, merged into the saved ones: enabled, eventsTable (this organization's first-party analytics events, project.dataset.table) and maxBytesBilled. Signups whose link has utm_source set to the blog's host and utm_content set to an article's handle count for that article, as Agent-Native signups. Measure maxBytesBilled with estimate-content-signups-cost and get it approved before turning the step on, since every run scans the warehouse.",
       ),
   }),
   run: async (
@@ -72,6 +78,7 @@ export default defineAction({
       searchConsole,
       searchConsoleSites,
       signups,
+      agentNativeSignups,
     },
     ctx,
   ) => {
@@ -97,6 +104,10 @@ export default defineAction({
         sites: searchConsoleSites ?? saved.searchConsole.sites,
       },
       signups: { ...saved.signups, ...signups },
+      agentNativeSignups: {
+        ...saved.agentNativeSignups,
+        ...agentNativeSignups,
+      },
     });
     if (enabled && config.searchConsole.enabled) {
       z.array(searchConsoleSiteSchema)

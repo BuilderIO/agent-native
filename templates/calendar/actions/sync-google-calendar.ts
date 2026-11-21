@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 export default defineAction({
+  mcpTool: false,
   description:
     "Google Calendar sync is no longer needed. Events are read directly from the Google Calendar API. Use list-events or create-event instead.",
   schema: z.object({}),
