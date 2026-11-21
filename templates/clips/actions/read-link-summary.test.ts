@@ -66,6 +66,7 @@ async function seed(
     password?: string | null;
     expiresAt?: string | null;
     trashedAt?: string | null;
+    archivedAt?: string | null;
     failureCode?: string | null;
     editsJson?: string;
   } = {},
@@ -81,6 +82,7 @@ async function seed(
     password: options.password ?? null,
     expiresAt: options.expiresAt ?? null,
     trashedAt: options.trashedAt ?? null,
+    archivedAt: options.archivedAt ?? null,
     failureCode: options.failureCode ?? null,
     editsJson: options.editsJson ?? "{}",
     createdAt: now,
@@ -197,6 +199,29 @@ describe("read-link-summary (Clips)", () => {
     expect((await action.run({ links })).summaries).toEqual([
       { status: "unavailable" },
       available(share("redacting"), "redacting"),
+    ]);
+  });
+
+  it("answers an /embed/ link only for a public, passwordless, live Clip, as the embed does, even for its owner", async () => {
+    const embed = (id: string) => `https://clips.example.test/embed/${id}`;
+    const ids = [
+      "public",
+      "private",
+      "locked",
+      "archived",
+      "trashed",
+      "expired",
+    ];
+    await seed("public");
+    await seed("private", { visibility: "private" });
+    await seed("locked", { password: "fake-password-digest" });
+    await seed("archived", { archivedAt: now });
+    await seed("trashed", { trashedAt: now });
+    await seed("expired", { expiresAt: "2026-11-01T00:00:00.000Z" });
+    mocks.role = "owner";
+    expect((await action.run({ links: ids.map(embed) })).summaries).toEqual([
+      available(embed("public"), "public"),
+      ...ids.slice(1).map(() => ({ status: "unavailable" })),
     ]);
   });
 

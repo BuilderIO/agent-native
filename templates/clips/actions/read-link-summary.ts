@@ -11,6 +11,7 @@ import type { schema } from "../server/db/index.js";
 import { isHeldForRedaction } from "../server/lib/pending-redactions.js";
 import {
   canOpenDirectRecordingPage,
+  isRecordingExpired,
   isRecordingExpiredForViewer,
   isRecordingPasswordProtectedForViewer,
   isRecordingTrashedForViewer,
@@ -72,6 +73,16 @@ export default defineAction({
               isAgentCaller: false,
             }),
           })
+        ) {
+          return null;
+        }
+        if (
+          route === "embed" &&
+          (recording.visibility !== "public" ||
+            hasPassword ||
+            recording.archivedAt !== null ||
+            recording.trashedAt !== null ||
+            isRecordingExpired(recording.expiresAt))
         ) {
           return null;
         }
