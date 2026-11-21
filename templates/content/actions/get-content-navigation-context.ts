@@ -502,7 +502,7 @@ export default defineAction({
           databaseDocumentId: topEntry.databaseDocumentId,
           isFavorite: false,
           hasChildren: true,
-          visibility: topEntry.visibility,
+          ...(topEntry.visibility ? { visibility: topEntry.visibility } : {}),
           ...permissions("viewer"),
           source: {
             mode: "local-files" as const,
