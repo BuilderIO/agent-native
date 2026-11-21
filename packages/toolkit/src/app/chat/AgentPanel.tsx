@@ -2374,6 +2374,7 @@ function AgentPanelInner({
               agentChatSurface={effectiveAgentChatSurface}
               apiUrl={apiUrl}
               showHeader={false}
+              newChatTitle={newUiTabLabel}
               renderHeader={showHeader ? renderChatHeader : undefined}
               showTabBar={showTabBar}
               renderOverlay={
