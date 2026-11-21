@@ -19,6 +19,8 @@ export function isRunFailureRetryable(terminalReason: string): boolean {
   // sometimes transient, and a missed retry costs more than an extra one.
   return (
     !isTerminalRecoveryErrorCode(code) &&
+    code !== "queued_message_id_conflict" &&
+    code !== "queued_message_id_terminal" &&
     // Covers the bare `missing_api_key` reason, which has no `error:` prefix.
     code !== "missing_api_key" &&
     !isLlmCredentialError(undefined, code)
