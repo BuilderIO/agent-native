@@ -210,7 +210,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useBuilderSourceReviewBatches } from "@/hooks/use-builder-source-review-batches";
 import {
   cachedDocumentPropertyState,
   forgetDocumentPropertyChanges,
@@ -219,6 +218,7 @@ import {
   startDocumentPropertySave,
   withExpectedGeneration,
 } from "@/hooks/document-property-undo";
+import { useBuilderSourceReviewBatches } from "@/hooks/use-builder-source-review-batches";
 import {
   applyOptimisticBuilderWriteMode,
   contentDatabaseQueryFilter,
