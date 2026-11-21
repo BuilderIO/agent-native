@@ -55,6 +55,8 @@ const { claimTurnExecutionLease, ensureRunTables, insertRun, insertRunEvents } =
   await import("./run-store.js");
 const { AGENT_INTERNAL_CONTINUE_PROMPT, runAgentLoop } =
   await import("./production-agent.js");
+const { abortRunAndTurnDurably, startRun } = await import("./run-manager.js");
+const errorCapture = await import("../server/capture-error.js");
 
 beforeAll(async () => {
   pglite = await createTestPglite();
@@ -107,6 +109,175 @@ function engineFor(turns: EngineContentPart[][]): AgentEngine {
     },
   };
 }
+
+describe("interrupted settled action receipt", () => {
+  it("persists the returned write before the run manager releases its lease", async () => {
+    const threadId = "thread-late-settled-receipt";
+    const turnId = "turn-late-settled-receipt";
+    const runId = "run-late-settled-receipt";
+    const interrupt = new AbortController();
+    const action = vi.fn(async () => {
+      interrupt.abort();
+      return "Saved once";
+    });
+    const run = startRun(
+      runId,
+      threadId,
+      async (send, signal) => {
+        await runAgentLoop({
+          engine: engineFor([
+            [{ type: "tool-call", id: "call", name: "create-deck", input: {} }],
+          ]),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [request],
+          actions: {
+            "create-deck": {
+              tool: {
+                description: "Create a deck",
+                parameters: { type: "object", properties: {} },
+              },
+              readOnly: false,
+              run: action,
+            },
+          },
+          threadId,
+          turnId,
+          runId,
+          send,
+          signal: AbortSignal.any([signal, interrupt.signal]),
+        });
+      },
+      undefined,
+      {
+        executionLease: true,
+        turnId,
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+      },
+    );
+    await run.finalized;
+    const rows = await pglite.query<{
+      status: string;
+      result_json: string | null;
+    }>(
+      "SELECT status, result_json FROM agent_execution_steps WHERE thread_id = ? AND turn_id = ?",
+      [threadId, turnId],
+    );
+    expect(action).toHaveBeenCalledOnce();
+    expect(run.events.map(({ event }) => event)).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        isError: true,
+        outcomeUnknown: true,
+      }),
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0]).toMatchObject({
+      status: "completed",
+      result_json: expect.stringContaining("Saved once"),
+    });
+  });
+
+  it.each(["stop", "successor"] as const)(
+    "does not wait for a pending action or record after %s",
+    async (boundary) => {
+      const threadId = `thread-late-${boundary}`;
+      const turnId = `turn-late-${boundary}`;
+      const runId = `run-late-${boundary}`;
+      const interrupt = new AbortController();
+      const started = Promise.withResolvers<void>();
+      const returned = Promise.withResolvers<string>();
+      const capture = vi
+        .spyOn(errorCapture, "captureError")
+        .mockImplementation(() => {});
+      const action = vi.fn(() => {
+        started.resolve();
+        return returned.promise;
+      });
+      const run = startRun(
+        runId,
+        threadId,
+        async (send, signal) => {
+          await runAgentLoop({
+            engine: engineFor([
+              [
+                {
+                  type: "tool-call",
+                  id: "call",
+                  name: "create-deck",
+                  input: {},
+                },
+              ],
+            ]),
+            model: "test-model",
+            systemPrompt: "system",
+            tools: [],
+            messages: [request],
+            actions: {
+              "create-deck": {
+                tool: {
+                  description: "Create a deck",
+                  parameters: { type: "object", properties: {} },
+                },
+                readOnly: false,
+                run: action,
+              },
+            },
+            threadId,
+            turnId,
+            runId,
+            send,
+            signal: AbortSignal.any([signal, interrupt.signal]),
+          });
+        },
+        undefined,
+        {
+          executionLease: true,
+          turnId,
+          softTimeoutMs: 0,
+          noProgressTimeoutMs: 0,
+        },
+      );
+      try {
+        await started.promise;
+        if (boundary === "stop") await abortRunAndTurnDurably(runId, "user");
+        else interrupt.abort();
+        await run.finalized;
+        if (boundary === "successor") {
+          const successor = `${runId}-successor`;
+          await insertRun(successor, threadId, turnId);
+          await claimTurnExecutionLease(threadId, turnId, successor);
+        }
+        const query = () =>
+          pglite.query<{ status: string; result_json: string | null }>(
+            "SELECT status, result_json FROM agent_execution_steps WHERE thread_id = ? AND turn_id = ?",
+            [threadId, turnId],
+          );
+        const before = (await query()).rows;
+        expect(before).toHaveLength(1);
+        expect(before[0]?.result_json).toBeNull();
+        returned.resolve("Saved once");
+        await vi.waitFor(() =>
+          expect(capture).toHaveBeenCalledWith(
+            expect.any(Error),
+            expect.objectContaining({
+              tags: expect.objectContaining({
+                phase: "late-outcome-persistence",
+              }),
+            }),
+          ),
+        );
+        expect((await query()).rows).toEqual(before);
+        expect(action).toHaveBeenCalledOnce();
+      } finally {
+        returned.resolve("Saved once");
+        capture.mockRestore();
+      }
+    },
+  );
+});
 
 async function runCreateDecks(opts: {
   threadId: string;
