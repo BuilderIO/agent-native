@@ -43,6 +43,7 @@ import {
   parseNullableAgentQueuedSubmissionStatus,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
+  parseAgentToolCall,
   persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
@@ -3385,11 +3386,55 @@ export function createAgentNativeAgentKitTransport(
                 )
               : (messagesWithLegacyRoot ?? agentKitMessages)
             : storedMessageProjection,
-          events: agentKit.events,
+          events: Array.isArray(agentKit.events)
+            ? agentKit.events.map((value: unknown) => {
+                const event = asRecord(value);
+                if (
+                  event?.omitFromPersistedHistory === true &&
+                  (((event.type === "activity.started" ||
+                    event.type === "activity.updated" ||
+                    event.type === "activity.completed") &&
+                    !Object.hasOwn(event, "activity")) ||
+                    (event.type === "message.completed" &&
+                      !Object.hasOwn(event, "message")) ||
+                    (event.type === "x-agent-native.persisted-event-omission" &&
+                      !Object.hasOwn(event, "payload")))
+                ) {
+                  return {
+                    id: event.id,
+                    threadId: event.threadId,
+                    runId: event.runId,
+                    sequence: event.sequence,
+                    occurredAt: event.occurredAt,
+                    ...(Object.hasOwn(event, "metadata")
+                      ? { metadata: event.metadata }
+                      : {}),
+                    type: "x-agent-native.persisted-event-omission",
+                    payload: { sourceType: event.type },
+                  };
+                }
+                return value;
+              })
+            : agentKit.events,
           runs: agentKit.runs,
           activeRunIds: agentKit.activeRunIds,
           suggestions: agentKit.suggestions,
-          toolCalls: agentKit.toolCalls,
+          toolCalls: Array.isArray(agentKit.toolCalls)
+            ? agentKit.toolCalls.filter((value: unknown, index: number) => {
+                const toolCall = asRecord(value);
+                if (
+                  toolCall?.omitFromPersistedHistory === true &&
+                  !Object.hasOwn(toolCall, "name")
+                ) {
+                  parseAgentToolCall(
+                    { ...toolCall, name: "redacted" },
+                    `threadSnapshot.toolCalls[${index}]`,
+                  );
+                  return false;
+                }
+                return true;
+              })
+            : agentKit.toolCalls,
           activities: agentKit.activities,
           widgets: agentKit.widgets,
           annotations: agentKit.annotations,
