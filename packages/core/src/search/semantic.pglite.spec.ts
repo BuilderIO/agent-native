@@ -1032,6 +1032,55 @@ describe("when something fails part way", () => {
     expect(await pendingIds()).toEqual([]);
   });
 
+  it("holds every page back for an hour when the provider refuses its credentials, counting no attempt", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    const ids = ["refused-1", "refused-2", "refused-3"];
+    for (const id of ids) {
+      await insertPage(id, "Refused tablet", `Gadget ${id}.`);
+    }
+    await settle();
+    await run(
+      `UPDATE app_resource_changes SET attempts = 600
+       WHERE consumer = 'search-embeddings' AND resource_id = 'refused-3'`,
+    );
+    const embed = family.embed;
+    let refused = 0;
+    family.embed = async () => {
+      refused += 1;
+      throw new EmbeddingProviderError(
+        "Embedding provider fake failed with status 403.",
+        403,
+      );
+    };
+    try {
+      await drain();
+    } finally {
+      family.embed = embed;
+    }
+    expect(refused).toBe(1);
+    const { rows } = await run(
+      `SELECT resource_id, attempts, available_at > now() + interval '3500 seconds' AS waiting
+       FROM app_resource_changes
+       WHERE consumer = 'search-embeddings' AND resource_id LIKE 'refused-%'
+       ORDER BY resource_id`,
+    );
+    expect(rows).toEqual([
+      { resource_id: "refused-1", attempts: 0, waiting: true },
+      { resource_id: "refused-2", attempts: 0, waiting: true },
+      { resource_id: "refused-3", attempts: 600, waiting: true },
+    ]);
+
+    await settle();
+    await drain();
+    expect(ids.flatMap((id) => keysFor(id))).toEqual(
+      ids.map((id) => `wiki/page/${id}/0`),
+    );
+    await run(`DELETE FROM pages WHERE id LIKE 'refused-%'`);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  });
+
   it("keeps the pages it embedded before a rate limit, and finishes over later windows", async () => {
     const { EmbeddingProviderError } = await import("../embeddings/index.js");
     // Twelve chunks each, so a call takes two pages and eight take four calls.
@@ -1973,6 +2022,37 @@ describe("with an indexing budget every server shares", () => {
       expect(embedded(["held-1", "held-2"])).toEqual(["held-1", "held-2"]);
     } finally {
       await cleanUp("held-");
+    }
+  });
+
+  it("holds indexing back on every server for an hour when the provider refuses its credentials", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    await insertPage("turned-away-1", "Turned away tablet", "Gadget one.");
+    await settle();
+    let calls = 0;
+    const refusing = budgeted(async () => {
+      calls += 1;
+      throw new EmbeddingProviderError(
+        "Embedding provider fake failed with status 403.",
+        403,
+      );
+    });
+    resolveTo(() => refusing);
+    try {
+      await drain();
+      expect(calls).toBe(1);
+      expect(await waiting("turned-away-", 3500)).toEqual(["turned-away-1"]);
+
+      await insertPage("turned-away-2", "Turned away tablet", "Gadget two.");
+      await settle();
+      await drain();
+      expect(calls).toBe(1);
+      expect(await waiting("turned-away-", 3000)).toEqual([
+        "turned-away-1",
+        "turned-away-2",
+      ]);
+    } finally {
+      await cleanUp("turned-away-");
     }
   });
 

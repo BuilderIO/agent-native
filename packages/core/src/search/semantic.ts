@@ -118,6 +118,7 @@ const DOCUMENT_EMBED_TIMEOUT_MS = 15_000;
 const RATE_LIMIT_WAIT_SECONDS = 60;
 const RATE_LIMIT_MAX_WAIT_SECONDS = 15 * 60;
 const SEARCH_FIRST_SECONDS = 2 * 60;
+const REFUSED_CREDENTIALS_WAIT_SECONDS = 60 * 60;
 
 /** Thrown when a drain's time is up before its next embedding call. */
 class DrainDeadlineReached extends Error {
@@ -788,6 +789,13 @@ function rateLimitWaitSeconds(error: unknown): number | undefined {
   );
 }
 
+function refusedCredentialsWaitSeconds(error: unknown): number | undefined {
+  return error instanceof EmbeddingProviderError &&
+    (error.status === 401 || error.status === 403)
+    ? REFUSED_CREDENTIALS_WAIT_SECONDS
+    : undefined;
+}
+
 /** Puts changes back untried, logging rather than throwing when it can't. */
 async function deferAfterRateLimit(
   exec: DbExec,
@@ -1182,10 +1190,14 @@ async function embedAudienceGroup(
         { family, setId, orgId, done, deadline },
       );
     } catch (error) {
-      const wait = rateLimitWaitSeconds(error);
+      const limited = rateLimitWaitSeconds(error);
+      const wait = limited ?? refusedCredentialsWaitSeconds(error);
       if (wait === undefined) throw error;
+      const waits = `${left.length} ${left.length === 1 ? "change waits" : "changes wait"} ${wait}s`;
       console.warn(
-        `[search] The embedding provider is rate limiting ${label}, so ${left.length} ${left.length === 1 ? "change waits" : "changes wait"} ${wait}s:`,
+        limited === undefined
+          ? `[search] The embedding provider refused the credentials for ${label}, so ${waits} instead of being retried one by one:`
+          : `[search] The embedding provider is rate limiting ${label}, so ${waits}:`,
         error instanceof Error ? error.message : String(error),
       );
       limits.set(scope, wait);

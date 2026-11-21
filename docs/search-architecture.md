@@ -507,6 +507,10 @@ OpenAI's `text-embedding-3-small`.
   organization. Other owners' pages carry on, since members of one
   organization can use different credentials; owners sharing credentials
   each meet the limit with one refused call.
+  A 401 or 403 means the provider refused the credentials themselves, which
+  each of those pages would meet, so they wait an hour the same way instead
+  of each being retried every few minutes. With a `documentBudget`, the hour
+  holds indexing with those credentials on every server.
   Pages embedded before time runs out are completed; changes left stay
   claimed until their lease expires, so an outage can't hold claims past
   their lease. An app adds the consumer with
