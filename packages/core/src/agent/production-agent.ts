@@ -582,6 +582,8 @@ import {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
   RunEvent,
+  RESPONSE_GUARD_DRAFT_KEPT_EVENT,
+  RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
   type ToolErrorClass,
   type UnknownWriteCause,
 } from "./types.js";
@@ -4804,6 +4806,12 @@ export type AgentLoopFinalResponseGuardResult =
       expandToolSurface?: boolean;
     };
 
+export interface FinalGuardKeptDraft {
+  current?:
+    | { draft: string; prefix: string; clearAllText?: boolean }
+    | undefined;
+}
+
 export type AgentLoopFinalResponseGuard = (
   context: AgentLoopFinalResponseGuardContext,
 ) =>
@@ -4811,6 +4819,24 @@ export type AgentLoopFinalResponseGuard = (
   | null
   | undefined
   | Promise<AgentLoopFinalResponseGuardResult | null | undefined>;
+
+function keptGuardDraftRecordEvent(failure: {
+  message: string;
+  errorCode?: string | undefined;
+}): AgentChatEvent {
+  return {
+    type: "rich_event",
+    event: {
+      namespace: RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
+      name: RESPONSE_GUARD_DRAFT_KEPT_EVENT,
+      version: 1,
+      data: {
+        errorCode: failure.errorCode ?? "engine_error",
+        message: failure.message,
+      },
+    },
+  };
+}
 
 function collectTextParts(parts: EngineContentPart[]): string {
   return parts
@@ -5013,6 +5039,10 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("too much time has passed without sending any data") ||
     text.includes("terminated")
   );
+}
+
+export function isSilentAfterKeptDraft(err: EngineError): boolean {
+  return isRejectedRequestErrorCode(err.errorCode);
 }
 
 export function isTransientProviderRateLimitError(err: unknown): boolean {
@@ -7721,6 +7751,7 @@ export async function runAgentLoop(opts: {
   priorTurnInputTokens?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   finalResponseGuardRequestText?: string;
+  finalGuardKeptDraft?: FinalGuardKeptDraft;
   threadId?: string;
   turnId?: string;
   /** Recovery paths overlay completed durable steps missing from tool_done. */
@@ -8571,6 +8602,8 @@ export async function runAgentLoop(opts: {
   };
   const blockedA2ATargets = new Map<string, string>();
   let finalGuardRetries = 0;
+  const finalGuardKeptDraft: FinalGuardKeptDraft =
+    opts.finalGuardKeptDraft ?? {};
   let emptyFinalResponseRetries = 0;
   let followUpOnlyTurns = 0;
   let preserveReasoningEffortForEmptyResponseRetries = false;
@@ -8597,6 +8630,28 @@ export async function runAgentLoop(opts: {
       ...(stop.blockedTool ? { blockedTool: stop.blockedTool } : {}),
       ...(stop.blockedBy ? { blockedBy: stop.blockedBy } : {}),
       recoverable: false,
+    });
+  };
+  const showKeptGuardDraft = async (
+    keptDraft: NonNullable<FinalGuardKeptDraft["current"]>,
+    failure: { message: string; errorCode?: string | undefined },
+  ) => {
+    finalGuardKeptDraft.current = undefined;
+    await send(keptGuardDraftRecordEvent(failure));
+    await send(
+      keptDraft.clearAllText
+        ? { type: "clear", allText: true }
+        : { type: "clear" },
+    );
+    await send({
+      type: "text",
+      text: `${keptDraft.prefix}\n\n${keptDraft.draft}`,
+    });
+    reportOutcome({
+      state: "failed",
+      code: failure.errorCode ?? "engine_error",
+      retryable: false,
+      message: failure.message,
     });
   };
   let effectiveMaxOutputTokens = opts.maxOutputTokens;
@@ -9642,7 +9697,7 @@ export async function runAgentLoop(opts: {
               .map(({ name }) => name),
           ),
         ];
-        terminalActionStop =
+        const emptyFinalStop: TerminalActionStop =
           strandedTools.length > 0
             ? {
                 message: `${strandedTools.join(", ")} ${strandedTools.length === 1 ? "is" : "are"} not available to this run, so the step did not execute and the request is incomplete. Send the request again in a new message.`,
@@ -9653,6 +9708,12 @@ export async function runAgentLoop(opts: {
                   "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
                 errorCode: "empty_final_response",
               };
+        const keptDraft = finalGuardKeptDraft.current;
+        if (keptDraft && emptyFinalStop.errorCode === "empty_final_response") {
+          await showKeptGuardDraft(keptDraft, emptyFinalStop);
+          break;
+        }
+        terminalActionStop = emptyFinalStop;
         sendTerminalActionStop(terminalActionStop);
         break;
       }
@@ -9706,6 +9767,16 @@ export async function runAgentLoop(opts: {
             receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
+          finalGuardKeptDraft.current =
+            typeof guard !== "string" &&
+            guard.exhaustedDraftPrefix &&
+            finalResponseDraftText.trim()
+              ? {
+                  draft: finalResponseDraftText,
+                  prefix: guard.exhaustedDraftPrefix,
+                  ...(guard.clearAllText ? { clearAllText: true } : {}),
+                }
+              : undefined;
           await send(
             typeof guard !== "string" && guard.clearAllText
               ? { type: "clear", allText: true }
@@ -9729,14 +9800,21 @@ export async function runAgentLoop(opts: {
         );
         const exhaustedDraftPrefix =
           typeof guard === "string" ? undefined : guard.exhaustedDraftPrefix;
+        const keptDraft = exhaustedDraftPrefix
+          ? finalGuardKeptDraft.current
+          : undefined;
+        finalGuardKeptDraft.current = undefined;
         send({
           type: "text",
           text:
             exhaustedDraftPrefix && finalResponseDraftText.trim()
               ? `${exhaustedDraftPrefix}\n\n${finalResponseDraftText}`
-              : (fallbackMessage ?? retryMessage),
+              : keptDraft
+                ? `${keptDraft.prefix}\n\n${keptDraft.draft}`
+                : (fallbackMessage ?? retryMessage),
         });
       } else {
+        finalGuardKeptDraft.current = undefined;
         flushUnstreamedAssistantText();
         if (
           !canSettleEmptyFinal &&
@@ -9765,6 +9843,7 @@ export async function runAgentLoop(opts: {
     }
 
     finalGuardRetries = 0;
+    finalGuardKeptDraft.current = undefined;
     emptyFinalResponseRetries = 0;
     followUpOnlyTurns = 0;
     preserveReasoningEffortForEmptyResponseRetries = false;
@@ -12814,6 +12893,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       : MAIN_CHAT_INTERNAL_CONTINUATION_LIMIT;
 
   const historyPrivacyState = opts.historyPrivacyState ?? { private: false };
+  const finalGuardKeptDraft: FinalGuardKeptDraft =
+    opts.finalGuardKeptDraft ?? {};
   const localTurnEvents: AgentChatEvent[] = [];
   let continuationReason: AgentLoopContinuationReason | undefined;
   const send = createHistoryPrivacySender(
@@ -12849,6 +12930,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
         budgetStartedAt,
         send,
         finalResponseGuardRequestText,
+        finalGuardKeptDraft,
         hasVisibleTurnText: () => turnHasVisibleText(localTurnEvents),
         onModelDispatchStarted: () => {
           dispatchedModelCalls++;
@@ -12862,11 +12944,51 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       });
       addUsage(nextUsage);
     } catch (err) {
+      if (isSignalAborted(opts.signal)) throw err;
       if (
-        isSignalAborted(opts.signal) ||
         !isResumableStreamFailure(err, localTurnEvents.slice(attemptStartIndex))
-      )
+      ) {
+        const keptDraft = finalGuardKeptDraft.current;
+        if (
+          keptDraft &&
+          err instanceof EngineError &&
+          !isRecoverableContinuationError({
+            type: "error",
+            error: err.message,
+            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            ...(err.providerRetryable === undefined
+              ? {}
+              : { providerRetryable: err.providerRetryable }),
+          })
+        ) {
+          finalGuardKeptDraft.current = undefined;
+          const failure = { message: err.message, errorCode: err.errorCode };
+          await send(
+            keptDraft.clearAllText
+              ? { type: "clear", allText: true }
+              : { type: "clear" },
+          );
+          await send(keptGuardDraftRecordEvent(failure));
+          await send({
+            type: "text",
+            text: `${keptDraft.prefix}\n\n${keptDraft.draft}`,
+          });
+          if (!isSilentAfterKeptDraft(err)) throw err;
+          await send({ type: "done" });
+          try {
+            opts.onOutcome?.({
+              state: "failed",
+              code: failure.errorCode ?? "engine_error",
+              retryable: false,
+              message: failure.message,
+            });
+          } catch {
+            // coercion-ok: outcome observers cannot change run completion.
+          }
+          return usage;
+        }
         throw err;
+      }
       if (
         !resumeResumableErrorsInProcess &&
         remainingRunBudgetMs(budgetStartedAt) <
