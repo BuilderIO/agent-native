@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { decide } from "./merge-main-into-pr.ts";
+import {
+  decide,
+  EXIT,
+  mergeMainIntoPr,
+  type Deps,
+} from "./merge-main-into-pr.ts";
 
 const state = (mergeable: string, mergeStateStatus: string) => ({
   mergeable,
@@ -31,5 +36,95 @@ describe("merge-main-into-pr decide", () => {
     const d = decide(state("UNKNOWN", "UNKNOWN"));
     expect(d).toMatchObject({ allowed: false });
     expect(d.allowed === false && d.reason).toMatch(/UNKNOWN/);
+  });
+});
+
+describe("merge-main-into-pr exit codes", () => {
+  const conflicting = state("CONFLICTING", "DIRTY");
+  const make = (over: Partial<Deps> & { unmerged?: string } = {}) => {
+    const logs: string[] = [];
+    const deps: Deps = {
+      readState: () => conflicting,
+      run: (args) => {
+        if (args[1] === "status") return { status: 0, stdout: "" };
+        if (args[1] === "rev-parse") return { status: 0, stdout: "abc" };
+        if (args[1] === "diff")
+          return { status: 0, stdout: over.unmerged ?? "" };
+        return { status: 0, stdout: "" };
+      },
+      merge: () => 0,
+      log: (m) => logs.push(m),
+      ...over,
+    };
+    return { deps, logs };
+  };
+
+  it("exits 0 on a clean merge", () => {
+    expect(mergeMainIntoPr(["1"], make().deps)).toBe(EXIT.ok);
+  });
+
+  it("exits 0 for --check on a conflicting PR without touching git", () => {
+    const { deps } = make({
+      run: () => {
+        throw new Error("git must not run");
+      },
+    });
+    expect(mergeMainIntoPr(["1", "--check"], deps)).toBe(EXIT.ok);
+  });
+
+  it("exits 1 only when unmerged paths remain", () => {
+    const { deps } = make({ merge: () => 1, unmerged: "a.ts\nb.ts" });
+    expect(mergeMainIntoPr(["1"], deps)).toBe(EXIT.conflicts);
+  });
+
+  it("exits 4 when git merge fails with no unresolved conflicts", () => {
+    const { deps } = make({ merge: () => 128 });
+    expect(mergeMainIntoPr(["1"], deps)).toBe(EXIT.mergeFailed);
+  });
+
+  it("exits 5 when the GitHub query throws (gh or JSON failure)", () => {
+    const { deps, logs } = make({
+      readState: () => {
+        throw new SyntaxError("Unexpected token");
+      },
+    });
+    expect(mergeMainIntoPr(["1"], deps)).toBe(EXIT.githubFailed);
+    expect(logs[0]).toMatch(/github query failed/);
+  });
+
+  it("exits 3 when there is no conflict", () => {
+    const { deps } = make({ readState: () => state("MERGEABLE", "BEHIND") });
+    expect(mergeMainIntoPr(["1"], deps)).toBe(EXIT.refused);
+  });
+
+  it("exits 2 on usage, dirty tree, wrong HEAD and fetch failure", () => {
+    expect(mergeMainIntoPr([], make().deps)).toBe(EXIT.precondition);
+    const dirty = make({
+      run: (a) => ({ status: 0, stdout: a[1] === "status" ? " M x" : "abc" }),
+    });
+    expect(mergeMainIntoPr(["1"], dirty.deps)).toBe(EXIT.precondition);
+    const wrongHead = make({
+      run: (a) => ({ status: 0, stdout: a[1] === "status" ? "" : "zzz" }),
+    });
+    expect(mergeMainIntoPr(["1"], wrongHead.deps)).toBe(EXIT.precondition);
+    const noFetch = make({
+      run: (a) =>
+        a[1] === "fetch"
+          ? { status: 1, stdout: "" }
+          : { status: 0, stdout: a[1] === "rev-parse" ? "abc" : "" },
+    });
+    expect(mergeMainIntoPr(["1"], noFetch.deps)).toBe(EXIT.precondition);
+  });
+
+  it("excludes agent bookkeeping paths from the clean-tree check", () => {
+    const seen: string[][] = [];
+    const { deps } = make({
+      run: (a) => {
+        seen.push(a);
+        return { status: 0, stdout: a[1] === "rev-parse" ? "abc" : "" };
+      },
+    });
+    mergeMainIntoPr(["1"], deps);
+    expect(seen[0].join(" ")).toContain(":(top,exclude)learnings.md");
   });
 });

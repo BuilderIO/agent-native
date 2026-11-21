@@ -175,8 +175,12 @@ only when GitHub reports the PR `CONFLICTING`/`DIRTY` and refuses otherwise
 (exit 3): a behind count, pending checks, or a failing check whose fix exists
 only on `main` are no reason to sync (in the last case, stop and report
 blocked with what `main` has). It is a normal merge, never a rebase, and
-requires a clean tree and HEAD equal to the live PR head. Exit 1 means
-conflicts: resolve them, `git commit --no-edit`, push.
+requires a clean tree and HEAD equal to the live PR head (`learnings.md`,
+`bridge/**` and `data/**` don't count as dirty). Exit codes: 0 merged; 1
+unresolved conflicts (resolve, `git commit --no-edit`, push); 2 precondition
+failed (dirty tree, HEAD not the live head, fetch failed); 3 refused, no
+conflict; 4 merge failed with no conflicts (inspect `git status`, don't
+resolve); 5 GitHub query failed (retry).
 
 For a `pnpm-lock.yaml` conflict, take one side with
 `git checkout --theirs -- pnpm-lock.yaml`, then

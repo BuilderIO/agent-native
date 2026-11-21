@@ -1,6 +1,25 @@
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
+export const USAGE = `usage: node scripts/merge-main-into-pr.ts <pr-number-or-url> [--check]
+Merges origin/main into the checked-out PR branch only when GitHub reports a conflict.
+Exit codes:
+  0  merged cleanly, or --check and a merge is allowed
+  1  merge left unresolved conflicts: resolve, git commit --no-edit, push
+  2  usage error or precondition failed (dirty tree, HEAD is not the live PR head, fetch failed)
+  3  refused: GitHub reports no conflict (or mergeability still UNKNOWN)
+  4  git merge failed without conflicts: inspect git status, do not resolve
+  5  GitHub query failed (gh error or unparseable JSON)`;
+
+export const EXIT = {
+  ok: 0,
+  conflicts: 1,
+  precondition: 2,
+  refused: 3,
+  mergeFailed: 4,
+  githubFailed: 5,
+} as const;
+
 export type PrState = {
   mergeable: string;
   mergeStateStatus: string;
@@ -26,6 +45,75 @@ export function decide(state: PrState): Decision {
   };
 }
 
+export type Deps = {
+  readState: (pr: string) => PrState;
+  run: (args: string[]) => { status: number; stdout: string };
+  merge: () => number;
+  log: (message: string) => void;
+};
+
+const AGENT_BOOKKEEPING_PATHS = [
+  ":(top,exclude)learnings.md",
+  ":(top,exclude)bridge/**",
+  ":(top,exclude)data/**",
+];
+
+export function mergeMainIntoPr(argv: string[], deps: Deps): number {
+  const pr = argv.find((a) => !a.startsWith("--"));
+  if (!pr) {
+    deps.log(USAGE);
+    return EXIT.precondition;
+  }
+  let state: PrState;
+  try {
+    state = deps.readState(pr);
+  } catch (error) {
+    deps.log(
+      `github query failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return EXIT.githubFailed;
+  }
+  const decision = decide(state);
+  if (!decision.allowed) {
+    deps.log(`refused: ${decision.reason}`);
+    return EXIT.refused;
+  }
+  if (argv.includes("--check")) return EXIT.ok;
+
+  if (
+    deps.run([
+      "git",
+      "status",
+      "--porcelain",
+      "--",
+      ":/",
+      ...AGENT_BOOKKEEPING_PATHS,
+    ]).stdout !== ""
+  ) {
+    deps.log("refused: working tree is not clean; commit your work first.");
+    return EXIT.precondition;
+  }
+  const head = deps.run(["git", "rev-parse", "HEAD"]).stdout;
+  if (head !== state.headRefOid) {
+    deps.log(
+      `refused: HEAD ${head} is not the live PR head ${state.headRefOid}; fetch and check out the PR head first.`,
+    );
+    return EXIT.precondition;
+  }
+  if (deps.run(["git", "fetch", "origin", "main"]).status !== 0) {
+    deps.log("refused: git fetch origin main failed.");
+    return EXIT.precondition;
+  }
+  if (deps.merge() === 0) return EXIT.ok;
+
+  const unmerged = deps.run(["git", "diff", "--name-only", "--diff-filter=U"]);
+  if (unmerged.status === 0 && unmerged.stdout !== "") return EXIT.conflicts;
+  deps.log(
+    "git merge failed but left no unresolved conflicts; check `git status` and the merge output above.",
+  );
+  return EXIT.mergeFailed;
+}
+
 function run(args: string[]): { status: number; stdout: string } {
   const r = spawnSync(args[0], args.slice(1), { encoding: "utf8" });
   return { status: r.status ?? 1, stdout: (r.stdout ?? "").trim() };
@@ -48,45 +136,16 @@ function readState(pr: string): PrState {
   return { mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", headRefOid: "" };
 }
 
-function main(argv: string[]): number {
-  const pr = argv.find((a) => !a.startsWith("--"));
-  if (!pr) {
-    console.error(
-      "usage: merge-main-into-pr.ts <pr-number-or-url> [--check]\nexit 0 merged (or allowed), 1 conflicts to resolve, 3 refused: no conflict reported",
-    );
-    return 2;
-  }
-  const state = readState(pr);
-  const decision = decide(state);
-  if (!decision.allowed) {
-    console.error(`refused: ${decision.reason}`);
-    return 3;
-  }
-  if (argv.includes("--check")) return 0;
-
-  if (run(["git", "status", "--porcelain"]).stdout !== "") {
-    console.error(
-      "refused: working tree is not clean; commit your work first.",
-    );
-    return 2;
-  }
-  const head = run(["git", "rev-parse", "HEAD"]).stdout;
-  if (head !== state.headRefOid) {
-    console.error(
-      `refused: HEAD ${head} is not the live PR head ${state.headRefOid}; fetch and check out the PR head first.`,
-    );
-    return 2;
-  }
-  if (run(["git", "fetch", "origin", "main"]).status !== 0) {
-    console.error("refused: git fetch origin main failed.");
-    return 2;
-  }
-  const merge = spawnSync("git", ["merge", "--no-edit", "origin/main"], {
-    stdio: "inherit",
-  });
-  return merge.status === 0 ? 0 : 1;
-}
-
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  process.exit(main(process.argv.slice(2)));
+  process.exit(
+    mergeMainIntoPr(process.argv.slice(2), {
+      readState,
+      run,
+      merge: () =>
+        spawnSync("git", ["merge", "--no-edit", "origin/main"], {
+          stdio: "inherit",
+        }).status ?? 1,
+      log: (m) => console.error(m),
+    }),
+  );
 }

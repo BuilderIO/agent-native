@@ -55,7 +55,9 @@ git rev-list --count HEAD..origin/main
 - Being behind `main` is fine. Merge `origin/main` only through
   `node scripts/merge-main-into-pr.ts <n>`, which refuses unless GitHub reports
   `CONFLICTING`/`DIRTY`; if a required check needs a fix that exists only on
-  `main`, stop and report blocked instead of syncing. Never rebase.
+  `main`, stop and report blocked instead of syncing. Never rebase. Exit 1 means
+  conflicts to resolve; 2 precondition failed, 3 no conflict, 4 merge failed
+  without conflicts, 5 GitHub query failed are not conflicts.
 
 ## 2. Validate and push
 
