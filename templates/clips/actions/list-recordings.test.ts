@@ -171,6 +171,19 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+const mockFilterLibraryRecordings = vi.hoisted(() =>
+  vi.fn(async () => ({
+    ids: [],
+    counts: { matching: 0, hiddenByPinned: 0, options: {} },
+    tags: [],
+  })),
+);
+
+vi.mock("../server/lib/library-filter.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/lib/library-filter.js")>()),
+  filterLibraryRecordings: mockFilterLibraryRecordings,
+}));
+
 vi.mock("../server/lib/recordings.js", () => ({
   countedViewCondition: () => ({ kind: "counted-view-condition" }),
   getActiveOrganizationId: async () => "org_123",
@@ -179,6 +192,10 @@ vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(),
 }));
 
+import {
+  activeUploadFromContent,
+  uploadedFromContent,
+} from "../server/lib/content-uploads.js";
 import action, {
   mergeViewCounts,
   resolveListRecordingMedia,
@@ -562,5 +579,91 @@ describe("list-recordings made by", () => {
         madeByAgent: null,
       }),
     ]);
+  });
+});
+
+describe("list-recordings Library source", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function countConditions(args: Record<string, unknown>) {
+    await action.run(
+      action.schema.parse({ view: "library", countOnly: true, ...args }),
+    );
+    const [where] = mockCountWhere.mock.calls[0] as unknown as [
+      { conditions: unknown[] },
+    ];
+    return where.conditions;
+  }
+
+  it("leaves Content uploads out of Library by default", async () => {
+    const conditions = await countConditions({});
+    expect(conditions).toContainEqual({
+      kind: "not",
+      value: uploadedFromContent(),
+    });
+    expect(conditions).not.toContainEqual(activeUploadFromContent());
+  });
+
+  it("lists only Content uploads when the source asks for them", async () => {
+    const conditions = await countConditions({ source: "content" });
+    expect(conditions).toContainEqual(activeUploadFromContent());
+    expect(conditions).not.toContainEqual({
+      kind: "not",
+      value: uploadedFromContent(),
+    });
+  });
+
+  it("keeps Library's own list to recordings outside folders", async () => {
+    const conditions = await countConditions({});
+    expect(conditions).toContainEqual({
+      kind: "is-null",
+      column: "recordings.folderId",
+    });
+  });
+
+  it.each(["content", "all"])(
+    "looks inside folders when the source is %s",
+    async (source) => {
+      const conditions = await countConditions({ source });
+      expect(conditions).not.toContainEqual({
+        kind: "is-null",
+        column: "recordings.folderId",
+      });
+    },
+  );
+
+  it("refuses a filter with a rule it can't read", async () => {
+    await expect(
+      action.run(
+        action.schema.parse({
+          view: "library",
+          filters: "r=transcript:is_chekced",
+        }),
+      ),
+    ).rejects.toThrow("r=transcript:is_chekced");
+    expect(mockCountWhere).not.toHaveBeenCalled();
+  });
+
+  it("counts the default view's choices inside folders too", async () => {
+    await action.run(
+      action.schema.parse({ view: "library", countOnly: true, filters: "" }),
+    );
+    const [options] = mockFilterLibraryRecordings.mock.calls[0] as unknown as [
+      { where: unknown[]; listWithin: unknown },
+    ];
+    const outsideFolders = { kind: "is-null", column: "recordings.folderId" };
+    expect(options.where).not.toContainEqual(outsideFolders);
+    expect(options.listWithin).toEqual(outsideFolders);
+  });
+
+  it("lists both kinds when the source is all", async () => {
+    const conditions = await countConditions({ source: "all" });
+    expect(conditions).not.toContainEqual(activeUploadFromContent());
+    expect(conditions).not.toContainEqual({
+      kind: "not",
+      value: uploadedFromContent(),
+    });
   });
 });

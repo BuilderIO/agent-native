@@ -1043,6 +1043,38 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["builder-source-review-readonly"],
   },
   {
+    id: "source-sync.builder-article-autosave",
+    surface: "source-sync",
+    label:
+      "Save a new Builder article to Builder on its own while it is a draft",
+    uiEntrypoints: [
+      "app/components/editor/DocumentProperties.tsx",
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/components/editor/database-sources/BuilderArticleAutosave.tsx",
+    ],
+    durableEffect:
+      "An article created in a Builder collection keeps a per-article switch and the outcome of its last automatic save; each save goes through the same review and guarded execution as Review Builder update.",
+    uiImplementation:
+      "The collection and row page poll list-builder-article-autosaves, call run-builder-article-autosave for rows whose edits have sat still, and flip the switch with set-builder-article-autosave.",
+    status: "action-backed",
+    actions: [
+      "list-builder-article-autosaves",
+      "run-builder-article-autosave",
+      "set-builder-article-autosave",
+    ],
+    exception:
+      "These actions are hidden from the model with agentTool: false because they drive an open editor's automatic saves; agents push the same changes through prepare-builder-source-review and execute-builder-source-execution.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/builder-article-autosave.db.test.ts",
+      "actions/_builder-article-autosave-rules.test.ts",
+      "app/components/editor/database-sources/BuilderArticleAutosave.ui.test.tsx",
+    ],
+  },
+  {
     id: "source-sync.builder-body-hydration-worker",
     surface: "source-sync",
     label: "Process queued Builder CMS body hydration work",
