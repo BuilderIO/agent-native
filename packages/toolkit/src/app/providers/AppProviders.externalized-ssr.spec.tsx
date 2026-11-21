@@ -31,8 +31,7 @@ const productionConfig = resolveAgentNativeConfig(
 // Core stays external, as it does in the production SSR build. Node must load
 // it outside Vite so its own import.meta.env and config are not transformed.
 const render = `
-import { mkdtemp, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "vite";
@@ -41,11 +40,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient } from "@tanstack/react-query";
 
 const { config, override } = JSON.parse(process.argv[1]);
-const temp = await mkdtemp(path.join(tmpdir(), "ssr-first-run-"));
+const tempRoot = path.resolve("../../.tmp");
+await mkdir(tempRoot, { recursive: true });
+const temp = await mkdtemp(path.join(tempRoot, "onboarding-ssr-"));
 try {
   await symlink(path.resolve("node_modules"), path.join(temp, "node_modules"), "dir");
   await build({
     configFile: false,
+    mode: "production",
     logLevel: "silent",
     define: {
       __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(config),
@@ -71,11 +73,11 @@ try {
     return markup.includes('<script data-agent-native-first-run-first-paint="1"');
   }
   console.log(JSON.stringify({
-    mail: hasScript({}),
+    private: hasScript({}),
     skipped: hasScript({ skipFirstRunOnboarding: true }),
     public: hasScript({ isPublicPath: true }),
     bypass: hasScript({ sessionBypass: true }),
-    hosted: hasScript({ ownsDocument: false }),
+    embedded: hasScript({ ownsDocument: false }),
   }));
 } finally {
   await rm(temp, { recursive: true, force: true });
@@ -83,8 +85,7 @@ try {
 `;
 
 const renderMailRoot = `
-import { mkdtemp, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "vite";
@@ -93,11 +94,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router";
 
 const mail = path.resolve("../../templates/mail");
-const temp = await mkdtemp(path.join(tmpdir(), "mail-ssr-first-run-"));
+const tempRoot = path.resolve("../../.tmp");
+await mkdir(tempRoot, { recursive: true });
+const temp = await mkdtemp(path.join(tempRoot, "mail-ssr-first-run-"));
 try {
   await symlink(path.resolve("node_modules"), path.join(temp, "node_modules"), "dir");
   await build({
     configFile: false,
+    mode: "production",
     logLevel: "silent",
     define: { __AGENT_NATIVE_APP_CONFIG__: process.argv[1] },
     resolve: { alias: [
@@ -134,9 +138,9 @@ try {
 process.exit(0);
 `;
 
-describe("AppProviders with externalized Core SSR", () => {
+describe("AppProviders with externalized Core production SSR", () => {
   it("renders first paint on Mail's embedded inbox with its production config", async () => {
-    const env = { ...process.env };
+    const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "production" };
     delete env.VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING;
     const { stdout } = await run(
       process.execPath,
@@ -150,17 +154,32 @@ describe("AppProviders with externalized Core SSR", () => {
     );
     expect(JSON.parse(stdout)).toEqual({ firstPaint: true });
   });
+
   it.each([
     ["Mail production", productionConfig, null, true],
+    ["connect", { onboarding: { firstRun: "connect" } }, null, true],
+    ["off", { onboarding: { firstRun: "off" } }, null, false],
     [
-      "disabled",
+      "connect with disabled override",
+      { onboarding: { firstRun: "connect" } },
+      "false",
+      false,
+    ],
+    [
+      "off with enabled override",
+      { onboarding: { firstRun: "off" } },
+      "true",
+      true,
+    ],
+    ["Mail with disabled override", productionConfig, "false", false],
+    [
+      "Mail disabled",
       { ...productionConfig, onboarding: { firstRun: "off" } },
       null,
       false,
     ],
-    ["disabled override", productionConfig, "false", false],
     [
-      "enabled override",
+      "Mail disabled with enabled override",
       { ...productionConfig, onboarding: { firstRun: "off" } },
       "true",
       true,
@@ -168,7 +187,7 @@ describe("AppProviders with externalized Core SSR", () => {
   ])(
     "renders the first-paint script for %s",
     async (_name, config, override, enabled) => {
-      const env = { ...process.env };
+      const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "production" };
       delete env.VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING;
       const { stdout } = await run(
         process.execPath,
@@ -181,11 +200,11 @@ describe("AppProviders with externalized Core SSR", () => {
         { cwd: toolkit, env },
       );
       expect(JSON.parse(stdout)).toEqual({
-        mail: enabled,
+        private: enabled,
         skipped: false,
         public: false,
         bypass: false,
-        hosted: false,
+        embedded: false,
       });
     },
   );

@@ -1,3 +1,7 @@
+import {
+  parse as parseHtmlDocument,
+  type DefaultTreeAdapterTypes,
+} from "parse5";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -769,6 +773,19 @@ describe("parse and migration robustness", () => {
   });
 });
 
+function elementNames(html: string): string[] {
+  const names: string[] = [];
+  const visit = (node: DefaultTreeAdapterTypes.ParentNode) => {
+    for (const child of node.childNodes) {
+      if (!("tagName" in child)) continue;
+      names.push(child.tagName.toLowerCase());
+      visit(child);
+    }
+  };
+  visit(parseHtmlDocument(html));
+  return names;
+}
+
 describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
   it("strips script execution while preserving document structure and styling", () => {
     const doc = [
@@ -809,10 +826,59 @@ describe("sanitizeStoredPlanHtml (legacy full-document escape hatch)", () => {
     expect(out).toContain("<div>");
   });
 
+  it("drops animation value lists with an unsafe entry", () => {
+    const out = sanitizeStoredPlanHtml(
+      '<svg><a><animate attributeName="href" values="https://example.test/;  javascript:run()"/>' +
+        '<animate attributeName="href" values="https://example.test/a;https://example.test/b"/></a></svg>',
+    );
+    expect(out.toLowerCase()).not.toContain("javascript:");
+    expect(out).toContain(
+      'values="https://example.test/a;https://example.test/b"',
+    );
+  });
+
+  it("removes base and form elements", () => {
+    const out = sanitizeStoredPlanHtml(
+      '<html><head><base href="https://other.example/"></head><body>' +
+        '<form action="https://other.example/collect"><input name="note"><p>Notes</p></form>' +
+        '<a href="next.html">Next</a></body></html>',
+    );
+    expect(elementNames(out)).not.toContain("base");
+    expect(elementNames(out)).not.toContain("form");
+    expect(out).not.toContain("other.example");
+    expect(out).toContain('<a href="next.html">Next</a>');
+  });
+
+  it("drops event handlers the source-text patterns missed", () => {
+    const out = sanitizeStoredPlanHtml(
+      [
+        "<svg/onload=run()>",
+        "<img src=x/onerror=run()>",
+        "<details open ontoggle=run()>",
+        '<svg><a><animate attributeName="href" values="javascript:run()"/></a></svg>',
+        '<math><mtext><table><mglyph><style><img src=x onerror="run()">',
+        "<template><img src=x onerror=run()></template>",
+        '<meta http-equiv="refresh" content="0;url=https://example.test">',
+      ].join(""),
+    );
+    expect(out.toLowerCase()).not.toMatch(
+      /\son[a-z]+=|javascript:|<math|refresh/,
+    );
+    expect(out).toContain("<details open=");
+    expect(out).toContain("<svg>");
+  });
+
+  it("returns the same document when sanitized again", () => {
+    const once = sanitizeStoredPlanHtml(
+      '<!doctype html><html><body><h1 class="brand">Plan</h1><img src=x/onerror=run()></body></html>',
+    );
+    expect(sanitizeStoredPlanHtml(once)).toBe(once);
+  });
+
   it("collapses nested/sequential script wrappers", () => {
     const out = sanitizeStoredPlanHtml(
       "<scr<script></script>ipt>alert(1)</script>",
     );
-    expect(out.toLowerCase()).not.toContain("<script");
+    expect(elementNames(out)).not.toContain("script");
   });
 });

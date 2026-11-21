@@ -21,8 +21,17 @@ import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
+  onQueuedSubmissionDrainReady?: (
+    requestDrain: (threadId: string) => void,
+  ) => void;
   /** Trusted hosts may explicitly aggregate thread access across apps. */
   threadAccessScope?: "local" | "aggregate";
+  /**
+   * Scope types whose chats stay out of the chat list and chat search unless
+   * the request asks for that scope, for quiet background runs that shouldn't
+   * fill the person's chat history. Opening one of those chats still works.
+   */
+  historyHiddenScopeTypes?: readonly string[];
   onAgentTurnStart?: (
     scope: AgentChatScope,
     run: Pick<ActiveRun, "threadId" | "runId">,

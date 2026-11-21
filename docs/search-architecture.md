@@ -513,6 +513,24 @@ OpenAI's `text-embedding-3-small`.
   `semanticSearchMigration()`, which asks for a backfill: the next drain
   queues every page, so boot doesn't wait on a write for each one. Adding
   another later embeds every page again.
+- **Room for searches.** A family can set `documentBudget`: how many indexing
+  calls its credentials may make in a window, and the account the provider
+  counts them against. Builder's family allows two calls a minute per key,
+  out of the three a minute its gateway allowed a free space, keyed by a hash
+  of the key rather than the key. Every drain on every server takes each call
+  from that budget, through the shared provider budgets in
+  `provider-api/provider-budget.ts`, so indexing stays below the provider's
+  rate limit and searches have room. That's headroom, not a promise: the
+  budget counts fixed windows, and the provider's own limit and window aren't
+  known. When the budget is spent, the pages left wait for the next window
+  with no attempt counted, and a drain out of time takes no call from it. A
+  429 for indexing holds back indexing with those credentials on every server
+  for its wait, instead of each drain meeting it. A search refused for its
+  rate limit answers by words and holds back indexing for at least two
+  minutes, so the next searches get the provider. Searches never wait on the
+  budget themselves. If the budget can't be read, indexing goes on without
+  it. The budget's capacity and window are part of its key, so a release that
+  changes them starts counting afresh.
 - **Chunks.** About 1,200 characters each, cut at sentence ends and led by the
   title and summary (cut to 400 characters), with at most 12 per page. A page
   scores as its best chunk. A resource whose `load` returns `semantic: false`,

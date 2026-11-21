@@ -1,8 +1,18 @@
+import type { ResourceSuggestion } from "@agent-native/core/review";
+import { canonicalizeNfm } from "@shared/nfm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createSuggestionDraftSession,
+  planSuggestionDraftPersistence,
+  suggestionDraftOperations,
+  suggestionOperationKey,
+  type SuggestionPersistenceEntry,
+} from "./draft-session";
+import {
   SUGGESTION_FOLLOW_QUIET_MS,
   SUGGESTION_FOLLOW_RECHECK_MS,
+  carryOwnSuggestions,
   readPageOnLiveCopyChange,
   suggestionPageFollow,
 } from "./follow-page";
@@ -203,5 +213,131 @@ describe("readPageOnLiveCopyChange", () => {
     await live.finishRead();
     vi.advanceTimersByTime(SUGGESTION_FOLLOW_RECHECK_MS * 4);
     expect(live.read).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("carryOwnSuggestions", () => {
+  const page = (...paragraphs: string[]) =>
+    canonicalizeNfm(paragraphs.join("\n\n"));
+  const base = page(
+    "Opening paragraph of the page.",
+    "Middle paragraph of the page.",
+    "Closing paragraph of the page.",
+  );
+  const draft = page(
+    "Opening paragraph of the page. First.",
+    "Middle paragraph of the page.",
+    "Closing paragraph of the page.",
+  );
+  const newer = page(
+    "Opening paragraph of the page.",
+    "Middle paragraph of the page.",
+    "Closing paragraph of the page. Words from another tab.",
+  );
+  const session = (content: string, revision: string) =>
+    createSuggestionDraftSession({
+      id: `session-${revision}`,
+      baseContent: content,
+      baseRevision: revision,
+      startedAt: "2026-11-20T23:00:00.000Z",
+      initialContent: content,
+    });
+  const saved = (
+    status: ResourceSuggestion["status"] = "pending",
+    revision = 1,
+  ) => ({ id: "first", status, revision }) as ResourceSuggestion;
+  const entriesFor = (content: string, suggestion = saved()) => {
+    const operations = suggestionDraftOperations(
+      session(base, "body:4"),
+      content,
+    );
+    return new Map<string, SuggestionPersistenceEntry>(
+      operations.map((operation) => [
+        suggestionOperationKey(operation),
+        { idempotencyKey: "create-first", operation, suggestion },
+      ]),
+    );
+  };
+  const carry = (
+    overrides: Partial<Parameters<typeof carryOwnSuggestions>[0]> = {},
+  ) =>
+    carryOwnSuggestions({
+      session: session(base, "body:4"),
+      draft,
+      next: session(newer, "body:5"),
+      entries: entriesFor(draft),
+      latest: () => saved(),
+      ...overrides,
+    });
+  const carried = () => {
+    const result = carry();
+    if (!result) throw new Error("The draft didn't carry its saved suggestion");
+    return result;
+  };
+
+  it("keeps this tab's saved suggestion in the draft for the newer Page", () => {
+    const { content, entries } = carried();
+    expect(content).toBe(
+      page(
+        "Opening paragraph of the page. First.",
+        "Middle paragraph of the page.",
+        "Closing paragraph of the page. Words from another tab.",
+      ),
+    );
+    const next = session(newer, "body:5");
+    const plan = planSuggestionDraftPersistence(
+      suggestionDraftOperations(next, content),
+      entries,
+    );
+    expect(plan.create).toEqual([]);
+    expect(plan.amend).toEqual([]);
+    expect(plan.withdraw).toEqual([]);
+    expect([...plan.unchanged.values()].map(({ id }) => id)).toEqual(["first"]);
+  });
+
+  it("reads words typed right after it on from it", () => {
+    const { content, entries } = carried();
+    const typed = content.replace("First.", "First. Second.");
+    const plan = planSuggestionDraftPersistence(
+      suggestionDraftOperations(session(newer, "body:5"), typed),
+      entries,
+    );
+    expect(plan.create).toEqual([]);
+    expect(plan.amend).toHaveLength(1);
+    expect(plan.amend[0]).toMatchObject({
+      suggestion: { id: "first" },
+      operation: { after: { changedText: " First. Second." } },
+    });
+  });
+
+  it("starts over when one of them was decided elsewhere", () => {
+    expect(carry({ latest: () => saved("rejected") })).toBeNull();
+    expect(carry({ latest: () => undefined })).toBeNull();
+  });
+
+  it("starts over when another tab amended one of them since", () => {
+    expect(carry({ latest: () => saved("pending", 2) })).toBeNull();
+  });
+
+  it("starts over when someone else changed the same paragraph", () => {
+    const sameParagraph = page(
+      "Opening paragraph of the page, changed elsewhere.",
+      "Middle paragraph of the page.",
+      "Closing paragraph of the page.",
+    );
+    expect(carry({ next: session(sameParagraph, "body:5") })).toBeNull();
+  });
+
+  it("starts over with nothing saved, or with typing not yet saved", () => {
+    expect(carry({ entries: new Map() })).toBeNull();
+    expect(
+      carry({
+        draft: page(
+          "Opening paragraph of the page. First.",
+          "Middle paragraph of the page. Unsaved.",
+          "Closing paragraph of the page.",
+        ),
+      }),
+    ).toBeNull();
   });
 });

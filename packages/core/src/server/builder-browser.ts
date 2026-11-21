@@ -16,6 +16,7 @@ import {
 
 import { ActionContractError } from "../action.js";
 import { getSetting } from "../settings/store.js";
+import { safeJsonForHtml } from "../shared/agent-readable-resource.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   base64ByteLength,
@@ -1628,6 +1629,11 @@ function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
   return isConfiguredAppOrigin(origin) ? origin : null;
 }
 
+function requestProtocol(event: H3Event): "http" | "https" {
+  const socket = event.node?.req.socket as { encrypted?: boolean } | undefined;
+  return socket?.encrypted ? "https" : "http";
+}
+
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const signedPreviewOrigin = getSignedBuilderPreviewOriginFromEvent(event);
   if (signedPreviewOrigin) return signedPreviewOrigin;
@@ -1650,9 +1656,11 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   const proto =
     rawProto === "http" || rawProto === "https"
       ? rawProto
-      : process.env.NODE_ENV === "production"
-        ? "https"
-        : "http";
+      : isLoopbackBuilderRequestHost(headerHost)
+        ? requestProtocol(event)
+        : process.env.NODE_ENV === "production"
+          ? "https"
+          : "http";
   return `${proto}://${headerHost}`;
 }
 
@@ -1985,11 +1993,11 @@ export function createBuilderBrowserCallbackPage(
   previewUrl: string,
   opts: { parentOrigin?: string; attemptId?: string } = {},
 ): string {
-  const escapedUrl = JSON.stringify(previewUrl);
-  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
+  const escapedUrl = safeJsonForHtml(previewUrl);
+  const escapedAttemptId = safeJsonForHtml(opts.attemptId ?? null);
   const parentOrigin =
     safeOriginFromUrl(opts.parentOrigin) ?? safeOriginFromUrl(previewUrl);
-  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
+  const escapedTargetOrigin = safeJsonForHtml(parentOrigin ?? "*");
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -2010,7 +2018,7 @@ export function createBuilderBrowserCallbackPage(
       <h1>Builder connected</h1>
       <p>Browser access is now available to your app.</p>
       <p class="muted">You can close this tab and return to the workspace.</p>
-      <a class="btn" href=${escapedUrl}>Open the workspace</a>
+      <a class="btn" href="${escapeHtml(previewUrl)}">Open the workspace</a>
     </main>
     <script>
       // Tell the opener tab the connect succeeded. The parent has two ways
@@ -2064,11 +2072,11 @@ export function createBuilderBrowserCallbackErrorPage(
     attemptId?: string;
   } = {},
 ): string {
-  const escapedMessage = JSON.stringify(message);
-  const escapedCode = JSON.stringify(opts.code ?? null);
-  const escapedAttemptId = JSON.stringify(opts.attemptId ?? null);
+  const escapedMessage = safeJsonForHtml(message);
+  const escapedCode = safeJsonForHtml(opts.code ?? null);
+  const escapedAttemptId = safeJsonForHtml(opts.attemptId ?? null);
   const parentOrigin = safeOriginFromUrl(opts.parentOrigin);
-  const escapedTargetOrigin = JSON.stringify(parentOrigin ?? "*");
+  const escapedTargetOrigin = safeJsonForHtml(parentOrigin ?? "*");
   const title = opts.title ?? "Couldn't save Builder connection";
   const body =
     opts.body ??

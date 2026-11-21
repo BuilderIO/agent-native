@@ -286,6 +286,7 @@ export function outsideAgentRefusalReport(
 
 export function failForOutsideAgentRefusal(
   error: OutsideAgentBigQueryRefusalError,
+  details?: Record<string, unknown>,
 ): never {
   return fail(error.message, {
     errorCode: error.code,
@@ -295,6 +296,9 @@ export function failForOutsideAgentRefusal(
         ? 503
         : error.code === "budget_required"
           ? 403
-          : 429,
+          : error.code === "over_job_cap"
+            ? 422
+            : 429,
+    ...(details ? { details } : {}),
   });
 }

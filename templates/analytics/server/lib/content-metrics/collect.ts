@@ -10,8 +10,10 @@ import {
   type ContentStep,
   type ContentStepResult,
 } from "./step.js";
+import { agentNativeSignupsStep } from "./steps/agent-native-signups.js";
 import { builderBlogStep } from "./steps/builder-blog.js";
 import { ga4Step } from "./steps/ga4.js";
+import { searchConsoleQueriesStep } from "./steps/search-console-queries.js";
 import { searchConsoleStep } from "./steps/search-console.js";
 import { signupsStep } from "./steps/signups.js";
 import {
@@ -29,7 +31,9 @@ const STEPS: Record<ContentCollectionStepId, ContentStep> = {
   builder_blog: builderBlogStep,
   ga4: ga4Step,
   search_console: searchConsoleStep,
+  search_console_queries: searchConsoleQueriesStep,
   signups: signupsStep,
+  agent_native_signups: agentNativeSignupsStep,
 };
 
 export type ContentStepRunSummary = {

@@ -6,7 +6,6 @@ import {
   IconArchive,
   IconTrash,
   IconLink,
-  IconFileText,
 } from "@tabler/icons-react";
 import { type ComponentType, type ReactNode, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -31,7 +30,6 @@ type EmptyKind =
   | "space"
   | "archive"
   | "trash"
-  | "fromContent"
   | "search";
 
 const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
@@ -41,7 +39,6 @@ const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
   space: IconUsersGroup,
   archive: IconArchive,
   trash: IconTrash,
-  fromContent: IconFileText,
   search: IconVideo,
 };
 
@@ -50,7 +47,6 @@ const BACK_TO_LIBRARY_KINDS = new Set<EmptyKind>([
   "shared",
   "archive",
   "trash",
-  "fromContent",
 ]);
 
 interface AppEmptyStateProps {
@@ -89,6 +85,7 @@ interface EmptyStateProps {
   spaceId?: string | null;
   folderId?: string | null;
   onCtaClick?: () => void;
+  extra?: ReactNode;
 }
 
 export function EmptyState({
@@ -96,6 +93,7 @@ export function EmptyState({
   spaceId,
   folderId,
   onCtaClick,
+  extra,
 }: EmptyStateProps) {
   const navigate = useNavigate();
   const t = useT();
@@ -151,7 +149,16 @@ export function EmptyState({
       icon={Icon}
       title={t(`empty.${kind}.title`)}
       description={t(`empty.${kind}.body`)}
-      content={content}
+      content={
+        extra ? (
+          <div className="flex flex-col items-center gap-2">
+            {content}
+            {extra}
+          </div>
+        ) : (
+          content
+        )
+      }
     />
   );
 }

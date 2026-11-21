@@ -1,5 +1,10 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  acceptBuilderSignupAssignment,
+  getBuilderSignupAssignment,
+  type BuilderSignupAssignment,
+} from "@agent-native/core/client/auth/builder-signup";
 import { useT } from "@agent-native/core/client/i18n";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
@@ -8,6 +13,10 @@ import {
 } from "@agent-native/core/client/sign-in-return";
 import { isTestIdentityEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
+import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "@shared/builder-signup";
 import {
   useCallback,
   useEffect,
@@ -30,6 +39,7 @@ export interface CreateAccountDialogProps {
   returnTo: string;
   intent?: AccountGateIntent;
   portalContainer?: HTMLElement | null;
+  builderSignupEnabled?: boolean;
   onSignIn?: () => void;
   onAuthenticated: () => void;
 }
@@ -124,6 +134,7 @@ export function AccountGateDialog({
   returnTo,
   intent = "continue",
   portalContainer,
+  builderSignupEnabled,
   onSignIn,
   onAuthenticated,
 }: AccountGateDialogProps) {
@@ -131,6 +142,19 @@ export function AccountGateDialog({
   const copy = resolveNativeAuthCopy(
     typeof navigator === "undefined" ? undefined : navigator.language,
   );
+  const effectiveBuilderSignupEnabled =
+    builderSignupEnabled ??
+    (typeof window !== "undefined" &&
+      BUILDER_SIGNUP_HOSTED_HOSTS.includes(
+        window.location.hostname.toLowerCase(),
+      ));
+  const [builderSignup, setBuilderSignup] =
+    useState<BuilderSignupAssignment | null>(() =>
+      effectiveBuilderSignupEnabled ? null : { status: "disabled" },
+    );
+  const builderSignupRequestRef =
+    useRef<Promise<BuilderSignupAssignment> | null>(null);
+  const builderSignupExposureRef = useRef<string | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("magic-link");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -183,8 +207,89 @@ export function AccountGateDialog({
     [closeOAuthPopup],
   );
 
+  useEffect(() => {
+    if (!effectiveBuilderSignupEnabled) {
+      setBuilderSignup({ status: "disabled" });
+      return;
+    }
+    if (!open) return;
+    let disposed = false;
+    builderSignupRequestRef.current ??= getBuilderSignupAssignment();
+    void builderSignupRequestRef.current.then(
+      (assignment) => {
+        if (!disposed) setBuilderSignup(assignment);
+      },
+      () => {
+        builderSignupRequestRef.current = null;
+        if (disposed) return;
+        setBuilderSignup({ status: "unavailable" });
+        trackEvent("builder_signup_experiment_unavailable", {
+          surface: "public_share_modal",
+          stage: "assignment",
+        });
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, [effectiveBuilderSignupEnabled, open]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      builderSignup?.status !== "assigned" ||
+      builderSignupExposureRef.current === builderSignup.id
+    ) {
+      return;
+    }
+    builderSignupExposureRef.current = builderSignup.id;
+    trackEvent("builder_signup_experiment_exposed", {
+      surface: "public_share_modal",
+      experiment_id: builderSignup.experimentId ?? BUILDER_SIGNUP_EXPERIMENT_ID,
+      experiment_variant: builderSignup.variant,
+      assignment_id: builderSignup.id,
+    });
+  }, [builderSignup, open]);
+
+  const prepareBuilderSignup = useCallback(
+    async (
+      method: "password" | "magic-link" | "google",
+      attemptEmail?: string,
+      flowId = createOAuthFlowId(),
+    ): Promise<string | undefined> => {
+      if (
+        builderSignup?.status !== "assigned" ||
+        builderSignup.variant !== "automatic"
+      ) {
+        return undefined;
+      }
+      try {
+        await acceptBuilderSignupAssignment(
+          builderSignup.id,
+          flowId,
+          method,
+          attemptEmail,
+        );
+        return flowId;
+      } catch {
+        trackAccountAuthEvent(
+          "builder_signup_experiment_unavailable",
+          { surface: "public_share_modal", stage: "acceptance" },
+          attemptEmail ?? "",
+        );
+        return undefined;
+      }
+    },
+    [builderSignup],
+  );
+
   const startGoogleSignup = async () => {
-    if (googleBusy || submitting) return;
+    if (
+      googleBusy ||
+      submitting ||
+      (effectiveBuilderSignupEnabled && !builderSignup)
+    )
+      return;
     const popup = openOAuthPopup({ features: "width=640,height=760" });
     if (!popup) {
       setErrorMessage(copy.failedToConnect);
@@ -206,6 +311,7 @@ export function AccountGateDialog({
     try {
       const flowId = createOAuthFlowId();
       const verifier = createOAuthVerifier();
+      const attemptId = await prepareBuilderSignup("google", undefined, flowId);
       const authUrl = new URL(
         agentNativePath("/_agent-native/google/auth-url"),
         window.location.origin,
@@ -216,6 +322,9 @@ export function AccountGateDialog({
       );
       authUrl.searchParams.set("desktop", "1");
       authUrl.searchParams.set("flow_id", flowId);
+      if (attemptId) {
+        authUrl.searchParams.set("builder_signup_attempt", attemptId);
+      }
       const authResponse = await fetch(authUrl.toString(), {
         method: "POST",
         credentials: "include",
@@ -309,7 +418,12 @@ export function AccountGateDialog({
 
   const submitMagicLink = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting || googleBusy) return;
+    if (
+      submitting ||
+      googleBusy ||
+      (effectiveBuilderSignupEnabled && !builderSignup)
+    )
+      return;
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) {
       setErrorMessage(copy.invalidEmail);
@@ -328,6 +442,10 @@ export function AccountGateDialog({
       normalizedEmail,
     );
     try {
+      const builderSignupAttemptId = await prepareBuilderSignup(
+        "magic-link",
+        normalizedEmail,
+      );
       const response = await fetch(
         agentNativePath("/_agent-native/auth/magic-link"),
         {
@@ -337,6 +455,7 @@ export function AccountGateDialog({
           body: JSON.stringify({
             email: normalizedEmail,
             callbackURL: serverAuthReturnPath(appPath(returnTo)),
+            ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
           }),
         },
       );
@@ -355,7 +474,12 @@ export function AccountGateDialog({
 
   const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting || googleBusy) return;
+    if (
+      submitting ||
+      googleBusy ||
+      (effectiveBuilderSignupEnabled && !builderSignup)
+    )
+      return;
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !password) return;
     if (password !== passwordConfirmation) {
@@ -375,6 +499,10 @@ export function AccountGateDialog({
       normalizedEmail,
     );
     try {
+      const builderSignupAttemptId = await prepareBuilderSignup(
+        "password",
+        normalizedEmail,
+      );
       const registerResponse = await fetch(
         agentNativePath("/_agent-native/auth/register"),
         {
@@ -388,6 +516,7 @@ export function AccountGateDialog({
               appPath(returnTo),
               buildCreateAccountHref(returnTo),
             ),
+            ...(builderSignupAttemptId ? { builderSignupAttemptId } : {}),
           }),
         },
       );
@@ -491,6 +620,10 @@ export function AccountGateDialog({
             ),
           });
   const busy = submitting || googleBusy;
+  const builderSignupPending = effectiveBuilderSignupEnabled && !builderSignup;
+  const showBuilderDisclosure =
+    builderSignup?.status === "assigned" &&
+    builderSignup.variant === "automatic";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -592,7 +725,7 @@ export function AccountGateDialog({
                 variant="outline"
                 size="lg"
                 className="h-12 w-full justify-center gap-3 border border-input bg-background text-[15px] font-medium text-foreground hover:bg-accent"
-                disabled={busy}
+                disabled={busy || builderSignupPending}
                 onClick={() => void startGoogleSignup()}
               >
                 <GoogleMark />
@@ -674,7 +807,11 @@ export function AccountGateDialog({
                 </p>
               ) : null}
 
-              <Button type="submit" className="w-full" disabled={busy}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={busy || builderSignupPending}
+              >
                 {submitting
                   ? authMode === "magic-link"
                     ? copy.sending
@@ -704,6 +841,32 @@ export function AccountGateDialog({
                   {copy.legalPrivacy}
                 </a>
                 {copy.legalSuffix}
+                {showBuilderDisclosure ? (
+                  <>
+                    {" "}
+                    <span>
+                      {copy.builderSignupNewAccountDisclosure}{" "}
+                      <a
+                        href="https://www.builder.io/legal/terms"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2 hover:no-underline"
+                      >
+                        {copy.legalTerms}
+                      </a>{" "}
+                      {copy.legalConnector}{" "}
+                      <a
+                        href="https://www.builder.io/legal/privacy"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2 hover:no-underline"
+                      >
+                        {copy.legalPrivacy}
+                      </a>
+                      {copy.legalSuffix}
+                    </span>
+                  </>
+                ) : null}
               </p>
 
               <div className="flex flex-col-reverse items-start gap-2 pt-1 sm:flex-row sm:items-center sm:justify-between">

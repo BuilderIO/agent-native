@@ -235,6 +235,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: true,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const ids = requestedIds(args);
     // A widget grant names one resource, so a batch reaching more than that

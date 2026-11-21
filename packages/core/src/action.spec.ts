@@ -36,6 +36,7 @@ import {
   isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isMcpToolServed,
   preparedCallArguments,
   recordInvalidActionCall,
   runPreparedActionCall,
@@ -426,6 +427,42 @@ describe("defineAction", () => {
     });
     expect(plain.mcpTool).toBeUndefined();
     expect(plain.deferLoading).toBeUndefined();
+
+    const unlisted = defineAction({
+      description: "read a plan's history",
+      parameters: { id: { type: "string" } },
+      mcpTool: "search",
+      run: async () => "ok",
+    });
+    expect(unlisted.mcpTool).toBe("search");
+
+    const unknown = defineAction({
+      description: "a decision this version doesn't know",
+      parameters: { id: { type: "string" } },
+      mcpTool: "listed" as never,
+      run: async () => "ok",
+    });
+    expect(unknown.mcpTool).toBeUndefined();
+  });
+
+  it("serves an action to external agents for mcpTool true or search", () => {
+    expect(isMcpToolServed(true)).toBe(true);
+    expect(isMcpToolServed("search")).toBe(true);
+    expect(isMcpToolServed(false)).toBe(false);
+    expect(isMcpToolServed(undefined)).toBe(false);
+
+    expect(
+      isActionExposedToExternalAgents({ agentTool: false, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionExposedToExternalAgents({ endsTurn: true, mcpTool: "search" }),
+    ).toBe(true);
+    expect(
+      isActionHiddenFromEveryAgentSurface({
+        agentTool: false,
+        mcpTool: "search",
+      }),
+    ).toBe(false);
   });
 
   it("keeps searchHints off the model-facing tool and through registry loading", () => {
@@ -1186,7 +1223,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       ]);
       await withMcpClient({ check }, async (client) => {
         const { tools } = await client.listTools();
-        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(tools.map(({ name }) => name)).toEqual([
+          "check",
+          "get_app_manifest",
+        ]);
         expect(tools[0]!.inputSchema).not.toHaveProperty("$schema");
         await expect(
           client.callTool({ name: "check", arguments: witness }),
@@ -1229,7 +1269,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       ]);
       await withMcpClient({ check }, async (client) => {
         const { tools } = await client.listTools();
-        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(tools.map(({ name }) => name)).toEqual([
+          "check",
+          "get_app_manifest",
+        ]);
         expect(providerSchemaViolations(tools[0]!)).toEqual([]);
         const validate = new Ajv2020({ strict: false }).compile(
           tools[0]!.inputSchema,
@@ -1323,8 +1366,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
 
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
-        expect(tools.map(({ name }) => name)).toEqual(["pair"]);
-        const { inputSchema } = tools[0]!;
+        expect(tools.map(({ name }) => name)).toEqual([
+          "get_app_manifest",
+          "pair",
+        ]);
+        const { inputSchema } = tools[1];
         expect(inputSchema.properties).toMatchObject({
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         });

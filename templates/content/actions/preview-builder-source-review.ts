@@ -1,12 +1,14 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import type {
+  ContentDatabaseSourceReviewPayload,
   PreviewBuilderSourceReviewRequest,
   PreviewBuilderSourceReviewResponse,
 } from "../shared/api.js";
 import {
+  builderReviewDocumentScope,
   getContentDatabaseSourceSnapshotForReview,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
@@ -16,6 +18,31 @@ import {
   reviewPreparePriority,
   withAuthoritativeBuilderTargetRows,
 } from "./prepare-builder-source-review.js";
+
+function withoutBodyPayloads(
+  review: ContentDatabaseSourceReviewPayload,
+): ContentDatabaseSourceReviewPayload {
+  return {
+    ...review,
+    rows: review.rows.map((row) => {
+      let next = row;
+      if (row.bodyChange) {
+        const {
+          proposedContent: _proposedContent,
+          proposedBlocksJson: _proposedBlocksJson,
+          sidecarsJson: _sidecarsJson,
+          ...bodyChange
+        } = row.bodyChange;
+        next = { ...next, bodyChange };
+      }
+      if (row.execution && "request" in row.execution.payload) {
+        const { request: _request, ...payload } = row.execution.payload;
+        next = { ...next, execution: { ...row.execution, payload } };
+      }
+      return next;
+    }),
+  };
+}
 
 export default defineAction({
   description:
@@ -30,6 +57,21 @@ export default defineAction({
       .max(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT)
       .optional()
       .describe("Optional selected document IDs that bound the preview"),
+    bodyComparison: z
+      .enum(["text", "blocks"])
+      .optional()
+      .describe(
+        "text compares bodies as text without converting them to Builder blocks, which is fast; blocks (the default) converts them, as Check does",
+      ),
+    batchSize: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT)
+      .optional()
+      .describe(
+        "Review only this many pages and list the rest in remainingDocumentIds; 0 lists a whole-source review's pages without reviewing any, unless a change has no page, when the whole source is reviewed",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -40,20 +82,90 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const selectedDocumentIds = new Set(args.documentIds ?? []);
-    if (args.scope === "selected" && selectedDocumentIds.size === 0) {
+    if (args.scope === "selected" && !args.documentIds?.length) {
       throw new Error("Select at least one Builder row before reviewing it.");
     }
+    if (args.scope === "selected" && args.batchSize === 0) {
+      fail("Review at least one selected page per batch.", {
+        errorCode: "builder_review_batch_empty",
+        statusCode: 400,
+      });
+    }
 
+    const bodyComparison = args.bodyComparison ?? "blocks";
+    let reviewDocumentIds =
+      args.scope === "selected" ? args.documentIds : undefined;
+    if (args.batchSize !== undefined && args.scope !== "selected") {
+      const scope = await builderReviewDocumentScope(database, args.sourceId);
+      if (!scope || scope.lightweight.sourceType !== "builder-cms") {
+        fail("Attach a Builder CMS source before reviewing updates.", {
+          errorCode: "builder_source_missing",
+          statusCode: 412,
+        });
+      }
+      if (scope.documentIds?.length === 0) {
+        return {
+          sourceId: scope.lightweight.id,
+          sourceTable: scope.lightweight.sourceTable,
+          changeSetIds: [],
+          review: null,
+          bodyComparison,
+          documentIds: [],
+          remainingDocumentIds: [],
+        };
+      }
+      if (scope.documentIds) {
+        const priorityByDocumentId = new Map<string, number>();
+        for (const changeSet of scope.lightweight.changeSets) {
+          if (!changeSet.documentId) continue;
+          const priority = reviewPreparePriority(changeSet, scope.lightweight);
+          const known = priorityByDocumentId.get(changeSet.documentId);
+          if (known === undefined || priority < known) {
+            priorityByDocumentId.set(changeSet.documentId, priority);
+          }
+        }
+        reviewDocumentIds = scope.documentIds
+          .map((documentId, index) => ({ documentId, index }))
+          .sort(
+            (left, right) =>
+              (priorityByDocumentId.get(left.documentId) ?? 99) -
+                (priorityByDocumentId.get(right.documentId) ?? 99) ||
+              left.index - right.index,
+          )
+          .map((entry) => entry.documentId);
+        if (args.batchSize === 0) {
+          return {
+            sourceId: scope.lightweight.id,
+            sourceTable: scope.lightweight.sourceTable,
+            changeSetIds: [],
+            review: null,
+            bodyComparison,
+            documentIds: [],
+            remainingDocumentIds: reviewDocumentIds,
+          };
+        }
+      }
+    }
+    let remainingDocumentIds: string[] | undefined;
+    if (args.batchSize && reviewDocumentIds) {
+      remainingDocumentIds = reviewDocumentIds.slice(args.batchSize);
+      reviewDocumentIds = reviewDocumentIds.slice(0, args.batchSize);
+    }
+
+    const blocksCheckDocumentIds = new Set<string>();
     const source = await getContentDatabaseSourceSnapshotForReview(
       database,
       args.sourceId,
-      args.scope === "selected" ? args.documentIds : undefined,
+      reviewDocumentIds,
+      { builderBodyComparison: bodyComparison, blocksCheckDocumentIds },
     );
     if (!source || source.sourceType !== "builder-cms") {
       throw new Error("Attach a Builder CMS source before reviewing updates.");
     }
 
+    const reviewDocumentIdSet = reviewDocumentIds
+      ? new Set(reviewDocumentIds)
+      : null;
     const allReviewableChanges = source.changeSets.filter((changeSet) => {
       if (
         changeSet.direction !== "outbound" ||
@@ -64,9 +176,9 @@ export default defineAction({
         return false;
       }
       return (
-        args.scope === "all" ||
+        !reviewDocumentIdSet ||
         (!!changeSet.documentId &&
-          selectedDocumentIds.has(changeSet.documentId))
+          reviewDocumentIdSet.has(changeSet.documentId))
       );
     });
     const changeSets = [...allReviewableChanges]
@@ -82,10 +194,12 @@ export default defineAction({
     });
     const review =
       changeSets.length > 0
-        ? buildBuilderSourceReviewPayload({
-            source: authoritativeSource,
-            changeSets,
-          })
+        ? withoutBodyPayloads(
+            buildBuilderSourceReviewPayload({
+              source: authoritativeSource,
+              changeSets,
+            }),
+          )
         : null;
     if (review) {
       review.totalRowCount = allReviewableChanges.length;
@@ -97,6 +211,17 @@ export default defineAction({
       sourceTable: source.sourceTable,
       changeSetIds: changeSets.map((changeSet) => changeSet.id),
       review,
+      bodyComparison,
+      ...(reviewDocumentIds ? { documentIds: reviewDocumentIds } : {}),
+      ...(remainingDocumentIds ? { remainingDocumentIds } : {}),
+      ...(bodyComparison === "text"
+        ? {
+            blocksCheckDocumentIds: [...blocksCheckDocumentIds].filter(
+              (documentId) =>
+                !reviewDocumentIdSet || reviewDocumentIdSet.has(documentId),
+            ),
+          }
+        : {}),
     };
   },
 });

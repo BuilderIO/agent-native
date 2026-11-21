@@ -22,6 +22,7 @@ import {
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
+  isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   failedCallEmitsChange,
   recordInvalidActionCall,
@@ -45,6 +46,7 @@ import { assertActionAccess } from "../authorization/check-action.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
+import { registerManifestActions } from "../manifest/server.js";
 import { mcpCallAttribution } from "../mcp/call-attribution.js";
 import {
   hasForbiddenOrgScope,
@@ -104,6 +106,7 @@ import { redact, redactErrorStack } from "../tracking/redaction.js";
 import { actionApprovalRequiredError } from "./action-approval.js";
 import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
 import { notifyActionChangeForResponse } from "./action-change.js";
+import { markActiveTurn } from "./active-turn.js";
 import {
   readBrowserSessionIdHeader,
   readBrowserTabIdHeader,
@@ -766,6 +769,16 @@ function mountActionRoutesInternal(
 
   if (!options?.caller && !options?.forcePost && !options?.routePrefix) {
     bindActionBatch({ fetch: (request) => nitroApp.fetch(request), actions });
+    registerManifestActions(
+      nitroApp,
+      Object.entries(actions)
+        .filter(
+          ([, entry]) =>
+            isActionExposedToExternalAgents(entry) &&
+            !isActionHiddenFromEveryAgentSurface(entry),
+        )
+        .map(([name]) => name),
+    );
   }
 
   for (const [name, entry] of Object.entries(actions)) {
@@ -1529,7 +1542,12 @@ function mountActionRoutesInternal(
               callArgs: unknown,
               result: unknown,
             ) => {
-              if (runContext?.caller === "mcp-widget") return;
+              if (
+                runContext?.caller === "mcp-widget" ||
+                runContext?.caller === "mcp-widget-write" ||
+                runContext?.caller === "webmcp"
+              )
+                markActiveTurn(userEmail);
               const markerLanded = await notifyActionChangeForResponse({
                 actionName: name,
                 ...actionChangeResource(entry, callArgs, result),
@@ -1842,6 +1860,11 @@ function mountActionRoutesInternal(
                   ? LLM_PROVIDER_MISSING_STATUS
                   : (explicitStatus ?? (markedExpected ? 409 : 500));
               setResponseStatus(event, status);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "application/json; charset=utf-8",
+              );
 
               const failureCaller = requestCaller;
               const privateAction = entry.persistInChatHistory === false;
@@ -1913,30 +1936,34 @@ function mountActionRoutesInternal(
                 markedExpected ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return isActionContractError(err) ||
+                const isContractError =
+                  isActionContractError(err) ||
                   isAgentActionStopError(err) ||
-                  markedExpected
-                  ? {
-                      error: msg,
-                      ...(typeof err.errorCode === "string"
-                        ? { errorCode: err.errorCode }
-                        : {}),
-                      ...(err.details === undefined
-                        ? {}
-                        : { details: err.details }),
-                    }
-                  : {
-                      error: msg,
-                      ...(typeof err?.errorCode === "string"
-                        ? { errorCode: err.errorCode }
-                        : {}),
-                      ...(status === 429 &&
+                  markedExpected;
+                const errorCode =
+                  typeof err?.errorCode === "string" && err.errorCode.length > 0
+                    ? err.errorCode
+                    : isValidationError
+                      ? "action_invalid_parameters"
+                      : runContext
+                        ? `action_http_${status}`
+                        : undefined;
+                const details = isContractError
+                  ? err.details
+                  : status === 429 &&
                       typeof retryAfterSeconds === "number" &&
                       Number.isInteger(retryAfterSeconds) &&
                       retryAfterSeconds > 0
-                        ? { details: { retryAfterSeconds } }
-                        : {}),
-                    };
+                    ? { retryAfterSeconds }
+                    : undefined;
+                return {
+                  error:
+                    privateAction && isValidationError
+                      ? "Invalid action parameters"
+                      : msg,
+                  ...(errorCode === undefined ? {} : { errorCode }),
+                  ...(details === undefined ? {} : { details }),
+                };
               }
               const captureId = captureError(
                 privateAction ? new Error("Private content omitted") : err,
@@ -1962,7 +1989,10 @@ function mountActionRoutesInternal(
                   ? "Private content omitted"
                   : (redactErrorStack(err) ?? redact(String(err))),
               });
-              return { error: "Internal server error" };
+              return {
+                error: "Internal server error",
+                errorCode: "action_execution_failed",
+              };
             }
           },
         );

@@ -200,6 +200,7 @@ const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_content_items",
   "analytics_content_metric_snapshots",
   "analytics_content_collection_runs",
+  "analytics_content_search_queries",
 ] as const;
 const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
@@ -213,6 +214,7 @@ const FIRST_PARTY_CONTENT_TABLES = new Set([
   "analytics_content_items",
   "analytics_content_metric_snapshots",
   "analytics_content_collection_runs",
+  "analytics_content_search_queries",
 ]);
 const FIRST_PARTY_SQL_STORE_ONLY_TABLES = new Set([
   "session_recordings",

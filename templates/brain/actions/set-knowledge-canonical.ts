@@ -15,8 +15,13 @@ export default defineAction({
         "True mirrors the knowledge item to workspace context; false removes Brain's mirrored resource path.",
       ),
   }),
-  run: async ({ knowledgeId, published }) => ({
-    published,
-    knowledge: await setKnowledgeCanonicalResource(knowledgeId, published),
-  }),
+  run: async ({ knowledgeId, published }) => {
+    const { postCommitWarnings, ...knowledge } =
+      await setKnowledgeCanonicalResource(knowledgeId, published);
+    return {
+      published,
+      knowledge,
+      ...(postCommitWarnings ? { postCommitWarnings } : {}),
+    };
+  },
 });

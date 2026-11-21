@@ -217,6 +217,18 @@ export function getSkillNameFromPath(path: string): string {
   return relative.split("/").pop()?.replace(/\.md$/, "") || path;
 }
 
+export const SKILL_TRASH_PREFIX = "trash/skills/";
+
+export function restorePathForTrashedSkill(resource: {
+  id: string;
+  path: string;
+}): string | null {
+  const prefix = `${SKILL_TRASH_PREFIX}${resource.id}/`;
+  if (!resource.path.startsWith(prefix)) return null;
+  const restorePath = resource.path.slice(prefix.length);
+  return isSkillPath(restorePath) ? restorePath : null;
+}
+
 export function isJobPath(path: string): boolean {
   return path.startsWith("jobs/") && path.endsWith(".md");
 }

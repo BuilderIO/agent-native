@@ -412,6 +412,7 @@ describe("connector-catalog tier", () => {
         "open_app",
         "ask_app",
         "ask_app_status",
+        "create_embed_session",
       ].sort();
 
       expect(names).toEqual(expected);
@@ -434,6 +435,7 @@ describe("connector-catalog tier", () => {
           "open_app",
           "ask_app",
           "ask_app_status",
+          "create_embed_session",
         ].sort(),
       );
 
@@ -1114,6 +1116,7 @@ describe("connector-catalog tier — env flag not required", () => {
         "open_app",
         "ask_app",
         "ask_app_status",
+        "create_embed_session",
       ].sort(),
     );
     expect(names).not.toContain("db-exec");
@@ -1165,7 +1168,10 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       run: async () => ({ ok: true }),
     };
     const actions = {
-      "set-resource-visibility": setResourceVisibility,
+      "set-resource-visibility": {
+        ...setResourceVisibility,
+        mcpTool: undefined,
+      },
       "declared-read": read,
       "declared-write": write,
       "unrelated-read": read,
@@ -1195,6 +1201,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(before).toEqual([
       "ask_app",
       "ask_app_status",
+      "create_embed_session",
+      "get_app_manifest",
       "list_apps",
       "open_app",
       "set-resource-visibility",
@@ -1211,10 +1219,16 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(
       await listNames(declaredActions, { connectorCatalog: ["declared-read"] }),
     ).toEqual(
-      after.filter((name: string) => name !== "set-resource-visibility"),
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "get_app_manifest",
+      ),
     );
     expect(await listNames(declaredActions, { connectorCatalog: [] })).toEqual(
-      after.filter((name: string) => name !== "set-resource-visibility"),
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "get_app_manifest",
+      ),
     );
     expect(
       await listNames(declaredActions, {
@@ -1256,6 +1270,8 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(names).toEqual([
       "ask_app",
       "ask_app_status",
+      "create_embed_session",
+      "get_app_manifest",
       "list_apps",
       "open_app",
     ]);
@@ -1610,6 +1626,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       expect(names).toEqual([
         "create-plan",
         "get-plan",
+        "get_app_manifest",
         "navigate",
         "public-read",
         "public-write",

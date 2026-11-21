@@ -36,6 +36,7 @@ import askBrainAction from "../../actions/ask-brain.js";
 import getKnowledgeAction from "../../actions/get-knowledge.js";
 import listKnowledgeAction from "../../actions/list-knowledge.js";
 import searchKnowledgeAction from "../../actions/search-knowledge.js";
+import { withFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
 import { schema } from "../db/index.js";
 import { searchKnowledgePage, searchKnowledgeRows } from "./brain.js";
 import { knowledgeContentRevision } from "./intelligence.js";
@@ -169,6 +170,16 @@ beforeEach(async () => {
     createdBy: qaEmail,
   });
 });
+
+type KnowledgeInsert = typeof schema.brainKnowledge.$inferInsert;
+
+async function ordinaryRow(row: KnowledgeInsert): Promise<KnowledgeInsert> {
+  const captures = await database.select().from(schema.brainRawCaptures);
+  return withFixtureProvenance(
+    row,
+    new Map(captures.map((capture) => [capture.id, capture.content])),
+  );
+}
 
 async function asQa<T>(work: () => Promise<T>) {
   return runWithRequestContext(
@@ -395,39 +406,49 @@ describe("scoped universal knowledge search", () => {
       quote,
     };
     await database.insert(schema.brainKnowledge).values(
-      Array.from({ length: 30 }, (_, index) => ({
-        id: `z-mixed-${String(index).padStart(2, "0")}`,
+      await Promise.all(
+        Array.from({ length: 30 }, (_, index) =>
+          ordinaryRow({
+            id: `z-mixed-${String(index).padStart(2, "0")}`,
+            title: "Scoped universal fixture",
+            body: "Mixed-source result.",
+            sourceId: "source",
+            captureId: "capture",
+            audienceId: "audience",
+            ownerEmail: qaEmail,
+            visibility: "private" as const,
+            status: "published" as const,
+            createdBy: qaEmail,
+            updatedAt: "2026-11-18T12:00:00.000Z",
+            evidenceJson: JSON.stringify([
+              ownEvidence,
+              {
+                sourceId: "other-source",
+                captureId: "other-capture",
+                captureTitle: "Other notes",
+                quote: "Private context.",
+              },
+            ]),
+          }),
+        ),
+      ),
+    );
+    await database.insert(schema.brainKnowledge).values(
+      await ordinaryRow({
+        id: "a-fully-scoped",
         title: "Scoped universal fixture",
-        body: "Mixed-source result.",
+        body: "Fully scoped result.",
         sourceId: "source",
+        captureId: "capture",
+        audienceId: "audience",
         ownerEmail: qaEmail,
-        visibility: "private" as const,
-        status: "published" as const,
+        visibility: "private",
+        status: "published",
         createdBy: qaEmail,
         updatedAt: "2026-11-18T12:00:00.000Z",
-        evidenceJson: JSON.stringify([
-          ownEvidence,
-          {
-            sourceId: "other-source",
-            captureId: "other-capture",
-            captureTitle: "Other notes",
-            quote: "Private context.",
-          },
-        ]),
-      })),
+        evidenceJson: JSON.stringify([ownEvidence]),
+      }),
     );
-    await database.insert(schema.brainKnowledge).values({
-      id: "a-fully-scoped",
-      title: "Scoped universal fixture",
-      body: "Fully scoped result.",
-      sourceId: "source",
-      ownerEmail: qaEmail,
-      visibility: "private",
-      status: "published",
-      createdBy: qaEmail,
-      updatedAt: "2026-11-18T12:00:00.000Z",
-      evidenceJson: JSON.stringify([ownEvidence]),
-    });
     const result = await asQa(() =>
       searchEverythingWithLanes({
         query: "Scoped universal fixture",
@@ -520,23 +541,30 @@ describe("ordinary personal-source knowledge sharing", () => {
       });
       for (const mixed of [false, true]) {
         const id = `ordinary-${provider}-${mixed}`;
-        await database.insert(schema.brainKnowledge).values({
-          id,
-          title: "Private ordinary account fact",
-          body: "Private context.",
-          ownerEmail: qaEmail,
-          visibility: "private",
-          createdBy: qaEmail,
-          sourceId: mixed ? "source" : provider,
-          evidenceJson: JSON.stringify(
-            mixed
-              ? [
-                  { sourceId: "source", captureId: "capture", quote },
-                  { sourceId: "source", captureId, quote: "Private context." },
-                ]
-              : [],
-          ),
-        });
+        await database.insert(schema.brainKnowledge).values(
+          await ordinaryRow({
+            id,
+            title: "Private ordinary account fact",
+            body: "Private context.",
+            ownerEmail: qaEmail,
+            visibility: "private",
+            createdBy: qaEmail,
+            sourceId: mixed ? "source" : provider,
+            ...(mixed ? { captureId: "capture", audienceId: "audience" } : {}),
+            evidenceJson: JSON.stringify(
+              mixed
+                ? [
+                    { sourceId: "source", captureId: "capture", quote },
+                    {
+                      sourceId: "source",
+                      captureId,
+                      quote: "Private context.",
+                    },
+                  ]
+                : [],
+            ),
+          }),
+        );
         await asQa(async () => {
           let denied: unknown;
           try {
@@ -569,19 +597,21 @@ describe("ordinary personal-source knowledge sharing", () => {
       .update(schema.brainSources)
       .set({ provider: "google_drive" })
       .where(eq(schema.brainSources.id, "source"));
-    await database.insert(schema.brainKnowledge).values({
-      id: "ordinary-org",
-      title: "Private ordinary account fact",
-      body: quote,
-      ownerEmail: qaEmail,
-      orgId: "qa-org",
-      visibility: "org",
-      createdBy: qaEmail,
-      sourceId: "source",
-      captureId: "capture",
-      audienceId: "audience",
-      evidenceJson: JSON.stringify([{ captureId: "capture", quote }]),
-    });
+    await database.insert(schema.brainKnowledge).values(
+      await ordinaryRow({
+        id: "ordinary-org",
+        title: "Private ordinary account fact",
+        body: quote,
+        ownerEmail: qaEmail,
+        orgId: "qa-org",
+        visibility: "org",
+        createdBy: qaEmail,
+        sourceId: "source",
+        captureId: "capture",
+        audienceId: "audience",
+        evidenceJson: JSON.stringify([{ captureId: "capture", quote }]),
+      }),
+    );
     const reader = <T>(work: () => Promise<T>) =>
       runWithRequestContext(
         { userEmail: "recipient@example.test", orgId: "qa-org" },
@@ -761,27 +791,29 @@ describe("public ordinary knowledge quote survival", () => {
       .where(eq(schema.brainSources.id, "source"));
     const id = "ordinary-public";
     const factTitle = "Ordinary Google launch fact";
-    await database.insert(schema.brainKnowledge).values({
-      id,
-      title: factTitle,
-      body: quote,
-      ownerEmail: qaEmail,
-      visibility: "private",
-      status: "published",
-      publishTier: "company",
-      createdBy: qaEmail,
-      sourceId: "source",
-      captureId: "capture",
-      audienceId: "audience",
-      evidenceJson: JSON.stringify([
-        {
-          sourceId: "source",
-          captureId: "capture",
-          captureTitle: "Planning",
-          quote,
-        },
-      ]),
-    });
+    await database.insert(schema.brainKnowledge).values(
+      await ordinaryRow({
+        id,
+        title: factTitle,
+        body: quote,
+        ownerEmail: qaEmail,
+        visibility: "private",
+        status: "published",
+        publishTier: "company",
+        createdBy: qaEmail,
+        sourceId: "source",
+        captureId: "capture",
+        audienceId: "audience",
+        evidenceJson: JSON.stringify([
+          {
+            sourceId: "source",
+            captureId: "capture",
+            captureTitle: "Planning",
+            quote,
+          },
+        ]),
+      }),
+    );
     const readPublic = () =>
       asQa(async () => ({
         get: await getKnowledgeAction.run({ id }),

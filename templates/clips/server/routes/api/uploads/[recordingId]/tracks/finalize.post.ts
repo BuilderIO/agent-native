@@ -38,13 +38,13 @@ import {
   renewLease,
 } from "../../../../../lib/recording-leases.js";
 import { deleteStoredMediaUrl } from "../../../../../lib/recording-media-cleanup.js";
-import { withRecordingMediaProduction } from "../../../../../lib/recording-media-lifecycle.js";
 import {
   richRecordingStopped,
   snapshotRichRecordingPolicy,
 } from "../../../../../lib/recording-policy.js";
 import {
   compareAndSetTrackSession,
+  completeClosedTrackUpload,
   deleteStoredRecordingTracks,
   deleteTrackSessionIf,
   discardTrackUpload,
@@ -100,7 +100,7 @@ function trackSummary(rows: RecordingTrackRow[]) {
  * the session before anything else, so a retry after a lost response reuses
  * it instead of completing the upload again.
  */
-async function completeTrackUpload(input: {
+export async function completeTrackUpload(input: {
   recordingId: string;
   ownerEmail: string;
   track: RichTrackId;
@@ -149,27 +149,15 @@ async function completeTrackUpload(input: {
     session = next;
   }
 
-  const completeSession = provider.resumable.completeSession.bind(
-    provider.resumable,
-  );
-  const produced = await withRecordingMediaProduction(
-    {
-      recordingId: input.recordingId,
-      ownerEmail: input.ownerEmail,
-      recordAsset: false,
-    },
-    async () => ({
-      provider: provider.id,
-      url: await completeSession(
-        { sessionId: session.sessionId, meta: session.meta },
-        typeof session.meta.filename === "string" ? session.meta.filename : "",
-        { stableUrl: true, recordAsset: false },
-      ),
-    }),
-  );
+  const url = await completeClosedTrackUpload({
+    recordingId: input.recordingId,
+    ownerEmail: input.ownerEmail,
+    session,
+  });
+  if (!url) return { ok: false, retryable: true };
   const completed: StoredResumableSession = {
     ...session,
-    meta: { ...session.meta, completedUrl: produced.url },
+    meta: { ...session.meta, completedUrl: url },
   };
   await compareAndSetTrackSession(
     input.recordingId,
@@ -177,7 +165,7 @@ async function completeTrackUpload(input: {
     session,
     completed,
   );
-  return { ok: true, url: produced.url, session: completed };
+  return { ok: true, url, session: completed };
 }
 
 export async function handleFinalizeTracks(event: H3Event) {

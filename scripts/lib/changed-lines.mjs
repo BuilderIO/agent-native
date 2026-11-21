@@ -77,13 +77,6 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   return parseUnifiedDiff(diff, cwd);
 }
 
-/**
- * Lines this branch removed, keyed by native absolute path like `addedLines`.
- * `path` is the post-change repo path (the pre-change path for a deleted file)
- * and `oldPath` the pre-change path, so a rename's removals and additions meet
- * under one key. Each removed line records the new-file line it sat before.
- * `created` marks a file new on this branch, so its pre-change text is empty.
- */
 export function removedLines(cwd, { includeWorkingTree = true } = {}) {
   const mergeBase = diffBaseCommit(cwd);
   if (mergeBase === null) return null;
@@ -115,15 +108,26 @@ function scanRemovedLines(diff, cwd, pathApi) {
   let removeLeft = 0;
   let addLeft = 0;
   let newLine = 0;
+  let oldLine = 0;
   for (const raw of diff.split("\n")) {
     // Hunk counts, not prefixes, say what is body: a removed line may itself
     // start with "--" and must not be read as a file header.
     if (removeLeft > 0 || addLeft > 0) {
       if (raw.startsWith("-")) {
         removeLeft -= 1;
-        entry?.lines.push({ line: Math.max(newLine, 1), text: raw.slice(1) });
+        entry?.lines.push({
+          line: Math.max(newLine, 1),
+          oldLine,
+          text: raw.slice(1),
+        });
+        oldLine += 1;
       } else if (raw.startsWith("+")) {
         addLeft -= 1;
+        newLine += 1;
+      } else if (raw.startsWith(" ")) {
+        removeLeft -= 1;
+        addLeft -= 1;
+        oldLine += 1;
         newLine += 1;
       }
       continue;
@@ -147,11 +151,12 @@ function scanRemovedLines(diff, cwd, pathApi) {
       result.set(pathApi.resolve(cwd, repoPath), entry);
       continue;
     }
-    const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
     if (hunk) {
-      removeLeft = hunk[1] === undefined ? 1 : Number(hunk[1]);
-      newLine = Number(hunk[2]);
-      addLeft = hunk[3] === undefined ? 1 : Number(hunk[3]);
+      oldLine = Number(hunk[1]);
+      removeLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newLine = Number(hunk[3]);
+      addLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
     }
   }
   return result;

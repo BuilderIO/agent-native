@@ -99,6 +99,8 @@ export interface AppProvidersProps {
 
   isPublicPath?: boolean;
 
+  automaticConsentPrompt?: boolean;
+
   clientOnlyFallback?: React.ReactNode;
 
   skeletonLayout?: AppShellSkeletonLayout;
@@ -563,10 +565,12 @@ function ProvidersInner({
   showEnvironmentBadge,
   settingsShortcut,
   ownsDocument = true,
+  automaticConsentPrompt = true,
   clientOnly = false,
   children,
 }: {
   ownsDocument?: boolean;
+  automaticConsentPrompt?: boolean;
   clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
@@ -587,20 +591,22 @@ function ProvidersInner({
   children: React.ReactNode;
 }) {
   // The toaster shares the app's locale but must remain outside session gates.
+  const appContent = (
+    <>
+      {children}
+      {ownsDocument ? (
+        <ConsentBanner automaticPrompt={automaticConsentPrompt} />
+      ) : null}
+      <WriteFailureToaster />
+      {toaster}
+    </>
+  );
   const localizedChildren =
     i18n === false ? (
-      <>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
-        {toaster}
-      </>
+      appContent
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
-        {toaster}
+        {appContent}
       </AgentNativeI18nProvider>
     );
 
@@ -661,6 +667,7 @@ function publicPathI18n(
 export function AppProviders({
   queryClient,
   isPublicPath = false,
+  automaticConsentPrompt,
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
@@ -804,7 +811,9 @@ export function AppProviders({
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
           {isFirstRunOnboardingEnabled(
-            import.meta.env,
+            (import.meta.env as
+              | Record<string, string | boolean | undefined>
+              | undefined) ?? {},
             typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
               ? {}
               : __AGENT_NATIVE_APP_CONFIG__,
@@ -831,6 +840,7 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
+          automaticConsentPrompt={automaticConsentPrompt}
           clientOnly
           holdThemeFamilyUntilResolved={holdThemeFamilyUntilResolved}
         >

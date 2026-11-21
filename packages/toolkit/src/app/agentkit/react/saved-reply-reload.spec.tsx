@@ -72,7 +72,7 @@ const storedThread = {
             custom: {
               turnId,
               foldedRunIds: [runId],
-              agentNativeRunDurationMs: 19_027,
+              agentNativeRunDurationMs: 5_027,
             },
           },
         },
@@ -201,6 +201,37 @@ describe("reloading a thread whose saved reply differs from the stream", () => {
     expect(transcript.textContent).not.toContain(streamedAnswer);
     expect(
       transcript.querySelector(".agentkit-activities-label")?.textContent,
-    ).toBe("Worked for 19s");
+    ).toBe("Worked for 5s");
+  });
+
+  it("shows the saved duration when an edit fork carries only the reply", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false })
+          : json({
+              id: threadId,
+              threadData: JSON.stringify({
+                messages: JSON.parse(storedThread.threadData).messages,
+              }),
+            }),
+      ) as typeof fetch,
+    });
+    const chatClient = new AgentKitClient({ transport });
+    client = chatClient;
+    await chatClient.loadThread(threadId);
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={chatClient} threadId={threadId}>
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      ),
+    );
+
+    const reply = container.querySelector('[data-role="assistant"]');
+    expect(reply?.textContent).toContain(savedAnswer);
+    expect(
+      reply?.querySelector(".agentkit-activities-label")?.textContent,
+    ).toBe("Worked for 5s");
   });
 });

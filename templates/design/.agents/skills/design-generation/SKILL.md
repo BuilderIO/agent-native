@@ -33,7 +33,7 @@ indigo→violet gradient, a centered hero, three rounded icon cards. Design beat
 this by splitting those jobs across the tools — use them in order, don't collapse
 them:
 
-1. **Direction** — `show-design-questions` (or a stated thesis) sets taste on purpose.
+1. **Direction** — state a clear visual thesis and key assumptions with sensible defaults (only use `show-design-questions` when intake questions are explicitly enabled and the tool is available).
 2. **Exploration** — `present-design-variants` compares genuinely different directions
    before committing to one. **This step kills sameness; never skip it for open-ended work.**
 3. **Spec** — the `:root` token block capture the chosen look as reusable rules.
@@ -291,9 +291,9 @@ defaults. The banned-defaults list above still applies, plus:
 
 ## Generation Workflow — the canonical 5-phase flow
 
-This flow mirrors Claude Design's UX: clarify only what's unclear → show variants → user picks → refine. Don't collapse phases into one shot for new, open-ended designs.
+For a new design request, generate the first coherent design directly with sensible defaults and briefly state any important assumptions instead of stopping at an intake-question form. When intake questions are explicitly enabled and `show-design-questions` is available, clarify only what's unclear before generating.
 
-### Phase 1 — Create the project + ask before generating
+### Phase 1 — Create the project + set direction
 
 ```bash
 pnpm action create-design --title "Project Name" --projectType prototype
@@ -305,10 +305,13 @@ application state. External MCP hosts should surface the `create-design`
 returned "Open design" link, then use `present-design-variants` to open the
 visual picker.
 
-Then, for a brief or ambiguous first prompt to a **new** design, call
-`show-design-questions` BEFORE generating. The editor renders a full-canvas
-overlay; answers come back as a chat message. Size the question count to how
-much is actually unresolved — most prompts warrant 2-4 questions, not the full
+By default, skip intake questions and move straight into generating the first
+coherent design with sensible defaults, briefly stating any important
+assumptions. Only call `show-design-questions` BEFORE generating when intake
+questions are explicitly enabled for the deployment and `show-design-questions`
+is available on a brief or ambiguous first prompt to a **new** design. The
+editor renders a full-canvas overlay; answers come back as a chat message. Size
+the question count to how much is actually unresolved — most prompts warrant 2-4 questions, not the full
 1-8 range — and never ask about something the prompt already specified (a
 stated color, audience, or layout is settled; don't re-ask it as a choice).
 

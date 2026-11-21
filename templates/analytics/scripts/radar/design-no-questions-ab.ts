@@ -28,8 +28,13 @@ export interface DesignNoQuestionsArm {
     rate: number | null;
     ci95: [number, number] | null;
   };
+  firstTurnReady24h: {
+    users: number;
+    denominator: number;
+    rate: number | null;
+  };
   timeToReady24hMs: { users: number; p50: number | null; p90: number | null };
-  secondPrompt24h: {
+  postReadyFollowUp24h: {
     users: number;
     denominator: number;
     rate: number | null;
@@ -57,21 +62,15 @@ export interface DesignNoQuestionsReadout {
   generatedAt: string;
 }
 
-const POSTGRES_AB_SQL = `${buildFirstTouchEventsCte({
-  startDate: "$1",
-  endDate: "to_char($4::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD')",
-  orgId: "$3",
-  includeAllApps: true,
-})},
-exposure_rows AS (
+const POSTGRES_AB_BODY_SQL = `exposure_rows AS (
   SELECT person_key,
     properties ->> 'experiment_variant' AS variant,
-    properties ->> 'turn_id' AS exposed_turn_id,
+    nullif(properties ->> 'turn_id', '') AS exposed_turn_id,
     happened_at AS exposed_at,
     row_number() OVER (PARTITION BY person_key ORDER BY happened_at, id) AS exposure_number
   FROM base_events
   WHERE app = 'design' AND event_name = 'agent_experiment_exposed'
-    AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND properties ->> 'experiment_id' = 'design_no_questions'
     AND properties ->> 'experiment_variant' IN ('control', 'no_questions')
     AND properties ->> 'telemetry_origin' = 'server'
     AND person_key IS NOT NULL
@@ -86,7 +85,7 @@ assignment_failures AS (
   SELECT count(DISTINCT person_key)::int AS signup_assignment_failures
   FROM base_events
   WHERE app = 'design' AND event_name = 'agent_experiment_assignment_failed'
-    AND properties ->> 'experiment_id' = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND properties ->> 'experiment_id' = 'design_no_questions'
     AND properties ->> 'failure_stage' = 'signup'
     AND properties ->> 'telemetry_origin' = 'server'
     AND event_date BETWEEN $1 AND $2
@@ -94,7 +93,7 @@ assignment_failures AS (
 ),
 prompts AS (
   SELECT e.id, e.person_key, e.happened_at,
-    e.properties ->> 'turn_id' AS turn_id,
+    nullif(e.properties ->> 'turn_id', '') AS turn_id,
     (string_to_array(e.properties ->> 'experiment_variants', ','))[
       assignment.assignment_index
     ] AS variant
@@ -104,7 +103,7 @@ prompts AS (
   ) WITH ORDINALITY AS assignment(experiment_id, assignment_index)
   WHERE e.app = 'design' AND e.event_name = '$ai_generation'
     AND e.properties ->> 'telemetry_origin' = 'server'
-    AND assignment.experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND assignment.experiment_id = 'design_no_questions'
     AND (string_to_array(e.properties ->> 'experiment_variants', ','))[
       assignment.assignment_index
     ] IN ('control', 'no_questions')
@@ -125,11 +124,10 @@ anchors AS (
     (coalesce(first_prompt_at, exposed_at) + interval '8 days' <= $4::timestamptz) AS mature_1to7d
   FROM cohort
 ),
-ready AS (
-  SELECT a.person_key, min(e.happened_at) AS ready_at,
-    (array_agg(e.properties ->> 'output_id' ORDER BY e.happened_at, e.id)
-      FILTER (WHERE nullif(e.properties ->> 'output_id', '') IS NOT NULL))[1]
-      AS output_id
+ready_events AS (
+  SELECT a.person_key, a.exposed_turn_id, e.id, e.happened_at,
+    e.properties ->> 'output_id' AS output_id,
+    nullif(e.properties ->> 'turn_id', '') AS turn_id
   FROM anchors a
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_ready_viewed'
@@ -137,7 +135,6 @@ ready AS (
     AND e.happened_at < a.anchor_at + interval '24 hours'
     AND e.happened_at <= $4::timestamptz
     AND e.properties ->> 'telemetry_origin' = 'client'
-    AND e.properties ->> 'turn_id' = a.exposed_turn_id
     AND e.properties ->> 'is_owner' = 'true'
     AND CASE
       WHEN (e.properties ->> 'screen_count') ~ '^[0-9]{1,9}$'
@@ -145,33 +142,43 @@ ready AS (
       ELSE false
     END
     AND nullif(e.properties ->> 'output_id', '') IS NOT NULL
-  GROUP BY a.person_key
 ),
-second_prompts AS (
-  SELECT a.person_key, min(t.happened_at) AS second_prompt_at
+ready AS (
+  SELECT person_key,
+    min(happened_at) AS ready_at,
+    (array_agg(output_id ORDER BY happened_at, id))[1] AS output_id,
+    (array_agg(turn_id ORDER BY happened_at, id))[1] AS ready_turn_id,
+    bool_or(
+      turn_id IS NOT NULL AND exposed_turn_id IS NOT NULL
+        AND turn_id = exposed_turn_id
+    ) AS first_turn_ready
+  FROM ready_events
+  GROUP BY person_key
+),
+ready_outputs AS (
+  SELECT DISTINCT person_key, output_id
+  FROM ready_events
+),
+post_ready_follow_ups AS (
+  SELECT a.person_key, min(p.happened_at) AS follow_up_prompt_at
   FROM anchors a
-  JOIN base_events t ON t.person_key = a.person_key
-    AND t.app = 'design' AND t.event_name = '$ai_generation'
-    AND t.properties ->> 'telemetry_origin' = 'server'
-    AND t.happened_at > a.first_prompt_at
-    AND t.happened_at < a.first_prompt_at + interval '24 hours'
-    AND t.happened_at <= $4::timestamptz
-  CROSS JOIN LATERAL unnest(
-    string_to_array(t.properties ->> 'experiment_ids', ',')
-  ) WITH ORDINALITY AS assignment(experiment_id, assignment_index)
-  WHERE a.first_prompt_at IS NOT NULL
-    AND assignment.experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND (string_to_array(t.properties ->> 'experiment_variants', ','))[
-      assignment.assignment_index
-    ] = a.variant
-    AND nullif(t.properties ->> 'turn_id', '') IS NOT NULL
-    AND t.properties ->> 'turn_id' <> a.exposed_turn_id
+  JOIN ready r ON r.person_key = a.person_key
+  JOIN prompts p ON p.person_key = a.person_key
+    AND p.variant = a.variant
+    AND p.happened_at > r.ready_at
+    AND p.happened_at < a.anchor_at + interval '24 hours'
+    AND p.happened_at <= $4::timestamptz
+    AND p.turn_id IS NOT NULL
+    AND a.exposed_turn_id IS NOT NULL
+    AND p.turn_id <> a.exposed_turn_id
+    AND r.ready_turn_id IS NOT NULL
+    AND p.turn_id <> r.ready_turn_id
   GROUP BY a.person_key
 ),
 exports AS (
   SELECT a.person_key, min(e.happened_at) AS exported_at
   FROM anchors a
-  JOIN ready r ON r.person_key = a.person_key
+  JOIN ready_outputs r ON r.person_key = a.person_key
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_exported'
     AND e.happened_at >= a.anchor_at
@@ -195,12 +202,14 @@ returns AS (
   GROUP BY a.person_key
 ),
 per_user AS (
-  SELECT a.*, r.ready_at, s.second_prompt_at, x.exported_at, v.returned_at,
+  SELECT a.*, r.ready_at,
+    coalesce(r.first_turn_ready, false) AS first_turn_ready,
+    f.follow_up_prompt_at, x.exported_at, v.returned_at,
     CASE WHEN r.ready_at IS NULL THEN NULL
       ELSE extract(epoch FROM (r.ready_at - a.anchor_at)) * 1000 END AS time_to_ready_ms
   FROM anchors a
   LEFT JOIN ready r USING (person_key)
-  LEFT JOIN second_prompts s USING (person_key)
+  LEFT JOIN post_ready_follow_ups f USING (person_key)
   LEFT JOIN exports x USING (person_key)
   LEFT JOIN returns v USING (person_key)
 ),
@@ -209,14 +218,13 @@ summary AS (
     count(*)::int AS exposed,
     count(*) FILTER (WHERE first_prompt_at IS NOT NULL)::int AS prompt_joined,
     count(*) FILTER (WHERE mature_24h)::int AS mature_24h,
-    count(*) FILTER (WHERE mature_24h AND first_prompt_at IS NOT NULL)::int AS mature_24h_prompt,
     count(*) FILTER (WHERE mature_24h AND ready_at IS NOT NULL)::int AS ready_24h,
+    count(*) FILTER (WHERE mature_24h AND first_turn_ready)::int AS first_turn_ready_24h,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY time_to_ready_ms)
       FILTER (WHERE mature_24h AND ready_at IS NOT NULL) AS time_p50_ms,
     percentile_cont(0.9) WITHIN GROUP (ORDER BY time_to_ready_ms)
       FILTER (WHERE mature_24h AND ready_at IS NOT NULL) AS time_p90_ms,
-    count(*) FILTER (WHERE mature_24h AND first_prompt_at IS NOT NULL
-      AND second_prompt_at IS NOT NULL)::int AS second_prompt_24h,
+    count(*) FILTER (WHERE mature_24h AND follow_up_prompt_at IS NOT NULL)::int AS post_ready_follow_up_24h,
     count(*) FILTER (WHERE mature_24h AND exported_at IS NOT NULL)::int AS completed_export_24h,
     count(*) FILTER (WHERE mature_1to7d)::int AS mature_1to7d,
     count(*) FILTER (WHERE mature_1to7d AND returned_at IS NOT NULL)::int AS return_1to7d
@@ -229,11 +237,11 @@ SELECT v.variant,
   coalesce(s.exposed, 0) AS exposed,
   coalesce(s.prompt_joined, 0) AS prompt_joined,
   coalesce(s.mature_24h, 0) AS mature_24h,
-  coalesce(s.mature_24h_prompt, 0) AS mature_24h_prompt,
   coalesce(s.ready_24h, 0) AS ready_24h,
+  coalesce(s.first_turn_ready_24h, 0) AS first_turn_ready_24h,
   s.time_p50_ms,
   s.time_p90_ms,
-  coalesce(s.second_prompt_24h, 0) AS second_prompt_24h,
+  coalesce(s.post_ready_follow_up_24h, 0) AS post_ready_follow_up_24h,
   coalesce(s.completed_export_24h, 0) AS completed_export_24h,
   coalesce(s.mature_1to7d, 0) AS mature_1to7d,
   coalesce(s.return_1to7d, 0) AS return_1to7d,
@@ -243,20 +251,26 @@ LEFT JOIN summary s USING (variant)
 CROSS JOIN assignment_failures f
 ORDER BY v.variant`;
 
-const BIGQUERY_AB_SQL = (eventsTableRange: string) =>
-  `${bigQueryFirstTouchEventsCte(eventsTableRange, {
-    endDateParam: "DATE(@as_of)",
+// raw-sql-ok: composes the shared static first-touch CTE helper with static query SQL; all runtime values stay bound as $1-$4.
+const POSTGRES_AB_SQL = [
+  buildFirstTouchEventsCte({
+    startDate: "$1",
+    endDate: "to_char($4::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD')",
+    orgId: "$3",
     includeAllApps: true,
-  })},
-exposure_rows AS (
+  }),
+  POSTGRES_AB_BODY_SQL,
+].join(",\n");
+
+const BIGQUERY_AB_BODY_SQL = `exposure_rows AS (
   SELECT person_key,
     json_value(properties, '$.experiment_variant') AS variant,
-    json_value(properties, '$.turn_id') AS exposed_turn_id,
+    nullif(json_value(properties, '$.turn_id'), '') AS exposed_turn_id,
     happened_at AS exposed_at,
     row_number() OVER (PARTITION BY person_key ORDER BY happened_at, id) AS exposure_number
   FROM base_events
   WHERE app = 'design' AND event_name = 'agent_experiment_exposed'
-    AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND json_value(properties, '$.experiment_id') = 'design_no_questions'
     AND json_value(properties, '$.experiment_variant') IN ('control', 'no_questions')
     AND json_value(properties, '$.telemetry_origin') = 'server'
     AND person_key IS NOT NULL
@@ -271,7 +285,7 @@ assignment_failures AS (
   SELECT count(DISTINCT person_key) AS signup_assignment_failures
   FROM base_events
   WHERE app = 'design' AND event_name = 'agent_experiment_assignment_failed'
-    AND json_value(properties, '$.experiment_id') = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND json_value(properties, '$.experiment_id') = 'design_no_questions'
     AND json_value(properties, '$.failure_stage') = 'signup'
     AND json_value(properties, '$.telemetry_origin') = 'server'
     AND event_date BETWEEN @start_date AND @end_date
@@ -279,7 +293,7 @@ assignment_failures AS (
 ),
 prompts AS (
   SELECT e.id, e.person_key, e.happened_at,
-    json_value(e.properties, '$.turn_id') AS turn_id,
+    nullif(json_value(e.properties, '$.turn_id'), '') AS turn_id,
     SPLIT(json_value(e.properties, '$.experiment_variants'), ',')[
       SAFE_OFFSET(assignment_index)
     ] AS variant
@@ -288,7 +302,7 @@ prompts AS (
     AS experiment_id WITH OFFSET AS assignment_index
   WHERE e.app = 'design' AND e.event_name = '$ai_generation'
     AND json_value(e.properties, '$.telemetry_origin') = 'server'
-    AND experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
+    AND experiment_id = 'design_no_questions'
     AND SPLIT(json_value(e.properties, '$.experiment_variants'), ',')[
       SAFE_OFFSET(assignment_index)
     ] IN ('control', 'no_questions')
@@ -309,14 +323,10 @@ anchors AS (
     timestamp_add(coalesce(first_prompt_at, exposed_at), INTERVAL 8 DAY) <= @as_of AS mature_1to7d
   FROM cohort
 ),
-ready AS (
-  SELECT a.person_key, min(e.happened_at) AS ready_at,
-    ARRAY_AGG(STRUCT(
-      e.happened_at AS happened_at,
-      e.id AS id,
-      json_value(e.properties, '$.output_id') AS output_id
-    ) ORDER BY e.happened_at, e.id LIMIT 1)[SAFE_OFFSET(0)].output_id
-      AS output_id
+ready_events AS (
+  SELECT a.person_key, a.exposed_turn_id, e.id, e.happened_at,
+    json_value(e.properties, '$.output_id') AS output_id,
+    nullif(json_value(e.properties, '$.turn_id'), '') AS turn_id
   FROM anchors a
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_ready_viewed'
@@ -324,36 +334,56 @@ ready AS (
     AND e.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
     AND e.happened_at <= @as_of
     AND json_value(e.properties, '$.telemetry_origin') = 'client'
-    AND json_value(e.properties, '$.turn_id') = a.exposed_turn_id
     AND json_value(e.properties, '$.is_owner') = 'true'
     AND safe_cast(json_value(e.properties, '$.screen_count') AS INT64) > 0
     AND nullif(json_value(e.properties, '$.output_id'), '') IS NOT NULL
-  GROUP BY a.person_key
 ),
-second_prompts AS (
-  SELECT a.person_key, min(t.happened_at) AS second_prompt_at
+ready AS (
+  SELECT person_key,
+    first_ready.happened_at AS ready_at,
+    first_ready.output_id AS output_id,
+    first_ready.turn_id AS ready_turn_id,
+    first_turn_ready
+  FROM (
+    SELECT person_key,
+      ARRAY_AGG(STRUCT(
+        happened_at AS happened_at,
+        id AS id,
+        output_id AS output_id,
+        turn_id AS turn_id
+      ) ORDER BY happened_at, id LIMIT 1)[SAFE_OFFSET(0)] AS first_ready,
+      logical_or(
+        turn_id IS NOT NULL AND exposed_turn_id IS NOT NULL
+          AND turn_id = exposed_turn_id
+      ) AS first_turn_ready
+    FROM ready_events
+    GROUP BY person_key
+  )
+),
+ready_outputs AS (
+  SELECT DISTINCT person_key, output_id
+  FROM ready_events
+),
+post_ready_follow_ups AS (
+  SELECT a.person_key, min(p.happened_at) AS follow_up_prompt_at
   FROM anchors a
-  JOIN base_events t ON t.person_key = a.person_key
-    AND t.app = 'design' AND t.event_name = '$ai_generation'
-    AND json_value(t.properties, '$.telemetry_origin') = 'server'
-    AND t.happened_at > a.first_prompt_at
-    AND t.happened_at < timestamp_add(a.first_prompt_at, INTERVAL 24 HOUR)
-    AND t.happened_at <= @as_of
-  CROSS JOIN UNNEST(SPLIT(json_value(t.properties, '$.experiment_ids'), ','))
-    AS experiment_id WITH OFFSET AS assignment_index
-  WHERE a.first_prompt_at IS NOT NULL
-    AND experiment_id = '${DESIGN_NO_QUESTIONS_EXPERIMENT_ID}'
-    AND SPLIT(json_value(t.properties, '$.experiment_variants'), ',')[
-      SAFE_OFFSET(assignment_index)
-    ] = a.variant
-    AND nullif(json_value(t.properties, '$.turn_id'), '') IS NOT NULL
-    AND json_value(t.properties, '$.turn_id') <> a.exposed_turn_id
+  JOIN ready r ON r.person_key = a.person_key
+  JOIN prompts p ON p.person_key = a.person_key
+    AND p.variant = a.variant
+    AND p.happened_at > r.ready_at
+    AND p.happened_at < timestamp_add(a.anchor_at, INTERVAL 24 HOUR)
+    AND p.happened_at <= @as_of
+    AND p.turn_id IS NOT NULL
+    AND a.exposed_turn_id IS NOT NULL
+    AND p.turn_id <> a.exposed_turn_id
+    AND r.ready_turn_id IS NOT NULL
+    AND p.turn_id <> r.ready_turn_id
   GROUP BY a.person_key
 ),
 exports AS (
   SELECT a.person_key, min(e.happened_at) AS exported_at
   FROM anchors a
-  JOIN ready r ON r.person_key = a.person_key
+  JOIN ready_outputs r ON r.person_key = a.person_key
   JOIN base_events e ON e.person_key = a.person_key
     AND e.app = 'design' AND e.event_name = 'design_exported'
     AND e.happened_at >= a.anchor_at
@@ -377,11 +407,13 @@ returns AS (
   GROUP BY a.person_key
 ),
 per_user AS (
-  SELECT a.*, r.ready_at, s.second_prompt_at, x.exported_at, v.returned_at,
+  SELECT a.*, r.ready_at,
+    coalesce(r.first_turn_ready, false) AS first_turn_ready,
+    f.follow_up_prompt_at, x.exported_at, v.returned_at,
     if(r.ready_at IS NULL, NULL, timestamp_diff(r.ready_at, a.anchor_at, MILLISECOND)) AS time_to_ready_ms
   FROM anchors a
   LEFT JOIN ready r USING (person_key)
-  LEFT JOIN second_prompts s USING (person_key)
+  LEFT JOIN post_ready_follow_ups f USING (person_key)
   LEFT JOIN exports x USING (person_key)
   LEFT JOIN returns v USING (person_key)
 ),
@@ -390,11 +422,11 @@ summary AS (
     count(*) AS exposed,
     countif(first_prompt_at IS NOT NULL) AS prompt_joined,
     countif(mature_24h) AS mature_24h,
-    countif(mature_24h AND first_prompt_at IS NOT NULL) AS mature_24h_prompt,
     countif(mature_24h AND ready_at IS NOT NULL) AS ready_24h,
+    countif(mature_24h AND first_turn_ready) AS first_turn_ready_24h,
     approx_quantiles(if(mature_24h AND ready_at IS NOT NULL, time_to_ready_ms, NULL), 100)[SAFE_OFFSET(50)] AS time_p50_ms,
     approx_quantiles(if(mature_24h AND ready_at IS NOT NULL, time_to_ready_ms, NULL), 100)[SAFE_OFFSET(90)] AS time_p90_ms,
-    countif(mature_24h AND first_prompt_at IS NOT NULL AND second_prompt_at IS NOT NULL) AS second_prompt_24h,
+    countif(mature_24h AND follow_up_prompt_at IS NOT NULL) AS post_ready_follow_up_24h,
     countif(mature_24h AND exported_at IS NOT NULL) AS completed_export_24h,
     countif(mature_1to7d) AS mature_1to7d,
     countif(mature_1to7d AND returned_at IS NOT NULL) AS return_1to7d
@@ -407,11 +439,11 @@ SELECT variants.variant,
   coalesce(summary.exposed, 0) AS exposed,
   coalesce(summary.prompt_joined, 0) AS prompt_joined,
   coalesce(summary.mature_24h, 0) AS mature_24h,
-  coalesce(summary.mature_24h_prompt, 0) AS mature_24h_prompt,
   coalesce(summary.ready_24h, 0) AS ready_24h,
+  coalesce(summary.first_turn_ready_24h, 0) AS first_turn_ready_24h,
   summary.time_p50_ms,
   summary.time_p90_ms,
-  coalesce(summary.second_prompt_24h, 0) AS second_prompt_24h,
+  coalesce(summary.post_ready_follow_up_24h, 0) AS post_ready_follow_up_24h,
   coalesce(summary.completed_export_24h, 0) AS completed_export_24h,
   coalesce(summary.mature_1to7d, 0) AS mature_1to7d,
   coalesce(summary.return_1to7d, 0) AS return_1to7d,
@@ -420,6 +452,16 @@ FROM variants
 LEFT JOIN summary USING (variant)
 CROSS JOIN assignment_failures
 ORDER BY variants.variant`;
+
+// raw-sql-ok: composes the shared BigQuery first-touch CTE helper (validated eventsTableRange) with static query SQL; all runtime values stay bound parameters.
+const BIGQUERY_AB_SQL = (eventsTableRange: string) =>
+  [
+    bigQueryFirstTouchEventsCte(eventsTableRange, {
+      endDateParam: "DATE(@as_of)",
+      includeAllApps: true,
+    }),
+    BIGQUERY_AB_BODY_SQL,
+  ].join(",\n");
 
 function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -508,8 +550,8 @@ function armFromRow(
   const exposed = number(row, "exposed");
   const mature24h = number(row, "mature_24h");
   const readyUsers = number(row, "ready_24h");
-  const secondDenominator = number(row, "mature_24h_prompt");
-  const secondUsers = number(row, "second_prompt_24h");
+  const firstTurnReadyUsers = number(row, "first_turn_ready_24h");
+  const followUpUsers = number(row, "post_ready_follow_up_24h");
   const exportUsers = number(row, "completed_export_24h");
   const mature1to7d = number(row, "mature_1to7d");
   const returnUsers = number(row, "return_1to7d");
@@ -523,15 +565,20 @@ function armFromRow(
       rate: mature24h > 0 ? readyUsers / mature24h : null,
       ci95: wilsonInterval(readyUsers, mature24h),
     },
+    firstTurnReady24h: {
+      users: firstTurnReadyUsers,
+      denominator: mature24h,
+      rate: mature24h > 0 ? firstTurnReadyUsers / mature24h : null,
+    },
     timeToReady24hMs: {
       users: readyUsers,
       p50: nullableNumber(row, "time_p50_ms"),
       p90: nullableNumber(row, "time_p90_ms"),
     },
-    secondPrompt24h: {
-      users: secondUsers,
-      denominator: secondDenominator,
-      rate: secondDenominator > 0 ? secondUsers / secondDenominator : null,
+    postReadyFollowUp24h: {
+      users: followUpUsers,
+      denominator: mature24h,
+      rate: mature24h > 0 ? followUpUsers / mature24h : null,
     },
     completedExport24h: {
       users: exportUsers,
@@ -657,17 +704,25 @@ export function formatDesignNoQuestionsReadout(
     `Primary metric baseline used for power: ${(result.primaryBaseline * 100).toFixed(1)}%; target lift: +${(result.targetLift * 100).toFixed(0)} points; sample needed: ${result.sampleNeededPerArm} per arm (${result.sampleNeededTotal} total), two-sided 5% significance and 80% power.`,
     `Signup assignment failures with no arm: ${result.signupAssignmentFailures}.`,
     "",
-    "| Variant | Exposed | Server prompt trace | 24h mature | Client-observed Design ready within 24h | Time to design p50 / p90 | Second prompt within 24h | Completed UI export within 24h | Mature 1–7d | 1–7d return |",
+    "| Variant | Exposed | Server prompt trace | 24h mature | Client-observed Design ready within 24h | Time to design p50 / p90 | Post-ready follow-up prompt within 24h | Completed UI export within 24h | Mature 1–7d | 1–7d return |",
     "| --- | ---: | ---: | ---: | --- | --- | --- | --- | ---: | --- |",
   ];
   for (const arm of result.arms) {
     lines.push(
-      `| ${arm.variant} | ${arm.exposed} | ${arm.promptJoined} | ${arm.mature24h} | ${arm.ready24h.users}/${arm.mature24h} (${rate(arm.ready24h.rate)}) | ${latency(arm.timeToReady24hMs.p50)} / ${latency(arm.timeToReady24hMs.p90)} | ${arm.secondPrompt24h.users}/${arm.secondPrompt24h.denominator} (${rate(arm.secondPrompt24h.rate)}) | ${arm.completedExport24h.users}/${arm.completedExport24h.denominator} (${rate(arm.completedExport24h.rate)}) | ${arm.mature1to7d} | ${arm.return1to7d.users}/${arm.return1to7d.denominator} (${rate(arm.return1to7d.rate)}) |`,
+      `| ${arm.variant} | ${arm.exposed} | ${arm.promptJoined} | ${arm.mature24h} | ${arm.ready24h.users}/${arm.mature24h} (${rate(arm.ready24h.rate)}) | ${latency(arm.timeToReady24hMs.p50)} / ${latency(arm.timeToReady24hMs.p90)} | ${arm.postReadyFollowUp24h.users}/${arm.postReadyFollowUp24h.denominator} (${rate(arm.postReadyFollowUp24h.rate)}) | ${arm.completedExport24h.users}/${arm.completedExport24h.denominator} (${rate(arm.completedExport24h.rate)}) | ${arm.mature1to7d} | ${arm.return1to7d.users}/${arm.return1to7d.denominator} (${rate(arm.return1to7d.rate)}) |`,
     );
   }
+  const firstTurnDiagnostic = result.arms
+    .map(
+      (arm) =>
+        `${arm.variant} ${arm.firstTurnReady24h.users}/${arm.firstTurnReady24h.denominator} (${rate(arm.firstTurnReady24h.rate)})`,
+    )
+    .join(", ");
   lines.push(
     "",
-    "Design-ready is client-observed: the Design editor emits it only after the owner view loads saved screens for the exposed turn, and the server has confirmed that turn's output receipt. It is not a server-verified proof of a human view. Completed UI exports use server-origin events matching the output ID. Time starts at the first server-traced generation in the exposed turn, falling back to the server exposure timestamp when a trace is missing. Signup assignment failures are reported separately and are not assigned to either arm. The second-prompt rate uses mature exposed users with a joined first server trace. The return rate uses only users with a full 8-day observation window.",
+    `First-turn ready diagnostic (exposed turn only, not primary): ${firstTurnDiagnostic}.`,
+    "",
+    "Design-ready is client-observed at the user level across any turn within 24 hours of the anchor: the Design editor emits it after an owner view loads a saved design with at least one screen (for in-editor runs, after the server confirms that turn's output receipt). It is not server-verified proof of a human view. Counting across subsequent turns avoids penalizing control users whose intake-question answers start a new turn. Time to design measures anchor to the user's first qualifying ready event within 24 hours. Post-ready follow-up prompts count 24h-mature users with a turn-identified first ready event and a server-traced generation on a distinct later turn strictly after that ready event (excluding the exposed turn, the ready-producing turn, and ready events without a turn ID, so intake-question answers and ambiguous same-turn continuations are not counted as follow-ups). Completed UI exports use server-origin frontend export events within 24 hours matching any qualifying ready output ID for that user. Time starts at the first server-traced generation in the exposed turn, falling back to the server exposure timestamp when a trace is missing. Signup assignment failures are reported separately and are not assigned to either arm. The return rate uses only users with a full 8-day observation window.",
   );
   return lines.join("\n");
 }

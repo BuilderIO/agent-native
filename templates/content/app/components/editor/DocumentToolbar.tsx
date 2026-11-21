@@ -77,6 +77,11 @@ import {
   type ChartsGoingWider,
   type ChartsRead,
 } from "./analytics-chart/analytics-chart-share";
+import {
+  designShareAsks,
+  designShareDetail,
+} from "./design-screen/design-screen-share";
+import { useDesignScreenShareCheck } from "./design-screen/use-design-screen-share";
 
 const NO_CHARTS: AnalyticsChartData[] = [];
 // A widget can't make a page public when that would carry sub-pages: core
@@ -161,6 +166,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { AutoSyncToggle } from "./AutoSyncToggle";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -1171,23 +1177,41 @@ export function DocumentToolbar({
   );
   const { dataUpdatedAt: subPagesReadAt, refetch: readSubPagesAgain } =
     subPageCharts;
+  const designScreenShare = useDesignScreenShareCheck({
+    documentId,
+    documentContent,
+    shareMounted,
+    inWidget,
+  });
   const confirmChartAudience = useCallback(
     (from: EmbedVisibility, to: EmbedVisibility) => {
       if (!isWiderVisibility(to, from)) return false;
       // Going public on an older answer reads the sub-pages again and asks
       // while that read is out; the question's text follows the read. Tables
       // are refused when the change is saved, whatever this read says.
-      if (
-        to === "public" &&
-        !inWidget &&
-        subPageChartsNeedReading(subPagesReadAt, Date.now())
-      ) {
-        void readSubPagesAgain();
+      const now = Date.now();
+      const chartsStale = subPageChartsNeedReading(subPagesReadAt, now);
+      const screensStale = subPageChartsNeedReading(
+        designScreenShare.subPagesReadAt,
+        now,
+      );
+      if (to === "public" && !inWidget && (chartsStale || screensStale)) {
+        if (chartsStale) void readSubPagesAgain();
+        if (screensStale) void designScreenShare.readSubPagesAgain();
         return true;
       }
-      return analyticsShareAsks(shareCheck(to));
+      return (
+        analyticsShareAsks(shareCheck(to)) ||
+        designShareAsks(designScreenShare.check(to))
+      );
     },
-    [inWidget, readSubPagesAgain, shareCheck, subPagesReadAt],
+    [
+      designScreenShare,
+      inWidget,
+      readSubPagesAgain,
+      shareCheck,
+      subPagesReadAt,
+    ],
   );
   const chartShareDetail = useCallback(
     (to: EmbedVisibility) => {
@@ -1219,13 +1243,14 @@ export function DocumentToolbar({
             many: "analyticsChart.shareDetailSubPages",
           }),
       ].filter((part): part is string => Boolean(part));
-      if (parts.length === 0) return null;
       const blocked =
         check.page.block.length > 0 || (check.subPages?.block.length ?? 0) > 0;
       if (blocked) parts.push(t("analyticsChart.blockedTable"));
-      return parts.join(" ");
+      const screens = designShareDetail(designScreenShare.check(to), t);
+      if (screens) parts.push(screens);
+      return parts.length > 0 ? parts.join(" ") : null;
     },
-    [shareCheck, t],
+    [designScreenShare, shareCheck, t],
   );
   const [shareInitialTab, setShareInitialTab] = useState("share");
   const shareActionRef = useRef<ShareButtonActionHandle>(null);
@@ -2475,43 +2500,11 @@ export function DocumentToolbar({
                           {/* Conflict is shown via NotionConflictBanner above the title */}
 
                           <div className="p-1.5">
-                            <button
-                              onClick={() => setAutoSync(!autoSync)}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
-                            >
-                              <IconRefresh
-                                size={12}
-                                className={
-                                  autoSync
-                                    ? "text-emerald-500"
-                                    : "text-muted-foreground"
-                                }
-                              />
-                              <span
-                                className={
-                                  autoSync
-                                    ? "text-foreground font-medium"
-                                    : "text-muted-foreground"
-                                }
-                              >
-                                {t("editor.toolbar.autoSync")}
-                              </span>
-                              <span
-                                className={cn(
-                                  "ml-auto h-4 w-7 rounded-full relative",
-                                  autoSync
-                                    ? "bg-emerald-500"
-                                    : "bg-muted-foreground/30",
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    "absolute top-0.5 h-3 w-3 rounded-full bg-white",
-                                    autoSync ? "right-0.5" : "left-0.5",
-                                  )}
-                                />
-                              </span>
-                            </button>
+                            <AutoSyncToggle
+                              label={t("editor.toolbar.autoSync")}
+                              checked={autoSync}
+                              onCheckedChange={setAutoSync}
+                            />
                             <button
                               onClick={handlePull}
                               disabled={isWorking}

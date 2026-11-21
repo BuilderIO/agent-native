@@ -16,6 +16,9 @@ import { z } from "zod";
 const browser = vi.hoisted(() => ({
   email: "viewer@example.test" as string | null,
 }));
+const getSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(async () => null),
+);
 vi.mock("../server/auth.js", async (original) => ({
   ...(await original<typeof import("../server/auth.js")>()),
   getBrowserCookieSession: async (
@@ -38,7 +41,7 @@ vi.mock("../deploy/route-discovery.js", async (original) => ({
 }));
 vi.mock("../settings/store.js", async (original) => ({
   ...(await original<typeof import("../settings/store.js")>()),
-  getSetting: async () => null,
+  getSetting: getSettingMock,
 }));
 vi.mock("../extensions/url-safety.js", () => ({
   createSsrfSafeDispatcher: async () => undefined,
@@ -51,7 +54,11 @@ vi.mock("../org/context.js", async (original) => ({
 }));
 
 import { currentInvocationEvidence } from "../action-frame.js";
-import { defineAction, type ActionCaller } from "../action.js";
+import {
+  defineAction,
+  reversibleWriteNeedsApproval,
+  type ActionCaller,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   defineAppConfig,
@@ -179,6 +186,8 @@ afterAll(async () => {
 beforeEach(async () => {
   await getDbExec().execute("DELETE FROM mcp_action_approvals");
   browser.email = OWNER;
+  getSettingMock.mockReset();
+  getSettingMock.mockResolvedValue(null);
   resetAppConfigForTests();
   defineAppConfig({ app: { url: ORIGIN } });
   resetMcpChatTurnAppsForTests();
@@ -913,10 +922,182 @@ describe("userTurn: direct", () => {
     expect(JSON.stringify(result)).toMatch(reviewLink);
     expect(ran).toBe(0);
   });
+
+  it("skips review for direct and approval-only MCP calls when no-approvals is on, and still reviews when off or unreadable", async () => {
+    getSettingMock.mockResolvedValue({ enabled: true });
+    const directOn = await call(await seed(), {
+      guests: ["a@example.test"],
+    });
+    expect(seen(directOn)).toEqual({ granted: true, interactive: true });
+    expect(JSON.stringify(directOn)).not.toMatch(/mcp\/approvals/);
+    expect(runs).toBe(1);
+
+    for (const name of ["update-item", "send-item"]) {
+      const approvalOn = await rpc(await seed(), { name });
+      expect(seen(approvalOn)).toEqual({ granted: true, interactive: true });
+      expect(JSON.stringify(approvalOn)).not.toMatch(/mcp\/approvals/);
+    }
+
+    getSettingMock.mockResolvedValue({ enabled: false });
+    const directOff = await call(await seed(), {
+      guests: ["a@example.test"],
+    });
+    expect(JSON.stringify(directOff)).toMatch(reviewLink);
+    expect(runs).toBe(1);
+
+    for (const name of ["update-item", "send-item"]) {
+      const approvalOff = await rpc(await seed(), { name });
+      expect(JSON.stringify(approvalOff)).toMatch(reviewLink);
+    }
+
+    getSettingMock.mockRejectedValue(new Error("settings unreadable"));
+    const directUnreadable = await call(await seed(), {
+      guests: ["a@example.test"],
+    });
+    expect(JSON.stringify(directUnreadable)).toMatch(reviewLink);
+    expect(runs).toBe(1);
+
+    const approvalUnreadable = await rpc(await seed(), {
+      name: "update-item",
+    });
+    expect(JSON.stringify(approvalUnreadable)).toMatch(reviewLink);
+  });
 });
 
 it("reads a declared user turn and nothing from a missing or unknown entry", () => {
   expect(actionUserTurn(undefined)).toBeUndefined();
   expect(actionUserTurn({ userTurn: "grant" })).toBeUndefined();
   expect(actionUserTurn({ userTurn: "direct" })).toBe("direct");
+});
+
+describe("reversible-write policy over MCP", () => {
+  let runs = 0;
+  const reversibleActions: Record<string, ActionEntry> = {
+    "save-draft": defineAction({
+      description: "Save a reversible draft",
+      mcpTool: true,
+      userTurn: "direct",
+      schema: z.object({ title: z.string().default("Draft") }),
+      needsApproval: reversibleWriteNeedsApproval,
+      run: () => {
+        runs += 1;
+        return probe("save-draft")();
+      },
+    }),
+  };
+
+  beforeEach(() => {
+    runs = 0;
+  });
+
+  it("runs without approval at the default setting (no-approvals unset) and when no-approvals is on", async () => {
+    getSettingMock.mockResolvedValue(null);
+    const defaultResult = await rpc(await seed(), {
+      name: "save-draft",
+      actions: reversibleActions,
+    });
+    expect(seen(defaultResult)).toEqual({ granted: true, interactive: true });
+    expect(JSON.stringify(defaultResult)).not.toMatch(/mcp\/approvals/);
+    expect(runs).toBe(1);
+
+    getSettingMock.mockResolvedValue({ enabled: true });
+    const onResult = await rpc(await seed(), {
+      name: "save-draft",
+      actions: reversibleActions,
+    });
+    expect(seen(onResult)).toEqual({ granted: true, interactive: true });
+    expect(runs).toBe(2);
+  });
+
+  it("asks inline in an MCP form when approvals are explicitly on, and never emits a review-page link", async () => {
+    getSettingMock.mockResolvedValue({ enabled: false });
+
+    const noFormResult = await rpc(await seed(), {
+      name: "save-draft",
+      actions: reversibleActions,
+    });
+    expect(noFormResult).toMatchObject({ isError: true });
+    expect(JSON.stringify(noFormResult)).not.toMatch(/mcp\/approvals/);
+    expect(
+      noFormResult?._meta?.["agent-native/approvalReview"],
+    ).toBeUndefined();
+    expect(runs).toBe(0);
+
+    const { Client, StreamableHTTPClientTransport } =
+      await import("@modelcontextprotocol/client");
+    const grant = await seed();
+    const elicitRequests: Array<Record<string, unknown>> = [];
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`${ORIGIN}/mcp`),
+      {
+        requestInit: {
+          headers: {
+            authorization: `Bearer ${token}`,
+            "x-agent-native-turn-grant": grant,
+          },
+        },
+        fetch: async (input, init) => {
+          const request = new Request(input, init);
+          const body =
+            request.method === "POST"
+              ? await request.clone().text()
+              : undefined;
+          const event = mockEvent(`${ORIGIN}/`, {
+            method: request.method,
+            headers: {
+              host: "app.example.test",
+              ...Object.fromEntries(request.headers),
+            },
+            ...(body === undefined ? {} : { body }),
+          });
+          const response = await handleMcpRequest(event, {
+            name: "Planner",
+            appId: APP,
+            actions: reversibleActions,
+          });
+          if (!(response instanceof Response)) {
+            throw new Error("MCP did not return a response");
+          }
+          return response;
+        },
+      },
+    );
+    const client = new Client(
+      { name: "form-client", version: "1.0.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
+    client.registerCapabilities({
+      elicitation: { form: {}, url: {} },
+    } as never);
+    client.setRequestHandler(
+      "elicitation/create",
+      async (req: { params: Record<string, unknown> }) => {
+        elicitRequests.push(req.params);
+        return {
+          action: "accept" as const,
+          content: { decision: "approve" },
+        };
+      },
+    );
+    await client.connect(transport);
+    try {
+      const approved = await client.callTool({
+        name: "save-draft",
+        arguments: { title: "Long draft ".repeat(40) },
+      });
+      expect(elicitRequests).toHaveLength(1);
+      expect(elicitRequests[0]?.mode).not.toBe("url");
+      expect(elicitRequests[0]?.requestedSchema).toMatchObject({
+        type: "object",
+        properties: {
+          decision: { enum: ["approve", "deny"] },
+        },
+      });
+      expect(JSON.stringify(elicitRequests[0])).not.toMatch(/mcp\/approvals/);
+      expect(JSON.stringify(approved)).not.toMatch(/mcp\/approvals/);
+      expect(runs).toBe(1);
+    } finally {
+      await client.close();
+    }
+  });
 });

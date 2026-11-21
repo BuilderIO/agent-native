@@ -102,6 +102,9 @@ export interface DirectActionCallScope {
   config: MCPConfig;
   actions: Record<string, ActionEntry>;
   advertisedActions: Record<string, ActionEntry>;
+  /** Served actions `tools/list` leaves out (`mcpTool: "search"`): callable
+   *  like listed ones, by name or through `call-tool`. */
+  unlistedActions: Record<string, ActionEntry>;
   /** False for an action whose input schema the request leaves out. */
   isAdvertisable: (name: string) => boolean;
   visibleActions: Record<string, ActionEntry>;
@@ -130,6 +133,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     config,
     actions,
     advertisedActions,
+    unlistedActions,
     isAdvertisable,
     visibleActions,
     fullCatalogRequested,
@@ -141,6 +145,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     inputResponse,
     requestMcpActionApproval,
   } = scope;
+  const servedActions = { ...advertisedActions, ...unlistedActions };
 
   const writeChangeMarker = async (
     entry: ActionEntry,
@@ -156,9 +161,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         orgId: getRequestOrgId() ?? undefined,
       });
     } catch (error) {
-      console.warn(
-        `Could not write the action-change marker after an MCP tool call: ${describeThrownForLog(error)}`,
-      );
+      console.warn({
+        event: "action_change_marker_failed",
+        transport: "mcp",
+        action: name,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
     }
   };
   // What a call that ran has done, read when its result is checked; one
@@ -179,7 +187,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     fail: (failure: DirectActionCallFailure) => void,
   ) => {
     const { name, args, request, ctx } = call;
-    const callableActions = fullCatalogRequested ? actions : advertisedActions;
+    const callableActions = fullCatalogRequested ? actions : servedActions;
 
     // A directory profile may project results arbitrarily, so the derived
     // contract is advertised and enforced on app catalogs only. It compiles
@@ -267,6 +275,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       return actionError(err);
     }
 
+    const callableEntry = Object.hasOwn(callableActions, name)
+      ? callableActions[name]
+      : undefined;
+    if (
+      effectiveIdentity?.userEmail &&
+      callableEntry &&
+      isAdvertisable(name) &&
+      actionCallReadOnly(callableEntry, args) !== true
+    ) {
+      const { markActiveTurn } = await import("../server/active-turn.js");
+      markActiveTurn(effectiveIdentity.userEmail);
+    }
     const outcome = await runMcpActionCallUnredacted(actionCallContext, {
       name,
       args,

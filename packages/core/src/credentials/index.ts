@@ -25,6 +25,7 @@ import {
 import { getRequestContext } from "../server/request-context.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 import { ForbiddenError } from "../sharing/errors.js";
+import { recordCredentialUse } from "./use-ledger.js";
 
 const SETTING_PREFIX = "credential:";
 
@@ -260,6 +261,26 @@ async function resolveEffectiveOrgId(
  * credential-store failure instead of reporting the credential as unset.
  */
 export async function resolveCredentialDetailed(
+  key: string,
+  ctx: CredentialContext,
+): Promise<ResolvedCredential | undefined> {
+  let resolved: ResolvedCredential | undefined;
+  try {
+    resolved = await readCredentialDetailed(key, ctx);
+  } catch (error) {
+    recordCredentialUse({ kind: "unreadable", key });
+    throw error;
+  }
+  recordCredentialUse({
+    kind: "stored",
+    key,
+    scope: resolved?.scope ?? null,
+    scopeId: resolved?.scopeId ?? null,
+  });
+  return resolved;
+}
+
+async function readCredentialDetailed(
   key: string,
   ctx: CredentialContext,
 ): Promise<ResolvedCredential | undefined> {

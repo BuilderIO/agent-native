@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-C’est le même catalogue que la liste `mcp: { connectorCatalog: [...] }` du plugin, déclaré sur l’action au lieu d’un tableau séparé qu’il faut tenir à jour au fil des renommages. Les deux formes fonctionnent, et une application peut migrer action par action. Tout ce qui reste en dehors demeure trouvable via `tool-search`.
+C’est le même catalogue que la liste `mcp: { connectorCatalog: [...] }` du plugin, déclaré sur l’action au lieu d’un tableau séparé qu’il faut tenir à jour au fil des renommages. Les deux formes fonctionnent, et une application peut migrer action par action. Une action laissée de côté ne figure pas dans le catalogue par défaut des agents externes. `mcpTool: "search"` la sert sans la lister : `tool-search` la trouve et `call-tool` l’exécute. Pour toute autre action que votre agent peut appeler, `tool-search` signale les correspondances proches comme non servies, afin qu’un agent externe connecté puisse confier cette tâche à `ask_app`.
 
 Associer les deux flags dans l’autre sens — `agentTool: false` avec `mcpTool: true` — rend une action **exclusive à MCP** : les agents externes l’obtiennent, l’agent de votre propre application ne la voit jamais. Utilisez-le pour l’export, la synchronisation ou le passage de relais dont un outil externe a besoin et que votre agent n’a aucune raison d’appeler.
 
@@ -207,6 +207,8 @@ Sur `approval_required`, l’UI de chat affiche une affordance **Approuver / Ref
 - **Refuser** ferme l’affordance localement. Rien n’est réémis, donc l’action ne s’exécute jamais.
 
 `approvedToolCalls` est un champ de la requête de chat (`AgentChatRequest.approvedToolCalls`). Les clés qui n’y figurent pas restent en pause. Approuver un appel n’approuve jamais un autre appel. Parce que la clé est adressée par contenu, une approbation n’autorise que cet appel exact avec ces arguments exacts. Si le modèle propose plus tard un envoi différent, cela devient une nouvelle clé qui exige sa propre approbation.
+
+Le tour réémis porte aussi l’identifiant de la demande en attente de l’appel dans `approvedToolCallAskIds`. Le serveur n’exécute l’appel que tant que cette demande reste en attente pour le même utilisateur et le même fil ; une clé seule n’approuve donc rien, et seules les pages de l’app elle-même peuvent relayer une approbation via `agentNative.submitChat`.
 
 ### De bout en bout {#flow}
 

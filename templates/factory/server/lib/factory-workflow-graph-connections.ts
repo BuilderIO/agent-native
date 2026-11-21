@@ -20,6 +20,7 @@ interface WorkflowConnection extends ProviderConnection {
 export async function readGraphConnections(
   graph: WorkflowGraph,
   identity: { userEmail: string; orgId: string },
+  ownerEmail?: string,
 ): Promise<WorkflowConnection[]> {
   const nodesByProvider = new Map<string, string[]>();
   for (const { provider, nodeId } of providerUsesOfGraph(
@@ -38,6 +39,7 @@ export async function readGraphConnections(
     reported = await readProviderConnections([...nodesByProvider.keys()], {
       userEmail: identity.userEmail,
       orgId: identity.orgId,
+      ownerEmail,
     });
   } catch (error) {
     const detail =
