@@ -6332,7 +6332,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var vectorFillGradient = paintCs.getPropertyValue("--an-vector-fill-gradient").trim();
       var vectorStrokeGradient = strokeCs.getPropertyValue("--an-vector-stroke-gradient").trim();
-      return {
+      var styles = {
         color: cs.color,
         backgroundColor: cs.backgroundColor,
         backgroundImage: cs.backgroundImage,
@@ -6449,6 +6449,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         isolation: cs.isolation,
         whiteSpace: cs.whiteSpace
       };
+      return Object.fromEntries(
+        Object.entries(styles).filter(([, value]) => value !== void 0)
+      );
     }
     function measureNormalLineHeightPx(el, cs) {
       if (!hasOwnTextContent(el) || cs.lineHeight.trim().toLowerCase() !== "normal" || !document.body) {
@@ -6896,6 +6899,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         selector: getSelector(el),
         classes: Array.from(el.classList),
         computedStyles: {},
+        needsLiveMeasurement: true,
         boundingRect: {
           x: rect.x + (window.scrollX || window.pageXOffset || 0),
           y: rect.y + (window.scrollY || window.pageYOffset || 0),
