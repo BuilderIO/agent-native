@@ -11,11 +11,6 @@ import {
 } from "./build-server.js";
 import { frameworkMcpTool } from "./framework-tools.js";
 
-vi.mock("../labs/store.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../labs/store.js")>()),
-  getUserLabEnabled: vi.fn(async () => false),
-}));
-
 vi.mock("../audit/record.js", () => ({
   recordActionAudit: vi.fn(async () => {}),
 }));

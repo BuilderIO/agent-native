@@ -11,6 +11,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNotNull,
   isNull,
   lte,
@@ -25,9 +26,13 @@ import { assertCommentAccess } from "../server/lib/comment-access.js";
 import {
   activeUploadFromContent,
   contentPageUrls,
-  uploadedFromContent,
   uploadFromTrashedPage,
 } from "../server/lib/content-uploads.js";
+import {
+  filterLibraryRecordings,
+  librarySourceCondition,
+  librarySources,
+} from "../server/lib/library-filter.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
@@ -50,6 +55,7 @@ import {
   isEmbedBackedRecording,
   recordingEmbedProvider,
 } from "../shared/embed-provider.js";
+import { readLibraryFilter } from "../shared/library-filters.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
@@ -59,6 +65,7 @@ interface NavigationState {
   folderId?: string;
   shareId?: string;
   search?: string;
+  filters?: string;
   path?: string;
   meetingId?: string;
   dictationId?: string;
@@ -212,16 +219,20 @@ async function fetchLibrary({
   shared = false,
   fromContent = false,
   organizationId,
+  filters,
 }: {
   folderId?: string;
   shared?: boolean;
   /** The caller's uploads from Content pages, which Library leaves out. */
   fromContent?: boolean;
   organizationId?: string | null;
+  filters?: string;
 }) {
   const db = getDb();
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
+  const libraryFilter =
+    shared || fromContent || folderId ? null : readLibraryFilter(filters ?? "");
   const conditions = [
     recordingExpiryQuery(ownerEmail).available,
     agentRecordingAccessFilter(
@@ -246,7 +257,10 @@ async function fetchLibrary({
       conditions.push(eq(schema.recordings.organizationId, organizationId));
     }
     if (fromContent) conditions.push(activeUploadFromContent());
-    else if (!folderId) conditions.push(not(uploadedFromContent()));
+    else if (libraryFilter && libraryFilter.items.length === 0) {
+      const source = librarySourceCondition(libraryFilter);
+      if (source) conditions.push(source);
+    }
   }
   const resolvedDb = await Promise.resolve(db);
   const meetingRecordingIds = resolvedDb
@@ -257,12 +271,25 @@ async function fetchLibrary({
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
   }
+  if (libraryFilter && libraryFilter.items.length > 0) {
+    const { ids } = await filterLibraryRecordings({
+      where: conditions,
+      state: libraryFilter,
+      orderBy: [desc(schema.recordings.updatedAt)],
+    });
+    if (ids.length === 0) return [];
+    conditions.push(inArray(schema.recordings.id, ids.slice(0, 50)));
+  }
   const rows = await db
     .select()
     .from(schema.recordings)
     .where(and(...conditions))
     .orderBy(desc(schema.recordings.updatedAt))
     .limit(50);
+  const pages =
+    libraryFilter && librarySources(libraryFilter).includes("content")
+      ? await contentPageUrls(rows.map((r) => r.id))
+      : new Map<string, string>();
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
@@ -271,6 +298,7 @@ async function fetchLibrary({
     thumbnailUrl: listingThumbnailUrl(r),
     folderId: r.folderId,
     updatedAt: r.updatedAt,
+    ...(pages.has(r.id) ? { contentPageUrl: pages.get(r.id) } : {}),
   }));
 }
 
@@ -614,12 +642,14 @@ export default defineAction({
           fetchLibrary({
             folderId: nav.folderId,
             organizationId,
+            filters: nav.filters,
           }),
           fetchFoldersForSpace(null),
         ]);
         screen.library = {
           folderId: nav.folderId ?? null,
           search: nav.search ?? null,
+          filters: nav.filters ?? null,
           count: recordings.length,
           recordings,
           folders,

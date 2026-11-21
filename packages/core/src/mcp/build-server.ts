@@ -128,7 +128,10 @@ import {
   type TurnGrantAdmission,
 } from "./turn-grant-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
-import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
+import {
+  isMcpAppsInlineEnabled,
+  warnIfRetiredInlineEnvSet,
+} from "./app-cards.js";
 import {
   createBrowserTabTargetSlot,
   withBrowserTabTargetNote,
@@ -3486,13 +3489,14 @@ export async function createMCPServerForRequest(
       ? { userEmail: ownerFromEnv, orgDomain: undefined }
       : undefined);
 
+  warnIfRetiredInlineEnvSet();
   requestMeta = {
     ...(requestMeta ?? {}),
     inlineMcpApps:
       config.catalogMode === "directory" ||
       requestMeta?.inlineMcpApps === true ||
       (requestMeta?.inlineMcpApps === undefined &&
-        (await isMcpAppsInlineEnabled(effectiveIdentity))),
+        isMcpAppsInlineEnabled(effectiveIdentity)),
   };
 
   const analyticsBase: McpAnalyticsContext = {
@@ -5052,8 +5056,6 @@ export async function createMCPServerForRequest(
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            // Reads follow the same cards decision as resources/list, so a
-            // caller without the lab can't fetch a card by its known URI.
             const resourceActions =
               requestMeta.inlineMcpApps &&
               mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
