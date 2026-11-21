@@ -4503,3 +4503,135 @@ describe("defineAction userTurn", () => {
     ).toBe(true);
   });
 });
+
+describe("defineAction — action_kind", () => {
+  async function capture(
+    name: string,
+    calls: (ctx: ActionRunContext) => Promise<unknown>,
+  ): Promise<Array<Record<string, unknown>>> {
+    const tracked: Array<Record<string, unknown>> = [];
+    const { registerTrackingProvider, unregisterTrackingProvider } =
+      await import("./tracking/registry.js");
+    registerTrackingProvider({
+      name: `action-kind-${name}`,
+      track: (event) => {
+        if (event.name === "action_completed" && event.properties) {
+          tracked.push(event.properties);
+        }
+      },
+    });
+    try {
+      await calls({ caller: "frontend", actionName: name });
+    } finally {
+      unregisterTrackingProvider(`action-kind-${name}`);
+    }
+    return tracked;
+  }
+
+  it("labels automatic, read, and write calls, a planMode read first", async () => {
+    const settings = defineAction({
+      description: "Read or change a setting.",
+      schema: z.object({ set: z.boolean().optional() }),
+      planMode: {
+        effect: (args) => (args.set === undefined ? "read" : "write"),
+      },
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const create = defineAction({
+      description: "Create a note.",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-precedence", async (ctx) => {
+      await settings.run({}, ctx);
+      await settings.run({ set: true }, ctx);
+      await create.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "read",
+      "automatic",
+      "write",
+    ]);
+    expect(settings.automatic).toBe(true);
+    expect(create.automatic).toBeUndefined();
+  });
+
+  it("ignores an automatic option that is neither a boolean nor a predicate", async () => {
+    const save = defineAction({
+      description: "Save a position.",
+      schema: z.object({}),
+      automatic: "yes" as never,
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-invalid-option", async (ctx) => {
+      await save.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual(["write"]);
+    expect(save.automatic).toBeUndefined();
+  });
+
+  it("asks a predicate with a copy of the arguments and the call's context", async () => {
+    const received: number[] = [];
+    const sync = defineAction({
+      description: "Sync the inbox.",
+      schema: z.object({ at: z.date(), force: z.boolean().optional() }),
+      automatic: (input, ctx) => {
+        input.at.setTime(0);
+        return ctx.caller === "frontend" && !input.force;
+      },
+      run: async (args) => {
+        received.push(args.at.getTime());
+        return { ok: true };
+      },
+    });
+    const events = await capture("kind-predicate", async (ctx) => {
+      await sync.run({ at: new Date(1_000) }, ctx);
+      await sync.run({ at: new Date(1_000), force: true }, ctx);
+      await sync.run({ at: new Date(1_000) }, { ...ctx, caller: "tool" });
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "automatic",
+      "write",
+      "write",
+    ]);
+    expect(received).toEqual([1_000, 1_000, 1_000]);
+  });
+
+  it("counts a call whose arguments cannot be copied as a write", async () => {
+    const save = defineAction({
+      description: "Save a position.",
+      schema: z.object({}),
+      automatic: () => true,
+      run: async () => ({ ok: true }),
+    });
+    const args = Object.defineProperty({}, "position", {
+      enumerable: true,
+      get: () => 1,
+    });
+    const events = await capture("kind-uncopyable", async (ctx) => {
+      await save.run(args, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual(["write"]);
+  });
+
+  it("names the output only for an action kept in chat history", async () => {
+    const shared = defineAction({
+      description: "Create a clip.",
+      schema: z.object({}),
+      run: async () => ({ id: "clip-1" }),
+    });
+    const hidden = defineAction({
+      description: "Create a private clip.",
+      schema: z.object({}),
+      persistInChatHistory: false,
+      run: async () => ({ id: "clip-2" }),
+    });
+    const events = await capture("kind-output-id", async (ctx) => {
+      await shared.run({}, ctx);
+      await hidden.run({}, ctx);
+    });
+    expect(events[0]).toMatchObject({ output_id: "clip-1" });
+    expect(events[1]).not.toHaveProperty("output_id");
+  });
+});

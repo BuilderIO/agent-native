@@ -55,6 +55,7 @@ describe("action lifecycle tracking", () => {
         app_name: "clips",
         template_name: "clips",
         action_kind: "write",
+        status: "started",
         user_id: "alice@example.com",
         user_email: "alice@example.com",
         workspace_id: "org_123",
