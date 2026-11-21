@@ -9,6 +9,28 @@ describe("callAppBundleIdsForJoinUrl", () => {
     ).toContain("com.google.Chrome");
   });
 
+  it("watches only Slack for a Slack huddle", () => {
+    expect(callAppBundleIdsForJoinUrl(undefined, "slack")).toEqual([
+      "com.tinyspeck.slackmacgap",
+    ]);
+    expect(callAppBundleIdsForJoinUrl(null, "Slack")).toEqual([
+      "com.tinyspeck.slackmacgap",
+    ]);
+  });
+
+  it("watches the phone and WhatsApp call apps", () => {
+    expect(callAppBundleIdsForJoinUrl(null, "phone")).toContain(
+      "com.apple.avconferenced",
+    );
+    expect(callAppBundleIdsForJoinUrl(null, "whatsapp")).toEqual([
+      "net.whatsapp.WhatsApp",
+      "desktop.WhatsApp",
+    ]);
+    expect(
+      callAppBundleIdsForJoinUrl(null, "whatsapp", "com.google.Chrome"),
+    ).toEqual(["com.google.Chrome"]);
+  });
+
   it("watches browser microphone activity for Webex", () => {
     expect(
       callAppBundleIdsForJoinUrl("https://customer.webex.com/meet/abc"),
