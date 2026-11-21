@@ -4578,7 +4578,7 @@ describe("defineAction — action_kind", () => {
       schema: z.object({ at: z.date(), force: z.boolean().optional() }),
       automatic: (input, ctx) => {
         input.at.setTime(0);
-        return ctx.caller === "frontend" && !input.force;
+        return ctx.actionName === "kind-predicate" && !input.force;
       },
       run: async (args) => {
         received.push(args.at.getTime());
@@ -4588,7 +4588,7 @@ describe("defineAction — action_kind", () => {
     const events = await capture("kind-predicate", async (ctx) => {
       await sync.run({ at: new Date(1_000) }, ctx);
       await sync.run({ at: new Date(1_000), force: true }, ctx);
-      await sync.run({ at: new Date(1_000) }, { ...ctx, caller: "tool" });
+      await sync.run({ at: new Date(1_000) }, { ...ctx, actionName: "other" });
     });
     expect(events.map((event) => event.action_kind)).toEqual([
       "automatic",
@@ -4596,6 +4596,31 @@ describe("defineAction — action_kind", () => {
       "write",
     ]);
     expect(received).toEqual([1_000, 1_000, 1_000]);
+  });
+
+  it("counts a call from anything but the app's own UI as a write", async () => {
+    const refresh = defineAction({
+      description: "Refresh a sync status.",
+      schema: z.object({}),
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const callers = [
+      "tool",
+      "mcp",
+      "cli",
+      "a2a",
+      "http",
+      "automation",
+    ] as const;
+    const events = await capture("kind-callers", async (ctx) => {
+      await refresh.run({}, ctx);
+      for (const caller of callers) await refresh.run({}, { ...ctx, caller });
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "automatic",
+      ...callers.map(() => "write"),
+    ]);
   });
 
   it("counts a call whose arguments cannot be copied as a write", async () => {
@@ -4613,6 +4638,35 @@ describe("defineAction — action_kind", () => {
       await save.run(args, ctx);
     });
     expect(events.map((event) => event.action_kind)).toEqual(["write"]);
+  });
+
+  it("labels a call from the arguments validation hands the handler", async () => {
+    const settings = defineAction({
+      description: "Read or change a setting.",
+      schema: z.object({ mode: z.enum(["read", "write"]).default("read") }),
+      planMode: {
+        effect: (args) => (args.mode === "read" ? "read" : "write"),
+      },
+      run: async () => ({ ok: true }),
+    });
+    const sync = defineAction({
+      description: "Sync the inbox.",
+      schema: z.object({ force: z.boolean().default(false) }),
+      automatic: (input) => input.force === false,
+      run: async () => ({ ok: true }),
+    });
+    const events = await capture("kind-validated", async (ctx) => {
+      await settings.run({}, ctx);
+      await settings.run({ mode: "write" }, ctx);
+      await sync.run({}, ctx);
+      await sync.run({ force: true }, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "read",
+      "write",
+      "automatic",
+      "write",
+    ]);
   });
 
   it("names the output only for an action kept in chat history", async () => {

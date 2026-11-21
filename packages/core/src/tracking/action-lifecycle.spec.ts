@@ -232,7 +232,7 @@ describe("action lifecycle tracking", () => {
       const sync = defineAction({
         description: "Sync the inbox.",
         schema: z.object({ force: z.boolean().optional() }),
-        automatic: (input, ctx) => ctx.caller === "frontend" && !input.force,
+        automatic: (input) => !input.force,
         run: async () => ({ synced: true }),
       });
       const ctx = { ...context, actionName: "sync-inbox" };

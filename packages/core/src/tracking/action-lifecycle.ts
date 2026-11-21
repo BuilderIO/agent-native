@@ -69,7 +69,7 @@ export function wrapRunWithActionTracking(
     actionKind?: (
       args: unknown,
       ctx: ActionRunContext,
-    ) => AgentNativeActionKind;
+    ) => AgentNativeActionKind | Promise<AgentNativeActionKind>;
   } = {},
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   if (readOnly === true) return run;
@@ -77,7 +77,7 @@ export function wrapRunWithActionTracking(
   return async function trackedRun(args: any, ctx?: ActionRunContext) {
     if (!ctx || !shouldTrackAction(ctx)) return run(args, ctx);
 
-    const kind = options.actionKind?.(args, ctx) ?? "write";
+    const kind = (await options.actionKind?.(args, ctx)) ?? "write";
     const { track } = await import("./registry.js");
     const startedAt = Date.now();
     const operationId =

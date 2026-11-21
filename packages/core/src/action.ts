@@ -1354,11 +1354,13 @@ interface DefineActionWithSchema<
    * page load, on mount, on a timer, or experiment and usage bookkeeping. Its
    * `action_started`, `action_completed`, and `action_failed` events carry
    * `action_kind: "automatic"` instead of `"write"`, so product-use counts
-   * leave it out. Pass a predicate when only some calls are automatic, such
-   * as a background sync that only the app's own poller calls without
-   * `force`; it sees the arguments as sent and the call's context, so it can
-   * tell the app's UI from an agent acting on a person's request. It labels analytics only: a write stays a write
-   * everywhere else, so never set `readOnly` to quiet one.
+   * leave it out. Only a call from the app's own UI can be automatic; a call
+   * from an agent, an MCP client, the CLI, or another app is a person asking
+   * and stays a write. Pass a predicate when only some UI calls are
+   * automatic, such as a background sync the poller calls without `force`;
+   * it sees the validated arguments and the call's context. It labels
+   * analytics only: a write stays a write everywhere else, so never set
+   * `readOnly` to quiet one.
    */
   automatic?:
     | boolean
@@ -2020,31 +2022,46 @@ export function defineAction(options: any) {
     typeof options.automatic === "function"
       ? options.automatic
       : undefined;
-  const actionKind = (
+  const validatedCopy = async (args: unknown): Promise<unknown> => {
+    const copy = copyActionArguments(snapshotActionArguments(args).value);
+    if (!hasSchema) return copy;
+    const value = await validateActionArgs(
+      options.schema,
+      copy,
+      convertedParameters(),
+    );
+    if (typeof args === "object" && args !== null) {
+      labelValidatedArgs.set(args, { schema: options.schema, value });
+    }
+    return copyActionArguments(snapshotActionArguments(value).value);
+  };
+  const actionKind = async (
     args: unknown,
     ctx: ActionRunContext,
-  ): AgentNativeActionKind => {
+  ): Promise<AgentNativeActionKind> => {
     const prepared = preparedRunFor(ctx, args);
     const intent = prepared?.key === executionKey ? prepared.intent : undefined;
-    const copy = () =>
-      intent
-        ? preparedCallArguments(intent)
-        : copyActionArguments(snapshotActionArguments(args).value);
+    let input: Promise<unknown> | undefined;
+    const callInput = () =>
+      (input ??= intent
+        ? Promise.resolve(preparedCallArguments(intent))
+        : validatedCopy(args));
     try {
       const callReadOnly = intent
         ? intent.readOnly
         : options.planMode !== undefined &&
-          actionCallReadOnly(classificationEntry, copy());
+          actionCallReadOnly(classificationEntry, await callInput());
       if (callReadOnly === true) return "read";
+      if (ctx.caller !== "frontend") return "write";
       return actionCallIsAutomatic(
         { automatic },
-        typeof automatic === "function" ? copy() : args,
+        typeof automatic === "function" ? await callInput() : args,
         ctx,
       )
         ? "automatic"
         : "write";
     } catch {
-      // coercion-ok: arguments with no exact copy stay counted as a write.
+      // coercion-ok: invalid or uncopyable arguments stay counted as a write.
       return "write";
     }
   };
@@ -2053,7 +2070,19 @@ export function defineAction(options: any) {
     actionKind,
   };
   const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly, trackingOptions),
+    wrapRunWithActionTracking(
+      async (args: unknown, ctx?: ActionRunContext) => {
+        try {
+          return await finalRun(args, ctx);
+        } finally {
+          if (typeof args === "object" && args !== null) {
+            labelValidatedArgs.delete(args);
+          }
+        }
+      },
+      readOnly,
+      trackingOptions,
+    ),
   );
   const invalidCallRun = wrapRunWithActionTracking(
     resolveAuditAttach(effectiveAuditConfig, readOnly)
@@ -3029,6 +3058,10 @@ interface PreparedRun {
 }
 
 const preparedRuns = new WeakMap<object, PreparedRun>();
+const labelValidatedArgs = new WeakMap<
+  object,
+  { readonly schema: StandardSchemaV1; readonly value: unknown }
+>();
 
 function preparedRunHolder(ctx: unknown, args: unknown): object | undefined {
   if (args !== null && typeof args === "object" && preparedRuns.has(args)) {
@@ -3670,6 +3703,14 @@ function wrapWithValidation(
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
+    const labelled =
+      typeof args === "object" && args !== null
+        ? labelValidatedArgs.get(args)
+        : undefined;
+    if (labelled?.schema === schema) {
+      labelValidatedArgs.delete(args);
+      return run(labelled.value, ctx);
+    }
     let validated: unknown;
     try {
       validated = await validateActionArgs(schema, args, toolParameters());
