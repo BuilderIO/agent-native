@@ -34,7 +34,7 @@ describe("merge-main-into-pr decide", () => {
   });
 
   it("refuses while mergeability is unknown instead of guessing", () => {
-    const d = decide(state("UNKNOWN", "UNKNOWN"));
+    const d = decide({ ...state("UNKNOWN", "UNKNOWN"), baseRefName: "" });
     expect(d).toMatchObject({ allowed: false });
     expect(d.allowed === false && d.reason).toMatch(/UNKNOWN/);
   });

@@ -30,6 +30,13 @@ export type PrState = {
 export type Decision = { allowed: true } | { allowed: false; reason: string };
 
 export function decide(state: PrState): Decision {
+  if (state.mergeable === "UNKNOWN") {
+    return {
+      allowed: false,
+      reason:
+        "GitHub has not computed mergeability yet (mergeable=UNKNOWN). Re-run in a minute; do not merge main on a guess.",
+    };
+  }
   if (state.baseRefName !== "main") {
     return {
       allowed: false,
@@ -38,13 +45,6 @@ export function decide(state: PrState): Decision {
   }
   if (state.mergeable === "CONFLICTING" || state.mergeStateStatus === "DIRTY") {
     return { allowed: true };
-  }
-  if (state.mergeable === "UNKNOWN") {
-    return {
-      allowed: false,
-      reason:
-        "GitHub has not computed mergeability yet (mergeable=UNKNOWN). Re-run in a minute; do not merge main on a guess.",
-    };
   }
   return {
     allowed: false,
