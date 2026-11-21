@@ -18,9 +18,8 @@ sync main" without running the command and quoting its error. If merging main
 really fails, or the fix or proof gate you need is only on main, don't ask a
 person to sync: commit your other work and stop with
 `OUTCOME: blocked - needs main merged: <the error or what main has>`. Being
-behind main is not a reason to merge it. Merge `origin/main` yourself only when
-GitHub reports the PR `CONFLICTING` (mergeStateStatus `DIRTY`) or the fix or
-proof gate you need is only on main; the factory then sends another round.
+behind main is not a reason to merge it: merge `origin/main` yourself only when
+GitHub reports the PR `CONFLICTING` (mergeStateStatus `DIRTY`).
 
 - The factory owns this PR: it opened or adopted it. Skip `babysit-pr`'s
   `gh api user` login and author check. In Builder, `gh` uses an app token
