@@ -343,7 +343,7 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(latest.error).toBeNull();
   });
 
-  it("shows each batch's rows once the batches sent before it are in, in the order they were sent", async () => {
+  it("shows each batch's rows in the order sent, and holds new batches behind a slow one", async () => {
     const release = new Map<string, () => void>();
     callAction.mockImplementation(async (_name: string, params: Request) => {
       const first = params.documentIds?.[0] ?? "";
@@ -371,18 +371,19 @@ describe("useBuilderSourceReviewBatches", () => {
 
     act(() => release.get("doc-25")?.());
     await settle();
-    expect([...release.keys()]).toEqual([
-      "doc-5",
-      "doc-25",
-      "doc-45",
-      "doc-65",
-    ]);
+    expect([...release.keys()]).toEqual(["doc-5", "doc-25", "doc-45"]);
     expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
       ["c-doc-0"],
     );
 
     act(() => release.get("doc-5")?.());
     await settle();
+    expect([...release.keys()]).toEqual([
+      "doc-5",
+      "doc-25",
+      "doc-45",
+      "doc-65",
+    ]);
     expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
       ["c-doc-0", "c-doc-5", "c-doc-25"],
     );

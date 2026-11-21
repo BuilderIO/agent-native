@@ -314,7 +314,7 @@ export function useBuilderSourceReviewBatches(args: {
                   BUILDER_REVIEW_BLOCKS_BATCH_SIZE,
                   work.blocksPages,
                 ];
-            if (running >= limit) return null;
+            if (landed.length - applied >= limit) return null;
             const pages = queue
               .filter((page) => !inFlight.has(page))
               .slice(0, batchSize);
