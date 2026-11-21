@@ -11,7 +11,6 @@ export {
   getDataProgram,
   getDataProgramByName,
   listDataPrograms,
-  listScheduledDataPrograms,
   archiveDataProgram,
   recordDataProgramRun,
   updateDataProgramRun,
@@ -55,7 +54,6 @@ export {
   canonicalDataProgramParamsJson,
   hashDataProgramParams,
   runDataProgram,
-  runScheduledDataProgram,
   SCHEDULE_OWNER_INVALID,
   type ScheduledRefreshOutcome,
   type DataProgramErrorCode,
@@ -68,7 +66,6 @@ export {
 
 export {
   registerScheduledDataProgramRefresh,
-  runScheduledDataProgramRefreshes,
   SCHEDULED_REFRESH_SWEEP_ID,
 } from "./scheduled-refresh.js";
 
