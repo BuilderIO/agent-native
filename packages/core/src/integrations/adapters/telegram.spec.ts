@@ -16,6 +16,7 @@ vi.mock("../../server/h3-helpers.js", () => ({
   readBody: vi.fn(async (event: any) => event.context.__rawBody ?? {}),
 }));
 
+import type { IncomingMessage } from "../types.js";
 import { telegramAdapter } from "./telegram.js";
 
 function eventWithBody(body: unknown): any {
@@ -143,9 +144,110 @@ describe("telegramAdapter parseIncomingMessage", () => {
     expect(msg).toBeNull();
   });
 
-  it("returns null for a non-text message (e.g. photo only)", async () => {
+  it("keeps a photo and its caption, using the largest size", async () => {
     const msg = await telegramAdapter().parseIncomingMessage(
-      eventWithBody(update({ text: undefined, photo: [{ file_id: "x" }] })),
+      eventWithBody(
+        update({
+          text: undefined,
+          caption: "  my pay stub  ",
+          photo: [
+            { file_id: "example-thumbnail", width: 90, height: 60 },
+            { file_id: "example-photo", width: 1280, height: 853 },
+          ],
+        }),
+      ),
+    );
+    expect(msg?.text).toBe("my pay stub");
+    expect(msg?.files).toEqual([
+      expect.objectContaining({ id: "example-photo", mimetype: "image/jpeg" }),
+    ]);
+  });
+
+  it("strips a leading bot command from a caption, as it does for text", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          caption: "/ask what is this",
+          photo: [{ file_id: "example-photo", width: 1280, height: 853 }],
+        }),
+      ),
+    );
+    expect(msg?.text).toBe("what is this");
+    expect(msg?.files).toHaveLength(1);
+  });
+
+  it("keeps a document sent without a caption", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          document: {
+            file_id: "example-document",
+            file_name: "example.pdf",
+            mime_type: "application/pdf",
+            file_size: 42,
+          },
+        }),
+      ),
+    );
+    expect(msg?.text).toBe("");
+    expect(msg?.files).toEqual([
+      {
+        id: "example-document",
+        name: "example.pdf",
+        mimetype: "application/pdf",
+        size: 42,
+      },
+    ]);
+  });
+
+  it("keeps a voice note", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          voice: { file_id: "example-voice", mime_type: "audio/ogg" },
+        }),
+      ),
+    );
+    expect(msg?.files).toEqual([
+      expect.objectContaining({ id: "example-voice", mimetype: "audio/ogg" }),
+    ]);
+  });
+
+  it("marks each photo of an album with the album's media_group_id", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          media_group_id: "13579",
+          photo: [{ file_id: "example-photo", width: 1280, height: 853 }],
+        }),
+      ),
+    );
+    expect(msg?.messageGroupId).toBe("13579");
+    expect(msg?.platformContext.mediaGroupId).toBe("13579");
+  });
+
+  it("leaves messageGroupId unset outside an album", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(update()),
+    );
+    expect(msg?.messageGroupId).toBeUndefined();
+  });
+
+  it("leaves a text message without files", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(update({ text: "hello" })),
+    );
+    expect(msg?.text).toBe("hello");
+    expect(msg?.files ?? []).toEqual([]);
+  });
+
+  it("returns null for an unsupported sticker message", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(update({ text: undefined, sticker: { file_id: "x" } })),
     );
     expect(msg).toBeNull();
   });
@@ -531,5 +633,73 @@ describe("telegramAdapter sendMessageToTarget", () => {
         { destination: "999" },
       ),
     ).rejects.toThrow("chat not found");
+  });
+});
+
+describe("telegramAdapter mergeMessageGroup", () => {
+  function mergeAlbum(messages: IncomingMessage[]) {
+    const merge = telegramAdapter().mergeMessageGroup;
+    if (!merge) throw new Error("the Telegram adapter cannot merge albums");
+    return merge(messages);
+  }
+
+  async function albumPhoto(
+    messageId: number,
+    fileId: string,
+    caption?: string,
+  ) {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody({
+        update_id: messageId,
+        message: {
+          message_id: messageId,
+          date: 1_700_000_000,
+          chat: { id: 4242, type: "private" },
+          from: { id: 99, first_name: "QA" },
+          media_group_id: "13579",
+          ...(caption ? { caption } : {}),
+          photo: [{ file_id: fileId, width: 1280, height: 853 }],
+        },
+      }),
+    );
+    if (!msg) throw new Error("album photo was not parsed");
+    return msg;
+  }
+
+  it("makes one message with every photo in order and the caption", async () => {
+    const merged = mergeAlbum([
+      await albumPhoto(12, "photo-c"),
+      await albumPhoto(10, "photo-a", "receipts for March"),
+      await albumPhoto(11, "photo-b"),
+    ]);
+    expect(merged.text).toBe("receipts for March");
+    expect(merged.files?.map((file) => file.id)).toEqual([
+      "photo-a",
+      "photo-b",
+      "photo-c",
+    ]);
+    expect(merged.replyRef).toBe("10");
+    expect(merged.platformContext.messageId).toBe(10);
+    expect(merged.platformContext.mediaGroupMessageIds).toEqual([10, 11, 12]);
+  });
+
+  it("keeps an album without a caption as files with empty text", async () => {
+    const merged = mergeAlbum([
+      await albumPhoto(21, "photo-b"),
+      await albumPhoto(20, "photo-a"),
+    ]);
+    expect(merged.text).toBe("");
+    expect(merged.files?.map((file) => file.id)).toEqual([
+      "photo-a",
+      "photo-b",
+    ]);
+  });
+
+  it("keeps every caption when more than one photo has one", async () => {
+    const merged = mergeAlbum([
+      await albumPhoto(31, "photo-b", "back"),
+      await albumPhoto(30, "photo-a", "front"),
+    ]);
+    expect(merged.text).toBe("front\n\nback");
   });
 });

@@ -91,10 +91,12 @@ import {
   integrationDispatchScopeValue,
 } from "./integration-durable-dispatch.js";
 import { loadIntegrationMemoryPrompt } from "./integration-memory.js";
+import { collectMessageGroup } from "./message-group.js";
 import {
   insertPendingTask,
   isDuplicateEventError,
   stageTaskDeliveryPayload,
+  updateProcessingTaskPayload,
   type PendingTask,
 } from "./pending-tasks-store.js";
 import {
@@ -107,6 +109,7 @@ import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
+  IntegrationFileReference,
   OutgoingMessage,
   PlatformDeliveryReceipt,
   PlatformRunProgress,
@@ -551,6 +554,22 @@ export async function processIntegrationTask(
     (task.orgId === null && principalType === "user" ? "personal" : undefined);
 
   if (!campaignOptions?.continuationInvocation) {
+    const merged = await collectMessageGroup(
+      task,
+      parsed.incoming,
+      options.adapter,
+    );
+    if (merged) {
+      parsed.incoming = merged;
+      await updateProcessingTaskPayload(task.id, JSON.stringify(parsed)).catch(
+        (err) => {
+          console.error(
+            `[integrations] Could not save the merged message group on task ${task.id}:`,
+            err,
+          );
+        },
+      );
+    }
     await recordInboundIntegrationAudit(task, parsed.incoming);
   }
 
@@ -1613,7 +1632,7 @@ async function processIncomingMessage(
             (campaign ? buildDeliveryHistoryMessageIds(incoming) : undefined);
           threadCheckpoint = await persistThreadData(
             threadId,
-            incoming.text,
+            historyUserText(incoming),
             completedRun,
             thread,
             deliveredResponse,
@@ -1732,7 +1751,7 @@ async function processIncomingMessage(
             if (!stagedDeliveryPayload?.deliveryReceipt) {
               threadCheckpoint = await persistThreadData(
                 threadId,
-                incoming.text,
+                historyUserText(incoming),
                 completedRun,
                 thread,
                 undefined,
@@ -1838,6 +1857,15 @@ async function processIncomingMessage(
   });
 }
 
+function fileReferenceLine(file: IntegrationFileReference): string {
+  return `[file] ${file.name || file.id}${file.mimetype ? ` (${file.mimetype})` : ""}${file.permalink ? ` ${file.permalink}` : ""}`;
+}
+
+function historyUserText(incoming: IncomingMessage): string {
+  const fileLines = (incoming.files ?? []).slice(0, 20).map(fileReferenceLine);
+  return [incoming.text, ...fileLines].filter((line) => line.trim()).join("\n");
+}
+
 function buildProviderConversationContext(incoming: IncomingMessage): string {
   const messages = incoming.contextMessages ?? [];
   const files = incoming.files ?? [];
@@ -1852,16 +1880,12 @@ function buildProviderConversationContext(incoming: IncomingMessage): string {
     const text = message.text.replace(/\s+/g, " ").slice(0, 2_000);
     if (text) lines.push(`[${who}] ${text}`);
     for (const file of message.files ?? []) {
-      lines.push(
-        `[file] ${file.name || file.id}${file.mimetype ? ` (${file.mimetype})` : ""}${file.permalink ? ` ${file.permalink}` : ""}`,
-      );
+      lines.push(fileReferenceLine(file));
     }
   }
   if (messages.length === 0) {
     for (const file of files.slice(0, 20)) {
-      lines.push(
-        `[file] ${file.name || file.id}${file.mimetype ? ` (${file.mimetype})` : ""}${file.permalink ? ` ${file.permalink}` : ""}`,
-      );
+      lines.push(fileReferenceLine(file));
     }
   }
   lines.push("</provider-conversation-context>", "");
@@ -2346,7 +2370,7 @@ export async function recordIntegrationResponseDelivery(
     repo.messages.push({
       id: userMessageId,
       role: "user",
-      content: [{ type: "text", text: payload.incoming.text }],
+      content: [{ type: "text", text: historyUserText(payload.incoming) }],
       createdAt,
     });
   }

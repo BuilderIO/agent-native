@@ -11,6 +11,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
+  IntegrationFileReference,
   OutboundTarget,
   PlatformDeliveryReceipt,
 } from "../types.js";
@@ -123,8 +124,19 @@ export function telegramAdapter(): PlatformAdapter {
       const message = body.message || body.edited_message;
       if (!message) return null;
 
-      const text = message.text?.trim();
-      if (!text) return null;
+      const files: IntegrationFileReference[] = [];
+      const photo = message.photo?.at(-1);
+      const media = photo ?? message.document ?? message.voice;
+      if (media?.file_id) {
+        files.push({
+          id: media.file_id,
+          name: media.file_name,
+          mimetype: photo ? "image/jpeg" : media.mime_type,
+          size: media.file_size,
+        });
+      }
+      const text = message.text?.trim() ?? message.caption?.trim() ?? "";
+      if (!text && files.length === 0) return null;
 
       const cleanText =
         text === "/start"
@@ -143,6 +155,10 @@ export function telegramAdapter(): PlatformAdapter {
         platform: "telegram",
         externalThreadId,
         text: cleanText,
+        files,
+        ...(message.media_group_id
+          ? { messageGroupId: String(message.media_group_id) }
+          : {}),
         senderName:
           from?.first_name + (from?.last_name ? ` ${from.last_name}` : ""),
         senderId: String(from?.id),
@@ -155,10 +171,38 @@ export function telegramAdapter(): PlatformAdapter {
           messageId: message.message_id,
           messageThreadId,
           rawText: text,
+          ...(message.media_group_id
+            ? { mediaGroupId: String(message.media_group_id) }
+            : {}),
           fromId: from?.id,
           fromUsername: from?.username,
         },
         timestamp: message.date * 1000,
+      };
+    },
+
+    mergeMessageGroup(messages: IncomingMessage[]): IncomingMessage {
+      const ordered = [...messages].sort(
+        (a, b) =>
+          Number(a.platformContext.messageId) -
+          Number(b.platformContext.messageId),
+      );
+      const first = ordered.at(0);
+      if (!first) throw new Error("A Telegram album needs at least one update");
+      const captioned = ordered.filter((message) => message.text.trim());
+      return {
+        ...first,
+        text: captioned.map((message) => message.text).join("\n\n"),
+        files: ordered.flatMap((message) => message.files ?? []),
+        platformContext: {
+          ...first.platformContext,
+          rawText: captioned
+            .map((message) => String(message.platformContext.rawText ?? ""))
+            .join("\n\n"),
+          mediaGroupMessageIds: ordered.map(
+            (message) => message.platformContext.messageId,
+          ),
+        },
       };
     },
 
