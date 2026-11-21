@@ -221,7 +221,7 @@ describe("workspace OAuth consent", () => {
       ]);
       fetchMock.mockResolvedValueOnce(Response.json(slackGrant()));
       const result = await handleWorkspaceProviderOAuthCallback(
-        callbackEvent("slack"),
+        callbackEvent("slack", { requestedScopes: slackScopes }),
         "slack",
       );
       expect(result).toBeInstanceOf(Response);

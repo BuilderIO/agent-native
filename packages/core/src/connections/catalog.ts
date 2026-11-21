@@ -81,6 +81,14 @@ export interface WorkspaceConnectionProvider {
      */
     requiredScopes?: readonly string[];
   };
+  /** User consent for providers that also support legacy credential setup. */
+  personalOAuth?: WorkspaceConnectionProvider["oauth"];
+}
+
+export function getWorkspaceConnectionOAuth(
+  provider: WorkspaceConnectionProvider | undefined,
+): WorkspaceConnectionProvider["oauth"] {
+  return provider?.personalOAuth ?? provider?.oauth;
 }
 
 export interface ListWorkspaceConnectionProvidersOptions {
@@ -144,7 +152,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         required: true,
       },
     ],
-    oauth: {
+    personalOAuth: {
       provider: "slack",
       authorizationUrl: "https://slack.com/oauth/v2/authorize",
       tokenUrl: "https://slack.com/api/oauth.v2.access",

@@ -14,6 +14,7 @@ import {
 
 import { getAppConfig } from "../app-config/index.js";
 import {
+  getWorkspaceConnectionOAuth,
   getWorkspaceConnectionProvider,
   SLACK_PUBLIC_HISTORY_OAUTH_SCOPES,
   type WorkspaceConnectionProvider,
@@ -939,8 +940,8 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   optionalScopes?: readonly string[];
   resource?: string;
 }): string {
-  if (!input.provider.oauth)
-    throw new Error("Provider does not support OAuth.");
+  const oauth = getWorkspaceConnectionOAuth(input.provider);
+  if (!oauth) throw new Error("Provider does not support OAuth.");
   const requiredScopes =
     input.requestedScopes ?? defaultAuthorizationScopes(input.provider);
   const optionalScopes = input.optionalScopes ?? [];
@@ -950,7 +951,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   );
   if (
     (input.requestedScopes || input.optionalScopes) &&
-    !isAllowedWorkspaceOAuthScopes(requestedScopes, input.provider.oauth.scopes)
+    !isAllowedWorkspaceOAuthScopes(requestedScopes, oauth.scopes)
   ) {
     throw new Error("Requested OAuth scopes are invalid or unsupported.");
   }
@@ -959,9 +960,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   const scopes = isGoogleWorkspaceOAuthProvider(input.provider.id)
     ? [...new Set(["openid", "email", ...requestedScopes])]
     : requestedScopes;
-  const url = new URL(
-    input.authorizationUrl ?? input.provider.oauth.authorizationUrl,
-  );
+  const url = new URL(input.authorizationUrl ?? oauth.authorizationUrl);
   url.searchParams.set("client_id", input.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
   url.searchParams.set("response_type", "code");
@@ -1029,7 +1028,8 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
       | "client_secret_post";
   };
 }): Promise<Record<string, unknown>> {
-  const tokenUrl = input.tokenUrl ?? input.provider.oauth?.tokenUrl;
+  const tokenUrl =
+    input.tokenUrl ?? getWorkspaceConnectionOAuth(input.provider)?.tokenUrl;
   if (!tokenUrl) throw new Error("Provider does not support OAuth.");
   const authorization = `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString("base64")}`;
   if (input.providerId === "sigma" && input.sigma) {
@@ -1612,9 +1612,10 @@ function requiredProvider(
   oauth: NonNullable<WorkspaceConnectionProvider["oauth"]>;
 } {
   const provider = getWorkspaceConnectionProvider(providerId);
-  if (!provider?.oauth)
+  const oauth = getWorkspaceConnectionOAuth(provider);
+  if (!provider || !oauth)
     throw new Error(`${providerId} OAuth is not configured.`);
-  return { ...provider, oauth: provider.oauth };
+  return { ...provider, oauth };
 }
 
 function readStoredFlow(
@@ -1658,13 +1659,11 @@ function readStoredFlow(
             parsedRecord.provider as GenericWorkspaceOAuthProvider,
           )
         : undefined;
+    const oauth = getWorkspaceConnectionOAuth(providerConfig);
     if (
       !Array.isArray(parsedRecord.requestedScopes) ||
-      !providerConfig?.oauth ||
-      !isAllowedWorkspaceOAuthScopes(
-        parsedRecord.requestedScopes,
-        providerConfig.oauth.scopes,
-      )
+      !oauth ||
+      !isAllowedWorkspaceOAuthScopes(parsedRecord.requestedScopes, oauth.scopes)
     ) {
       return {
         flow: null,

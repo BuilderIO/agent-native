@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { AgentConnectionRequiredError, fail } from "../action.js";
 import {
+  getWorkspaceConnectionOAuth,
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionTemplateUse,
 } from "../connections/catalog.js";
@@ -6022,7 +6023,9 @@ async function resolvePersonalProviderOAuthAccess(options: {
   const accessToken = tokens.access_token;
   const heldScopes = oauthTokenScopes(tokens);
   const allowedScopes =
-    getWorkspaceConnectionProvider(options.provider)?.oauth?.scopes ?? [];
+    getWorkspaceConnectionOAuth(
+      getWorkspaceConnectionProvider(options.provider),
+    )?.scopes ?? [];
   if (
     !tokens.personalProviderOAuth ||
     !accessToken ||

@@ -17,6 +17,7 @@ describe("workspace connection provider catalog", () => {
       WORKSPACE_CONNECTION_PROVIDERS.map((provider) => provider.id),
     ).toEqual([
       "slack",
+      "zoom",
       "github",
       "figma",
       "notion",
