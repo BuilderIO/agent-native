@@ -89,12 +89,18 @@ describe("get-design-snapshot", () => {
       fileId: "file-b",
       filename: "variant-b.html",
     });
-    expect(result.nextRequiredAction).toContain(
-      "Call edit-design exactly once",
-    );
+    expect(result.nextRequiredAction).toContain("call edit-design");
     expect(result.nextRequiredAction).toContain("fileId file-b");
     expect(result.nextRequiredAction).toContain(
-      "Do not call delete-file or get-design-snapshot again",
+      "one pass or smaller sequential batches when appropriate",
+    );
+    expect(result.nextRequiredAction).toContain("none of its edits were saved");
+    expect(result.nextRequiredAction).toContain("re-read the current file");
+    expect(result.nextRequiredAction).toContain(
+      "retry all intended edits in the rejected batch",
+    );
+    expect(result.nextRequiredAction).toContain(
+      "Do not call delete-file unless",
     );
   });
 

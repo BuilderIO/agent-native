@@ -15,7 +15,10 @@ export interface ApplyEditsResult {
 }
 
 export class ApplyEditConflictError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly kind: "ambiguous" | "not_found",
+  ) {
     super(message);
     this.name = "ApplyEditConflictError";
   }
@@ -36,6 +39,19 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
+export function findWhitespaceFlexibleMatches(
+  content: string,
+  search: string,
+): { start: number; end: number }[] {
+  const pattern = escapeRegExp(search).replace(/\s+/g, "\\s+");
+  const boundary = /^\s/.test(search) ? "(?<!\\s)" : "";
+  const re = new RegExp(`${boundary}(?=(${pattern}))`, "g");
+  return Array.from(content.matchAll(re), (match) => ({
+    start: match.index,
+    end: match.index + match[1].length,
+  }));
+}
+
 export function applyOneEdit(
   content: string,
   edit: DesignEdit,
@@ -52,25 +68,26 @@ export function applyOneEdit(
   const exact = countOccurrences(content, search);
   if (exact === 1) return content.split(search).join(replace);
 
-  const pattern = escapeRegExp(search).replace(/\s+/g, "\\s+");
-  const re = new RegExp(pattern, "g");
-  const matches = content.match(re);
-  const flexible = matches ? matches.length : 0;
-  if (flexible === 1) {
-    return content.replace(re, () => replace);
-  }
-  if (flexible > 1) {
+  const matches = findWhitespaceFlexibleMatches(content, search);
+  const flexible = matches.length;
+  if (exact > 1 || flexible > 1) {
     const detail =
       exact > 1
         ? `${exact} places (exact) and ${flexible} places (whitespace-insensitive)`
         : `${flexible} places (whitespace-insensitive)`;
     throw new ApplyEditConflictError(
       `Edit ${index + 1}: "search" matched ${detail} — add more surrounding context so it matches exactly one location.`,
+      "ambiguous",
     );
+  }
+  if (flexible === 1) {
+    const { start, end } = matches[0];
+    return `${content.slice(0, start)}${replace}${content.slice(end)}`;
   }
 
   throw new ApplyEditConflictError(
     `Edit ${index + 1}: search text was not found in the file.${nearMissHint(content, search)} Read the current file (get-design-snapshot) and copy the exact text you want to change.`,
+    "not_found",
   );
 }
 
@@ -109,7 +126,10 @@ export function applyEditsInOrder(
         ? null
         : findEditThatRemovedText(contentBeforeEachEdit, edit.search);
       if (removerIndex === null) throw error;
-      throw new ApplyEditConflictError(editRemovedTextMessage(i, removerIndex));
+      throw new ApplyEditConflictError(
+        editRemovedTextMessage(i, removerIndex),
+        error.kind,
+      );
     }
   });
   return { content: next, applied: edits.length };

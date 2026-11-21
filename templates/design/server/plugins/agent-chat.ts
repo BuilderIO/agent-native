@@ -83,7 +83,7 @@ function projectChatGptDirectoryResult(
     }
     if (projected.nextRequiredAction) {
       projected.nextRequiredAction =
-        "Use edit-design once on the returned editTarget. Re-read only if the edit fails with a concrete missing-context error.";
+        "Use edit-design on the returned editTarget in one pass or smaller sequential batches when appropriate. If a batch conflicts, none of its edits were saved; re-read with get-design-snapshot and retry all intended edits in the rejected batch with unique context.";
     }
   }
   if (toolName === "present-design-variants") {

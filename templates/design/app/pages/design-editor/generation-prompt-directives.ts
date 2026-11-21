@@ -286,13 +286,13 @@ export function designTemplateRefinementDirectives(
     `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...referenceImageContextDirectives(referenceImageCount),
-    `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
+    `Call \`get-design-snapshot --designId="${designId}"\` before editing, and re-read the current file if a batch conflicts.`,
     `The copied screens are edited in place, so they stop showing the template once this run saves. \`view-screen\` reports the template's authoritative dimensions and fonts as \`design.createdFromTemplate\` on every turn — keep them unchanged. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,
     "Refine the existing template with `edit-design`; do not call `generate-design`, `delete-file`, or create a replacement screen.",
     'Layers marked `data-agent-native-locked="true"` and everything inside them must remain byte-for-byte unchanged. The server rejects changes to locked backgrounds, logos, and other fixed template layers.',
     "Preserve canvasFrames and the template's width and height. Change only the unlocked content needed for the user's request.",
-    "Prefer one bounded search-replace edit pass. Use replace-file only when necessary, and keep every locked subtree exactly as it appeared in the snapshot.",
-    "After edit-design succeeds, stop and summarize the refinement.",
+    "Use one pass or smaller sequential batches for search-replace edits when appropriate. If a batch conflicts, none of its edits were saved; re-read and retry all intended edits in the rejected batch with unique context. Use replace-file only when necessary, and keep every locked subtree exactly as it appeared in the snapshot.",
+    "After the requested edits are saved, summarize the refinement.",
     DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ];
 }

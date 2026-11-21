@@ -189,6 +189,9 @@ describe("edit-design conflict retry", () => {
       errorCode: "design_edit_conflict",
     });
     await expect(searchMiss).rejects.toThrow("search text was not found");
+    await expect(searchMiss).rejects.toThrow(
+      "None of the edits in this batch were saved",
+    );
     await expect(searchMiss).rejects.not.toHaveProperty("noWrite");
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(2);
@@ -297,6 +300,18 @@ describe("edit-design conflict retry", () => {
   it.each([
     ["missing text", "<main>Hello base</main>", "Not present"],
     ["ambiguous text", "<p>Hello</p><p>Hello</p>", "Hello"],
+    ["overlapping exact text", "<p>aaa</p>", "aa"],
+    ["overlapping whitespace-flexible text", "<p>a a a</p>", "a  a"],
+    [
+      "ambiguous whitespace variants after stripping stable ids",
+      '<p  data-agent-native-node-id="one" >One</p><p data-agent-native-node-id="two" >One</p>',
+      '<p data-agent-native-node-id="old" >One</p>',
+    ],
+    [
+      "overlapping stable-id fallback",
+      '<p>a data-agent-native-node-id="live"aa</p>',
+      'a data-agent-native-node-id="snapshot"a',
+    ],
   ])("reports %s as a no-write rejection", async (_label, content, search) => {
     mocks.readLiveSourceFile.mockResolvedValueOnce({
       content,
@@ -315,6 +330,173 @@ describe("edit-design conflict retry", () => {
     expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      "text",
+      '<main>label data-agent-native-node-id="live" hello  world</main>',
+      '<main>label data-agent-native-node-id="snapshot" hello world</main>',
+    ],
+    [
+      "script",
+      '<script>const marker = \' data-agent-native-node-id="live"\'; const label = "hello  world";</script>',
+      '<script>const marker = \' data-agent-native-node-id="snapshot"\'; const label = "hello world";</script>',
+    ],
+  ])(
+    "does not write a whitespace-only stable-ID fallback in %s",
+    async (_kind, content, search) => {
+      mocks.readLiveSourceFile.mockResolvedValue({
+        content,
+        versionHash: "h0",
+        language: "html",
+      });
+      const failure = action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [{ search, replace: "replacement" }],
+      } as never);
+      await expect(failure).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        errorCode: "design_edit_conflict",
+      });
+      await expect(failure).rejects.not.toThrow(search);
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [
+      "start",
+      '<p data-agent-native-node-id="live" class="old">Hi</p>',
+      ' data-agent-native-node-id="stale" class="old"',
+      ' data-agent-native-node-id="stale" class="new"',
+    ],
+    [
+      "end",
+      '<p class="old" data-agent-native-node-id="live">Hi</p>',
+      ' class="old" data-agent-native-node-id="stale"',
+      ' class="new" data-agent-native-node-id="stale"',
+    ],
+    [
+      "search start with separated live ID",
+      '<p data-agent-native-node-id="live" title="x" class="old">Hi</p>',
+      ' data-agent-native-node-id="stale" class="old"',
+      ' data-agent-native-node-id="stale" class="new"',
+    ],
+    [
+      "search end with separated live ID",
+      '<p class="old" title="x" data-agent-native-node-id="live">Hi</p>',
+      ' class="old" data-agent-native-node-id="stale"',
+      ' class="new" data-agent-native-node-id="stale"',
+    ],
+  ])(
+    "rejects a stripped stable ID at the %s boundary without writing",
+    async (_boundary, content, search, replace) => {
+      mocks.readLiveSourceFile.mockResolvedValue({
+        content,
+        versionHash: "h0",
+        language: "html",
+      });
+      await expect(
+        action.run({
+          designId: "design_1",
+          filename: "index.html",
+          edits: [{ search, replace }],
+        } as never),
+      ).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        errorCode: "design_edit_conflict",
+      });
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still rejects a locked layer changed through stable-ID fallback", async () => {
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content:
+        '<main><div data-agent-native-node-id="live" data-agent-native-locked="true">Legal</div></main>',
+      versionHash: "h0",
+      language: "html",
+    });
+    await expect(
+      action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [
+          {
+            search:
+              '<div data-agent-native-node-id="stale" data-agent-native-locked="true">Legal</div>',
+            replace:
+              '<div data-agent-native-node-id="stale" data-agent-native-locked="true">Changed</div>',
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "locked_layer_edit_rejected",
+    });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "missing",
+      "<main><p>First</p><p>Private repeated text</p></main>",
+      "Private absent text",
+      "search text was not found",
+    ],
+    [
+      "ambiguous",
+      "<main><p>First</p><p>Private repeated text</p><p>Private repeated text</p></main>",
+      "Private repeated text",
+      "matched 2 places",
+    ],
+  ])(
+    "reports a later %s edit without saving or disclosing the batch",
+    async (_kind, content, search, classifier) => {
+      mocks.readLiveSourceFile.mockResolvedValue({
+        content,
+        versionHash: "h0",
+        language: "html",
+      });
+
+      const failure = action.run({
+        designId: "design_1",
+        filename: "index.html",
+        edits: [
+          { search: "First", replace: "Updated" },
+          { search, replace: "Replacement" },
+        ],
+      } as never);
+
+      await expect(failure).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        errorCode: "design_edit_conflict",
+        statusCode: 409,
+        message: expect.stringContaining(classifier),
+      });
+      await expect(failure).rejects.toThrow(
+        "None of the edits in this batch were saved",
+      );
+      await expect(failure).rejects.toThrow("get-design-snapshot");
+      await expect(failure).rejects.toThrow(
+        "one pass or smaller sequential batches when appropriate",
+      );
+      await expect(failure).rejects.toThrow(
+        "all intended edits in the rejected batch",
+      );
+      await expect(failure).rejects.not.toThrow(search);
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    },
+  );
 
   it("classifies a locked-layer rejection as no-write and accepts a corrected call", async () => {
     const lockedContent =
