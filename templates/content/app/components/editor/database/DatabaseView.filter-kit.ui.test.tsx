@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { DocumentProperty } from "@shared/api";
 import { useMemo, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { i18nCatalog } from "@/i18n";
 import { click, renderUi } from "@/test-utils/render-ui";
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -99,7 +101,15 @@ function renderBar(
     );
   }
 
-  renderUi(<Bar />);
+  renderUi(
+    <AgentNativeI18nProvider
+      initialLocale="en-US"
+      persistPreference={false}
+      catalog={i18nCatalog}
+    >
+      <Bar />
+    </AgentNativeI18nProvider>,
+  );
   return latest;
 }
 

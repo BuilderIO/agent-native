@@ -1385,7 +1385,8 @@ function DatabaseTable({
   const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
   const { session } = useSession();
-  const currentUserEmail = session?.email.trim() ?? "";
+  const currentUserEmail =
+    typeof session?.email === "string" ? session.email.trim() : "";
   const filterFields = useMemo(
     () =>
       contentFilterFields(orderedProperties, {
