@@ -685,7 +685,7 @@ type SharedRunOutcome =
       finishedAt: number;
       uses: CredentialUse[];
     }
-  | { kind: "not_shareable" | "failed" | "no_time" };
+  | { kind: "not_shareable" | "failed" | "timed_out" | "no_time" };
 
 async function executeSharedRun(
   program: DataProgramRow,
@@ -693,7 +693,7 @@ async function executeSharedRun(
   sharing: OrgSharing,
   deadline: number,
   callerReserveMs: number,
-  programReadAt?: number,
+  scheduled?: { programReadAt: number },
 ): Promise<SharedRunOutcome> {
   if (deadline - Date.now() - callerReserveMs < MIN_RUN_TIMEOUT_MS) {
     return { kind: "no_time" };
@@ -704,7 +704,7 @@ async function executeSharedRun(
     paramsJson: JSON.stringify(args.params ?? {}),
     status: "running",
     triggeredBy: args.triggeredBy,
-    ...(programReadAt === undefined ? {} : { startedAt: programReadAt }),
+    ...(scheduled ? { startedAt: scheduled.programReadAt } : {}),
   });
   const runTimeoutMs = deadline - Date.now() - callerReserveMs;
   if (runTimeoutMs < MIN_RUN_TIMEOUT_MS) {
@@ -740,14 +740,15 @@ async function executeSharedRun(
   });
 
   if (!outcome.ok && shareable) {
+    const sweepTimedOut = scheduled !== undefined && outcome.code === "timeout";
     await updateDataProgramRun(running.id, {
       status: outcome.code === "timeout" ? "timed_out" : "failed",
-      errorCode: SHARED_RUN_FAILED,
+      errorCode: sweepTimedOut ? SCHEDULE_TIMED_OUT : SHARED_RUN_FAILED,
       errorMessage: outcome.code,
       finishedAt,
       durationMs: finishedAt - startedAt,
     });
-    return { kind: "failed" };
+    return { kind: sweepTimedOut ? "timed_out" : "failed" };
   }
 
   if (!outcome.ok || !shareable) {
@@ -824,13 +825,13 @@ async function runSharedProgram(
  * What one sweep did with a program that has a scheduled refresh:
  * `refreshed` saved a new run for the org; `fresh` found one young enough;
  * `running` found one still going; `not_shareable` and `failed` come from this
- * run or from one whose retry wait isn't over; `owner_invalid` means the owner
- * left the org or no longer exists, which is checked again after
- * `refreshTtlMs`, and `owner_unverified` that checking them failed: a lookup
- * error that may pass records nothing, while one that won't (a deployment with
- * no built-in user accounts, or a database error that isn't transient) is
- * recorded as `schedule_owner_unverified` and checked again after five minutes;
- * `no_time` that the sweep had too little time left to start a run; `skipped`
+ * run or from one whose retry wait isn't over; `timed_out` that a run used up
+ * the sweep's time, recorded as `schedule_timed_out` and tried again after
+ * `refreshTtlMs`; `owner_invalid` means the owner left the org or no longer
+ * exists, which is checked again after `refreshTtlMs`, and `owner_unverified`
+ * that checking them failed, recorded as `schedule_owner_unverified` and
+ * checked again after five minutes; `no_time` that the sweep had too little
+ * time left to start a run; `skipped`
  * that the program can't have a scheduled refresh, or was saved, archived or
  * switched off while this sweep checked it.
  */
@@ -840,6 +841,7 @@ export type ScheduledRefreshOutcome =
   | "running"
   | "not_shareable"
   | "failed"
+  | "timed_out"
   | "owner_invalid"
   | "owner_unverified"
   | "no_time"
@@ -847,6 +849,7 @@ export type ScheduledRefreshOutcome =
 
 export const SCHEDULE_OWNER_INVALID = "schedule_owner_invalid";
 export const SCHEDULE_OWNER_UNVERIFIED = "schedule_owner_unverified";
+export const SCHEDULE_TIMED_OUT = "schedule_timed_out";
 
 const SCHEDULED_REFRESH_LEAD_MS = DEFAULT_TIMEOUT_MS + 60_000;
 const SCHEDULED_FAILURE_RETRY_MS = 5 * 60_000;
@@ -860,9 +863,13 @@ const MIN_SCHEDULED_RUN_MS = PANEL_VIEW_TIMEOUT_MS;
  * last one goes stale, so viewers keep reading the shared run; a failed one is
  * retried after five minutes. A run starts only with at least a panel view's
  * time limit left, so one the sweep cuts short doesn't count against the
- * program. Only an owner confirmed gone pauses the schedule for
- * `refreshTtlMs`; an owner check that fails any other way waits at most five
- * minutes. The program is read again after the owner check, and one saved,
+ * program. A run gets only what's left of the sweep, less than a viewer's
+ * run gets, so one that runs out of time is recorded as `schedule_timed_out`:
+ * that doesn't stop viewers' shared runs, and the schedule tries it again only
+ * after `refreshTtlMs`. Only an owner confirmed gone pauses the schedule for
+ * `refreshTtlMs`; an owner check that fails any other way is recorded and
+ * checked again after five minutes, so an idle app isn't woken every minute
+ * for it. The program is read again after the owner check, and one saved,
  * archived or switched off meanwhile is left to the next pass. The run is
  * recorded as starting just before that read, so a save the read misses still
  * makes the run older than the save, and its rows are never served as the
@@ -907,13 +914,6 @@ export async function runScheduledDataProgram(
   if (current?.updatedAt !== program.updatedAt) return "skipped";
   if (!owner.ok) {
     const missing = owner.code === OWNER_MISSING_ERROR_CODE;
-    if (
-      !missing &&
-      owner.code === "owner_unverifiable" &&
-      owner.accountStatus !== "untracked"
-    ) {
-      return "owner_unverified";
-    }
     const refused = await recordDataProgramRun({
       programId: program.id,
       paramsHash: sharing.paramsHash,
@@ -946,7 +946,7 @@ export async function runScheduledDataProgram(
     sharing,
     Math.min(options.deadline, Date.now() + DEFAULT_TIMEOUT_MS),
     0,
-    programReadAt,
+    { programReadAt },
   );
   return run.kind === "saved" ? "refreshed" : run.kind;
 }
@@ -1003,6 +1003,7 @@ interface ScheduledRefreshWait {
     | "not_shareable"
     | "owner_invalid"
     | "owner_unverified"
+    | "timed_out"
     | "failed";
   until: number;
 }
@@ -1040,6 +1041,9 @@ async function scheduledRefreshWait(
   }
   if (latest.errorCode === SCHEDULE_OWNER_UNVERIFIED) {
     return waitFor("owner_unverified", SCHEDULED_FAILURE_RETRY_MS);
+  }
+  if (latest.errorCode === SCHEDULE_TIMED_OUT) {
+    return waitFor("timed_out", program.refreshTtlMs);
   }
   return waitFor("failed", SCHEDULED_FAILURE_RETRY_MS);
 }

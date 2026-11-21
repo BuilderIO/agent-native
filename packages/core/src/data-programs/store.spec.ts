@@ -809,6 +809,49 @@ describe("data-programs/store", () => {
       ).toBeNull();
     });
 
+    it("getLatestSharedRunRefusal skips the schedule's own failures", async () => {
+      const {
+        ensureDataProgramTables,
+        recordDataProgramRun,
+        getLatestSharedRunRefusal,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const now = Date.now();
+
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "refusal-hash",
+        paramsJson: "{}",
+        status: "failed",
+        errorCode: "shared_run_failed",
+        triggeredBy: "panel_view",
+        startedAt: now - 3_000,
+        finishedAt: now - 2_900,
+      });
+      for (const [errorCode, startedAt] of [
+        ["schedule_timed_out", now - 2_000],
+        ["schedule_owner_unverified", now - 1_000],
+      ] as const) {
+        await recordDataProgramRun({
+          programId,
+          paramsHash: "refusal-hash",
+          paramsJson: "{}",
+          status: "failed",
+          errorCode,
+          triggeredBy: "schedule",
+          startedAt,
+          finishedAt: startedAt + 100,
+        });
+      }
+
+      expect(
+        await getLatestSharedRunRefusal(programId, now - 10_000),
+      ).toMatchObject({
+        errorCode: "shared_run_failed",
+        startedAt: now - 3_000,
+      });
+    });
+
     it("getActiveRun finds queued/running rows but not succeeded/failed ones", async () => {
       const { ensureDataProgramTables, recordDataProgramRun, getActiveRun } =
         await loadStore();

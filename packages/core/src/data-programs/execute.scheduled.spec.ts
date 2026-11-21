@@ -290,6 +290,54 @@ describe("runScheduledDataProgram", () => {
     );
   });
 
+  it("records a run that used up the sweep's time without holding back viewers' shared runs", async () => {
+    mockSandbox(() => ({
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+      timedOut: true,
+      bridgeToolsUsed: [],
+    }));
+    const { runScheduledDataProgram, SCHEDULE_TIMED_OUT } = await loadExecute();
+
+    const outcome = await runScheduledDataProgram(makeProgram(), {
+      deadline: Date.now() + 85_000,
+    });
+
+    expect(outcome).toBe("timed_out");
+    expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+      "dpr_new",
+      expect.objectContaining({
+        status: "timed_out",
+        errorCode: SCHEDULE_TIMED_OUT,
+      }),
+    );
+  });
+
+  it("tries a run that used up the sweep's time again only after refreshTtlMs", async () => {
+    const sandbox = readsOrgToken();
+    const { runScheduledDataProgram, SCHEDULE_TIMED_OUT } = await loadExecute();
+    const timedOut = {
+      status: "timed_out" as const,
+      errorCode: SCHEDULE_TIMED_OUT,
+    };
+
+    storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
+      finishedAgo(30 * 60_000, timedOut),
+    );
+    await expect(
+      runScheduledDataProgram(makeProgram(), { deadline: farDeadline() }),
+    ).resolves.toBe("timed_out");
+    expect(sandbox).not.toHaveBeenCalled();
+
+    storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
+      finishedAgo(HOUR_MS + 60_000, timedOut),
+    );
+    await expect(
+      runScheduledDataProgram(makeProgram(), { deadline: farDeadline() }),
+    ).resolves.toBe("refreshed");
+  });
+
   it("refreshes a run three minutes before it would go stale", async () => {
     const sandbox = readsOrgToken();
     const { runScheduledDataProgram } = await loadExecute();
@@ -450,32 +498,15 @@ describe("runScheduledDataProgram", () => {
     );
   });
 
-  it("skips this pass without a record when the owner lookup hit a passing database error", async () => {
-    identityMocks.validateAutomationRunIdentity.mockResolvedValue({
-      ok: false,
-      code: "owner_unverifiable",
-      reason: "lookup failed",
-    });
-    const sandbox = readsOrgToken();
-    const { runScheduledDataProgram } = await loadExecute();
-
-    const outcome = await runScheduledDataProgram(makeProgram(), {
-      deadline: farDeadline(),
-    });
-
-    expect(outcome).toBe("owner_unverified");
-    expect(sandbox).not.toHaveBeenCalled();
-    expect(storeMocks.recordDataProgramRun).not.toHaveBeenCalled();
-  });
-
   it.each([
+    ["a database error that may pass", { code: "owner_unverifiable" }],
     ["a database error that isn't transient", { code: "config_invalid" }],
     [
       "a deployment with no built-in user accounts",
       { code: "owner_unverifiable", accountStatus: "untracked" },
     ],
   ])(
-    "records a failed run for an owner check that won't pass: %s",
+    "records a failed run for an owner check that fails: %s",
     async (_label, failure) => {
       identityMocks.validateAutomationRunIdentity.mockResolvedValue({
         ok: false,
@@ -695,9 +726,14 @@ describe("scheduledDataProgramDueAt", () => {
       HOUR_MS,
     ],
     [
-      "five minutes after an owner check that won't pass",
+      "five minutes after an owner check that failed",
       { status: "failed" as const, errorCode: "schedule_owner_unverified" },
       5 * 60_000,
+    ],
+    [
+      "refreshTtlMs after a run that used up the sweep's time",
+      { status: "timed_out" as const, errorCode: "schedule_timed_out" },
+      HOUR_MS,
     ],
   ])("is due %s", async (_label, overrides, waitMs) => {
     storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
