@@ -35,7 +35,7 @@ module.exports = () => ({
       if (process.env.FAIL_QUERY === "pressure") throw new Error("pressure failed");
       return [{ connections: 8, idle_in_txn: 0, oldest_idle_txn_s: 0, max_same_query: 1 }];
     }
-    if (query.includes("FROM a2a_tasks")) return [{ tasks: 0, failed: 0, unfinished: 0 }];
+    if (query.includes("FROM a2a_tasks")) return [{ tasks: 0, failed: 0, unfinished: 0, input_required: 0 }];
     if (query.includes("percentile_cont")) return [{ turns: 1, ok: 1, bad: 0, user_stopped: 0, stalled: 0, stale_running: 0, p50_wait_s: 0, p90_wait_s: 0, max_wait_s: 0 }];
     return [];
   },
@@ -139,7 +139,21 @@ const ready = (async () => {
   if (process.env.CASE !== "missing-lease-table") {
     await db.exec("CREATE TABLE agent_execution_leases (thread_id text NOT NULL, turn_id text NOT NULL, generation bigint NOT NULL, owner_run_id text NOT NULL, lease_expires_at timestamptz NOT NULL, updated_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY (thread_id, turn_id))");
   }
+  if (process.env.CASE.startsWith("a2a-")) {
+    await db.exec("CREATE TABLE a2a_tasks (status_state text, status_message text, created_at bigint, updated_at bigint)");
+    const scenario = process.env.CASE.slice(4);
+    const states = scenario === "waiting-only" ? ["input-required"] : [
+      ...Array(7).fill("completed"),
+      ...(scenario === "waiting" ? ["input-required"] : []),
+      ...(scenario === "mixed" ? [...Array(20).fill("input-required"), "failed"] : []),
+      ...(scenario === "statuses" ? ["submitted", "working", "processing", "canceled", "future-state"] : []),
+    ];
+    for (const state of states) {
+      await db.query("INSERT INTO a2a_tasks VALUES ($1, $2, $3, $4)", [state, state === "failed" ? "provider failed" : null, start, start + 1000]);
+    }
+  }
   for (const [id, turn, status, code, reason, duration, offset] of rows) {
+    if (process.env.CASE.startsWith("a2a-")) continue;
     if (process.env.CASE === "stale-only" && id !== "running") continue;
     if (process.env.CASE === "fresh-only" && id !== "new") continue;
     if (process.env.CASE === "leased-only" && id !== "leased" && id !== "leased-generation") continue;
@@ -195,6 +209,76 @@ moduleApi.syncBuiltinESMExports();
       if (result.error) throw result.error;
       return result;
     };
+    const waiting = run("a2a-waiting", "--json", "--strict");
+    const waitingReport = JSON.parse(waiting.stdout);
+    const waitingText = run("a2a-waiting", "--strict");
+    assert.deepEqual(
+      {
+        tasks: waitingReport.apps[0].a2a.tasks,
+        ok: waitingReport.apps[0].a2a.ok,
+        failed: waitingReport.apps[0].a2a.failed,
+        unfinished: waitingReport.apps[0].a2a.unfinished,
+        input_required: waitingReport.apps[0].a2a.input_required,
+        scored: waitingReport.apps[0].a2a.scored,
+        failRate: waitingReport.apps[0].a2a.failRate,
+      },
+      {
+        tasks: 8,
+        ok: 7,
+        failed: 0,
+        unfinished: 0,
+        input_required: 1,
+        scored: 7,
+        failRate: 0,
+      },
+      `JSON exit ${waiting.status}; text exit ${waitingText.status}\n${waitingText.stdout}`,
+    );
+    assert.equal(waiting.status, 0, waiting.stderr);
+    assert.deepEqual(waitingReport.unreachable, []);
+    assert.equal(waitingText.status, 0, waitingText.stderr);
+    assert.match(waitingText.stdout, /waiting\s+other\s+fail%/);
+    assert.match(
+      waitingText.stdout,
+      /chat-health-test-fixture\s+8\s+7\s+0\s+1\s+0\s+0%/,
+    );
+    assert.match(waitingText.stdout, /0\/7 A2A tasks/);
+    assert.match(waitingText.stdout, /0\.0%/);
+
+    const waitingOnly = run("a2a-waiting-only", "--json", "--strict");
+    assert.equal(waitingOnly.status, 0, waitingOnly.stderr);
+    const waitingOnlyA2a = JSON.parse(waitingOnly.stdout).apps[0].a2a;
+    assert.equal(waitingOnlyA2a.input_required, 1);
+    assert.equal(waitingOnlyA2a.scored, 0);
+    assert.equal(waitingOnlyA2a.failRate, 0);
+    const waitingOnlyText = run("a2a-waiting-only", "--strict");
+    assert.equal(waitingOnlyText.status, 0, waitingOnlyText.stderr);
+    assert.match(waitingOnlyText.stdout, /0\/0 A2A tasks/);
+
+    const mixed = run("a2a-mixed", "--json", "--strict");
+    assert.equal(mixed.status, 1, mixed.stderr);
+    const mixedA2a = JSON.parse(mixed.stdout).apps[0].a2a;
+    assert.equal(mixedA2a.input_required, 20);
+    assert.equal(mixedA2a.failed, 1);
+    assert.equal(mixedA2a.unfinished, 0);
+    assert.equal(mixedA2a.scored, 8);
+    assert.equal(mixedA2a.failRate, 1 / 8);
+    assert.deepEqual(mixedA2a.reasons, [
+      { reason: "provider failed", tasks: 1 },
+    ]);
+    const mixedText = run("a2a-mixed", "--strict");
+    assert.equal(mixedText.status, 1, mixedText.stderr);
+    assert.match(mixedText.stdout, /1\/8 A2A tasks/);
+    assert.match(mixedText.stdout, /12\.5%/);
+
+    const statuses = run("a2a-statuses", "--json", "--strict");
+    assert.equal(statuses.status, 1, statuses.stderr);
+    const statusesA2a = JSON.parse(statuses.stdout).apps[0].a2a;
+    assert.equal(statusesA2a.tasks, 12);
+    assert.equal(statusesA2a.unfinished, 5);
+    assert.equal(statusesA2a.input_required, 0);
+    assert.equal(statusesA2a.scored, 12);
+    assert.equal(statusesA2a.failRate, 5 / 12);
+
     const result = run("", "--json");
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);
