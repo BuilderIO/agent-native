@@ -349,3 +349,52 @@ describe("connected apps in the chat-first pane", () => {
     ).toEqual({ status: "unresolved", reason: "unknown-app" });
   });
 });
+
+describe("chatFirstExternalApps", () => {
+  const connected = [
+    {
+      id: "slides",
+      name: "Slides",
+      url: "https://slides.example.com/deck",
+      homeUrl: "https://slides.example.com/home",
+      source: "builtin" as const,
+      hiddenFromLaunchers: true,
+    },
+    {
+      id: "fleet",
+      name: "Fleet",
+      description: "Fleet dashboard",
+      url: "https://agent-workspace.example.com/fleet",
+      source: "custom" as const,
+    },
+    {
+      id: "mail-2",
+      name: "Mail elsewhere",
+      url: "https://elsewhere.example.com/mail-2",
+      source: "custom" as const,
+    },
+  ];
+
+  it("lists hosted apps at their home URL, keeps hidden ones, and tags connected apps", () => {
+    expect(chatFirstExternalApps(connected, [{ id: "mail-2" }])).toEqual([
+      {
+        id: "slides",
+        name: "Slides",
+        url: "https://slides.example.com/home",
+        source: "builtin",
+        hiddenFromLaunchers: true,
+      },
+      {
+        id: "fleet",
+        name: "Fleet",
+        description: "Fleet dashboard",
+        url: "https://agent-workspace.example.com/fleet",
+        source: "connected",
+      },
+    ]);
+  });
+
+  it("lists nothing until the mounted app list has loaded", () => {
+    expect(chatFirstExternalApps(connected, undefined)).toEqual([]);
+  });
+});

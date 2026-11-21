@@ -104,11 +104,13 @@ export function filterBuiltInApps(
 
 /**
  * Apps outside this workspace that the chat-first pane can open: first-party
- * hosted apps and apps connected from another workspace.
+ * hosted apps and apps connected from another workspace. None until the
+ * mounted list has loaded: an unloaded list is not an empty one, and an
+ * external row must never stand in for a mounted app with the same id.
  */
 export function chatFirstExternalApps(
   connectedApps: ConnectedAppSummary[],
-  workspaceApps: WorkspaceAppId[],
+  workspaceApps: WorkspaceAppId[] | undefined,
 ): {
   id: string;
   name: string;
@@ -117,6 +119,7 @@ export function chatFirstExternalApps(
   source: "builtin" | "connected";
   hiddenFromLaunchers?: boolean;
 }[] {
+  if (!workspaceApps) return [];
   const summary = (app: ConnectedAppSummary, url: string) => ({
     id: app.id,
     name: app.name,

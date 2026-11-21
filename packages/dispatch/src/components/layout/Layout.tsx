@@ -1550,7 +1550,7 @@ function DispatchLayout({
         chatFirstEnabledBuiltinAppIds,
         chatFirstExternalApps(
           chatFirstConnectedAppsQuery.data ?? [],
-          chatFirstAppsQuery.data ?? [],
+          chatFirstAppsQuery.data,
         ),
       ).filter((app) => app.status !== "pending" && app.archived !== true),
     [

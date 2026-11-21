@@ -1079,11 +1079,16 @@ function registrationUrls(
   });
 }
 
+function basePathLength(url: URL): number {
+  return url.pathname.replace(/\/+$/, "").length;
+}
+
 function appMatchesUrl(
   app: ChatFirstAppRegistration,
   targetUrl: URL,
   currentOrigin?: string,
 ): URL | null {
+  let best: URL | null = null;
   for (const registeredUrl of registrationUrls(app, currentOrigin)) {
     if (registeredUrl.origin !== targetUrl.origin) continue;
     const basePath = registeredUrl.pathname.replace(/\/+$/, "") || "/";
@@ -1094,9 +1099,11 @@ function appMatchesUrl(
     ) {
       continue;
     }
-    return registeredUrl;
+    if (!best || basePathLength(registeredUrl) > basePathLength(best)) {
+      best = registeredUrl;
+    }
   }
-  return null;
+  return best;
 }
 
 function appRelativeUrlPath(targetUrl: URL, registeredUrl: URL): string {
@@ -1159,16 +1166,26 @@ export function resolveChatFirstAppTarget(
         return { status: "unresolved", reason: "invalid-url" };
       }
     } else {
+      // The most specific base path wins, so an app mounted at an origin's
+      // root never captures another app served under a path on that origin.
       const matchingApp = availableApps
-        .map((candidate) => ({
-          app: candidate,
-          registeredUrl: appMatchesUrl(
+        .flatMap((candidate) => {
+          const registeredUrl = appMatchesUrl(
             candidate,
             targetUrl as URL,
             options.currentOrigin,
-          ),
-        }))
-        .find((candidate) => candidate.registeredUrl);
+          );
+          return registeredUrl ? [{ app: candidate, registeredUrl }] : [];
+        })
+        .reduce<{ app: ChatFirstAppRegistration; registeredUrl: URL } | null>(
+          (best, candidate) =>
+            !best ||
+            basePathLength(candidate.registeredUrl) >
+              basePathLength(best.registeredUrl)
+              ? candidate
+              : best,
+          null,
+        );
       if (!matchingApp) {
         return { status: "unresolved", reason: "unknown-app" };
       }
