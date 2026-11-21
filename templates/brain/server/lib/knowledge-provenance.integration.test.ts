@@ -1553,6 +1553,10 @@ describe("approving a legacy proposal checks the record has not changed since", 
     return id;
   }
 
+  function justAfter(at: string) {
+    return new Date(Date.parse(at) + 1).toISOString();
+  }
+
   async function proposalStatus(id: string) {
     const rows = await database
       .select()
@@ -1577,7 +1581,10 @@ describe("approving a legacy proposal checks the record has not changed since", 
     "%s applies a proposal for a record unchanged since it was proposed",
     async (_action, approve) => {
       const id = await saveKnowledge();
-      const proposal = await proposeUpdate(id, (await storedRow(id)).updatedAt);
+      const proposal = await proposeUpdate(
+        id,
+        justAfter((await storedRow(id)).updatedAt),
+      );
       await asQa(() => approve(proposal));
       expect((await storedRow(id)).body).toBe(
         "Morgan will ship Atlas in spring.",
@@ -1591,7 +1598,7 @@ describe("approving a legacy proposal checks the record has not changed since", 
     async (_action, approve) => {
       const id = await saveKnowledge();
       const proposed = await storedRow(id);
-      const proposal = await proposeUpdate(id, proposed.updatedAt);
+      const proposal = await proposeUpdate(id, justAfter(proposed.updatedAt));
       await saveKnowledge({
         knowledgeId: id,
         expectedRevision: knowledgeRevision(proposed),
@@ -1612,14 +1619,31 @@ describe("approving a legacy proposal checks the record has not changed since", 
   );
 
   it.each(approvals)(
+    "%s refuses a proposal made in the same millisecond as the record's last edit",
+    async (_action, approve) => {
+      const id = await saveKnowledge();
+      const before = await storedRow(id);
+      const proposal = await proposeUpdate(id, before.updatedAt);
+      const error = await caughtError(asQa(() => approve(proposal)));
+      expect(isSaveConflict(error)).toBe(true);
+      expect(await storedRow(id)).toEqual(before);
+      expect(await proposalStatus(proposal)).toBe("pending");
+    },
+  );
+
+  it.each(approvals)(
     "%s refuses a proposal whose superseded record was edited after it was proposed",
     async (_action, approve) => {
       const target = await saveKnowledge({ title: "Atlas launch v2" });
       const older = await saveKnowledge({ title: "Atlas launch v1" });
       const proposedOlder = await storedRow(older);
-      const proposal = await proposeUpdate(target, proposedOlder.updatedAt, {
-        supersedesId: older,
-      });
+      const proposal = await proposeUpdate(
+        target,
+        justAfter(proposedOlder.updatedAt),
+        {
+          supersedesId: older,
+        },
+      );
       await saveKnowledge({
         knowledgeId: older,
         expectedRevision: knowledgeRevision(proposedOlder),

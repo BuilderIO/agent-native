@@ -2292,7 +2292,7 @@ export async function setKnowledgeCanonicalResource(
         row,
         current: serializeKnowledge(row),
         evidenceLocked,
-        alreadyStored: async () => stored,
+        alreadyStored: async () => stored && !published,
       });
       if (decision === "already_applied" || stored)
         return serializeKnowledge(row);
@@ -2709,7 +2709,7 @@ function changedAfterLegacyProposal(row: KnowledgeRow, createdAt: string) {
   const changedAt = Date.parse(row.updatedAt);
   const proposedAt = Date.parse(createdAt);
   if (Number.isNaN(changedAt) || Number.isNaN(proposedAt)) return true;
-  return changedAt > proposedAt;
+  return changedAt >= proposedAt;
 }
 
 function revisionReadByWriter(

@@ -2431,6 +2431,55 @@ describe("Brain knowledge quality gates", () => {
     expect(mocks.resourceWrites).toHaveLength(writes);
   });
 
+  it("refuses a publish from an older preview even when the newer body is already published", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const evidence = [
+      {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+      },
+    ];
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence,
+      publishTier: "company",
+    });
+    const previewed = created.knowledge.revision;
+    const edited = await writeKnowledgeRecord({
+      knowledgeId: created.knowledge.id,
+      expectedRevision: previewed,
+      title: "Beta date",
+      body: "The team moved the beta to May 27.",
+      evidence,
+      publishTier: "company",
+    });
+    const published = await setKnowledgeCanonicalResource(
+      edited.knowledge.id,
+      true,
+      edited.knowledge.revision,
+    );
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(edited.knowledge.id, true, previewed),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: {
+        current: {
+          id: edited.knowledge.id,
+          body: "The team moved the beta to May 27.",
+          publishedResourcePath: published.publishedResourcePath,
+        },
+        currentRevision: published.revision,
+      },
+    });
+    expect(mocks.resourceWrites).toHaveLength(writes);
+  });
+
   it("previews the same canonical Markdown that publishing writes", async () => {
     seedSource();
     seedCapture({
