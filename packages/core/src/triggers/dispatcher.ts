@@ -68,6 +68,7 @@ import {
   getAutomationTriggerSweepCursor,
   hasPendingStaleAutomationTriggerEvents,
   listReadyAutomationTriggerIds,
+  nextAutomationTriggerEventDueAt,
   purgeExpiredAutomationTriggerEvents,
   reserveAutomationTriggerEventPurge,
   retryAutomationTriggerEvent,
@@ -375,9 +376,16 @@ export async function initTriggerDispatcher(
   _eventAutomationGeneration += 1;
   if (_anyEventSubscriptionId) unsubscribe(_anyEventSubscriptionId);
   _anyEventSubscriptionId = subscribeAll(handleAnyEvent);
-  registerRecurringSweepHandler("automation-trigger-queue", async (context) => {
-    await drainReadyTriggerQueue(context);
-  });
+  registerRecurringSweepHandler(
+    "automation-trigger-queue",
+    async (context) => {
+      await drainReadyTriggerQueue(context);
+    },
+    {
+      nextDueAt: async () =>
+        _deps ? nextAutomationTriggerEventDueAt(_deps.appId) : null,
+    },
+  );
   startTriggerQueueWorker();
 }
 

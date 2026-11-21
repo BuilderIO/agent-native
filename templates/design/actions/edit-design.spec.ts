@@ -213,4 +213,53 @@ describe("edit-design action schema", () => {
     });
     expect(error).toHaveProperty("message", expect.stringContaining("matched"));
   });
+
+  it("names the earlier edit in the batch that changed a later edit's search text", () => {
+    const css = `:root{--color-ink:#20382e;--color-muted:#65746a;}`;
+    let error: unknown;
+    try {
+      applySearchReplaceEdits(css, [
+        { search: "--color-muted:#65746a;", replace: "--color-muted:#58685d;" },
+        {
+          search: ":root{--color-ink:#20382e;--color-muted:#65746a;",
+          replace: ":root{--color-ink:#111;--color-muted:#65746a;",
+        },
+      ]);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toMatchObject({
+      name: "NoWriteError",
+      errorCode: "design_edit_conflict",
+      message: expect.stringContaining(
+        "Edit 2: its search text is in the file you read, but edit 1 earlier in this batch already changed that text.",
+      ),
+    });
+  });
+
+  it("points at the line when the search has \\n where the file has a real line break", () => {
+    let error: unknown;
+    try {
+      applySearchReplaceEdits(
+        `<main></main>\n<script type="module">\nimport * as THREE from 'three';\n</script>`,
+        [
+          {
+            search: `<script type="module">\\nimport * as THREE from 'three';`,
+            replace: `<script>\\nwindow.fallback=true;`,
+          },
+        ],
+      );
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toMatchObject({
+      name: "NoWriteError",
+      errorCode: "design_edit_conflict",
+      message: expect.stringContaining(
+        "backslash escapes such as \\n where the file has real line breaks, tabs, or quotes (line 2)",
+      ),
+    });
+  });
 });

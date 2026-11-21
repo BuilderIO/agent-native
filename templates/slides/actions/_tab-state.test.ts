@@ -20,7 +20,10 @@ import {
 } from "./_tab-state.js";
 
 function mcpCall(
-  target: { kind: "last-used"; tabId: string } | { kind: "unavailable" },
+  target:
+    | { kind: "requested"; tabId: string }
+    | { kind: "last-used"; tabId: string }
+    | { kind: "unavailable" },
 ) {
   run = { browserTabTarget: { resolve: async () => target } };
 }
@@ -83,5 +86,22 @@ describe("Slides tab state", () => {
         fallbackToGlobal: false,
       }),
     ).resolves.toEqual({ key: "slides-selection" });
+  });
+
+  it("reads and writes the caller-requested tab rows for an MCP call", async () => {
+    mcpCall({ kind: "requested", tabId: "tab-r" });
+
+    await expect(
+      readAppStateForCurrentTab("slides-selection", {
+        fallbackToGlobal: false,
+      }),
+    ).resolves.toEqual({ key: "slides-selection:tab-r" });
+    await writeAppStateForCurrentTab("navigate", { deckId: "d" });
+
+    expect(writeAppState).toHaveBeenCalledWith("navigate:tab-r", {
+      deckId: "d",
+    });
+    expect(getCurrentRequestBrowserTabId()).toBeNull();
+    await expect(getCurrentRequestStateTabId()).resolves.toBe("tab-r");
   });
 });

@@ -411,6 +411,14 @@ const database = {
   failedToSavePagePreview: "Seitenvorschau konnte nicht gespeichert werden",
   failedToSaveView: "Ansicht konnte nicht gespeichert werden",
   failedToUpdateCheckbox: "Kontrollkästchen konnte nicht aktualisiert werden",
+  undoPropertyChangedSince:
+    "Nicht rückgängig gemacht: Diese Eigenschaft wurde nach deiner Änderung geändert",
+  redoPropertyChangedSince:
+    "Nicht wiederhergestellt: Diese Eigenschaft wurde nach dem Rückgängigmachen geändert",
+  undoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht rückgängig gemacht werden",
+  redoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht wiederhergestellt werden",
   failedToUpdateEverySelectedRow:
     "Nicht jede ausgewählte Zeile konnte aktualisiert werden",
   filter: "Filter",
@@ -747,6 +755,7 @@ const editor = {
     delete: "Löschen",
     insertBelow: "Block darunter einfügen",
     insertAbove: "Block darüber einfügen",
+    turnIntoCollection: "In Sammlung umwandeln",
     askAgent: "Agent fragen",
     columns: "Spalten",
     syncedBlock: "Synchronisierter Block",
@@ -767,6 +776,21 @@ const editor = {
     lockedSuggesting:
       "Vorschläge können diese Art von Block nicht hinzufügen oder entfernen.",
     lockedPage: "Diese Seite lässt diese Änderung nicht zu.",
+    lockedCollection: "Eine Sammlung bleibt auf der Seite, zu der sie gehört.",
+    lockedUploadedClip:
+      "Ein auf diese Seite hochgeladener Clip bleibt hier, weil die Seite bestimmt, wer ihn ansehen kann.",
+    moveTo: "Verschieben nach",
+    moveToTitle: "Block verschieben nach",
+    movingTo: "Wird nach {{title}} verschoben…",
+    movedTo: "Nach {{title}} verschoben",
+    copiedTo:
+      "Nach {{title}} kopiert. Der Block hat sich beim Verschieben geändert und bleibt deshalb auch hier.",
+    copiedPageClosed:
+      "Nach {{title}} kopiert. Die Ursprungsseite wurde geschlossen, bevor das Verschieben fertig war, daher ist der Block auch dort noch.",
+    moveChanged:
+      "Der Block hat sich geändert, bevor er verschoben werden konnte. Nichts wurde verschoben.",
+    moveFailed: "Der Block konnte nicht nach {{title}} verschoben werden",
+    openPage: "Öffnen",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:
@@ -799,9 +823,27 @@ const editor = {
   creatingDatabase: "Inline-Sammlung wird erstellt...",
   databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
+  newPagePlaceholder: "Schreib los",
+  newPageLine: "Schreib los, {{draft}} oder {{import}}",
+  newPageLineWithoutImport: "Schreib los oder {{draft}}",
+  newPageLineDraft: "entwirf sie mit dem Agenten",
+  newPageLineImport: "importiere Markdown",
+  newPageDraftPrompt: "Entwirf diese Seite über ",
+  newPageDraftPromptTitled: "Entwirf diese Seite über {{title}}",
+  newPageAgentContextLabel: "Diese Seite",
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",
   failedToCreateDatabase: "Inline-Sammlung konnte nicht erstellt werden",
+  turningIntoCollection: "Tabelle wird in eine Sammlung umgewandelt...",
+  turnedIntoCollection: "Tabelle in eine Sammlung umgewandelt",
+  failedToTurnIntoCollection:
+    "Die Tabelle konnte nicht in eine Sammlung umgewandelt werden",
+  tableChangedWhileTurning:
+    "Die Tabelle hat sich während der Umwandlung geändert und bleibt daher, wie sie ist. Versuche es erneut.",
+  tableTooBigForCollection:
+    "Eine Sammlung kann eine Tabelle mit bis zu 500 Zeilen und 50 Spalten aufnehmen.",
+  tableTextTooLongForCollection:
+    "In einer Sammlung darf der Name einer Zeile (die erste Spalte der Tabelle) bis zu 500 Zeichen lang sein, andere Zellen bis zu 20.000. Kürze die langen Zellen und versuche es erneut.",
   generateWithAi: "Generieren Sie mit KI",
   untitledDatabase: "Unbenannte Sammlung",
   media: {
@@ -1720,6 +1762,27 @@ const overrides = {
     builderReviewShowMore: "Mehr anzeigen",
     builderReviewRemainingBatches:
       "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
+    builderReviewLoadingMorePagesOne:
+      "Änderungen für 1 weitere Seite werden geladen…",
+    builderReviewLoadingMorePages:
+      "Änderungen für {{count}} weitere Seiten werden geladen…",
+    builderReviewConfirmingBodiesOne:
+      "1 Textänderung wird mit Builder abgeglichen…",
+    builderReviewConfirmingBodies:
+      "{{count}} Textänderungen werden mit Builder abgeglichen…",
+    builderReviewFindingPages: "Seiten mit Änderungen werden gesucht…",
+    builderReviewRowsMatchBuilderOne:
+      "1 Seite stimmt nach der Umwandlung ihres Texts bereits mit Builder überein und ist daher nicht enthalten.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} Seiten stimmen nach der Umwandlung ihrer Texte bereits mit Builder überein und sind daher nicht enthalten.",
+    builderReviewLoadFailed:
+      "Einige Änderungen wurden nicht geladen: {{message}}",
+    bodyDiffAdded: "Hinzugefügt:",
+    bodyDiffRemoved: "Entfernt:",
+    bodyDiffMoreLinesOne: "1 weitere geänderte Zeile",
+    bodyDiffMoreLines: "{{count}} weitere geänderte Zeilen",
+    bodyDiffMoreChangesOne: "1 weitere Änderung nicht angezeigt",
+    bodyDiffMoreChanges: "{{count}} weitere Änderungen nicht angezeigt",
     builderBodiesSyncingProgress:
       "{{hydrated}} von {{total}} Texten werden synchronisiert.",
     builderBodiesSyncFinishedWithFailures:
@@ -2026,7 +2089,9 @@ const overrides = {
     aiResponseMode: "Antwort",
     aiChooseSendMode: "KI-Sendemodus auswählen",
     aiSuggestChanges: "Änderungen vorschlagen",
-    aiUnavailable: "Nicht verfügbar",
+    aiModelNotConnected:
+      "{{model}} ist nicht verbunden. Klicken Sie auf den Namen, um ein anderes Modell zu wählen.",
+    aiModelNotConnectedAlone: "{{model}} ist nicht verbunden.",
     aiReplyInThread: "Im Thread antworten",
     aiApplyAndResolve: "Änderungen anwenden und erledigen",
     aiPromptSuggest: "Schlage Änderungen für diesen Kommentar vor.",
@@ -2096,6 +2161,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
+    workspaceReferenceProtected:
+      "Arbeitsbereichsreferenzen sind geschützt und können nicht als Seiten geändert werden.",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
     failedMovePage: "Seite konnte nicht verschoben werden",

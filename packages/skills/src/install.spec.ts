@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   MANAGED_BLOCK_START,
+  assertSafeSourceRef,
   discoverSkillFolders,
   installSkills,
   parseGitHubSource,
@@ -452,5 +453,27 @@ describe("@agent-native/skills", () => {
     expect(content).toContain("third");
     expect(content).not.toContain("first");
     expect(content).toContain("# Project");
+  });
+});
+
+describe("assertSafeSourceRef", () => {
+  it("accepts branch, tag, and path-like refs", () => {
+    for (const ref of [undefined, "main", "v1.2.3", "feature/a_b-c"]) {
+      expect(() => assertSafeSourceRef(ref)).not.toThrow();
+    }
+  });
+
+  it("rejects refs with a leading dash or other characters", () => {
+    for (const ref of [
+      "--upload-pack=x",
+      "-b",
+      "a b",
+      "a;b",
+      "a$(b)",
+      "a&b",
+      "",
+    ]) {
+      expect(() => assertSafeSourceRef(ref)).toThrow(/Invalid source ref/);
+    }
   });
 });

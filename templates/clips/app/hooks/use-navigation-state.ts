@@ -4,6 +4,7 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "@agent-native/core/shared";
+import { libraryFilterQuery } from "@shared/library-filters";
 
 import { parseTimeParam } from "@/lib/time-param";
 
@@ -44,6 +45,7 @@ export interface NavigationState {
   folderId?: string;
   shareId?: string;
   search?: string;
+  filters?: string;
   path?: string;
   meetingId?: string;
   meetingsTab?: "agenda" | "past";
@@ -157,7 +159,9 @@ export function stateFromLocation(
   if (p === "/screenshots") return { view: "screenshots" };
   if (p === "/spaces") return { view: "spaces" };
   if (p === "/shared") return { view: "shared" };
-  if (p === "/from-content") return { view: "from-content" };
+  if (p === "/from-content") {
+    return { view: "library", filters: "source=content" };
+  }
   if (p === "/archive") return { view: "archive" };
   if (p === "/trash") return { view: "trash" };
   if (p === "/record") return { view: "record" };
@@ -171,9 +175,11 @@ export function stateFromLocation(
   if (p === "/notifications") return { view: "notifications" };
   if (p.startsWith("/settings")) return { view: "settings" };
   if (p === "/library" || p === "/home") {
+    const filters = libraryFilterQuery(search);
     return {
       view: "library",
       ...(searchTerm ? { search: searchTerm } : {}),
+      ...(filters ? { filters } : {}),
     };
   }
 
@@ -217,7 +223,7 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "shared":
       return "/shared";
     case "from-content":
-      return "/from-content";
+      return "/library?source=content";
     case "archive":
       return "/archive";
     case "trash":
@@ -249,7 +255,8 @@ export function pathFromCommand(cmd: NavigateCommand): string {
       if (cmd.folderId) {
         return `/library/folder/${encodeURIComponent(cmd.folderId)}`;
       }
-      return "/library";
+      const filters = cmd.filters ? libraryFilterQuery(cmd.filters) : "";
+      return filters ? `/library?${filters}` : "/library";
   }
 }
 

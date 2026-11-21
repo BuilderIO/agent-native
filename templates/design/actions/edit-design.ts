@@ -23,6 +23,7 @@ import {
 } from "../server/source-workspace.js";
 import {
   ApplyEditConflictError,
+  applyEditsInOrder,
   applyOneEdit,
   findWhitespaceFlexibleMatches,
   type ApplyEditsResult,
@@ -99,8 +100,9 @@ function findUniqueStableIdAgnosticSpan(
   const firstExact = strippedContent.content.indexOf(strippedSearch);
   if (firstExact === -1) return null;
   if (strippedContent.content.indexOf(strippedSearch, firstExact + 1) !== -1) {
-    throw new DesignEditSearchConflictError(
+    throw new ApplyEditConflictError(
       `Edit ${editIndex + 1}: "search" matched multiple places (exact) — add more surrounding context so it matches exactly one location.`,
+      "ambiguous",
     );
   }
   const matches = findWhitespaceFlexibleMatches(
@@ -108,8 +110,9 @@ function findUniqueStableIdAgnosticSpan(
     strippedSearch,
   );
   if (matches.length > 1) {
-    throw new DesignEditSearchConflictError(
+    throw new ApplyEditConflictError(
       `Edit ${editIndex + 1}: "search" matched ${matches.length} places (whitespace-insensitive) — add more surrounding context so it matches exactly one location.`,
+      "ambiguous",
     );
   }
   const start = firstExact;
@@ -126,8 +129,9 @@ function findUniqueStableIdAgnosticSpan(
     searchProjection.indexMap[0] !== 0 ||
     searchProjection.indexMap[strippedSearch.length - 1] !== search.length - 1
   ) {
-    throw new DesignEditSearchConflictError(
+    throw new ApplyEditConflictError(
       `Edit ${editIndex + 1}: search text has an ambiguous stable-ID boundary. Read the current file (get-design-snapshot) and include the complete element in the search.`,
+      "ambiguous",
     );
   }
   return { start: originalStart, end: originalEnd };
@@ -148,16 +152,7 @@ function applyOneEditWithStableIdFallback(
         return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
       }
     }
-    throw new DesignEditSearchConflictError(
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}
-
-class DesignEditSearchConflictError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "DesignEditSearchConflictError";
+    throw error;
   }
 }
 
@@ -169,19 +164,15 @@ export function applySearchReplaceEdits(
   content: string,
   edits: DesignEdit[],
 ): ApplyEditsResult {
-  let next = content;
   try {
-    edits.forEach((edit, index) => {
-      next = applyOneEditWithStableIdFallback(next, edit, index);
-    });
+    return applyEditsInOrder(content, edits, applyOneEditWithStableIdFallback);
   } catch (error) {
-    if (!(error instanceof DesignEditSearchConflictError)) throw error;
+    if (!(error instanceof ApplyEditConflictError)) throw error;
     throw new NoWriteError(
       `${error.message} None of the edits in this batch were saved to the file. Re-read the current file with get-design-snapshot, then retry all intended edits in the rejected batch with enough context to uniquely identify each match. Use one pass or smaller sequential batches when appropriate.`,
       designEditConflictOptions(),
     );
   }
-  return { content: next, applied: edits.length };
 }
 
 export function preCheckpointNoWriteError(error: unknown): NoWriteError {

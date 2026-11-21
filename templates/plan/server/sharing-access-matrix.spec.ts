@@ -723,9 +723,7 @@ describe("public review link", () => {
   });
 
   it("serves a stored legacy document to viewers without its handlers", async () => {
-    const planId = await createPlanAs(OWNER, undefined, {
-      html: "<!doctype html><html><body><h1>Legacy</h1></body></html>",
-    });
+    const planId = await createPlanAs(OWNER, undefined);
     await setVisibility(OWNER, undefined, planId, "public");
     await db
       .update(planSchema.plans)

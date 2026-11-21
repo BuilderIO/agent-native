@@ -916,8 +916,13 @@ export function BubbleToolbar({
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleSetLink();
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSetLink();
+              }
               if (e.key === "Escape") {
+                e.preventDefault();
                 setShowLinkInput(false);
                 setLinkUrl("");
               }
