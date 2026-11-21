@@ -156,6 +156,11 @@ export interface RequestContext {
   /** Set by the action HTTP boundary after cookie-session and UI-capability proof. */
   provenUiRequest?: boolean;
   /**
+   * Set by the action HTTP boundary when the app's own page sent the request,
+   * proven or not. For analytics labels only; it never authorizes anything.
+   */
+  appPageRequest?: boolean;
+  /**
    * The id the server stamps on this request's response, so a failure captured
    * anywhere in the request names the id the person sees on screen.
    */

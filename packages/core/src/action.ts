@@ -6,6 +6,7 @@ import {
   snapshotActionArguments,
 } from "./action-arguments-identity.js";
 import {
+  actionCallIsAutomatic,
   actionCallIsRetrySafe,
   actionCallReadOnly,
   actionOutputEffect,
@@ -83,6 +84,7 @@ import {
   isProviderInteractiveScope,
   runWithProviderInteractiveScope,
 } from "./provider-api/interactive-scope.js";
+import type { AgentNativeActionKind } from "./shared/analytics-events.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export {
@@ -1348,6 +1350,25 @@ interface DefineActionWithSchema<
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
   /**
+   * Marks a write the app makes on its own, with no user gesture behind it: on
+   * page load, on mount, on a timer, or experiment and usage bookkeeping. Its
+   * `action_started`, `action_completed`, and `action_failed` events carry
+   * `action_kind: "automatic"` instead of `"write"`, so product-use counts
+   * leave it out. Only a call the action route sees come from the app's own
+   * page can be automatic; a call from an agent, an MCP client, the CLI, or
+   * another app is a person asking and stays a write. Pass a predicate when
+   * only some UI calls are automatic, such as a background sync the poller calls without `force`;
+   * it sees the validated arguments and the call's context. It labels
+   * analytics only: a write stays a write everywhere else, so never set
+   * `readOnly` to quiet one.
+   */
+  automatic?:
+    | boolean
+    | ((
+        input: StandardSchemaV1.InferOutput<TSchema>,
+        ctx: ActionRunContext,
+      ) => boolean);
+  /**
    * How the action reads an ISO date-time argument that names no zone, so an
    * approval summary can say so: `"calendar"` means in the calendar's own
    * time zone. Unset, the summary shows such a time as having no zone given.
@@ -1486,6 +1507,10 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `automatic` on the schema form above. */
+  automatic?:
+    | boolean
+    | ((input: InferParams<TParams>, ctx: ActionRunContext) => boolean);
   /** See `ActionDefinition.zonelessTimes`. */
   zonelessTimes?: "calendar";
   endsTurn?: boolean;
@@ -1558,6 +1583,10 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  /** See `automatic` on the action options. */
+  readonly automatic?:
+    | boolean
+    | ((input: TInput, ctx: ActionRunContext) => boolean);
   readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -1867,6 +1896,10 @@ export function defineAction(options: any) {
         options.description,
       )
     : undefined;
+  const classificationEntry = {
+    ...(readOnly !== undefined ? { readOnly } : {}),
+    ...(options.planMode !== undefined ? { planMode: options.planMode } : {}),
+  };
   // Runs inside input validation, so a call is classified from the arguments
   // `run` receives, defaults applied, and inside audit and tracking, so an
   // invalid call is still recorded as a failed run.
@@ -1877,7 +1910,7 @@ export function defineAction(options: any) {
     const prepared = takePreparedClassification(ctx, args, executionKey);
     const callReadOnly = prepared
       ? prepared.readOnly
-      : actionCallReadOnly({ readOnly, planMode: options.planMode }, args);
+      : actionCallReadOnly(classificationEntry, args);
     const frame = ownFrame();
     if (frame) {
       frame.writes = callReadOnly !== true;
@@ -1984,10 +2017,73 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(effectiveAuditConfig, readOnly)
     ? wrapRunWithAudit(run, effectiveAuditConfig, actionIsPrivate)
     : run;
+  const automatic =
+    typeof options.automatic === "boolean" ||
+    typeof options.automatic === "function"
+      ? options.automatic
+      : undefined;
+  const validatedCopy = async (args: unknown): Promise<unknown> => {
+    const copy = copyActionArguments(snapshotActionArguments(args).value);
+    if (!hasSchema) return copy;
+    const value = await validateActionArgs(
+      options.schema,
+      copy,
+      convertedParameters(),
+    );
+    if (typeof args === "object" && args !== null) {
+      labelValidatedArgs.set(args, { schema: options.schema, value });
+    }
+    return copyActionArguments(snapshotActionArguments(value).value);
+  };
+  const actionKind = async (
+    args: unknown,
+    ctx: ActionRunContext,
+    fromAppUi: boolean,
+  ): Promise<AgentNativeActionKind> => {
+    const prepared = preparedRunFor(ctx, args);
+    const intent = prepared?.key === executionKey ? prepared.intent : undefined;
+    let input: Promise<unknown> | undefined;
+    const callInput = () =>
+      (input ??= intent
+        ? Promise.resolve(preparedCallArguments(intent))
+        : validatedCopy(args));
+    try {
+      const callReadOnly = intent
+        ? intent.readOnly
+        : options.planMode !== undefined &&
+          actionCallReadOnly(classificationEntry, await callInput());
+      if (callReadOnly === true) return "read";
+      if (!fromAppUi) return "write";
+      return actionCallIsAutomatic(
+        { automatic },
+        typeof automatic === "function" ? await callInput() : args,
+        ctx,
+      )
+        ? "automatic"
+        : "write";
+    } catch {
+      // coercion-ok: invalid or uncopyable arguments stay counted as a write.
+      return "write";
+    }
+  };
+  const trackingOptions = {
+    includeOutputId: options.persistInChatHistory !== false,
+    actionKind,
+  };
   const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly, {
-      includeOutputId: options.persistInChatHistory !== false,
-    }),
+    wrapRunWithActionTracking(
+      async (args: unknown, ctx?: ActionRunContext) => {
+        try {
+          return await finalRun(args, ctx);
+        } finally {
+          if (typeof args === "object" && args !== null) {
+            labelValidatedArgs.delete(args);
+          }
+        }
+      },
+      readOnly,
+      trackingOptions,
+    ),
   );
   const invalidCallRun = wrapRunWithActionTracking(
     resolveAuditAttach(effectiveAuditConfig, readOnly)
@@ -1998,7 +2094,7 @@ export function defineAction(options: any) {
         )
       : throwInvalidCallError,
     readOnly,
-    { includeOutputId: options.persistInChatHistory !== false },
+    trackingOptions,
   );
 
   const toolCallable: boolean | undefined =
@@ -2232,6 +2328,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(automatic !== undefined ? { automatic } : {}),
     ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
@@ -2962,6 +3059,10 @@ interface PreparedRun {
 }
 
 const preparedRuns = new WeakMap<object, PreparedRun>();
+const labelValidatedArgs = new WeakMap<
+  object,
+  { readonly schema: StandardSchemaV1; readonly value: unknown }
+>();
 
 function preparedRunHolder(ctx: unknown, args: unknown): object | undefined {
   if (args !== null && typeof args === "object" && preparedRuns.has(args)) {
@@ -3603,6 +3704,14 @@ function wrapWithValidation(
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
+    const labelled =
+      typeof args === "object" && args !== null
+        ? labelValidatedArgs.get(args)
+        : undefined;
+    if (labelled?.schema === schema) {
+      labelValidatedArgs.delete(args);
+      return run(labelled.value, ctx);
+    }
     let validated: unknown;
     try {
       validated = await validateActionArgs(schema, args, toolParameters());
