@@ -197,12 +197,13 @@ export default defineAction({
     };
     if (navigation) screen.navigation = navigation;
 
-    const embeddedApp = await resolveEmbeddedApp(
-      navigation,
-      async () =>
-        (await readDispatchPaneContext()) ??
-        (await readAppState(CHAT_FIRST_PANE_STATE_KEY)),
-    );
+    const embeddedApp = await resolveEmbeddedApp(navigation, async () => {
+      const tab = await resolveCurrentRequestStateTab();
+      if (tab.unavailable) return null;
+      return tab.tabId
+        ? readDispatchPaneContext()
+        : readAppState(CHAT_FIRST_PANE_STATE_KEY);
+    });
     if (embeddedApp) screen.embeddedApp = embeddedApp;
 
     if (navigation?.view === "chat" || navigation?.view === "browser-chat") {

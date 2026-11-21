@@ -189,8 +189,9 @@ export default defineAction({
     if (openApp) {
       input.push({ type: "text", text: `App currently on screen: ${openApp}` });
     }
-    if (openPath !== undefined || selection !== undefined) {
-      input.push({ type: "json", value: { openPath, selection } });
+    const routePath = openPath?.split(/[?#]/, 1)[0];
+    if (routePath !== undefined || selection !== undefined) {
+      input.push({ type: "json", value: { openPath: routePath, selection } });
     }
     if (grantedPointers.length > 0) {
       input.push({

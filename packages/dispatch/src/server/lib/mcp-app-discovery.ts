@@ -9,7 +9,6 @@ import {
   getBuiltinAgents,
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
-import { resolveAccessMany } from "@agent-native/core/sharing";
 
 import {
   listWorkspaceApps,
@@ -38,7 +37,6 @@ type AgentManifest = Pick<
 type Snapshot<T> = { started: number; expiresAt: number; entries: T[] };
 type Cache<T> = Map<string, Snapshot<T>>;
 const manifests: Cache<AgentManifest> = new Map();
-const mounts: Cache<WorkspaceMount> = new Map();
 let nextRead = 0;
 
 function scopeKey(ownerEmail: string, orgId: string | undefined) {
@@ -270,49 +268,25 @@ function statusFromError(error: unknown): number | undefined {
   return firstStatus;
 }
 
-async function readMounts(
-  scope: string | null,
-  started: number,
-  ownerEmail: string,
-  orgId: string | undefined,
-) {
+async function readMounts() {
   try {
     const apps = await listWorkspaceApps({ includeAgentCards: false });
-    const entries = apps
-      .filter((app) => app.status !== "pending")
-      .map(({ id, url, path }) => ({ id, url, path }));
-    saveSnapshot(mounts, scope, started, entries);
-    return { mounts: entries };
+    return {
+      mounts: apps
+        .filter((app) => app.status !== "pending")
+        .map(({ id, url, path }) => ({ id, url, path })),
+    };
   } catch (error) {
     const httpStatus = statusFromError(error);
-    const forbidden = httpStatus === 401 || httpStatus === 403;
-    if (forbidden) saveSnapshot(mounts, scope, started, []);
-    const cached = forbidden ? [] : readSnapshot(mounts, scope);
-    let verified: WorkspaceMount[] = [];
-    if (cached.length > 0) {
-      try {
-        const currentAccess = await resolveAccessMany(
-          "workspace-app",
-          cached.map((app) => app.id),
-          { userEmail: ownerEmail, ...(orgId ? { orgId } : {}) },
-        );
-        verified = cached.filter((app) => {
-          const access = currentAccess.get(app.id);
-          return (
-            access?.resource?.path === app.path &&
-            (access.resource.orgEnabled !== false || access.role === "owner")
-          );
-        });
-      } catch {
-        // coercion-ok: an unreadable grant leaves the mount unavailable in the degraded result.
-      }
-    }
     return {
-      mounts: verified,
+      mounts: [],
       degraded: {
         source: "workspace-mounts",
-        status: forbidden ? "forbidden" : "unavailable",
-        usingCache: verified.length > 0,
+        status:
+          httpStatus === 401 || httpStatus === 403
+            ? "forbidden"
+            : "unavailable",
+        usingCache: false,
         ...(httpStatus ? { httpStatus } : {}),
       } satisfies DispatchMcpDegradedSource,
     };
@@ -329,7 +303,7 @@ export async function discoverDispatchMcpApps(): Promise<{
   const orgId = getRequestOrgId();
   const scope = scopeKey(ownerEmail, orgId);
   const started = ++nextRead;
-  const mountRead = readMounts(scope, started, ownerEmail, orgId);
+  const mountRead = readMounts();
   const [agents, mounts] = await Promise.all([
     readAgents(scope, started, mountRead),
     mountRead,

@@ -1744,6 +1744,9 @@ function DispatchLayout({
   const visiblePanePath = visiblePaneAppId
     ? visibleChatFirstSurfaceTab?.path
     : undefined;
+  const visiblePaneView = visiblePaneAppId
+    ? visibleChatFirstSurfaceTab?.view
+    : undefined;
   const writeActivePaneContext = useCallback(
     (
       view: {
@@ -1758,6 +1761,7 @@ function DispatchLayout({
           ? {
               appId: visiblePaneAppId,
               path: view?.path ?? visiblePanePath ?? "/",
+              ...(visiblePaneView ? { view: visiblePaneView } : {}),
               ...(view?.origin && view.childBrowserTabId
                 ? {
                     origin: view.origin,
@@ -1769,7 +1773,7 @@ function DispatchLayout({
           : null,
         { keepalive: true },
       ).catch(() => {}),
-    [visiblePaneAppId, visiblePanePath],
+    [visiblePaneAppId, visiblePanePath, visiblePaneView],
   );
   useEffect(() => {
     void writeActivePaneContext(null);
@@ -2476,7 +2480,10 @@ function DispatchLayout({
                 ? answer.app
                 : "unrouted",
             outcome: answer === "timeout" ? "timeout" : answer.status,
-            plan,
+            plan:
+              plan.kind === "skip"
+                ? plan
+                : { kind: plan.kind, target: { appId: plan.target.appId } },
             latencyMs: Math.round(performance.now() - started),
             ...(answer !== "timeout" && answer.latencyMs !== undefined
               ? { hostedLatencyMs: answer.latencyMs }

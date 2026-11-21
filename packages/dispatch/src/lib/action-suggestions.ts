@@ -31,7 +31,7 @@ function wireResult(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
-const OPERATION_KEYS = ["operation", "action", "op", "command"] as const;
+const OPERATION_KEYS = ["operation", "action", "op", "command"];
 const DESTRUCTIVE_OPERATIONS = new Set([
   "delete",
   "destroy",
@@ -61,35 +61,114 @@ export function suggestedActionOperations(
   });
 }
 
+function hasDestructiveToken(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value
+      .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .some((token) => DESTRUCTIVE_OPERATIONS.has(token))
+  );
+}
+
 export function isUnsupportedSuggestedAction(
   execution: SuggestedAppAction,
 ): boolean {
-  const verb = execution.action.toLowerCase().replace(/[-_][\s\S]*/, "");
-  return (
-    DESTRUCTIVE_OPERATIONS.has(verb) ||
-    suggestedActionOperations(execution).some((operation) =>
-      DESTRUCTIVE_OPERATIONS.has(operation.toLowerCase()),
-    )
-  );
+  if (hasDestructiveToken(execution.action)) return true;
+  const pending: unknown[] = [execution.params];
+  for (let budget = 512; pending.length > 0; budget--) {
+    if (budget === 0) return true;
+    const value = pending.pop();
+    if (Array.isArray(value)) {
+      for (const item of value) pending.push(item);
+    } else {
+      const object = asRecord(value);
+      if (!object) continue;
+      for (const [key, child] of Object.entries(object)) {
+        if (OPERATION_KEYS.includes(key) && hasDestructiveToken(child))
+          return true;
+        if (child !== null && typeof child === "object") pending.push(child);
+      }
+    }
+  }
+  return false;
 }
 
 export function hasUnselectedDestructiveVariant(
   execution: SuggestedAppAction,
   schema: Record<string, unknown> | undefined,
 ): boolean {
-  const properties = asRecord(schema?.properties);
-  return OPERATION_KEYS.some((key) => {
-    const control = asRecord(properties?.[key]);
-    if (!Array.isArray(control?.enum)) return false;
-    const hasDestructiveVariant = control.enum.some(
-      (value) =>
-        typeof value === "string" &&
-        DESTRUCTIVE_OPERATIONS.has(value.toLowerCase()),
-    );
-    if (!hasDestructiveVariant) return false;
-    const selection = execution.params[key];
-    return typeof selection !== "string" || !control.enum.includes(selection);
-  });
+  const pending: { schema: unknown; input: unknown; selector: boolean }[] = [
+    { schema, input: execution.params, selector: false },
+  ];
+  for (let budget = 512; pending.length > 0; budget--) {
+    if (budget === 0) return true;
+    const node = pending.pop();
+    if (!node) continue;
+    const shape = asRecord(node.schema);
+    if (!shape) continue;
+    if (
+      node.selector &&
+      Array.isArray(shape.enum) &&
+      shape.enum.some(hasDestructiveToken) &&
+      (!shape.enum.includes(node.input) || hasDestructiveToken(node.input))
+    ) {
+      return true;
+    }
+    const properties = asRecord(shape.properties);
+    const input = asRecord(node.input);
+    if (properties) {
+      for (const [key, child] of Object.entries(properties)) {
+        pending.push({
+          schema: child,
+          input: input?.[key],
+          selector: OPERATION_KEYS.includes(key),
+        });
+      }
+    }
+    for (const key of ["allOf", "anyOf", "oneOf"]) {
+      const variants = shape[key];
+      if (!Array.isArray(variants)) continue;
+      for (const variant of variants)
+        pending.push({ ...node, schema: variant });
+    }
+    if (shape.items && Array.isArray(node.input)) {
+      for (const child of node.input)
+        pending.push({
+          schema: shape.items,
+          input: child,
+          selector: node.selector,
+        });
+    }
+  }
+  return false;
+}
+
+export function suggestionReviewPayload({
+  execution,
+}: ActionSuggestion): string {
+  switch (execution.type) {
+    case "action":
+      return JSON.stringify(execution.params, null, 2);
+    case "customize":
+      return execution.editSpec;
+    case "create-app":
+      return execution.domainSpec;
+  }
+}
+
+export function requiresSuggestionReview(
+  suggestion: ActionSuggestion,
+): boolean {
+  const { execution } = suggestion;
+  if (execution.type !== "action") return true;
+  return !(
+    (suggestion.kind === "filter" && execution.action === "create-split") ||
+    (suggestion.kind === "saved-view" &&
+      execution.action === "save-crm-saved-view")
+  );
 }
 
 export function uniqueActionSuggestions(
@@ -148,6 +227,7 @@ function* suggestionsFromResult(
         suggestion.execution.type !== "action")
     )
       continue;
+    if (suggestionReviewPayload(suggestion).length > 65_536) continue;
     yield suggestion;
   }
 }

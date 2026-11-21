@@ -96,7 +96,7 @@ describe("route-app-intent", () => {
     await run({
       text: "Summarize this",
       openApp: "workspace/mail",
-      openPath: "/threads/2",
+      openPath: "/threads/2?code=fixture#state=fixture",
       selection: "Selected message",
     });
     expect(mocks.decide.mock.lastCall?.[0].input).toEqual(

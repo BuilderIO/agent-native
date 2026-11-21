@@ -113,6 +113,28 @@ describe("view-screen MCP exposure", () => {
   });
 });
 
+describe("view-screen app pane", () => {
+  it("does not borrow the account-wide pane when the current tab has none", async () => {
+    mocks.navigation = { view: "chat" };
+    mocks.tab = { tabId: "parent-one", unavailable: false };
+    mocks.pane = null;
+    mocks.appState = {
+      "chat-first-pane": { appId: "workspace/other", path: "/other" },
+    };
+    try {
+      const empty = JSON.parse((await viewScreen.run({})) as string);
+      expect(empty).not.toHaveProperty("embeddedApp");
+
+      mocks.pane = { appId: "workspace/current", path: "/current" };
+      const current = JSON.parse((await viewScreen.run({})) as string);
+      expect(current.embeddedApp).toMatchObject({ id: "workspace/current" });
+    } finally {
+      mocks.appState = {};
+      mocks.pane = null;
+    }
+  });
+});
+
 describe("view-screen Thread Debug summary", () => {
   beforeEach(() => {
     mocks.navigation = { view: "thread-debug" };
@@ -185,6 +207,7 @@ describe("view-screen embedded workspace app", () => {
   beforeEach(() => {
     mocks.navigation = { view: "chat" };
     mocks.appState = {};
+    mocks.pane = null;
     mocks.listWorkspaceResourceOptions.mockReset();
     mocks.listWorkspaceResourceOptions.mockResolvedValue([]);
   });
@@ -208,7 +231,7 @@ describe("view-screen embedded workspace app", () => {
   });
 
   it("names the chat-first pane app while the route stays on /chat", async () => {
-    mocks.appState["chat-first-pane"] = {
+    mocks.pane = {
       appId: "mail",
       path: "/inbox",
       placement: "side",
@@ -225,7 +248,7 @@ describe("view-screen embedded workspace app", () => {
   });
 
   it("keeps a pane's named screen when it carries no path", async () => {
-    mocks.appState["chat-first-pane"] = { appId: "mail", view: "inbox" };
+    mocks.pane = { appId: "mail", view: "inbox" };
 
     const result = JSON.parse(await viewScreen.run({}));
 
@@ -258,7 +281,7 @@ describe("view-screen embedded workspace app", () => {
   });
 
   it("reports a pane that names no app as unknown, not as no app open", async () => {
-    mocks.appState["chat-first-pane"] = { placement: "side" };
+    mocks.pane = { placement: "side" };
 
     const result = JSON.parse(await viewScreen.run({}));
 

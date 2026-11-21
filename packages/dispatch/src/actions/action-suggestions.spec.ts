@@ -189,3 +189,57 @@ it("requires an explicit safe selection from actions that also offer deletion", 
     status: "accepted",
   });
 });
+
+it.each(["thread-delete", "deleteThread", "thread.delete"])(
+  "rejects the explicit destructive token in %s",
+  async (action) => {
+    const suggestion = {
+      ...filter,
+      execution: { ...filter.execution, action },
+    };
+    mocks.listActions.mockResolvedValue([{ name: action }]);
+    await expect(execute.run({ suggestion }, browser)).rejects.toMatchObject({
+      errorCode: "action_suggestion_unavailable",
+    });
+    expect(mocks.callAction).not.toHaveBeenCalled();
+  },
+);
+
+it("requires a safe nested selection in a mixed schema", async () => {
+  const action = "manage-splits";
+  mocks.listActions.mockResolvedValue([
+    {
+      name: action,
+      inputSchema: {
+        properties: {
+          options: {
+            properties: { operation: { enum: ["create", "bulk-delete"] } },
+          },
+        },
+      },
+    },
+  ]);
+  for (const params of [{}, { options: { operation: "bulk-delete" } }]) {
+    const suggestion = {
+      ...filter,
+      execution: { type: "action" as const, action, params },
+    };
+    await expect(execute.run({ suggestion }, browser)).rejects.toMatchObject({
+      errorCode: "action_suggestion_unavailable",
+    });
+  }
+  expect(mocks.callAction).not.toHaveBeenCalled();
+  const safe = {
+    ...filter,
+    execution: {
+      type: "action" as const,
+      action,
+      params: { options: { operation: "create" } },
+    },
+  };
+  await expect(
+    execute.run({ suggestion: safe }, browser),
+  ).resolves.toMatchObject({
+    status: "accepted",
+  });
+});

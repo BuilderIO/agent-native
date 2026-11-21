@@ -9,15 +9,25 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useAgentThread } from "@agent-native/toolkit/app/agentkit/react";
-import { IconX } from "@tabler/icons-react";
+import { IconInfoCircle, IconX } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
   ACTION_SUGGESTION_EXECUTION,
   selectTurnActionSuggestions,
   suggestedActionOperations,
+  requiresSuggestionReview,
+  suggestionReviewPayload,
 } from "../lib/action-suggestions.js";
 import { Button } from "./ui/button.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog.js";
 
 function approvalLink(error: unknown): string | undefined {
   if (
@@ -109,6 +119,7 @@ export function ActionSuggestionChips({
   const executing = useRef(false);
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [pendingId, setPendingId] = useState<string>();
+  const [review, setReview] = useState<ActionSuggestion>();
   const [receipt, setReceipt] = useState<ActionSuggestionReceipt>();
   const [failure, setFailure] = useState<{
     approval: boolean;
@@ -177,13 +188,32 @@ export function ActionSuggestionChips({
             title={suggestion.rationale}
             disabled={pendingId !== undefined}
             aria-busy={pendingId === suggestion.id}
-            onClick={() => void execute(suggestion)}
+            onClick={() => {
+              if (requiresSuggestionReview(suggestion)) setReview(suggestion);
+              else void execute(suggestion);
+            }}
           >
             <span dir="auto">{suggestion.label}</span>
             <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
               <SuggestionOperation suggestion={suggestion} />
             </span>
           </Button>
+          {!requiresSuggestionReview(suggestion) ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="rounded-none px-2 text-muted-foreground"
+              aria-label={t("dispatch.pages.reviewActionSuggestionLabel", {
+                defaultValue: "Review {{label}}",
+                label: suggestion.label,
+              })}
+              disabled={pendingId !== undefined}
+              onClick={() => setReview(suggestion)}
+            >
+              <IconInfoCircle size={14} aria-hidden="true" />
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="ghost"
@@ -200,6 +230,56 @@ export function ActionSuggestionChips({
           </Button>
         </div>
       ))}
+      <Dialog
+        open={review !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setReview(undefined);
+        }}
+      >
+        {review ? (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {t("dispatch.pages.reviewActionSuggestionTitle", {
+                  defaultValue: "Review suggested action",
+                })}
+              </DialogTitle>
+              <DialogDescription>
+                <SuggestionOperation suggestion={review} />
+              </DialogDescription>
+            </DialogHeader>
+            <pre
+              tabIndex={0}
+              className="max-h-[50vh] overflow-auto rounded-md border border-border p-3 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]"
+            >
+              {suggestionReviewPayload(review)}
+            </pre>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setReview(undefined)}
+              >
+                {t("dispatch.pages.cancelActionSuggestion", {
+                  defaultValue: "Cancel",
+                })}
+              </Button>
+              <Button
+                type="button"
+                disabled={pendingId !== undefined}
+                onClick={() => {
+                  setReview(undefined);
+                  void execute(review);
+                }}
+              >
+                {t("dispatch.pages.runActionSuggestion", {
+                  defaultValue: "Run action",
+                })}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
       {receipt ? (
         <span role="status" className="text-sm text-muted-foreground">
           {receiptUrl ? (

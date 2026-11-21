@@ -244,3 +244,49 @@ it("surfaces an actionable approval review instead of a success receipt", async 
   );
   expect(container.querySelector("[role=status]")).toBeNull();
 });
+
+it.each([
+  [automation, JSON.stringify(automation.execution.params, null, 2)],
+  [build, build.execution.domainSpec],
+  [
+    {
+      ...build,
+      kind: "customize-app",
+      appId: "workspace/mail",
+      execution: {
+        type: "customize",
+        targetAppId: "workspace/mail",
+        editSpec: "Set the default inbox column.",
+      },
+    } satisfies ActionSuggestion,
+    "Set the default inbox column.",
+  ],
+])(
+  "shows the concrete payload and waits for confirmation for $id",
+  async (suggestion, payload) => {
+    const thread = doneThread();
+    thread.tools.turn = {
+      id: "turn",
+      name: "propose-action-suggestions",
+      runId: "run",
+      status: "completed",
+      output: { suggestions: [suggestion] },
+    };
+    mocks.useThread.mockReturnValue(thread);
+    mocks.mutate.mockResolvedValue({
+      suggestionId: suggestion.id,
+      status: "accepted",
+      outcome: "action-completed",
+    });
+    await render();
+    await act(async () => chip(suggestion.label)?.click());
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.querySelector("pre")?.textContent).toBe(payload);
+    const run = [...(dialog?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "Run action",
+    );
+    await act(async () => run?.click());
+    expect(mocks.mutate).toHaveBeenCalledExactlyOnceWith({ suggestion });
+  },
+);

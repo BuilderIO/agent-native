@@ -14,7 +14,6 @@ import {
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
   directoryStatus: vi.fn(),
-  resolveAccessMany: vi.fn(),
   getBuiltinAgents: vi.fn(() => []),
   listWorkspaceApps: vi.fn(),
   getUserSetting: vi.fn(),
@@ -51,10 +50,6 @@ vi.mock("@agent-native/core/server/agent-discovery", () => ({
     directory: mocks.directoryStatus(),
   }),
   getBuiltinAgents: mocks.getBuiltinAgents,
-}));
-
-vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccessMany: mocks.resolveAccessMany,
 }));
 
 vi.mock("./dispatch-pane-context.js", () => ({
@@ -219,7 +214,6 @@ beforeEach(() => {
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
   mocks.directoryStatus.mockReturnValue({ status: "available" });
-  mocks.resolveAccessMany.mockResolvedValue(new Map());
   mocks.getBuiltinAgents.mockReturnValue([]);
   mocks.listWorkspaceApps.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
@@ -643,7 +637,7 @@ describe("Dispatch MCP gateway app discovery", () => {
     ]);
   });
 
-  it("rechecks workspace sharing before opening a cached mount", async () => {
+  it("rejects a previously registered runtime when its mount can no longer be verified", async () => {
     const id = "cached-workspace-app";
     const url = "https://beta.agent-workspace.builder.io";
     const request = {
@@ -657,43 +651,23 @@ describe("Dispatch MCP gateway app discovery", () => {
     mocks.listWorkspaceApps.mockResolvedValue([
       { id, path: "/actual-mount", url: `${url}/actual-mount` },
     ]);
-    await runWithRequestContext(request, () => listDispatchMcpApps());
-
-    mocks.listWorkspaceApps.mockRejectedValue({ statusCode: 503 });
-    mocks.resolveAccessMany.mockResolvedValue(
-      new Map([
-        [
-          id,
-          {
-            role: "viewer",
-            resource: { path: "/actual-mount", orgEnabled: true },
-          },
-        ],
-      ]),
-    );
     const open = () =>
       runWithRequestContext(request, () => resolveGrantedDispatchMcpApp(id));
     await expect(open()).resolves.toMatchObject({
       homeUrl: `${url}/actual-mount`,
     });
-    expect(mocks.resolveAccessMany).toHaveBeenCalledWith(
-      "workspace-app",
-      [id],
-      { userEmail: request.userEmail, orgId: request.orgId },
-    );
+    mocks.listWorkspaceApps.mockRejectedValue({ statusCode: 503 });
 
-    mocks.resolveAccessMany.mockResolvedValue(
-      new Map([
-        [
-          id,
-          { role: "viewer", resource: { path: "/moved", orgEnabled: true } },
-        ],
-      ]),
-    );
     await expect(open()).rejects.toThrow(/mount resolves/);
-
-    mocks.resolveAccessMany.mockResolvedValue(new Map());
-    await expect(open()).rejects.toThrow(/mount resolves/);
+    const result = await runWithRequestContext(request, listDispatchMcpApps);
+    expect(result.degradedSources).toEqual([
+      {
+        source: "workspace-mounts",
+        status: "unavailable",
+        httpStatus: 503,
+        usingCache: false,
+      },
+    ]);
   });
 
   it("keeps last-known remote manifests when strict connected discovery fails", async () => {
