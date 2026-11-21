@@ -1483,6 +1483,20 @@ export function createBigQueryAgentReconciler(
   };
 }
 
+export async function createRequestBigQueryAgentReconciler(
+  signal?: AbortSignal,
+): Promise<BigQueryAgentReconciler> {
+  const { token, principal } = await getBigQueryAccess(
+    signal ? { signal } : {},
+  );
+  return createBigQueryAgentReconciler(token, {
+    credentialScope: cacheScopeForContext(
+      requireRequestCredentialContext("BIGQUERY_PROJECT_ID"),
+    ),
+    credentialFingerprint: principal,
+  });
+}
+
 async function dryRunBillableEstimate(
   sql: string,
   signal?: AbortSignal,

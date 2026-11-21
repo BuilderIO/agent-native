@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Notiz an mich",
     },
     inbox: {
-      atLeastCount: "Mindestens {{count}}",
+      conversationsCount: "Konversationen: {{count}}",
+      conversationsAtLeastCount: "Konversationen: mindestens {{count}}",
+      unreadCount: "Ungelesene Konversationen: {{count}}",
+      draftsToReviewCount: "Zu prüfende Entwürfe: {{count}}",
       syncing: "Posteingang wird synchronisiert…",
     },
     sort: {
@@ -181,7 +184,7 @@ const messages = {
       filtersLimitReached: "Du kannst bis zu 20 Filter speichern.",
     },
     tabSettings: {
-      splitInbox: "Geteilter Posteingang",
+      splitInbox: "Posteingang in Tabs aufteilen",
       views: "Ansichten",
       categories: "Kategorien",
       rename: "Umbenennen",
@@ -189,7 +192,7 @@ const messages = {
       savedFilters: "Gespeicherte Filter",
       combinedInbox: "Kombinierter Posteingang",
       allTab: "Alle-Tab",
-      help: "Der kombinierte Posteingang zeigt alle Konten zusammen. Deaktiviere ihn, um E-Mails auf Tabs aufzuteilen.",
+      help: "Zeigt deine ausgewählten Ansichten, Labels und gespeicherten Filter als eigene Posteingangs-Tabs. Deaktiviere es, um alle E-Mails im Posteingang in einem Tab zu sehen.",
       aiSetup: "KI-Tags und Regeln einrichten",
     },
     accounts: {

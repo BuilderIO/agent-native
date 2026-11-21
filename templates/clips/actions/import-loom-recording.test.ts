@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => mocks.defineAction(options),
+  isAgentCaller: () => false,
 }));
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => mocks.defineAction(options),
