@@ -3169,6 +3169,9 @@ importers:
 
   packages/dispatch:
     dependencies:
+      '@agent-native/agentkit':
+        specifier: workspace:*
+        version: link:../agentkit
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../toolkit
