@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 
 export interface VocabularyEntry {
   id: string;
@@ -107,7 +108,50 @@ function invalidateVocabulary(): void {
   }
 }
 
-function diffSingleWord(
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * True when `replacement` reads as a spelling fix of `term` ("kublectl" ->
+ * "kubectl"), not a different word. Any single-word change in the field
+ * within the watch window used to be learned, which taught rules like
+ * "Test -> He" that then rewrote every later dictation.
+ */
+export function isPlausibleCorrection(
+  term: string,
+  replacement: string,
+): boolean {
+  if (term.length < 3 || replacement.length < 3) return false;
+  const a = term.toLowerCase();
+  const b = replacement.toLowerCase();
+  // One word inside the other ("staan" -> "staanbu", "niets" -> "niet") is
+  // a typing slip next to the word or a grammar edit, not a spelling the
+  // speech engine got wrong.
+  if (a.includes(b) || b.includes(a)) return false;
+  const allowed = Math.max(1, Math.floor(Math.max(a.length, b.length) / 3));
+  return editDistance(a, b) <= allowed;
+}
+
+/**
+ * Token-level diff between two short strings. Returns the first
+ * `{term, replacement}` pair where a single word changed and length didn't
+ * shift (keeps signal high). For multi-word edits we return null — too
+ * noisy to learn from.
+ */
+export function diffSingleWord(
   before: string,
   after: string,
 ): { term: string; replacement: string } | null {
@@ -122,6 +166,7 @@ function diffSingleWord(
     const replacement = b[i].replace(/[^\p{L}\p{N}'-]/gu, "");
     if (!term || !replacement) return null;
     if (term.toLowerCase() === replacement.toLowerCase()) return null;
+    if (!isPlausibleCorrection(term, replacement)) return null;
     diff = { term, replacement };
   }
   return diff;
@@ -140,6 +185,125 @@ async function readFocusedFieldText(): Promise<string | null> {
 
 let activeMonitorId = 0;
 
+/** A correction Clips noticed, waiting for the user to accept or ignore it. */
+export interface VocabularySuggestion {
+  id: number;
+  term: string;
+  replacement: string;
+}
+
+/** Event the flow bar listens to, to show the suggestion. */
+export const VOCAB_SUGGESTION_EVENT = "voice:vocab-suggestion";
+/** Event the flow bar sends back with the user's answer. */
+export const VOCAB_SUGGESTION_ANSWER_EVENT = "voice:vocab-suggestion-answer";
+/** The flow bar sends this once its suggestion listener is live. */
+export const VOCAB_SUGGESTION_READY_EVENT = "voice:vocab-suggestion-ready";
+/** Sent back to the flow bar after an accepted suggestion was saved or not. */
+export const VOCAB_SUGGESTION_SAVED_EVENT = "voice:vocab-suggestion-saved";
+/** How long a suggestion waits for an answer; no answer means ignore. */
+export const VOCAB_SUGGESTION_TIMEOUT_MS = 12_000;
+
+const pendingSuggestions = new Map<number, VocabularySuggestion>();
+let nextSuggestionId = 0;
+let answerListener: Promise<unknown> | null = null;
+
+/** True while a suggestion waits for the user, so the flow bar stays up. */
+export function hasPendingVocabularySuggestion(): boolean {
+  return pendingSuggestions.size > 0;
+}
+
+/** Saves a term; true only when the server accepted it. */
+async function saveVocabularyTerm(
+  term: string,
+  replacement: string,
+): Promise<boolean> {
+  if (!serverUrl) return false;
+  try {
+    const res = await fetch(
+      `${serverUrl}/_agent-native/actions/add-vocabulary-term`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ term, replacement, confidence: 0.7 }),
+      },
+    );
+    if (!res.ok) {
+      console.error("[personal-vocabulary] save rejected:", res.status);
+      return false;
+    }
+    invalidateVocabulary();
+    return true;
+  } catch (err) {
+    console.error("[personal-vocabulary] save failed:", err);
+    return false;
+  }
+}
+
+/**
+ * Handles the flow bar's answer. Only an explicit accept saves the term, and
+ * the flow bar hears back whether the save landed.
+ */
+export async function answerVocabularySuggestion(
+  id: number,
+  accept: boolean,
+): Promise<void> {
+  const suggestion = pendingSuggestions.get(id);
+  if (!suggestion) return;
+  pendingSuggestions.delete(id);
+  if (!accept) return;
+  const saved = await saveVocabularyTerm(
+    suggestion.term,
+    suggestion.replacement,
+  );
+  void emit(VOCAB_SUGGESTION_SAVED_EVENT, { id, saved }).catch(() => {});
+}
+
+function ensureAnswerListener(): void {
+  answerListener ??= Promise.all([
+    listen<{ id: number; accept: boolean }>(
+      VOCAB_SUGGESTION_ANSWER_EVENT,
+      (event) => {
+        const { id, accept } = event.payload ?? {};
+        if (Number.isSafeInteger(id)) {
+          void answerVocabularySuggestion(id, accept === true);
+        }
+      },
+    ),
+    // A flow bar that was just created may miss the first emit: send the
+    // waiting suggestion again once its listener is live.
+    listen(VOCAB_SUGGESTION_READY_EVENT, () => {
+      const all = [...pendingSuggestions.values()];
+      const waiting = all[all.length - 1];
+      if (waiting) void emit(VOCAB_SUGGESTION_EVENT, waiting).catch(() => {});
+    }),
+  ]).catch((err) => {
+    answerListener = null;
+    console.warn("[personal-vocabulary] suggestion listeners failed:", err);
+  });
+}
+
+/**
+ * Asks the user, in the flow bar, whether to remember a correction. Nothing
+ * is saved until they accept; no answer within the timeout means ignore.
+ */
+export function proposeVocabularySuggestion(
+  term: string,
+  replacement: string,
+): VocabularySuggestion {
+  ensureAnswerListener();
+  const suggestion = { id: ++nextSuggestionId, term, replacement };
+  // Only the newest suggestion is shown; an older one is dropped.
+  pendingSuggestions.clear();
+  pendingSuggestions.set(suggestion.id, suggestion);
+  window.setTimeout(() => {
+    pendingSuggestions.delete(suggestion.id);
+  }, VOCAB_SUGGESTION_TIMEOUT_MS);
+  void invoke("show_flow_bar").catch(() => {});
+  void emit(VOCAB_SUGGESTION_EVENT, suggestion).catch(() => {});
+  return suggestion;
+}
+
 export function recordPasteForLearn(pastedText: string): void {
   if (!pastedText.trim() || !serverUrl) return;
   const myId = ++activeMonitorId;
@@ -152,24 +316,7 @@ export function recordPasteForLearn(pastedText: string): void {
     if (current && current.trim() !== baseline) {
       const diff = diffSingleWord(baseline, current.trim());
       if (diff) {
-        try {
-          await fetch(
-            `${serverUrl}/_agent-native/actions/add-vocabulary-term`,
-            {
-              method: "POST",
-              credentials: "include",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                term: diff.term,
-                replacement: diff.replacement,
-                confidence: 0.7,
-              }),
-            },
-          ).catch(() => {});
-          invalidateVocabulary();
-        } catch (err) {
-          console.warn("[personal-vocabulary] persist failed:", err);
-        }
+        proposeVocabularySuggestion(diff.term, diff.replacement);
         return;
       }
     }
