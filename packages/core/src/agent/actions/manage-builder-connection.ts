@@ -61,6 +61,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: true,
   },
+  mcpTool: false,
   run: async (
     args,
     ctx,

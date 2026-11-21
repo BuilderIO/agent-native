@@ -3699,8 +3699,9 @@ export async function createMCPServerForRequest(
     ? {}
     : Object.fromEntries(
         Object.entries(visibleActions).filter(
-          ([, entry]) =>
+          ([name, entry]) =>
             entry.mcpTool === "search" &&
+            !Object.hasOwn(advertisedActionsBeforeToolSearchScope, name) &&
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );

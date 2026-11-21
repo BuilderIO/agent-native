@@ -607,7 +607,9 @@ export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, visible clips on library/shared-with-me, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
   schema: z.object({}),
+  readOnly: true,
   http: false,
+  mcpTool: "search",
   run: async () => {
     const navigation = (await readAppStateForCurrentTab(
       "navigation",
