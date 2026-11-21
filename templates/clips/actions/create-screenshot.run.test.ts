@@ -26,6 +26,9 @@ vi.mock("@agent-native/core/action", () => ({
     throw error;
   },
 }));
+vi.mock("@agent-native/core", () => ({
+  isAgentCaller: () => false,
+}));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: async () => undefined,
 }));
