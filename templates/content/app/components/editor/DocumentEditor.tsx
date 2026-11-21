@@ -266,6 +266,7 @@ import { ContentImportDialog } from "./ContentImportDialog";
 import { convergedContentNeedsSave } from "./converged-remote-save";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
+import { BuilderArticleRowAutosaveRunner } from "./database-sources/BuilderArticleAutosave";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import {
   type DatabaseRowView,
@@ -9225,6 +9226,9 @@ function PageEditorSessionBody({
     ? pagePropertiesQuery.data
     : undefined;
   const pageProperties = pagePropertiesInScope?.properties;
+  const builderArticleRow = pageProperties?.find(
+    (property) => property.definition.systemRole === "builder_status",
+  );
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const pendingHeld = pendingCommentHeld(
     { propertyId: pendingPropertyId, written: pendingWritten },
@@ -12031,6 +12035,13 @@ function PageEditorSessionBody({
                     )}
                   />
                 </div>
+                {builderArticleRow ? (
+                  <BuilderArticleRowAutosaveRunner
+                    documentId={documentId}
+                    databaseId={builderArticleRow.definition.databaseId}
+                    canEdit={editorCanEdit}
+                  />
+                ) : null}
                 {host === "preview" &&
                 document.databaseMembership &&
                 !isLocalFileDocument ? (
