@@ -130,7 +130,7 @@ async function holdRows(table: string, ids: string[]) {
 }
 
 async function waitUntilBlocked(settled: () => boolean, waiters = 1) {
-  for (let attempt = 0; attempt < 2_000; attempt += 1) {
+  for (;;) {
     if (settled()) return false;
     const waiting = await query(
       "SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()",
@@ -139,7 +139,6 @@ async function waitUntilBlocked(settled: () => boolean, waiters = 1) {
     // fixed-sleep-ok: polling interval between pg_stat_activity observations
     await sleep(5);
   }
-  throw new Error("The operation neither finished nor waited on the held row.");
 }
 
 function only<T>(rows: readonly T[]): T {
@@ -481,11 +480,101 @@ describe.skipIf(!POSTGRES_URL)(
       ).toHaveLength(1);
     });
 
+    it("counts a resent canonical update as applied only while its mirror holds what publishing writes", async () => {
+      const created = await write(publishInput());
+      const edit = {
+        ...publishInput(created.knowledge),
+        body: "Morgan ships Atlas next Friday.",
+      };
+      const first = await write(edit);
+      const path = first.knowledge.publishedResourcePath;
+      expect(await resourcePaths()).toEqual([path]);
+      const resent = await write(edit);
+      expect(resent.knowledge).toEqual(first.knowledge);
+      await getDb().execute(
+        sql`DELETE FROM resources WHERE owner = '__shared__' AND path = ${path}`,
+      );
+      const before = await knowledgeRows();
+      const outcome = await track(write(edit)).outcome;
+      expect(outcome.ok ? "written" : outcome.error).toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: { id: first.knowledge.id, publishedResourcePath: path },
+          currentRevision: first.knowledge.revision,
+        },
+      });
+      expect(await knowledgeRows()).toEqual(before);
+      expect(await resourcePaths()).toEqual([]);
+    });
+
+    it("answers a stale writer whose evidence grew while it waited with the current record", async () => {
+      const saved = await write({
+        title: "Atlas launch",
+        body: "Morgan ships Atlas on Friday.",
+        evidence: [{ captureId: "capture-a", quote: "Morgan will ship Atlas" }],
+        publishTier: "company",
+      });
+      const id = saved.knowledge.id;
+      const holder = await holdRows("brain_raw_captures", ["capture-a"]);
+      const grower = track(
+        write({
+          knowledgeId: id,
+          expectedRevision: saved.knowledge.revision,
+          title: "Atlas launch",
+          body: "Morgan ships Atlas after the security review.",
+          evidence: [
+            { captureId: "capture-a", quote: "Morgan will ship Atlas" },
+            { captureId: "capture-b", quote: "the security review" },
+          ],
+          publishTier: "company",
+        }),
+      );
+      expect(await waitUntilBlocked(() => grower.state.settled)).toBe(true);
+      const stale = track(
+        write({
+          knowledgeId: id,
+          expectedRevision: saved.knowledge.revision,
+          title: "Atlas launch",
+          body: "A stale edit of Atlas.",
+          evidence: [
+            { captureId: "capture-a", quote: "Morgan will ship Atlas" },
+          ],
+          publishTier: "company",
+        }),
+      );
+      expect(await waitUntilBlocked(() => stale.state.settled, 2)).toBe(true);
+      holder.release();
+      await holder.done;
+      const grown = await grower.outcome;
+      if (!grown.ok) throw grown.error;
+      const outcome = await stale.outcome;
+      expect(outcome.ok ? "written" : outcome.error).toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: {
+            id,
+            body: "Morgan ships Atlas after the security review.",
+          },
+          currentRevision: grown.value.knowledge.revision,
+        },
+      });
+      expect(
+        only((await knowledgeRows()).filter((row) => row.id === id))
+          .evidence_json,
+      ).toContain("capture-b");
+    });
+
     it("unpublishing deletes the resource atomically and notifies after commit", async () => {
       const saved = await write(publishInput());
       harness.notifications.length = 0;
       await asQa(() =>
-        brain.setKnowledgeCanonicalResource(saved.knowledge.id, false),
+        brain.setKnowledgeCanonicalResource(
+          saved.knowledge.id,
+          false,
+          saved.knowledge.revision,
+        ),
       );
       expect(await resourcePaths()).toEqual([]);
       expect(harness.notifications).toHaveLength(1);

@@ -103,7 +103,11 @@ import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import verifyKnowledgeAction from "../../actions/verify-knowledge.js";
 import writeIntelligenceAction from "../../actions/write-intelligence.js";
 import { intelligenceItemSchema } from "../../shared/intelligence.js";
-import { searchKnowledgeRows, assertDerivedAudienceAccess } from "./brain.js";
+import {
+  searchKnowledgeRows,
+  assertDerivedAudienceAccess,
+  setKnowledgeCanonicalResource,
+} from "./brain.js";
 import { runBrainDemoEval } from "./demo.js";
 import {
   writeIntelligence,
@@ -1322,5 +1326,100 @@ describe("intelligence writes send the revision they read", () => {
       expectedRevision: verified.revision,
     });
     expect(deprecated.verification.state).toBe("deprecated");
+  });
+
+  it("keeps an older revision stale after an unpublish that has nothing to remove", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-18T12:00:00.000Z"));
+    try {
+      const { item } = await writeIntelligence(input());
+      const verified = await verifyKnowledge({
+        knowledgeId: item.id,
+        state: "verified",
+        attested: true,
+        expectedRevision: item.revision,
+      });
+      expect(verified.revision).not.toBe(item.revision);
+      const unpublished = await setKnowledgeCanonicalResource(
+        item.id,
+        false,
+        verified.revision,
+      );
+      expect(unpublished.revision).toBe(verified.revision);
+      const applied = await storedState();
+      await expect(
+        verifyKnowledge({
+          knowledgeId: item.id,
+          state: "deprecated",
+          attested: true,
+          expectedRevision: item.revision,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "save_conflict",
+        details: {
+          current: { id: item.id, verification: { state: "verified" } },
+          currentRevision: verified.revision,
+        },
+      });
+      expect(await storedState()).toEqual(applied);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["timestamp", { timestampMs: 90_000 }],
+    ["source URL", { sourceUrl: "https://example.test/atlas" }],
+  ])(
+    "refuses a resend on the old revision whose citation %s differs",
+    async (_field, citation) => {
+      const { item } = await writeIntelligence(input());
+      const change = {
+        ...input(),
+        id: item.id,
+        expectedRevision: item.revision,
+        status: "completed" as const,
+      };
+      const saved = await writeIntelligence(change);
+      const applied = await storedState();
+      await expect(
+        writeIntelligence({
+          ...change,
+          evidence: change.evidence.map((entry) => ({ ...entry, ...citation })),
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: { id: item.id, status: "completed" },
+          currentRevision: saved.item.revision,
+        },
+      });
+      expect(await storedState()).toEqual(applied);
+    },
+  );
+
+  it("refuses a resent verification that asks for a different reminder", async () => {
+    const { item } = await writeIntelligence(input());
+    const verify = {
+      knowledgeId: item.id,
+      state: "verified" as const,
+      attested: true as const,
+      expectedRevision: item.revision,
+      remindInDays: 7,
+    };
+    const verified = await verifyKnowledge(verify);
+    const applied = await storedState();
+    expect(await verifyKnowledge(verify)).toEqual(verified);
+    await expect(
+      verifyKnowledge({ ...verify, remindInDays: 30 }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: {
+        current: { id: item.id, verification: { state: "verified" } },
+        currentRevision: verified.revision,
+      },
+    });
+    expect(await storedState()).toEqual(applied);
   });
 });

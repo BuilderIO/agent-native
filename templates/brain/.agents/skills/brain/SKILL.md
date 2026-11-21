@@ -188,7 +188,7 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | `enqueue-distillation` / `mark-capture-distilled` | Queue a capture for distillation; close out the queue row when done. |
 | `write-knowledge` | Write/update durable knowledge; publishes directly — see Publish Tiers above. Updates need `expectedRevision`. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Legacy proposal records; new writes never create proposals. |
-| `set-knowledge-canonical` | Mirror/unmirror published knowledge into `context/company-brain/...` workspace resources. |
+| `set-knowledge-canonical` | Mirror/unmirror published knowledge into `context/company-brain/...` workspace resources. Send the reviewed record's `revision` as `expectedRevision`. |
 | `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle, including personal Google Calendar, Gmail and Drive sources. |
 | `set-resource-visibility` / `share-resource` | Set source visibility or grant explicit source access. |
 | `sync-source` / `sync-due-sources` | Run one connector now, or sweep all due sources. |

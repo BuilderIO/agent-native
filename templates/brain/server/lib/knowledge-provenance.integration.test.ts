@@ -1191,6 +1191,84 @@ describe("knowledge updates send the revision they read", () => {
     expect(await audienceState()).toEqual(applied);
   });
 
+  describe("a resend counts as applied only when it would store what is stored", () => {
+    const citedEdit = (
+      id: string,
+      change: Partial<Parameters<typeof writeKnowledgeRecord>[0]> = {},
+    ) => ({
+      knowledgeId: id,
+      title: "Atlas launch",
+      body: "Morgan will ship the launch.",
+      evidence: [{ captureId: "capture", quote: plainQuote }],
+      publishTier: "company" as const,
+      ...change,
+    });
+
+    it("refuses a resend that adds the citation title to the redactions", async () => {
+      const id = await saveKnowledge();
+      const read = knowledgeRevision(await storedRow(id));
+      await asQa(() =>
+        writeKnowledgeRecord(
+          citedEdit(id, { expectedRevision: read, redactions: ["Atlas"] }),
+        ),
+      );
+      const applied = await storedRow(id);
+      expect(applied.evidenceJson).toContain("Planning");
+      const conflict = await conflictOf(
+        asQa(() =>
+          writeKnowledgeRecord(
+            citedEdit(id, { redactions: ["Atlas", "Planning"] }),
+          ),
+        ),
+      );
+      expect(conflict.details.currentRevision).toBe(knowledgeRevision(applied));
+      expect(await storedRow(id)).toEqual(applied);
+    });
+
+    it("counts an exact resend that redacts only the citation title as applied", async () => {
+      const id = await saveKnowledge();
+      const edit = citedEdit(id, {
+        expectedRevision: knowledgeRevision(await storedRow(id)),
+        redactions: ["Planning"],
+      });
+      const first = await asQa(() => writeKnowledgeRecord(edit));
+      const applied = await storedRow(id);
+      expect(applied.status).toBe("redacted");
+      expect(applied.evidenceJson).not.toContain("Planning");
+      const resent = await asQa(() => writeKnowledgeRecord(edit));
+      expect(resent.knowledge).toEqual(first.knowledge);
+      expect(await storedRow(id)).toEqual(applied);
+    });
+
+    it("refuses a resend without a revision that drops an explicit citation URL", async () => {
+      const id = await saveKnowledge();
+      const cited = [
+        {
+          captureId: "capture",
+          quote: plainQuote,
+          sourceUrl: "https://example.test/planning",
+        },
+      ];
+      const read = knowledgeRevision(await storedRow(id));
+      await asQa(() =>
+        writeKnowledgeRecord(
+          citedEdit(id, { expectedRevision: read, evidence: cited }),
+        ),
+      );
+      const applied = await storedRow(id);
+      expect(applied.evidenceJson).toContain("https://example.test/planning");
+      await asQa(() =>
+        writeKnowledgeRecord(citedEdit(id, { evidence: cited })),
+      );
+      expect(await storedRow(id)).toEqual(applied);
+      const conflict = await conflictOf(
+        asQa(() => writeKnowledgeRecord(citedEdit(id))),
+      );
+      expect(conflict.details.currentRevision).toBe(knowledgeRevision(applied));
+      expect(await storedRow(id)).toEqual(applied);
+    });
+  });
+
   it("refuses an update that supersedes itself", async () => {
     const id = await saveKnowledge();
     const before = await storedRow(id);
