@@ -136,6 +136,7 @@ let trackedSessionIdentity: string | null | undefined;
 let trackedSessionAuthUserId: string | undefined;
 let sessionReadTrigger: SessionStatusTrigger = "load";
 let sessionReadTriggerReported = false;
+let sessionAnswerReported = false;
 // The page load's own session read is the only one sent with the cookies a
 // request made before the session was known also carried. A retry or a reset
 // replaces it for the life of the document.
@@ -441,9 +442,18 @@ function notifySessionSubscribers(): Promise<void> {
   return resolveSession();
 }
 
-function invalidateSessionCache(trigger: SessionStatusTrigger): Promise<void> {
+function noteSessionReadCause(
+  trigger: SessionStatusTrigger,
+  replacesPending: boolean,
+): void {
+  if (!sessionAnswerReported) return;
+  if (!replacesPending && !sessionReadTriggerReported) return;
   sessionReadTrigger = trigger;
   sessionReadTriggerReported = false;
+}
+
+function invalidateSessionCache(trigger: SessionStatusTrigger): Promise<void> {
+  noteSessionReadCause(trigger, true);
   resetSessionCache();
   invalidateClientStatusRequest(SESSION_STATUS_PATH);
   return notifySessionSubscribers();
@@ -453,10 +463,7 @@ function invalidateSessionCache(trigger: SessionStatusTrigger): Promise<void> {
 // accepted stays shown while it is out (see "Whom a request was answered
 // for").
 function rereadSession(trigger: SessionStatusTrigger): void {
-  if (sessionReadTriggerReported) {
-    sessionReadTrigger = snapshotListeners.size > 0 ? trigger : "expired";
-    sessionReadTriggerReported = false;
-  }
+  noteSessionReadCause(snapshotListeners.size > 0 ? trigger : "expired", false);
   cachedSessionAt = 0;
   clearTimeout(staleSessionRecheck);
   staleSessionRecheck = undefined;
@@ -790,8 +797,7 @@ function fetchSharedSession(): Promise<SessionRead> {
   // the cookie read said A. Neither that answer nor a read still out on that
   // transport is reused; the session is read again over this one.
   if (sessionTransportChanged(transport)) {
-    sessionReadTrigger = "transport_change";
-    sessionReadTriggerReported = false;
+    noteSessionReadCause("transport_change", true);
     resetSessionCache();
   }
   if (hasFreshSessionCache()) {
@@ -879,6 +885,7 @@ function fetchSharedSession(): Promise<SessionRead> {
           : "signed_out_body";
       publishSessionIdentity(session, trigger);
       sessionReadTriggerReported = true;
+      sessionAnswerReported = true;
       if (firstSessionReadAnswer() !== answerBefore) {
         notifyFirstSessionReadAnswer();
       }

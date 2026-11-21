@@ -1937,6 +1937,36 @@ describe("what the session status event says caused it", () => {
     );
   });
 
+  it("keeps load when a sign-in change lands before the page's first answer", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValue(jsonResponse({ error: "Not authenticated" })),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      void module.notifySessionInvalidated();
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledExactlyOnceWith(
+      false,
+      "load",
+    );
+  });
+
   it("says auth_change for another tab's sign-in or sign-out", async () => {
     await mountFresh(signedInThenOut());
 
