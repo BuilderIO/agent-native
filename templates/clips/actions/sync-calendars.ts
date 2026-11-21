@@ -55,7 +55,7 @@ export default defineAction({
       ),
     allAccounts: z.boolean().default(false),
   }),
-  mcpTool: "search",
+  mcpTool: false,
   run: async (args) => {
     const db = getDb();
     const where = args.allAccounts
