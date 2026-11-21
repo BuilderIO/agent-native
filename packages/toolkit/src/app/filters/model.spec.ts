@@ -380,6 +380,21 @@ describe("matching", () => {
     expect(matchingIds(setFilterMode(state, "or"))).toEqual(["1", "4"]);
   });
 
+  it("takes a wide group and refuses a deep one without walking all of it", () => {
+    const empty = createFilterState(fields);
+    const wide = createFilterGroup(
+      Array.from({ length: 150_000 }, () =>
+        createFilterRule(titleField, ["clip"]),
+      ),
+    );
+    expect(addFilterGroup(empty, wide).items).toHaveLength(1);
+    let deep = createFilterGroup([createFilterRule(titleField, ["clip"])]);
+    for (let level = 0; level < 10_000; level += 1) {
+      deep = createFilterGroup([deep]);
+    }
+    expect(addFilterGroup(empty, deep)).toBe(empty);
+  });
+
   it("evaluates a group with its own mode", () => {
     const group = createFilterGroup([
       createFilterRule(tagsField, ["bug"]),
@@ -601,9 +616,25 @@ describe("dates", () => {
     const now = new Date("2026-11-21T03:00:00Z");
     expect(filterToday("America/New_York", now)).toBe("2026-11-20");
     expect(filterToday("UTC", now)).toBe("2026-11-21");
-    expect(() => filterToday("Not/A_Zone", now)).toThrow(RangeError);
     expect(filterToday(undefined, now)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(() => filterToday("", now)).toThrow(RangeError);
+  });
+
+  it("reads days in this machine's zone when it doesn't know the caller's", () => {
+    const now = new Date("2026-11-21T03:00:00Z");
+    expect(filterToday("Not/A_Zone", now)).toBe(filterToday(undefined, now));
+    expect(filterToday("", now)).toBe(filterToday(undefined, now));
+    const state = withRules(
+      createFilterRule(createdField, ["2026-10-01", "2026-10-31"], "between"),
+    );
+    const first = clips.at(0);
+    if (!first) throw new Error("No clips");
+    const clip = { ...first, created: "2026-10-22T09:00Z" };
+    expect(
+      matchesFilter(clip, state, fields, {
+        today: "2026-10-22",
+        timeZone: "Bogus/Zone",
+      }),
+    ).toBe(true);
   });
 
   it("offers presets that fit the field", () => {

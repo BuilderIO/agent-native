@@ -346,6 +346,43 @@ describe("FilterDateEditor", () => {
     });
   });
 
+  it("offers only the field's own operators and presets", () => {
+    const beforeOnly: FilterField = { ...createdField, operators: ["before"] };
+    render(<DateEditor onChange={vi.fn()} field={beforeOnly} />);
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(0);
+    expect(hasButtonNamed("Start date")).toBe(false);
+    const operator = document.querySelector("form button");
+    if (!operator) throw new Error("No operator menu");
+    openMenu(operator);
+    expect(
+      Array.from(document.querySelectorAll('[role="menuitemradio"]')).map(
+        (item) => item.textContent.trim(),
+      ),
+    ).toEqual(["is before"]);
+  });
+
+  it("names each end of a range's day menu by its end", () => {
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        rule={createFilterRule(createdField, ["today", ""], "between")}
+      />,
+    );
+    expect(hasButtonNamed("Start date: Today")).toBe(true);
+    expect(hasButtonNamed("End date: Exact date")).toBe(true);
+  });
+
+  it("reads a saved relative day with spaces around it", () => {
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        rule={createFilterRule(createdField, [" today "], "before")}
+      />,
+    );
+    expect(dayChoice("Exact date").textContent.trim()).toBe("Today");
+    expect(document.querySelector('input[aria-label="Exact date"]')).toBe(null);
+  });
+
   function dayChoice(label: string) {
     const button = document.querySelector(
       `[role="group"][aria-label="${label}"] button`,

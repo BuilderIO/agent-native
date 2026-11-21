@@ -447,14 +447,11 @@ export function addFilterRule(
   };
 }
 
-function filterGroupDepth(group: FilterGroup): number {
+function nestsDeeperThan(group: FilterGroup, depth: number): boolean {
   return (
-    1 +
-    Math.max(
-      0,
-      ...group.rules.map((member) =>
-        member.kind === "group" ? filterGroupDepth(member) : 0,
-      ),
+    depth < 1 ||
+    group.rules.some(
+      (member) => member.kind === "group" && nestsDeeperThan(member, depth - 1),
     )
   );
 }
@@ -468,7 +465,7 @@ export function addFilterGroup(
   group: FilterGroup,
   parentGroupId?: string,
 ): FilterState {
-  if (filterGroupDepth(group) > (parentGroupId ? 1 : 2)) return state;
+  if (nestsDeeperThan(group, parentGroupId ? 1 : 2)) return state;
   if (!parentGroupId) return { ...state, items: [...state.items, group] };
   return {
     ...state,
@@ -721,15 +718,21 @@ export function filterDateRangeDays(
 
 const dayFormatters = new Map<string | undefined, Intl.DateTimeFormat>();
 
-function dayFormatter(timeZone: string | undefined) {
+function dayFormatter(timeZone: string | undefined): Intl.DateTimeFormat {
   const cached = dayFormatters.get(timeZone);
   if (cached) return cached;
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  let formatter: Intl.DateTimeFormat;
+  try {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+  } catch (error) {
+    if (!(error instanceof RangeError) || timeZone === undefined) throw error;
+    formatter = dayFormatter(undefined);
+  }
   dayFormatters.set(timeZone, formatter);
   return formatter;
 }
