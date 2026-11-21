@@ -15,7 +15,7 @@ describe("AgentPanel page header title", () => {
         <QueryClientProvider client={new QueryClient()}>
           <AgentPanel
             showHeader={false}
-          showPageHeader
+            showPageHeader
             showPageHeaderWhenEmpty
             newUiTabLabel="New AI chat"
           />
