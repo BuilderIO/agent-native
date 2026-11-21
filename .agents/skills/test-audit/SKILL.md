@@ -25,8 +25,9 @@ Where a test belongs and which CI lane runs it is owned by
 
 ## Authoring gate
 
-Before adding any test, answer four questions; a missing answer means do not
-add it yet:
+No new test is the default. Most fixes and features are proven by running the
+changed path (`verifying-changes`), not by a test that ships with them. Before
+adding any test, answer four questions; a missing answer means do not add it:
 
 1. What observable behavior, invariant, or independent contract does it protect?
 2. What credible regression makes it fail?
@@ -40,9 +41,10 @@ add it yet:
 
 Then check the test against every [junk pattern](#junk-patterns); a match fails
 the gate unless the [retention bar](#retention-bar) names the contract it
-independently guards. A test that would break under behavior-preserving
-refactoring is asserting implementation, not behavior; rewrite it at the
-owning boundary before landing it.
+independently guards. Then imagine two edits. Break the behavior: a test that
+still passes proves nothing. Change the internals but keep every observable
+result: a test that fails is pinned to the implementation. Keep only tests that
+catch the first edit and survive the second; rewrite or drop the rest.
 
 Bug regression tests must fail on the pre-fix code for the intended reason and
 pass after the owner-boundary repair. A regression test that never demonstrably
@@ -55,6 +57,8 @@ The shared checklist for both modes: the authoring gate rejects a new test that
 matches one, and audits hunt for existing tests that do.
 
 - assertion-free coverage probes;
+- absence tests for a removed feature, route, or flag, unless the removal itself
+  is a security or public contract;
 - self-comparisons and identity copiers;
 - copied fixtures, inventories, manifests, or export lists;
 - exact source, import, or string greps;
