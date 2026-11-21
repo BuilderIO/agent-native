@@ -1,6 +1,11 @@
 import { AllSelection, TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
-import { useEffect, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
 
 import { cn } from "../utils.js";
 
@@ -170,6 +175,18 @@ export function BubbleToolbar({
     closeLinkEditor();
   };
 
+  const handleLinkInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleSetLink();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeLinkEditor();
+    }
+  };
+
   const handleRemoveLink = () => {
     editor.chain().focus().extendMarkRange("link").unsetLink().run();
     closeLinkEditor();
@@ -207,10 +224,7 @@ export function BubbleToolbar({
             placeholder="Link text"
             value={linkText}
             onChange={(event) => setLinkText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") handleSetLink();
-              if (event.key === "Escape") closeLinkEditor();
-            }}
+            onKeyDown={handleLinkInputKeyDown}
           />
           <input
             autoFocus
@@ -219,10 +233,7 @@ export function BubbleToolbar({
             placeholder="https://example.com"
             value={linkUrl}
             onChange={(event) => setLinkUrl(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") handleSetLink();
-              if (event.key === "Escape") closeLinkEditor();
-            }}
+            onKeyDown={handleLinkInputKeyDown}
           />
           {editor.isActive("link") && (
             <button type="button" onClick={handleRemoveLink}>

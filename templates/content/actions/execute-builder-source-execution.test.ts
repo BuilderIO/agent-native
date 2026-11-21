@@ -3266,3 +3266,218 @@ describe("Builder unpublished saves", () => {
     expect(values).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
   });
 });
+
+describe("automatic Builder article saves", () => {
+  const draftRow = () =>
+    row({ sourceValues: { published: "draft", "data.title": "Old title" } });
+  const liveDraft: BuilderCmsEntryLiveState = {
+    exists: true,
+    published: "draft",
+    lastUpdated: BUILDER_LAST_UPDATED_MS,
+    blocksHash: null,
+    id: "builder-entry-1",
+    values: { "data.title": "Old title" },
+  };
+
+  function runAutomatic(
+    args: {
+      rows?: ContentDatabaseSource["rows"];
+      readLiveEntry?: BuilderCmsEntryLiveState;
+      metadata?: Partial<ContentDatabaseSource["metadata"]>;
+      pushMode?: "autosave" | "publish";
+    } = {},
+  ) {
+    const pushMode = args.pushMode ?? "autosave";
+    const approved = changeSet({ pushMode });
+    const builderSource = source({
+      rows: args.rows ?? [draftRow()],
+      changeSets: [approved],
+      metadata: args.metadata,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({ source: builderSource, changeSet: approved }),
+      readLiveEntry: args.readLiveEntry ?? liveDraft,
+    });
+    return {
+      deps,
+      result: executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approved.id,
+          pushModeConfirmation: pushMode,
+        },
+        deps,
+        { automatic: true },
+      ),
+    };
+  }
+
+  it("saves a draft with a plain draft save after the live check", async () => {
+    const { deps, result } = runAutomatic();
+    await expect(result).resolves.toMatchObject(RESPONSE);
+    expect(deps.readLiveEntry).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          method: "PATCH",
+          query: expect.not.objectContaining({
+            autoSaveOnly: expect.anything(),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("stops without writing once the live entry reads as published", async () => {
+    const { deps, result } = runAutomatic({
+      readLiveEntry: {
+        ...liveDraft,
+        published: "published",
+        lastUpdated: BUILDER_LAST_UPDATED_MS + 1000,
+      },
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_autosave_published",
+    });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restore: expect.objectContaining({ state: "blocked" }),
+      }),
+    );
+  });
+
+  it("waits while Builder's editor reports changes Content didn't make", async () => {
+    const { deps, result } = runAutomatic({
+      readLiveEntry: { ...liveDraft, hasAutosaves: true },
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_autosave_editor_changes",
+    });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reviewed save's timestamp and field checks", async () => {
+    const { deps, result } = runAutomatic({
+      readLiveEntry: {
+        ...liveDraft,
+        lastUpdated: BUILDER_LAST_UPDATED_MS + 1000,
+        values: { "data.title": "Renamed in Builder" },
+      },
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_entry_changed_since_review",
+    });
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("refuses a change that isn't a draft save before claiming it", async () => {
+    const { deps, result } = runAutomatic({
+      metadata: { writeMode: "publish_updates" },
+      pushMode: "publish",
+    });
+    await expect(result).rejects.toMatchObject({
+      errorCode: "builder_autosave_needs_review",
+    });
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("never sends a draft save with an unknown outcome again", async () => {
+    const approved = changeSet({ pushMode: "autosave" });
+    const builderSource = source({
+      rows: [draftRow()],
+      changeSets: [approved],
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({
+        source: builderSource,
+        changeSet: approved,
+        state: "reconciliation_required",
+        updatedAt: "2026-06-15T11:00:00.000Z",
+      }),
+      readLiveEntry: liveDraft,
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approved.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+        { automatic: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "builder_autosave_unconfirmed" });
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.readLiveEntry).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+    expect(deps.updateExecutionState).not.toHaveBeenCalled();
+  });
+
+  it("settles a lost draft create only from Builder's read-only lookup", async () => {
+    const draftCreate = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [],
+      changeSets: [draftCreate],
+      metadata: {
+        pushMode: "draft",
+        allowDraftWrites: true,
+        allowedWriteModes: ["draft", "autosave"],
+      },
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({
+        source: builderSource,
+        changeSet: draftCreate,
+        state: "reconciliation_required",
+        updatedAt: "2026-06-15T11:00:00.000Z",
+      }),
+      lookupMatches: [],
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: draftCreate.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+        { automatic: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: "builder_autosave_unconfirmed" });
+    expect(deps.lookupSafeModelIntent).toHaveBeenCalledTimes(1);
+    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("leaves a reviewed save to a published entry alone", async () => {
+    const approved = changeSet();
+    const builderSource = source({
+      rows: [draftRow()],
+      changeSets: [approved],
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution: executionFor({ source: builderSource, changeSet: approved }),
+      readLiveEntry: { ...liveDraft, published: "published" },
+    });
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approved.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).resolves.toMatchObject(RESPONSE);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+  });
+});

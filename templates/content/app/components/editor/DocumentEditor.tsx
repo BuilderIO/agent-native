@@ -266,6 +266,7 @@ import { ContentImportDialog } from "./ContentImportDialog";
 import { convergedContentNeedsSave } from "./converged-remote-save";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
+import { BuilderArticleRowAutosaveRunner } from "./database-sources/BuilderArticleAutosave";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import {
   type DatabaseRowView,
@@ -2348,6 +2349,13 @@ export function isSavedContentLocalEcho(
   return sentContent !== undefined && sentContent === savedContent;
 }
 
+export function newerMergedLocalSave<T extends { sequence: number }>(
+  current: T | null,
+  next: T,
+): T {
+  return current && current.sequence > next.sequence ? current : next;
+}
+
 export function resolveAcknowledgedDocumentSnapshot<
   T extends { id: string; updatedAt: string },
 >(args: {
@@ -3950,6 +3958,12 @@ function PageEditorSessionBody({
     sequence: number;
   } | null>(null);
   const acknowledgedLocalSnapshotSequenceRef = useRef(0);
+  const [mergedLocalSave, setMergedLocalSave] = useState<{
+    sent: string;
+    value: string;
+    revision: string;
+    sequence: number;
+  } | null>(null);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -4804,7 +4818,8 @@ function PageEditorSessionBody({
   );
   const persistDocumentUpdates = useCallback(
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
-      options.persistenceSequence = ++persistenceSequenceRef.current;
+      const persistenceSequence = ++persistenceSequenceRef.current;
+      options.persistenceSequence = persistenceSequence;
       const persistenceIdentity = {
         editorSessionId: options.editorSessionId ?? editorSessionIdRef.current!,
         editGeneration:
@@ -4849,6 +4864,16 @@ function PageEditorSessionBody({
                 !current || snapshot.sequence > current.sequence
                   ? snapshot
                   : current,
+              );
+            } else if (updates.content !== undefined && result.revision) {
+              const merged = {
+                sent: updates.content,
+                value: result.content,
+                revision: result.revision,
+                sequence: persistenceSequence,
+              };
+              setMergedLocalSave((current) =>
+                newerMergedLocalSave(current, merged),
               );
             }
             if (
@@ -9201,6 +9226,9 @@ function PageEditorSessionBody({
     ? pagePropertiesQuery.data
     : undefined;
   const pageProperties = pagePropertiesInScope?.properties;
+  const builderArticleRow = pageProperties?.find(
+    (property) => property.definition.systemRole === "builder_status",
+  );
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const pendingHeld = pendingCommentHeld(
     { propertyId: pendingPropertyId, written: pendingWritten },
@@ -12007,6 +12035,13 @@ function PageEditorSessionBody({
                     )}
                   />
                 </div>
+                {builderArticleRow ? (
+                  <BuilderArticleRowAutosaveRunner
+                    documentId={documentId}
+                    databaseId={builderArticleRow.definition.databaseId}
+                    canEdit={editorCanEdit}
+                  />
+                ) : null}
                 {host === "preview" &&
                 document.databaseMembership &&
                 !isLocalFileDocument ? (
@@ -12324,6 +12359,7 @@ function PageEditorSessionBody({
                                 acknowledgedLocalSnapshot={
                                   acknowledgedLocalSnapshot
                                 }
+                                mergedLocalSave={mergedLocalSave}
                                 onBaseAwareReconcile={
                                   suggestionEditorIsolation.reconcileCanonical
                                     ? handleBaseAwareReconcile

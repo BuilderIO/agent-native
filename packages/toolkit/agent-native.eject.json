@@ -1086,6 +1086,19 @@
       ]
     },
     {
+      "id": "toolkit/app-filters",
+      "label": "Toolkit app Filters",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["app-filters"],
+      "entrypoints": ["./app/filters"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/app/filters"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["@agent-native/core", "@tabler/icons-react", "react"],
+      "verification": ["pnpm typecheck"],
+      "protectedImports": ["@agent-native/core/client/i18n"]
+    },
+    {
       "id": "toolkit/app-integrations",
       "label": "Toolkit app Integrations",
       "catalog": "toolkit-ui",

@@ -161,6 +161,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { AutoSyncToggle } from "./AutoSyncToggle";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -2475,43 +2476,11 @@ export function DocumentToolbar({
                           {/* Conflict is shown via NotionConflictBanner above the title */}
 
                           <div className="p-1.5">
-                            <button
-                              onClick={() => setAutoSync(!autoSync)}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
-                            >
-                              <IconRefresh
-                                size={12}
-                                className={
-                                  autoSync
-                                    ? "text-emerald-500"
-                                    : "text-muted-foreground"
-                                }
-                              />
-                              <span
-                                className={
-                                  autoSync
-                                    ? "text-foreground font-medium"
-                                    : "text-muted-foreground"
-                                }
-                              >
-                                {t("editor.toolbar.autoSync")}
-                              </span>
-                              <span
-                                className={cn(
-                                  "ml-auto h-4 w-7 rounded-full relative",
-                                  autoSync
-                                    ? "bg-emerald-500"
-                                    : "bg-muted-foreground/30",
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    "absolute top-0.5 h-3 w-3 rounded-full bg-white",
-                                    autoSync ? "right-0.5" : "left-0.5",
-                                  )}
-                                />
-                              </span>
-                            </button>
+                            <AutoSyncToggle
+                              label={t("editor.toolbar.autoSync")}
+                              checked={autoSync}
+                              onCheckedChange={setAutoSync}
+                            />
                             <button
                               onClick={handlePull}
                               disabled={isWorking}

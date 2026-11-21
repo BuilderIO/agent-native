@@ -27,6 +27,7 @@ import {
   type ContentDatabaseFilterMode,
   type ContentDatabaseItem,
   type ContentDatabaseNavigationPageResponse,
+  type ContentDatabaseSort,
   type DocumentProperty,
 } from "../shared/api.js";
 import {
@@ -2568,6 +2569,7 @@ describe("Files navigation filters on stored property values", () => {
   async function setView(
     filters: ContentDatabaseFilter[],
     filterMode: ContentDatabaseFilterMode = "and",
+    sorts: ContentDatabaseSort[] = [],
   ) {
     await getDb()
       .update(schema.contentDatabases)
@@ -2579,7 +2581,7 @@ describe("Files navigation filters on stored property values", () => {
               id: "default",
               name: "Table",
               type: "table",
-              sorts: [],
+              sorts,
               filters,
               filterMode,
               columnWidths: {},
@@ -3045,6 +3047,254 @@ describe("Files navigation filters on stored property values", () => {
       await expect(readPage("UTC")).rejects.toMatchObject({
         errorCode: "unsupported_navigation_filter_expression",
       });
+    }
+  });
+
+  const by = (
+    key: Key | "name",
+    direction: ContentDatabaseSort["direction"] = "asc",
+  ): ContentDatabaseSort => ({
+    key: key === "name" ? "name" : definitions[key].id,
+    label: `${key} ${direction}`,
+    direction,
+  });
+  const computedSort = (
+    type: (typeof computedTypes)[number],
+  ): ContentDatabaseSort => ({
+    key: `stored-computed-${type}`,
+    label: `${type} asc`,
+    direction: "asc",
+  });
+
+  async function sortedIds(
+    sorts: ContentDatabaseSort[],
+    filters: ContentDatabaseFilter[] = [],
+  ) {
+    await setView(filters, "and", sorts);
+    const ids: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await readPage("UTC", { cursor, limit: 3 });
+      ids.push(
+        ...page.items.map((item) => item.documentId.replace(/^stored-/, "")),
+      );
+      cursor = page.pagination.nextCursor ?? undefined;
+    } while (cursor);
+    return ids;
+  }
+
+  function evaluatedOrder(
+    sorts: ContentDatabaseSort[],
+    filters: ContentDatabaseFilter[] = [],
+  ) {
+    return applyContentDatabaseTableQuery(
+      evaluatorItems,
+      evaluatorProperties,
+      { search: "", filters, sorts, filterMode: "and" },
+      { today: contentDatabaseFilterToday("UTC"), timeZone: "UTC" },
+    ).map((item) => item.document.id);
+  }
+
+  it("sorts on each stored property type as the shared evaluator does", async () => {
+    expect(await sortedIds([by("points")])).toEqual([
+      "empty",
+      "gap",
+      "after-gap",
+      "overlap",
+      "retired",
+      "odd",
+      "launch",
+      "range",
+      "recap",
+      "bad-date",
+      "draft",
+    ]);
+    for (const key of keys) {
+      for (const direction of ["asc", "desc"] as const) {
+        const sort = by(key, direction);
+        expect({ sort: sort.label, ids: await sortedIds([sort]) }).toEqual({
+          sort: sort.label,
+          ids: evaluatedOrder([sort]),
+        });
+      }
+    }
+  });
+
+  it("breaks ties with the view's later sorts, then the row order", async () => {
+    const cases = [
+      [by("done"), by("name", "desc")],
+      [by("stage", "desc"), by("points")],
+      [by("tags"), by("owner", "desc"), by("name")],
+      [by("state"), by("due", "desc")],
+    ];
+    for (const sorts of cases) {
+      const label = sorts.map((sort) => sort.label).join(", ");
+      expect({ sorts: label, ids: await sortedIds(sorts) }).toEqual({
+        sorts: label,
+        ids: evaluatedOrder(sorts),
+      });
+    }
+  });
+
+  it("stops at a sort on a value worked out as a row is read", async () => {
+    expect(
+      await sortedIds([
+        by("done"),
+        computedSort("formula"),
+        by("name", "desc"),
+      ]),
+    ).toEqual(evaluatedOrder([by("done")]));
+    const unsorted = await sortedIds([]);
+    for (const type of computedTypes) {
+      expect({ type, ids: await sortedIds([computedSort(type)]) }).toEqual({
+        type,
+        ids: unsorted,
+      });
+    }
+  });
+
+  it("filters and sorts together", async () => {
+    const filters = [on("tags", "is_not_empty")];
+    const sorts = [by("tags", "desc")];
+    expect(await sortedIds(sorts, filters)).toEqual(
+      evaluatedOrder(sorts, filters),
+    );
+  });
+
+  async function withChildren(
+    parentId: string,
+    children: Array<{ id: string; title: string; notes?: string }>,
+    check: () => Promise<void>,
+  ) {
+    const childIds = children.map((child) => `${parentId}-${child.id}`);
+    try {
+      for (const [position, child] of children.entries()) {
+        await addFile({
+          id: `${parentId}-${child.id}`,
+          title: child.title,
+          parentId,
+          position,
+        });
+        if (child.notes) {
+          await getDb()
+            .insert(schema.documentPropertyValues)
+            .values({
+              id: `stored-value-${parentId}-${child.id}-notes`,
+              ownerEmail: OWNER,
+              documentId: `${parentId}-${child.id}`,
+              propertyId: definitions.notes.id,
+              valueJson: JSON.stringify(child.notes),
+            });
+        }
+      }
+      await check();
+    } finally {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(inArray(schema.documentPropertyValues.documentId, childIds));
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.documentId, childIds));
+      await getDb()
+        .delete(schema.documents)
+        .where(inArray(schema.documents.id, childIds));
+    }
+  }
+
+  it("sorts an expanded folder's children the same way", async () => {
+    const children = [
+      { id: "z", title: "z" },
+      { id: "y", title: "y", notes: "apple" },
+      { id: "x", title: "x", notes: "Zebra" },
+      { id: "w", title: "w", notes: "apple" },
+    ];
+    await withChildren("stored-odd", children, async () => {
+      await setView([], "and", [by("notes", "desc"), by("name")]);
+      const tree = await navigate({
+        parentId: PARENT_ID,
+        viewId: "default",
+        expand: ["stored-odd"],
+      });
+      expect(
+        tree.branches?.["stored-odd"]?.items.map((item) => item.documentId),
+      ).toEqual([
+        "stored-odd-x",
+        "stored-odd-w",
+        "stored-odd-y",
+        "stored-odd-z",
+      ]);
+    });
+  });
+
+  it("keeps the view's later sorts after a sort on name", async () => {
+    const children = [
+      { id: "a", title: "Same", notes: "apple" },
+      { id: "b", title: "Same", notes: "pear" },
+      { id: "c", title: "Other" },
+    ];
+    await withChildren("stored-retired", children, async () => {
+      await setView([], "and", [by("name"), by("notes", "desc")]);
+      const page = await navigate({
+        parentId: "stored-retired",
+        viewId: "default",
+      });
+      expect(page.items.map((item) => item.documentId)).toEqual([
+        "stored-retired-c",
+        "stored-retired-b",
+        "stored-retired-a",
+      ]);
+    });
+    expect(await sortedIds([by("name", "desc"), by("points")])).toEqual(
+      evaluatedOrder([by("name", "desc"), by("points")]),
+    );
+  });
+
+  it("keeps a cursor until a row moves across it", async () => {
+    await setView([], "and", [by("points")]);
+    const first = await readPage("UTC", { limit: 3 });
+    expect(first.items.map((item) => item.documentId)).toEqual([
+      "stored-empty",
+      "stored-gap",
+      "stored-after-gap",
+    ]);
+    const cursor = first.pagination.nextCursor ?? undefined;
+    expect(cursor).toEqual(expect.any(String));
+    const draftPoints = eq(
+      schema.documentPropertyValues.id,
+      "stored-value-draft-points",
+    );
+    await getDb()
+      .update(schema.documentPropertyValues)
+      .set({ valueJson: JSON.stringify("abd") })
+      .where(draftPoints);
+    try {
+      const second = await readPage("UTC", { cursor, limit: 3 });
+      expect(second.items.map((item) => item.documentId)).toEqual([
+        "stored-overlap",
+        "stored-retired",
+        "stored-odd",
+      ]);
+    } finally {
+      await getDb()
+        .update(schema.documentPropertyValues)
+        .set({ valueJson: JSON.stringify("abc") })
+        .where(draftPoints);
+    }
+    await getDb().insert(schema.documentPropertyValues).values({
+      id: "stored-value-gap-points",
+      ownerEmail: OWNER,
+      documentId: "stored-gap",
+      propertyId: definitions.points.id,
+      valueJson: "100",
+    });
+    try {
+      await expect(readPage("UTC", { cursor, limit: 3 })).rejects.toMatchObject(
+        { errorCode: "invalid_navigation_cursor" },
+      );
+    } finally {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.id, "stored-value-gap-points"));
     }
   });
 });
