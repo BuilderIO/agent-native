@@ -135,7 +135,7 @@ export default defineAction({
   schema: z.object({}),
   readOnly: true,
   http: false,
-  mcpTool: "search",
+  mcpTool: false,
   run: async () => {
     const [navigation, overview, vaultOverview] = await Promise.all([
       readAppState("navigation"),

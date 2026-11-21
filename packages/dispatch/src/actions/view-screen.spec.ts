@@ -59,8 +59,8 @@ vi.mock("../server/lib/workspace-resources-store.js", () => ({
 import viewScreen from "./view-screen.js";
 
 describe("view-screen MCP exposure", () => {
-  it("is a read that tool-search serves even where outside agents' writes go through ask_app", () => {
-    expect(viewScreen.mcpTool).toBe("search");
+  it("is a read kept in the app, since it summarizes run debugging, the vault and audit screens that Dispatch's MCP catalog leaves out", () => {
+    expect(viewScreen.mcpTool).toBe(false);
     expect(viewScreen.readOnly).toBe(true);
   });
 });
