@@ -509,6 +509,35 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.link-cards",
+    surface: "editor",
+    label:
+      "Turn a pasted Design, Slides or Clips link into a card that shows the item's title to readers who can open it",
+    uiEntrypoints: [
+      "app/components/editor/link-card/link-card-paste.ts",
+      "app/components/editor/link-card/LinkCardBlock.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a LinkCard tag naming only the owning app and the link, never the title. Markdown, HTML and PDF exports carry the plain link.",
+    uiImplementation:
+      "Pasting a link alone on a line reads where the apps live through get-link-card-origins and swaps the line for the card as its own undo step. Each card asks read-link-summaries, which asks the owning app's read-link-summary as the signed-in reader and returns the title only when that reader can open the item; signed-out readers make no call. Agents write the same LinkCard tag with edit-document.",
+    status: "action-backed",
+    actions: ["get-link-card-origins", "read-link-summaries"],
+    exception:
+      "get-link-card-origins and read-link-summaries are hidden with agentTool: false because they serve the editor's paste handler and each reader's card; agents read and write the LinkCard tag with get-document and edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/link-card-actions.test.ts",
+      "shared/link-card-block.spec.ts",
+      "app/components/editor/link-card/LinkCardBlock.test.tsx",
+      "app/components/editor/link-card/link-card-paste.test.ts",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",

@@ -238,6 +238,11 @@ import {
   waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
 } from "./image-upload-previews";
+import {
+  LinkCardPaste,
+  type LinkCardPasteContext,
+  type LinkCardPasteOptions,
+} from "./link-card/link-card-paste";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import {
   LIVE_BODY_PARITY_QUIET_MS,
@@ -2354,6 +2359,7 @@ interface VisualEditorExtensionOptions {
   findCommentQuote?: CommentHighlightOptions["findQuote"];
   /** Turns a pasted Analytics panel link into a chart while it returns one. */
   analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
+  linkCardPaste?: LinkCardPasteOptions["getContext"];
 }
 
 export function hasAncestorType(
@@ -3420,6 +3426,7 @@ export function createVisualEditorExtensions({
   onMediaSourceCommitted,
   findCommentQuote,
   analyticsChartPaste,
+  linkCardPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -3529,6 +3536,9 @@ export function createVisualEditorExtensions({
       NotionMarkdownShortcuts,
       ...(analyticsChartPaste
         ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
+      ...(linkCardPaste
+        ? [LinkCardPaste.configure({ getContext: linkCardPaste })]
         : []),
       MarkdownPasteDetection,
       SelectAllDocument,
@@ -4281,6 +4291,29 @@ export function VisualEditor({
         : null,
     [documentId, localFileMode],
   );
+  const linkCardOrigins = useActionQuery(
+    "get-link-card-origins",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const linkCardAppUrlsRef = useRef<LinkCardPasteContext["appUrls"]>({});
+  useEffect(() => {
+    linkCardAppUrlsRef.current = linkCardOrigins.data ?? {};
+  }, [linkCardOrigins.data]);
+  const getLinkCardPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            canEdit: !suggestingRef.current,
+            appUrls: linkCardAppUrlsRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -4349,6 +4382,7 @@ export function VisualEditor({
         onMediaSourceCommitted,
         findCommentQuote,
         analyticsChartPaste: getAnalyticsChartPasteContext,
+        linkCardPaste: getLinkCardPasteContext,
       }),
       Extension.create({
         name: "suggestingCaretOnPageSwap",
@@ -4432,6 +4466,7 @@ export function VisualEditor({
       onMediaSourceCommitted,
       findCommentQuote,
       getAnalyticsChartPasteContext,
+      getLinkCardPasteContext,
     ],
   );
 

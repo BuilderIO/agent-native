@@ -564,6 +564,17 @@ Who can open the page and who can open the dashboard can differ:
 Analytics refusals (`analytics_refused`, such as a dashboard the person can't
 open) come back with Analytics' own reason; pass it on.
 
+### Link cards
+
+A `<LinkCard app="design" url="…" />` block shows a link to a design, a
+Slides deck, or a Clips recording (`app` is `design`, `slides` or `clips`) as
+a card. The page stores only the app and the link. Each reader's card asks the
+owning app for the item's title as that reader, so someone who can't open the
+item sees the app's name and the link, and Markdown, HTML and PDF exports
+carry the plain link. When people paste such a link alone on a line of a page
+they can edit, Content makes the card for them. To add one, write the tag with
+`edit-document` as its own block; never put a title in it.
+
 ## Parent-Child Hierarchy
 
 Documents form a tree via `parent_id`:
