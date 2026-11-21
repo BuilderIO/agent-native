@@ -169,7 +169,9 @@ queries out, so an article's queries add up to less than its clicks. A run's
 `detail` notes a day that hit Search Console's daily row limit. Until the
 page-level step has succeeded under the current properties, the queries step
 stops as `not_configured`, waiting for the daily page numbers that say which
-weeks are final.
+weeks are final. A week arrives some days after its Sunday, so a panel over a
+rolling range should reach back to the newest stored week, as the Search
+queries panel does, or a 7-day range can come up empty.
 
 The `signups` step writes `signups_first_touch` per article: people who
 first landed on the article and later signed up, on the day of that first

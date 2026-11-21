@@ -714,6 +714,34 @@ describe("Content view dashboard", () => {
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
 
+  it("reaches back to the newest collected week when Search Console's lag leaves the 7-day range without one", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_search_queries (id, tenant_key, owner_email, org_id, item_id, week_start, query, clicks, impressions, position_weighted, run_id, collected_at)
+      SELECT rows.item_id || rows.weeks_ago, items.tenant_key, items.owner_email, items.org_id, rows.item_id, to_char(date_trunc('week', CURRENT_DATE::timestamp)::date - 7 * rows.weeks_ago, 'YYYY-MM-DD'), rows.query, rows.clicks, rows.impressions, rows.impressions * rows.position, 'r7', '2026-09-01'
+      FROM (VALUES
+        ('a1', 2, 'lagged query', 3, 60, 4),
+        ('a1', 3, 'older query', 5, 80, 6)
+      ) AS rows (item_id, weeks_ago, query, clicks, impressions, position)
+      JOIN analytics_content_items items ON items.id = rows.item_id;
+    `);
+    expect(await runPanel("search-queries", "7d")).toEqual([
+      {
+        query: "lagged query",
+        title: "Post one",
+        href: "https://www.builder.io/blog/one",
+        impressions: 60,
+        clicks: 3,
+        click_rate: 0.05,
+        position: 4,
+      },
+    ]);
+    const month = await runPanel("search-queries", "28d");
+    expect(month.map((row) => row.query)).toEqual([
+      "older query",
+      "lagged query",
+    ]);
+  });
+
   it("shows a queries run's note and says when the queries step waits for Search Console access", async () => {
     await client.exec(
       "UPDATE analytics_content_collection_runs SET detail = 'Waiting for the page numbers to reach this week.' WHERE id = 'r7'",

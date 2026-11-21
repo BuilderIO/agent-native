@@ -452,7 +452,7 @@
       "source": "first-party",
       "width": 6,
       "tab": "Search",
-      "sql": "WITH per_query AS (SELECT i.title, i.url AS href, q.query, SUM(q.clicks) AS clicks, SUM(q.impressions) AS impressions, SUM(q.position_weighted) AS position_weighted FROM analytics_content_search_queries q JOIN analytics_content_items i ON i.id = q.item_id WHERE i.source = 'builder_blog' AND q.week_start::date + 6 >= CASE '{{timeRange}}' WHEN '7d' THEN CURRENT_DATE - 7 WHEN '28d' THEN CURRENT_DATE - 28 WHEN '90d' THEN CURRENT_DATE - 90 WHEN 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE q.week_start::date END AND q.week_start::date <= CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeEnd}}', '')::date ELSE CURRENT_DATE - 1 END GROUP BY i.id, i.title, i.url, q.query) SELECT query, title, href, impressions, clicks, ROUND((clicks / NULLIF(impressions, 0))::numeric, 4)::float8 AS click_rate, ROUND((position_weighted / NULLIF(impressions, 0))::numeric, 1)::float8 AS position FROM per_query ORDER BY clicks DESC, impressions DESC, query, title LIMIT 200",
+      "sql": "WITH newest AS (SELECT MAX(week_start)::date + 6 AS week_end FROM analytics_content_search_queries), per_query AS (SELECT i.title, i.url AS href, q.query, SUM(q.clicks) AS clicks, SUM(q.impressions) AS impressions, SUM(q.position_weighted) AS position_weighted FROM analytics_content_search_queries q JOIN analytics_content_items i ON i.id = q.item_id CROSS JOIN newest WHERE i.source = 'builder_blog' AND q.week_start::date + 6 >= CASE '{{timeRange}}' WHEN '7d' THEN LEAST(CURRENT_DATE - 7, newest.week_end) WHEN '28d' THEN LEAST(CURRENT_DATE - 28, newest.week_end) WHEN '90d' THEN LEAST(CURRENT_DATE - 90, newest.week_end) WHEN 'custom' THEN NULLIF('{{timeRangeStart}}', '')::date ELSE q.week_start::date END AND q.week_start::date <= CASE WHEN '{{timeRange}}' = 'custom' THEN NULLIF('{{timeRangeEnd}}', '')::date ELSE CURRENT_DATE - 1 END GROUP BY i.id, i.title, i.url, q.query) SELECT query, title, href, impressions, clicks, ROUND((clicks / NULLIF(impressions, 0))::numeric, 4)::float8 AS click_rate, ROUND((position_weighted / NULLIF(impressions, 0))::numeric, 1)::float8 AS position FROM per_query ORDER BY clicks DESC, impressions DESC, query, title LIMIT 200",
       "config": {
         "timeScope": "dashboard",
         "sortable": true,
@@ -494,7 +494,7 @@
             "hidden": true
           }
         ],
-        "description": "Each article's top Google queries, most clicks first. Queries are collected per week, Monday to Sunday, so a time range takes every whole week it touches. Search Console leaves rare and private queries out, so an article's queries add up to less than its search clicks."
+        "description": "Each article's top Google queries, most clicks first. Queries are collected per week, Monday to Sunday, so a time range takes every whole week it touches. Search Console reports days late, so a 7, 28 or 90-day range also reaches back to the newest week collected. Search Console leaves rare and private queries out, so an article's queries add up to less than its search clicks."
       }
     },
     {
