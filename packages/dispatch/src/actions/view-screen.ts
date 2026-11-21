@@ -1,9 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  resolveCurrentRequestStateTab,
+} from "@agent-native/core/application-state";
 import type { ActionEntry } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
+import { readDispatchPaneContext } from "../server/lib/dispatch-pane-context.js";
 import { listOverview } from "../server/lib/dispatch-store.js";
 import {
   getAgentThreadDebug,
@@ -84,6 +88,7 @@ type EmbeddedApp =
 
 async function resolveEmbeddedApp(
   navigation: Record<string, any> | null,
+  readPane = () => readAppState(CHAT_FIRST_PANE_STATE_KEY),
 ): Promise<EmbeddedApp | null> {
   if (navigation?.view === "workspace-app") {
     const id =
@@ -109,7 +114,7 @@ async function resolveEmbeddedApp(
   }
 
   if (navigation?.view !== "chat") return null;
-  const pane = await readAppState(CHAT_FIRST_PANE_STATE_KEY);
+  const pane = await readPane();
   if (pane === null) return null;
   const appId = typeof pane.appId === "string" ? pane.appId.trim() : "";
   if (!appId) {
@@ -129,14 +134,55 @@ async function resolveEmbeddedApp(
   };
 }
 
+function publicPanePath(value: unknown): string | undefined {
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//")
+  ) {
+    return undefined;
+  }
+  // Report the visible route without query parameters or fragments.
+  const path = value.split(/[?#]/, 1)[0];
+  return path && path.length <= 2_000 ? path : undefined;
+}
+
+async function readMcpView() {
+  const tab = await resolveCurrentRequestStateTab();
+  if (!tab.tabId || tab.unavailable) return {};
+  const navigation = await readAppState("navigation");
+  const pane = await resolveEmbeddedApp(navigation, readDispatchPaneContext);
+  return {
+    ...(typeof navigation?.view === "string"
+      ? {
+          navigation: {
+            view: navigation.view,
+            path: publicPanePath(navigation.path),
+          },
+        }
+      : {}),
+    ...(pane?.status === "open"
+      ? {
+          embeddedApp: {
+            status: pane.status,
+            id: pane.id,
+            path: publicPanePath(pane.path),
+            source: pane.source,
+          },
+        }
+      : {}),
+  };
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at in the dispatch UI, including navigation state, any embedded workspace app, and a compact operational summary.",
   schema: z.object({}),
   readOnly: true,
   http: false,
-  mcpTool: false,
-  run: async () => {
+  mcpTool: true,
+  run: async (_input, context) => {
+    if (context?.caller === "mcp") return readMcpView();
     const [navigation, overview, vaultOverview] = await Promise.all([
       readAppState("navigation"),
       listOverview(),
@@ -149,7 +195,12 @@ export default defineAction({
     };
     if (navigation) screen.navigation = navigation;
 
-    const embeddedApp = await resolveEmbeddedApp(navigation);
+    const embeddedApp = await resolveEmbeddedApp(
+      navigation,
+      async () =>
+        (await readDispatchPaneContext()) ??
+        (await readAppState(CHAT_FIRST_PANE_STATE_KEY)),
+    );
     if (embeddedApp) screen.embeddedApp = embeddedApp;
 
     if (navigation?.view === "chat" || navigation?.view === "browser-chat") {

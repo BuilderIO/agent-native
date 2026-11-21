@@ -918,6 +918,88 @@ describe("Dispatch NavContent", () => {
       ]);
     });
 
+    it("reads a refreshed selection only from the visible workspace pane", async () => {
+      const install = (app: string) => ({
+        id: app,
+        name: app,
+        path: `/${app}`,
+        url: `https://${app}.example.test/${app}`,
+        status: "ready",
+      });
+      await renderChat("/chat/pane-context", null, [
+        install("mail"),
+        install("notes"),
+      ]);
+
+      async function openFrame(app: string, selection: () => string) {
+        clientState.createEmbedSessionMutateAsync.mockResolvedValueOnce({
+          startUrl: `https://${app}.example.test/${app}/initial`,
+          childBrowserTabId:
+            app === "mail"
+              ? "d178e672-918b-4c93-bd78-f627f7f00001"
+              : "d178e672-918b-4c93-bd78-f627f7f00002",
+        });
+        await act(async () => emitChatFirstOpenApp({ app }));
+        const frame = container.querySelector<HTMLIFrameElement>(
+          `iframe[src^="https://${app}.example.test/"]`,
+        );
+        if (!frame?.contentWindow) throw new Error("Missing pane iframe");
+        const read = vi
+          .spyOn(frame.contentWindow, "postMessage")
+          .mockImplementation((request, _origin, transfer) => {
+            if (request?.operation !== "read") return;
+            const [port] = transfer as MessagePort[];
+            port.postMessage({
+              result: { path: `/${app}/current`, selectedText: selection() },
+            });
+            port.close();
+          });
+        await act(async () => frame.dispatchEvent(new Event("load")));
+        return read;
+      }
+
+      let selectedMail = "First message";
+      const mailRead = await openFrame("mail", () => selectedMail);
+      await send("Summarize this");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({
+            openApp: "mail",
+            openPath: "/mail/current",
+            selection: "First message",
+          }),
+          expect.anything(),
+        ),
+      );
+
+      selectedMail = "Edited message";
+      await send("Summarize this again");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({ selection: "Edited message" }),
+          expect.anything(),
+        ),
+      );
+
+      await openFrame("notes", () => "Visible note");
+      mailRead.mockClear();
+      await send("Summarize the current selection");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({
+            openApp: "notes",
+            openPath: "/notes/current",
+            selection: "Visible note",
+          }),
+          expect.anything(),
+        ),
+      );
+      expect(mailRead).not.toHaveBeenCalled();
+    });
+
     it("does not route a send from another chat", async () => {
       await renderChat("/chat/route-own-chat");
       await act(async () => {

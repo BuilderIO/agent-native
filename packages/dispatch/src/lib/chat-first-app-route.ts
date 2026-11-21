@@ -4,6 +4,9 @@ export type ChatFirstAppRouteAnswer =
       app: string;
       confidence?: number;
       explicit?: true;
+      /** Until app screen bindings are discoverable, only the registered home is routable. */
+      screen?: "home";
+      params?: Record<string, string>;
       cached?: boolean;
       latencyMs?: number;
       model?: string;

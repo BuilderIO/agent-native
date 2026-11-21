@@ -47,6 +47,10 @@ import {
   workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
+import {
+  DISPATCH_CHILD_BROWSER_TAB_PARAM,
+  isDispatchChildBrowserTabId,
+} from "../shared/chat-first-pane";
 import { DISPATCH_WORKSPACE_SSO_FLAG } from "../shared/feature-flags";
 import { workspaceAppChatProxyPath } from "../shared/workspace-app-chat";
 import { ActionQueryError } from "./action-query-error";
@@ -63,6 +67,7 @@ const MAX_FRAME_CHAT_CONTEXT_LENGTH = 700_000;
 
 interface EmbedSessionResult {
   startUrl: string;
+  childBrowserTabId?: string;
 }
 
 interface EmbedSessionInput {
@@ -349,17 +354,18 @@ function navigateSameOriginWorkspaceApp(
 function readSameOriginWorkspaceAppView(
   frame: Window,
   mount: URL,
-): WorkspaceAppFrameView | null {
+): (WorkspaceAppFrameView & { pendingTabClaim: boolean }) | null {
   try {
-    const path = workspaceAppFramePathAtMount(
-      new URL(frame.location.href),
-      mount,
-    );
+    const location = new URL(frame.location.href);
+    const path = workspaceAppFramePathAtMount(location, mount);
     if (!path) return null;
     return {
       path,
       title: frame.document.title,
       selectedText: frame.getSelection()?.toString().trim(),
+      pendingTabClaim: location.searchParams.has(
+        DISPATCH_CHILD_BROWSER_TAB_PARAM,
+      ),
     };
   } catch {
     // Access is denied after a cross-origin redirect.
@@ -376,9 +382,13 @@ export interface WorkspaceAppFrameApp {
   isDispatch?: boolean;
 }
 
-export type WorkspaceAppViewReader = (
-  signal: AbortSignal,
-) => Promise<WorkspaceAppFrameView | null>;
+export type WorkspaceAppViewReader = (signal: AbortSignal) => Promise<
+  | (WorkspaceAppFrameView & {
+      origin?: string;
+      childBrowserTabId?: string;
+    })
+  | null
+>;
 
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
@@ -387,6 +397,7 @@ interface WorkspaceAppFrameProps {
   initialPath?: string;
   onChildRouteChange?: (path: string) => void;
   onViewReaderChange?: (read: WorkspaceAppViewReader) => () => void;
+  claimBrowserTab?: boolean;
   chatSidebar?: boolean;
   copy?: ChatFirstCopy;
 }
@@ -398,6 +409,7 @@ export function WorkspaceAppFrame({
   initialPath,
   onChildRouteChange,
   onViewReaderChange,
+  claimBrowserTab = false,
   chatSidebar = false,
   copy = defaultChatFirstCopy,
 }: WorkspaceAppFrameProps) {
@@ -424,6 +436,9 @@ export function WorkspaceAppFrame({
   } | null>(null);
   const observedPath = useRef<string | null>(null);
   const framePath = openInTopWindow ? requestedPath : launchPath;
+  const childBrowserTabClaim = useRef<{ startUrl: string; id: string } | null>(
+    null,
+  );
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [isDirectFallback, setIsDirectFallback] = useState(false);
@@ -572,8 +587,17 @@ export function WorkspaceAppFrame({
   useEffect(() => {
     setLoadedDocument(null);
     observedPath.current = null;
+    childBrowserTabClaim.current = null;
     if (hostPageDirectUrl) {
-      setEmbedUrl(hostPageDirectUrl);
+      if (claimBrowserTab) {
+        const url = new URL(hostPageDirectUrl, window.location.href);
+        const id = crypto.randomUUID();
+        url.searchParams.set(DISPATCH_CHILD_BROWSER_TAB_PARAM, id);
+        childBrowserTabClaim.current = { startUrl: url.href, id };
+        setEmbedUrl(url.href);
+      } else {
+        setEmbedUrl(hostPageDirectUrl);
+      }
       setEmbedError(null);
       setIsDirectFallback(false);
       return;
@@ -618,6 +642,15 @@ export function WorkspaceAppFrame({
           setEmbedUrl(didNavigate ? null : result.startUrl);
           return;
         }
+        if (
+          claimBrowserTab &&
+          isDispatchChildBrowserTabId(result.childBrowserTabId)
+        ) {
+          childBrowserTabClaim.current = {
+            startUrl: result.startUrl,
+            id: result.childBrowserTabId,
+          };
+        }
         setEmbedUrl(result.startUrl);
       })
       .catch((cause: unknown) => {
@@ -649,6 +682,7 @@ export function WorkspaceAppFrame({
     app.path,
     app.url,
     appHref,
+    claimBrowserTab,
     createEmbedSession.mutateAsync,
     createWorkspaceSsoEmbedSession.mutateAsync,
     embedInput,
@@ -864,10 +898,9 @@ export function WorkspaceAppFrame({
         return null;
       }
       if (/[\u0000-\u001f\u007f]/.test(read.path)) return null;
-      const path = workspaceAppFramePathAtMount(
-        new URL(read.path, origin),
-        mount,
-      );
+      const renderedUrl = new URL(read.path, origin);
+      const path = workspaceAppFramePathAtMount(renderedUrl, mount);
+      const claim = childBrowserTabClaim.current;
       if (
         !path ||
         path.length > 2_000 ||
@@ -879,6 +912,11 @@ export function WorkspaceAppFrame({
         path,
         title: read.title?.slice(0, 256),
         selectedText: read.selectedText?.slice(0, 4_000),
+        ...(claim?.startUrl === embedUrl &&
+        (!("pendingTabClaim" in read) || read.pendingTabClaim === false) &&
+        !renderedUrl.searchParams.has(DISPATCH_CHILD_BROWSER_TAB_PARAM)
+          ? { childBrowserTabId: claim.id, origin }
+          : {}),
       };
     });
     return () => {

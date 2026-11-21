@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   navigation: {} as Record<string, unknown>,
+  pane: null as Record<string, unknown> | null,
+  tab: { tabId: "parent-one", unavailable: false } as {
+    tabId: string | null;
+    unavailable: boolean;
+  },
   appState: {} as Record<string, unknown>,
   listAgentRunFailures: vi.fn(),
   listThreadDebugSources: vi.fn(),
@@ -14,6 +19,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  resolveCurrentRequestStateTab: async () => mocks.tab,
   readAppState: vi.fn(async (key: string) =>
     key === "navigation" ? mocks.navigation : (mocks.appState[key] ?? null),
   ),
@@ -21,6 +27,10 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("../server/lib/app-creation-store.js", () => ({
   listWorkspaceApps: vi.fn(),
+}));
+
+vi.mock("../server/lib/dispatch-pane-context.js", () => ({
+  readDispatchPaneContext: async () => mocks.pane,
 }));
 
 vi.mock("../server/lib/dispatch-store.js", () => ({
@@ -59,9 +69,31 @@ vi.mock("../server/lib/workspace-resources-store.js", () => ({
 import viewScreen from "./view-screen.js";
 
 describe("view-screen MCP exposure", () => {
-  it("is a read kept in the app, since it summarizes run debugging, the vault and audit screens that Dispatch's MCP catalog leaves out", () => {
-    expect(viewScreen.mcpTool).toBe(false);
+  it("returns current pane identity and paths over MCP without operational data", async () => {
+    mocks.navigation = {
+      view: "chat",
+      path: "/chat/current?filter=private",
+      owner: "hidden",
+    };
+    mocks.pane = {
+      appId: "workspace/mail",
+      path: "/mail/threads/2?filter=private",
+    };
+    expect(viewScreen.mcpTool).toBe(true);
     expect(viewScreen.readOnly).toBe(true);
+    expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({
+      navigation: { view: "chat", path: "/chat/current" },
+      embeddedApp: {
+        status: "open",
+        id: "workspace/mail",
+        path: "/mail/threads/2",
+        source: "chat-first-pane",
+      },
+    });
+    mocks.tab = { tabId: null, unavailable: true };
+    expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({});
+    mocks.tab = { tabId: "parent-one", unavailable: false };
+    mocks.pane = null;
   });
 });
 

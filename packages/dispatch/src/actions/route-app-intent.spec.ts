@@ -44,8 +44,55 @@ describe("route-app-intent", () => {
       app: "mail",
       confidence: 1,
       explicit: true,
+      screen: "home",
     });
     expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
+  it("includes the active route, selection, and granted installation manifests", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      {
+        id: "workspace/mail",
+        name: "Mail",
+        description: "Email",
+        aliases: ["Inbox"],
+      },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "test",
+      model: "test",
+      answers: {
+        app: { type: "choice", choice: "workspace/mail", confidence: 0.88 },
+      },
+    });
+    await run({
+      text: "Summarize this",
+      openApp: "workspace/mail",
+      openPath: "/threads/2",
+      selection: "Selected message",
+    });
+    expect(mocks.decide.mock.lastCall?.[0].input).toEqual(
+      expect.arrayContaining([
+        {
+          type: "json",
+          value: {
+            connectedWorkspaceApps: [
+              {
+                id: "workspace/mail",
+                name: "Mail",
+                description: "Email",
+                aliases: ["Inbox"],
+              },
+            ],
+          },
+        },
+        {
+          type: "json",
+          value: { openPath: "/threads/2", selection: "Selected message" },
+        },
+      ]),
+    );
   });
 
   it("opens a saved pointer's object instead of the Tasks default", async () => {
@@ -131,7 +178,7 @@ describe("route-app-intent", () => {
       type: "json",
       value: { savedPointers: [{ alias: "standup notes", appId: "mail" }] },
     });
-    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v4$/);
+    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v5$/);
   });
 
   it.each(["mail", "tasks"])(
@@ -250,6 +297,15 @@ describe("route-app-intent", () => {
     ]);
     expect(call.input).toEqual([
       { type: "text", text: "Request: move it to 4pm" },
+      {
+        type: "json",
+        value: {
+          connectedWorkspaceApps: [
+            { id: "calendar", name: "Calendar", description: "" },
+            { id: "mail", name: "Mail", description: "Email inbox" },
+          ],
+        },
+      },
       { type: "text", text: "App currently on screen: calendar" },
       {
         type: "json",

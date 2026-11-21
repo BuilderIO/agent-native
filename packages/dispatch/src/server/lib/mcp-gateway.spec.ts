@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   managerStop: vi.fn(),
   managerCallTool: vi.fn(),
   managerConstructor: vi.fn(),
+  resolveChildBrowserTab: vi.fn(),
   managerHasServer: vi.fn(),
   managerGetTool: vi.fn(),
   managerGetToolsForServer: vi.fn(),
@@ -54,6 +55,10 @@ vi.mock("@agent-native/core/server/agent-discovery", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccessMany: mocks.resolveAccessMany,
+}));
+
+vi.mock("./dispatch-pane-context.js", () => ({
+  resolveDispatchChildBrowserTab: mocks.resolveChildBrowserTab,
 }));
 
 vi.mock("./app-creation-store.js", () => ({
@@ -390,6 +395,30 @@ describe("Dispatch direct app actions", () => {
     } finally {
       remove();
     }
+  });
+
+  it("forwards the bound visible child tab on app actions", async () => {
+    defineAppConfig({ dispatch: { directAppActions: true } });
+    mocks.managerCallTool.mockResolvedValue({ content: [] });
+    mocks.resolveChildBrowserTab.mockResolvedValueOnce(
+      "fd88b908-c543-43a8-b044-425959511c70",
+    );
+    await asOwner(() =>
+      callGrantedDispatchMcpAppAction("analytics", "view-screen", {}),
+    );
+    expect(mocks.resolveChildBrowserTab).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "analytics", url: analyticsAgent.url }),
+    );
+    expect(mocks.managerConstructor).toHaveBeenCalledWith({
+      servers: {
+        target: expect.objectContaining({
+          headers: expect.objectContaining({
+            "x-agent-native-browser-tab":
+              "fd88b908-c543-43a8-b044-425959511c70",
+          }),
+        }),
+      },
+    });
   });
 
   it("refuses an app the caller has not granted", async () => {
@@ -2019,10 +2048,14 @@ describe("openGrantedDispatchMcpApp", () => {
     const startUrl =
       "http://localhost:8086/_agent-native/embed/start?ticket=prefetch-fixture";
     mocks.managerCallTool.mockImplementationOnce(
-      () =>
+      (_tool: string, { url }: { url: string }) =>
         new Promise((resolve) => {
+          const { pathname, search } = new URL(url);
           setTimeout(
-            () => resolve({ structuredContent: { startUrl } }),
+            () =>
+              resolve({
+                structuredContent: { startUrl, targetPath: pathname + search },
+              }),
             12_000,
           );
         }),
@@ -2053,13 +2086,23 @@ describe("openGrantedDispatchMcpApp", () => {
     await opening;
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
 
-    const pane = asOwner(() => createGrantedDispatchMcpEmbedSession(input));
+    const pane = asOwner(() =>
+      createGrantedDispatchMcpEmbedSession(input, { bindBrowserTab: true }),
+    );
     await vi.advanceTimersByTimeAsync(11_000);
-    await expect(pane).resolves.toMatchObject({ startUrl });
+    const { childBrowserTabId, targetPath } = await pane;
+    const launchUrl = new URL(mocks.managerCallTool.mock.calls[0][1].url);
+    expect(childBrowserTabId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(launchUrl.searchParams.get("agentNativeTab")).toBe(
+      childBrowserTabId,
+    );
+    expect(targetPath).toBe("/dashboards");
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
 
     await expect(
-      asOwner(() => createGrantedDispatchMcpEmbedSession(input)),
+      asOwner(() =>
+        createGrantedDispatchMcpEmbedSession(input, { bindBrowserTab: true }),
+      ),
     ).resolves.toMatchObject({
       startUrl: expect.not.stringContaining("prefetch-fixture"),
     });
@@ -2088,7 +2131,9 @@ describe("openGrantedDispatchMcpApp", () => {
       openGrantedDispatchMcpApp(input, { prefetchEmbed: true }),
     );
     await vi.advanceTimersByTimeAsync(0);
-    const pane = asOwner(() => createGrantedDispatchMcpEmbedSession(input));
+    const pane = asOwner(() =>
+      createGrantedDispatchMcpEmbedSession(input, { bindBrowserTab: true }),
+    );
     await vi.advanceTimersByTimeAsync(15_000);
     await expect(pane).resolves.toMatchObject({ app: "analytics" });
     expect(mocks.managerStop).toHaveBeenCalled();
@@ -2124,7 +2169,7 @@ describe("openGrantedDispatchMcpApp", () => {
 
     await expect(
       asOwner("another-workspace", () =>
-        createGrantedDispatchMcpEmbedSession(input),
+        createGrantedDispatchMcpEmbedSession(input, { bindBrowserTab: true }),
       ),
     ).resolves.toMatchObject({
       startUrl: expect.not.stringContaining("workspace-fixture"),
@@ -2136,7 +2181,7 @@ describe("openGrantedDispatchMcpApp", () => {
     });
     await expect(
       asOwner("prefetch-workspace", () =>
-        createGrantedDispatchMcpEmbedSession(input),
+        createGrantedDispatchMcpEmbedSession(input, { bindBrowserTab: true }),
       ),
     ).rejects.toThrow(/not granted/);
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);

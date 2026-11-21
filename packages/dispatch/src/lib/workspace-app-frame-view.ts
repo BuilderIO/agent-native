@@ -1,5 +1,7 @@
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 
+import { DISPATCH_CHILD_BROWSER_TAB_PARAM } from "../shared/chat-first-pane";
+
 const VIEW_REQUEST_TIMEOUT_MS = 1_000;
 
 export interface WorkspaceAppFrameView {
@@ -12,6 +14,7 @@ export function workspaceAppFramePath(url: URL): string {
   const safe = new URL(url);
   if (safe.searchParams.has(EMBED_TOKEN_QUERY_PARAM)) {
     safe.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
+    safe.searchParams.delete(DISPATCH_CHILD_BROWSER_TAB_PARAM);
   }
   return safe.pathname + safe.search + safe.hash;
 }

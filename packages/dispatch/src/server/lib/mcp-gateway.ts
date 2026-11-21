@@ -40,12 +40,14 @@ import {
 } from "@agent-native/core/server/agent-discovery";
 import { EMBED_START_PATH } from "@agent-native/core/shared";
 
+import { DISPATCH_CHILD_BROWSER_TAB_PARAM } from "../../shared/chat-first-pane.js";
 import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
   DISPATCH_WORKSPACE_SSO_FLAG,
   isWorkspaceSsoAppUrl,
 } from "../../shared/workspace-sso.js";
 import { listWorkspaceApps } from "./app-creation-store.js";
+import { resolveDispatchChildBrowserTab } from "./dispatch-pane-context.js";
 import {
   projectEnvironmentUrl,
   requestEnvironmentLane,
@@ -1608,7 +1610,11 @@ async function appActionHeaders(
   const headers = await appActionHeaderProvider(request);
   if (headers === undefined) return {};
   for (const [name, value] of Object.entries(headers)) {
-    if (name.toLowerCase() === "authorization" || typeof value !== "string") {
+    if (
+      name.toLowerCase() === "authorization" ||
+      name.toLowerCase() === "x-agent-native-browser-tab" ||
+      typeof value !== "string"
+    ) {
       throw new Error(
         `The app action header provider returned an invalid "${name}" header.`,
       );
@@ -1657,6 +1663,10 @@ async function withGrantedAppMcp<T>(
     ...(orgId !== undefined ? { orgId } : {}),
   });
   const credentials = [...prepared.credentials];
+  const childBrowserTabId =
+    action === undefined
+      ? undefined
+      : await resolveDispatchChildBrowserTab(target);
   const extraHeaders = await appActionHeaders({
     app: target.id,
     action,
@@ -1674,6 +1684,9 @@ async function withGrantedAppMcp<T>(
             url: mcpUrl,
             headers: {
               ...extraHeaders,
+              ...(childBrowserTabId
+                ? { "x-agent-native-browser-tab": childBrowserTabId }
+                : {}),
               Authorization: `Bearer ${credential.token}`,
               ...(credential.firstPartyMcp
                 ? { "x-agent-native-mcp-inline-apps": "1" }
@@ -2040,6 +2053,7 @@ type InternalEmbedSession = {
   startUrl?: string;
   chatToken?: string;
   targetPath?: string;
+  childBrowserTabId?: string;
   expiresAt?: number;
   app: string;
   appBaseUrl: string;
@@ -2048,6 +2062,7 @@ type InternalEmbedSession = {
 function publicEmbedSession({
   startUrl,
   targetPath,
+  childBrowserTabId,
   expiresAt,
   app,
 }: InternalEmbedSession) {
@@ -2056,6 +2071,7 @@ function publicEmbedSession({
   return {
     startUrl,
     ...(targetPath ? { targetPath } : {}),
+    ...(childBrowserTabId ? { childBrowserTabId } : {}),
     ...(typeof expiresAt === "number" ? { expiresAt } : {}),
     app,
   };
@@ -2111,6 +2127,7 @@ function prefetchGrantedEmbedSession(
         orgId: getRequestOrgId(),
         target,
         chrome: "minimal",
+        bindBrowserTab: true,
         signal: controller.signal,
       }),
       new Promise<never>((_resolve, reject) => {
@@ -2175,12 +2192,13 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
   path?: string;
   chrome?: "full" | "minimal";
   runtime?: "workspace-app-chat";
+  bindBrowserTab?: boolean;
   signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const target = await resolveDispatchEmbedTarget(input);
-  if (!input.resolvedApp && !input.runtime && input.chrome === "minimal") {
+  if (input.bindBrowserTab && input.chrome === "minimal") {
     const prefetched = await takePrefetchedGrantedEmbedSession(
       userEmail,
       target,
@@ -2194,21 +2212,20 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
     target,
     chrome: input.chrome,
     runtime: input.runtime,
+    bindBrowserTab: input.bindBrowserTab,
     ...(input.signal ? { signal: input.signal } : {}),
   });
 }
 
-export async function createGrantedDispatchMcpEmbedSession(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-  chrome?: "full" | "minimal";
-}): Promise<{
-  startUrl: string;
-  targetPath?: string;
-  expiresAt?: number;
-  app: string;
-}> {
+export async function createGrantedDispatchMcpEmbedSession(
+  input: {
+    app?: string;
+    url?: string;
+    path?: string;
+    chrome?: "full" | "minimal";
+  },
+  options?: { bindBrowserTab: boolean },
+): Promise<ReturnType<typeof publicEmbedSession>> {
   // Copy only public fields so a caller cannot supply a pre-resolved app.
   const { app, url, path, chrome } = input;
   return publicEmbedSession(
@@ -2217,6 +2234,7 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
       ...(url === undefined ? {} : { url }),
       ...(path === undefined ? {} : { path }),
       ...(chrome === undefined ? {} : { chrome }),
+      ...(options?.bindBrowserTab ? { bindBrowserTab: true } : {}),
     }),
   );
 }
@@ -2268,6 +2286,7 @@ async function createEmbedSessionForResolvedApp(input: {
   chrome?: "full" | "minimal";
   runtime?: "workspace-app-chat";
   workspaceSso?: boolean;
+  bindBrowserTab?: boolean;
   signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
   const { ownerEmail, orgId, target, chrome } = input;
@@ -2313,6 +2332,16 @@ async function createEmbedSessionForResolvedApp(input: {
     mcpUrl: targetMcpUrl,
     url: target.url,
   });
+  const childBrowserTabId = input.bindBrowserTab
+    ? crypto.randomUUID()
+    : undefined;
+  const launchUrl = new URL(target.url);
+  if (childBrowserTabId) {
+    launchUrl.searchParams.set(
+      DISPATCH_CHILD_BROWSER_TAB_PARAM,
+      childBrowserTabId,
+    );
+  }
   let parsed:
     | {
         startUrl?: string;
@@ -2333,7 +2362,7 @@ async function createEmbedSessionForResolvedApp(input: {
       const result = await callTargetCreateEmbedSession({
         mcpUrl: targetMcpUrl,
         token: credential.token,
-        url: target.url,
+        url: childBrowserTabId ? launchUrl.toString() : target.url,
         ...(chrome !== undefined ? { chrome } : {}),
         ...(input.runtime ? { runtime: input.runtime } : {}),
         ...(input.signal ? { signal: input.signal } : {}),
@@ -2416,7 +2445,22 @@ async function createEmbedSessionForResolvedApp(input: {
     app: target.app.id,
     appBaseUrl: appChatBaseUrl(target.app),
   };
-  if (parsed.targetPath) output.targetPath = parsed.targetPath;
+  if (parsed.targetPath) {
+    output.targetPath = parsed.targetPath;
+    const safePath = childBrowserTabId && safeAppPath(parsed.targetPath);
+    if (safePath) {
+      const reported = new URL(safePath, launchUrl.origin);
+      // A legacy guest may drop the claim. Only expose an ID it echoed back.
+      if (
+        reported.searchParams.get(DISPATCH_CHILD_BROWSER_TAB_PARAM) ===
+        childBrowserTabId
+      ) {
+        reported.searchParams.delete(DISPATCH_CHILD_BROWSER_TAB_PARAM);
+        output.targetPath = reported.pathname + reported.search + reported.hash;
+        output.childBrowserTabId = childBrowserTabId;
+      }
+    }
+  }
   if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;
   return output;
 }
@@ -2427,6 +2471,7 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
   path?: string | undefined;
   chrome?: "full" | "minimal" | undefined;
   runtime?: "workspace-app-chat" | undefined;
+  bindBrowserTab?: boolean;
 }): Promise<InternalEmbedSession> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) {
@@ -2468,23 +2513,28 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
     chrome: input.chrome,
     runtime: input.runtime,
     workspaceSso: true,
+    bindBrowserTab: input.bindBrowserTab,
   });
 }
 
-export async function createWorkspaceSsoEmbedSession(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-  chrome?: "full" | "minimal";
-}): Promise<{
-  startUrl: string;
-  targetPath?: string;
-  expiresAt?: number;
-  app: string;
-}> {
+export async function createWorkspaceSsoEmbedSession(
+  input: {
+    app?: string;
+    url?: string;
+    path?: string;
+    chrome?: "full" | "minimal";
+  },
+  options?: { bindBrowserTab: boolean },
+): Promise<ReturnType<typeof publicEmbedSession>> {
   const { app, url, path, chrome } = input;
   return publicEmbedSession(
-    await createWorkspaceSsoEmbedSessionResult({ app, url, path, chrome }),
+    await createWorkspaceSsoEmbedSessionResult({
+      app,
+      url,
+      path,
+      chrome,
+      ...(options?.bindBrowserTab ? { bindBrowserTab: true } : {}),
+    }),
   );
 }
 

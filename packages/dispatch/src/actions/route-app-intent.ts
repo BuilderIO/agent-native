@@ -14,7 +14,7 @@ const QUESTION = "app";
 const NONE = "none";
 // Bump when the question or choice wording changes so cached answers to the
 // old wording are not replayed.
-const CACHE_KEY = "dispatch.route-app-intent.v4";
+const CACHE_KEY = "dispatch.route-app-intent.v5";
 
 type RouteAppIntentResult =
   | {
@@ -22,6 +22,8 @@ type RouteAppIntentResult =
       app: string;
       confidence: number;
       explicit?: true;
+      screen?: "home";
+      params?: Record<string, string>;
       provider: string;
       model: string;
       cached: boolean;
@@ -72,6 +74,8 @@ export default defineAction({
       app: z.string(),
       confidence: z.number().min(0).max(1),
       explicit: z.literal(true).optional(),
+      screen: z.literal("home").optional(),
+      params: z.record(z.string(), z.string()).optional(),
       provider: z.string(),
       model: z.string(),
       cached: z.boolean(),
@@ -133,7 +137,9 @@ export default defineAction({
     if (explicitName) {
       const exactId = apps.find((app) => app.id.toLowerCase() === explicitName);
       const byName = apps.filter(
-        (app) => app.name.toLowerCase() === explicitName,
+        (app) =>
+          app.name.toLowerCase() === explicitName ||
+          app.aliases?.some((alias) => alias.toLowerCase() === explicitName),
       );
       const explicitApp = exactId ?? (byName.length === 1 ? byName[0] : null);
       if (explicitApp) {
@@ -142,6 +148,7 @@ export default defineAction({
           app: explicitApp.id,
           confidence: 1,
           explicit: true,
+          screen: "home",
           provider: "registration",
           model: "exact-app-match",
           cached: false,
@@ -170,6 +177,19 @@ export default defineAction({
     const input: DecisionInputPart[] = [
       { type: "text", text: `Request: ${text}` },
     ];
+    input.push({
+      type: "json",
+      value: {
+        connectedWorkspaceApps: apps.map(
+          ({ id, name, description, aliases }) => ({
+            id,
+            name,
+            description,
+            ...(aliases?.length ? { aliases } : {}),
+          }),
+        ),
+      },
+    });
     if (openApp) {
       input.push({ type: "text", text: `App currently on screen: ${openApp}` });
     }
