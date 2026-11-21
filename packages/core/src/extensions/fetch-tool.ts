@@ -1,4 +1,6 @@
-import { fail, isActionContractError } from "../action.js";
+import { z } from "zod";
+
+import { defineAction, fail, isActionContractError } from "../action.js";
 /**
  * Fetch tool — outbound HTTP for automations and agent use.
  *
@@ -167,7 +169,7 @@ export interface FetchToolOptions {
 export function createFetchToolEntry(
   opts: FetchToolOptions = {},
 ): Record<string, ActionEntry> {
-  return frameworkMcpTools({
+  const entries = frameworkMcpTools({
     "web-request": {
       // Non-GET requests and saveToFile write, and MCP cannot tell calls apart.
       mcpAnnotations: {
@@ -774,6 +776,26 @@ export function createFetchToolEntry(
       readOnly: true,
     },
   });
+  const entry = entries["web-request"];
+  const observed = defineAction({
+    description: entry.tool.description,
+    readOnly: entry.readOnly,
+    planMode: entry.planMode,
+    outputSchema: z.union([
+      z.string(),
+      z.object({
+        status: z.number(),
+        statusText: z.string(),
+        contentType: z.string(),
+        url: z.string(),
+        _agentImages: z.array(
+          z.object({ data: z.string(), mediaType: z.string() }),
+        ),
+      }),
+    ]),
+    run: entry.run,
+  });
+  return { "web-request": { ...observed, ...entry, run: observed.run } };
 }
 
 function parseBooleanArg(value: unknown): boolean {

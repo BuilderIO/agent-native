@@ -1285,7 +1285,12 @@ async function executeJob(
     runningMeta.lastRunAdvanceSchedule = options.advanceSchedule !== false;
   }
   runningMeta.lastStatus = "running";
-  runningMeta.lastError = undefined;
+  if (
+    !isPausedByFramework(meta) ||
+    meta.pausedReason !== "write_tool_outcome_unknown"
+  ) {
+    delete runningMeta.lastError;
+  }
   let markerWritten: boolean;
   if (!historyId && !remoteHostId) {
     await ensureResourcesTable();
@@ -1666,7 +1671,6 @@ type ExecutionOutcome = Pick<
 interface ExecutionFailure {
   failure: AutomationFailure;
   recordedError?: string;
-  /** A manual run records its cause but never pauses the automation. */
   countTowardPause: boolean;
   eventId?: string;
   pauseImmediately?: boolean;
@@ -1709,7 +1713,12 @@ async function recordExecutionOutcome(
   let extra: JobFrontmatterPatch = {};
   let resumed = false;
   let pausedAfter: number | undefined;
-  if (failed) {
+  const safetyPause =
+    isPausedByFramework(current.meta) &&
+    current.meta.pausedReason === "write_tool_outcome_unknown";
+  if (safetyPause) {
+    extra = { lastStatus: "paused", lastError: current.meta.lastError };
+  } else if (failed) {
     const transition = failed.pauseImmediately
       ? pauseNow(
           {
@@ -1735,8 +1744,6 @@ async function recordExecutionOutcome(
       );
     }
   } else if (outcome.lastStatus === "success") {
-    // A successful run proves the cause is gone: an automation the framework
-    // paused (this can only be a manual run) resumes with a clean slate.
     resumed = isPausedByFramework(current.meta);
     extra = resumed
       ? { ...CLEAR_FAILURE_STATE, enabled: true }

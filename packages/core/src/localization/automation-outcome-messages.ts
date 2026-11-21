@@ -11,6 +11,7 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   BuiltinLocaleCode,
   {
     noWork: string;
+    outcomeUnknown: string;
     emptyDelivery: string;
     emailNotSent: string;
     noOpInstruction: string;
@@ -21,6 +22,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
   }
 > = {
   "en-US": {
+    outcomeUnknown:
+      "An action may already have applied. Check its current state before retrying.",
     mcpTakeoverWhileRunning:
       "This automation is running. Wait for it to finish before managing it through an external agent.",
     mcpApprovalUnavailable:
@@ -37,6 +40,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "The automation produced no message for its configured delivery destination.",
   },
   "es-ES": {
+    outcomeUnknown:
+      "Es posible que una acción ya se haya aplicado. Comprueba su estado actual antes de volver a intentarlo.",
     mcpTakeoverWhileRunning:
       "Esta automatización se está ejecutando. Espera a que termine antes de gestionarla mediante un agente externo.",
     mcpApprovalUnavailable:
@@ -54,6 +59,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "La automatización no produjo ningún mensaje para su destino de entrega configurado.",
   },
   "fr-FR": {
+    outcomeUnknown:
+      "Une action a peut-être déjà été appliquée. Vérifiez son état actuel avant de réessayer.",
     mcpTakeoverWhileRunning:
       "Cette automatisation est en cours d’exécution. Attendez qu’elle se termine avant de la gérer via un agent externe.",
     mcpApprovalUnavailable:
@@ -72,6 +79,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "L’automatisation n’a produit aucun message pour sa destination de livraison configurée.",
   },
   "de-DE": {
+    outcomeUnknown:
+      "Eine Aktion wurde möglicherweise bereits ausgeführt. Prüfen Sie ihren aktuellen Zustand, bevor Sie es erneut versuchen.",
     mcpTakeoverWhileRunning:
       "Diese Automatisierung wird gerade ausgeführt. Warten Sie, bis sie beendet ist, bevor Sie sie über einen externen Agenten verwalten.",
     mcpApprovalUnavailable:
@@ -89,6 +98,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "Die Automatisierung hat keine Nachricht für ihr konfiguriertes Zustellungsziel erzeugt.",
   },
   "pt-BR": {
+    outcomeUnknown:
+      "Uma ação pode já ter sido aplicada. Verifique seu estado atual antes de tentar novamente.",
     mcpTakeoverWhileRunning:
       "Esta automação está em execução. Aguarde a conclusão antes de gerenciá-la por um agente externo.",
     mcpApprovalUnavailable:
@@ -105,6 +116,7 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "A automação não produziu nenhuma mensagem para seu destino de entrega configurado.",
   },
   "zh-CN": {
+    outcomeUnknown: "某项操作可能已经生效。请在重试前检查其当前状态。",
     mcpTakeoverWhileRunning:
       "此自动化正在运行。请等待其完成后再通过外部智能体管理。",
     mcpApprovalUnavailable:
@@ -118,6 +130,7 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
     emptyDelivery: "自动化未生成要发送到已配置目标的消息。",
   },
   "zh-TW": {
+    outcomeUnknown: "某項操作可能已經生效。請在重試前檢查其目前狀態。",
     mcpTakeoverWhileRunning:
       "此自動化正在執行。請等待其完成後再透過外部代理管理。",
     mcpApprovalUnavailable:
@@ -131,6 +144,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
     emptyDelivery: "自動化未產生要傳送到已設定目標的訊息。",
   },
   "ja-JP": {
+    outcomeUnknown:
+      "操作はすでに適用されている可能性があります。再試行する前に現在の状態を確認してください。",
     mcpTakeoverWhileRunning:
       "この自動化は実行中です。完了してから外部エージェント経由で管理してください。",
     mcpApprovalUnavailable:
@@ -146,6 +161,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "自動化は設定された配信先へのメッセージを生成しませんでした。",
   },
   "ko-KR": {
+    outcomeUnknown:
+      "작업이 이미 적용되었을 수 있습니다. 다시 시도하기 전에 현재 상태를 확인하세요.",
     mcpTakeoverWhileRunning:
       "이 자동화가 실행 중입니다. 완료된 후 외부 에이전트를 통해 관리하세요.",
     mcpApprovalUnavailable:
@@ -161,6 +178,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "자동화가 설정된 전송 대상에 보낼 메시지를 생성하지 않았습니다.",
   },
   "hi-IN": {
+    outcomeUnknown:
+      "हो सकता है कोई कार्रवाई पहले ही लागू हो चुकी हो। दोबारा प्रयास करने से पहले उसकी वर्तमान स्थिति जाँचें।",
     mcpTakeoverWhileRunning:
       "यह ऑटोमेशन चल रहा है। बाहरी एजेंट के माध्यम से इसे प्रबंधित करने से पहले इसके पूरा होने की प्रतीक्षा करें।",
     mcpApprovalUnavailable:
@@ -177,6 +196,8 @@ export const AUTOMATION_OUTCOME_MESSAGES: Record<
       "ऑटोमेशन ने अपने कॉन्फ़िगर किए गए डिलीवरी गंतव्य के लिए कोई संदेश नहीं बनाया।",
   },
   "ar-SA": {
+    outcomeUnknown:
+      "ربما تم تطبيق إجراء بالفعل. تحقّق من حالته الحالية قبل إعادة المحاولة.",
     mcpTakeoverWhileRunning:
       "هذه الأتمتة قيد التشغيل. انتظر حتى تنتهي قبل إدارتها عبر وكيل خارجي.",
     mcpApprovalUnavailable:
