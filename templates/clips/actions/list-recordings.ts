@@ -47,6 +47,7 @@ import {
 } from "../server/lib/recordings.js";
 import { profileNameFor } from "../server/lib/user-identities.js";
 import {
+  isDefaultLibraryFilter,
   readLibraryFilter,
   withLibrarySource,
 } from "../shared/library-filters.js";
@@ -190,14 +191,14 @@ export const listRecordingsSchema = z.object({
     .enum(["clips", "content", "all"])
     .optional()
     .describe(
-      "For view library without a folder: where the recordings came from. clips, the default, leaves out recordings uploaded from Agent-Native Content pages; content lists only those, each with contentPageUrl; all lists both.",
+      "For view library without a folder: where the recordings came from. clips, the default, leaves out recordings uploaded from Agent-Native Content pages; content lists only those, each with contentPageUrl; all lists both. Like any filter beyond the default, content and all also look inside folders.",
     ),
   filters: z
     .string()
     .max(4000)
     .optional()
     .describe(
-      "For view library without a folder: the Library's filter, written as the query of a Library link, such as source=all&r=madeBy:equals:agent&r=created:is_within:past_7_days. source is clips, content or all; match=any makes one rule enough; each r=field:operator:values adds a rule. Fields: madeBy (person, agent), created (a date, today, or a range like past_7_days, read in the user's time zone), sharing (private, org, public, shared, not_shared), length (under_1m, 1_to_5m, 5_to_20m, over_20m), tag, transcript (is_checked or is_unchecked). With countOnly, also returns the count beside every option and the tags in use.",
+      "For view library without a folder: the Library's filter, written as the query of a Library link, such as source=all&r=madeBy:equals:agent&r=created:is_within:past_7_days. source is clips, content or all; match=any makes one rule enough; each r=field:operator:values adds a rule. Fields: madeBy (person, agent), created (a date, today, or a range like past_7_days, read in the user's time zone), sharing (private, org, public, shared, not_shared), length (under_1m, 1_to_5m, 5_to_20m, over_20m), tag, transcript (is_checked or is_unchecked). With countOnly, also returns the count beside every option and the tags in use. The default (source clips, no rules) lists recordings outside folders, as Library does beside its folder cards; any rule or other source looks inside every folder, as Library does while filtering.",
     ),
   sort: z
     .enum(["recent", "views", "oldest"])
@@ -226,7 +227,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, whether a person or an agent made it, where it came from, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. Library leaves out Clips uploaded from Agent-Native Content pages unless source or filters asks for them; each such Clip has `contentPageUrl`. The from-content view lists those uploads wherever they're filed, for older callers. For the exact list the user sees in Library, pass the filters from their Library link.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all/from-content), folder, space, tag, creation date, visibility, whether you've shared it with anyone, whether a person or an agent made it, where it came from, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else. Library leaves out Clips uploaded from Agent-Native Content pages unless source or filters asks for them; each such Clip has `contentPageUrl`. Library lists only recordings outside folders until source or filters narrows it; then it looks inside every folder. The from-content view lists those uploads wherever they're filed, for older callers. For the exact list the user sees in Library, pass the filters from their Library link.",
   schema: listRecordingsSchema,
   http: { method: "GET" },
   run: async (args, ctx) => {
@@ -322,7 +323,9 @@ export default defineAction({
     if (args.view === "library" || args.view === "space") {
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
-      } else {
+      } else if (!libraryFilter || isDefaultLibraryFilter(libraryFilter)) {
+        // Library's own list sits beside its folder cards. A filter hides
+        // the cards, so it looks inside every folder instead.
         whereClauses.push(isNull(schema.recordings.folderId));
       }
     }

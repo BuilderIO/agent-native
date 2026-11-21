@@ -602,6 +602,25 @@ describe("list-recordings Library source", () => {
     });
   });
 
+  it("keeps Library's own list to recordings outside folders", async () => {
+    const conditions = await countConditions({});
+    expect(conditions).toContainEqual({
+      kind: "is-null",
+      column: "recordings.folderId",
+    });
+  });
+
+  it.each(["content", "all"])(
+    "looks inside folders when the source is %s",
+    async (source) => {
+      const conditions = await countConditions({ source });
+      expect(conditions).not.toContainEqual({
+        kind: "is-null",
+        column: "recordings.folderId",
+      });
+    },
+  );
+
   it("lists both kinds when the source is all", async () => {
     const conditions = await countConditions({ source: "all" });
     expect(conditions).not.toContainEqual(activeUploadFromContent());

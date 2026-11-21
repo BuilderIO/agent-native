@@ -1,6 +1,7 @@
 import {
   countFilter,
   FILTER_NOBODY,
+  isDefaultFilterState,
   matchesFilter,
   setPinnedFilter,
   type FilterCounts,
@@ -194,6 +195,15 @@ const SERVER_FIELDS = libraryFilterFields(LIBRARY_FILTER_LABELS_EN);
 
 export function readLibraryFilter(search: string): FilterState {
   return readFilterParams(search, SERVER_FIELDS);
+}
+
+/**
+ * The Library's own view: recordings made in Clips, no rules. Library shows
+ * folder cards beside it; any other filter hides them and looks inside every
+ * folder instead.
+ */
+export function isDefaultLibraryFilter(state: FilterState): boolean {
+  return isDefaultFilterState(state, SERVER_FIELDS);
 }
 
 export function libraryFilterQuery(search: string): string {
