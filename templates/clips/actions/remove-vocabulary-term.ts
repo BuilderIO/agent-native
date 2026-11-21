@@ -1,4 +1,4 @@
-import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
+import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { createError } from "h3";
@@ -14,7 +14,6 @@ export default defineAction({
     id: z.string().describe("Vocabulary entry id"),
   }),
   http: { method: "DELETE" },
-  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
   mcpTool: "search",
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();

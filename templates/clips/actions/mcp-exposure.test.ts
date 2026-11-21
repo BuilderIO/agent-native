@@ -1,5 +1,16 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const stored = vi.hoisted(() => ({
+  recording: null as Record<string, unknown> | null,
+}));
+
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
+  resolveAccess: vi.fn(async () =>
+    stored.recording ? { role: "owner", resource: stored.recording } : null,
+  ),
+}));
 
 const SERVED = [
   "add-comment",
@@ -10,7 +21,6 @@ const SERVED = [
   "create-cta",
   "create-dictation",
   "create-folder",
-  "create-meeting",
   "create-recording",
   "create-space",
   "export-insights-csv",
@@ -44,6 +54,7 @@ const SERVED = [
   "regenerate-title",
   "remove-filler-words",
   "remove-silences",
+  "remove-vocabulary-term",
   "rename-folder",
   "rename-space",
   "reprocess-recording",
@@ -51,7 +62,6 @@ const SERVED = [
   "resolve-comment",
   "save-browser-transcript",
   "search-dictations",
-  "set-recording-overlays",
   "set-recording-trims",
   "set-thumbnail",
   "split-recording",
@@ -78,7 +88,6 @@ const APPROVED_WHEN_OUTSIDE = [
   "export-to-brain",
   "remove-earlier-meeting-audio",
   "remove-space-member",
-  "remove-vocabulary-term",
   "set-organization-branding",
 ] as const;
 
@@ -121,31 +130,103 @@ const IN_APP_ONLY = [
   "update-recording-context",
 ] as const;
 
+const REDACTION = {
+  id: "box-1",
+  kind: "redact",
+  style: "solid",
+  startMs: 0,
+  endMs: 1000,
+  keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+};
+const REDACTED = { editsJson: JSON.stringify({ overlays: [REDACTION] }) };
+const EXPIRES = "2026-12-01T00:00:00.000Z";
+const LATER = "2026-12-31T00:00:00.000Z";
+const SOONER = "2026-11-25T00:00:00.000Z";
+
 const WIDENS_ACCESS = [
-  ["update-recording", { id: "rec-1", spaceIds: ["space-1"] }],
-  ["update-recording", { id: "rec-1", spaceIds: [] }],
-  ["update-recording", { id: "rec-1", password: null }],
-  ["update-recording", { id: "rec-1", expiresAt: null }],
-  ["update-meeting", { id: "meeting-1", visibility: "org" }],
-  ["update-meeting", { id: "meeting-1", visibility: "public" }],
-  ["update-meeting", { id: "meeting-1", shareTranscript: true }],
-  ["stitch-recordings", { sourceRecordingIds: ["rec-1", "rec-2"] }],
+  ["update-recording", { id: "rec-1", spaceIds: ["space-1"] }, null],
+  ["update-recording", { id: "rec-1", spaceIds: [] }, null],
+  ["update-recording", { id: "rec-1", password: null }, null],
+  ["update-recording", { id: "rec-1", password: "   " }, null],
+  ["update-recording", { id: "rec-1", expiresAt: null }, null],
+  [
+    "update-recording",
+    { id: "rec-1", password: "new-password" },
+    { password: "stored-password", expiresAt: null },
+  ],
+  [
+    "update-recording",
+    { id: "rec-1", expiresAt: LATER },
+    { password: null, expiresAt: EXPIRES },
+  ],
+  ["update-meeting", { id: "meeting-1", visibility: "org" }, null],
+  ["update-meeting", { id: "meeting-1", visibility: "public" }, null],
+  ["update-meeting", { id: "meeting-1", shareTranscript: true }, null],
+  ["stitch-recordings", { sourceRecordingIds: ["rec-1", "rec-2"] }, null],
   [
     "stitch-recordings",
     { sourceRecordingIds: ["rec-1", "rec-2"], visibility: "public" },
+    null,
+  ],
+  ["create-meeting", { calendarEventId: "event-1" }, null],
+  ["create-meeting", { calendarEventId: "event-1", visibility: "org" }, null],
+  ["set-recording-overlays", { recordingId: "rec-1", overlays: [] }, REDACTED],
+  [
+    "set-recording-overlays",
+    { recordingId: "rec-1", overlays: "[]" },
+    REDACTED,
   ],
 ] as const;
 
 const KEEPS_ACCESS = [
-  ["update-recording", { id: "rec-1", title: "Renamed" }],
-  ["update-recording", { id: "rec-1", password: "share-password" }],
-  ["update-recording", { id: "rec-1", expiresAt: "2026-12-01T00:00:00.000Z" }],
-  ["update-meeting", { id: "meeting-1", userNotesMd: "Notes" }],
-  ["update-meeting", { id: "meeting-1", visibility: "private" }],
-  ["update-meeting", { id: "meeting-1", shareTranscript: false }],
+  ["update-recording", { id: "rec-1", title: "Renamed" }, null],
+  [
+    "update-recording",
+    { id: "rec-1", password: "share-password" },
+    { password: null, expiresAt: null },
+  ],
+  [
+    "update-recording",
+    { id: "rec-1", expiresAt: EXPIRES },
+    { password: null, expiresAt: null },
+  ],
+  [
+    "update-recording",
+    { id: "rec-1", expiresAt: SOONER },
+    { password: null, expiresAt: EXPIRES },
+  ],
+  ["update-recording", { id: "rec-1", expiresAt: LATER }, null],
+  ["update-meeting", { id: "meeting-1", userNotesMd: "Notes" }, null],
+  ["update-meeting", { id: "meeting-1", visibility: "private" }, null],
+  ["update-meeting", { id: "meeting-1", shareTranscript: false }, null],
   [
     "stitch-recordings",
     { sourceRecordingIds: ["rec-1", "rec-2"], visibility: "private" },
+    null,
+  ],
+  ["create-meeting", { title: "Standup" }, null],
+  [
+    "create-meeting",
+    { calendarEventId: "event-1", visibility: "private" },
+    null,
+  ],
+  [
+    "set-recording-overlays",
+    { recordingId: "rec-1", overlays: [REDACTION] },
+    REDACTED,
+  ],
+  [
+    "set-recording-overlays",
+    {
+      recordingId: "rec-1",
+      overlays: [REDACTION, { ...REDACTION, id: "box-2" }],
+    },
+    REDACTED,
+  ],
+  [
+    "set-recording-overlays",
+    { recordingId: "rec-1", overlays: [] },
+    { editsJson: null },
   ],
 ] as const;
 
@@ -193,7 +274,8 @@ describe("Clips actions over MCP", () => {
 
   it.each(WIDENS_ACCESS)(
     "serves %s through tool-search, and asks an outside agent first for %o",
-    async (name, args) => {
+    async (name, args, recording) => {
+      stored.recording = recording;
       const action = await load(name);
       expect(action.mcpTool).toBe("search");
       const approves = action.needsApproval;
@@ -211,7 +293,8 @@ describe("Clips actions over MCP", () => {
 
   it.each(KEEPS_ACCESS)(
     "lets an outside agent call %s without asking for %o",
-    async (name, args) => {
+    async (name, args, recording) => {
+      stored.recording = recording;
       const approves = (await load(name)).needsApproval;
       if (typeof approves !== "function") {
         throw new Error(`${name} has no approval rule`);

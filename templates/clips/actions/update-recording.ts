@@ -6,7 +6,7 @@ import {
   isOutsideAgentCall,
 } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -75,11 +75,24 @@ export default defineAction({
         "Required with chaptersJson: mediaUpdatedAt from the get-recording-player-data response used to create these times.",
       ),
   }),
-  needsApproval: (args, ctx) =>
-    isOutsideAgentCall(ctx) &&
-    (args.spaceIds !== undefined ||
-      (args.password !== undefined && !args.password) ||
-      (args.expiresAt !== undefined && !args.expiresAt)),
+  needsApproval: async (args, ctx) => {
+    if (!isOutsideAgentCall(ctx)) return false;
+    if (args.spaceIds !== undefined) return true;
+    if (args.password !== undefined && !args.password?.trim()) return true;
+    if (args.expiresAt === null) return true;
+    if (args.password === undefined && args.expiresAt === undefined) {
+      return false;
+    }
+    const access = await resolveAccess("recording", args.id);
+    if (!access) return false;
+    const stored = access.resource;
+    if (args.password !== undefined && stored.password) return true;
+    return (
+      typeof args.expiresAt === "string" &&
+      Boolean(stored.expiresAt) &&
+      Date.parse(args.expiresAt) > Date.parse(stored.expiresAt)
+    );
+  },
   mcpTool: "search",
   run: async (args) => {
     const access = assertRecordingNotExpired(
