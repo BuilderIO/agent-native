@@ -12,6 +12,7 @@ import {
   type ContentDatabaseNavigationItem,
   type ContentDatabaseNavigationPageResponse,
   type ContentDatabaseNavigationSort,
+  type ContentDatabaseSort,
 } from "../shared/api.js";
 import { localSourceDirectoryId } from "../shared/local-source-directory.js";
 
@@ -545,6 +546,91 @@ describe("Files navigation paging through linked folders", () => {
       expect(await readWholeBranch(FILES, alpha, limit)).toEqual(
         everything.items,
       );
+    }
+  });
+
+  it("lists every row once across pages when the view sorts on a property", async () => {
+    const propertyId = "paging-rank";
+    const ranks = [3, 1, 5, 2, 4];
+    const [{ viewConfigJson }] = await getDb()
+      .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, FILES));
+    const setViewConfig = (config: string) =>
+      getDb()
+        .update(schema.contentDatabases)
+        .set({ viewConfigJson: config })
+        .where(eq(schema.contentDatabases.id, FILES));
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId: FILES,
+      name: "Rank",
+      type: "number",
+    });
+    await getDb()
+      .insert(schema.documentPropertyValues)
+      .values(
+        directories.map((directory, index) => ({
+          id: `paging-rank-${directory}`,
+          ownerEmail: OWNER,
+          documentId: `${directory}-top`,
+          propertyId,
+          valueJson: JSON.stringify(ranks[index]),
+        })),
+      );
+    await setViewConfig(
+      JSON.stringify({
+        activeViewId: "files",
+        views: [
+          {
+            id: "files",
+            name: "Files",
+            type: "table",
+            sorts: [
+              { key: propertyId, label: "Rank", direction: "asc" },
+            ] satisfies ContentDatabaseSort[],
+            filters: [],
+            filterMode: "and",
+            columnWidths: {},
+          },
+        ],
+      }),
+    );
+    try {
+      const everything = await navigate(FILES, { parentId: null }, 20);
+      expect(shown(everything.items)).toEqual([
+        ...directories.map((directory) => `[${directory}]`),
+        "bravo-top",
+        "delta-top",
+        "alpha-top",
+        "echo-top",
+        "charlie-top",
+      ]);
+      for (const limit of [1, 3, 5]) {
+        expect(await readWholeBranch(FILES, null, limit)).toEqual(
+          everything.items,
+        );
+      }
+      const alpha = folder("vault", "alpha");
+      const inAlpha = await navigate(FILES, { parentId: alpha }, 20);
+      expect(shown(inAlpha.items)).toEqual([
+        "[inner 0]",
+        "[inner 1]",
+        "[inner 2]",
+        "[inner 3]",
+        "[inner 4]",
+        "alpha-file",
+      ]);
+      expect(await readWholeBranch(FILES, alpha, 2)).toEqual(inAlpha.items);
+    } finally {
+      await setViewConfig(viewConfigJson);
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+      await getDb()
+        .delete(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.id, propertyId));
     }
   });
 
