@@ -173,6 +173,8 @@ await appAction("save-data-program", {
 
 잘림은 항상 명시적입니다(결과 내 `truncated: true`) — 조용한 손실은 결코 없습니다.
 
+프로덕션과 백그라운드 실행에서 샌드박스는 실행이 출력한 내용을 `emit()` 줄과 로그를 합쳐 약 4.5 MiB까지 보관합니다. 그보다 길게 출력된 결과는 잘라낼 수 없으므로 `result_too_large`로 실패합니다. 행을 더 적게 내보내거나 로그를 줄이세요.
+
 ## Params와 dashboard 패널 바인딩 {#params-and-panel-binding}
 
 프로그램은 선택적인 `paramsSchema`(허용되는 params를 설명하는 JSON Schema)와 `defaultParams`를 선언할 수 있습니다. dashboard는 패널의 쿼리 필드에 쿼리 문자열 대신 작은 JSON 디스크립터를 배치하여 `"program"` 패널 소스를 채택합니다.
