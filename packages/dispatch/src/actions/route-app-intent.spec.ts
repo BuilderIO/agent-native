@@ -115,8 +115,53 @@ describe("route-app-intent", () => {
       type: "json",
       value: { savedPointers: [{ alias: "standup notes", appId: "mail" }] },
     });
-    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v2$/);
+    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v3$/);
   });
+
+  it.each(["mail", "tasks"])(
+    "lets classification resolve a cross-app pointer to %s",
+    async (choice) => {
+      mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+        { id: "mail", name: "Mail", description: "Email inbox" },
+        { id: "tasks", name: "Tasks", description: "Pull requests" },
+      ]);
+      mocks.listPointerRows.mockResolvedValue([
+        {
+          id: "p1",
+          owner: "owner@example.com",
+          path: "pointers/github.json",
+          content: JSON.stringify({
+            alias: "GitHub",
+            appId: "tasks",
+            url: "https://example.com/reviews",
+          }),
+        },
+      ]);
+      mocks.decide.mockResolvedValue({
+        status: "ok",
+        provider: "test",
+        model: "test",
+        cached: false,
+        answers: { app: { type: "choice", name: "app", choice } },
+      });
+
+      const result = await run({
+        text:
+          choice === "mail"
+            ? "GitHub notifications from people"
+            : "open my GitHub reviews",
+        openApp: "mail",
+      });
+      expect(result).toMatchObject({ status: "ok", app: choice });
+      if (choice === "tasks")
+        expect(result).toMatchObject({
+          pointer: true,
+          url: "https://example.com/reviews",
+        });
+      else expect(result).not.toHaveProperty("pointer");
+      expect(mocks.decide).toHaveBeenCalledOnce();
+    },
+  );
 
   it("is reachable by desktop MCP clients but hidden from the in-app agent", () => {
     expect(routeAppIntent.agentTool).toBe(false);

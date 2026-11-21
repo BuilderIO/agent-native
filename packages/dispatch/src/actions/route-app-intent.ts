@@ -14,7 +14,7 @@ const QUESTION = "app";
 const NONE = "none";
 // Bump when the question or choice wording changes so cached answers to the
 // old wording are not replayed.
-const CACHE_KEY = "dispatch.route-app-intent.v2";
+const CACHE_KEY = "dispatch.route-app-intent.v3";
 
 type RouteAppIntentResult =
   | {
@@ -46,7 +46,7 @@ async function listPointersOrNone(ownerEmail: string) {
 
 export default defineAction({
   description:
-    'Pick which granted workspace app should be on screen for a chat request, or "none" for a chat-only answer. Choices come from the apps granted to this Dispatch, so a new app routes without code changes. A saved pointer (remember-pointer) that matches the request wins and returns the object to open.',
+    'Pick which granted workspace app should be on screen for a chat request, or "none" for a chat-only answer. Choices come from the apps granted to this Dispatch, so a new app routes without code changes. A matching saved pointer (remember-pointer) can identify an object to open.',
   schema: z.object({
     text: z.string().trim().min(1).max(4000).describe("The user's request."),
     openApp: z
@@ -119,7 +119,7 @@ export default defineAction({
     }
 
     const hit = matchPointer(text, grantedPointers);
-    if (hit) {
+    if (hit && (!openApp || hit.appId === openApp)) {
       return {
         status: "ok",
         app: hit.appId,
@@ -163,7 +163,7 @@ export default defineAction({
           type: "choice",
           name: QUESTION,
           instructions:
-            "Which app should be on screen to handle this request? Pick the app whose data or screen the request is about. When the request refers to something by one of the saved pointer aliases, pick that pointer's app. A short follow-up to the previous turn keeps the app on screen unless it clearly asks about another app. Pick none only when no app's data is involved.",
+            "Which app should be on screen to handle this request? Pick the app whose data or screen the request is about, not an app associated with a service mentioned in that data. Consider the current app for every request, not only follow-ups: keep it when the request concerns its data, and switch only when the user clearly requests another app's data or screen. Notifications or emails about a service are mail data; requests for that service's actual records are different. A saved pointer alias can refer to an object, but a coincidental mention does not override the requested data or current app. Pick none only when no app's data is involved.",
           choices,
         },
       ],
@@ -210,6 +210,13 @@ export default defineAction({
       model: result.model,
       cached: result.cached === true,
       latencyMs,
+      ...(hit && app === hit.appId
+        ? {
+            pointer: true,
+            ...(hit.objectId ? { objectId: hit.objectId } : {}),
+            ...(hit.url ? { url: hit.url } : {}),
+          }
+        : {}),
     };
   },
 });
