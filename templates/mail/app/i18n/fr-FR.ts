@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Note à moi-même",
     },
     inbox: {
-      atLeastCount: "Au moins {{count}}",
+      conversationsCount: "Conversations : {{count}}",
+      conversationsAtLeastCount: "Conversations : au moins {{count}}",
+      unreadCount: "Conversations non lues : {{count}}",
+      draftsToReviewCount: "Brouillons à relire : {{count}}",
       syncing: "Synchronisation de la boîte...",
     },
     sort: {
@@ -180,7 +183,7 @@ const messages = {
       filtersLimitReached: "Vous pouvez enregistrer jusqu’à 20 filtres.",
     },
     tabSettings: {
-      splitInbox: "Boîte de réception séparée",
+      splitInbox: "Séparer la boîte de réception en onglets",
       views: "Vues",
       categories: "Catégories",
       rename: "Renommer",
@@ -188,7 +191,7 @@ const messages = {
       savedFilters: "Filtres enregistrés",
       combinedInbox: "Boîte de réception combinée",
       allTab: "Onglet Tout",
-      help: "La boîte combinée réunit tous les comptes ; désactivez-la pour répartir les messages en onglets.",
+      help: "Affiche les vues, libellés et filtres enregistrés que vous avez choisis dans des onglets distincts. Désactivez-le pour voir tout le courrier reçu dans un seul onglet.",
       aiSetup: "Configurer les tags et règles IA",
     },
     accounts: {
