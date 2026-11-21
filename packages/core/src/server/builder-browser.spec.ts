@@ -2319,19 +2319,19 @@ describe("Builder callback CSRF state", () => {
       );
       vi.stubGlobal("fetch", fetchSpy);
 
-      try {
-        await runBuilderAgent({
-          prompt: "Create an app",
-          projectId: "project-123",
-          userEmail: "qa-fleet@builder.io",
-        });
-        expect.fail("expected the Builder request to fail");
-      } catch (error) {
-        expect(error).not.toMatchObject({
-          errorCode: "builder_space_membership_required",
-        });
-        expect(String(error)).toContain("User not found");
-      }
+      const error = await runBuilderAgent({
+        prompt: "Create an app",
+        projectId: "project-123",
+        userEmail: "qa-fleet@builder.io",
+      }).then(
+        () => null,
+        (failure: unknown) => failure,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toMatchObject({
+        errorCode: "builder_space_membership_required",
+      });
+      expect(String(error)).toContain("User not found");
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 
