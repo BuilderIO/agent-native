@@ -990,6 +990,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      dispatchEvent: vi.fn(),
+      parent: { postMessage: vi.fn() },
       addEventListener: window.addEventListener.bind(window),
       removeEventListener: window.removeEventListener.bind(window),
       location: {

@@ -237,7 +237,7 @@ if (typeof window !== "undefined") {
 let verifiedViewSession: { token: string; check: Promise<boolean> } | undefined;
 
 async function handleEmbeddedViewRequest(event: MessageEvent): Promise<void> {
-  const port = event.ports[0];
+  const port = event.ports.at(0);
   const token = getEmbedAuthToken();
   if (
     !port ||
@@ -303,8 +303,7 @@ function runEmbeddedViewRequest(request: {
       path: viewPath(new URL(window.location.href)),
       title: document.title,
       selectedText: window.getSelection()?.toString().trim().slice(0, 4000),
-      visibleText:
-        root?.innerText?.replace(/\s+/g, " ").trim().slice(0, 4000) ?? "",
+      visibleText: root.innerText.replace(/\s+/g, " ").trim().slice(0, 4000),
     };
   }
   const path = typeof request.path === "string" ? request.path.trim() : "";

@@ -1092,6 +1092,7 @@ describe("useDbSync", () => {
   });
 
   it("still refetches action queries when an action event rides alongside app-state churn", async () => {
+    vi.useFakeTimers();
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(
       async () =>
@@ -1129,7 +1130,7 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 260));
+      await vi.advanceTimersByTimeAsync(250);
     });
 
     const keys = invalidatedQueryKeys(queryClient.calls);

@@ -279,7 +279,7 @@ export type SyncEvent = {
 
 type PollResponse = {
   version: number;
-  events: SyncEvent[];
+  events?: SyncEvent[];
   cursor?: string;
   serverless?: boolean;
   // The server stopped at its row limit: more changes wait past `cursor`.

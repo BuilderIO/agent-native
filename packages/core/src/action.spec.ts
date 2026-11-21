@@ -1370,7 +1370,7 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
           "get_app_manifest",
           "pair",
         ]);
-        const { inputSchema } = tools.find(({ name }) => name === "pair")!;
+        const { inputSchema } = tools[1];
         expect(inputSchema.properties).toMatchObject({
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         });

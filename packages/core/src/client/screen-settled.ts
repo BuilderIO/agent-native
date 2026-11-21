@@ -7,8 +7,10 @@ const recentlySettled = new Set<string>();
 export function postScreenSettled(writeId: string, url: string): void {
   if (recentlySettled.has(writeId)) return;
   recentlySettled.add(writeId);
-  if (recentlySettled.size > 256)
-    recentlySettled.delete(recentlySettled.values().next().value!);
+  if (recentlySettled.size > 256) {
+    const oldest = recentlySettled.values().next();
+    if (!oldest.done) recentlySettled.delete(oldest.value);
+  }
   const safeUrl = new URL(url, "https://app.invalid");
   safeUrl.searchParams.delete("__an_embed_token");
   const route = safeUrl.pathname + safeUrl.search + safeUrl.hash;
@@ -18,8 +20,8 @@ export function postScreenSettled(writeId: string, url: string): void {
     url: route,
     screenSummary: { title: document.title, route },
   };
-  window.dispatchEvent?.(new CustomEvent(SCREEN_SETTLED_EVENT, { detail }));
-  if (window.parent && window.parent !== window) {
+  window.dispatchEvent(new CustomEvent(SCREEN_SETTLED_EVENT, { detail }));
+  if (window.parent !== window) {
     window.parent.postMessage(
       detail,
       getFramePostMessageTargetOrigin() ?? window.location.origin,

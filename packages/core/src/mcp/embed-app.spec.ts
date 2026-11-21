@@ -2682,8 +2682,8 @@ return requestFullscreenOnFirstInteraction;`;
         (raw: unknown, _origin: string, [port]: MessagePort[]) => {
           const request = raw as { operation: string; path: string };
           if (request.operation === "navigate") path = request.path;
-          port?.postMessage({ result: { path } });
-          port?.close();
+          port.postMessage({ result: { path } });
+          port.close();
         },
       );
       const tools = viewToolsFor({

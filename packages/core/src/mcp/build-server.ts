@@ -3546,11 +3546,13 @@ export async function createMCPServerForRequest(
   };
   const appManifest = () =>
     getAppManifest(
-      Object.keys(baseActions).filter(
-        (name) =>
-          isActionExposedToExternalAgents(baseActions[name]!) &&
-          !isActionHiddenFromEveryAgentSurface(baseActions[name]!),
-      ),
+      Object.entries(baseActions)
+        .filter(
+          ([, entry]) =>
+            isActionExposedToExternalAgents(entry) &&
+            !isActionHiddenFromEveryAgentSurface(entry),
+        )
+        .map(([name]) => name),
       { id: config.appId, name: config.name },
     );
   if (!directoryCatalog) {
@@ -3946,7 +3948,9 @@ export async function createMCPServerForRequest(
           ),
     capabilities: {
       tools: {},
-      ...(!directoryCatalog || supportsMcpApps ? { resources: {} } : {}),
+      ...(!scriptCatalog && (!directoryCatalog || supportsMcpApps)
+        ? { resources: {} }
+        : {}),
       ...(supportsMcpApps
         ? {
             extensions: {
@@ -4993,7 +4997,7 @@ export async function createMCPServerForRequest(
     },
   );
 
-  if (supportsMcpApps || !directoryCatalog) {
+  if (!scriptCatalog && (supportsMcpApps || !directoryCatalog)) {
     server.setRequestHandler(
       "resources/list",
       async (request: any, ctx: any) => {

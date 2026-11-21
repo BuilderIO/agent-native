@@ -80,6 +80,10 @@ describe("frame bridge", () => {
 
   it("handles view requests from the trusted parent of a credentialed embed", async () => {
     const originalUrl = window.location.href;
+    const origin = "https://view-host.example.test";
+    Object.assign(window, {
+      __AGENT_NATIVE_CONFIG__: { frameHostOrigins: [origin] },
+    });
     const parent = parentWindow();
     setParent(parent);
     setEmbedToken("test-embed-ticket");
@@ -88,13 +92,9 @@ describe("frame bridge", () => {
       token: "test-embed-ticket",
     });
     await loadFrame();
-    dispatchFrameOrigin("https://builder.io", parent);
+    dispatchFrameOrigin(origin, parent);
     const port = { postMessage: vi.fn(), close: vi.fn() };
-    const send = async (
-      operation: string,
-      path?: string,
-      origin = "https://builder.io",
-    ) => {
+    const send = (operation: string, path?: string, senderOrigin = origin) => {
       window.dispatchEvent(
         new MessageEvent("message", {
           data: {
@@ -103,32 +103,27 @@ describe("frame bridge", () => {
             path,
             deadline: Date.now() + 1000,
           },
-          origin,
+          origin: senderOrigin,
           source: parent,
           ports: [port as unknown as MessagePort],
         }),
       );
-      await vi.waitFor(() => {
-        if (origin === "https://builder.io")
-          expect(port.close).toHaveBeenCalled();
-      });
     };
     try {
-      port.close.mockClear();
-      await send("read", undefined, "https://untrusted.example.test");
+      send("read", undefined, "https://untrusted.example.test");
       expect(port.postMessage).not.toHaveBeenCalled();
-      port.close.mockClear();
-      await send("navigate", "/tasks/one");
+      send("navigate", "/tasks/one");
+      await vi.waitFor(() => expect(port.close).toHaveBeenCalledTimes(1));
       expect(port.postMessage).toHaveBeenLastCalledWith({
         result: { path: "/tasks/one" },
       });
-      port.close.mockClear();
-      await send("read");
+      send("read");
+      await vi.waitFor(() => expect(port.close).toHaveBeenCalledTimes(2));
       expect(port.postMessage).toHaveBeenLastCalledWith({
         result: expect.objectContaining({ path: "/tasks/one" }),
       });
-      port.close.mockClear();
-      await send("navigate", "//untrusted.example.test/");
+      send("navigate", "//untrusted.example.test/");
+      await vi.waitFor(() => expect(port.close).toHaveBeenCalledTimes(3));
       expect(port.postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({ error: expect.any(String) }),
       );

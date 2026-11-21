@@ -16,7 +16,7 @@ const route = z
   );
 const showSchema = z.object({
   route,
-  params: z.record(z.string(), z.unknown()).optional(),
+  params: z.record(z.string(), z.json()).optional(),
 });
 export const appCapabilityManifestSchema = z
   .object({

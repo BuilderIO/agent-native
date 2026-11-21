@@ -10042,7 +10042,8 @@ export async function runAgentLoop(opts: {
         const persisted = Promise.resolve(
           send({
             ...event,
-            ...(actionInvoked
+            ...(actionExecutionOutcome.navigationKeys?.size ||
+            (actionInvoked && event.tool === "navigate")
               ? {
                   navigationKeys: [
                     ...(actionExecutionOutcome.navigationKeys ?? []),
