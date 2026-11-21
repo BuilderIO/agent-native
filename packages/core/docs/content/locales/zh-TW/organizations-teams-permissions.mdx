@@ -7,6 +7,28 @@ description: 管理組織內容、團隊與應用程式角色以及資源存取�
 
 組織定義團隊成員和租戶界線。工作區彙整應用程式與部署設定，但不會取代組織。權限必須由伺服器檢查。在介面隱藏按鈕並不等於存取控制。
 
+## 查詢組織網域 {#get-org-domain}
+
+`getOrgDomain()` 讀取組織允許的電子郵件網域。它接受字串類型的組織 ID，並回傳 `Promise<string | null>`。
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+在使用動作內容的已授權操作中，查詢網域之前先處理沒有作用中組織的情況：
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+如果組織不存在或 `allowed_domain` 為空，結果為 `null`。非空網域會原樣回傳。資料庫失敗會使 Promise 遭到拒絕。此查詢不檢查身分驗證、成員資格或角色。結果不能作為授權依據。呼叫端必須另行授權。
+
 ## 三種角色範圍
 
 - 組織角色 `owner`、`admin` 和 `member` 控制團隊管理。擁有者和管理員管理電子郵件網域自動加入；應用程式之間共用的 A2A 密鑰只有擁有者可以管理。

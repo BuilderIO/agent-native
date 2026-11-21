@@ -7,6 +7,28 @@ description: Organisationskontext, Team- und App-Rollen sowie Ressourcenfreigabe
 
 Eine Organisation definiert Teammitgliedschaft und Mandantengrenze. Ein Workspace bündelt Apps und Bereitstellungskonfiguration, ersetzt aber keine Organisation. Der Server muss Berechtigungen prüfen. Das Ausblenden einer Schaltfläche ist keine Zugriffskontrolle.
 
+## Organisationsdomain abfragen {#get-org-domain}
+
+`getOrgDomain()` liest die erlaubte E-Mail-Domain einer Organisation. Die Funktion erwartet eine Organisations-ID als Zeichenfolge und gibt `Promise<string | null>` zurück.
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+Bei einem bereits autorisierten Vorgang mit dem Kontext einer Action muss eine fehlende aktive Organisation vor der Domainabfrage behandelt werden:
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+Das Ergebnis ist `null`, wenn die Organisation nicht existiert oder `allowed_domain` leer ist. Eine nicht leere Domain wird unverändert zurückgegeben. Bei einem Datenbankfehler wird das Promise abgelehnt. Die Abfrage prüft weder Authentifizierung noch Mitgliedschaft oder Rollen. Das Ergebnis ist kein Autorisierungsnachweis. Aufrufende müssen separat autorisieren.
+
 ## Drei Rollenumfänge
 
 - Organisationsrollen `owner`, `admin` und `member` steuern die Teamverwaltung. Inhaber und Admins verwalten den automatischen Beitritt per E-Mail-Domain; das App-übergreifende A2A-Secret verwaltet nur der Inhaber.

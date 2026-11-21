@@ -7,6 +7,28 @@ description: 組織コンテキスト、チームとアプリのロール、リ�
 
 組織はチームメンバーとテナント境界を定義します。ワークスペースはアプリとデプロイ設定をまとめますが、組織の代わりにはなりません。権限はサーバーで確認します。ボタンを隠すだけではアクセス制御になりません。
 
+## 組織ドメインの取得 {#get-org-domain}
+
+`getOrgDomain()` は組織に許可されたメールドメインを読み取ります。組織 ID を文字列で受け取り、`Promise<string | null>` を返します。
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+すでに認可された操作でアクションのコンテキストを使う場合は、ドメインを取得する前にアクティブな組織がないケースを処理します。
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+組織が存在しない場合、または `allowed_domain` が空の場合は `null` を返します。空でないドメインは変更せずに返します。データベースエラーの場合は Promise が reject されます。この取得処理は認証、メンバーシップ、ロールを確認しません。結果は認可の証拠にはなりません。呼び出し元で別途認可する必要があります。
+
 ## 3 つのロール範囲
 
 - 組織の `owner`、`admin`、`member` はチーム管理を制御します。メールドメインによる自動参加はオーナーと管理者が管理し、アプリ間で共有する A2A シークレットはオーナーだけが管理します。

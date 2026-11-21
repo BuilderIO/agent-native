@@ -7,6 +7,28 @@ description: संगठन संदर्भ, टीम और ऐप भू�
 
 संगठन team membership और tenant boundary तय करता है। Workspace apps और deployment config को समूहित करता है, लेकिन संगठन का विकल्प नहीं है। Server को permissions जाँचनी चाहिए। UI में button छिपाना authorization नहीं है।
 
+## संगठन का डोमेन देखना {#get-org-domain}
+
+`getOrgDomain()` संगठन का अनुमत ईमेल डोमेन पढ़ता है। यह संगठन ID को स्ट्रिंग के रूप में लेता है और `Promise<string | null>` लौटाता है।
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+किसी पहले से अधिकृत ऑपरेशन में action के context का उपयोग करते समय, डोमेन देखने से पहले सक्रिय संगठन के न होने को संभालें:
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+यदि संगठन मौजूद नहीं है या `allowed_domain` खाली है, तो परिणाम `null` होता है। गैर-रिक्त डोमेन बिना बदलाव के लौटता है। डेटाबेस विफलता पर promise reject होता है। यह जाँच authentication, सदस्यता या roles की जाँच नहीं करती। परिणाम authorization का प्रमाण नहीं है। कॉलर को अलग से authorization करना होगा।
+
 ## भूमिकाओं के तीन दायरे
 
 - संगठन के `owner`, `admin` और `member` roles टीम प्रबंधन नियंत्रित करते हैं। मालिक और एडमिन ईमेल डोमेन से अपने-आप जुड़ना मैनेज करते हैं; ऐप्स के बीच साझा A2A secret सिर्फ़ मालिक मैनेज करता है।

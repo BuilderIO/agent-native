@@ -7,6 +7,28 @@ description: Gérer le contexte de l’organisation, les rôles d’équipe et d
 
 L’organisation définit les membres de l’équipe et la limite du tenant. L’espace de travail regroupe les applications et la configuration de déploiement sans remplacer l’organisation. Le serveur doit vérifier les permissions. Masquer un bouton ne constitue pas un contrôle d’accès.
 
+## Consulter le domaine de l’organisation {#get-org-domain}
+
+`getOrgDomain()` lit le domaine de messagerie autorisé d’une organisation. La fonction accepte un identifiant d’organisation sous forme de chaîne et renvoie `Promise<string | null>`.
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+const domain = await getOrgDomain("org_123");
+```
+
+Pour une opération déjà autorisée qui utilise le contexte d’une action, gérez l’absence d’organisation active avant de consulter son domaine :
+
+```ts
+import { getOrgDomain } from "@agent-native/core/org";
+
+async function getActiveOrgDomain(ctx: { orgId?: string | null }) {
+  return ctx.orgId ? await getOrgDomain(ctx.orgId) : null;
+}
+```
+
+Le résultat est `null` si l’organisation n’existe pas ou si `allowed_domain` est vide. Un domaine non vide est renvoyé sans modification. Une erreur de base de données rejette la promesse. Cette consultation ne vérifie ni l’authentification, ni l’appartenance, ni les rôles. Le résultat ne prouve pas une autorisation. L’appelant doit autoriser l’opération séparément.
+
 ## Trois portées de rôle
 
 - Les rôles d’organisation `owner`, `admin` et `member` contrôlent l’administration de l’équipe. Les propriétaires et les administrateurs gèrent l’adhésion automatique par domaine e-mail ; seul le propriétaire gère le secret A2A partagé entre les applications.
