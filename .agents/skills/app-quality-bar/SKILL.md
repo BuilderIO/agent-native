@@ -31,7 +31,7 @@ a starting point. Readiness is earned on the running preview.
    Public workspace routes start at `/<id>`. React Router uses app-local paths.
 4. **Review the preview.** Follow the canonical [capture procedure, 12-row
    rubric, and automatic fails](visual-review.md).
-   Give an independent reviewer only screenshots, the rubric, and the brief.
+   Give a blind reviewer subagent only screenshots, the rubric, and the brief.
    Keep the lower score per row. Batch fixes, recapture, and require a mean
    of at least 4.0, every row at least 3, and zero automatic fails. If
    independent review is unavailable, mark that gate pending.

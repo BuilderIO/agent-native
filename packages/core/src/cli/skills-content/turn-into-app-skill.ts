@@ -1134,8 +1134,8 @@ Reading the metrics:
 7. Shoot \`p2\` and rescore. Shoot \`p3\` only when \`p2\` still misses the bar (an
    automatic fail, a mean under 4.0, or a criterion under 3), the fixes are
    known, and the 45-minute aim has not passed; it is the last pass. Otherwise
-   stop at two and name the open criteria. Use the script as written; do not
-   grow a separate test harness.
+   stop at two and name the open criteria. Take these screenshots with the
+   capture script and run the separate interactive verification in app-quality-bar.
 8. Meet the shared visual review gate, including its blind independent
    review. If no independent reviewer is available, keep the gate pending.
 9. Put the final table, the metrics, and the absolute paths of the final
