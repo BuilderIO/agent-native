@@ -10,6 +10,7 @@ import {
 
 import { getAppConfig } from "../app-config/store.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import { registerManifestActionDenials } from "../manifest/server.js";
 import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
@@ -22,7 +23,7 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isDirectLoopbackRequest } from "../server/loopback.js";
-import { registerMcpAppCardsLab } from "./app-cards-lab.js";
+import { warnIfRetiredInlineEnvSet } from "./app-cards.js";
 import { mcpApprovalRoute, mountMcpApprovalRoute } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
 import {
@@ -576,7 +577,11 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
-  registerMcpAppCardsLab();
+  warnIfRetiredInlineEnvSet();
+  registerManifestActionDenials(
+    nitroApp,
+    config.externalAgents?.denyActions ?? [],
+  );
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]

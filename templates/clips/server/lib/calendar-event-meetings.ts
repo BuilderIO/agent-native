@@ -5,6 +5,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { isCalendarEnabled, PRIMARY_CALENDAR_ID } from "./calendar-sources.js";
 import {
   detectPlatform,
   getEvent,
@@ -55,6 +56,10 @@ function parseAccessBundle(raw: string): AccessTokenBundle {
     // Older shape: raw token string.
   }
   return { accessToken: raw };
+}
+
+export function storedCalendarId(calendarId?: string | null): string | null {
+  return calendarId && calendarId !== PRIMARY_CALENDAR_ID ? calendarId : null;
 }
 
 export function eventStartIso(event: CalendarEvent): string | null {
@@ -216,22 +221,29 @@ export async function recordCalendarFetchError(
 export function encodeCalendarMeetingId(
   accountId: string,
   externalId: string,
+  calendarId: string = PRIMARY_CALENDAR_ID,
 ): string {
   const encoded = Buffer.from(externalId, "utf8").toString("base64url");
-  return `${CALENDAR_MEETING_ID_PREFIX}_${accountId}_${encoded}`;
+  const id = `${CALENDAR_MEETING_ID_PREFIX}_${accountId}_${encoded}`;
+  if (calendarId === PRIMARY_CALENDAR_ID) return id;
+  return `${id}.${Buffer.from(calendarId, "utf8").toString("base64url")}`;
 }
 
 export function parseCalendarMeetingId(
   id: string,
-): { accountId: string; externalId: string } | null {
-  const match = new RegExp(`^${CALENDAR_MEETING_ID_PREFIX}_([^_]+)_(.+)$`).exec(
-    id,
-  );
+): { accountId: string; externalId: string; calendarId: string } | null {
+  const match = new RegExp(
+    `^${CALENDAR_MEETING_ID_PREFIX}_([^_]+)_([^.]+)(?:[.](.+))?$`,
+  ).exec(id);
   if (!match) return null;
   try {
     return {
       accountId: match[1],
       externalId: Buffer.from(match[2], "base64url").toString("utf8"),
+      calendarId: match[3]
+        ? Buffer.from(match[3], "base64url").toString("utf8") ||
+          PRIMARY_CALENDAR_ID
+        : PRIMARY_CALENDAR_ID,
     };
   } catch {
     return null;
@@ -252,6 +264,7 @@ export function calendarEventParticipants(event: CalendarEvent) {
 export function calendarEventToMeetingView(args: {
   account: CalendarAccountForEvents;
   event: CalendarEvent;
+  calendarId?: string;
   meeting?: any;
 }) {
   const startIso = eventStartIso(args.event);
@@ -262,7 +275,9 @@ export function calendarEventToMeetingView(args: {
   const summary = (meeting?.summaryMd ?? "").trim();
   return {
     ...(meeting ?? {}),
-    id: meeting?.id ?? encodeCalendarMeetingId(args.account.id, args.event.id),
+    id:
+      meeting?.id ??
+      encodeCalendarMeetingId(args.account.id, args.event.id, args.calendarId),
     title: meeting?.title || args.event.summary || "Untitled event",
     scheduledStart: startIso,
     scheduledEnd: endIso,
@@ -328,6 +343,7 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
     .where(eq(schema.calendarAccounts.id, parsed.accountId))
     .limit(1);
   if (!account || account.provider !== "google") return null;
+  if (!isCalendarEnabled(account, parsed.calendarId)) return null;
 
   let accessToken: string | null;
   try {
@@ -351,12 +367,12 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
   try {
     const event = await getEvent({
       accessToken,
-      calendarId: "primary",
+      calendarId: parsed.calendarId,
       eventId: parsed.externalId,
     });
     if (event.status === "cancelled") return null;
     await recordCalendarFetchSuccess(account).catch(() => {});
-    return { account, event };
+    return { account, event, calendarId: parsed.calendarId };
   } catch (err) {
     await recordCalendarFetchError(account, err);
     throw new CalendarEventUnavailableError(
@@ -370,6 +386,7 @@ export async function upsertCalendarEventSnapshot(
   args: {
     account: CalendarAccountForEvents;
     event: CalendarEvent;
+    calendarId?: string;
   },
   database: any = getDb(),
 ) {
@@ -381,6 +398,7 @@ export async function upsertCalendarEventSnapshot(
   }
   const attendees = calendarEventParticipants(args.event);
   const joinUrl = pickJoinUrl(args.event);
+  const calendarId = storedCalendarId(args.calendarId);
   const nowIso = new Date().toISOString();
   const [existing] = await db
     .select()
@@ -397,6 +415,7 @@ export async function upsertCalendarEventSnapshot(
     await db
       .update(schema.calendarEvents)
       .set({
+        calendarId,
         title: args.event.summary ?? "",
         description: args.event.description ?? "",
         start: startIso,
@@ -417,6 +436,7 @@ export async function upsertCalendarEventSnapshot(
     id,
     calendarAccountId: args.account.id,
     externalId: args.event.id,
+    calendarId,
     title: args.event.summary ?? "",
     description: args.event.description ?? "",
     start: startIso,

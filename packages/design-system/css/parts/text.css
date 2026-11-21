@@ -1,0 +1,204 @@
+/*
+ * Part: text
+ *
+ *   <span|div|label|p class="text" [data-text-style="body|label|…"]
+ *         [data-size="0–9"]
+ *         [data-weight="light|regular|medium|semibold|bold"]
+ *         [data-align="left|center|right"]
+ *         [data-trim="normal|start|end|both"] [data-truncate]
+ *         [data-wrap="wrap|nowrap|pretty|balance"]
+ *         [data-color="accent|gray|danger|warning|success|info"]
+ *         [data-high-contrast]>
+ *
+ * Radix Themes' text on the system's type scale. Unset, `size` inherits the
+ * surrounding text's size and line height, and the text keeps the color
+ * around it. A color draws it in the scale's text step; high contrast in
+ * step 12, which also applies inside any element that sets a color.
+ *
+ * A text style (`text-styles.css`, loaded before this file) sets the size,
+ * line height, letter spacing, weight and family together; `data-size` and
+ * `data-weight` here override it.
+ *
+ * This file also holds the text props the other typography components share,
+ * each taking the ones its definition lists: heading all of them; link all
+ * but alignment; blockquote size, weight, truncate, wrap and color; code
+ * weight, truncate and wrap. Truncating needs a block or a flex or grid item:
+ * an inline element doesn't clip.
+ */
+
+@layer components {
+  .text {
+    margin: 0;
+  }
+
+  @media (pointer: coarse) {
+    label.text {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    label.text:active {
+      outline: 0.75em solid var(--gray-a4);
+      outline-offset: -0.6em;
+    }
+  }
+
+  /* ---- sizes ---- */
+
+  :is(.text, .heading, .link, .blockquote)[data-size="0"] {
+    font-size: var(--font-size-0);
+    line-height: var(--line-height-0);
+    letter-spacing: var(--letter-spacing-0);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="1"] {
+    font-size: var(--font-size-1);
+    line-height: var(--line-height-1);
+    letter-spacing: var(--letter-spacing-1);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="2"] {
+    font-size: var(--font-size-2);
+    line-height: var(--line-height-2);
+    letter-spacing: var(--letter-spacing-2);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="3"] {
+    font-size: var(--font-size-3);
+    line-height: var(--line-height-3);
+    letter-spacing: var(--letter-spacing-3);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="4"] {
+    font-size: var(--font-size-4);
+    line-height: var(--line-height-4);
+    letter-spacing: var(--letter-spacing-4);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="5"] {
+    font-size: var(--font-size-5);
+    line-height: var(--line-height-5);
+    letter-spacing: var(--letter-spacing-5);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="6"] {
+    font-size: var(--font-size-6);
+    line-height: var(--line-height-6);
+    letter-spacing: var(--letter-spacing-6);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="7"] {
+    font-size: var(--font-size-7);
+    line-height: var(--line-height-7);
+    letter-spacing: var(--letter-spacing-7);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="8"] {
+    font-size: var(--font-size-8);
+    line-height: var(--line-height-8);
+    letter-spacing: var(--letter-spacing-8);
+  }
+
+  :is(.text, .heading, .link, .blockquote)[data-size="9"] {
+    font-size: var(--font-size-9);
+    line-height: var(--line-height-9);
+    letter-spacing: var(--letter-spacing-9);
+  }
+
+  /* ---- weight and alignment ---- */
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-weight="light"] {
+    font-weight: var(--font-weight-light);
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-weight="regular"] {
+    font-weight: var(--font-weight-regular);
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-weight="medium"] {
+    font-weight: var(--font-weight-medium);
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-weight="semibold"] {
+    font-weight: var(--font-weight-semibold);
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-weight="bold"] {
+    font-weight: var(--font-weight-bold);
+  }
+
+  :is(.text, .heading)[data-align="left"] {
+    text-align: left;
+  }
+
+  :is(.text, .heading)[data-align="center"] {
+    text-align: center;
+  }
+
+  :is(.text, .heading)[data-align="right"] {
+    text-align: right;
+  }
+
+  /* ---- leading trim ---- */
+
+  :is(.text, .heading, .link):is(
+      [data-trim="start"],
+      [data-trim="both"]
+    )::before,
+  :is(.text, .heading, .link):is([data-trim="end"], [data-trim="both"])::after {
+    content: "";
+    display: table;
+  }
+
+  /*
+   * Radix's trims, measured from the middle of the line: the top lands on
+   * the ascenders and the bottom on the baseline, in Inter as in Radix's
+   * system stack.
+   */
+  :is(.text, .heading, .link):is(
+      [data-trim="start"],
+      [data-trim="both"]
+    )::before {
+    margin-bottom: calc(0.42em - 0.5lh);
+  }
+
+  :is(.text, .heading, .link):is([data-trim="end"], [data-trim="both"])::after {
+    margin-top: calc(0.36em - 0.5lh);
+  }
+
+  /* ---- truncate and wrap ---- */
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-truncate] {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="wrap"] {
+    white-space: normal;
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="nowrap"] {
+    white-space: nowrap;
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="pretty"] {
+    white-space: normal;
+    text-wrap: pretty;
+  }
+
+  :is(.text, .heading, .link, .blockquote, .code)[data-wrap="balance"] {
+    white-space: normal;
+    text-wrap: balance;
+  }
+
+  /* ---- color ---- */
+
+  :is(.text, .heading, .blockquote)[data-color] {
+    color: var(--accent-text);
+  }
+
+  :is(.text, .heading, .blockquote)[data-color][data-high-contrast],
+  [data-color] :is(.text, .heading, .blockquote)[data-high-contrast] {
+    color: var(--accent-12);
+  }
+}

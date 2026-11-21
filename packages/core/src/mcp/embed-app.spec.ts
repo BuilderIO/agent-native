@@ -2429,6 +2429,11 @@ return requestFullscreenOnFirstInteraction;`;
       href: string;
       pageHelper?: unknown;
       frameSrc?: string;
+      postToGuest?: (
+        message: unknown,
+        origin: string,
+        ports: MessagePort[],
+      ) => void;
       modelContext?: unknown;
       app?: unknown;
       windowListeners?: Record<string, Array<(event: unknown) => void>>;
@@ -2482,7 +2487,12 @@ return requestFullscreenOnFirstInteraction;`;
       if (options.modelContext) {
         Object.assign(window.document, { modelContext: options.modelContext });
       }
-      const appFrame = options.frameSrc ? { src: options.frameSrc } : null;
+      const appFrame = options.frameSrc
+        ? {
+            src: options.frameSrc,
+            contentWindow: { postMessage: options.postToGuest ?? (() => {}) },
+          }
+        : null;
       return new Function(
         "window",
         "document",
@@ -2666,21 +2676,56 @@ return requestFullscreenOnFirstInteraction;`;
       }
     });
 
-    it("leaves a nested app frame where its session started", async () => {
+    it("reads and navigates through the nested frame's message port", async () => {
+      let path = "/calendar/week";
+      const postToGuest = vi.fn(
+        (raw: unknown, _origin: string, [port]: MessagePort[]) => {
+          const request = raw as { operation: string; path: string };
+          if (request.operation === "navigate") path = request.path;
+          port.postMessage({ result: { path } });
+          port.close();
+        },
+      );
       const tools = viewToolsFor({
         href: "https://sandbox.example/shell",
         frameSrc: "https://labs.example.com/calendar/week",
+        postToGuest,
       });
-      const moved = await tools.callViewTool({
-        name: "navigate_view",
-        arguments: { path: "/calendar/event/e1" },
-      });
-      expect(moved.isError).toBe(true);
-      expect(moved.content[0]!.text).toContain("nested frame");
-      const read = await tools.callViewTool({ name: "read_view" });
-      expect(read.isError).toBe(true);
-      expect(read.content[0]!.text).toContain("nested frame");
-      expect(await tools.listViewTools()).toEqual([]);
+      expect(
+        (await tools.callViewTool({ name: "read_view" })).structuredContent,
+      ).toEqual({ path: "/calendar/week" });
+      expect(
+        (
+          await tools.callViewTool({
+            name: "navigate_view",
+            arguments: { path: "/calendar/event/e1" },
+          })
+        ).structuredContent,
+      ).toEqual({ path: "/calendar/event/e1" });
+      expect(
+        (await tools.callViewTool({ name: "read_view" })).structuredContent,
+      ).toEqual({ path: "/calendar/event/e1" });
+      expect(postToGuest.mock.calls.map((call) => call[1])).toEqual(
+        Array(3).fill("https://labs.example.com"),
+      );
+    });
+
+    it("reports a nested guest timeout after one second", async () => {
+      vi.useFakeTimers();
+      try {
+        const tools = viewToolsFor({
+          href: "https://sandbox.example/shell",
+          frameSrc: "https://labs.example.com/calendar/week",
+        });
+        const result = tools.callViewTool({ name: "read_view" });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(await result).toMatchObject({
+          isError: true,
+          content: [{ text: expect.stringContaining("did not respond") }],
+        });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("tells the host its tool list changed when a nested frame mounts", () => {

@@ -182,22 +182,36 @@ export function currentActionNavigationIntent(): string | undefined {
     frame;
     frame = frame.parent
   ) {
-    if (frame.navigationIntent === "open") return "open";
+    if (frame.navigationIntent === "keep") return "keep";
+    if (
+      frame.navigationIntent === "open" ||
+      frame.navigationIntent === "reveal"
+    )
+      found = frame.navigationIntent;
     found ??= frame.navigationIntent;
   }
   return found;
 }
 
-/** Whether the running action (or an ancestor) explicitly declared `allowsAgentNavigation`. */
+/**
+ * Whether the active action chain is authorized to navigate by an action's
+ * declared `allowsAgentNavigation: true`. Only the outermost write action can
+ * grant this: a nested action with `allowsAgentNavigation: true` (such as an
+ * app's own `navigate` action) cannot bypass a parent write action that did
+ * not declare it.
+ */
 export function currentActionAllowsAgentNavigation(): boolean {
+  let outermostWrite: ActionExecutionFrame | undefined;
   for (
     let frame = actionExecutionStorage?.getStore()?.frame;
     frame;
     frame = frame.parent
   ) {
-    if (frame.allowsAgentNavigation === true) return true;
+    if (frame.writes === true) {
+      outermostWrite = frame;
+    }
   }
-  return false;
+  return outermostWrite?.allowsAgentNavigation === true;
 }
 
 /** Whether any write has already been observed in the active action chain. */
@@ -308,4 +322,15 @@ export function withoutWriteObservation<T>(fn: () => T): T {
   const frame = actionExecutionStorage?.getStore()?.frame;
   if (!frame || !unobservedFrame) return fn();
   return unobservedFrame.run(frame, fn);
+}
+
+export function observeNavigationCommand(key: string): void {
+  if (key !== "navigate" && !/^navigate:[A-Za-z0-9_-]{1,96}$/.test(key)) return;
+  for (
+    let frame = actionExecutionStorage?.getStore()?.frame;
+    frame;
+    frame = frame.parent
+  ) {
+    if (frame.outcome) (frame.outcome.navigationKeys ??= new Set()).add(key);
+  }
 }

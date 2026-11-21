@@ -257,6 +257,7 @@
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
+    "./client/action-query-boundary": "./dist/client/action-query-boundary.js",
     "./client/i18n": "./dist/client/i18n.js",
     "./client/write-failure": "./dist/client/write-failure.js",
     "./embedding": "./dist/embedding/index.js",
@@ -440,6 +441,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/process": {
+      "types": "./dist/cli/process.d.ts",
+      "default": "./dist/cli/process.js"
+    },
     "./cli/telemetry": {
       "types": "./dist/cli/telemetry.d.ts",
       "default": "./dist/cli/telemetry.js"
@@ -667,6 +672,7 @@
     "./labs/core-labs": "./dist/labs/core-labs.js",
     "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
+    "./localization/privacy-choice-messages": "./dist/localization/privacy-choice-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",
     "./notifications/types": "./dist/notifications/types.js",

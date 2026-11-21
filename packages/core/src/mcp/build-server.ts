@@ -27,6 +27,7 @@ import type { ActionMcpToolAnnotations, ActionRunContext } from "../action.js";
 import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  isReversibleWriteInlineApprovalAction,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isValidTimezone } from "../agent/runtime-context.js";
@@ -40,6 +41,7 @@ import {
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
+import { APP_MANIFEST_RESOURCE, getAppManifest } from "../manifest/server.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -127,7 +129,10 @@ import {
   type TurnGrantAdmission,
 } from "./turn-grant-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
-import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
+import {
+  isMcpAppsInlineEnabled,
+  warnIfRetiredInlineEnvSet,
+} from "./app-cards.js";
 import {
   createBrowserTabTargetSlot,
   withBrowserTabTargetNote,
@@ -573,6 +578,31 @@ function withoutToolSearch(
 
 const CALL_TOOL_NAME = "call-tool";
 
+const ASK_APP_TOOL_NAME = "ask_app";
+const MAX_NOT_SERVED_MATCHES = 3;
+const NOT_SERVED_MESSAGE =
+  "These match your search, but this connection can't call them. The app's own agent can: describe the task to ask_app. When a tool in results does the job, call it instead.";
+
+async function settledBy<T>(
+  work: Promise<T>,
+  deadline: number,
+): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.catch(() => undefined),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(
+          () => resolve(undefined),
+          Math.max(0, deadline - Date.now()),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
   unlisted: Record<string, ActionEntry>,
@@ -586,6 +616,9 @@ function scopeToolSearchToAdvertised(
     signal: AbortSignal,
   ) => Promise<import("../agent/tool-search-task.js").Ranking>,
   taskCandidateProvider?: MCPConfig["taskCandidates"],
+  notServed?: (
+    callable: Record<string, ActionEntry>,
+  ) => Promise<Record<string, ActionEntry>>,
 ): Record<string, ActionEntry> {
   const entry = advertised[TOOL_SEARCH_TOOL_NAME];
   if (!entry) return advertised;
@@ -596,8 +629,11 @@ function scopeToolSearchToAdvertised(
       run: async (args: Record<string, unknown>, context) => {
         const task = typeof args.task === "string" ? args.task.trim() : "";
         const taskDeadline = Date.now() + 1300;
-        const { searchToolRegistryForRequest } =
-          await import("../agent/tool-search.js");
+        const {
+          closestToolMatches,
+          namesUnservedTools,
+          searchToolRegistryForRequest,
+        } = await import("../agent/tool-search.js");
         let permitted: Record<string, ActionEntry>;
         if (task) {
           let timer: ReturnType<typeof setTimeout> | undefined;
@@ -629,8 +665,9 @@ function scopeToolSearchToAdvertised(
         } else {
           permitted = await granted();
         }
+        const callable = advertisable(permitted);
         const found = await searchToolRegistryForRequest(
-          advertisable(permitted),
+          callable,
           args ?? {},
           { taskRank, taskDeadline, taskCandidateProvider },
           context,
@@ -639,6 +676,15 @@ function scopeToolSearchToAdvertised(
           Object.hasOwn(unlisted, item.name)
             ? { ...item, callWith: CALL_TOOL_NAME }
             : item;
+        const unserved =
+          notServed &&
+          namesUnservedTools(args) &&
+          Object.hasOwn(callable, ASK_APP_TOOL_NAME)
+            ? await settledBy(notServed(callable), taskDeadline)
+            : undefined;
+        const closest = unserved
+          ? closestToolMatches(unserved, args, MAX_NOT_SERVED_MATCHES)
+          : [];
         return {
           ...found,
           results: found.results.map(marked),
@@ -648,6 +694,9 @@ function scopeToolSearchToAdvertised(
                   item.kind === "tool" ? marked(item) : item,
                 ),
               }
+            : {}),
+          ...(closest.length > 0
+            ? { notServed: { message: NOT_SERVED_MESSAGE, tools: closest } }
             : {}),
         };
       },
@@ -1196,7 +1245,10 @@ async function filterActionsAvailableForDiscovery(
   for (const entry of Object.values(actions)) {
     const predicate = entry.agentDiscoveryAvailable;
     if (predicate && !availability.has(predicate)) {
-      availability.set(predicate, Promise.resolve(predicate(context)));
+      availability.set(
+        predicate,
+        Promise.resolve().then(() => predicate(context)),
+      );
     }
   }
 
@@ -1227,6 +1279,7 @@ export function declaredMcpToolNames(
 }
 
 const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
+  "get_app_manifest",
   "list_apps",
   "open_app",
   "ask_app",
@@ -3438,13 +3491,14 @@ export async function createMCPServerForRequest(
       ? { userEmail: ownerFromEnv, orgDomain: undefined }
       : undefined);
 
+  warnIfRetiredInlineEnvSet();
   requestMeta = {
     ...(requestMeta ?? {}),
     inlineMcpApps:
       config.catalogMode === "directory" ||
       requestMeta?.inlineMcpApps === true ||
       (requestMeta?.inlineMcpApps === undefined &&
-        (await isMcpAppsInlineEnabled(effectiveIdentity))),
+        isMcpAppsInlineEnabled(effectiveIdentity)),
   };
 
   const analyticsBase: McpAnalyticsContext = {
@@ -3485,11 +3539,33 @@ export async function createMCPServerForRequest(
     !directoryCatalog &&
     explicitlyRequestsFullMcpCatalog(requestMeta);
   const flatCatalog = appCatalog || directoryCatalog || fullCatalogRequested;
+  const listsManifestTool =
+    flatCatalog ||
+    config.connectorCatalog === undefined ||
+    config.connectorCatalog.includes("get_app_manifest");
   const mergedActions = {
     ...(appCatalog || directoryCatalog
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta, effectiveIdentity)),
   };
+  if (!directoryCatalog) {
+    mergedActions.get_app_manifest = {
+      tool: {
+        description:
+          "Read the app's capability manifest, including its screens and routing metadata.",
+        parameters: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+      http: false,
+      readOnly: true,
+      mcpTool: true,
+      run: async () =>
+        appManifest(await grantedServedActions("get_app_manifest")),
+    };
+  }
   const mergedResources = actionNamed(mergedActions, "resources");
   if (mergedResources && isFrameworkMcpTool(mergedResources)) {
     delete mergedActions.resources;
@@ -3647,8 +3723,9 @@ export async function createMCPServerForRequest(
     ? {}
     : Object.fromEntries(
         Object.entries(visibleActions).filter(
-          ([, entry]) =>
+          ([name, entry]) =>
             entry.mcpTool === "search" &&
+            !Object.hasOwn(advertisedActionsBeforeToolSearchScope, name) &&
             (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
         ),
       );
@@ -3661,6 +3738,33 @@ export async function createMCPServerForRequest(
     deniedToolNames.has(CALL_TOOL_NAME) ||
     Object.hasOwn(actions, CALL_TOOL_NAME);
   const unlistedActions = listsSearchServed ? {} : searchServedActions;
+  const notServedActions = hasVerifiedMcpUserIdentity(effectiveIdentity)
+    ? (callable: Record<string, ActionEntry>) =>
+        withCallerContext(async () =>
+          filterActionsAvailableForDiscovery(
+            Object.fromEntries(
+              Object.entries(mergedActions).filter(
+                ([name, entry]) =>
+                  !Object.hasOwn(callable, name) &&
+                  !deniedToolNames.has(name) &&
+                  !isFrameworkMcpTool(entry) &&
+                  entry.agentTool !== false &&
+                  entry.endsTurn !== true &&
+                  isMcpActionNameEligible(name, entry) &&
+                  isActionVisibleForOAuthScope(
+                    entry,
+                    effectiveIdentity.oauthScopes,
+                  ),
+              ),
+            ),
+            {
+              caller: "mcp",
+              userEmail: effectiveIdentity.userEmail,
+              orgId: orgId ?? null,
+            },
+          ),
+        )
+    : undefined;
   const advertisedActions = scopeToolSearchToAdvertised(
     listsSearchServed
       ? { ...advertisedActionsBeforeToolSearchScope, ...searchServedActions }
@@ -3775,6 +3879,7 @@ export async function createMCPServerForRequest(
           return [...hostCandidates, ...memoryCandidates, ...skillCandidates];
         }
       : undefined,
+    notServedActions,
   );
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
@@ -3837,9 +3942,11 @@ export async function createMCPServerForRequest(
           ),
     capabilities: {
       tools: {},
+      ...(!scriptCatalog && (!directoryCatalog || supportsMcpApps)
+        ? { resources: {} }
+        : {}),
       ...(supportsMcpApps
         ? {
-            resources: {},
             extensions: {
               [MCP_APP_EXTENSION_ID]: {
                 mimeTypes: [MCP_APP_MIME_TYPE],
@@ -3973,9 +4080,8 @@ export async function createMCPServerForRequest(
     ctx: ServerContext,
   ): Promise<InputRequiredResult | CallToolResult> {
     const name = approvalState.actionName;
-    // A turn-grant write is approved on the app's own review page, never in
-    // the client, so the link opens on the origin the page minted it from.
-    if (requiresTurnGrantPageApproval(name)) {
+    const inlineFormOnly = isReversibleWriteInlineApprovalAction(actions[name]);
+    if (requiresTurnGrantPageApproval(name) && !inlineFormOnly) {
       const origin = requestMeta?.resolveEmbedRequestOrigin?.();
       return actionApprovalReviewResult(
         review,
@@ -4003,7 +4109,10 @@ export async function createMCPServerForRequest(
       (elicitation.form !== undefined || elicitation.url === undefined);
     const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
     // The SDK requires an absolute URL for URL elicitation.
-    const offersUrl = elicitation?.url !== undefined && URL.canParse(reviewUrl);
+    const offersUrl =
+      !inlineFormOnly &&
+      elicitation?.url !== undefined &&
+      URL.canParse(reviewUrl);
     const mode =
       offersUrl && (MCP_APPROVAL_PROMPT_PREFERENCE === "url" || !offersForm)
         ? "url"
@@ -4011,6 +4120,17 @@ export async function createMCPServerForRequest(
           ? "form"
           : undefined;
     if (mode === undefined) {
+      if (inlineFormOnly) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${name} requires inline approval because approvals are turned on, and this client cannot display an inline approval form. Confirm the action in the app or turn off approvals in Settings.`,
+            },
+          ],
+          isError: true,
+        };
+      }
       return actionApprovalReviewResult(
         review,
         "unprompted",
@@ -4023,7 +4143,7 @@ export async function createMCPServerForRequest(
       review,
       ownerEmail: effectiveIdentity?.userEmail,
       mode,
-      reviewUrl,
+      ...(inlineFormOnly ? {} : { reviewUrl }),
     });
     if (mode === "url") {
       const requestState = await codec.mint(
@@ -4105,15 +4225,34 @@ export async function createMCPServerForRequest(
         );
   }
 
-  async function grantedResourceActions(
-    actionName: string,
-  ): Promise<typeof advertisedActions> {
-    // Only an action with a widget has a resource, so only those convert.
-    return Object.fromEntries(
-      Object.entries(await grantedServedActions(actionName)).filter(
-        ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
+  function appManifest(served: Record<string, ActionEntry>) {
+    return getAppManifest(
+      Object.keys(served).filter(
+        (name) =>
+          name !== "get_app_manifest" &&
+          Object.hasOwn(baseActions, name) &&
+          isAdvertisable(name),
       ),
+      { id: config.appId, name: config.name },
     );
+  }
+
+  async function grantedResourceSurface(actionName: string) {
+    const served = await grantedServedActions(actionName);
+    return {
+      manifestActions:
+        !scriptCatalog &&
+        !directoryCatalog &&
+        Object.hasOwn(served, "get_app_manifest") &&
+        isAdvertisable("get_app_manifest")
+          ? served
+          : undefined,
+      actions: Object.fromEntries(
+        Object.entries(served).filter(
+          ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
+        ),
+      ),
+    };
   }
 
   server.setRequestHandler("tools/list", async (request: any, ctx: any) => {
@@ -4137,7 +4276,9 @@ export async function createMCPServerForRequest(
         Object.entries(advertisedActions)
           .filter(
             ([name]) =>
-              isActionGranted(allowedActions, name) && isAdvertisable(name),
+              (name !== "get_app_manifest" || listsManifestTool) &&
+              isActionGranted(allowedActions, name) &&
+              isAdvertisable(name),
           )
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {
@@ -4866,33 +5007,38 @@ export async function createMCPServerForRequest(
     },
   );
 
-  if (supportsMcpApps) {
+  if (!scriptCatalog && (supportsMcpApps || !directoryCatalog)) {
     server.setRequestHandler(
       "resources/list",
       async (request: any, ctx: any) => {
         const startedAt = Date.now();
-        const grantedActions =
-          await grantedResourceActions("mcp:resources/list");
+        const { actions: grantedActions, manifestActions } =
+          await grantedResourceSurface("mcp:resources/list");
         const result = await withCallerContext(async () => {
-          const mcpAppResources = await getMcpAppResources(
-            config,
-            grantedActions,
-            effectiveIdentity,
-            requestMeta,
-          );
+          const mcpAppResources = supportsMcpApps
+            ? await getMcpAppResources(
+                config,
+                grantedActions,
+                effectiveIdentity,
+                requestMeta,
+              )
+            : [];
           return {
-            resources: mcpAppResources
-              .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
-              .map((resource) => ({
-                uri: resource.uri,
-                name: resource.name,
-                ...(resource.title ? { title: resource.title } : {}),
-                ...(resource.description
-                  ? { description: resource.description }
-                  : {}),
-                mimeType: resource.mimeType,
-                ...(resource._meta ? { _meta: resource._meta } : {}),
-              })),
+            resources: [
+              ...mcpAppResources
+                .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
+                .map((resource) => ({
+                  uri: resource.uri,
+                  name: resource.name,
+                  ...(resource.title ? { title: resource.title } : {}),
+                  ...(resource.description
+                    ? { description: resource.description }
+                    : {}),
+                  mimeType: resource.mimeType,
+                  ...(resource._meta ? { _meta: resource._meta } : {}),
+                })),
+              ...(manifestActions ? [APP_MANIFEST_RESOURCE] : []),
+            ],
           };
         });
         trackMcpResourcesList(analyticsContext(request, ctx), {
@@ -4904,19 +5050,21 @@ export async function createMCPServerForRequest(
     );
 
     server.setRequestHandler("resources/templates/list", async () => {
-      const grantedActions = await grantedResourceActions(
+      const { actions: grantedActions } = await grantedResourceSurface(
         "mcp:resources/templates/list",
       );
       if (config.catalogMode === "directory") {
         return withCallerContext(async () => ({ resourceTemplates: [] }));
       }
       return withCallerContext(async () => {
-        const mcpAppResources = await getMcpAppResources(
-          config,
-          grantedActions,
-          effectiveIdentity,
-          requestMeta,
-        );
+        const mcpAppResources = supportsMcpApps
+          ? await getMcpAppResources(
+              config,
+              grantedActions,
+              effectiveIdentity,
+              requestMeta,
+            )
+          : [];
         return {
           resourceTemplates: mcpAppResources
             .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
@@ -4954,16 +5102,26 @@ export async function createMCPServerForRequest(
           });
         };
         try {
-          const grantedActions =
-            await grantedResourceActions("mcp:resources/read");
+          const { actions: grantedActions, manifestActions } =
+            await grantedResourceSurface("mcp:resources/read");
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
+            if (manifestActions && uri === APP_MANIFEST_RESOURCE.uri) {
+              emitRead({ resourceName: APP_MANIFEST_RESOURCE.name });
+              return {
+                contents: [
+                  {
+                    uri,
+                    mimeType: APP_MANIFEST_RESOURCE.mimeType,
+                    text: JSON.stringify(appManifest(manifestActions)),
+                  },
+                ],
+              };
+            }
             let found: {
               actionName: string;
               resource: ResolvedMcpAppResource;
             } | null = null;
-            // Reads follow the same cards decision as resources/list, so a
-            // caller without the lab can't fetch a card by its known URI.
             const resourceActions =
               requestMeta.inlineMcpApps &&
               mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)

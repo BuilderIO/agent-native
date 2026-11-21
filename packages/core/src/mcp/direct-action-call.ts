@@ -161,9 +161,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         orgId: getRequestOrgId() ?? undefined,
       });
     } catch (error) {
-      console.warn(
-        `Could not write the action-change marker after an MCP tool call: ${describeThrownForLog(error)}`,
-      );
+      console.warn({
+        event: "action_change_marker_failed",
+        transport: "mcp",
+        action: name,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
     }
   };
   // What a call that ran has done, read when its result is checked; one
@@ -272,6 +275,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       return actionError(err);
     }
 
+    const callableEntry = Object.hasOwn(callableActions, name)
+      ? callableActions[name]
+      : undefined;
+    if (
+      effectiveIdentity?.userEmail &&
+      callableEntry &&
+      isAdvertisable(name) &&
+      actionCallReadOnly(callableEntry, args) !== true
+    ) {
+      const { markActiveTurn } = await import("../server/active-turn.js");
+      markActiveTurn(effectiveIdentity.userEmail);
+    }
     const outcome = await runMcpActionCallUnredacted(actionCallContext, {
       name,
       args,

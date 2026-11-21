@@ -105,6 +105,16 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
         writes.push({ key, body, init: init ?? {} });
         return jsonResponse(body);
       }
+      if (method === "PATCH") {
+        const { expected, next } = JSON.parse(String(init?.body));
+        if (JSON.stringify(expected) !== JSON.stringify(state[key]))
+          return jsonResponse({ changed: false });
+        if (next === null) {
+          delete state[key];
+          deletes.push({ key, init: init ?? {} });
+        } else state[key] = next;
+        return jsonResponse({ changed: true });
+      }
       if (method === "DELETE") {
         delete state[key];
         deletes.push({ key, init: init ?? {} });
@@ -258,6 +268,7 @@ describe("route-state client helpers", () => {
         browserTabId: moduleTabId,
         requestSource: moduleTabId,
         refetchInterval: false,
+        writeDebounceMs: 0,
         getNavigationState: ({ pathname }) => ({ pathname }),
         getCommandPath: () => null,
       });
@@ -393,6 +404,7 @@ describe("route-state client helpers", () => {
       setView = updateView;
       useAgentRouteState({
         refetchInterval: false,
+        writeDebounceMs: 0,
         getNavigationState: () => ({ view }),
         getCommandPath: () => null,
       });
@@ -683,21 +695,16 @@ describe("route-state client helpers", () => {
     expect(deletes).toEqual([
       {
         key: "navigate:tab-1",
-        init: {
-          method: "DELETE",
-          headers: {
-            "X-Agent-Native-CSRF": "1",
-            "X-Agent-Native-Browser-Tab": expect.any(String),
-            "X-Request-Source": "tab-1",
-            // Its place in this page's write order.
-            "X-Agent-Native-App-State-Writer": expect.stringMatching(/^page-/),
-            "X-Agent-Native-App-State-Seq": expect.stringMatching(/^[0-9]+$/),
-          },
-          keepalive: undefined,
-          signal: undefined,
-        },
+        init: expect.objectContaining({
+          method: "PATCH",
+          headers: expect.objectContaining({ "X-Request-Source": "tab-1" }),
+        }),
       },
     ]);
+    expect(JSON.parse(String(deletes[0]?.init.body))).toEqual({
+      expected: commands[0],
+      next: null,
+    });
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);
@@ -743,6 +750,10 @@ describe("route-state client helpers", () => {
   });
 
   it("derives route state and applies navigate commands with React Router", async () => {
+    const settled = vi.fn();
+    window.addEventListener("agent-native:screen-settled", settled, {
+      once: true,
+    });
     const { fetchMock, writes } = makeAppStateFetch({
       "navigate:tab-1": { view: "detail", id: "123", _writeId: "cmd-1" },
     });
@@ -764,6 +775,7 @@ describe("route-state client helpers", () => {
         browserTabId: "tab-1",
         requestSource: "tab-1",
         refetchInterval: false,
+        writeDebounceMs: 0,
         getNavigationState: ({ pathname, searchParams }) => ({
           view: pathname === "/" ? "home" : pathname.slice(1),
           label: searchParams.get("label"),
@@ -789,6 +801,15 @@ describe("route-state client helpers", () => {
     await act(flush);
 
     expect(rendered.container.textContent).toBe("/detail/123");
+    expect(settled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          type: "agent-native:screen-settled",
+          writeId: "cmd-1",
+          url: "/detail/123",
+        }),
+      }),
+    );
     // The second state waits for the first write to land, then goes out.
     await act(flush);
     expect(writes.map((write) => write.key)).toEqual([
@@ -969,6 +990,8 @@ describe("route-state client helpers", () => {
       ]),
     );
     vi.stubGlobal("window", {
+      dispatchEvent: vi.fn(),
+      parent: { postMessage: vi.fn() },
       addEventListener: window.addEventListener.bind(window),
       removeEventListener: window.removeEventListener.bind(window),
       location: {

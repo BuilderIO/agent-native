@@ -3550,7 +3550,7 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("uses the canonical fallback app ID and marks ticketed safe reads", async () => {
+  it("publishes change markers for ticketed widget actions classified as writes", async () => {
     const { createMcpDirectoryWidgetReadCapability } =
       await import("../shared/embed-auth.js");
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -3619,7 +3619,10 @@ describe("mountActionRoutes", () => {
       mcpDirectoryWidgetResourceIds: { deckId: "deck-1" },
     });
     expect(run).toHaveBeenCalledOnce();
-    expect(mockNotifyActionChange).not.toHaveBeenCalled();
+    expect(mockNotifyActionChange).toHaveBeenCalledWith({
+      actionName: "get-deck",
+      owner: "ticket-owner@example.com",
+    });
   });
 
   it("carries only the ticketed widget write actions into scoped read context", async () => {

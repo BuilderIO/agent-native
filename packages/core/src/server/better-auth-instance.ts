@@ -94,6 +94,7 @@ import {
   isDeploymentEmailDomainAllowed,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
+import type { ConsentCategory } from "../shared/consent.js";
 import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
@@ -114,7 +115,10 @@ import {
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
-import { requestAllowsConsentCategoryFromHeaders } from "./consent-route.js";
+import {
+  requestConsentCategoryStateFromHeaders,
+  type ConsentCategoryState,
+} from "./consent-route.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
@@ -312,14 +316,18 @@ export async function emitSignupEventForCreatedUser(
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
   const cookieHeader = requestHeaders.get("cookie");
-  const performanceAllowed = requestAllowsConsentCategoryFromHeaders(
-    requestHeaders,
-    "performance",
-  );
-  const targetingAllowed = requestAllowsConsentCategoryFromHeaders(
-    requestHeaders,
-    "targeting",
-  );
+  const consent = {
+    performance: requestConsentCategoryStateFromHeaders(
+      requestHeaders,
+      "performance",
+    ),
+    targeting: requestConsentCategoryStateFromHeaders(
+      requestHeaders,
+      "targeting",
+    ),
+  };
+  const performanceAllowed = consent.performance === "allowed";
+  const targetingAllowed = consent.targeting === "allowed";
   const requestSessionId = performanceAllowed
     ? normalizeAnalyticsSessionId(
         requestHeaders.get("x-agent-native-session-id"),
@@ -420,6 +428,7 @@ export async function emitSignupEventForCreatedUser(
     attribution: eventAttribution,
     anonymousId: eventAnonymousId,
     sessionId: eventSessionId,
+    consent: ownsSignupAttribution ? consent : undefined,
   });
 }
 
@@ -448,6 +457,7 @@ export async function trackSignupEvent({
   attribution,
   anonymousId,
   sessionId,
+  consent,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -468,6 +478,7 @@ export async function trackSignupEvent({
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
   sessionId?: string;
+  consent?: Record<ConsentCategory, ConsentCategoryState>;
 }): Promise<void> {
   identify(email, {
     email,
@@ -494,6 +505,12 @@ export async function trackSignupEvent({
       ...cleanAttribution,
       ...(typeof emailVerified === "boolean"
         ? { email_verified: emailVerified }
+        : {}),
+      ...(consent && consent.performance !== "allowed"
+        ? { analytics_consent: consent.performance }
+        : {}),
+      ...(consent && consent.targeting !== "allowed"
+        ? { attribution_consent: consent.targeting }
         : {}),
     },
     {

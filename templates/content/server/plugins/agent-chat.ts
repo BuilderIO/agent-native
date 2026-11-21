@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
+import { QUIET_AGENT_RUN_SCOPE_TYPES } from "../../shared/quiet-agent-runs.js";
 import { getDb, schema } from "../db/index.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
@@ -188,6 +189,7 @@ export default createAgentChatPlugin({
   finalResponseGuard: requireCreatedPageLinks,
   nativeActionsInDev: true,
   resolveActionSurface: resolveCommentAiActionSurface,
+  historyHiddenScopeTypes: QUIET_AGENT_RUN_SCOPE_TYPES,
   durableBackgroundRuns: true,
   selectedA2AReceiverOwnsObjective: true,
   frameworkTools: { labs: true },

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -57,6 +57,9 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  needsApproval: (args, ctx) =>
+    args.operation !== "create" && isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     if (args.operation === "create")
       return { context: await createCreativeContext(args) };

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
+import { recordingMadeBy } from "../server/lib/recording-made-by.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -133,6 +134,7 @@ export default defineAction({
       orgId: organizationId,
       folderId: args.folderId ?? null,
       title: args.title?.trim() || "Stitched recording",
+      ...recordingMadeBy(actionContext),
       status: videoUrl ? "ready" : "processing",
       uploadProgress: videoUrl ? 100 : 0,
       videoUrl,

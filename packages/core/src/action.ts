@@ -85,6 +85,7 @@ import {
 } from "./provider-api/interactive-scope.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
+export { isOutsideAgentCall } from "./action-caller.js";
 export {
   ACTION_RECEIPT_SCHEMA_VERSION,
   DOMAIN_EVENT_CONTENT_TYPE,
@@ -117,6 +118,14 @@ export {
   currentActionOriginCaller,
   withoutWriteObservation,
 };
+export {
+  REVERSIBLE_WRITE_INLINE_APPROVAL_KEY,
+  createReversibleWriteApprovalPolicy,
+  isReversibleWriteInlineApprovalAction,
+  isReversibleWriteNoApprovalsMode,
+  reversibleWriteNeedsApproval,
+  type ReversibleWriteApprovalPredicate,
+} from "./approval/reversible-write-policy.js";
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -1239,7 +1248,9 @@ interface DefineActionWithSchema<
    *  - `"search"` — served to external agents but left out of `tools/list`, so
    *    the list stays short. `tool-search` finds it and the `call-tool` tool
    *    runs it, with the same checks as a listed tool; it does not activate
-   *    the connector tier. The full catalog lists it like any other.
+   *    the connector tier. A catalog that lists it on its own terms still
+   *    does: the full catalog, an app's `mcp.connectorCatalog` naming it, or
+   *    `mcpApp.compactCatalog` in an app with no `connectorCatalog`.
    *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
    *    whether it is advertised up front or found through `tool-search`.
    *
@@ -2941,7 +2952,17 @@ function extractNavigationIntent(args: unknown): string | undefined {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     return undefined;
   }
-  const intent = (args as { intent?: unknown }).intent;
+  const { navigationMode, intent } = args as {
+    navigationMode?: unknown;
+    intent?: unknown;
+  };
+  if (
+    navigationMode === "open" ||
+    navigationMode === "reveal" ||
+    navigationMode === "keep"
+  ) {
+    return navigationMode;
+  }
   return typeof intent === "string" ? intent : undefined;
 }
 
@@ -3022,6 +3043,7 @@ export interface ActionCallRecord {
  */
 export interface ActionExecutionOutcome {
   refused: boolean;
+  navigationKeys?: Set<string>;
   record?: ActionCallRecord;
   /** What the call, and every call nested in it, has done; absent untracked. */
   evidence?: ActionCallEvidence;
@@ -3143,6 +3165,7 @@ export async function runActionWithExecutionOutcome(
 ): Promise<any> {
   outcome.refused = false;
   delete outcome.record;
+  delete outcome.navigationKeys;
   delete outcome.evidence;
   delete outcome.keyed;
   const vouched = takeVouchedEvidence(outcome);

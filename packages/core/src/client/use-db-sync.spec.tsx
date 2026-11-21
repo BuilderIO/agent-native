@@ -69,6 +69,7 @@ function SyncProbe({
   queryClient,
   actionInvalidatePredicate,
   suppressActionInvalidationFor,
+  queryKeys,
   onEvent,
 }: {
   queryClient: QueryClientProbe;
@@ -77,6 +78,7 @@ function SyncProbe({
     events: readonly { source?: string; key?: string }[],
   ) => boolean;
   suppressActionInvalidationFor?: string[];
+  queryKeys?: string[];
   onEvent?: (data: any) => void;
 }) {
   useDbSync({
@@ -88,6 +90,7 @@ function SyncProbe({
     pauseWhenHidden: false,
     actionInvalidatePredicate,
     suppressActionInvalidationFor,
+    queryKeys,
     onEvent,
   });
   return null;
@@ -173,7 +176,7 @@ describe("useDbSync", () => {
     _resetSyncTransportRegistryForTests();
   });
 
-  it("does not create a background transport without an explicit opt-in", async () => {
+  it("creates a background transport by default", async () => {
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -195,8 +198,101 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("polls every 400 ms during serverless turn activity and backs off to 15 s", async () => {
+    vi.useFakeTimers();
+    const version = Date.now();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            serverless: true,
+            version,
+            events: [
+              {
+                source: "active_turn",
+                type: "change",
+                version,
+                activeUntil: version + 700,
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const root = createRoot(document.createElement("div"));
+    roots.push(root);
+    function ServerlessProbe() {
+      useDbSync({ sseUrl: false, pauseWhenHidden: false });
+      return null;
+    }
+    await act(async () => root.render(<ServerlessProbe />));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(399);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([true, false])(
+    "acknowledges an action only after successful refetch (success: %s)",
+    async (succeeds) => {
+      vi.useFakeTimers();
+      let finish = () => {};
+      const refetch = new Promise<void>((resolve, reject) => {
+        finish = succeeds ? resolve : () => reject(new Error("Refetch failed"));
+      });
+      const queryClient = Object.assign(new QueryClientProbe(), {
+        invalidateQueries: vi.fn(() => refetch),
+      });
+      const settled = vi.fn<(event: Event) => void>();
+      window.addEventListener("agent-native:screen-settled", settled, {
+        once: true,
+      });
+      const root = createRoot(document.createElement("div"));
+      roots.push(root);
+      function Probe() {
+        useDbSync({ queryClient, realtime: false });
+        return null;
+      }
+      await act(async () => root.render(<Probe />));
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "create-item",
+            eventId: "refetch-1",
+            completedSideEffect: true,
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(250);
+      expect(queryClient.invalidateQueries).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ queryKey: ["action"] }),
+        { cancelRefetch: false, throwOnError: true },
+      );
+      expect(settled).not.toHaveBeenCalled();
+      finish();
+      await Promise.resolve();
+      const receipts = settled.mock.calls.map(([event]) => {
+        const { writeId, url } = (
+          event as CustomEvent<{ writeId: string; url: string }>
+        ).detail;
+        return { writeId, url };
+      });
+      expect(receipts).toEqual(
+        succeeds ? [{ writeId: "refetch-1", url: "/" }] : [],
+      );
+      window.removeEventListener("agent-native:screen-settled", settled);
+    },
+  );
 
   it("uses chat run events to invalidate local side effects without polling", async () => {
     const queryClient = new QueryClientProbe();
@@ -208,6 +304,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
         onEvent: (event) => observedEvents.push(event),
       });
       return null;
@@ -258,7 +355,7 @@ describe("useDbSync", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("invalidates the originating tab's navigation command on local navigate completion", async () => {
+  it("invalidates the originating tab's navigation command on completion of an action that wrote it", async () => {
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn();
     const observedEvents: Array<{ source?: string; key?: string }> = [];
@@ -268,6 +365,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
         onEvent: (event) => observedEvents.push(event),
       });
       return null;
@@ -289,7 +387,8 @@ describe("useDbSync", () => {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
           detail: {
-            tool: "navigate",
+            tool: "create-item",
+            navigationKeys: ["navigate:browser-tab-a"],
             completedSideEffect: true,
             tabId: "chat-tab-a",
             browserTabId: "browser-tab-a",
@@ -341,6 +440,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
       });
       return null;
     }
@@ -434,6 +534,7 @@ describe("useDbSync", () => {
         queryClient,
         pollUrl: "/poll",
         sseUrl: false,
+        realtime: false,
         onEvent: (event) => observedEvents.push(event),
       });
       return null;
@@ -527,6 +628,7 @@ describe("useDbSync", () => {
       useDbSync({
         queryClient,
         sseUrl: false,
+        realtime: false,
       });
       return null;
     }
@@ -1004,6 +1106,7 @@ describe("useDbSync", () => {
   });
 
   it("still refetches action queries when an action event rides alongside app-state churn", async () => {
+    vi.useFakeTimers();
     const queryClient = new QueryClientProbe();
     const fetchMock = vi.fn(
       async () =>
@@ -1036,9 +1139,14 @@ describe("useDbSync", () => {
     containers.push(container);
 
     await act(async () => {
-      root.render(<SyncProbe queryClient={queryClient} />);
+      root.render(
+        <SyncProbe queryClient={queryClient} queryKeys={["sql-chart"]} />,
+      );
       await Promise.resolve();
       await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
     });
 
     const keys = invalidatedQueryKeys(queryClient.calls);
@@ -1261,14 +1369,24 @@ describe("useDbSync", () => {
     containers.push(container);
 
     await act(async () => {
-      root.render(<SyncProbe queryClient={queryClient} />);
+      root.render(
+        <SyncProbe queryClient={queryClient} queryKeys={["sql-chart"]} />,
+      );
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(queryClient.calls).toContain(undefined);
+    expect(
+      queryClient.calls[0]?.predicate?.({ queryKey: ["action", "list-items"] }),
+    ).toBe(true);
+    expect(queryClient.calls[0]?.predicate?.({ queryKey: ["unrelated"] })).toBe(
+      false,
+    );
+    expect(queryClient.calls[0]?.predicate?.({ queryKey: ["sql-chart"] })).toBe(
+      true,
+    );
     expect(urls[1]).toContain("since=0");
   });
 

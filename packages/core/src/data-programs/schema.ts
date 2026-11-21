@@ -85,4 +85,6 @@ export function dataProgramRunsCreateSql(integerType: string): string {
 }
 
 export const DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL = `ALTER TABLE data_program_runs ADD COLUMN IF NOT EXISTS truncated INTEGER NOT NULL DEFAULT 0`;
+// guard:allow-plaintext-secret-column — holds the names and scopes of credentials a run read, never their values.
+export const DATA_PROGRAM_RUNS_CREDENTIAL_USES_COLUMN_SQL = `ALTER TABLE data_program_runs ADD COLUMN IF NOT EXISTS credential_uses TEXT`;
 export const DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL = `CREATE INDEX IF NOT EXISTS data_program_runs_lookup_idx ON data_program_runs (program_id, params_hash, finished_at)`;

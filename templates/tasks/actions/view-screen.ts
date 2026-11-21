@@ -85,6 +85,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async (_args, ctx) => {
     const navigation = await readParsedAppState(
       "navigation",
