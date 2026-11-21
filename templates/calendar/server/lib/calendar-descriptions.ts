@@ -27,13 +27,19 @@ function readAccountDescriptions(
 /**
  * The owner's descriptions of their connected Google accounts, keyed by
  * lowercased account email. Agents read them to choose the right account.
+ * A failed read returns none, so schedule and status reads still answer.
  */
 export async function getAccountDescriptions(
   owner: string,
 ): Promise<Record<string, string>> {
-  return readAccountDescriptions(
-    await getUserSetting(owner, ACCOUNT_DESCRIPTIONS_KEY),
-  );
+  try {
+    return readAccountDescriptions(
+      await getUserSetting(owner, ACCOUNT_DESCRIPTIONS_KEY),
+    );
+  } catch (error) {
+    console.warn("[calendar] couldn't read account descriptions", error);
+    return {};
+  }
 }
 
 /** One account's description from {@link getAccountDescriptions}, if any. */
