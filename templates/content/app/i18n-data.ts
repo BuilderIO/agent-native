@@ -5,6 +5,7 @@ import { commentAttributionMessagesByLocale } from "../shared/comment-attributio
 import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
 import { builderAutosaveMessagesByLocale } from "./builder-autosave-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
+import { designScreenMessagesByLocale } from "./design-screen-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -2369,6 +2370,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
 
@@ -2435,6 +2437,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
     creativeContext: {
       ...enUS.creativeContext,
@@ -2958,6 +2961,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
   };
 }
