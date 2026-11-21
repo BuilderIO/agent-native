@@ -530,6 +530,65 @@ describe("workspace deploy", () => {
     ).rejects.toThrow("Expected one recurring-jobs sweep cron under /alpha");
   });
 
+  it("keeps one short immutable-asset route for a Vercel app with thousands of assets", async () => {
+    makeWorkspaceApp(tmpDir, "alpha");
+    execFile.mockImplementation(((_cmd, args, options) => {
+      writeVercelAppBuildOutput(
+        tmpDir,
+        String(args[1]),
+        (options as { env?: NodeJS.ProcessEnv }).env ?? {},
+      );
+      const assetsDir = path.join(
+        tmpDir,
+        "apps",
+        "alpha",
+        ".vercel",
+        "output",
+        "static",
+        "alpha",
+        "assets",
+      );
+      for (let i = 0; i < 3000; i++) {
+        fs.writeFileSync(
+          path.join(assetsDir, `chunk${i}-${String(i).padStart(8, "0")}.js`),
+          "export {};",
+        );
+      }
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      preset: "vercel",
+      buildOnly: true,
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const config = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, ".vercel", "output", "config.json"),
+        "utf-8",
+      ),
+    );
+    expect(config.routes.length).toBeLessThanOrEqual(2048);
+    for (const route of config.routes) {
+      expect(route.src?.length ?? 0).toBeLessThanOrEqual(4096);
+    }
+    expect(
+      config.routes.filter(
+        (route: { headers?: Record<string, string> }) =>
+          route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/alpha/assets/",
+        ),
+      }),
+    ]);
+  });
+
   it("rejects database app access before building isolated-auth apps", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
     fs.writeFileSync(
