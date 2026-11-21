@@ -90,6 +90,44 @@ describe("detectArtifactReceipts", () => {
     expect(detectArtifactReceipts(result, tool)).toContainEqual(expected);
   });
 
+  it("detects the row an add-database-item receipt created", () => {
+    expect(
+      detectArtifactReceipts(
+        {
+          receipt: {
+            receiptId: "receipt-create-1",
+            operation: "create",
+            outcome: "created",
+            target: {
+              databaseId: "design-asks-db",
+              databaseDocumentId: "design-asks-db-document",
+            },
+            row: {
+              itemId: "item_789",
+              documentId: "row_doc_789",
+              urlPath: "/page/row_doc_789",
+              rowRevision: "row-after",
+            },
+            readback: { verified: true, title: "Homepage refresh" },
+          },
+          createdItem: {
+            id: "item_789",
+            databaseId: "design-asks-db",
+            document: { id: "row_doc_789", title: "Homepage refresh" },
+          },
+        },
+        "add-database-item",
+      ),
+    ).toEqual([
+      {
+        kind: "document",
+        id: "row_doc_789",
+        title: "Homepage refresh",
+        url: "/page/row_doc_789",
+      },
+    ]);
+  });
+
   it("fans out successful image batch slots and rejects mismatched URLs", () => {
     expect(
       detectArtifactReceipts(

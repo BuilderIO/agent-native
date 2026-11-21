@@ -261,6 +261,28 @@ function designReceipt(
     : candidate;
 }
 
+function databaseRowReceipt(
+  result: Record<string, unknown>,
+): ArtifactReceipt | null {
+  const mutationReceipt = asRecord(result.receipt);
+  const row = asRecord(mutationReceipt?.row);
+  const target = asRecord(mutationReceipt?.target);
+  const rowLink = asRecord(mutationReceipt?.rowLink);
+  const id =
+    stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
+  const createdDocument = asRecord(asRecord(result.createdItem)?.document);
+  const title =
+    id && stringValue(createdDocument?.id) === id
+      ? stringValue(createdDocument?.title)
+      : undefined;
+  return receipt(
+    "document",
+    id,
+    title ? { ...result, title } : result,
+    stringValue(row?.urlPath) ?? stringValue(rowLink?.urlPath),
+  );
+}
+
 function renderableDesignFile(value: unknown): boolean {
   const file = asRecord(value);
   if (!file) return false;
@@ -331,10 +353,12 @@ function detectFromRecord(
     const id = stringValue(result.createdDocumentId);
     remember(
       receipts,
-      receipt("document", id, {
-        ...result,
-        title: result.createdDocumentTitle,
-      }),
+      id
+        ? receipt("document", id, {
+            ...result,
+            title: result.createdDocumentTitle,
+          })
+        : databaseRowReceipt(result),
     );
     return;
   }
@@ -343,21 +367,7 @@ function detectFromRecord(
     toolName === "upsert-database-item-by-key" ||
     toolName === "mutate-content-database-block"
   ) {
-    const mutationReceipt = asRecord(result.receipt);
-    const row = asRecord(mutationReceipt?.row);
-    const target = asRecord(mutationReceipt?.target);
-    const rowLink = asRecord(mutationReceipt?.rowLink);
-    const id =
-      stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
-    remember(
-      receipts,
-      receipt(
-        "document",
-        id,
-        result,
-        stringValue(row?.urlPath) ?? stringValue(rowLink?.urlPath),
-      ),
-    );
+    remember(receipts, databaseRowReceipt(result));
     return;
   }
 
