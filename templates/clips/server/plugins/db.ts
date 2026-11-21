@@ -1480,6 +1480,12 @@ async function copyRecordingCommentsOnce(): Promise<MigrationRunResult> {
     return deferMigration();
   }
   const summary = `[db] Copied ${report.comments} comment(s) on ${report.recordings} recording(s) to the review kit: ${report.replies} replies, ${report.repliesWithoutParent} replies without a parent, ${report.resolved} resolved, ${report.reactions} reactions`;
+  if (report.kitWrittenComments.length > 0) {
+    console.warn(
+      `[db] Kept ${report.kitWrittenComments.length} recording comment(s) that were written through the review kit's own actions and aren't in Clips:`,
+      report.kitWrittenComments.slice(0, 20),
+    );
+  }
   if (report.differences.length > 0 || report.failedRecordings.length > 0) {
     console.warn(
       `${summary}; ${report.failedRecordings.length} recording(s) failed and ${report.differences.length} comment(s) still differ:`,

@@ -524,7 +524,7 @@ describe("Clips comments in the review kit", () => {
     expect(await kitRows("rec-legacy")).toEqual(kitBefore);
   });
 
-  it("clears comments only the kit still has, so the copy can finish", async () => {
+  it("clears comments Clips copied but no longer has, and keeps ones written through the kit", async () => {
     await createRecording("rec-kit-only");
     const comment = await as(OWNER, () =>
       addComment.run({
@@ -555,6 +555,23 @@ describe("Clips comments in the review kit", () => {
         },
       ],
     );
+    await mirrorReviewComments(
+      { resourceType: "recording", resourceId: "rec-kit-only" },
+      [
+        {
+          id: "kit-written-recording-root",
+          threadId: "kit-written-recording-root",
+          parentCommentId: null,
+          body: "Written through the kit before Clips registered",
+          authorEmail: OWNER,
+          authorName: null,
+          createdBy: "human",
+          resolved: false,
+          createdAt: at,
+          updatedAt: at,
+        },
+      ],
+    );
 
     const report = await mirror.copyRecordingCommentsToReviewKit();
 
@@ -563,6 +580,14 @@ describe("Clips comments in the review kit", () => {
     for (const id of [comment.id, "kit-only-recording-root"]) {
       expect(await stored(id)).toMatchObject({ status: "deleted", body: "" });
     }
+    expect(await stored("kit-written-recording-root")).toMatchObject({
+      status: "open",
+      body: "Written through the kit before Clips registered",
+    });
+    expect(report.kitWrittenComments).toContainEqual({
+      recordingId: "rec-kit-only",
+      id: "kit-written-recording-root",
+    });
   });
 
   it("refuses recording comment writes through the kit's own actions", async () => {

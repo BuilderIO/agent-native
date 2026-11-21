@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
@@ -141,6 +142,7 @@ export interface RecordingCommentCopyReport {
   repliesWithoutParent: number;
   failedRecordings: string[];
   differences: Array<{ recordingId: string } & ReviewMirrorDifference>;
+  kitWrittenComments: Array<{ recordingId: string; id: string }>;
 }
 
 const RECORDING_PAGE_SIZE = 200;
@@ -157,6 +159,7 @@ export async function copyRecordingCommentsToReviewKit(): Promise<RecordingComme
     repliesWithoutParent: 0,
     failedRecordings: [],
     differences: [],
+    kitWrittenComments: [],
   };
   let after = "";
   for (;;) {
@@ -195,6 +198,14 @@ export async function copyRecordingCommentsToReviewKit(): Promise<RecordingComme
     after = last;
   }
   return report;
+}
+
+async function copiedFromClips(recordingId: string): Promise<Set<string>> {
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT id FROM agent_review_comments WHERE resource_type = ? AND resource_id = ? AND anchor_kind = ?",
+    args: [RECORDING_REVIEW_RESOURCE, recordingId, VIDEO_TIME_ANCHOR],
+  });
+  return new Set(rows.map((row: { id: unknown }) => String(row.id)));
 }
 
 async function copyRecording(
@@ -236,10 +247,29 @@ async function copyRecording(
       const extra = differences
         .filter((difference) => difference.problem === "extra")
         .map((difference) => difference.id);
-      if (extra.length === 0) return { rows, copies, differences };
-      await deleteMirroredRecordingComments(recordingId, extra);
-      const recheck = await compareMirroredReviewComments(resource, copies);
-      return { rows, copies, differences: recheck.differences };
+      const fromClips =
+        extra.length === 0
+          ? new Set<string>()
+          : await copiedFromClips(recordingId);
+      const stale = extra.filter((id) => fromClips.has(id));
+      const kitWritten = extra.filter((id) => !fromClips.has(id));
+      if (stale.length > 0) {
+        await deleteMirroredRecordingComments(recordingId, stale);
+      }
+      const remaining =
+        stale.length === 0
+          ? differences
+          : (await compareMirroredReviewComments(resource, copies)).differences;
+      return {
+        rows,
+        copies,
+        kitWritten,
+        differences: remaining.filter(
+          (difference) =>
+            difference.problem !== "extra" ||
+            !kitWritten.includes(difference.id),
+        ),
+      };
     });
     if (!copied) return;
     report.recordings += 1;
@@ -254,6 +284,9 @@ async function copyRecording(
     }
     for (const difference of copied.differences) {
       report.differences.push({ recordingId, ...difference });
+    }
+    for (const id of copied.kitWritten) {
+      report.kitWrittenComments.push({ recordingId, id });
     }
   } catch (error) {
     report.failedRecordings.push(recordingId);
