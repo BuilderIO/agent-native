@@ -52,8 +52,10 @@ import type { FilterText } from "./text.js";
 
 export interface FilterNouns {
   items: string;
-  matchCount: (count: number) => string;
-  showCount: (count: number) => string;
+  /** Shown with `counts.matching`; leave it out when the app passes no counts. */
+  matchCount?: ((count: number) => string) | undefined;
+  /** The phone sheet's done button with `counts.matching`. */
+  showCount?: ((count: number) => string) | undefined;
 }
 
 export interface FilterControlProps {

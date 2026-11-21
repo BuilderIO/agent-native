@@ -318,7 +318,8 @@ function CopyLinkButton({
 
 export interface FilterBarProps extends FilterControlProps {
   onClear?: () => void;
-  clearable?: boolean;
+  /** Whether the bar offers Clear; by default, whenever a filter is set. */
+  clearable?: boolean | undefined;
   copyLink?: boolean | (() => string);
   className?: string;
   children?: ReactNode;
@@ -339,7 +340,7 @@ export function FilterBar({
   const text = useFilterText();
   const shownCounts = useHeldWhilePressed(counts);
   const pinnedFields = fields.filter((field) => field.pinned);
-  const canClear = clearable === true || !isDefaultFilterState(state, fields);
+  const canClear = clearable ?? !isDefaultFilterState(state, fields);
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const items = state.items.filter((item) =>
     item.kind === "group"

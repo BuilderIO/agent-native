@@ -15,7 +15,7 @@ import {
 } from "@agent-native/toolkit/ui/sheet";
 import { cn } from "@agent-native/toolkit/utils";
 import { IconFilter, IconPlus } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactElement } from "react";
 
 import {
   FilterAddPopover,
@@ -161,8 +161,13 @@ export function FilterPanel(props: FilterPanelProps) {
 
 export interface FilterButtonProps extends FilterPanelProps {
   onClear?: () => void;
-  clearable?: boolean;
+  /** Whether the panel offers Clear; by default, whenever a filter is set. */
+  clearable?: boolean | undefined;
   className?: string;
+  /** Which edge of the trigger the panel lines up with on wider screens. */
+  align?: "start" | "end" | undefined;
+  /** A button to open the panel with, in place of the kit's Filter button. */
+  children?: ReactElement | undefined;
 }
 
 export function FilterButton({
@@ -175,6 +180,8 @@ export function FilterButton({
   onClear,
   clearable,
   className,
+  align = "start",
+  children,
 }: FilterButtonProps) {
   const text = useFilterText();
   const isMobile = useIsMobile();
@@ -183,7 +190,7 @@ export function FilterButton({
   const stateRef = useRef(state);
   stateRef.current = state;
   const active = activeFilterRuleCount(state, fields);
-  const canClear = clearable === true || !isDefaultFilterState(state, fields);
+  const canClear = clearable ?? !isDefaultFilterState(state, fields);
   const matching = shownCounts?.matching;
   const changeOpen = (next: boolean) => {
     setOpen(next);
@@ -200,7 +207,7 @@ export function FilterButton({
     handleChange(createFilterState(fields));
     onClear?.();
   };
-  const trigger = (
+  const trigger = children ?? (
     <Button
       type="button"
       variant="outline"
@@ -240,7 +247,7 @@ export function FilterButton({
     />
   );
   const matchLine =
-    matching === undefined ? null : (
+    matching === undefined || !nouns.matchCount ? null : (
       <span
         aria-live="polite"
         className="min-w-0 truncate text-sm text-muted-foreground"
@@ -278,7 +285,7 @@ export function FilterButton({
               onClick={() => changeOpen(false)}
             >
               <span className="truncate">
-                {matching === undefined
+                {matching === undefined || !nouns.showCount
                   ? text.t("agentChat.filters.done")
                   : nouns.showCount(matching)}
               </span>
@@ -293,7 +300,7 @@ export function FilterButton({
     <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
-        align="start"
+        align={align}
         collisionPadding={8}
         className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(34rem,calc(100vw-1rem))] flex-col overflow-hidden p-0"
       >

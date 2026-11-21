@@ -440,6 +440,46 @@ describe("FilterDateEditor", () => {
     expect(input.type).toBe("text");
     expect(input.value).toBe("2026-10-22T09:00");
   });
+
+  function rangeApply() {
+    const match = Array.from(document.querySelectorAll("form"))
+      .at(1)
+      ?.querySelector('button[type="submit"]');
+    if (!match) throw new Error("No range Apply");
+    return match;
+  }
+
+  it("applies a custom range in the field's direction", () => {
+    const onChange = vi.fn();
+    render(<DateEditor onChange={onChange} />);
+    expect(hasButtonNamed("Past")).toBe(false);
+    expect(container.textContent).toContain("Past");
+    typeInto(dateInput("Enter a number"), "14");
+    openMenu(buttonNamed("days"));
+    click(menuItem("weeks"));
+    click(rangeApply());
+    expect(onChange).toHaveBeenLastCalledWith({
+      operator: "is_within",
+      value: ["past_14_weeks"],
+    });
+  });
+
+  it("starts from a saved range and takes counts up to 999", () => {
+    const anyDates: FilterField = { ...createdField, dates: "any" };
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        field={anyDates}
+        rule={createFilterRule(anyDates, ["next_30_days"], "is_within")}
+      />,
+    );
+    expect(dateInput("Enter a number").value).toBe("30");
+    expect(hasButtonNamed("Next")).toBe(true);
+    typeInto(dateInput("Enter a number"), "1000");
+    expect(rangeApply().hasAttribute("disabled")).toBe(true);
+    typeInto(dateInput("Enter a number"), "999");
+    expect(rangeApply().hasAttribute("disabled")).toBe(false);
+  });
 });
 
 function Bar({
@@ -447,11 +487,13 @@ function Bar({
   onClear,
   barFields = fields,
   nestedGroups,
+  clearable,
 }: {
   initial: FilterState;
   onClear?: () => void;
   barFields?: FilterField[];
   nestedGroups?: boolean;
+  clearable?: boolean;
 }) {
   const [state, setState] = useState(initial);
   return (
@@ -461,6 +503,7 @@ function Bar({
       onChange={setState}
       onClear={onClear}
       nestedGroups={nestedGroups}
+      clearable={clearable}
     />
   );
 }
@@ -485,6 +528,20 @@ describe("FilterBar", () => {
     expect(hasButtonNamed("Clear")).toBe(true);
     click(buttonNamed("Remove Made by: Alice"));
     expect(hasButtonNamed("Made by: Alice")).toBe(false);
+    expect(hasButtonNamed("Clear")).toBe(false);
+  });
+
+  it("leaves Clear out when the app has its own", () => {
+    render(
+      <Bar
+        clearable={false}
+        initial={addFilterRule(
+          createFilterState(fields),
+          createFilterRule(ownerField, ["alice"]),
+        )}
+      />,
+    );
+    expect(hasButtonNamed("Made by: Alice")).toBe(true);
     expect(hasButtonNamed("Clear")).toBe(false);
   });
 
@@ -691,6 +748,30 @@ describe("FilterButton", () => {
       "Choose a field",
     );
     expect(addRule.closest('[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  it("opens from the app's own button, without counts", () => {
+    vi.stubGlobal("innerWidth", 1280);
+    function OwnButton() {
+      const [state, setState] = useState(createFilterState(fields));
+      return (
+        <FilterButton
+          fields={fields}
+          state={state}
+          onChange={setState}
+          nouns={{ items: "clips" }}
+          align="end"
+        >
+          <button type="button">Narrow the list</button>
+        </FilterButton>
+      );
+    }
+    render(<OwnButton />);
+    expect(hasButtonNamed("Filter")).toBe(false);
+    click(buttonNamed("Narrow the list"));
+    expect(document.body.textContent).toContain("Show clips that match");
+    expect(document.body.textContent).not.toContain("clips match");
+    expect(hasButtonNamed("Done")).toBe(true);
   });
 
   it("keeps the desktop panel's pickers non-modal", () => {
