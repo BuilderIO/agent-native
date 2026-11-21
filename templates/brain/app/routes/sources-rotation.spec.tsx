@@ -85,10 +85,14 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
 }));
 vi.mock("@agent-native/core/client/i18n", async () => {
   const { messagesByLocale } = await import("../i18n-data");
+  const frenchMessages = Object.entries(messagesByLocale).find(
+    ([locale]) => locale === "fr-FR",
+  )?.[1];
+  if (!frenchMessages) throw new Error("Missing French message catalog");
   return {
     useT: () => (key: string) =>
       key === "sources.rotationConflictDetail"
-        ? messagesByLocale["fr-FR"].sources.rotationConflictDetail
+        ? frenchMessages.sources.rotationConflictDetail
         : key,
   };
 });

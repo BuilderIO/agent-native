@@ -606,12 +606,11 @@ it.each([
       200,
     );
     expect((await sendIngest(expectedKey, oldToken)).status).toBe(404);
-    if (jsonValue && jsonValue !== expectedKey) {
-      expect((await sendIngest(jsonValue, oldToken)).status).toBe(404);
-      expect((await sendIngest(jsonValue, result.ingestToken)).status).toBe(
-        404,
-      );
-    }
+    const legacyKey = jsonValue ?? expectedKey;
+    expect((await sendIngest(legacyKey, oldToken)).status).toBe(404);
+    expect((await sendIngest(legacyKey, result.ingestToken)).status).toBe(
+      legacyKey === expectedKey ? 200 : 404,
+    );
   },
 );
 
