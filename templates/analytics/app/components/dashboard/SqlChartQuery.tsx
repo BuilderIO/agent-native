@@ -734,6 +734,7 @@ function SqlChartContent({
           colors={seriesColors}
           yFormatter={yFormatter}
           barKeys={panel.config?.barKeys ?? []}
+          stacked={panel.config?.stacked === true}
           panel={panel}
           onDatumClick={onDatumClick}
         />,
