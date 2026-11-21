@@ -13,6 +13,7 @@ import {
   SUGGESTION_FOLLOW_QUIET_MS,
   SUGGESTION_FOLLOW_RECHECK_MS,
   carryOwnSuggestions,
+  laterPage,
   readPageOnLiveCopyChange,
   suggestionPageFollow,
 } from "./follow-page";
@@ -130,6 +131,30 @@ describe("suggestionPageFollow", () => {
         },
       }),
     ).toEqual({ kind: "stay" });
+  });
+});
+
+describe("laterPage", () => {
+  const older = {
+    revision: session.baseRevision,
+    updatedAt: "2026-11-06T23:00:00.000Z",
+  };
+
+  it("keeps the newer of two reads, whichever comes first", () => {
+    expect(laterPage(older, newerPage)).toBe(newerPage);
+    expect(laterPage(newerPage, older)).toBe(newerPage);
+  });
+
+  it("keeps the first when neither is newer", () => {
+    const again = { ...older };
+    expect(laterPage(older, again)).toBe(older);
+  });
+
+  it("compares save times when the revisions are not body revisions", () => {
+    const saved = { updatedAt: "2026-11-06T23:00:00.000Z" };
+    const savedLater = { updatedAt: "2026-11-06T23:00:05.000Z" };
+    expect(laterPage(savedLater, saved)).toBe(savedLater);
+    expect(laterPage(saved, savedLater)).toBe(savedLater);
   });
 });
 

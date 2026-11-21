@@ -7,6 +7,7 @@ import { canonicalizeNfm } from "@shared/nfm";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 
 import {
+  canonicalSuggestionRevision,
   planSuggestionDraftPersistence,
   suggestionDraftOperations,
   suggestionOperationKey,
@@ -40,6 +41,24 @@ function pageIsNewer(
   const baseBody = bodyRevisionNumber(base.revision);
   if (pageBody !== null && baseBody !== null) return pageBody > baseBody;
   return page.updatedAt > base.updatedAt;
+}
+
+/** The later of two reads of the Page; the first when neither is newer. */
+export function laterPage<
+  Page extends { revision?: string; updatedAt: string },
+>(first: Page, second: Page): Page {
+  return pageIsNewer(
+    {
+      revision: canonicalSuggestionRevision(second),
+      updatedAt: second.updatedAt,
+    },
+    {
+      revision: canonicalSuggestionRevision(first),
+      updatedAt: first.updatedAt,
+    },
+  )
+    ? second
+    : first;
 }
 
 /**

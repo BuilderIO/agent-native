@@ -2983,6 +2983,8 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
   const creates: Array<{ baseRevision: string; changed: string[] }> = [];
   const amends: Array<{ baseRevision: string; changed: string[] }> = [];
   const stored = new Map<string, ResourceSuggestion>();
+  const cacheKey = () => ["action", "get-document", { id: fixture.page!.id }];
+  let heldRead: Promise<Document> | null = null;
   let toastError: ReturnType<typeof vi.spyOn>;
 
   const savedSuggestion = (
@@ -3023,6 +3025,7 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     creates.length = 0;
     amends.length = 0;
     stored.clear();
+    heldRead = null;
     toastError = vi.spyOn(toast, "error").mockImplementation(() => "toast");
     fixture.page = {
       ...fixture.page,
@@ -3040,9 +3043,12 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
         error: null,
       }),
     };
-    fixture.callAction.mockImplementation(async (name) =>
-      name === "get-document" ? fixture.page : null,
-    );
+    fixture.callAction.mockImplementation(async (name) => {
+      if (name !== "get-document") return null;
+      const read = heldRead;
+      heldRead = null;
+      return read ?? fixture.page;
+    });
     const otherwise = fixture.mutation.mutateAsync.getMockImplementation();
     fixture.mutation.mutateAsync.mockImplementation(async (input) => {
       if (input?.adapterKind === "content.document-markdown") {
@@ -3095,15 +3101,36 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       await act(async () => vi.advanceTimersByTimeAsync(100));
   }
 
-  async function typeWhileAnotherTabSaves(draft: string, newer: string) {
-    act(() => fixture.editor?.onChange(draft));
+  /** Another tab saves the Page; this tab hears of it only when `seen`. */
+  async function anotherTabSaves(
+    content: string,
+    revision: string,
+    updatedAt: string,
+    { seen = true } = {},
+  ) {
     fixture.page = {
       ...fixture.page,
-      content: newer,
-      revision: "r2",
-      updatedAt: "2026-10-19T12:05:00.000Z",
+      content,
+      revision,
+      updatedAt,
     } as Document;
-    await act(async () => renderEditor({ host: "page" }));
+    if (fixture.cachedDocument)
+      queryClient.setQueryData(cacheKey(), fixture.page);
+    if (seen) await act(async () => renderEditor({ host: "page" }));
+  }
+
+  /** Holds the next read of the Page until the returned call. */
+  function holdNextRead() {
+    let release!: (page: Document) => void;
+    heldRead = new Promise((resolve) => {
+      release = resolve;
+    });
+    return async (page: Document) => act(async () => release(page));
+  }
+
+  async function typeWhileAnotherTabSaves(draft: string, newer: string) {
+    act(() => fixture.editor?.onChange(draft));
+    await anotherTabSaves(newer, "r2", "2026-10-19T12:05:00.000Z");
     await advance(6_000);
   }
 
@@ -3163,5 +3190,88 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       expect.anything(),
     );
     expect(fixture.editor?.content).toBe(typed);
+  });
+
+  it("saves again when the Page gets a new revision with the same text while the refused save is being checked", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(opened, "r2", "2026-10-19T12:05:00.000Z", {
+      seen: false,
+    });
+    const release = holdNextRead();
+    await advance(1_100);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    await act(async () => renderEditor({ host: "page" }));
+    await release(fixture.page!);
+    await advance(3_000);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+      { baseRevision: "r2", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(typed);
+  });
+
+  it("keeps the alert when the editor closes while the refused typing waits to move", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    await advance(1_300);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    expect(toastError).toHaveBeenCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+  });
+
+  it("keeps the alert when the editor closes while the refused save is being checked", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    const release = holdNextRead();
+    await advance(1_100);
+    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    await release(fixture.page!);
+    expect(toastError).toHaveBeenCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+  });
+
+  it("moves onto the newest Page when the check reads one older than this tab already has", async () => {
+    fixture.cachedDocument = true;
+    queryClient.setQueryData(cacheKey(), fixture.page);
+    const savedAgain = page(
+      "Opening paragraph.",
+      "Closing paragraph. Words from another tab. And more.",
+    );
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    const release = holdNextRead();
+    await advance(1_100);
+    const stale = fixture.page!;
+    await anotherTabSaves(savedAgain, "r3", "2026-10-19T12:06:00.000Z");
+    await release(stale);
+    expect(queryClient.getQueryData<Document>(cacheKey())?.revision).toBe("r3");
+    await advance(6_000);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+      { baseRevision: "r3", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(
+      page(
+        "Opening paragraph. Typed here.",
+        "Closing paragraph. Words from another tab. And more.",
+      ),
+    );
   });
 });
