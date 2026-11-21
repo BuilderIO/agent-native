@@ -49,7 +49,7 @@ export default defineAction({
     includeMicrophone: z.boolean().optional(),
     includeSystemAudio: z.boolean().optional(),
   }),
-  mcpTool: "search",
+  mcpTool: false,
   run: async ({
     recordingId,
     seconds,

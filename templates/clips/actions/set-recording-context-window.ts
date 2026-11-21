@@ -28,7 +28,7 @@ export default defineAction({
     startedAt: z.string().datetime({ offset: true }),
     endedAt: z.string().datetime({ offset: true }),
   }),
-  mcpTool: "search",
+  mcpTool: false,
   run: async ({ id, startedAt, endedAt }) => {
     const item = await loadOwnedRecordingContextItem(id);
     if (item.status === "removed")
