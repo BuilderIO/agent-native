@@ -1956,6 +1956,7 @@ function AgentPanelInner({
       getChatThreadShareUrl,
       closeHeaderMenuForOverlay,
       headerMenuOpen,
+      newUiTabLabel,
       onAgentShareHandoff,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,

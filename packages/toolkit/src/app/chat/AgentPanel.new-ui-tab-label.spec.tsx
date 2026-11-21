@@ -75,5 +75,21 @@ describe("AgentPanel newUiTabLabel", () => {
 
     const title = container.querySelector("[data-agent-page-chat-header] h1");
     expect(title?.textContent).toBe("Custom new chat");
+
+    await act(async () => {
+      testRoot.render(
+        <MemoryRouter>
+          <AgentPanel
+            storageKey="new-ui-tab-label-test"
+            showHeader={false}
+            showPageHeader
+            newUiTabLabel="Updated chat"
+          />
+        </MemoryRouter>,
+      );
+    });
+    expect(
+      container.querySelector("[data-agent-page-chat-header] h1")?.textContent,
+    ).toBe("Updated chat");
   });
 });
