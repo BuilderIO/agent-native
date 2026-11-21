@@ -1052,7 +1052,7 @@ function writeVercelBuildConfig(
   rootTarget: string,
   sweepCrons: Array<{ path: string; schedule: string }>,
 ): void {
-  const routes: Array<Record<string, any>> = [{ handle: "filesystem" }];
+  const routes: Array<Record<string, unknown>> = [{ handle: "filesystem" }];
 
   routes.push(
     ...apps.flatMap((app) =>
@@ -1131,11 +1131,6 @@ function writeVercelBuildConfig(
   );
 }
 
-// One pattern route per app, in Vercel's `hit` phase. Vercel rejects a route
-// whose src is over 4096 characters and a config with over 2048 routes, so
-// neither can grow with the bundle. The hit phase runs only after a static
-// file was served, so a missing hashed path that falls through to the app's
-// function is never cached as immutable.
 function vercelImmutableAssetHeaderRoutes(
   outputDir: string,
   apps: string[],

@@ -1539,7 +1539,6 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
-    // Vercel rejects more than 2048 routes, or a src over 4096 characters.
     expect(config.routes.length).toBeLessThanOrEqual(2048);
     for (const route of config.routes) {
       expect(route.src?.length ?? 0).toBeLessThanOrEqual(4096);
@@ -1548,8 +1547,6 @@ describe("workspace deploy", () => {
       (route: { headers?: Record<string, string> }) =>
         route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
     );
-    // The hit phase runs only for a served static file, so a missing hashed
-    // path that falls through to an app's function never gets these headers.
     const hitIndex = config.routes.findIndex(
       (route: { handle?: string }) => route.handle === "hit",
     );
