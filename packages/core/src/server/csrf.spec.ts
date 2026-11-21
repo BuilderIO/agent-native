@@ -289,4 +289,53 @@ describe("CSRF middleware", () => {
       ),
     ).not.toBe(403);
   });
+  describe.each([
+    "/_agent-native/auth/two-factor/enable",
+    "/_agent-native/auth/two-factor/disable",
+    "/_agent-native/integrations/scopes",
+    "/_agent-native/integrations/budgets",
+    "/_agent-native/integrations/memory",
+    "/_agent-native/integrations/installations",
+    "/_agent-native/integrations/slack/enable",
+    "/_agent-native/integrations/slack/disable",
+    "/_agent-native/integrations/email/setup",
+  ])("session-authenticated route %s", (path) => {
+    it("rejects a cookie-bearing form POST", async () => {
+      expect(
+        await status(
+          {
+            cookie: COOKIE,
+            "content-type": "application/x-www-form-urlencoded",
+            "sec-fetch-site": "cross-site",
+          },
+          "POST",
+          path,
+        ),
+      ).toBe(403);
+    });
+
+    it("accepts JSON", async () => {
+      expect(
+        await status(
+          {
+            cookie: COOKIE,
+            "content-type": "application/json",
+            "sec-fetch-site": "cross-site",
+          },
+          "POST",
+          path,
+        ),
+      ).not.toBe(403);
+    });
+
+    it("accepts a request with no cookie", async () => {
+      expect(
+        await status(
+          { "content-type": "application/x-www-form-urlencoded" },
+          "POST",
+          path,
+        ),
+      ).not.toBe(403);
+    });
+  });
 });

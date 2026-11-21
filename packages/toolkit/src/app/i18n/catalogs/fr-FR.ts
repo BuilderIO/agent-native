@@ -951,7 +951,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
   "errorMessages.invalidAttachmentNamed":
     "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
-  "recovery.resendVerificationEmail": "Renvoyer l’e-mail de vérification",
+  "recovery.resendVerificationEmail":
+    "Renvoyer l’e-mail de vérification du compte de l’application",
   "recovery.sendingVerificationEmail": "Envoi...",
   "recovery.verificationEmailRequested":
     "E-mail de vérification demandé. Vérifiez votre boîte de réception et vos courriers indésirables.",
@@ -1494,6 +1495,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Le fournisseur a renvoyé une page d'erreur HTML.",
   "errorMessages.providerNetwork":
     "Le fournisseur du modèle est injoignable. Vérifiez votre connexion et réessayez.",
+  "errorMessages.emailVerificationRequired":
+    "Vérifiez une adresse e-mail éligible auprès du compte ou de l’espace du fournisseur d’IA connecté, puis réessayez.",
   "errorMessages.providerRateLimit":
     "Le fournisseur du modèle limite temporairement cette discussion. Patientez un instant, puis réessayez.",
   "errorMessages.providerTransientRejection":

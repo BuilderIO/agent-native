@@ -1,3 +1,9 @@
+import {
+  editRemovedTextMessage,
+  findEditThatRemovedText,
+  findTargetedMatches,
+} from "@agent-native/core/shared";
+
 export interface DesignEdit {
   search: string;
   replace: string;
@@ -64,17 +70,54 @@ export function applyOneEdit(
   }
 
   throw new ApplyEditConflictError(
-    `Edit ${index + 1}: search text was not found in the file. Read the current file (get-design-snapshot) and copy the exact text you want to change.`,
+    `Edit ${index + 1}: search text was not found in the file.${nearMissHint(content, search)} Read the current file (get-design-snapshot) and copy the exact text you want to change.`,
   );
+}
+
+function nearMissHint(content: string, search: string): string {
+  const result = findTargetedMatches(content, search);
+  if (result.ok || result.reason !== "not_found") return "";
+  const lines = (kind: "escaped" | "whitespaceOnly") =>
+    result.candidates
+      .filter((c) => c[kind])
+      .map((c) => c.line)
+      .join(", ");
+  const escaped = lines("escaped");
+  if (escaped) {
+    return ` It has backslash escapes such as \\n where the file has real line breaks, tabs, or quotes (line ${escaped}): send the real characters in both search and replace.`;
+  }
+  const whitespace = lines("whitespaceOnly");
+  return whitespace
+    ? ` The file has this text with different whitespace at line ${whitespace}.`
+    : "";
+}
+
+export function applyEditsInOrder(
+  content: string,
+  edits: DesignEdit[],
+  applyOne: (content: string, edit: DesignEdit, index: number) => string,
+): ApplyEditsResult {
+  let next = content;
+  const contentBeforeEachEdit: string[] = [];
+  edits.forEach((edit, i) => {
+    contentBeforeEachEdit.push(next);
+    try {
+      next = applyOne(next, edit, i);
+    } catch (error) {
+      if (!(error instanceof ApplyEditConflictError)) throw error;
+      const removerIndex = next.includes(edit.search)
+        ? null
+        : findEditThatRemovedText(contentBeforeEachEdit, edit.search);
+      if (removerIndex === null) throw error;
+      throw new ApplyEditConflictError(editRemovedTextMessage(i, removerIndex));
+    }
+  });
+  return { content: next, applied: edits.length };
 }
 
 export function applyEdits(
   content: string,
   edits: DesignEdit[],
 ): ApplyEditsResult {
-  let next = content;
-  edits.forEach((edit, i) => {
-    next = applyOneEdit(next, edit, i);
-  });
-  return { content: next, applied: edits.length };
+  return applyEditsInOrder(content, edits, applyOneEdit);
 }

@@ -2,6 +2,7 @@ import type { IconValue } from "@agent-native/core/icons";
 
 import type { AgentLevel } from "./agent-level";
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { BuilderBodyDiff } from "./builder-body-diff";
 import type { GitHubPullRequestsProblemCode } from "./github-pull-requests";
 import type {
   GitHubSourceProblemCode,
@@ -422,11 +423,16 @@ export interface SetDocumentPropertyRequest {
   propertyId: string;
   value: DocumentPropertyValue;
   expectedBlocksFieldRevision?: number;
+  expectedGeneration?: number;
   /**
    * Client-only hint: titles for relation IDs, shown until the server's
    * resolved targets arrive. The action ignores it.
    */
   relationTargets?: DocumentPropertyRelationTarget[];
+}
+
+export interface SetDocumentPropertyResponse extends DocumentPropertiesResponse {
+  generation?: number;
 }
 
 export interface DuplicateDocumentPropertyRequest {
@@ -827,6 +833,7 @@ export interface ContentDatabaseRowMutationReceipt {
     result: "applied" | "replayed";
     payloadDigest: string;
   };
+  replay?: ContentDatabaseReceiptReplay;
   revisions: { before: string | null; after: string };
   readback: {
     verified: true;
@@ -837,6 +844,12 @@ export interface ContentDatabaseRowMutationReceipt {
     /** Absent on receipts stored before change IDs existed. */
     propertyChangeIds?: Record<string, number | null>;
   };
+}
+
+export interface ContentDatabaseReceiptReplay {
+  readback: "historical";
+  recordedAt: string;
+  freshRead: { action: "get-content-database"; databaseId: string };
 }
 
 export interface ContentDatabaseRowMutationResult {
@@ -871,6 +884,7 @@ export interface ContentDatabaseRowPatchBatchResult {
       result: "applied" | "replayed";
       payloadDigest: string;
     };
+    replay?: ContentDatabaseReceiptReplay;
     counts: { requested: number; updated: number; unchanged: number };
     rows: ContentDatabaseRowPatchReceipt[];
   };
@@ -1030,6 +1044,7 @@ export interface ContentDatabaseSourceBodyChange {
   proposedBlocksJson?: string | null;
   sidecarsJson?: string | null;
   warnings?: string[];
+  textOnly?: boolean;
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -1528,6 +1543,7 @@ export interface UpdateDatabaseItemsResponse {
     itemId: string;
     documentId: string;
     success: boolean;
+    generation?: number;
     error?: string;
   }>;
 }
@@ -1647,6 +1663,17 @@ export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
   pagination: DocumentDiscoveryPagination;
   systemCollections?: ContentSystemCollectionSummary[];
+}
+
+export interface ContentDatabaseRowSearchResponse {
+  databaseId: string;
+  databaseDocumentId: string;
+  rowCreation: {
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+  } | null;
+  rows: Array<{ documentId: string; title: string; icon: string | null }>;
+  pagination: DocumentDiscoveryPagination;
 }
 
 export interface TrashedContentDatabaseSummary {
@@ -1948,6 +1975,7 @@ export interface ContentDatabaseSourceReviewRowSummary {
   targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
+  bodyDiff?: BuilderBodyDiff | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
@@ -1988,6 +2016,8 @@ export interface PreviewBuilderSourceReviewRequest {
   sourceId?: string;
   scope?: "selected" | "all";
   documentIds?: string[];
+  bodyComparison?: "text" | "blocks";
+  batchSize?: number;
 }
 
 export interface PreviewBuilderSourceReviewResponse {
@@ -1995,6 +2025,10 @@ export interface PreviewBuilderSourceReviewResponse {
   sourceTable: string;
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
+  bodyComparison?: "text" | "blocks";
+  documentIds?: string[];
+  remainingDocumentIds?: string[];
+  blocksCheckDocumentIds?: string[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
@@ -2003,6 +2037,7 @@ export interface PrepareBuilderSourceReviewResponse {
     requestedChangeSetId: string;
     preparedChangeSetId: string;
   }>;
+  unchangedChangeSetIds?: string[];
   timings?: BuilderActionTiming[];
 }
 

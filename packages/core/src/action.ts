@@ -50,6 +50,10 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
+import {
+  buildAgentNavigationKeptResult,
+  isAgentNavigationRefusedError,
+} from "./application-state/navigate-write-guard.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { RecordActionAuditInput } from "./audit/record.js";
 import type { ActionAuditConfig } from "./audit/types.js";
@@ -113,6 +117,14 @@ export {
   currentActionOriginCaller,
   withoutWriteObservation,
 };
+export {
+  REVERSIBLE_WRITE_INLINE_APPROVAL_KEY,
+  createReversibleWriteApprovalPolicy,
+  isReversibleWriteInlineApprovalAction,
+  isReversibleWriteNoApprovalsMode,
+  reversibleWriteNeedsApproval,
+  type ReversibleWriteApprovalPredicate,
+} from "./approval/reversible-write-policy.js";
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -1907,6 +1919,7 @@ export function defineAction(options: any) {
         nested = ctx !== undefined && f.context === ctx;
       }
       if (!nested) actionName = ctx?.actionName;
+      frame.isNavigateAction = actionName === "navigate";
     }
     let ran = false;
     try {
@@ -1916,6 +1929,17 @@ export function defineAction(options: any) {
         ? await checkOutput(output, { actionName, effect: effect() })
         : output;
     } catch (thrown) {
+      if (
+        !ran &&
+        frame?.isNavigateAction &&
+        isAgentNavigationRefusedError(thrown) &&
+        thrown.reason !== "read-only-action"
+      ) {
+        return buildAgentNavigationKeptResult(
+          thrown.reason,
+          thrown.currentView,
+        );
+      }
       const error = readableFailure(thrown);
       // Raised by this handler, not passed up through a nested call's
       // boundary, with no nested write entered.

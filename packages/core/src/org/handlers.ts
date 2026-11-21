@@ -2193,6 +2193,7 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   if (raw) {
+    requireVerifiedEmail(await getSessionForEvent(event));
     if (isFreeEmailProvider(raw)) {
       throw createError({
         statusCode: 400,

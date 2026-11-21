@@ -33,6 +33,7 @@ describe("workspace app chat capability", () => {
     ["GET", "/threads"],
     ["GET", "/runs/active"],
     ["GET", "/runs/latest"],
+    ["GET", "/runs/list"],
     ["POST", "/threads"],
     ["GET", "/threads/t_1-A"],
     ["GET", "/threads/t_1-A/runs"],
@@ -72,6 +73,8 @@ describe("workspace app chat capability", () => {
     ["POST", "/provider-keys"],
     ["POST", "/worker/dispatch"],
     ["GET", "/capabilitiesx"],
+    ["POST", "/runs/list"],
+    ["GET", "/runs/list/extra"],
   ])("refuses %s %s", (method, tail) => {
     expect(workspaceAppChatAllowsRequest(`${BASE}${tail}`, method)).toBe(false);
   });
