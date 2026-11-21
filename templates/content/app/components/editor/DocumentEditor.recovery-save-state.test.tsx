@@ -3341,4 +3341,42 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       ),
     );
   });
+
+  it("moves onto the newest Page another cached copy holds when the check reads an older one", async () => {
+    fixture.cachedDocument = true;
+    queryClient.setQueryData(cacheKey(), fixture.page);
+    const savedAgain = page(
+      "Opening paragraph.",
+      "Closing paragraph. Words from another tab. And more.",
+    );
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    const release = holdNextRead();
+    await advance(1_100);
+    const stale = fixture.page;
+    fixture.page = {
+      ...fixture.page,
+      content: savedAgain,
+      revision: "r3",
+      updatedAt: "2026-10-19T12:06:00.000Z",
+    } as Document;
+    queryClient.setQueryData(
+      ["action", "get-document", { id: fixture.page.id, databaseId: "db" }],
+      fixture.page,
+    );
+    await release(stale);
+    await advance(6_000);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+      { baseRevision: "r3", changed: [" Typed here."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(fixture.editor?.content).toBe(
+      page(
+        "Opening paragraph. Typed here.",
+        "Closing paragraph. Words from another tab. And more.",
+      ),
+    );
+  });
 });

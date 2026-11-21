@@ -7161,23 +7161,18 @@ function PageEditorSessionBody({
         refuse();
         return;
       }
-      const heldPages = [
+      const newestPage = [
         currentDocumentRef.current,
         ...queryClient
-          .getQueriesData<Pick<Document, "revision" | "updatedAt">>(
+          .getQueriesData<Pick<Document, "content" | "revision" | "updatedAt">>(
             documentQueryFilter(documentId),
           )
           .flatMap(([, cached]) => (cached ? [cached] : [])),
-      ];
-      if (
-        heldPages.every(
-          (held) =>
-            laterPage<Pick<Document, "revision" | "updatedAt">>(
-              held,
-              refreshedDocument,
-            ) === refreshedDocument,
-        )
-      )
+      ].reduce<Pick<Document, "content" | "revision" | "updatedAt">>(
+        (newest, held) => laterPage(held, newest),
+        refreshedDocument,
+      );
+      if (newestPage === refreshedDocument)
         patchDocumentCaches(queryClient, documentId, {
           content: refreshedDocument.content,
           revision: refreshedDocument.revision,
@@ -7186,7 +7181,7 @@ function PageEditorSessionBody({
           contentHash: refreshedDocument.contentHash,
         });
       refusedForOlderPageRef.current = {
-        page: refreshedDocument,
+        page: newestPage,
         sentRevision: base.baseRevision,
         refuse,
       };
