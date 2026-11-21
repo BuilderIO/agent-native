@@ -7875,7 +7875,7 @@ describe("action boundary error classification", () => {
     expect(captured).not.toHaveBeenCalled();
   });
 
-  it("answers a refused padded call with a 400 the caller can act on", async () => {
+  it("runs a padded call while preserving a valid empty string", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { registerErrorCaptureProvider } = await import("./capture-error.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -7884,7 +7884,11 @@ describe("action boundary error classification", () => {
       "padded-call-test",
       provider,
     );
-    const run = vi.fn(async () => ({ ok: true }));
+    const run = vi.fn(
+      async (_args: { id: string; title?: string; label?: string }) => ({
+        ok: true,
+      }),
+    );
     mockCountActionFailure.mockClear();
     try {
       mountActionRoutes(
@@ -7906,29 +7910,20 @@ describe("action boundary error classification", () => {
           }) as any,
         },
       );
-      // `title: null` is padding, but `label: ""` could be a real clear.
       const event = {
         _method: "POST",
         req: { json: async () => ({ id: "a", title: null, label: "" }) },
       };
       const result = await mounted[0].handler(event);
 
-      expect((event as any)._status).toBe(400);
-      expect(result).toEqual({
-        error: expect.stringContaining(
-          "Retry the native tool with sparse JSON",
-        ),
-        errorCode: "ambiguous_tool_placeholders",
-      });
-      expect(run).not.toHaveBeenCalled();
-      expect(provider).not.toHaveBeenCalled();
-      expect(mockCountActionFailure).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: "update-item",
-          status: 400,
-          errorCode: "ambiguous_tool_placeholders",
-        }),
+      expect((event as typeof event & { _status?: number })._status).not.toBe(
+        400,
       );
+      expect(result).toEqual({ ok: true });
+      expect(run).toHaveBeenCalledOnce();
+      expect(run.mock.calls[0]?.[0]).toEqual({ id: "a", label: "" });
+      expect(provider).not.toHaveBeenCalled();
+      expect(mockCountActionFailure).not.toHaveBeenCalled();
     } finally {
       unregister();
     }

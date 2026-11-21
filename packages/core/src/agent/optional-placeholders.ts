@@ -123,6 +123,7 @@ function stripOptionalToolPlaceholders(
   emptyValues: {
     valid: boolean;
     invalid: boolean;
+    invalidNonNull: boolean;
     nullOnly: boolean;
     listsEraseNothing: boolean;
     stripNull?: boolean;
@@ -189,6 +190,7 @@ function stripOptionalToolPlaceholders(
       if (schemaRejectsToolValue(propertySchema, entry)) {
         if (emptyValues.nullOnly && entry !== null) continue;
         emptyValues.invalid = true;
+        if (entry !== null) emptyValues.invalidNonNull = true;
         placeholders.push(key);
         continue;
       }
@@ -266,6 +268,7 @@ export function normalizeOptionalToolPlaceholders(
   const emptyValues = {
     valid: false,
     invalid: false,
+    invalidNonNull: false,
     nullOnly,
     listsEraseNothing: entry.emptyListsEraseNothing === true,
   };
@@ -282,7 +285,7 @@ export function normalizeOptionalToolPlaceholders(
   // raw input, which defaults can turn into a write.
   if (
     emptyValues.valid &&
-    emptyValues.invalid &&
+    emptyValues.invalidNonNull &&
     !(entry.readOnly === true && entry.planMode === undefined)
   ) {
     return {
