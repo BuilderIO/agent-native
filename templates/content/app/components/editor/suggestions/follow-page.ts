@@ -115,18 +115,20 @@ export function carryOwnSuggestions(args: {
     if (content === null) return null;
     const after = suggestionDraftOperations(next, content);
     if (after.length !== before.length) return null;
+    const moved = after.values();
     const carried = new Map<string, SuggestionPersistenceEntry>();
-    for (const [index, previous] of before.entries()) {
-      const operation = after[index];
+    for (const previous of before) {
+      const step = moved.next();
       const entry = entries.get(suggestionOperationKey(previous));
       if (
-        !operation ||
+        step.done ||
         !entry ||
-        operation.kind !== previous.kind ||
-        operation.before.changedText !== previous.before.changedText ||
-        operation.after.changedText !== previous.after.changedText
+        step.value.kind !== previous.kind ||
+        step.value.before.changedText !== previous.before.changedText ||
+        step.value.after.changedText !== previous.after.changedText
       )
         return null;
+      const operation = step.value;
       carried.set(suggestionOperationKey(operation), { ...entry, operation });
     }
     return { content, entries: carried };
