@@ -190,6 +190,7 @@ async function createdGrant(
     argumentsJson: storedApprovalArguments(args),
     oauthClientId: "client-1",
     retrySafe: false,
+    createdAt: Date.now(),
     ...overrides,
   };
   await createMcpApprovalGrant(grant);

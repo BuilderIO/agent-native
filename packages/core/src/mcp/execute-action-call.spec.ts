@@ -1586,7 +1586,12 @@ describe("MCP action approval grants", () => {
       actionName: "send",
       argumentsHash: grant.argumentsHash,
     });
-    expect(evidence).toEqual([{ auditOverride: { approval: "mcp-review" } }]);
+    expect(evidence).toEqual([
+      {
+        mcpReviewPageApproved: true,
+        auditOverride: { approval: "mcp-review" },
+      },
+    ]);
     expect(store.recordMcpApprovalRun).toHaveBeenCalledWith(
       grant.nonce,
       "completed",

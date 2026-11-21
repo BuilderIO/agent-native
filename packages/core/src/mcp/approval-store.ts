@@ -94,6 +94,8 @@ export interface NewMcpApprovalGrant extends McpApprovalGrant {
   retrySafe: boolean;
   /** The action's `approvalNotice` for this call, as the server computed it. */
   approvalNotice?: string | undefined;
+  /** When the server asked, which the notice is dated from. */
+  createdAt: number;
 }
 
 /**
@@ -211,7 +213,6 @@ export async function createMcpApprovalGrant(
 ): Promise<void> {
   await ensureApprovalTable();
   const client = getDbExec();
-  const now = Date.now();
   await client.execute({
     sql: `INSERT INTO mcp_action_approvals (nonce, caller_key, action_name, arguments_hash, expires_at, consumed_at, owner_email, org_id, app_id, call_arguments, oauth_client_id, retry_safe, approval_notice, status, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     args: [
@@ -227,9 +228,29 @@ export async function createMcpApprovalGrant(
       grant.oauthClientId ?? null,
       grant.retrySafe,
       grant.approvalNotice ?? null,
-      now,
+      grant.createdAt,
     ],
   });
+}
+
+/** The notice the server stored when it asked about this exact call; null when it gave none. */
+export async function getMcpApprovalNotice(
+  grant: McpApprovalGrant,
+): Promise<string | null> {
+  await ensureApprovalTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT approval_notice FROM mcp_action_approvals
+      WHERE nonce = ? AND app_id = ? AND caller_key = ? AND action_name = ? AND arguments_hash = ?`,
+    args: [
+      grant.nonce,
+      grant.appId,
+      grant.callerKey,
+      grant.actionName,
+      grant.argumentsHash,
+    ],
+  });
+  const row = (rows as Record<string, unknown>[]).at(0);
+  return row ? stringOrNull(row.approval_notice) : null;
 }
 
 // Far past the prior-run window; a row this old is deleted.

@@ -1497,7 +1497,7 @@ export interface ActionEntry {
   approvalNotice?(
     this: void,
     args: unknown,
-    ctx?: import("../action.js").ActionRunContext,
+    ctx: import("../action.js").ActionApprovalNoticeContext,
   ): string | undefined | Promise<string | undefined>;
   /** See `ActionDefinition.approvalProof`. */
   approvalProof?: "review-page";

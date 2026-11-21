@@ -304,6 +304,12 @@ export interface ActionRunContext {
   };
 }
 
+/** What an action's `approvalNotice` runs with. */
+export interface ActionApprovalNoticeContext extends ActionRunContext {
+  /** When the server asked, in epoch milliseconds; the grant records it. */
+  askedAt: number;
+}
+
 export type ActionAuthorize<TArgs> = (
   args: TArgs,
   ctx?: ActionRunContext,
@@ -1399,13 +1405,15 @@ interface DefineActionWithSchema<
   /**
    * Facts the MCP approval prompt, review link and review page state that
    * the call's arguments don't carry, such as a cost, a limit or an expiry.
-   * The server computes it when it asks, never from the call's words.
-   * Returning nothing shows the arguments alone; a throw fails the call
+   * The server computes it when it asks, never from the call's words, and
+   * date any time-bound fact from `ctx.askedAt`: the grant records that
+   * time as when the person was asked. Returning nothing shows the
+   * arguments alone; a throw, or text over 2,000 characters, fails the call
    * rather than ask without it.
    */
   approvalNotice?: (
     args: StandardSchemaV1.InferOutput<TSchema>,
-    ctx?: ActionRunContext,
+    ctx: ActionApprovalNoticeContext,
   ) => string | undefined | Promise<string | undefined>;
   /**
    * `"review-page"`: over MCP, only the person's approval on the app's review
@@ -1557,7 +1565,7 @@ interface DefineActionWithParams<
   /** See `DefineActionWithSchema.approvalNotice`. */
   approvalNotice?: (
     args: InferParams<TParams>,
-    ctx?: ActionRunContext,
+    ctx: ActionApprovalNoticeContext,
   ) => string | undefined | Promise<string | undefined>;
   /** See `DefineActionWithSchema.approvalProof`. */
   approvalProof?: "review-page";
@@ -1634,7 +1642,7 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => boolean | Promise<boolean>;
   readonly approvalNotice?: (
     args: TInput,
-    ctx?: ActionRunContext,
+    ctx: ActionApprovalNoticeContext,
   ) => string | undefined | Promise<string | undefined>;
   readonly approvalProof?: "review-page";
   readonly allowPersistentApproval?: boolean;
