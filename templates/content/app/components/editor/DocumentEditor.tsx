@@ -7190,6 +7190,7 @@ function PageEditorSessionBody({
         sentRevision: base.baseRevision,
         refuse,
       };
+      suggestionDraftSaveFailedRef.current = false;
       setSuggestionDraftSaveFailed(false);
       setSuggestionPersistenceRevision((revision) => revision + 1);
     },
@@ -7551,8 +7552,8 @@ function PageEditorSessionBody({
           void queryClient.invalidateQueries(documentQueryFilter(documentId));
           return null;
         }
-        const alreadyFailed = suggestionDraftSaveFailedRef.current;
         const refuse = () => {
+          const alreadyFailed = suggestionDraftSaveFailedRef.current;
           suggestionDraftSaveFailedRef.current = true;
           setSuggestionDraftSaveFailed(true);
           if (autosave && !clientError) {

@@ -3266,6 +3266,47 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     );
   });
 
+  it("alerts again when the editor closes while a retried save waits to move", async () => {
+    await startSuggesting();
+    const answer = fixture.mutation.mutateAsync.getMockImplementation();
+    let serverDown = true;
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (serverDown && input?.adapterKind === "content.document-markdown") {
+        serverDown = false;
+        throw Object.assign(new Error("The server is down"), { status: 500 });
+      }
+      return answer?.(input);
+    });
+    act(() => fixture.editor?.onChange(typed));
+    await advance(1_100);
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(toastError).toHaveBeenCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+    act(() =>
+      fixture.editor?.onChange(
+        page("Opening paragraph. Typed here. And more.", "Closing paragraph."),
+      ),
+    );
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    for (let waited = 0; creates.length === 0 && waited < 3_000; waited += 100)
+      await advance(100);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(fixture.editor?.content).toBe(
+      page("Opening paragraph. Typed here. And more.", "Closing paragraph."),
+    );
+    await act(async () => root.render(null));
+    expect(toastError).toHaveBeenCalledTimes(2);
+    expect(toastError).toHaveBeenLastCalledWith(
+      "editor.suggestionCreateFailed",
+      expect.anything(),
+    );
+  });
+
   it("moves onto the newest Page when the check reads one older than sync already delivered", async () => {
     fixture.cachedDocument = true;
     queryClient.setQueryData(cacheKey(), fixture.page);
