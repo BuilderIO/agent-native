@@ -3,6 +3,9 @@ import type { ToolkitAgentChatTranslation } from "../types.js";
 const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.inviteAdminExplanation":
     "관리자만 다른 사람을 초대할 수 있습니다. 관리자에게 초대를 도와달라고 요청하거나 나도 관리자로 지정해 달라고 요청하세요.",
+  "settingsOrg.onlyAdminsCanInvite": "관리자만 멤버를 초대할 수 있음",
+  "settingsOrg.invitationPolicyInvalid":
+    "저장된 초대 설정이 올바르지 않아 관리자만 초대할 수 있습니다. 설정을 선택해 복구하세요.",
   "settingsApiKeys.approvedOrigins": "승인된 출처",
   "settingsApiKeys.originsHint":
     "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",

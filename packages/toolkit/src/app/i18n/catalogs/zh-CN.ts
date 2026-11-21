@@ -3,6 +3,9 @@ import type { ToolkitAgentChatTranslation } from "../types.js";
 const messages: ToolkitAgentChatTranslation = {
   "settingsOrg.inviteAdminExplanation":
     "只有管理员可以邀请其他人。请向管理员寻求邀请帮助，或请管理员也将你设为管理员。",
+  "settingsOrg.onlyAdminsCanInvite": "仅管理员可以邀请成员",
+  "settingsOrg.invitationPolicyInvalid":
+    "已保存的邀请设置无效，因此只有管理员可以邀请。请选择一个设置来修复。",
   "settingsApiKeys.approvedOrigins": "已批准的来源",
   "settingsApiKeys.originsHint":
     "每行填写一个准确的 HTTPS 来源。留空将阻止转发。允许本地 HTTP。",

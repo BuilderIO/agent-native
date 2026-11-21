@@ -52,3 +52,7 @@ Forms 保留现有未分配角色成员的编辑权限。显式分配的 Reviewe
 用户组是访问名单，不是下级团队。它没有独立的组织或应用角色、数据边界，也没有团队专属的设置、说明、上下文、技能、记忆或工作视图。将资源共享给用户组后，该资源的共享角色会授予组内所有当前成员。访问者仍须属于资源所在的组织。
 
 详情请参阅[共享与隐私 → 组共享](/docs/sharing#group-grants)和[工作区连接](/docs/workspace-connections)。
+
+### 谁可以邀请成员
+
+默认只有所有者和管理员可以邀请。应用通过服务器代码启用,而不是通过请求:`defineAppConfig({ access: { memberInvitations: "org-setting" } })`。`"members"` 允许所有成员邀请;`"org-setting"` 允许成员邀请,直到所有者或管理员为该组织开启“仅管理员可邀请” (`PUT /_agent-native/org/invitation-policy` 请求体 `{ "onlyAdminsCanInvite": true }`)。邀请路由、批量邀请和 `invite-organization-member` 操作都使用这同一策略,仍然要求在活动组织中拥有真实成员身份,并且管理员邀请仍仅限所有者。组织响应包含已解析的 `canInviteMembers`,`useOrgRole()` 会返回它,使界面与服务器一致。 成员发出的邀请始终是普通成员身份:只有所有者和管理员可以附加应用角色。

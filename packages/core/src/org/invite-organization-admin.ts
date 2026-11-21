@@ -40,7 +40,12 @@ export async function inviteOrganizationAdmin(
   const orgName = rows[0]?.name ? String(rows[0].name) : null;
   const { inviteOne } = await import("./handlers.js");
   const result = await inviteOne(
-    { orgId: caller.orgId, orgName, email: caller.email },
+    {
+      orgId: caller.orgId,
+      orgName,
+      email: caller.email,
+      role: caller.role,
+    },
     email,
     "admin",
   );

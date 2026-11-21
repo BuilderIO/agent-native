@@ -29,6 +29,30 @@ export function canInviteOrgMembers(role: OrgRole | null | undefined): boolean {
   return orgRoleAtLeast(role, "admin");
 }
 
+export type OrgMemberInvitationMode = "admins" | "members" | "org-setting";
+
+export interface OrgInvitationPolicy {
+  mode: OrgMemberInvitationMode;
+  /** Meaningful in `org-setting` mode; derived from `mode` otherwise. */
+  onlyAdminsCanInvite: boolean;
+  /** The stored flag is corrupt; members stay refused until an admin resets it. */
+  invalid?: boolean;
+}
+
+/**
+ * Whether `role` may invite plain members under the resolved policy. Admin
+ * invitations are a separate, owner-only rule enforced where the role is chosen.
+ */
+export function canInviteOrgMembersUnderPolicy(
+  role: OrgRole | null | undefined,
+  policy: OrgInvitationPolicy,
+): boolean {
+  if (role === "owner" || role === "admin") return true;
+  if (role !== "member") return false;
+  if (policy.mode === "admins") return false;
+  return policy.mode === "members" || !policy.onlyAdminsCanInvite;
+}
+
 export function canManageOrgDomain(role: OrgRole | null | undefined): boolean {
   return orgRoleAtLeast(role, "admin");
 }

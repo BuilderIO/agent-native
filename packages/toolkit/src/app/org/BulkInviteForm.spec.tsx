@@ -212,6 +212,57 @@ describe("BulkInviteForm", () => {
     expect(invite.appRoles).toBeUndefined();
   });
 
+  it.each(["owner", "admin"] as const)(
+    "offers the app-role picker to a %s",
+    (role) => {
+      act(() =>
+        root.render(
+          <BulkInviteForm
+            currentUserRole={role}
+            emailConfigured
+            appRoles={{ appId: "clips", roles: ["viewer", "editor"] }}
+            onClose={vi.fn()}
+          />,
+        ),
+      );
+      expect(container.textContent).toContain("org.appRolesOptional");
+    },
+  );
+
+  it("gives a plain member no app-role picker and sends no app fields", async () => {
+    mocks.bulkInvite.mutateAsync.mockResolvedValue({
+      succeeded: [
+        {
+          id: "inv_1",
+          email: "new@example.test",
+          role: "member",
+          status: "pending",
+          emailSent: true,
+        },
+      ],
+      failed: [],
+      total: 1,
+    });
+    act(() =>
+      root.render(
+        <BulkInviteForm
+          currentUserRole="member"
+          emailConfigured
+          appRoles={{ appId: "clips", roles: ["viewer", "editor"] }}
+          onClose={vi.fn()}
+        />,
+      ),
+    );
+    expect(container.textContent).not.toContain("org.appRolesOptional");
+    expect(container.textContent).not.toContain("viewer");
+    await submit("new@example.test");
+
+    const [invite] = mocks.bulkInvite.mutateAsync.mock.calls[0]?.[0] ?? [];
+    expect(invite).not.toHaveProperty("appId");
+    expect(invite.appRoles).toBeUndefined();
+    expect(invite.role).toBe("member");
+  });
+
   it("says invites won't be emailed when email isn't configured", () => {
     render(false);
     expect(container.textContent).toContain(
