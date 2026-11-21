@@ -806,13 +806,10 @@ class PdfLayout {
     keep?: number,
   ) {
     const indent = Number(node.attrs?.indent);
-    const shift =
+    const shifted =
       Number.isInteger(indent) && indent > 0
-        ? Math.min(indent * INDENT, box.width / 2)
-        : 0;
-    const shifted = shift
-      ? { ...box, x: box.x + shift, width: box.width - shift }
-      : box;
+        ? inset(box, Math.min(indent * INDENT, box.width / 2))
+        : box;
     if (node.type === "paragraph") {
       this.paragraph(inlinesOf(node.content, PLAIN), shifted, {}, onFirstLine);
       return;

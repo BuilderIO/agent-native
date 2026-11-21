@@ -410,6 +410,26 @@ describe("document PDF layout", () => {
     }
   });
 
+  it("keeps room for an indented paragraph deep in toggles", () => {
+    const tab = String.fromCharCode(9);
+    const toggles = (depth: number): string[] =>
+      depth === 0
+        ? [tab.repeat(3) + "deep text"]
+        : [
+            "<details open>",
+            "<summary>Level " + depth + "</summary>",
+            ...toggles(depth - 1).map((line) => tab + line),
+            "</details>",
+          ];
+    const { texts, measure } = recordLayout("Toggles", toggles(30).join("\n"));
+
+    expect(texts.map((op) => op.text)).toContain("deep text");
+    for (const op of texts) {
+      expect(op.x).toBeGreaterThanOrEqual(54);
+      expect(op.x + measure(op.text, op.font)).toBeLessThanOrEqual(612 - 54);
+    }
+  });
+
   it("doesn't add a blank line for spaces before a line break", () => {
     const plain = recordLayout("Spaces", "a<br>b");
     const spaced = recordLayout("Spaces", "a" + " ".repeat(200) + "<br>b");
