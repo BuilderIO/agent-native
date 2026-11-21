@@ -269,11 +269,19 @@ describe("carryOwnSuggestions", () => {
       latest: () => saved(),
       ...overrides,
     });
-  const carried = () => {
-    const result = carry();
+  const carried = (overrides: Parameters<typeof carry>[0] = {}) => {
+    const result = carry(overrides);
     if (!result) throw new Error("The draft didn't carry its saved suggestion");
     return result;
   };
+  const planOnNewer = (
+    content: string,
+    entries: ReadonlyMap<string, SuggestionPersistenceEntry>,
+  ) =>
+    planSuggestionDraftPersistence(
+      suggestionDraftOperations(session(newer, "body:5"), content),
+      entries,
+    );
 
   it("keeps this tab's saved suggestion in the draft for the newer Page", () => {
     const { content, entries } = carried();
@@ -339,5 +347,158 @@ describe("carryOwnSuggestions", () => {
         ),
       }),
     ).toBeNull();
+  });
+
+  describe("with typing the older Page refused", () => {
+    const withUnsaved = page(
+      "Opening paragraph of the page. First.",
+      "Middle paragraph of the page. Unsaved.",
+      "Closing paragraph of the page.",
+    );
+
+    it("moves typing with nothing saved onto the newer Page", () => {
+      const { content, entries } = carried({
+        entries: new Map(),
+        unsaved: true,
+      });
+      expect(content).toBe(
+        page(
+          "Opening paragraph of the page. First.",
+          "Middle paragraph of the page.",
+          "Closing paragraph of the page. Words from another tab.",
+        ),
+      );
+      expect(entries.size).toBe(0);
+      const plan = planOnNewer(content, entries);
+      expect(
+        plan.create.map(({ operation }) => operation.after.changedText),
+      ).toEqual([" First."]);
+      expect(plan.amend).toEqual([]);
+      expect(plan.withdraw).toEqual([]);
+    });
+
+    it("moves typing alongside a saved suggestion, which stays saved", () => {
+      const { content, entries } = carried({
+        draft: withUnsaved,
+        unsaved: true,
+      });
+      expect(content).toBe(
+        page(
+          "Opening paragraph of the page. First.",
+          "Middle paragraph of the page. Unsaved.",
+          "Closing paragraph of the page. Words from another tab.",
+        ),
+      );
+      const plan = planOnNewer(content, entries);
+      expect([...plan.unchanged.values()].map(({ id }) => id)).toEqual([
+        "first",
+      ]);
+      expect(
+        plan.create.map(({ operation }) => operation.after.changedText),
+      ).toEqual([" Unsaved."]);
+      expect(plan.amend).toEqual([]);
+      expect(plan.withdraw).toEqual([]);
+    });
+
+    it("moves words added to a saved suggestion, to amend it on the newer Page", () => {
+      const amended = page(
+        "Opening paragraph of the page. First. Second.",
+        "Middle paragraph of the page.",
+        "Closing paragraph of the page.",
+      );
+      const { content, entries } = carried({ draft: amended, unsaved: true });
+      expect(content).toBe(
+        page(
+          "Opening paragraph of the page. First. Second.",
+          "Middle paragraph of the page.",
+          "Closing paragraph of the page. Words from another tab.",
+        ),
+      );
+      expect([...entries.values()]).toMatchObject([
+        {
+          suggestion: { id: "first" },
+          operation: {
+            after: {
+              changedText: " First.",
+              markdown: page(
+                "Opening paragraph of the page. First.",
+                "Middle paragraph of the page.",
+                "Closing paragraph of the page. Words from another tab.",
+              ),
+            },
+          },
+        },
+      ]);
+      expect(entries.size).toBe(1);
+      const plan = planOnNewer(content, entries);
+      expect(plan.create).toEqual([]);
+      expect(plan.unchanged.size).toBe(0);
+      expect(plan.amend).toHaveLength(1);
+      expect(plan.amend[0]).toMatchObject({
+        suggestion: { id: "first" },
+        operation: { after: { changedText: " First. Second." } },
+      });
+    });
+
+    it("keeps the refusal when someone else changed the same paragraph", () => {
+      const sameParagraph = page(
+        "Opening paragraph of the page, changed elsewhere.",
+        "Middle paragraph of the page.",
+        "Closing paragraph of the page.",
+      );
+      expect(
+        carry({
+          next: session(sameParagraph, "body:5"),
+          entries: new Map(),
+          unsaved: true,
+        }),
+      ).toBeNull();
+      expect(
+        carry({
+          draft: withUnsaved,
+          next: session(sameParagraph, "body:5"),
+          unsaved: true,
+        }),
+      ).toBeNull();
+    });
+
+    it("keeps the refusal when a saved suggestion was decided or amended elsewhere", () => {
+      for (const latest of [
+        () => saved("rejected"),
+        () => saved("accepted"),
+        () => undefined,
+        () => saved("pending", 2),
+      ])
+        expect(carry({ draft: withUnsaved, latest, unsaved: true })).toBeNull();
+    });
+
+    it("keeps the refusal when the typing doesn't read as the same edit on the newer Page", () => {
+      const from = base.indexOf(
+        "paragraph of the page",
+        base.indexOf("Middle"),
+      );
+      const to = from + "paragraph of the page".length;
+      const typedOver = `${base.slice(0, from)}paragraph${base.slice(to)}`;
+      const selected = {
+        ...session(base, "body:4"),
+        replacementIntents: [{ from, to, beforeText: "paragraph of the page" }],
+      };
+      expect(
+        suggestionDraftOperations(selected, typedOver).map(
+          ({ before, after }) => [before.changedText, after.changedText],
+        ),
+      ).toEqual([["paragraph of the page", "paragraph"]]);
+      expect(
+        carry({ draft: typedOver, entries: new Map(), unsaved: true }),
+      ).not.toBeNull();
+      expect(
+        carry({
+          session: selected,
+          draft: typedOver,
+          entries: new Map(),
+          unsaved: true,
+        }),
+      ).toBeNull();
+    });
   });
 });

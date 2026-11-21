@@ -3511,6 +3511,10 @@ function PageEditorSessionBody({
   const suggestionDraftChangedAtRef = useRef<number | null>(null);
   const suggestionDraftSaveFailedRef = useRef(suggestionDraftSaveFailed);
   suggestionDraftSaveFailedRef.current = suggestionDraftSaveFailed;
+  const refusedForOlderPageRef = useRef<{
+    page: Pick<Document, "content" | "revision" | "updatedAt">;
+    refuse: () => void;
+  } | null>(null);
   const suggestionFlushRef = useRef<Promise<Map<
     string,
     ResourceSuggestion
@@ -7122,6 +7126,45 @@ function PageEditorSessionBody({
     resetSuggestionAutosave(suggestionAutosaveRef.current);
   }, []);
 
+  const refuseUnlessDraftFollowsPage = useCallback(
+    async (base: SuggestionDraftSession, refuse: () => void) => {
+      const readPage = () =>
+        callAction(
+          "get-document",
+          {
+            id: documentId,
+            ...(databaseId ? { databaseId } : {}),
+            ...(databaseDocumentId ? { databaseDocumentId } : {}),
+          },
+          { method: "GET" },
+        );
+      let refreshedDocument: Awaited<ReturnType<typeof readPage>>;
+      try {
+        const [readDocument, readSuggestions] = await Promise.all([
+          readPage(),
+          suggestionsQuery.refetch(),
+        ]);
+        if (readSuggestions.isError) throw readSuggestions.error;
+        refreshedDocument = readDocument;
+      } catch {
+        refuse();
+        return;
+      }
+      if (suggestionBaseRef.current !== base) return;
+      patchDocumentCaches(queryClient, documentId, {
+        content: refreshedDocument.content,
+        revision: refreshedDocument.revision,
+        updatedAt: refreshedDocument.updatedAt,
+        bodyRevision: refreshedDocument.bodyRevision,
+        contentHash: refreshedDocument.contentHash,
+      });
+      refusedForOlderPageRef.current = { page: refreshedDocument, refuse };
+      setSuggestionDraftSaveFailed(false);
+      setSuggestionPersistenceRevision((revision) => revision + 1);
+    },
+    [databaseDocumentId, databaseId, documentId, queryClient, suggestionsQuery],
+  );
+
   const persistSuggestionDraft = useCallback(
     async ({
       keepMode,
@@ -7131,12 +7174,13 @@ function PageEditorSessionBody({
       autosave: boolean;
     }): Promise<Map<string, ResourceSuggestion> | null> => {
       const base = suggestionBaseRef.current;
-      if (!base) return null;
+      if (!base || (autosave && refusedForOlderPageRef.current)) return null;
       const draft = suggestionDraftRef.current;
       const endSession = () => {
         clearSuggestionAutosave();
         setIsSuggesting(false);
         suggestionBaseRef.current = null;
+        refusedForOlderPageRef.current = null;
         setEditingSuggestionId(null);
         setSuggestionInitialSelection(null);
         setSuggestionAmendmentConflict(false);
@@ -7303,6 +7347,7 @@ function PageEditorSessionBody({
         // amended elsewhere: writing this draft over it would discard that
         // change, so the author resolves the draft from the conflict banner.
         let changedElsewhere = false;
+        let amendmentRefused = false;
         for (const { key, suggestion } of plan.withdraw) {
           const withdrawn = await saveUnlessSuggestionChanged(
             suggestion,
@@ -7365,6 +7410,7 @@ function PageEditorSessionBody({
           );
           if (amended.status === "changed") {
             changedElsewhere = true;
+            amendmentRefused = true;
             break;
           }
           entries.delete(amendment.previousKey);
@@ -7382,8 +7428,13 @@ function PageEditorSessionBody({
         }
         if (changedElsewhere) {
           adoptConfirmedSuggestions();
-          setSuggestionAmendmentConflict(true);
-          void queryClient.invalidateQueries(documentQueryFilter(documentId));
+          const conflict = () => {
+            setSuggestionAmendmentConflict(true);
+            void queryClient.invalidateQueries(documentQueryFilter(documentId));
+          };
+          if (amendmentRefused && autosave)
+            await refuseUnlessDraftFollowsPage(base, conflict);
+          else conflict();
           return null;
         }
         if (create.length > 0) {
@@ -7463,24 +7514,33 @@ function PageEditorSessionBody({
           return null;
         }
         const alreadyFailed = suggestionDraftSaveFailedRef.current;
-        setSuggestionDraftSaveFailed(true);
-        if (autosave && !clientError) {
-          retrySuggestionAutosave(
-            suggestionAutosaveRef.current,
-            autosaveSuggestionDraft,
+        const refuse = () => {
+          setSuggestionDraftSaveFailed(true);
+          if (autosave && !clientError) {
+            retrySuggestionAutosave(
+              suggestionAutosaveRef.current,
+              autosaveSuggestionDraft,
+            );
+          }
+          if (autosave && alreadyFailed) return;
+          toast.error(
+            t(
+              base.existingSuggestion
+                ? "editor.suggestionAmendmentFailed"
+                : "editor.suggestionCreateFailed",
+            ),
+            {
+              description: actionErrorMessage(error) ?? t("empty.genericError"),
+            },
           );
-        }
-        if (autosave && alreadyFailed) return null;
-        toast.error(
-          t(
-            base.existingSuggestion
-              ? "editor.suggestionAmendmentFailed"
-              : "editor.suggestionCreateFailed",
-          ),
-          {
-            description: actionErrorMessage(error) ?? t("empty.genericError"),
-          },
-        );
+        };
+        if (
+          autosave &&
+          !base.existingSuggestion &&
+          isSuggestionConflictActionError(error)
+        )
+          await refuseUnlessDraftFollowsPage(base, refuse);
+        else refuse();
         return null;
       } finally {
         if (!autosave) setIsSubmittingSuggestions(false);
@@ -7496,6 +7556,7 @@ function PageEditorSessionBody({
       documentId,
       amendmentTargetIsResolved,
       queryClient,
+      refuseUnlessDraftFollowsPage,
       suggestionAmendmentConflict,
       suggestionsQuery,
       t,
@@ -7633,6 +7694,7 @@ function PageEditorSessionBody({
         : null;
       if (suggestion && !existing) return false;
       clearSuggestionAutosave();
+      refusedForOlderPageRef.current = null;
       createdSuggestionOperationsRef.current.clear();
       suggestionAmendmentKeysRef.current.clear();
       setSuggestionAmendmentConflict(false);
@@ -7725,8 +7787,12 @@ function PageEditorSessionBody({
   ]);
 
   const continueSuggestionModeFrom = useCallback(
-    (nextDocument: Document, options?: { keepOwnSuggestions?: boolean }) => {
-      clearSuggestionAutosave();
+    (
+      nextDocument: Pick<Document, "content" | "revision" | "updatedAt">,
+      options?: { keepOwnSuggestions?: boolean },
+    ) => {
+      const refused = refusedForOlderPageRef.current;
+      refusedForOlderPageRef.current = null;
       const initial = createDocumentSuggestionDraftSession({
         id: globalThis.crypto.randomUUID(),
         baseContent: nextDocument.content,
@@ -7745,8 +7811,14 @@ function PageEditorSessionBody({
                 savedSuggestionsRef.current.find(
                   (suggestion) => suggestion.id === id,
                 ),
+              unsaved: refused !== null,
             })
           : null;
+      if (refused && options?.keepOwnSuggestions && !carried) {
+        refused.refuse();
+        return;
+      }
+      clearSuggestionAutosave();
       createdSuggestionOperationsRef.current.clear();
       for (const [key, entry] of carried?.entries ?? [])
         createdSuggestionOperationsRef.current.set(key, entry);
@@ -7760,8 +7832,9 @@ function PageEditorSessionBody({
       setCreationCollaborationSelection(null);
       setIsSuggesting(true);
       setSuggestionPersistenceRevision((revision) => revision + 1);
+      if (refused && carried) scheduleSuggestionAutosave();
     },
-    [clearSuggestionAutosave],
+    [clearSuggestionAutosave, scheduleSuggestionAutosave],
   );
 
   // Someone else's change moves the Page past the draft's start, and the
@@ -7782,16 +7855,19 @@ function PageEditorSessionBody({
     const check = () => {
       timer = null;
       const session = suggestionBaseRef.current;
+      const refused = refusedForOlderPageRef.current;
+      const page = refused?.page ?? document;
       const follow = suggestionPageFollow({
         session,
         page: {
-          content: document.content,
-          revision: canonicalSuggestionRevision(document),
-          updatedAt: document.updatedAt,
+          content: page.content,
+          revision: canonicalSuggestionRevision(page),
+          updatedAt: page.updatedAt,
         },
         draftUpdatedAt: suggestionDraftUpdatedAt,
         settled:
-          suggestionAutosaveRef.current.dirtySince === null &&
+          (suggestionAutosaveRef.current.dirtySince === null ||
+            refused !== null) &&
           !suggestionFlushRef.current &&
           !unresolvedProposalCreationRef.current &&
           !suggestionDecisionInFlightRef.current &&
@@ -7801,12 +7877,19 @@ function PageEditorSessionBody({
         now: Date.now(),
       });
       if (follow.kind === "wait") timer = setTimeout(check, follow.ms);
-      else if (follow.kind === "rebase" && session)
+      else if (follow.kind === "stay" && refused) {
+        refusedForOlderPageRef.current = null;
+        refused.refuse();
+      } else if (follow.kind === "rebase" && session) {
         suggestionBaseRef.current = {
           ...session,
           baseRevision: follow.baseRevision,
         };
-      else if (follow.kind === "restart") {
+        if (refused) {
+          refusedForOlderPageRef.current = null;
+          scheduleSuggestionAutosave();
+        }
+      } else if (follow.kind === "restart") {
         // The editor reports typing to the draft on its next task, so a key
         // pressed just before this check hasn't arrived yet. Move only after
         // that report has had its turn and changed nothing.
@@ -7814,7 +7897,7 @@ function PageEditorSessionBody({
         timer = setTimeout(() => {
           timer = null;
           if (suggestionDraftChangedAtRef.current === changedAt)
-            continueSuggestionModeFrom(document, { keepOwnSuggestions: true });
+            continueSuggestionModeFrom(page, { keepOwnSuggestions: true });
           else check();
         }, 0);
       }
@@ -7830,6 +7913,7 @@ function PageEditorSessionBody({
     isSuggesting,
     pendingProposalDecision,
     pendingSuggestionDecision,
+    scheduleSuggestionAutosave,
     suggestionAmendmentConflict,
     suggestionDraftSaveFailed,
     suggestionDraftUpdatedAt,
