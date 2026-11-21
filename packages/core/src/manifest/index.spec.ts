@@ -56,6 +56,29 @@ describe("app capability discovery", () => {
     ).toBeUndefined();
   });
 
+  it("adapts legacy manifest inputs without version to v1", () => {
+    const adapted = defineAppManifest({
+      id: "chat-app",
+      displayName: "Chat App",
+      screens: {
+        defaultLandingScreen: "home",
+        definitions: {
+          home: { show: { route: "/home" } },
+          thread: { show: { route: "/chat/:threadId" } },
+        },
+      },
+      suggestableCapabilities: [
+        { type: "saved-view", action: "save-view" },
+        { type: "create-app", action: "create-app" },
+      ],
+    });
+    expect(adapted).toEqual({
+      version: 1,
+      screens: { home: { route: "/home", action: "navigate" } },
+      suggestions: { "saved-view": "save-view" },
+    });
+  });
+
   it.each(["//other.example.test", "/docs/../private", "/%2e%2e", "/docs/:id"])(
     "rejects route %s",
     (route) => {

@@ -13,23 +13,102 @@ const route = z
     (path) => !path.split("/").some((part) => part === "." || part === ".."),
   );
 
-export const appCapabilityManifestSchema = z.object({
+const suggestionTypeSchema = z.enum([
+  "saved-view",
+  "automation",
+  "ai-split-filter",
+]);
+
+const v1AppCapabilityManifestSchema = z.object({
   version: z.literal(1),
   screens: z
     .record(z.string().min(1), z.object({ route, action: actionName }))
     .optional(),
-  suggestions: z
-    .partialRecord(
-      z.enum(["saved-view", "automation", "ai-split-filter"]),
-      actionName,
-    )
-    .optional(),
+  suggestions: z.partialRecord(suggestionTypeSchema, actionName).optional(),
 });
 
-export type AppCapabilityManifest = z.infer<typeof appCapabilityManifestSchema>;
+export interface LegacyAppManifestInput {
+  version?: undefined;
+  id: string;
+  displayName: string;
+  screens?: {
+    defaultLandingScreen?: string;
+    definitions?: Record<string, { show?: { route?: string } }>;
+  };
+  suggestableCapabilities?: ReadonlyArray<{
+    type?: string;
+    action?: string;
+  }>;
+  [key: string]: unknown;
+}
+
+function adaptLegacyAppManifest(input: unknown): unknown {
+  if (!input || typeof input !== "object" || "version" in input) {
+    return input;
+  }
+  const legacy = input as Record<string, unknown>;
+  const hasLegacyShape =
+    typeof legacy.id === "string" ||
+    typeof legacy.displayName === "string" ||
+    (legacy.screens &&
+      typeof legacy.screens === "object" &&
+      "definitions" in legacy.screens);
+  if (!hasLegacyShape) return input;
+
+  const definitions =
+    legacy.screens &&
+    typeof legacy.screens === "object" &&
+    "definitions" in legacy.screens &&
+    legacy.screens.definitions &&
+    typeof legacy.screens.definitions === "object"
+      ? (legacy.screens.definitions as Record<string, unknown>)
+      : {};
+  const screens: Record<string, { route: string; action: string }> = {};
+  for (const [id, def] of Object.entries(definitions)) {
+    if (!id || !def || typeof def !== "object") continue;
+    const show = (def as { show?: unknown }).show;
+    const rawRoute =
+      show && typeof show === "object"
+        ? (show as { route?: unknown }).route
+        : undefined;
+    if (typeof rawRoute === "string" && route.safeParse(rawRoute).success) {
+      screens[id] = { route: rawRoute, action: "navigate" };
+    }
+  }
+
+  const suggestions: Record<string, string> = {};
+  if (Array.isArray(legacy.suggestableCapabilities)) {
+    for (const cap of legacy.suggestableCapabilities) {
+      if (!cap || typeof cap !== "object") continue;
+      const { type, action } = cap as { type?: unknown; action?: unknown };
+      if (
+        suggestionTypeSchema.safeParse(type).success &&
+        typeof action === "string" &&
+        action.trim().length > 0
+      ) {
+        suggestions[type as string] = action.trim();
+      }
+    }
+  }
+
+  return {
+    version: 1,
+    ...(Object.keys(screens).length > 0 ? { screens } : {}),
+    ...(Object.keys(suggestions).length > 0 ? { suggestions } : {}),
+  };
+}
+
+export const appCapabilityManifestSchema = z.preprocess(
+  adaptLegacyAppManifest,
+  v1AppCapabilityManifestSchema,
+);
+
+export type AppCapabilityManifest = z.infer<
+  typeof v1AppCapabilityManifestSchema
+>;
 
 export function defineAppManifest(
-  input: AppCapabilityManifest,
+  input: AppCapabilityManifest | LegacyAppManifestInput,
 ): AppCapabilityManifest {
   return appCapabilityManifestSchema.parse(input);
 }
