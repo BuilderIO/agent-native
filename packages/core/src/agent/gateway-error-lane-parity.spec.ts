@@ -14,6 +14,7 @@ import {
   isResumableEngineError,
   isRetryableError,
   isTransientProviderRateLimitError,
+  runAgentLoop,
 } from "./production-agent.js";
 
 const credentialState = vi.hoisted(() => ({
@@ -411,6 +412,147 @@ describe("gateway failures classify identically on both lanes", () => {
       }
     });
   }
+
+  it.each([
+    {
+      lane: "identity" as const,
+      attachment: true,
+      detail: "Invalid image.",
+      code: "invalid_attachment",
+    },
+    {
+      lane: "gateway-deploy" as const,
+      attachment: true,
+      detail: "Invalid image.",
+      code: "invalid_attachment",
+    },
+    {
+      lane: "identity" as const,
+      attachment: false,
+      detail: "Invalid image.",
+      code: "invalid_request",
+    },
+    {
+      lane: "gateway-deploy" as const,
+      attachment: false,
+      detail: "Invalid image.",
+      code: "invalid_request",
+    },
+    {
+      lane: "identity" as const,
+      attachment: true,
+      detail: "Invalid request.",
+      code: "invalid_request",
+    },
+    {
+      lane: "gateway-deploy" as const,
+      attachment: true,
+      detail: "Invalid request.",
+      code: "invalid_request",
+    },
+  ])(
+    "classifies detail-only attachment rejection on $lane (attachment=$attachment, code=$code)",
+    async ({ lane, attachment, detail, code }) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      credentialState.lane = lane;
+      vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+      vi.stubEnv("FUSION_ENVIRONMENT", undefined);
+      vi.stubEnv("FUSION_ENV_ORIGIN", undefined);
+      vi.stubEnv("VITE_FUSION_ENV_ORIGIN", undefined);
+      if (lane === "gateway-deploy")
+        vi.stubEnv("BUILDER_GATEWAY_TOKEN", "btk-site-token");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "invalid_request",
+              detail,
+              requestId: "req_attachment_example",
+            },
+          ]),
+        ),
+      );
+      const content: EngineStreamOptions["messages"][number]["content"] = [
+        { type: "text", text: "hello" },
+        ...(attachment
+          ? [
+              {
+                type: "image" as const,
+                data: "aW1hZ2U=",
+                mediaType: "image/png" as const,
+              },
+            ]
+          : []),
+      ];
+
+      await expect(
+        runAgentLoop({
+          engine: createBuilderEngine(),
+          model: BASE_OPTS.model,
+          systemPrompt: BASE_OPTS.systemPrompt,
+          tools: [],
+          messages: [{ role: "user", content }],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: code,
+        providerRetryable: false,
+        requestId: "req_attachment_example",
+        message:
+          lane === "gateway-deploy"
+            ? code === "invalid_attachment"
+              ? `The model provider rejected an attachment in this request: ${GATEWAY_UNAVAILABLE_VISITOR_MESSAGE}`
+              : GATEWAY_UNAVAILABLE_VISITOR_MESSAGE
+            : code === "invalid_attachment"
+              ? `The model provider rejected an attachment in this request: ${detail}`
+              : detail,
+      });
+      expect(warning.mock.calls.flat().join(" ")).not.toContain(detail);
+    },
+  );
+
+  it("retains gateway request metadata when detail-only overflow reaches the agent loop", async () => {
+    vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            detail: "prompt is too long",
+            requestId: "req_overflow_example",
+          },
+        ]),
+      ),
+    );
+
+    await expect(
+      runAgentLoop({
+        engine: createBuilderEngine(),
+        model: BASE_OPTS.model,
+        systemPrompt: BASE_OPTS.systemPrompt,
+        tools: [],
+        messages: BASE_OPTS.messages,
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "context_length_exceeded",
+      requestId: "req_overflow_example",
+      requestShape: {
+        model: BASE_OPTS.model,
+        payloadBytes: expect.any(Number),
+        toolCount: 0,
+        messageCount: 1,
+      },
+    });
+  });
 
   it("registers every gateway-failure classifier in these two modules", () => {
     const MARKERS = [
