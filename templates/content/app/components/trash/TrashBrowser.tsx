@@ -27,6 +27,7 @@ import {
   readTrashOperationId,
   reconcileTrashBrowseFilters,
   isRestoreBusyError,
+  restoredTrashItemIds,
   selectedTrashItems,
   trashActionError,
   trashFilterMembershipKey,
@@ -222,10 +223,29 @@ export function TrashBrowser({
   async function restoreSelected() {
     const target =
       selected.length === 1 && selected[0]?.canRestore ? selected[0] : null;
-    if (!target) return;
+    if (target) await restoreItem(target.documentId);
+  }
+
+  async function restoreItem(documentId: string) {
     try {
-      await restore.mutateAsync({ id: target.documentId });
-      setSelection(clearTrashSelection());
+      await restore.mutateAsync({ id: documentId });
+      // Restoring a row brings back its trashed subtree. Those rows leave the
+      // selection and the preview; the rest of the selection stays.
+      const restored = restoredTrashItemIds(
+        [...items, ...Object.values(nestedItems).flat()],
+        documentId,
+      );
+      setSelection((current) =>
+        current.mode === "loaded"
+          ? loadedTrashSelection(
+              current.documentIds.filter((id) => !restored.has(id)),
+            )
+          : current,
+      );
+      if (previewId && restored.has(previewId)) {
+        setPreviewId(null);
+        void navigate("/trash");
+      }
       toast.success(t("trash.restored"));
     } catch (error) {
       toast.error(t("trash.restoreFailed"), {
@@ -333,6 +353,8 @@ export function TrashBrowser({
                       )
                     }
                     onOpen={setPreviewId}
+                    onRestore={(id) => void restoreItem(id)}
+                    restorePending={restore.isPending}
                     onVisibleItemsChange={(children) =>
                       setNestedItems((current) => ({
                         ...current,
@@ -441,6 +463,8 @@ function TrashItemWithChildren({
   onSelectionChange,
   onToggle,
   onOpen,
+  onRestore,
+  restorePending,
   onVisibleItemsChange,
   focusedId,
   onRowFocus,
@@ -456,6 +480,8 @@ function TrashItemWithChildren({
   onSelectionChange: (ids: string[]) => void;
   onToggle: () => void;
   onOpen: (id: string) => void;
+  onRestore: (id: string) => void;
+  restorePending: boolean;
   onVisibleItemsChange: (items: ContentTrashItem[]) => void;
   focusedId: string | null;
   onRowFocus: (id: string) => void;
@@ -496,6 +522,8 @@ function TrashItemWithChildren({
         }
         onToggle={onToggle}
         onOpen={() => onOpen(item.documentId)}
+        onRestore={() => onRestore(item.documentId)}
+        restorePending={restorePending}
         focused={focusedId === item.documentId}
         rowRef={(node) => onRowRef(item.documentId, node)}
         onFocus={() => onRowFocus(item.documentId)}
@@ -527,6 +555,8 @@ function TrashItemWithChildren({
                   }
                   onToggle={() => {}}
                   onOpen={() => onOpen(child.documentId)}
+                  onRestore={() => onRestore(child.documentId)}
+                  restorePending={restorePending}
                   focused={focusedId === child.documentId}
                   rowRef={(node) => onRowRef(child.documentId, node)}
                   onFocus={() => onRowFocus(child.documentId)}

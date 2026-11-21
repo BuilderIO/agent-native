@@ -665,20 +665,28 @@ export function ContentTableSelectionBar({
 
 export const ContentTableRowActionButton = forwardRef<
   HTMLButtonElement,
-  Omit<ComponentProps<"button">, "children"> & { label: string }
->(function ContentTableRowActionButton({ label, className, ...props }, ref) {
+  Omit<ComponentProps<"button">, "children"> & {
+    label: string;
+    // Shows the label as the button's text, for an action no icon names plainly.
+    showLabel?: boolean;
+  }
+>(function ContentTableRowActionButton(
+  { label, showLabel = false, className, ...props },
+  ref,
+) {
   return (
     <button
       {...props}
       ref={ref}
       type="button"
-      aria-label={label}
+      aria-label={showLabel ? undefined : label}
       className={cn(
-        "flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 data-[state=open]:opacity-100 [@media(any-hover:none)]:opacity-100",
+        "flex h-7 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 data-[state=open]:opacity-100 [@media(any-hover:none)]:opacity-100",
+        showLabel ? "px-2 text-sm" : "w-7",
         className,
       )}
     >
-      <IconDots className="size-4" />
+      {showLabel ? label : <IconDots className="size-4" />}
     </button>
   );
 });

@@ -366,6 +366,23 @@ export function visibleTrashItems(
   );
 }
 
+/**
+ * The loaded rows that restoring `documentId` brings back: the row itself and
+ * the rows trashed with it. A sub-page trashed on its own has its own Trash
+ * root and stays in Trash, as restore-document does.
+ */
+export function restoredTrashItemIds(
+  loadedItems: ContentTrashItem[],
+  documentId: string,
+) {
+  return new Set([
+    documentId,
+    ...loadedItems
+      .filter((item) => item.trashRootId === documentId)
+      .map((item) => item.documentId),
+  ]);
+}
+
 export function trashSelectionState(
   visibleIds: string[],
   selectedIds: string[],

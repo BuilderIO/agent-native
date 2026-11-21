@@ -1,3 +1,4 @@
+import type { ContentTrashItem } from "@shared/content-trash";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +8,7 @@ import {
   loadedTrashSelection,
   nearestVisibleTrashRow,
   reconcileTrashBrowseFilters,
+  restoredTrashItemIds,
   selectedTrashItems,
   trashSelectionCount,
   trashSelectionPlanInput,
@@ -138,5 +140,23 @@ describe("Trash selection", () => {
     expect(nearestVisibleTrashRow([], ["a", "b"], null)).toBe("a");
     expect(nearestVisibleTrashRow(["a", "b", "c"], ["a", "c"], "b")).toBe("c");
     expect(nearestVisibleTrashRow(["a", "b", "c"], ["a"], "c")).toBe("a");
+  });
+
+  it("counts the rows trashed with a restored row, not sub-pages trashed on their own", () => {
+    const row = (documentId: string, trashRootId: string) =>
+      ({ documentId, trashRootId }) as ContentTrashItem;
+    const items = [
+      row("grandchild", "root"),
+      row("own-root", "own-root"),
+      row("child", "root"),
+      row("root", "root"),
+    ];
+
+    expect([...restoredTrashItemIds(items, "root")].sort()).toEqual([
+      "child",
+      "grandchild",
+      "root",
+    ]);
+    expect([...restoredTrashItemIds(items, "own-root")]).toEqual(["own-root"]);
   });
 });
