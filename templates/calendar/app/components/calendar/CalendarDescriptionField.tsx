@@ -43,7 +43,7 @@ export function CalendarDescriptionField({
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
-          if (event.key !== "Enter") return;
+          if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
           event.preventDefault();
           event.currentTarget.blur();
         }}
