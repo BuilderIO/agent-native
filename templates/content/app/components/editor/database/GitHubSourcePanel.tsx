@@ -1,5 +1,5 @@
 import type { ContentDatabaseSource } from "@shared/api";
-import { IconExternalLink } from "@tabler/icons-react";
+import { normalizeGitHubFolderPath } from "@shared/github-source";
 
 import { Button } from "@/components/ui/button";
 import { useGitHubConnection } from "@/hooks/use-github-folder";
@@ -13,9 +13,28 @@ import {
   type GitHubAvailability,
   type GitHubCollectionPlace,
 } from "./github-availability";
-import { GitHubFolderFacts, useSyncGitHubNow } from "./GitHubSourceStatusLine";
-import { SourceSyncNowButton, useNow } from "./SourceStatusLine";
-import { SourceUnlinkButton } from "./SourceUnlinkDialog";
+import {
+  GitHubProblemActions,
+  githubSourceCondition,
+  githubStoppedText,
+  githubSyncProgress,
+  useSyncGitHubNow,
+} from "./GitHubSourceStatusLine";
+import {
+  SourcePanel,
+  SourcePanelActions,
+  SourcePanelEditing,
+  SourcePanelMore,
+  SourcePanelOpenLink,
+  SourcePanelStatus,
+  SourcePanelUnlink,
+} from "./SourcePanel";
+import {
+  SentenceWithName,
+  SourceFacts,
+  SourceSyncNowButton,
+  useNow,
+} from "./SourceStatusLine";
 import { dbText } from "./text";
 
 function openLinkDialog(
@@ -98,38 +117,71 @@ function LinkedGitHubFolder({
   const sync = useSyncGitHubNow(source);
   const status = source.metadata.github;
   if (!status) return null;
+  const folder = normalizeGitHubFolderPath(status.path);
+  const repo = `${status.owner}/${status.repo}`;
+  const { problem, stops, syncing, paused, notes } =
+    githubSourceCondition(status);
   return (
-    <div className="grid min-w-0 gap-4" data-github-source-panel="linked">
-      <GitHubFolderFacts status={status} now={now} />
-      <div className="flex flex-wrap gap-1.5">
-        <Button asChild size="sm" variant="outline">
-          <a href={status.folderUrl} target="_blank" rel="noreferrer">
-            {dbText("githubOpenFolder")}
-            <IconExternalLink className="ms-1 size-3.5" aria-hidden />
-          </a>
-        </Button>
+    <SourcePanel provider="github">
+      <SentenceWithName
+        name={folder || repo}
+        sentence={(mark) =>
+          folder
+            ? dbText("sourcePanelFromGitHubFolder", { folder: mark, repo })
+            : dbText("sourcePanelFromGitHubRepo", { repo: mark })
+        }
+      />
+      <SourcePanelStatus
+        checkedAt={status.checkedAt ?? status.syncedAt}
+        now={now}
+        upToDate={!paused && !syncing}
+        problem={
+          problem && stops
+            ? {
+                text: githubStoppedText(problem.code, status, now),
+                actions: (
+                  <GitHubProblemActions
+                    status={status}
+                    code={problem.code}
+                    canEdit={place.canEdit}
+                    size="sm"
+                  />
+                ),
+              }
+            : null
+        }
+        progress={githubSyncProgress(status)}
+        notes={notes}
+      />
+      <SourcePanelEditing>{dbText("sourceEditingGitHub")}</SourcePanelEditing>
+      <SourcePanelActions>
         <SourceSyncNowButton
           size="sm"
           pending={sync.pending}
           onClick={sync.run}
         />
-      </div>
-      <div className="grid min-w-0 gap-2 border-t border-border pt-3">
-        <p className="break-words text-xs text-muted-foreground">
-          {dbText("githubExplainLinked")}
-        </p>
-        {place.canEdit ? (
-          <SourceUnlinkButton
-            provider="github"
-            documentId={place.documentId}
-            sourceId={source.id}
-            pageCount={place.pageCount}
-            disabled={sync.pending}
-            onUnlinked={onUnlinked}
-          />
-        ) : null}
-      </div>
-    </div>
+        <SourcePanelOpenLink
+          href={status.folderUrl}
+          label={dbText("githubOpenFolder")}
+        />
+      </SourcePanelActions>
+      <SourcePanelMore>
+        <SourceFacts
+          rows={[{ label: dbText("githubDetailBranch"), value: status.branch }]}
+        />
+      </SourcePanelMore>
+      {place.canEdit ? (
+        <SourcePanelUnlink
+          note={dbText("sourceUnlinkKeepsPages")}
+          provider="github"
+          documentId={place.documentId}
+          sourceId={source.id}
+          pageCount={place.pageCount}
+          disabled={sync.pending}
+          onUnlinked={onUnlinked}
+        />
+      ) : null}
+    </SourcePanel>
   );
 }
 

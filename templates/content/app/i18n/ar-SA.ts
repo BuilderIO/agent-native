@@ -144,6 +144,45 @@ const database = {
   githubNotShown: "{{count}} ملفات غير معروضة",
   githubNotShownHeading: "غير معروضة",
   sourceShowingPagesAsOf: "تُعرض الصفحات كما كانت {{time}}.",
+  sourcePanelFromGitHubFolder: "تأتي الصفحات من مجلد {{folder}} في {{repo}}.",
+  sourcePanelFromGitHubRepo: "تأتي الصفحات من {{repo}}.",
+  sourcePanelFromBuilderModel: "تأتي الصفحات من نموذج {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "تأتي التفاصيل من نموذج {{name}} وتُضاف إلى الصفحات المطابقة هنا.",
+  sourcePanelDetailsFromNotionDatabase:
+    "تأتي التفاصيل من قاعدة بيانات {{name}} وتُضاف إلى الصفحات المطابقة هنا.",
+  sourceUpToDate: "محدّث · تم التحقق {{time}}",
+  sourceNothingComingIn: "لا يصل أي شيء بعد.",
+  sourceLoadingPageContent: "جارٍ تحميل محتوى الصفحات: {{done}} من {{total}}",
+  sourceEditingGitHub: "لا يمكنك تعديل هذه الصفحات هنا. عدّلها على GitHub.",
+  sourceEditingNotion: "لا يمكنك تعديل تفاصيل Notion هنا. عدّلها في Notion.",
+  sourceEditingBuilderDetails:
+    "لا يمكنك تعديل تفاصيل Builder هنا. عدّلها في Builder.",
+  sourceEditingBuilderReadOnly: "لا تُرسل التعديلات التي تجريها هنا إلى Builder.",
+  sourceEditingBuilderStageOnly:
+    "تُحفظ التعديلات التي تجريها هنا في Builder للمراجعة، ولا تُنشر.",
+  sourceEditingBuilderPublish:
+    "تغيّر التعديلات التي تجريها هنا الموقع المباشر بعد المراجعة.",
+  sourceNoChangesWaiting: "لا توجد تغييرات بانتظار الإرسال",
+  sourcePagesChangedOne: "تغيّرت صفحة واحدة",
+  sourcePagesChanged: "تغيّرت {{count}} صفحات",
+  sourceChangesCheckFailed: "تعذّر التحقق من التغييرات.",
+  sourceReviewAndSend: "مراجعة وإرسال",
+  sourceMore: "المزيد",
+  sourceBuilderEditsHeading: "ماذا يحدث لتعديلاتي",
+  sourceBuilderEditsDontSend: "عدم الإرسال",
+  sourceBuilderEditsSaveForReview: "الحفظ في Builder للمراجعة",
+  sourceBuilderEditsPublish: "النشر على الموقع المباشر",
+  sourceBuilderPublishConfirmTitle: "هل تريد نشر التعديلات على الموقع المباشر؟",
+  sourceBuilderPublishConfirmBody:
+    "التعديلات التي ترسلها من هنا بعد المراجعة ستغيّر الموقع المباشر فورًا.",
+  sourceMatchedOn: "تُطابَق الصفحات حسب {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "تُطابَق الصفحات حسب {{field}}، مع تجاهل حالة الأحرف.",
+  sourceMatchedOnCustom: "تُطابَق الصفحات حسب {{field}} بقاعدة مخصّصة.",
+  sourceUnlinkKeepsPages: "تبقى الصفحات هنا وتصبح لك لتعديلها.",
+  sourceUnlinkKeepsDetailPages: "تبقى الصفحات هنا وتظل لك لتعديلها.",
+  sourceChooseDetails: "اختيار التفاصيل",
   githubSyncingProgress: "جارٍ جلب التغييرات: {{done}} من أصل {{total}} ملفات",
   githubPicturesWaiting:
     "لن تظهر بعض الصور حتى يُعدّ مشرف مساحة العمل تخزين الملفات.",

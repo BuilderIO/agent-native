@@ -19,7 +19,7 @@ import {
 } from "./SourceStatusLine";
 import { dbText } from "./text";
 
-function builderProgress(
+export function builderProgress(
   source: ContentDatabaseSource,
   clientError: boolean,
   progressHighWater: BuilderSourceProgressHighWater | undefined,
@@ -111,7 +111,33 @@ function builderProgress(
     percent: hydrating
       ? Math.round((hydratedCount / bodyHydration.total) * 100)
       : builderSourceContinuationProgressPercent(source),
+    content: hydrating
+      ? { done: hydratedCount, total: bodyHydration.total }
+      : null,
   };
+}
+
+export function builderSourceProblem(
+  source: ContentDatabaseSource,
+  progress: ReturnType<typeof builderProgress>,
+  now: number,
+) {
+  const failed =
+    progress?.failed === true ||
+    source.syncState === "error" ||
+    Boolean(source.lastError);
+  if (!failed) return null;
+  return [
+    dbText("sourceProblemBuilder"),
+    progress?.failed ? progress.detail : null,
+    source.lastRefreshedAt
+      ? dbText("sourceShowingPagesAsOf", {
+          time: sourceRelativeTime(source.lastRefreshedAt, now),
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function BuilderSourceStatusLine({
@@ -144,11 +170,7 @@ export function BuilderSourceStatusLine({
   const progress = addsDetails
     ? null
     : builderProgress(source, clientError, progressHighWater);
-  const failed =
-    progress?.failed === true ||
-    source.syncState === "error" ||
-    Boolean(source.lastError);
-  const failedDetail = progress?.failed ? progress.detail : null;
+  const problem = builderSourceProblem(source, progress, now);
 
   return (
     <SourceStatusLine
@@ -168,7 +190,7 @@ export function BuilderSourceStatusLine({
         />
       }
       onOpenSource={onOpenSource}
-      updated={failed ? null : sourceUpdatedText(source.lastRefreshedAt, now)}
+      updated={problem ? null : sourceUpdatedText(source.lastRefreshedAt, now)}
       facts={
         <SourceFacts
           rows={[
@@ -195,19 +217,9 @@ export function BuilderSourceStatusLine({
           : null
       }
       problem={
-        failed
+        problem
           ? {
-              text: [
-                dbText("sourceProblemBuilder"),
-                failedDetail,
-                source.lastRefreshedAt
-                  ? dbText("sourceShowingPagesAsOf", {
-                      time: sourceRelativeTime(source.lastRefreshedAt, now),
-                    })
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" "),
+              text: problem,
               actions: canEdit ? (
                 <Button
                   type="button"

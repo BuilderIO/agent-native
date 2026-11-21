@@ -22,20 +22,10 @@ function asSentence(reason: string | null) {
   return /[.!?…。！？]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
-export function NotionSourceStatusLine({
-  source,
-  documentId,
-  canEdit,
-  pageCount,
-  onOpenSource,
-}: {
-  source: ContentDatabaseSource;
-  documentId: string;
-  canEdit: boolean;
-  pageCount: number;
-  onOpenSource?: (() => void) | undefined;
-}) {
-  const now = useNow();
+export function useNotionSyncNow(
+  source: ContentDatabaseSource,
+  documentId: string,
+) {
   const refresh = useRefreshContentDatabaseSource(documentId);
   const [failure, setFailure] = useState<{
     reason: string | null;
@@ -64,6 +54,46 @@ export function NotionSourceStatusLine({
         },
       },
     );
+
+  return { refresh, failed, reason, syncNow };
+}
+
+export function notionSourceProblem(
+  source: ContentDatabaseSource,
+  reason: string | null,
+  now: number,
+) {
+  return [
+    dbText("sourceProblemNotion"),
+    asSentence(reason),
+    source.lastRefreshedAt
+      ? dbText("sourceShowingDetailsAsOf", {
+          time: sourceRelativeTime(source.lastRefreshedAt, now),
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function NotionSourceStatusLine({
+  source,
+  documentId,
+  canEdit,
+  pageCount,
+  onOpenSource,
+}: {
+  source: ContentDatabaseSource;
+  documentId: string;
+  canEdit: boolean;
+  pageCount: number;
+  onOpenSource?: (() => void) | undefined;
+}) {
+  const now = useNow();
+  const { refresh, failed, reason, syncNow } = useNotionSyncNow(
+    source,
+    documentId,
+  );
 
   return (
     <SourceStatusLine
@@ -106,17 +136,7 @@ export function NotionSourceStatusLine({
       problem={
         failed
           ? {
-              text: [
-                dbText("sourceProblemNotion"),
-                asSentence(reason),
-                source.lastRefreshedAt
-                  ? dbText("sourceShowingDetailsAsOf", {
-                      time: sourceRelativeTime(source.lastRefreshedAt, now),
-                    })
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" "),
+              text: notionSourceProblem(source, reason, now),
               actions: canEdit ? (
                 <Button
                   type="button"

@@ -154,6 +154,54 @@ const database = {
   githubNotShown: "{{count}} archivos no se muestran",
   githubNotShownHeading: "No se muestran",
   sourceShowingPagesAsOf: "Se muestran las páginas tal como estaban {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Las páginas vienen de la carpeta {{folder}} de {{repo}}.",
+  sourcePanelFromGitHubRepo: "Las páginas vienen de {{repo}}.",
+  sourcePanelFromBuilderModel: "Las páginas vienen del modelo {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Los detalles vienen del modelo {{name}} y se añaden a las páginas que coinciden aquí.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Los detalles vienen de la base de datos {{name}} y se añaden a las páginas que coinciden aquí.",
+  sourceUpToDate: "Al día · comprobado {{time}}",
+  sourceNothingComingIn: "Todavía no llega nada.",
+  sourceLoadingPageContent:
+    "Cargando el contenido de las páginas: {{done}} de {{total}}",
+  sourceEditingGitHub:
+    "No puedes editar estas páginas aquí. Edítalas en GitHub.",
+  sourceEditingNotion:
+    "No puedes editar aquí los detalles de Notion. Edítalos en Notion.",
+  sourceEditingBuilderDetails:
+    "No puedes editar aquí los detalles de Builder. Edítalos en Builder.",
+  sourceEditingBuilderReadOnly:
+    "Los cambios que hagas aquí no se envían a Builder.",
+  sourceEditingBuilderStageOnly:
+    "Los cambios que hagas aquí se guardan en Builder para revisarlos, sin publicarse.",
+  sourceEditingBuilderPublish:
+    "Los cambios que hagas aquí cambian el sitio en vivo después de revisarlos.",
+  sourceNoChangesWaiting: "No hay cambios pendientes",
+  sourcePagesChangedOne: "1 página cambiada",
+  sourcePagesChanged: "{{count}} páginas cambiadas",
+  sourceChangesCheckFailed: "No se pudo comprobar si hay cambios.",
+  sourceReviewAndSend: "Revisar y enviar",
+  sourceMore: "Más",
+  sourceBuilderEditsHeading: "Qué pasa con mis cambios",
+  sourceBuilderEditsDontSend: "No enviar",
+  sourceBuilderEditsSaveForReview: "Guardar en Builder para revisar",
+  sourceBuilderEditsPublish: "Publicar en el sitio en vivo",
+  sourceBuilderPublishConfirmTitle:
+    "¿Publicar los cambios en el sitio en vivo?",
+  sourceBuilderPublishConfirmBody:
+    "Los cambios que envíes desde aquí después de revisarlos cambiarán el sitio en vivo al momento.",
+  sourceMatchedOn: "Las páginas se emparejan por {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "Las páginas se emparejan por {{field}}, sin tener en cuenta mayúsculas.",
+  sourceMatchedOnCustom:
+    "Las páginas se emparejan por {{field}} con una regla propia.",
+  sourceUnlinkKeepsPages:
+    "Las páginas se quedan aquí y pasan a ser tuyas para editarlas.",
+  sourceUnlinkKeepsDetailPages:
+    "Las páginas se quedan aquí y siguen siendo tuyas para editarlas.",
+  sourceChooseDetails: "Elegir detalles",
   githubSyncingProgress: "Trayendo cambios: {{done}} de {{total}} archivos",
   githubPicturesWaiting:
     "Algunas imágenes no se mostrarán hasta que un administrador del espacio de trabajo configure el almacenamiento de archivos.",

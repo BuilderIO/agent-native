@@ -151,6 +151,50 @@ const database = {
   githubNotShown: "파일 {{count}}개 표시 안 됨",
   githubNotShownHeading: "표시되지 않음",
   sourceShowingPagesAsOf: "{{time}} 기준 페이지를 표시하고 있습니다.",
+  sourcePanelFromGitHubFolder:
+    "페이지는 {{repo}}의 {{folder}} 폴더에서 가져옵니다.",
+  sourcePanelFromGitHubRepo: "페이지는 {{repo}}에서 가져옵니다.",
+  sourcePanelFromBuilderModel: "페이지는 {{name}} 모델에서 가져옵니다.",
+  sourcePanelDetailsFromBuilderModel:
+    "세부 정보는 {{name}} 모델에서 가져와 여기의 일치하는 페이지에 추가됩니다.",
+  sourcePanelDetailsFromNotionDatabase:
+    "세부 정보는 {{name}} 데이터베이스에서 가져와 여기의 일치하는 페이지에 추가됩니다.",
+  sourceUpToDate: "최신 상태 · {{time}} 확인",
+  sourceNothingComingIn: "아직 들어오는 내용이 없습니다.",
+  sourceLoadingPageContent:
+    "페이지 내용 불러오는 중: {{total}}개 중 {{done}}개",
+  sourceEditingGitHub:
+    "이 페이지는 여기서 편집할 수 없습니다. GitHub에서 편집하세요.",
+  sourceEditingNotion:
+    "Notion의 세부 정보는 여기서 편집할 수 없습니다. Notion에서 편집하세요.",
+  sourceEditingBuilderDetails:
+    "Builder의 세부 정보는 여기서 편집할 수 없습니다. Builder에서 편집하세요.",
+  sourceEditingBuilderReadOnly: "여기서 한 편집은 Builder로 보내지지 않습니다.",
+  sourceEditingBuilderStageOnly:
+    "여기서 한 편집은 검토용으로 Builder에 저장되며 게시되지 않습니다.",
+  sourceEditingBuilderPublish:
+    "여기서 한 편집은 검토 후 라이브 사이트에 반영됩니다.",
+  sourceNoChangesWaiting: "대기 중인 변경 사항 없음",
+  sourcePagesChangedOne: "페이지 1개 변경됨",
+  sourcePagesChanged: "페이지 {{count}}개 변경됨",
+  sourceChangesCheckFailed: "변경 사항을 확인하지 못했습니다.",
+  sourceReviewAndSend: "검토 후 보내기",
+  sourceMore: "더 보기",
+  sourceBuilderEditsHeading: "내 편집 내용 처리 방식",
+  sourceBuilderEditsDontSend: "보내지 않기",
+  sourceBuilderEditsSaveForReview: "검토용으로 Builder에 저장",
+  sourceBuilderEditsPublish: "라이브 사이트에 게시",
+  sourceBuilderPublishConfirmTitle: "편집 내용을 라이브 사이트에 게시할까요?",
+  sourceBuilderPublishConfirmBody:
+    "검토 후 여기서 보낸 편집 내용은 바로 라이브 사이트에 반영됩니다.",
+  sourceMatchedOn: "페이지는 {{field}} 기준으로 연결됩니다.",
+  sourceMatchedOnIgnoringCase:
+    "페이지는 {{field}} 기준으로 연결되며, 대소문자는 무시합니다.",
+  sourceMatchedOnCustom:
+    "페이지는 사용자 지정 규칙에 따라 {{field}} 기준으로 연결됩니다.",
+  sourceUnlinkKeepsPages: "페이지는 여기에 남고 직접 편집할 수 있게 됩니다.",
+  sourceUnlinkKeepsDetailPages: "페이지는 여기에 남고 계속 편집할 수 있습니다.",
+  sourceChooseDetails: "세부 정보 선택",
   githubSyncingProgress:
     "변경 사항을 가져오는 중: 파일 {{total}}개 중 {{done}}개",
   githubPicturesWaiting:

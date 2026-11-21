@@ -157,6 +157,46 @@ const databaseMessages = {
   githubNotShown: "{{count}} files not shown",
   githubNotShownHeading: "Not shown",
   sourceShowingPagesAsOf: "Showing pages as of {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Pages come from the {{folder}} folder in {{repo}}.",
+  sourcePanelFromGitHubRepo: "Pages come from {{repo}}.",
+  sourcePanelFromBuilderModel: "Pages come from the {{name}} model.",
+  sourcePanelDetailsFromBuilderModel:
+    "Details come from the {{name}} model, added to matching pages here.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Details come from the {{name}} database, added to matching pages here.",
+  sourceUpToDate: "Up to date · checked {{time}}",
+  sourceNothingComingIn: "Nothing is coming in yet.",
+  sourceLoadingPageContent: "Loading page content, {{done}} of {{total}}",
+  sourceEditingGitHub: "You can’t edit these pages here. Edit them on GitHub.",
+  sourceEditingNotion:
+    "You can’t edit Notion’s details here. Edit them in Notion.",
+  sourceEditingBuilderDetails:
+    "You can’t edit Builder’s details here. Edit them in Builder.",
+  sourceEditingBuilderReadOnly: "Edits here aren’t sent to Builder.",
+  sourceEditingBuilderStageOnly:
+    "Edits here are saved to Builder for review, not published.",
+  sourceEditingBuilderPublish: "Edits here change the live site after review.",
+  sourceNoChangesWaiting: "No changes waiting",
+  sourcePagesChangedOne: "1 page changed",
+  sourcePagesChanged: "{{count}} pages changed",
+  sourceChangesCheckFailed: "Couldn’t check for changes.",
+  sourceReviewAndSend: "Review and send",
+  sourceMore: "More",
+  sourceBuilderEditsHeading: "What happens to my edits",
+  sourceBuilderEditsDontSend: "Don’t send",
+  sourceBuilderEditsSaveForReview: "Save to Builder for review",
+  sourceBuilderEditsPublish: "Publish to the live site",
+  sourceBuilderPublishConfirmTitle: "Publish edits to the live site?",
+  sourceBuilderPublishConfirmBody:
+    "Edits you send from here after review will change the live site right away.",
+  sourceMatchedOn: "Pages are matched on {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "Pages are matched on {{field}}, ignoring capitals.",
+  sourceMatchedOnCustom: "Pages are matched on {{field}} with a custom rule.",
+  sourceUnlinkKeepsPages: "The pages stay here and become yours to edit.",
+  sourceUnlinkKeepsDetailPages: "The pages stay here and stay yours to edit.",
+  sourceChooseDetails: "Choose details",
   githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
   githubPicturesWaiting:
     "Some pictures won’t show until a workspace admin sets up file storage.",

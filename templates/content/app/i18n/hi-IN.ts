@@ -145,6 +145,48 @@ const database = {
   githubNotShown: "{{count}} फ़ाइलें नहीं दिखाई गईं",
   githubNotShownHeading: "नहीं दिखाई गईं",
   sourceShowingPagesAsOf: "पेज {{time}} की स्थिति में दिखाए जा रहे हैं।",
+  sourcePanelFromGitHubFolder: "पेज {{repo}} के {{folder}} फ़ोल्डर से आते हैं।",
+  sourcePanelFromGitHubRepo: "पेज {{repo}} से आते हैं।",
+  sourcePanelFromBuilderModel: "पेज {{name}} मॉडल से आते हैं।",
+  sourcePanelDetailsFromBuilderModel:
+    "विवरण {{name}} मॉडल से आते हैं और यहाँ मेल खाने वाले पेजों में जुड़ते हैं।",
+  sourcePanelDetailsFromNotionDatabase:
+    "विवरण {{name}} डेटाबेस से आते हैं और यहाँ मेल खाने वाले पेजों में जुड़ते हैं।",
+  sourceUpToDate: "अप टू डेट · {{time}} जाँचा गया",
+  sourceNothingComingIn: "अभी कुछ नहीं आ रहा है।",
+  sourceLoadingPageContent: "पेज की सामग्री लोड हो रही है: {{total}} में से {{done}}",
+  sourceEditingGitHub:
+    "आप इन पेजों को यहाँ संपादित नहीं कर सकते। इन्हें GitHub पर संपादित करें।",
+  sourceEditingNotion:
+    "आप Notion के विवरण यहाँ संपादित नहीं कर सकते। इन्हें Notion में संपादित करें।",
+  sourceEditingBuilderDetails:
+    "आप Builder के विवरण यहाँ संपादित नहीं कर सकते। इन्हें Builder में संपादित करें।",
+  sourceEditingBuilderReadOnly: "यहाँ किए गए बदलाव Builder को नहीं भेजे जाते।",
+  sourceEditingBuilderStageOnly:
+    "यहाँ किए गए बदलाव समीक्षा के लिए Builder में सहेजे जाते हैं, प्रकाशित नहीं होते।",
+  sourceEditingBuilderPublish:
+    "यहाँ किए गए बदलाव समीक्षा के बाद लाइव साइट बदलते हैं।",
+  sourceNoChangesWaiting: "कोई बदलाव बाकी नहीं",
+  sourcePagesChangedOne: "1 पेज बदला गया",
+  sourcePagesChanged: "{{count}} पेज बदले गए",
+  sourceChangesCheckFailed: "बदलाव जाँचे नहीं जा सके।",
+  sourceReviewAndSend: "समीक्षा करें और भेजें",
+  sourceMore: "और",
+  sourceBuilderEditsHeading: "मेरे बदलावों का क्या होता है",
+  sourceBuilderEditsDontSend: "न भेजें",
+  sourceBuilderEditsSaveForReview: "समीक्षा के लिए Builder में सहेजें",
+  sourceBuilderEditsPublish: "लाइव साइट पर प्रकाशित करें",
+  sourceBuilderPublishConfirmTitle: "बदलाव लाइव साइट पर प्रकाशित करें?",
+  sourceBuilderPublishConfirmBody:
+    "समीक्षा के बाद यहाँ से भेजे गए बदलाव तुरंत लाइव साइट बदल देंगे।",
+  sourceMatchedOn: "पेज {{field}} के आधार पर मिलाए जाते हैं।",
+  sourceMatchedOnIgnoringCase:
+    "पेज {{field}} के आधार पर मिलाए जाते हैं, बड़े-छोटे अक्षरों को अनदेखा करके।",
+  sourceMatchedOnCustom: "पेज {{field}} के आधार पर एक कस्टम नियम से मिलाए जाते हैं।",
+  sourceUnlinkKeepsPages: "पेज यहीं रहेंगे और आप उन्हें संपादित कर सकेंगे।",
+  sourceUnlinkKeepsDetailPages:
+    "पेज यहीं रहेंगे और आप उन्हें पहले की तरह संपादित कर सकेंगे।",
+  sourceChooseDetails: "विवरण चुनें",
   githubSyncingProgress: "बदलाव लाए जा रहे हैं: {{total}} में से {{done}} फ़ाइलें",
   githubPicturesWaiting:
     "जब तक वर्कस्पेस एडमिन फ़ाइल स्टोरेज सेट नहीं करते, तब तक कुछ इमेज नहीं दिखेंगी।",
