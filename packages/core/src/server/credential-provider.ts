@@ -283,6 +283,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "WHATSAPP_PHONE_NUMBER_ID",
   "MICROSOFT_TEAMS_APP_ID",
   "MICROSOFT_TEAMS_APP_PASSWORD",
+  // Single-tenant Teams apps get their reply token from this tenant.
+  "MICROSOFT_TEAMS_APP_TENANT_ID",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
 ]);

@@ -17,8 +17,12 @@ vi.mock("../../db/client.js", async (importOriginal) => ({
   isLocalDatabase: () => false,
 }));
 
+import { resolveSecret } from "../../server/credential-provider.js";
 import { runWithRequestContext } from "../../server/request-context.js";
-import { microsoftTeamsAdapter } from "./microsoft-teams.js";
+import {
+  clearMicrosoftTeamsAccessTokenCache,
+  microsoftTeamsAdapter,
+} from "./microsoft-teams.js";
 import { telegramAdapter } from "./telegram.js";
 import { whatsappAdapter } from "./whatsapp.js";
 
@@ -29,21 +33,36 @@ const KEYS = [
   "MICROSOFT_TEAMS_APP_ID",
   "MICROSOFT_TEAMS_APP_PASSWORD",
 ];
+// Read only by webhook checks, which run before any user is known.
+const WEBHOOK_CHECK_KEYS = [
+  "WHATSAPP_APP_SECRET",
+  "WHATSAPP_VERIFY_TOKEN",
+  "MICROSOFT_TEAMS_ALLOWED_TENANT_IDS",
+];
 const saved: Record<string, string | undefined> = {};
 let urls: string[] = [];
+let replyStatus = 200;
 
 beforeEach(() => {
   saved.NODE_ENV = process.env.NODE_ENV;
   process.env.NODE_ENV = "production";
-  for (const key of KEYS) {
+  for (const key of [...KEYS, ...WEBHOOK_CHECK_KEYS]) {
     saved[key] = process.env[key];
     process.env[key] = `fake-${key.toLowerCase()}`;
   }
+  saved.MICROSOFT_TEAMS_APP_TENANT_ID =
+    process.env.MICROSOFT_TEAMS_APP_TENANT_ID;
+  delete process.env.MICROSOFT_TEAMS_APP_TENANT_ID;
+  clearMicrosoftTeamsAccessTokenCache();
   urls = [];
+  replyStatus = 200;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => {
       urls.push(String(url));
+      if (String(url).includes("/v3/conversations/") && replyStatus !== 200) {
+        return new Response("{}", { status: replyStatus });
+      }
       const body = String(url).includes("oauth2")
         ? { access_token: "fake-teams-access", expires_in: 3600 }
         : {
@@ -111,25 +130,66 @@ describe("replies use bot credentials set as environment variables in production
   });
 
   it("sends a Microsoft Teams reply", async () => {
-    await asIntegrationRun("microsoft-teams", () =>
-      microsoftTeamsAdapter().sendResponse(
-        { text: "hello", platformContext: {} },
-        {
-          platform: "microsoft-teams",
-          externalThreadId: "conversation-1",
-          text: "hi",
-          senderId: "user-1",
-          timestamp: 1,
-          replyRef: "activity-1",
-          platformContext: {
-            serviceUrl: "https://smba.trafficmanager.net/teams/",
-            conversationId: "conversation-1",
-            activityId: "activity-1",
-            recipient: { id: "bot-1" },
-          },
-        },
+    await expect(
+      asIntegrationRun("microsoft-teams", () =>
+        microsoftTeamsAdapter().sendResponse(
+          { text: "hello", platformContext: {} },
+          teamsReplyContext(),
+        ),
       ),
-    ).catch(() => undefined);
+    ).resolves.toEqual({ status: "delivered" });
     expect(urls.some((url) => url.includes("/v3/conversations/"))).toBe(true);
   });
+
+  it("reports a Microsoft Teams reply the service refused", async () => {
+    replyStatus = 500;
+    await expect(
+      asIntegrationRun("microsoft-teams", () =>
+        microsoftTeamsAdapter().sendResponse(
+          { text: "hello", platformContext: {} },
+          teamsReplyContext(),
+        ),
+      ),
+    ).rejects.toThrow("Microsoft Teams reply failed (HTTP 500)");
+  });
+
+  it("gets the Microsoft Teams token from the tenant of a single-tenant app", async () => {
+    process.env.MICROSOFT_TEAMS_APP_TENANT_ID = "example-tenant";
+    await expect(
+      asIntegrationRun("microsoft-teams", () =>
+        microsoftTeamsAdapter().sendResponse(
+          { text: "hello", platformContext: {} },
+          teamsReplyContext(),
+        ),
+      ),
+    ).resolves.toEqual({ status: "delivered" });
+    expect(urls).toContain(
+      "https://login.microsoftonline.com/example-tenant/oauth2/v2.0/token",
+    );
+  });
 });
+
+describe("webhook checks run before any user is known", () => {
+  it("read their values from environment variables in production", async () => {
+    for (const key of WEBHOOK_CHECK_KEYS) {
+      expect(await resolveSecret(key)).toBe(`fake-${key.toLowerCase()}`);
+    }
+  });
+});
+
+function teamsReplyContext() {
+  return {
+    platform: "microsoft-teams",
+    externalThreadId: "conversation-1",
+    text: "hi",
+    senderId: "user-1",
+    timestamp: 1,
+    replyRef: "activity-1",
+    platformContext: {
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+      conversationId: "conversation-1",
+      activityId: "activity-1",
+      recipient: { id: "bot-1" },
+    },
+  };
+}
