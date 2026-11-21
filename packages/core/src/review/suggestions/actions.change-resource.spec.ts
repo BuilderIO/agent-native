@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import type { ActionRunContext } from "../../action.js";
 import {
   createResourceSuggestion,
   createResourceSuggestionProposal,
   decideResourceSuggestion,
   decideResourceSuggestionProposal,
+  getResourceSuggestion,
+  getResourceSuggestionProposalByCreationKey,
+  listResourceSuggestions,
   updateResourceSuggestion,
 } from "./actions.js";
 import type { ResourceSuggestion } from "./types.js";
@@ -72,4 +76,43 @@ describe("suggestion change events", () => {
       ).toBeNull();
     }
   });
+});
+
+describe("suggestion actions over MCP", () => {
+  it.each([
+    ["create-resource-suggestion", createResourceSuggestion],
+    ["create-resource-suggestion-proposal", createResourceSuggestionProposal],
+    ["get-resource-suggestion", getResourceSuggestion],
+    [
+      "get-resource-suggestion-proposal-by-creation-key",
+      getResourceSuggestionProposalByCreationKey,
+    ],
+    ["list-resource-suggestions", listResourceSuggestions],
+    ["update-resource-suggestion", updateResourceSuggestion],
+  ] as const)(
+    "serves %s to outside agents unlisted, through tool search",
+    (_name, action) => {
+      expect(action.mcpTool).toBe("search");
+    },
+  );
+
+  it.each([
+    ["decide-resource-suggestion", decideResourceSuggestion],
+    ["decide-resource-suggestion-proposal", decideResourceSuggestionProposal],
+  ] as const)(
+    "serves %s unlisted, and asks only outside agents to approve it",
+    async (_name, action) => {
+      expect(action.mcpTool).toBe("search");
+      const approves = action.needsApproval as (
+        args: unknown,
+        ctx?: ActionRunContext,
+      ) => boolean | Promise<boolean>;
+      expect(await approves({}, { caller: "tool" } as ActionRunContext)).toBe(
+        false,
+      );
+      expect(await approves({}, { caller: "mcp" } as ActionRunContext)).toBe(
+        true,
+      );
+    },
+  );
 });

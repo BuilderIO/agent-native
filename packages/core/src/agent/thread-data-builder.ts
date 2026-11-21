@@ -4620,10 +4620,26 @@ function collectPrivateSnapshotContextForRepos(
       privateMessageIds,
       foundPrivateContent,
     );
-    const agentKit = (candidate as { agentKit?: unknown } | null | undefined)
-      ?.agentKit;
-    for (const [messageId, runId] of snapshotMessageRunIds(agentKit)) {
+  }
+  for (const candidate of repos) {
+    const record = candidate as {
+      agentKit?: unknown;
+      messages?: unknown;
+    } | null;
+    for (const [messageId, runId] of snapshotMessageRunIds(record?.agentKit)) {
       if (privateRunIds.has(runId)) privateMessageIds.add(messageId);
+    }
+    for (const entry of Array.isArray(record?.messages)
+      ? record.messages
+      : []) {
+      const message = entry?.message ?? entry;
+      if (
+        message?.role === "assistant" &&
+        typeof message.id === "string" &&
+        foldedRunIdsOf(message).some((id) => privateRunIds.has(id))
+      ) {
+        privateMessageIds.add(message.id);
+      }
     }
   }
   return {
@@ -4678,6 +4694,10 @@ export function hasPrivateRunProjections(
         ? messageRuns.get(message.id)
         : undefined);
     if (typeof runId === "string") projected.add(runId);
+    if (typeof message.id === "string") {
+      for (const foldedRunId of foldedRunIdsOf(message))
+        projected.add(foldedRunId);
+    }
   }
   return privateRunIds.every((id) => projected.has(id));
 }

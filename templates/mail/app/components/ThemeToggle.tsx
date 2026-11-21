@@ -22,6 +22,9 @@ export function ThemeToggle({ className }: { className?: string }) {
   const resolved = getResolvedTheme(resolvedTheme);
   const isDark = mounted ? resolved === "dark" : false;
   const toggleTheme = () => setTheme(getNextTheme(theme, resolvedTheme));
+  const label = t(
+    isDark ? "commandPalette.toggleLight" : "commandPalette.toggleDark",
+  );
 
   return (
     <Tooltip>
@@ -30,6 +33,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           variant="ghost"
           size="icon"
           onClick={toggleTheme}
+          aria-label={label}
           className={cn("h-7 w-7 text-muted-foreground", className)}
         >
           {mounted ? (
@@ -43,9 +47,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           )}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>
-        {t(isDark ? "commandPalette.toggleLight" : "commandPalette.toggleDark")}
-      </TooltipContent>
+      <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   );
 }

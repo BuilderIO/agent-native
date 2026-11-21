@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   navigateAfterWrite: vi.fn(),
   trackRecordingCreated: vi.fn(),
   validateRecordingScope: vi.fn(),
+  recordingMadeBy: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -30,6 +31,9 @@ vi.mock("../../server/db/index.js", () => ({
 vi.mock("../../server/lib/recording-created.js", () => ({
   trackRecordingCreated: (...args: unknown[]) =>
     mocks.trackRecordingCreated(...args),
+}));
+vi.mock("../../server/lib/recording-made-by.js", () => ({
+  recordingMadeBy: (...args: unknown[]) => mocks.recordingMadeBy(...args),
 }));
 vi.mock("../../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
@@ -111,6 +115,31 @@ describe("importYouTubeVideo", () => {
         recordingId: "rec-youtube",
       },
       { ctx: { userEmail: "owner@example.com" } },
+    );
+  });
+
+  it("saves who made the Clip from the import's own caller", async () => {
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      oembedResponse(200, { type: "video", width: 200, height: 150 }),
+    );
+    mocks.recordingMadeBy.mockReturnValueOnce({
+      madeBy: "agent",
+      madeByAgent: "Claude",
+    });
+    const actionContext = {
+      userEmail: "owner@example.com",
+      caller: "mcp" as const,
+      mcpClient: { name: "claude-code" },
+    };
+
+    await importYouTubeVideo(
+      { url: "https://youtu.be/jNQXAC9IVRw" },
+      actionContext,
+    );
+
+    expect(mocks.recordingMadeBy).toHaveBeenCalledWith(actionContext);
+    expect(mocks.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ madeBy: "agent", madeByAgent: "Claude" }),
     );
   });
 

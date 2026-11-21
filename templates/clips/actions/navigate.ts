@@ -1,9 +1,11 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   navigationIntentSchema,
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
+
+import { unreadLibraryFilterParts } from "../shared/library-filters.js";
 
 const Views = [
   "library",
@@ -46,6 +48,10 @@ export default defineAction({
         .string()
         .optional()
         .describe("Meeting id — for view=meeting"),
+      meetingsTab: z
+        .enum(["agenda", "past"])
+        .optional()
+        .describe("Meetings tab — for view=meetings ('agenda' or 'past')"),
       dictationId: z
         .string()
         .optional()
@@ -65,6 +71,12 @@ export default defineAction({
         .string()
         .optional()
         .describe("Library search term (sets ?q=… on library/space)"),
+      filters: z
+        .string()
+        .optional()
+        .describe(
+          "For view=library: the Library's filter, written as the query of a Library link, such as source=content or source=all&r=madeBy:equals:agent. See list-recordings' filters for the fields.",
+        ),
       panel: z
         .enum([
           "comments",
@@ -95,17 +107,29 @@ export default defineAction({
       message: "A nonempty view or path is required",
     }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const path = args.path?.trim() ? args.path : undefined;
     const nav: Record<string, string | number> = {};
     if (args.view) nav.view = args.view;
     if (args.recordingId) nav.recordingId = args.recordingId;
     if (args.meetingId) nav.meetingId = args.meetingId;
+    if (args.meetingsTab) nav.meetingsTab = args.meetingsTab;
     if (args.dictationId) nav.dictationId = args.dictationId;
     if (args.spaceId) nav.spaceId = args.spaceId;
     if (args.folderId) nav.folderId = args.folderId;
     if (args.shareId) nav.shareId = args.shareId;
     if (args.search) nav.search = args.search;
+    if (args.filters) {
+      const unread = unreadLibraryFilterParts(args.filters);
+      if (unread.length > 0) {
+        fail(
+          `Library's filter can't read ${unread.join(", ")}. See list-recordings' filters for the fields and values.`,
+          { errorCode: "invalid_filters", details: { unread } },
+        );
+      }
+      nav.filters = args.filters;
+    }
     if (args.panel) nav.panel = args.panel;
     if (args.atMs != null) nav.atMs = args.atMs;
     if (path) nav.path = path;
@@ -116,6 +140,7 @@ export default defineAction({
         args.view,
         args.recordingId,
         args.meetingId,
+        args.meetingsTab,
         args.dictationId,
         args.spaceId,
         args.folderId,

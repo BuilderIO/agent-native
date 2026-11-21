@@ -1063,7 +1063,7 @@ test("failed Screen deletion keeps the explicit Screen target for retry", async 
 
   app.allowFailure(
     /delete-file|intentional E2E route failure|status of 500|^error toast Something went wrong\. Try again\.$/,
-    "the scenario injects a 500 on the first delete-file, reported with the shared generic copy",
+    "the scenario injects a 500 on the first delete-file",
   );
   await page.route("**/_agent-native/actions/delete-file", failFirstDelete);
   await page.keyboard.press("Delete");
@@ -1125,7 +1125,7 @@ test("a newer layer selection survives failed Screen deletion settlement", async
     );
     app.allowFailure(
       /delete-file|intentional E2E route failure|status of 500|^error toast Something went wrong\. Try again\.$/,
-      "the scenario injects a 500 on the first delete-file, reported with the shared generic copy",
+      "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {
       const body = route.request().postDataJSON() as {
@@ -1193,7 +1193,7 @@ test("a newer Screen pick survives failed Screen deletion settlement", async ({
 
     app.allowFailure(
       /delete-file|intentional E2E route failure|status of 500|^error toast Something went wrong\. Try again\.$/,
-      "the scenario injects a 500 on the first delete-file, reported with the shared generic copy",
+      "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {
       const body = route.request().postDataJSON() as {
@@ -1261,7 +1261,7 @@ test("a newer sidebar Screen selection survives failed Screen deletion settlemen
 
     app.allowFailure(
       /delete-file|intentional E2E route failure|status of 500|^error toast Something went wrong\. Try again\.$/,
-      "the scenario injects a 500 on the first delete-file, reported with the shared generic copy",
+      "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {
       signalFirstDelete();
@@ -1333,7 +1333,7 @@ test("Select All Screens survives failed Screen deletion settlement", async ({
 
     app.allowFailure(
       /delete-file|intentional E2E route failure|status of 500|^error toast Something went wrong\. Try again\.$/,
-      "the scenario injects a 500 on the first delete-file, reported with the shared generic copy",
+      "the scenario injects a 500 on the first delete-file",
     );
     await page.route("**/_agent-native/actions/delete-file", async (route) => {
       signalFirstDelete();

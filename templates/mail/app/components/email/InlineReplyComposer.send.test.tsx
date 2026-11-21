@@ -61,6 +61,9 @@ vi.mock("@/lib/utils", () => ({
     values.filter(Boolean).join(" "),
 }));
 vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
+vi.mock("./AttachFromContentButton", () => ({
+  AttachFromContentButton: () => null,
+}));
 vi.mock("./ComposeEditor", async () => {
   const React = await import("react");
   return {

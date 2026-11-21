@@ -47,7 +47,7 @@ function EventMarkerBadge({
     return null;
   }
   const cx = viewBox.x;
-  const cy = viewBox.y + viewBox.height;
+  const cy = viewBox.y + MARKER_REACH;
   const headerDate = group.events[0].date;
   return (
     <ZIndexLayer zIndex={MARKER_Z_INDEX}>
@@ -87,10 +87,8 @@ function EventMarkerBadge({
             />
           </g>
         </HoverCardTrigger>
-        {/* Markers sit on the x-axis, so the card opens up over the chart, as a
-          data note's opens down from its pill. */}
         <HoverCardContent
-          side="top"
+          side="bottom"
           collisionPadding={8}
           className="w-auto max-w-72 p-2.5 text-xs"
         >
@@ -124,6 +122,38 @@ function EventMarkerBadge({
         </HoverCardContent>
       </HoverCard>
     </ZIndexLayer>
+  );
+}
+
+export function EventMarkerList({
+  groups,
+}: {
+  groups: readonly PanelEventGroup[];
+}) {
+  if (groups.length === 0) return null;
+  return (
+    <ul
+      className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground"
+      data-event-marker-list=""
+    >
+      {groups.flatMap((group) =>
+        group.events.map((event, index) => (
+          <li
+            key={`${group.x}-${event.date}-${event.time ?? ""}-${index}`}
+            className="flex min-w-0 items-center gap-1.5"
+          >
+            <span
+              className="size-2 shrink-0 rounded-full"
+              style={{ background: event.color ?? DEFAULT_EVENT_COLOR }}
+            />
+            <span className="truncate text-foreground">{event.label}</span>
+            <span className="shrink-0 tabular-nums">
+              {formatPanelEventDate(event.date)}
+            </span>
+          </li>
+        )),
+      )}
+    </ul>
   );
 }
 

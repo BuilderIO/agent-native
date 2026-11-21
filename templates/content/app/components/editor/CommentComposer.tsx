@@ -2,6 +2,10 @@ import { useChatModels } from "@agent-native/core/client/agent-chat";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  DEFAULT_REASONING_EFFORT,
+  getReasoningEffortOptionsForModel,
+} from "@agent-native/core/shared";
+import {
   ReviewCommentImageStrip,
   useReviewCommentImageUpload,
 } from "@agent-native/toolkit/app/review";
@@ -76,6 +80,7 @@ import {
   CommentAiSendControl,
   commentAiSelectionKey,
   commentAiSelections,
+  connectedCommentAiModel,
   modelAliases,
   type CommentAiMode,
   type CommentAiSelection,
@@ -515,14 +520,47 @@ export const CommentComposer = forwardRef<
       composerRef.current?.addAttachment(file) ?? Promise.resolve(undefined),
   }));
 
+  const aiRecipientModel = aiDraft
+    ? connectedCommentAiModel(models.configuredModels, aiDraft.selection)
+    : null;
+  const aiRecipient = aiDraft
+    ? {
+        ...aiDraft.selection,
+        model: aiRecipientModel ?? aiDraft.selection.model,
+      }
+    : null;
+  const listedPick = models.unavailableSelection
+    ? (aiRecipient ?? models.defaultSelection)
+    : null;
+  const listedModel = listedPick?.model ?? models.selectedModel;
+  const listedEngine = listedPick?.engine ?? models.selectedEngine;
   const connectedModels = useMemo<CommentAiSelection[]>(
     () =>
       commentAiSelections(models.configuredModels ?? [], {
-        model: models.selectedModel,
-        engine: models.selectedEngine,
+        model: listedModel,
+        engine: listedEngine,
       }),
-    [models.configuredModels, models.selectedEngine, models.selectedModel],
+    [listedEngine, listedModel, models.configuredModels],
   );
+  const aiRecipientKey = aiRecipient
+    ? commentAiSelectionKey(aiRecipient)
+    : null;
+  const aiRecipientConnected = aiRecipientModel !== null;
+  const modelSwitchable =
+    aiRecipientKey !== null &&
+    connectedModels.some(
+      (selection) => commentAiSelectionKey(selection) !== aiRecipientKey,
+    );
+  const aiRecipientMissing =
+    Boolean(aiDraft) &&
+    !aiRecipientConnected &&
+    (Boolean(models.unavailableSelection) ||
+      (models.selectionReady && models.configuredModels.length > 0));
+  const aiRecipientReady =
+    !models.isLoading &&
+    !aiRecipientMissing &&
+    (models.selectionReady ||
+      (Boolean(models.unavailableSelection) && aiRecipientConnected));
 
   const mentionItems = useMemo<MentionItem[]>(() => {
     const memberItems = members.map((member) => {
@@ -545,7 +583,26 @@ export const CommentComposer = forwardRef<
     });
     if (!aiEnabled) return memberItems;
     const agentsSection = t("comments.mentionAgents");
-    const aiItems = connectedModels.map((selection) => ({
+    const fallback = models.unavailableSelection
+      ? models.defaultSelection
+      : null;
+    const fallbackGroup = fallback
+      ? models.configuredModels.find(
+          (group) =>
+            group.engine === fallback.engine &&
+            group.models.includes(fallback.model),
+        )
+      : undefined;
+    const mentionModels =
+      fallback && fallbackGroup
+        ? connectedModels.map((selection) =>
+            modelDisplayName(selection.model) ===
+            modelDisplayName(fallback.model)
+              ? { ...fallback, provider: fallbackGroup.label }
+              : selection,
+          )
+        : connectedModels;
+    const aiItems = mentionModels.map((selection) => ({
       id: `ai:${commentAiSelectionKey(selection)}`,
       label: modelDisplayName(selection.model),
       description: selection.provider,
@@ -559,12 +616,23 @@ export const CommentComposer = forwardRef<
       metadata: { selection },
     }));
     const selected = models.selectionReady
-      ? connectedModels.find(
+      ? mentionModels.find(
           (candidate) =>
             candidate.model === models.selectedModel &&
             candidate.engine === models.selectedEngine,
         )
-      : undefined;
+      : fallback
+        ? (mentionModels.find(
+            (candidate) =>
+              candidate.model === fallback.model &&
+              candidate.engine === fallback.engine,
+          ) ??
+          mentionModels.find(
+            (candidate) =>
+              modelDisplayName(candidate.model) ===
+              modelDisplayName(fallback.model),
+          ))
+        : undefined;
     const selectedKey = selected ? commentAiSelectionKey(selected) : null;
     // "@ai" finds the selected model under its own name, so it is listed once.
     return [
@@ -579,9 +647,12 @@ export const CommentComposer = forwardRef<
     avatarUrls,
     connectedModels,
     members,
+    models.configuredModels,
+    models.defaultSelection,
     models.selectedEngine,
     models.selectedModel,
     models.selectionReady,
+    models.unavailableSelection,
     t,
   ]);
 
@@ -700,11 +771,20 @@ export const CommentComposer = forwardRef<
   const canSend =
     hasText && !disabled && !submitDisabled && !imageUpload.uploading;
   const submitAi = () => {
-    if (!aiDraft || !onAiSubmit || !canSend || !models.selectionReady) return;
+    if (!aiDraft || !onAiSubmit || !canSend || !aiRecipientReady) return;
+    const { engine } = aiDraft.selection;
+    const model = aiRecipientModel ?? aiDraft.selection.model;
+    let effort = models.selectedEffort;
+    if (model !== models.selectedModel || engine !== models.selectedEngine) {
+      if (!getReasoningEffortOptionsForModel(model).includes(effort))
+        effort = DEFAULT_REASONING_EFFORT;
+      models.onModelChange(model, engine);
+    }
     onAiSubmit({
       ...aiDraft.selection,
+      model,
       intent: sendableAiMode(aiDraft.mode, aiSuggestOnly),
-      effort: models.selectedEffort,
+      effort,
     });
   };
   // One send path for Enter and the button, so an AI recipient can never be
@@ -841,7 +921,7 @@ export const CommentComposer = forwardRef<
   const sendControl = aiDraft ? (
     <CommentAiSendControl
       mode={sendableAiMode(aiDraft.mode, aiSuggestOnly)}
-      disabled={!canSend || !models.selectionReady}
+      disabled={!canSend || !aiRecipientReady}
       suggestOnly={aiSuggestOnly}
       onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
       onSubmit={submitAi}
@@ -870,9 +950,7 @@ export const CommentComposer = forwardRef<
       ref={wrapperRef}
       data-comment-composer
       data-state={expanded ? "expanded" : "resting"}
-      data-model-switchable={
-        aiDraft && connectedModels.length > 1 ? "" : undefined
-      }
+      data-model-switchable={modelSwitchable ? "" : undefined}
       className={cn("relative min-w-0", className)}
       {...focusWithinProps}
       onDragOverCapture={(event) => {
@@ -887,7 +965,7 @@ export const CommentComposer = forwardRef<
         takeImageFiles(Array.from(event.dataTransfer.files));
       }}
       onClickCapture={(event) => {
-        if (!aiDraft || connectedModels.length < 2) return;
+        if (!modelSwitchable) return;
         const pill = (event.target as HTMLElement).closest<HTMLElement>(
           `[data-mention-ref-type="${AI_REFERENCE_TYPE}"]`,
         );
@@ -974,12 +1052,19 @@ export const CommentComposer = forwardRef<
         className="comment-composer-area"
         rootClassName="comment-composer-root min-w-0"
       />
-      {aiEnabled && models.unavailableSelection ? (
+      {aiEnabled && aiDraft && aiRecipientMissing ? (
         <span
           role="status"
+          data-comment-ai-model-missing
           className="mt-1 block text-xs text-muted-foreground"
         >
-          {t("comments.aiUnavailable")}
+          {modelSwitchable
+            ? t("comments.aiModelNotConnected", {
+                model: modelDisplayName(aiDraft.selection.model),
+              })
+            : t("comments.aiModelNotConnectedAlone", {
+                model: modelDisplayName(aiDraft.selection.model),
+              })}
         </span>
       ) : null}
       {imageNotice ? (

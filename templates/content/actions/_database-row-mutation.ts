@@ -20,6 +20,7 @@ import {
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseMutationContract,
+  ContentDatabaseReceiptReplay,
   ContentDatabaseRowMutationReceipt,
   ContentDatabaseRowMutationResult,
   ContentDatabaseRowPatchBatchResult,
@@ -96,7 +97,7 @@ export const databaseMutationTargetInputSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema
     .optional()
     .describe(
-      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected collection.",
+      "Optional. Copy it unchanged from the read that returned this target, or leave it out: the server derives authority from the collection and refuses a scope that is not the collection's own.",
     ),
   spaceId: z
     .string()
@@ -1220,7 +1221,19 @@ async function replayReceipt(
     receipt: {
       ...parsed.receipt,
       idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      replay: replayedReceiptNote(context.database.id, stored.createdAt),
     },
+  };
+}
+
+function replayedReceiptNote(
+  databaseId: string,
+  recordedAt: string,
+): ContentDatabaseReceiptReplay {
+  return {
+    readback: "historical",
+    recordedAt,
+    freshRead: { action: "get-content-database", databaseId },
   };
 }
 
@@ -2424,6 +2437,7 @@ async function replayRowPatchReceipt(
     receipt: {
       ...parsed.receipt,
       idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      replay: replayedReceiptNote(context.database.id, stored.createdAt),
       rows: ordered as ContentDatabaseRowPatchReceipt[],
     },
   };

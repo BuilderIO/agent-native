@@ -316,7 +316,7 @@ import {
   MCP_SIGNUP_ATTRIBUTION_COOKIE_NAME,
   readMcpSignupContextFromCookieHeader,
 } from "./mcp-signup-attribution.js";
-import { safeOAuthReturnUrl } from "./oauth-return-url.js";
+import { isDevEnvironment, safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getDeploySettingsRequiredHtml,
   getOnboardingHtml,
@@ -848,6 +848,8 @@ function clearBetterAuthSessionCookies(event: H3Event): void {
   }
 }
 
+const SESSION_ROLL_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 async function getLegacyCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
@@ -857,17 +859,25 @@ async function getLegacyCookieSession(
   )) {
     let resolvedToken: string | undefined;
     let email: string | null = null;
+    let rolled = false;
     for (const candidate of sessionTokenLookupCandidates(value)) {
-      email =
-        (await getSessionEmail(candidate)) ??
-        (await emailFromActiveBetterAuthSessionToken(candidate));
-      if (email) {
+      const legacy = await resolveLegacySessionEmail(candidate);
+      if (legacy) {
+        email = legacy.email;
         resolvedToken = candidate;
+        rolled = legacy.rolled;
+        break;
+      }
+      const ba = await resolveActiveBetterAuthSessionToken(candidate);
+      if (ba) {
+        email = ba.email;
+        resolvedToken = candidate;
+        rolled = ba.rolled;
         break;
       }
     }
     if (email && resolvedToken) {
-      if (name !== COOKIE_NAME || resolvedToken !== value) {
+      if (rolled || name !== COOKIE_NAME || resolvedToken !== value) {
         setFrameworkSessionCookie(event, resolvedToken);
       }
       const known = await readLegacySessionUser(email);
@@ -934,6 +944,7 @@ function isBuilderOAuthRequest(event: H3Event): boolean {
 }
 
 function builderPreviewReturnOrigin(event: H3Event): string | undefined {
+  if (!isDevEnvironment()) return undefined;
   const referer = getHeader(event, "referer") || "";
   if (!referer) return undefined;
   try {
@@ -980,10 +991,7 @@ function logGoogleOAuthDebug(
 }
 const DEFAULT_MAX_AGE = 60 * 60 * 24 * 30;
 
-export function isDevEnvironment(): boolean {
-  const env = process.env.NODE_ENV;
-  return env === "development" || env === "test";
-}
+export { isDevEnvironment };
 
 /**
  * @deprecated Prefer `normalizeAppPath` from `@agent-native/core/shared`,
@@ -1707,15 +1715,55 @@ async function emailFromBetterAuthSessionToken(
   }
 }
 
-async function emailFromActiveBetterAuthSessionToken(
+function parseTimestampMs(raw: unknown): number {
+  if (raw instanceof Date) return raw.getTime();
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string" && raw.trim() !== "") return Date.parse(raw);
+  return Number.NaN;
+}
+
+async function resolveActiveBetterAuthSessionToken(
   token: string,
-): Promise<string | null> {
+): Promise<{ email: string; rolled: boolean } | null> {
   try {
-    const { rows } = await getDbExec().execute({
-      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > NOW() LIMIT 1',
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: 'SELECT u.email, s.expires_at, s.created_at, s.updated_at FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > NOW() LIMIT 1',
       args: [token],
     });
-    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
+    const email = normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
+    if (!email) return null;
+    const expiresMs = parseTimestampMs(rows[0]?.expires_at ?? rows[0]?.[1]);
+    const createdMs = parseTimestampMs(rows[0]?.created_at ?? rows[0]?.[2]);
+    const updatedMs = parseTimestampMs(rows[0]?.updated_at ?? rows[0]?.[3]);
+    const lastRefreshedMs = Number.isFinite(updatedMs) ? updatedMs : createdMs;
+    const now = Date.now();
+    const intendedLifetimeMs =
+      Number.isFinite(expiresMs) && Number.isFinite(lastRefreshedMs)
+        ? expiresMs - lastRefreshedMs
+        : Number.NaN;
+    let rolled = false;
+    if (
+      Number.isFinite(intendedLifetimeMs) &&
+      intendedLifetimeMs > SESSION_ROLL_INTERVAL_MS &&
+      now - lastRefreshedMs >= SESSION_ROLL_INTERVAL_MS
+    ) {
+      const nextExpires = new Date(now + sessionMaxAge * 1000).toISOString();
+      const updatedAt = new Date(now).toISOString();
+      try {
+        await client.execute({
+          sql: 'UPDATE "session" SET expires_at = ?, updated_at = ? WHERE token = ?',
+          args: [nextExpires, updatedAt, token],
+        });
+        rolled = true;
+      } catch (error) {
+        console.warn(
+          "[auth] failed to roll Better Auth session expiry:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+    return { email, rolled };
   } catch (error) {
     if (
       isMissingBetterAuthTable(error, "session") ||
@@ -1725,6 +1773,13 @@ async function emailFromActiveBetterAuthSessionToken(
     }
     throw error;
   }
+}
+
+async function emailFromActiveBetterAuthSessionToken(
+  token: string,
+): Promise<string | null> {
+  const resolved = await resolveActiveBetterAuthSessionToken(token);
+  return resolved ? resolved.email : null;
 }
 
 function isMissingBetterAuthTable(error: unknown, table: string): boolean {
@@ -2476,7 +2531,9 @@ export async function logout(
   return performLogout(event, () => getBetterAuth());
 }
 
-export async function getSessionEmail(token: string): Promise<string | null> {
+async function resolveLegacySessionEmail(
+  token: string,
+): Promise<{ email: string; rolled: boolean } | null> {
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -2486,8 +2543,15 @@ export async function getSessionEmail(token: string): Promise<string | null> {
     }),
   );
   if (rows.length === 0) return null;
-  const createdAt = rows[0].created_at as number;
-  if (Date.now() - createdAt > sessionMaxAge * 1000) {
+  const rawCreatedAt = rows[0].created_at;
+  const createdAt =
+    typeof rawCreatedAt === "number"
+      ? rawCreatedAt
+      : typeof rawCreatedAt === "string" && rawCreatedAt.trim() !== ""
+        ? Number(rawCreatedAt)
+        : Number.NaN;
+  const now = Date.now();
+  if (Number.isFinite(createdAt) && now - createdAt > sessionMaxAge * 1000) {
     await client.execute({
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
@@ -2495,7 +2559,31 @@ export async function getSessionEmail(token: string): Promise<string | null> {
     return null;
   }
   const email = (rows[0].email as string) ?? null;
-  return email;
+  if (!email) return null;
+  let rolled = false;
+  if (
+    Number.isFinite(createdAt) &&
+    now - createdAt >= SESSION_ROLL_INTERVAL_MS
+  ) {
+    try {
+      await client.execute({
+        sql: `UPDATE sessions SET created_at = ? WHERE token = ?`,
+        args: [now, token],
+      });
+      rolled = true;
+    } catch (error) {
+      console.warn(
+        "[auth] failed to roll legacy session expiry:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+  return { email, rolled };
+}
+
+export async function getSessionEmail(token: string): Promise<string | null> {
+  const resolved = await resolveLegacySessionEmail(token);
+  return resolved ? resolved.email : null;
 }
 
 type LegacySessionEmailVerification =
