@@ -297,7 +297,7 @@ export function FilterButton({
   }
 
   return (
-    <Popover open={open} onOpenChange={changeOpen}>
+    <Popover modal open={open} onOpenChange={changeOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align={align}

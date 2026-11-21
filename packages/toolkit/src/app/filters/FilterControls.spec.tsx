@@ -531,6 +531,30 @@ describe("FilterBar", () => {
     expect(hasButtonNamed("Clear")).toBe(false);
   });
 
+  it("keeps clicks off the page while a chip or the add menu is open", () => {
+    render(
+      <Bar
+        initial={addFilterRule(
+          createFilterState(fields),
+          createFilterRule(ownerField, ["alice"]),
+        )}
+      />,
+    );
+    for (const name of ["Made by: Alice", "Filter"]) {
+      const trigger = buttonNamed(name);
+      click(trigger);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(document.body.style.pointerEvents).toBe("none");
+      act(() => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      });
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.body.style.pointerEvents).toBe("");
+    }
+  });
+
   it("leaves Clear out when the app has its own", () => {
     render(
       <Bar

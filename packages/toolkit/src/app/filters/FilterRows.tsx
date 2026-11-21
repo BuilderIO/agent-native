@@ -162,12 +162,14 @@ export function FilterAddPopover({
   counts,
   text,
   onAdd,
+  modal,
   children,
 }: {
   fields: readonly FilterField<never>[];
   counts?: FilterCounts | undefined;
   text: FilterText;
   onAdd: (rule: FilterRule) => void;
+  modal?: boolean | undefined;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -193,6 +195,7 @@ export function FilterAddPopover({
   const draftField = draft ? findFilterField(fields, draft.field) : undefined;
   return (
     <Popover
+      modal={modal}
       open={open}
       onOpenChange={(next) => {
         if (next) setOpen(true);

@@ -2,7 +2,7 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { DocumentProperty } from "@shared/api";
-import { useMemo, useState } from "react";
+import { act, useMemo, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { i18nCatalog } from "@/i18n";
@@ -171,9 +171,11 @@ describe("the filter row on the shared filter kit", () => {
   it("switches the view between all and any from the joiner", async () => {
     const latest = renderBar([nameFilter("a"), nameFilter("b")]);
     const joiner = button("and");
-    joiner.dispatchEvent(
-      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
-    );
+    act(() => {
+      joiner.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
     const item = [
       ...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
     ].find((candidate) =>
