@@ -10,12 +10,17 @@ export async function liveCopyBlockIds(
   state: Uint8Array,
 ): Promise<EditorBlockIds | null> {
   if (state.length === 0) return null;
-  const ids = await runner.run<unknown>(CONTENT_BLOCK_IDS_TASK, { state });
-  if (ids === null) return null;
-  if (isEditorBlockIds(ids)) return ids;
-  throw new TypeError(
-    `${CONTENT_BLOCK_IDS_TASK} answered ${JSON.stringify(ids)}`,
-  );
+  try {
+    const ids = await runner.run<unknown>(CONTENT_BLOCK_IDS_TASK, { state });
+    if (ids === null || isEditorBlockIds(ids)) return ids;
+    throw new TypeError(`answered ${JSON.stringify(ids)}`);
+  } catch (error) {
+    console.error(
+      `[${CONTENT_BLOCK_IDS_TASK}] failed, so the save matches blocks by text:`,
+      error,
+    );
+    return null;
+  }
 }
 
 function isEditorBlockIds(value: unknown): value is EditorBlockIds {

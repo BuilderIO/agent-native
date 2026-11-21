@@ -2,6 +2,7 @@ import {
   BLOCKS_FIELD_BLOCK_KINDS,
   blocksFieldPathsById,
   blocksFieldShape,
+  blocksFieldTextHash,
   blocksFieldTreeShape,
   isAddressableBlocksFieldKind,
   visitBlocksFieldBlocks,
@@ -37,6 +38,26 @@ export function blockIdentityIdsByPath(doc: PMNode): Record<string, string> {
 export interface EditorBlockIds {
   shape: string;
   idsByPath: Record<string, string>;
+}
+
+export interface BodyBlockIds extends EditorBlockIds {
+  textByPath: Record<string, string>;
+}
+
+function textOf(node: PMNode): string {
+  return node.type === "text"
+    ? (node.text ?? "")
+    : (node.content ?? []).map(textOf).join("");
+}
+
+export function blockTextHashesByPath(
+  markdown: string,
+): Record<string, string> {
+  const hashes: Record<string, string> = {};
+  visitBlocksFieldBlocks(nfmToDoc(markdown) as PMNode, (node, { path }) => {
+    hashes[path] = blocksFieldTextHash(textOf(node));
+  });
+  return hashes;
 }
 
 export function editorBlockIdsOf(doc: PMNode): EditorBlockIds {
@@ -92,7 +113,13 @@ export function knownBlockIdsByPath(
   idsByPath: Readonly<Record<string, string>>,
 ): Record<string, string> {
   const known = new Set(previous.blocks.map((block) => block.id));
+  const holders = new Map<string, number>();
+  for (const id of Object.values(idsByPath)) {
+    holders.set(id, (holders.get(id) ?? 0) + 1);
+  }
   return Object.fromEntries(
-    Object.entries(idsByPath).filter(([, id]) => known.has(id)),
+    Object.entries(idsByPath).filter(
+      ([, id]) => known.has(id) && holders.get(id) === 1,
+    ),
   );
 }

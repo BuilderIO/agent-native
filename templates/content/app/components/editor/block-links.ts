@@ -3,12 +3,14 @@ import {
   BLOCK_IDENTITY_ATTR,
   BLOCK_IDENTITY_NODE_TYPES,
   blockIdentityIdOf,
+  type BodyBlockIds,
   type EditorBlockIds,
 } from "@shared/block-identity-ids";
 import { contentBlockLinkPath } from "@shared/block-link";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   blocksFieldShape,
+  blocksFieldTextHash,
 } from "@shared/blocks-field-identity";
 import { isEditorTerminalFiller } from "@shared/nfm";
 import type { Editor } from "@tiptap/core";
@@ -90,10 +92,32 @@ function lacksIds(doc: ProseMirrorNode): boolean {
   );
 }
 
+function textHashOf(node: ProseMirrorNode): string {
+  let text = "";
+  node.descendants((child) => {
+    if (child.isText) text += child.text ?? "";
+  });
+  return blocksFieldTextHash(text);
+}
+
+function sameText(
+  ids: EditorBlockIds & { textByPath?: Record<string, string> },
+  { path, node }: BlockPlace,
+): boolean {
+  return !ids.textByPath || ids.textByPath[path] === textHashOf(node);
+}
+
+function soleHolder(doc: ProseMirrorNode, id: string): BlockPlace | null {
+  const holding = blockPlaces(doc).filter(
+    ({ node }) => blockIdentityIdOf(node) === id,
+  );
+  return holding.length === 1 ? (holding[0] ?? null) : null;
+}
+
 export function stampBlockIdentityIds(
   editor: Editor,
-  ids: EditorBlockIds,
-): "stamped" | "unchanged" | "mismatch" {
+  ids: EditorBlockIds & { textByPath?: Record<string, string> },
+): "stamped" | "unchanged" | "stale" | "mismatch" {
   const places = blockPlaces(editor.state.doc);
   if (shapeOf(places) !== ids.shape) return "mismatch";
   const held = new Set(
@@ -103,7 +127,9 @@ export function stampBlockIdentityIds(
     }),
   );
   const tr = editor.state.tr;
-  for (const { path, pos, node } of places) {
+  let stale = false;
+  for (const place of places) {
+    const { path, pos, node } = place;
     const id = ids.idsByPath[path];
     if (
       !id ||
@@ -113,15 +139,19 @@ export function stampBlockIdentityIds(
     ) {
       continue;
     }
+    if (!sameText(ids, place)) {
+      stale = true;
+      continue;
+    }
     held.add(id);
     tr.setNodeAttribute(pos, BLOCK_IDENTITY_ATTR, id);
   }
-  if (!tr.docChanged) return "unchanged";
+  if (!tr.docChanged) return stale ? "stale" : "unchanged";
   tr.setMeta("addToHistory", false)
     .setMeta(EDITOR_NON_EDIT_META, true)
     .setMeta(STAMP_META, true);
   editor.view.dispatch(tr);
-  return "stamped";
+  return stale ? "stale" : "stamped";
 }
 
 async function readBodyBlockIds(documentId: string) {
@@ -129,7 +159,7 @@ async function readBodyBlockIds(documentId: string) {
     "get-body-block-ids",
     { documentId },
     { method: "GET" },
-  )) as { ids: EditorBlockIds | null };
+  )) as { ids: BodyBlockIds | null };
   return ids;
 }
 
@@ -158,10 +188,13 @@ export function useBlockIdentityStamps(args: {
       if (reading) return schedule(STAMP_DELAY_MS);
       reading = true;
       try {
+        const doc = editor.state.doc;
         const ids = await readBodyBlockIds(documentId);
         if (stopped() || !ids) return;
+        if (editor.state.doc !== doc) return schedule(STAMP_DELAY_MS);
+        const stamped = stampBlockIdentityIds(editor, ids);
         if (
-          stampBlockIdentityIds(editor, ids) === "mismatch" &&
+          (stamped === "mismatch" || stamped === "stale") &&
           attempt < STAMP_RETRIES
         ) {
           attempt++;
@@ -199,13 +232,17 @@ function linkTarget(doc: ProseMirrorNode, block: BlockAt): number | null {
   return inside?.pos ?? null;
 }
 
+function soleIdAt(doc: ProseMirrorNode, pos: number | null): string | null {
+  const node = pos === null ? null : doc.nodeAt(pos);
+  const id = node ? blockIdentityIdOf(node) : null;
+  return id && soleHolder(doc, id)?.pos === pos ? id : null;
+}
+
 export function heldBlockLinkId(
   doc: ProseMirrorNode,
   block: BlockAt,
 ): string | null {
-  const pos = linkTarget(doc, block);
-  const node = pos === null ? null : doc.nodeAt(pos);
-  return node ? blockIdentityIdOf(node) : null;
+  return soleIdAt(doc, linkTarget(doc, block));
 }
 
 export async function blockLinkId(args: {
@@ -226,27 +263,28 @@ export async function blockLinkId(args: {
     const result = mapping.mapResult(start, 1);
     return result.deleted || editor.isDestroyed ? null : result.pos;
   };
-  const held = () => {
-    const at = pos();
-    const node = at === null ? null : editor.state.doc.nodeAt(at);
-    return node ? blockIdentityIdOf(node) : null;
-  };
-  const fromRead = (ids: EditorBlockIds) => {
+  const held = () => soleIdAt(editor.state.doc, pos());
+  const fromRead = (ids: BodyBlockIds) => {
     const at = pos();
     const places = blockPlaces(editor.state.doc);
     if (at === null || shapeOf(places) !== ids.shape) return null;
     const place = places.find((candidate) => candidate.pos === at);
-    return place ? (ids.idsByPath[place.path] ?? null) : null;
+    return place && sameText(ids, place)
+      ? (ids.idsByPath[place.path] ?? null)
+      : null;
   };
   try {
-    for (const step of [null, args.save ?? null]) {
+    for (const step of args.save ? [null, args.save] : [null]) {
       const id = held();
       if (id) return id;
       if (step) await step();
+      const doc = editor.state.doc;
       const ids = await readBodyBlockIds(documentId);
       if (!ids || editor.isDestroyed) continue;
       const found = fromRead(ids);
-      if (args.stamp) stampBlockIdentityIds(editor, ids);
+      if (args.stamp && editor.state.doc === doc) {
+        stampBlockIdentityIds(editor, ids);
+      }
       if (found) return found;
     }
     return held();
@@ -264,15 +302,11 @@ export function blockLinkUrl(documentId: string, blockId: string): string {
 
 export function linkedBlockPlace(
   doc: ProseMirrorNode,
-  target: { id: string } | { path: string },
+  target: { id: string } | { path: string; text: string },
 ): BlockPlace | null {
-  return (
-    blockPlaces(doc).find((place) =>
-      "id" in target
-        ? blockIdentityIdOf(place.node) === target.id
-        : place.path === target.path,
-    ) ?? null
-  );
+  if ("id" in target) return soleHolder(doc, target.id);
+  const place = blockPlaces(doc).find(({ path }) => path === target.path);
+  return place && textHashOf(place.node) === target.text ? place : null;
 }
 
 const LINKED_HIGHLIGHT_MS = 2500;
@@ -303,7 +337,7 @@ export async function resolveBlockLink(documentId: string, blockId: string) {
     { documentId, blockId },
     { method: "GET" },
   )) as
-    | { state: "live"; path: string }
+    | { state: "live"; path: string; text: string }
     | { state: "deleted" }
     | { state: "missing" };
 }
@@ -329,13 +363,13 @@ export function useLinkedBlockReveal(args: {
     if (handledRef.current === key) return;
     handledRef.current = key;
     let done = false;
-    let path: string | null = null;
+    let at: { path: string; text: string } | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tryReveal = () => {
       if (done || editor.isDestroyed) return done;
       const place =
         linkedBlockPlace(editor.state.doc, { id: blockId }) ??
-        (path === null ? null : linkedBlockPlace(editor.state.doc, { path }));
+        (at === null ? null : linkedBlockPlace(editor.state.doc, at));
       if (!place) return false;
       finish();
       requestAnimationFrame(() => {
@@ -359,7 +393,7 @@ export function useLinkedBlockReveal(args: {
         .then((found) => {
           if (done) return;
           if (found.state === "live") {
-            path = found.path;
+            at = { path: found.path, text: found.text };
             tryReveal();
             return;
           }

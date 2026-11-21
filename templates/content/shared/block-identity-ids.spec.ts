@@ -208,6 +208,19 @@ describe("block identity IDs", () => {
     ).toEqual({ "0": oneId });
   });
 
+  it("drops an ID the editor names at two places", () => {
+    const previous = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      markdown: L("one", "two", "three"),
+    });
+    const [oneId, , threeId] = liveIds(previous);
+
+    expect(
+      knownBlockIdsByPath(previous, byPath(oneId, oneId, threeId)),
+    ).toEqual(byPath(undefined, undefined, threeId));
+  });
+
   it("keeps a block's ID through a rewrite and a change of type", () => {
     const previous = materializeLegacyBlocksFieldIdentity({
       documentId: "doc-1",

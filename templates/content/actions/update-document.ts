@@ -1051,6 +1051,7 @@ const updateDocumentAction = defineAction({
         args.content === undefined
           ? undefined
           : normalizeAuthoredContent(args.content);
+      const editorContent = content;
       const authoredCandidateContent =
         args.authoredCandidateContent === undefined
           ? undefined
@@ -1731,7 +1732,8 @@ const updateDocumentAction = defineAction({
             },
             afterWrite: async () => {
               if (lockedContentChanged && content !== undefined) {
-                const editorIds = args.editorBlockIds;
+                const editorIds =
+                  content === editorContent ? args.editorBlockIds : undefined;
                 for (const field of primaryBlocksFields) {
                   await persistBlocksFieldIdentity({
                     db: tx as unknown as ReturnType<typeof getDb>,

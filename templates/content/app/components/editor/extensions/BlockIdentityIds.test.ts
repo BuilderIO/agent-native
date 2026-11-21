@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { BLOCK_IDENTITY_ATTR } from "@shared/block-identity-ids";
+import {
+  BLOCK_IDENTITY_ATTR,
+  blockIdentityIdOf,
+} from "@shared/block-identity-ids";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
@@ -132,6 +135,50 @@ describe("block identity IDs in the editor", () => {
 
     expect(docToNfm(target.getJSON() as never)).toBe("# Title\nApples ripen.");
     expect(target.getHTML()).not.toContain("block_");
+  });
+
+  it("never copies an ID into the clipboard, even from inside a callout or list", () => {
+    for (const nfm of [
+      '<callout icon="💡">\n\tInside text\n</callout>',
+      "- First item\n- Second item",
+    ]) {
+      editor?.destroy();
+      const target = open(nfm);
+      const places = blockPlaces(target.state.doc);
+      const ids = Object.fromEntries(
+        places.map(({ path }) => [path, `block_${path}`]),
+      );
+      const { shape } = editorDocBlockIds(target.state.doc);
+      expect(stampBlockIdentityIds(target, { shape, idsByPath: ids })).toBe(
+        "stamped",
+      );
+      const heldIds = () =>
+        blockPlaces(target.state.doc)
+          .flatMap(({ node }) => blockIdentityIdOf(node) ?? [])
+          .sort((a, b) => a.localeCompare(b));
+      const before = heldIds();
+      const inner = places.find(({ node }) => node.isTextblock);
+      if (!inner) throw new Error("Expected the fixture to have text");
+      target.commands.setTextSelection({
+        from: inner.pos + 2,
+        to: inner.pos + 5,
+      });
+
+      const { dom, slice } = target.view.serializeForClipboard(
+        target.state.selection.content(),
+      );
+      expect(slice.openStart).toBeGreaterThan(1);
+      expect(dom.innerHTML).not.toContain("block_");
+      expect(dom.innerHTML).not.toContain(
+        `${BLOCK_IDENTITY_ATTR}&quot;:&quot;`,
+      );
+
+      const length = target.state.doc.textContent.length;
+      target.commands.setTextSelection(target.state.doc.content.size - 1);
+      target.view.pasteHTML(dom.innerHTML);
+      expect(target.state.doc.textContent.length).toBe(length + 3);
+      expect(heldIds()).toEqual(before);
+    }
   });
 
   it("stamps only a tree with the shape the IDs were read from, and never over an ID", () => {

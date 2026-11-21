@@ -1,5 +1,5 @@
 import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import {
@@ -9,8 +9,16 @@ import {
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { LIVE_BODY_FIELD } from "../../shared/live-body.js";
 import { nfmToDoc, type PMNode } from "../../shared/nfm.js";
+import { liveCopyBlockIds } from "./block-ids.js";
 import { CONTENT_BLOCK_IDS_TASK } from "./task-names.js";
 import { tasks } from "./tasks.js";
+
+const worker = vi.hoisted(() => ({ run: vi.fn() }));
+
+vi.mock("@agent-native/core/collab", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/collab")>()),
+  createBoundedTaskRunner: () => worker,
+}));
 
 const schema = createContentEditorStructuralSchema();
 
@@ -56,5 +64,19 @@ describe("block IDs on the live copy", () => {
     const state = Y.encodeStateAsUpdate(new Y.Doc());
 
     await expect(tasks[CONTENT_BLOCK_IDS_TASK]({ state })).resolves.toBeNull();
+  });
+
+  it("lets the save go on without IDs when the worker fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    worker.run.mockRejectedValueOnce(new Error("worker exited"));
+    worker.run.mockResolvedValueOnce({ shape: 7 });
+    try {
+      const { state } = stateOf("Apples", ["block_apples"]);
+      await expect(liveCopyBlockIds(state)).resolves.toBeNull();
+      await expect(liveCopyBlockIds(state)).resolves.toBeNull();
+      expect(error).toHaveBeenCalledTimes(2);
+    } finally {
+      error.mockRestore();
+    }
   });
 });

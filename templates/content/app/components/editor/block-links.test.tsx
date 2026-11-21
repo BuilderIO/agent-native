@@ -1,12 +1,19 @@
 // @vitest-environment happy-dom
 
-import { editorBlockIdsOf, identityBlockIds } from "@shared/block-identity-ids";
+import {
+  BLOCK_IDENTITY_ATTR,
+  blockTextHashesByPath,
+  editorBlockIdsOf,
+  identityBlockIds,
+} from "@shared/block-identity-ids";
 import {
   legacyBlocksFieldIdentity,
   blocksFieldPathsById,
+  blocksFieldTextHash,
 } from "@shared/blocks-field-identity";
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
+import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -218,6 +225,47 @@ describe("block links", () => {
     expect(editorDocBlockIds(target.state.doc).idsByPath).toEqual({});
   });
 
+  it("stamps no ID onto a block whose text isn't the saved block's", () => {
+    const target = open("Pears\nApples");
+    const ids = {
+      shape: editorDocBlockIds(target.state.doc).shape,
+      idsByPath: { "0": "block_apples", "1": "block_pears" },
+      textByPath: blockTextHashesByPath("Apples\nPears"),
+    };
+
+    expect(stampBlockIdentityIds(target, ids)).toBe("stale");
+    expect(editorDocBlockIds(target.state.doc).idsByPath).toEqual({});
+  });
+
+  it("reads once when there's nothing to save", async () => {
+    const target = open("Apples");
+    hooks.callAction.mockResolvedValue({ ids: null });
+
+    await expect(
+      blockLinkId({
+        editor: target,
+        block: blockAt(target, 0),
+        documentId: "doc-1",
+        stamp: true,
+      }),
+    ).resolves.toBeNull();
+    expect(hooks.callAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies no link to an ID two blocks hold", () => {
+    const target = open("Apples\nPears");
+    target.view.dispatch(
+      target.state.tr
+        .setNodeAttribute(blockAt(target, 0).pos, BLOCK_IDENTITY_ATTR, "dup")
+        .setNodeAttribute(blockAt(target, 1).pos, BLOCK_IDENTITY_ATTR, "dup")
+        .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+    );
+
+    expect(target.state.doc.child(1).attrs[BLOCK_IDENTITY_ATTR]).toBe("dup");
+    expect(heldBlockLinkId(target.state.doc, blockAt(target, 0))).toBeNull();
+    expect(heldBlockLinkId(target.state.doc, blockAt(target, 1))).toBeNull();
+  });
+
   it("gives no ID for a block deleted while the save runs", async () => {
     const target = open("Apples\nPears");
     const block = blockAt(target, 1);
@@ -289,7 +337,11 @@ describe("opening a block link", () => {
 
   it("finds a block the editor holds no ID for where the server says it is", async () => {
     const target = open("Apples\nPears");
-    hooks.callAction.mockResolvedValueOnce({ state: "live", path: "1" });
+    hooks.callAction.mockResolvedValueOnce({
+      state: "live",
+      path: "1",
+      text: blocksFieldTextHash("Pears"),
+    });
     await reveal(target, "block_pears");
 
     expect(highlighted(target)).toEqual(["Pears"]);
@@ -298,6 +350,18 @@ describe("opening a block link", () => {
       { documentId: "doc-1", blockId: "block_pears" },
       { method: "GET" },
     );
+  });
+
+  it("highlights nothing where the server's block has other text", async () => {
+    const target = open("Apples\nPlums");
+    hooks.callAction.mockResolvedValueOnce({
+      state: "live",
+      path: "1",
+      text: blocksFieldTextHash("Pears"),
+    });
+    await reveal(target, "block_pears");
+
+    expect(highlighted(target)).toEqual([]);
   });
 
   it("says when the linked block was deleted", async () => {

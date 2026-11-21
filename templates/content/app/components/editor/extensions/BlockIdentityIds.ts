@@ -4,7 +4,7 @@ import {
   blockIdentityIdOf,
 } from "@shared/block-identity-ids";
 import { Extension } from "@tiptap/core";
-import type { Node as PMNode } from "@tiptap/pm/model";
+import { Fragment, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
@@ -35,6 +35,36 @@ function holders(doc: PMNode): Holder[] {
 }
 
 const hasContent = (node: PMNode) => !node.isTextblock || node.content.size > 0;
+
+function withoutIds(fragment: Fragment): Fragment {
+  let changed = false;
+  const nodes: PMNode[] = [];
+  for (let index = 0; index < fragment.childCount; index++) {
+    const node = fragment.child(index);
+    const content = withoutIds(node.content);
+    const id = ADDRESSABLE.has(node.type.name) && blockIdentityIdOf(node);
+    if (!id && content === node.content) {
+      nodes.push(node);
+      continue;
+    }
+    changed = true;
+    nodes.push(
+      node.type.create(
+        id ? { ...node.attrs, [BLOCK_IDENTITY_ATTR]: null } : node.attrs,
+        content,
+        node.marks,
+      ),
+    );
+  }
+  return changed ? Fragment.from(nodes) : fragment;
+}
+
+export function sliceWithoutBlockIds(slice: Slice): Slice {
+  const content = withoutIds(slice.content);
+  return content === slice.content
+    ? slice
+    : new Slice(content, slice.openStart, slice.openEnd);
+}
 
 export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
   name: "blockIdentityIds",
@@ -73,6 +103,10 @@ export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
     return [
       new Plugin({
         key: new PluginKey("blockIdentityIds"),
+        props: {
+          transformCopied: sliceWithoutBlockIds,
+          transformPasted: sliceWithoutBlockIds,
+        },
         appendTransaction(transactions, oldState, newState) {
           if (!editor.isEditable || !transactions.some(isEdit)) return null;
 

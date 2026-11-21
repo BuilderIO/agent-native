@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { identityBlockIds } from "../shared/block-identity-ids.js";
+import {
+  blockTextHashesByPath,
+  identityBlockIds,
+} from "../shared/block-identity-ids.js";
 import { readBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { bodyBlocksPropertyIds } from "./_body-block-fields.js";
 import { resolveDocumentAccess } from "./_document-access.js";
@@ -9,6 +12,7 @@ import { resolveDocumentAccess } from "./_document-access.js";
 const editorBlockIdsSchema = z.object({
   shape: z.string(),
   idsByPath: z.record(z.string(), z.string()),
+  textByPath: z.record(z.string(), z.string()),
 });
 
 export default defineAction({
@@ -27,11 +31,18 @@ export default defineAction({
     if (!access) return { ids: null };
     const [propertyId] = await bodyBlocksPropertyIds(documentId);
     if (!propertyId) return { ids: null };
+    const markdown =
+      (access.resource.content as string | null | undefined) ?? "";
     const identity = await readBlocksFieldIdentity({
       documentId,
       propertyId,
-      markdown: (access.resource.content as string | null | undefined) ?? "",
+      markdown,
     });
-    return { ids: identityBlockIds(identity.blocks) };
+    return {
+      ids: {
+        ...identityBlockIds(identity.blocks),
+        textByPath: blockTextHashesByPath(markdown),
+      },
+    };
   },
 });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { blockTextHashesByPath } from "../shared/block-identity-ids.js";
 import { blocksFieldTreeShape } from "../shared/blocks-field-identity.js";
 import { nfmToDoc, type PMNode } from "../shared/nfm.js";
 
@@ -23,6 +24,7 @@ let getDatabase: typeof import("./get-content-database.js").default;
 let createRow: typeof import("./add-database-item.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
 let updateDocument: typeof import("./update-document.js").default;
+let getDocument: typeof import("./get-document.js").default;
 let getBodyBlockIds: typeof import("./get-body-block-ids.js").default;
 let resolveBlockLink: typeof import("./resolve-block-link.js").default;
 
@@ -40,6 +42,7 @@ beforeAll(async () => {
   createRow = (await import("./add-database-item.js")).default;
   setProperty = (await import("./set-document-property.js")).default;
   updateDocument = (await import("./update-document.js")).default;
+  getDocument = (await import("./get-document.js")).default;
   getBodyBlockIds = (await import("./get-body-block-ids.js")).default;
   resolveBlockLink = (await import("./resolve-block-link.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -125,18 +128,60 @@ function save(
   );
 }
 
+async function revisionOf(documentId: string) {
+  const read = await as(ownerEmail, () => getDocument.run({ id: documentId }));
+  return read.revision;
+}
+
+function browserSave(args: {
+  documentId: string;
+  base: { revision: string; content: string };
+  content: string;
+  idsByPath: Record<string, string>;
+}) {
+  return as(ownerEmail, () =>
+    updateDocument.run(
+      {
+        id: args.documentId,
+        content: args.content,
+        baseRevision: args.base.revision,
+        authoredBaseRevision: args.base.revision,
+        authoredBaseContent: args.base.content,
+        authoredCandidateContent: args.content,
+        editorBlockIds: {
+          shape: shapeOf(args.content),
+          idsByPath: args.idsByPath,
+        },
+        editorSessionId: `session-${args.content}`,
+        editorEditGeneration: 1,
+        browserSaveAttemptId: `attempt-${args.content}`,
+      },
+      {
+        caller: "frontend",
+        actionName: "update-document",
+        userEmail: ownerEmail,
+      },
+    ),
+  );
+}
+
 describe("block links", () => {
   it("reads the same IDs for every editor of a collection page, and links find them", async () => {
     const { documentId, ids } = await rowPage("Alpha\nBeta\nGamma");
 
     expect(new Set(ids).size).toBe(3);
     await expect(readIds(documentId)).resolves.toEqual({
-      ids: { shape: shapeOf("Alpha\nBeta\nGamma"), idsByPath: byPath(...ids) },
+      ids: {
+        shape: shapeOf("Alpha\nBeta\nGamma"),
+        idsByPath: byPath(...ids),
+        textByPath: blockTextHashesByPath("Alpha\nBeta\nGamma"),
+      },
     });
     for (const [index, id] of ids.entries()) {
       await expect(resolve(documentId, id)).resolves.toEqual({
         state: "live",
         path: `${index}`,
+        text: blockTextHashesByPath("Alpha\nBeta\nGamma")[`${index}`],
       });
     }
     await expect(readIds(documentId, OUTSIDER)).resolves.toEqual({ ids: null });
@@ -169,12 +214,38 @@ describe("block links", () => {
     });
   });
 
+  it("ignores the editor's IDs when a merge saves text the editor didn't send", async () => {
+    const content = "Alpha\nBeta\nGamma";
+    const { documentId, ids } = await rowPage(content);
+    const base = { revision: await revisionOf(documentId), content };
+    const [alpha, beta, gamma] = [idAt(ids, 0), idAt(ids, 1), idAt(ids, 2)];
+    await browserSave({
+      documentId,
+      base,
+      content: "Beta\nAlpha\nGamma",
+      idsByPath: byPath(beta, alpha, gamma),
+    });
+
+    await expect(
+      browserSave({
+        documentId,
+        base,
+        content: "Alpha\nBeta\nGamma, edited",
+        idsByPath: byPath(alpha, beta, gamma),
+      }),
+    ).resolves.toMatchObject({ content: "Beta\nAlpha\nGamma, edited" });
+    expect((await readIds(documentId)).ids?.idsByPath).toEqual(
+      byPath(beta, alpha, gamma),
+    );
+  });
+
   it("finds a linked block, says when it was deleted, and finds it again after undo", async () => {
     const { documentId, ids } = await rowPage("Alpha\nBeta\nGamma");
     const beta = idAt(ids, 1);
     await expect(resolve(documentId, beta)).resolves.toEqual({
       state: "live",
       path: "1",
+      text: blockTextHashesByPath("Alpha\nBeta\nGamma")["1"],
     });
 
     await save(documentId, "Alpha\nGamma", byPath(idAt(ids, 0), idAt(ids, 2)));
@@ -190,6 +261,7 @@ describe("block links", () => {
     await expect(resolve(documentId, beta)).resolves.toEqual({
       state: "live",
       path: "1",
+      text: blockTextHashesByPath("Alpha\nBeta, restored\nGamma")["1"],
     });
   });
 

@@ -145,6 +145,10 @@ const NON_ADDRESSABLE_NODE_TYPES = new Set([
   "tableCell",
 ]);
 
+export function blocksFieldTextHash(text: string): string {
+  return `text_${hashString(text)}`;
+}
+
 function hashString(value: string): string {
   let first = 0x811c9dc5;
   let second = 0x9e3779b9;
