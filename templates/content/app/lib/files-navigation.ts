@@ -68,11 +68,16 @@ export function filesNavigationPageParams(args: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
+  group?: string;
 }) {
   return {
     databaseId: args.databaseId,
     limit: FILES_NAVIGATION_PAGE_SIZE,
-    navigation: { parentId: args.parentId, cursor: args.cursor },
+    navigation: {
+      parentId: args.parentId,
+      cursor: args.cursor,
+      ...(args.group === undefined ? {} : { group: args.group }),
+    },
   };
 }
 
@@ -373,9 +378,10 @@ export function cachedFilesRow(
     const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
     const page = query.state.data as FilesNavigationRead | undefined;
     if (!params?.navigation || !page || "available" in page) continue;
-    const item = page.items.find(
-      (candidate) => candidate.documentId === documentId,
-    );
+    const item = [
+      ...page.items,
+      ...(page.groups ?? []).flatMap((group) => group.page.items),
+    ].find((candidate) => candidate.documentId === documentId);
     if (item) return { databaseId: params.databaseId, item };
   }
   return undefined;

@@ -896,4 +896,88 @@ describe("PagedContentFilesSidebarView", () => {
 
     await act(async () => root.unmount());
   });
+
+  it("draws a grouped view's groups with flat rows and pages each group on its own", async () => {
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: args.navigation.group
+        ? page([navigationItem("draft-3")])
+        : {
+            ...page([navigationItem("root-1", null, true)]),
+            groups: [
+              {
+                id: "stage:draft",
+                label: "Draft",
+                unset: false,
+                count: 3,
+                page: page(
+                  [
+                    navigationItem("nested-1", "root-1", true),
+                    navigationItem("draft-2"),
+                  ],
+                  "draft-cursor",
+                ),
+              },
+              {
+                id: "stage:__ungrouped__",
+                label: "No Stage",
+                unset: true,
+                count: 1,
+                page: page([navigationItem("root-1", null, true)]),
+              },
+            ],
+          },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const { container, root } = await renderHarness({
+      initiallyExpanded: ["root-1"],
+    });
+    const links = () =>
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      );
+    const button = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent === text,
+      );
+
+    expect(links()).toEqual([
+      "/page/nested-1",
+      "/page/draft-2",
+      "/page/root-1",
+    ]);
+    expect(button("Draft3")).toBeDefined();
+    expect(button("No Stage1")).toBeDefined();
+    expect(
+      container.querySelector('[aria-label="Expand Page root-1"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Collapse Page root-1"]'),
+    ).toBeNull();
+
+    await act(async () => button("Show more")?.click());
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        navigation: {
+          parentId: null,
+          cursor: "draft-cursor",
+          group: "stage:draft",
+        },
+      }),
+      undefined,
+    );
+    expect(links()).toEqual([
+      "/page/nested-1",
+      "/page/draft-2",
+      "/page/draft-3",
+      "/page/root-1",
+    ]);
+
+    await act(async () => button("Draft3")?.click());
+    expect(links()).toEqual(["/page/root-1"]);
+
+    await act(async () => root.unmount());
+  });
 });
