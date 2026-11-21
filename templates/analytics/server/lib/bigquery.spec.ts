@@ -2088,6 +2088,54 @@ describe("runQuery cancellation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("tells onUncachedResult only about fresh results the cache did not keep", async () => {
+    useCacheDatabase();
+    const cacheDatabase = execute.getMockImplementation();
+    const complete = () =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalRows: "0",
+        totalBytesProcessed: "4096",
+      });
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalRows: "0",
+        totalBytesProcessed: "4096",
+        errors: [{ reason: "other", message: "A nonfatal query warning" }],
+      }),
+      complete(),
+      complete(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const uncached = vi.fn();
+
+    await runQuery("SELECT 1 AS warned_result", { onUncachedResult: uncached });
+    expect(uncached).toHaveBeenCalledTimes(1);
+
+    const kept = "SELECT 1 AS kept_result";
+    await runQuery(kept, { onUncachedResult: uncached });
+    await expect(
+      runQuery(kept, { onUncachedResult: uncached }),
+    ).resolves.toMatchObject({ cached: true });
+    expect(uncached).toHaveBeenCalledTimes(1);
+
+    execute.mockImplementation(async (query) =>
+      String(query.sql).startsWith("UPDATE bigquery_cache SET sql")
+        ? { rows: [] }
+        : cacheDatabase?.(query),
+    );
+    await runQuery("SELECT 1 AS unsaved_result", {
+      onUncachedResult: uncached,
+    });
+    expect(uncached).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
   it("falls back to the cache row's created_at for results cached before fetchedAt existed", async () => {
     const cache = useCacheDatabase();
     vi.useFakeTimers();

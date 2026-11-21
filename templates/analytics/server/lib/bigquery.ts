@@ -1050,6 +1050,7 @@ export interface RunQueryOptions {
    */
   resumeAfter?: AbortSignal;
   claimJob?: () => Promise<boolean>;
+  onUncachedResult?: () => void;
   trace?: BigQueryQueryTrace;
 }
 
@@ -2320,6 +2321,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     };
 
     traceStage(trace, "saving");
+    let keptInCache = false;
     if (cacheFence) {
       if (result.partial) {
         await releaseCacheQuery(cacheKey, cacheFence);
@@ -2330,10 +2332,13 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           result,
           cacheFence,
         );
-        if (persisted) setL1(cacheKey, result, persisted);
-        else await releaseCacheQuery(cacheKey, cacheFence);
+        if (persisted) {
+          setL1(cacheKey, result, persisted);
+          keptInCache = true;
+        } else await releaseCacheQuery(cacheKey, cacheFence);
       }
     }
+    if (!keptInCache) options.onUncachedResult?.();
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.
     completedResult = { ...result, cached: false };

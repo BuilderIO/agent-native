@@ -659,6 +659,7 @@ interface PendingJourneyPage {
   request: OnboardingJourneyEventPageRequest;
   result: ReturnType<typeof queryFirstPartyAnalytics>;
   trace: BigQueryQueryTrace;
+  uncached: () => boolean;
 }
 
 function stoppedJourneyPage(
@@ -805,6 +806,7 @@ async function readJourneyEvents(
         decide = resolve;
       });
       let claim: Promise<boolean> | undefined;
+      let uncached = false;
       const result = queryFirstPartyAnalytics(request.sql, scope, {
         cache: true,
         timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
@@ -820,6 +822,9 @@ async function readJourneyEvents(
             jobsClaimed += 1;
             return true;
           })),
+        onUncachedResult: () => {
+          uncached = true;
+        },
         trace,
       });
       previousPageDecided = afterPreviousPage.then(() =>
@@ -831,7 +836,7 @@ async function readJourneyEvents(
           ),
         ]),
       );
-      return { request, result, trace };
+      return { request, result, trace, uncached: () => uncached };
     };
     let prefetchEnd: number | null = null;
     let nextPrefetchOffset = 0;
@@ -874,7 +879,7 @@ async function readJourneyEvents(
         throw new OnboardingJourneyReadError(error, pages + 1);
       }
       pages += 1;
-      if (page.partial) uncachedPages += 1;
+      if (pending.uncached()) uncachedPages += 1;
       raw.push(...page.rows);
       rowsFetched += page.rows.length;
       if (page.rows.length) {
@@ -2751,8 +2756,8 @@ export async function getOnboardingJourney(
       read.uncachedPages === 0
         ? `${budgetUsed}. The pages it read are cached and cost nothing to read again, so ${callAgain} reads them and spends the budget on the pages after them. ${repeat}`
         : budgetStopContinues
-          ? `${budgetUsed}. ${read.uncachedPages} of the pages it read came back with BigQuery warnings and were not cached, so ${callAgain} bills them again. The other pages it read are cached and cost nothing to read again, and the rest of the budget goes to the pages after them. ${repeat}`
-          : `${budgetUsed}, and every page it billed came back with BigQuery warnings, so none was cached. Calling again would bill the same pages without reading further; a higher maxTotalBytesBilled or a shorter date range reads further.`,
+          ? `${budgetUsed}. ${read.uncachedPages} of the pages it read were not kept in the query cache (BigQuery returned them with warnings, or the cache write failed), so ${callAgain} bills them again. The other pages it read are cached and cost nothing to read again, and the rest of the budget goes to the pages after them. ${repeat}`
+          : `${budgetUsed}, and none of the pages it billed was kept in the query cache (BigQuery returned them with warnings, or the cache write failed). Calling again would bill the same pages without reading further; a higher maxTotalBytesBilled or a shorter date range reads further.`,
     );
   }
   const head = {

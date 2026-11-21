@@ -159,6 +159,7 @@ export interface AnalyticsQueryOptions {
    */
   resumable?: { deadline?: AbortSignal };
   claimJob?: () => Promise<boolean>;
+  onUncachedResult?: () => void;
   trace?: BigQueryQueryTrace;
 }
 
@@ -2007,6 +2008,9 @@ export async function queryFirstPartyAnalyticsWithBackend(
             signal,
             ...(resumeAfter ? { resumeAfter } : {}),
             ...(options.claimJob ? { claimJob: options.claimJob } : {}),
+            ...(options.onUncachedResult
+              ? { onUncachedResult: options.onUncachedResult }
+              : {}),
             ...(options.trace ? { trace: options.trace } : {}),
           }),
           signal,
