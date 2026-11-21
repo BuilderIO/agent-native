@@ -10,6 +10,7 @@ import {
   REALTIME_SSE_HANDSHAKE_EVENT,
   REALTIME_SSE_TOKEN_EVENT,
 } from "../realtime-protocol.js";
+import { postScreenSettled } from "./screen-settled.js";
 
 export { REALTIME_CAP_POLL_LIVE } from "../realtime-protocol.js";
 import {
@@ -57,6 +58,8 @@ type InvalidateFilters = {
   dedupeKey?: string;
 };
 
+const SERVERLESS_ACTIVE_INTERVAL_MS = 400;
+const SERVERLESS_IDLE_INTERVAL_MS = 15_000;
 const POLL_ABORT_MIN_MS = 10_000;
 const SSE_FALLBACK_INTERVAL_MS = 60_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
@@ -278,6 +281,7 @@ type PollResponse = {
   version: number;
   events: SyncEvent[];
   cursor?: string;
+  serverless?: boolean;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
   unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
@@ -700,6 +704,8 @@ class SyncTransport {
   private localReconnectAttempts = 0;
   private localRefusalAttempts = 0;
   private localSseOpened = false;
+  private activeTurnUntil = 0;
+  private serverlessPoll = false;
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
@@ -989,9 +995,19 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    const normalBase = this.isActive
-      ? this.effectiveInterval
-      : this.idlePollInterval;
+    const pollLive =
+      this.mode === "local" &&
+      !this.sseConnected &&
+      (this.serverlessPoll ||
+        this.capabilities.includes(REALTIME_CAP_POLL_LIVE));
+    const active = this.isActive || this.activeTurnUntil > Date.now();
+    const normalBase = pollLive
+      ? active
+        ? SERVERLESS_ACTIVE_INTERVAL_MS
+        : SERVERLESS_IDLE_INTERVAL_MS
+      : active
+        ? this.effectiveInterval
+        : this.idlePollInterval;
     const visibleBase = Math.min(
       normalBase,
       this.collabBoostInterval() ?? normalBase,
@@ -1347,7 +1363,17 @@ class SyncTransport {
         for (const sub of this.subscribers.values()) sub.onResync?.();
         this.broadcast({ type: "unreadable" });
       }
-      const events = data.events ?? [];
+      this.serverlessPoll = data.serverless === true;
+      const events = (data.events ?? []).filter((event) => {
+        if (event.source !== "active_turn") return true;
+        if (typeof event.activeUntil === "number") {
+          this.activeTurnUntil = Math.max(
+            this.activeTurnUntil,
+            event.activeUntil,
+          );
+        }
+        return false;
+      });
       const responseCursor = decodeSyncCursor(data.cursor);
       this.applyVersion(events, responseCursor ? undefined : data.version);
       this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
@@ -1654,7 +1680,9 @@ export function useDbSync(
   options: {
     queryClient?: QueryClient;
     queryKeys?: string[];
-    realtime?: { reason: string };
+    /** Set false to disable remote sync. The legacy reason is optional. */
+    realtime?: false | { reason: string };
+    resourceType?: string;
     pollUrl?: string;
     sseUrl?: string | false;
     /** @deprecated Use pollUrl instead */
@@ -1671,13 +1699,10 @@ export function useDbSync(
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
-  const realtimeReason =
-    typeof options.realtime?.reason === "string"
-      ? options.realtime.reason.trim()
-      : "";
-  if (options.realtime && !realtimeReason) {
-    throw new Error("useDbSync realtime opt-in requires a short reason.");
-  }
+  const realtimeEnabled = options.realtime !== false;
+  const resourceType = options.resourceType;
+  const queryKeysRef = useRef(options.queryKeys);
+  queryKeysRef.current = options.queryKeys;
   const {
     queryClient,
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),
@@ -1714,6 +1739,8 @@ export function useDbSync(
     let polled = false;
 
     let pendingInvalidateEvents: SyncEvent[] = [];
+    const pendingAcks = new Set<string>();
+    let transport: SyncTransport | undefined;
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     // Each entry names the in-flight queries one batch found busy. A batch built
@@ -1733,11 +1760,12 @@ export function useDbSync(
     }
 
     function queueInvalidateBatch(events: SyncEvent[]) {
-      pendingInvalidateEvents.push(...events);
-      if (events.some(isInteractionCriticalSyncEvent)) {
-        flushInvalidateBatch();
-        return;
-      }
+      const immediate = events.filter(isInteractionCriticalSyncEvent);
+      if (immediate.length) invalidateForEvents(immediate);
+      pendingInvalidateEvents.push(
+        ...events.filter((event) => !isInteractionCriticalSyncEvent(event)),
+      );
+      if (!pendingInvalidateEvents.length) return;
       if (invalidateTimer) return;
       invalidateTimer = setTimeout(
         flushInvalidateBatch,
@@ -1781,6 +1809,10 @@ export function useDbSync(
       const ownBrowserSource = getBrowserTabId();
       const relevant = events.filter(
         (event) =>
+          (!resourceType ||
+            event.source === "app-state" ||
+            event.version === 0 ||
+            event.resourceType === resourceType) &&
           !(
             event.source === "action" &&
             event.requestSource === ownBrowserSource
@@ -1875,12 +1907,30 @@ export function useDbSync(
               },
             );
           }
+          return completion;
         };
         const actionEvents = invalidating.filter(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
         const hasActionEvent = actionEvents.length > 0;
         if (hasActionEvent) {
+          const writeIds = actionEvents.map(
+            (event) =>
+              event.writeId ??
+              event.cursorId ??
+              (event.version ? String(event.version) : undefined),
+          );
+          const urlAtRefetch =
+            window.location.pathname +
+            window.location.search +
+            window.location.hash;
+          const queryKeys = queryKeysRef.current;
+          const matchesQueryKey = queryKeys?.length
+            ? (query: Query) =>
+                queryKeys.includes(String(query.queryKey[0])) ||
+                (query.queryKey[0] === "action" &&
+                  queryKeys.includes(String(query.queryKey[1])))
+            : undefined;
           const appPredicate = actionInvalidatePredicateRef.current;
           // Narrowing is only sound when nothing else in the batch changed data:
           // a db or collab change in the same batch has an unknown affected set.
@@ -1890,15 +1940,47 @@ export function useDbSync(
             ? changedActionResourceTypes(actionEvents)
             : undefined;
           const predicate =
-            appPredicate || changedResources
+            appPredicate || changedResources || resourceType || matchesQueryKey
               ? (query: Query) =>
+                  (!matchesQueryKey || matchesQueryKey(query)) &&
                   (!appPredicate || appPredicate(query, invalidating)) &&
-                  (changedResources === undefined ||
-                    actionQueryAffectedByResources(query, changedResources))
+                  (changedResources
+                    ? actionQueryAffectedByResources(query, changedResources)
+                    : !resourceType ||
+                      actionQueryAffectedByResources(
+                        query,
+                        new Set([resourceType]),
+                      ))
               : undefined;
-          invalidateWithoutCancel(
+          const completion = invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
           );
+
+          for (const writeId of writeIds) {
+            if (
+              typeof writeId !== "string" ||
+              pendingAcks.has(writeId) ||
+              !(completion instanceof Promise)
+            )
+              continue;
+            pendingAcks.add(writeId);
+            void completion
+              .then(
+                () => {
+                  if (
+                    !disposed &&
+                    urlAtRefetch ===
+                      window.location.pathname +
+                        window.location.search +
+                        window.location.hash
+                  ) {
+                    postScreenSettled(writeId, urlAtRefetch);
+                  }
+                },
+                () => {},
+              )
+              .finally(() => pendingAcks.delete(writeId));
+          }
         }
 
         if (!suppressesWholeBatch) {
@@ -2064,17 +2146,23 @@ export function useDbSync(
       completedSideEffect: boolean,
       failed: boolean,
       browserTabId?: string,
+      navigationKeys?: unknown,
+      writeId?: string,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
-        events.push({ source: "action", key: tool, version: 0 });
+        events.push({ source: "action", key: tool, version: 0, writeId });
       }
-      if (tool === "navigate" && completedSideEffect) {
-        events.push({
-          source: "app-state",
-          key: browserTabId ? `navigate:${browserTabId}` : "navigate",
-          version: 0,
-        });
+      const targetKey = browserTabId ? `navigate:${browserTabId}` : "navigate";
+      const keys = Array.isArray(navigationKeys)
+        ? navigationKeys.filter(
+            (key) => key === "navigate" || key === targetKey,
+          )
+        : tool === "navigate" && completedSideEffect
+          ? [targetKey]
+          : [];
+      for (const key of new Set(keys)) {
+        events.push({ source: "app-state", key, version: 0 });
       }
       if (["__set_url__", "set-url", "set-search-params"].includes(tool)) {
         events.push({ source: "app-state", key: "__set_url__", version: 0 });
@@ -2149,6 +2237,8 @@ export function useDbSync(
         event as CustomEvent<{
           tool?: unknown;
           completedSideEffect?: unknown;
+          navigationKeys?: unknown;
+          eventId?: unknown;
           isError?: unknown;
           tabId?: unknown;
           browserTabId?: unknown;
@@ -2191,6 +2281,8 @@ export function useDbSync(
         completedSideEffect,
         detail.isError === true,
         browserTabId,
+        detail.navigationKeys,
+        typeof detail.eventId === "string" ? detail.eventId : undefined,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
@@ -2301,8 +2393,7 @@ export function useDbSync(
     };
     window.addEventListener("agentNative:refresh-data", handleExplicitRefresh);
 
-    let transport: SyncTransport | undefined;
-    if (realtimeReason) {
+    if (realtimeEnabled) {
       transport = getOrCreateTransport(
         pollUrl,
         sseUrl,
@@ -2311,7 +2402,29 @@ export function useDbSync(
       transport.add(id, {
         onEvents,
         onResync: () => {
-          queryClient?.invalidateQueries();
+          queryClient?.invalidateQueries({
+            predicate: (query) => {
+              if (query.queryKey[0] === "action") {
+                if (
+                  resourceType &&
+                  !actionQueryAffectedByResources(
+                    query,
+                    new Set([resourceType]),
+                  )
+                )
+                  return false;
+                return (
+                  actionInvalidatePredicateRef.current?.(query, []) ?? true
+                );
+              }
+              return [
+                "app-state",
+                "navigate-command",
+                "__set_url__",
+                "show-questions",
+              ].includes(String(query.queryKey[0]));
+            },
+          });
         },
         pauseWhenHidden,
         interval,
@@ -2349,7 +2462,8 @@ export function useDbSync(
     idleInterval,
     fallbackInterval,
     pauseWhenHidden,
-    realtimeReason,
+    realtimeEnabled,
+    resourceType,
   ]);
 }
 

@@ -6,7 +6,11 @@ import {
   isMcpProductHostOrigin,
 } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
-import { frameworkRoutePrefix, isFrameworkRoutePath } from "./api-path.js";
+import {
+  frameworkRoutePrefix,
+  isFrameworkRoutePath,
+  resolveAppBasePath,
+} from "./api-path.js";
 import { agentNativePath } from "./api-path.js";
 import { getEmbedAuthToken } from "./embed-auth.js";
 
@@ -201,6 +205,28 @@ function acceptFrameOrigin(origin: string): void {
 
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
+    if (event.data?.type === "agentNative.viewRequest") {
+      const port = event.ports[0];
+      if (
+        !port ||
+        event.source !== window.parent ||
+        !getFrameOrigin() ||
+        !isTrustedFrameMessage(event) ||
+        !getEmbedAuthToken()
+      )
+        return;
+      try {
+        port.postMessage({ result: runEmbeddedViewRequest(event.data) });
+      } catch (error) {
+        port.postMessage({
+          error:
+            error instanceof Error ? error.message : "View request failed.",
+        });
+      } finally {
+        port.close();
+      }
+      return;
+    }
     const eventOrigin = normalizeOrigin(event.origin);
     const payloadOrigin = normalizeOrigin(event.data?.origin);
     const origin = eventOrigin ?? payloadOrigin;
@@ -224,6 +250,56 @@ if (typeof window !== "undefined") {
       else _pendingFrameOrigin = null;
     });
   });
+}
+
+function viewPath(url: URL): string {
+  url.searchParams.delete("__an_embed_token");
+  return url.pathname + url.search + url.hash;
+}
+
+function runEmbeddedViewRequest(request: {
+  operation?: unknown;
+  path?: unknown;
+}) {
+  if (request.operation === "read") {
+    const root = document.querySelector("main") ?? document.body;
+    return {
+      path: viewPath(new URL(window.location.href)),
+      title: document.title,
+      selectedText: window.getSelection()?.toString().trim().slice(0, 4000),
+      visibleText:
+        root?.innerText?.replace(/\s+/g, " ").trim().slice(0, 4000) ?? "",
+    };
+  }
+  const path = typeof request.path === "string" ? request.path.trim() : "";
+  if (
+    request.operation !== "navigate" ||
+    !path.startsWith("/") ||
+    path.startsWith("//")
+  ) {
+    throw new Error("Choose a path inside the open app.");
+  }
+  const target = new URL(path, window.location.href);
+  if (target.origin !== window.location.origin)
+    throw new Error("Choose a path inside the open app.");
+  const base = resolveAppBasePath();
+  if (
+    base &&
+    target.pathname !== base &&
+    !target.pathname.startsWith(`${base}/`)
+  ) {
+    throw new Error("Choose a path inside the open app.");
+  }
+  const nextPath = viewPath(target);
+  const index = window.history.state?.idx;
+  const state = {
+    usr: null,
+    key: crypto.randomUUID(),
+    idx: typeof index === "number" ? index + 1 : 0,
+  };
+  window.history.pushState(state, "", nextPath);
+  window.dispatchEvent(new PopStateEvent("popstate", { state }));
+  return { path: nextPath };
 }
 
 export function getFrameOrigin(): string | null {

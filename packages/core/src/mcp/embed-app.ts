@@ -2844,10 +2844,41 @@ export function embedApp(
     window.addEventListener("error", (event) => rememberViewError(event.error || event.message));
     window.addEventListener("unhandledrejection", (event) => rememberViewError(event.reason));
 
+    function requestGuestView(operation, path) {
+      const frame = appFrame;
+      const target = frame?.contentWindow;
+      const origin = currentViewUrl()?.origin;
+      if (!target || !origin) return Promise.reject(new Error("No app page has loaded in this view yet."));
+      return new Promise((resolve, reject) => {
+        const channel = new MessageChannel();
+        const finish = (error, result) => {
+          clearTimeout(timer);
+          channel.port1.close();
+          if (error) reject(new Error(error));
+          else resolve(result);
+        };
+        const timer = setTimeout(() => finish("The open app did not respond. Try opening the app directly."), 1000);
+        channel.port1.onmessage = (event) => {
+          if (appFrame !== frame) {
+            finish("The open app changed while handling the request.");
+            return;
+          }
+          if (!event.data || (!event.data.error && !event.data.result)) {
+            finish("The open app returned an invalid view response.");
+            return;
+          }
+          finish(event.data.error, event.data.result);
+        };
+        try {
+          target.postMessage({ type: "agentNative.viewRequest", operation, path }, origin, [channel.port2]);
+        } catch (error) {
+          finish(error?.message || "The open app could not receive the request.");
+        }
+      });
+    }
+
     function readViewState() {
-      // A nested app frame is cross-origin and moves on its own, so its src is
-      // only the launch URL; reporting it would describe the wrong page.
-      if (appFrame) throw new Error("This host shows the app in a nested frame, so its current page can't be read.");
+      if (appFrame) return requestGuestView("read");
       const url = currentViewUrl();
       if (!url) throw new Error("No app page has loaded in this view yet.");
       const state = {
@@ -2879,11 +2910,7 @@ export function embedApp(
       if (!path.startsWith("/") || path.startsWith("//")) {
         throw new Error("path must start with / and stay inside the open app, e.g. the path read_view returns.");
       }
-      // The nested frame was launched on a session scoped to its start URL;
-      // pointing it at a bare app route would drop that session.
-      if (appFrame) {
-        throw new Error("This host shows the app in a nested frame, so it can't be moved from here.");
-      }
+      if (appFrame) return requestGuestView("navigate", path);
       const base = currentViewUrl();
       if (!base) throw new Error("No app page has loaded in this view yet.");
       const target = new URL(path, base);
@@ -2903,8 +2930,6 @@ export function embedApp(
     }
 
     async function listViewTools() {
-      // A nested cross-origin frame can be neither read nor moved from here.
-      if (appFrame) return [];
       const tools = [
         {
           name: readViewToolName,
@@ -2965,9 +2990,9 @@ export function embedApp(
       try {
         let result;
         if (name === readViewToolName) {
-          result = readViewState();
+          result = await readViewState();
         } else if (name === navigateViewToolName) {
-          result = navigateView(args.path);
+          result = await navigateView(args.path);
         } else {
           const helper = appPageToolHelper();
           if (!helper) throw new Error("Unknown view tool: " + name);

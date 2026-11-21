@@ -78,6 +78,48 @@ describe("frame bridge", () => {
     );
   });
 
+  it("handles view requests from the trusted parent of a credentialed embed", async () => {
+    const originalUrl = window.location.href;
+    const parent = parentWindow();
+    setParent(parent);
+    setEmbedToken("test-embed-ticket");
+    await loadFrame();
+    dispatchFrameOrigin("https://builder.io", parent);
+    const port = { postMessage: vi.fn(), close: vi.fn() };
+    const send = (
+      operation: string,
+      path?: string,
+      origin = "https://builder.io",
+    ) => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agentNative.viewRequest", operation, path },
+          origin,
+          source: parent,
+          ports: [port as unknown as MessagePort],
+        }),
+      );
+    };
+    try {
+      send("read", undefined, "https://untrusted.example.test");
+      expect(port.postMessage).not.toHaveBeenCalled();
+      send("navigate", "/tasks/one");
+      expect(port.postMessage).toHaveBeenLastCalledWith({
+        result: { path: "/tasks/one" },
+      });
+      send("read");
+      expect(port.postMessage).toHaveBeenLastCalledWith({
+        result: expect.objectContaining({ path: "/tasks/one" }),
+      });
+      send("navigate", "//untrusted.example.test/");
+      expect(port.postMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ error: expect.any(String) }),
+      );
+    } finally {
+      window.history.replaceState(null, "", originalUrl);
+    }
+  });
+
   it("handshakes with a configured host origin", async () => {
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }

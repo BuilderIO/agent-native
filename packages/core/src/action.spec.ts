@@ -1223,7 +1223,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       ]);
       await withMcpClient({ check }, async (client) => {
         const { tools } = await client.listTools();
-        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(tools.map(({ name }) => name)).toEqual([
+          "check",
+          "get_app_manifest",
+        ]);
         expect(tools[0]!.inputSchema).not.toHaveProperty("$schema");
         await expect(
           client.callTool({ name: "check", arguments: witness }),
@@ -1266,7 +1269,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       ]);
       await withMcpClient({ check }, async (client) => {
         const { tools } = await client.listTools();
-        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(tools.map(({ name }) => name)).toEqual([
+          "check",
+          "get_app_manifest",
+        ]);
         expect(providerSchemaViolations(tools[0]!)).toEqual([]);
         const validate = new Ajv2020({ strict: false }).compile(
           tools[0]!.inputSchema,
@@ -1360,8 +1366,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
 
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
-        expect(tools.map(({ name }) => name)).toEqual(["pair"]);
-        const { inputSchema } = tools[0]!;
+        expect(tools.map(({ name }) => name)).toEqual([
+          "get_app_manifest",
+          "pair",
+        ]);
+        const { inputSchema } = tools.find(({ name }) => name === "pair")!;
         expect(inputSchema.properties).toMatchObject({
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         });

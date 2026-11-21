@@ -22,7 +22,8 @@ export type NavigationIntent = typeof NAVIGATION_OPEN_INTENT;
 
 export type AgentNavigationKeptReason =
   | "detail-requires-open-intent"
-  | "write-keeps-view";
+  | "write-keeps-view"
+  | "navigation-mode-keep";
 
 export type AgentNavigationRefusalReason =
   | "read-only-action"
@@ -299,16 +300,26 @@ export function evaluateAgentNavigationPolicy(
   } = {},
 ): AgentNavigationRefusal | null {
   const originCaller = currentActionOriginCaller() ?? options.caller;
+  const mode =
+    options.intent ??
+    navigation?.navigationMode ??
+    currentActionNavigationIntent();
+  if (isAgentCaller(originCaller) && insideReadOnlyAction())
+    return READ_ONLY_REFUSAL;
+  if (mode === "keep") {
+    return {
+      reason: "navigation-mode-keep",
+      message: "Kept the current view as requested.",
+    };
+  }
   if (!isAgentCaller(originCaller)) return null;
   if (options.isSetUrl && isFrameworkUrlToolAuthorized()) return null;
-  if (insideReadOnlyAction()) {
-    return READ_ONLY_REFUSAL;
-  }
-  const intent = options.intent ?? currentActionNavigationIntent();
+
   if (
     isAgentNavigationAuthorized() ||
     currentActionAllowsAgentNavigation() ||
-    intent === NAVIGATION_OPEN_INTENT
+    mode === NAVIGATION_OPEN_INTENT ||
+    mode === "reveal"
   ) {
     return null;
   }

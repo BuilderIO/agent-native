@@ -7788,6 +7788,10 @@ export async function runAgentLoop(opts: {
     }
   };
   if (send.isPrivateTurn()) await ensurePrivateTurnRecorded();
+  if (opts.ownerEmail) {
+    const { markActiveTurn } = await import("../server/active-turn.js");
+    markActiveTurn(opts.ownerEmail);
+  }
   // Every audit row this loop writes reads from this: each action's own, and
   // the denied row of an approval pause.
   const runAttribution = {
@@ -10038,6 +10042,13 @@ export async function runAgentLoop(opts: {
         const persisted = Promise.resolve(
           send({
             ...event,
+            ...(actionInvoked
+              ? {
+                  navigationKeys: [
+                    ...(actionExecutionOutcome.navigationKeys ?? []),
+                  ],
+                }
+              : {}),
             ...(event.outcomeUnknown && unknownOutcomeCause
               ? { unknownCause: unknownOutcomeCause }
               : {}),

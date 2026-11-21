@@ -1,6 +1,15 @@
 import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  UNSAFE_DataRouterStateContext,
+  resolvePath,
   useLocation,
   useNavigate,
   type Location,
@@ -9,6 +18,7 @@ import {
 
 import { isWorkspaceAppPath } from "./api-path.js";
 import {
+  compareAndSetClientAppState,
   deleteClientAppState,
   readClientAppState,
   setClientAppState,
@@ -22,6 +32,7 @@ import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
 } from "./chat-view-transition.js";
+import { postScreenSettled } from "./screen-settled.js";
 import { postAgentNativeWorkspaceAppRoute } from "./workspace-app-navigation.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
@@ -373,10 +384,29 @@ export function useSemanticNavigationState<
       getCommandDedupKeyRef.current?.(envelope.command) ??
       defaultCommandDedupKey(envelope.command);
     const consume = () => {
-      deleteClientAppState(envelope.key, { requestSource }).catch((error) =>
-        onErrorRef.current?.(error),
-      );
       queryClient.setQueryData(commandQueryKey, null);
+      if (
+        envelope.command === null ||
+        typeof envelope.command !== "object" ||
+        Array.isArray(envelope.command)
+      ) {
+        void deleteClientAppState(envelope.key, { requestSource }).catch(
+          (error) => onErrorRef.current?.(error),
+        );
+        return;
+      }
+      void compareAndSetClientAppState(
+        envelope.key,
+        envelope.command as Record<string, unknown>,
+        null,
+        { requestSource },
+      ).then(
+        (changed) => {
+          if (!changed)
+            void queryClient.invalidateQueries({ queryKey: commandQueryKey });
+        },
+        (error) => onErrorRef.current?.(error),
+      );
     };
 
     if (lastProcessedDedupKeyRef.current === dedupKey) {
@@ -408,6 +438,24 @@ export function useAgentRouteState<
   const { navigationKey = "navigation", commandKey = "navigate" } = options;
 
   const location = useLocation();
+  const routerState = useContext(UNSAFE_DataRouterStateContext);
+  const [pendingAck, setPendingAck] = useState<{
+    writeId: string;
+    url: string;
+  }>();
+  const ackedWriteId = useRef<string>(undefined);
+  useEffect(() => {
+    if (!pendingAck || pendingAck.writeId === ackedWriteId.current) return;
+    if (currentRouterPath(location) !== pendingAck.url) return;
+    if (
+      routerState &&
+      (routerState.navigation.state !== "idle" ||
+        routerState.revalidation !== "idle")
+    )
+      return;
+    ackedWriteId.current = pendingAck.writeId;
+    postScreenSettled(pendingAck.writeId, pendingAck.url);
+  }, [location, pendingAck, routerState]);
   const navigate = useNavigate();
   const defaultTabId = defaultBrowserTabId();
   const explicitTabId = normalizeBrowserTabId(options.browserTabId);
@@ -495,7 +543,7 @@ export function useAgentRouteState<
     beforeCommandRead: options.beforeCommandRead,
     enabled: options.enabled,
     keepalive: options.keepalive,
-    writeDebounceMs: options.writeDebounceMs,
+    writeDebounceMs: options.writeDebounceMs ?? 200,
     getCommandDedupKey: options.getCommandDedupKey,
     onError: options.onError,
     onCommand: (command) => {
@@ -513,6 +561,14 @@ export function useAgentRouteState<
         );
       }
       options.onNavigate?.(command, path);
+      const writeId = (command as { _writeId?: unknown } | null)?._writeId;
+      if (!workspaceAppTarget && typeof writeId === "string") {
+        const targetUrl = resolvePath(path, location.pathname);
+        setPendingAck({
+          writeId,
+          url: targetUrl.pathname + targetUrl.search + targetUrl.hash,
+        });
+      }
       if (!workspaceAppTarget && path === currentRouterPath(location)) return;
 
       const navigateOptions = options.navigateOptions;

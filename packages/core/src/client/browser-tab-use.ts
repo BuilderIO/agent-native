@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { BROWSER_TAB_USED_APP_STATE_KEY } from "../shared/app-state-routes.js";
 import {
@@ -7,8 +7,7 @@ import {
 } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 
-// While the tab keeps focus, moving around in it refreshes its record at most
-// this often. Coming back to the tab from elsewhere always records it.
+// Ignore repeated focus signals while the tab is already active.
 const ROUTE_CHANGE_RECORD_INTERVAL_MS = 60_000;
 
 let mounts = 0;
@@ -17,6 +16,12 @@ let lastRecordedAt = 0;
 // Whether focus has left the page (to another tab, window or app) since the
 // last record. Focus moving into one of the page's own frames doesn't count.
 let leftSinceRecorded = true;
+
+function isVisible(): boolean {
+  return (
+    typeof document !== "undefined" && document.visibilityState !== "hidden"
+  );
+}
 
 function hasFocus(): boolean {
   return (
@@ -75,10 +80,10 @@ function listen(): () => void {
   };
   const onVisibilityChange = () => {
     if (document.visibilityState === "hidden") leftSinceRecorded = true;
-    else if (hasFocus()) recordIfReturned();
+    else recordIfReturned();
   };
   const onPageShow = (event: PageTransitionEvent) => {
-    if (event.persisted && hasFocus()) record();
+    if (event.persisted && isVisible()) record();
   };
   const onPageHide = () => forget();
   window.addEventListener("focus", onFocus);
@@ -96,8 +101,8 @@ function listen(): () => void {
 }
 
 /**
- * Records when someone uses this browser tab (it gains focus, or its route
- * changes while focused) and forgets the tab when the page goes away. An MCP
+ * Records the tab on visible mount, visibility, focus and route changes.
+ * Forgets it when the page goes away. An MCP
  * tool call comes from no tab, so the server points its tab-scoped app
  * state (navigation, navigate commands, selection) at the tab of this app
  * used last. `useAgentRouteState` calls it; an app with its own navigation
@@ -109,7 +114,7 @@ export function useBrowserTabUse(route: string, enabled = true): void {
     mounts += 1;
     if (mounts === 1) {
       removeListeners = listen();
-      if (hasFocus()) record();
+      if (isVisible()) record();
     }
     return () => {
       mounts -= 1;
@@ -120,8 +125,10 @@ export function useBrowserTabUse(route: string, enabled = true): void {
     };
   }, [enabled]);
 
+  const previousRoute = useRef(route);
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
-    if (hasFocus()) recordIfReturned();
+    const changedRoute = previousRoute.current !== route;
+    previousRoute.current = route;
+    if (enabled && changedRoute && isVisible()) record();
   }, [enabled, route]);
 }

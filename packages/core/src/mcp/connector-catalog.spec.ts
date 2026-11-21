@@ -408,6 +408,7 @@ describe("connector-catalog tier", () => {
 
       const expected = [
         ...CONNECTOR_CATALOG,
+        "get_app_manifest",
         "list_apps",
         "open_app",
         "ask_app",
@@ -431,6 +432,7 @@ describe("connector-catalog tier", () => {
       expect([...names].sort()).toEqual(
         [
           ...CONNECTOR_CATALOG,
+          "get_app_manifest",
           "list_apps",
           "open_app",
           "ask_app",
@@ -1112,6 +1114,7 @@ describe("connector-catalog tier — env flag not required", () => {
     expect(names).toEqual(
       [
         ...CONNECTOR_CATALOG,
+        "get_app_manifest",
         "list_apps",
         "open_app",
         "ask_app",
@@ -1202,6 +1205,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "get_app_manifest",
       "list_apps",
       "open_app",
       "set-resource-visibility",
@@ -1264,6 +1268,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "get_app_manifest",
       "list_apps",
       "open_app",
     ]);
@@ -1618,6 +1623,7 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       expect(names).toEqual([
         "create-plan",
         "get-plan",
+        "get_app_manifest",
         "navigate",
         "public-read",
         "public-write",

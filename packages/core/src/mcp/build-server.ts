@@ -41,6 +41,7 @@ import {
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
+import { APP_MANIFEST_RESOURCE, getAppManifest } from "../manifest/server.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -1278,6 +1279,7 @@ export function declaredMcpToolNames(
 }
 
 const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
+  "get_app_manifest",
   "list_apps",
   "open_app",
   "ask_app",
@@ -3542,6 +3544,32 @@ export async function createMCPServerForRequest(
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta, effectiveIdentity)),
   };
+  const appManifest = () =>
+    getAppManifest(
+      Object.keys(baseActions).filter(
+        (name) =>
+          isActionExposedToExternalAgents(baseActions[name]!) &&
+          !isActionHiddenFromEveryAgentSurface(baseActions[name]!),
+      ),
+      { id: config.appId, name: config.name },
+    );
+  if (!directoryCatalog) {
+    mergedActions.get_app_manifest = {
+      tool: {
+        description:
+          "Read the app's capability manifest, including its screens and routing metadata.",
+        parameters: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+      http: false,
+      readOnly: true,
+      mcpTool: true,
+      run: async () => appManifest(),
+    };
+  }
   const mergedResources = actionNamed(mergedActions, "resources");
   if (mergedResources && isFrameworkMcpTool(mergedResources)) {
     delete mergedActions.resources;
@@ -3918,9 +3946,9 @@ export async function createMCPServerForRequest(
           ),
     capabilities: {
       tools: {},
+      ...(!directoryCatalog || supportsMcpApps ? { resources: {} } : {}),
       ...(supportsMcpApps
         ? {
-            resources: {},
             extensions: {
               [MCP_APP_EXTENSION_ID]: {
                 mimeTypes: [MCP_APP_MIME_TYPE],
@@ -4960,7 +4988,7 @@ export async function createMCPServerForRequest(
     },
   );
 
-  if (supportsMcpApps) {
+  if (supportsMcpApps || !directoryCatalog) {
     server.setRequestHandler(
       "resources/list",
       async (request: any, ctx: any) => {
@@ -4968,25 +4996,30 @@ export async function createMCPServerForRequest(
         const grantedActions =
           await grantedResourceActions("mcp:resources/list");
         const result = await withCallerContext(async () => {
-          const mcpAppResources = await getMcpAppResources(
-            config,
-            grantedActions,
-            effectiveIdentity,
-            requestMeta,
-          );
+          const mcpAppResources = supportsMcpApps
+            ? await getMcpAppResources(
+                config,
+                grantedActions,
+                effectiveIdentity,
+                requestMeta,
+              )
+            : [];
           return {
-            resources: mcpAppResources
-              .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
-              .map((resource) => ({
-                uri: resource.uri,
-                name: resource.name,
-                ...(resource.title ? { title: resource.title } : {}),
-                ...(resource.description
-                  ? { description: resource.description }
-                  : {}),
-                mimeType: resource.mimeType,
-                ...(resource._meta ? { _meta: resource._meta } : {}),
-              })),
+            resources: [
+              ...mcpAppResources
+                .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
+                .map((resource) => ({
+                  uri: resource.uri,
+                  name: resource.name,
+                  ...(resource.title ? { title: resource.title } : {}),
+                  ...(resource.description
+                    ? { description: resource.description }
+                    : {}),
+                  mimeType: resource.mimeType,
+                  ...(resource._meta ? { _meta: resource._meta } : {}),
+                })),
+              ...(!directoryCatalog ? [APP_MANIFEST_RESOURCE] : []),
+            ],
           };
         });
         trackMcpResourcesList(analyticsContext(request, ctx), {
@@ -5005,12 +5038,14 @@ export async function createMCPServerForRequest(
         return withCallerContext(async () => ({ resourceTemplates: [] }));
       }
       return withCallerContext(async () => {
-        const mcpAppResources = await getMcpAppResources(
-          config,
-          grantedActions,
-          effectiveIdentity,
-          requestMeta,
-        );
+        const mcpAppResources = supportsMcpApps
+          ? await getMcpAppResources(
+              config,
+              grantedActions,
+              effectiveIdentity,
+              requestMeta,
+            )
+          : [];
         return {
           resourceTemplates: mcpAppResources
             .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
@@ -5052,6 +5087,18 @@ export async function createMCPServerForRequest(
             await grantedResourceActions("mcp:resources/read");
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
+            if (!directoryCatalog && uri === APP_MANIFEST_RESOURCE.uri) {
+              emitRead({ resourceName: APP_MANIFEST_RESOURCE.name });
+              return {
+                contents: [
+                  {
+                    uri,
+                    mimeType: APP_MANIFEST_RESOURCE.mimeType,
+                    text: JSON.stringify(appManifest()),
+                  },
+                ],
+              };
+            }
             let found: {
               actionName: string;
               resource: ResolvedMcpAppResource;
