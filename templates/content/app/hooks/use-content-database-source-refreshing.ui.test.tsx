@@ -85,7 +85,7 @@ function UnlinkWhileRefreshProbe() {
 
 function buttonNamed(name: string, root: ParentNode = document) {
   const found = [...root.querySelectorAll("button")].find(
-    (button) => button.textContent?.trim() === name,
+    (button) => button.textContent.trim() === name,
   );
   if (!found) throw new Error(`No ${name} button`);
   return found;
