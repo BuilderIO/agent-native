@@ -79,8 +79,6 @@ export default defineAction({
   run: async (
     args: PreviewBuilderSourceReviewRequest,
   ): Promise<PreviewBuilderSourceReviewResponse> => {
-    // Returned with the response, so a slow review on a deployed site shows
-    // which step took the time.
     const timing = createBuilderSourceTiming("preview_builder_source_review");
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
@@ -137,9 +135,6 @@ export default defineAction({
             priorityByDocumentId.set(changeSet.documentId, priority);
           }
         }
-        // Only a reviewable change ranks a page first. A page whose change
-        // was rejected shows no row, so it goes last, behind pages that have
-        // no change yet, or it fills the first batch with nothing.
         const priorityOf = (documentId: string) =>
           priorityByDocumentId.get(documentId) ??
           (rejectedDocumentIds.has(documentId) ? 100 : 99);

@@ -98,8 +98,6 @@ function snapshotOf(
 ): ReviewBatchSnapshot {
   const rowCount = reviewRowCount(work);
   const atRowLimit = rowCount >= BUILDER_REVIEW_ROW_LIMIT;
-  // Past the row limit no new text batch starts, but one already sent still
-  // counts until its rows are in.
   const textPageCount = atRowLimit
     ? work.loadingTextPageCount
     : work.textPages.length;
@@ -288,13 +286,6 @@ export function useBuilderSourceReviewBatches(args: {
           applyTextBatch([], response);
           setSnapshot(snapshotOf(work, null));
         }
-        // Batches apply in the order they were sent, so the rows past the
-        // limit are always the last ones asked for, and each batch's rows
-        // show as soon as it and every batch before it are in. A finished
-        // batch's slot takes the next one at once. Text batches go a few at
-        // a time. Block checks are heavy, and a server that queues
-        // concurrent requests would make each one wait for the others, so
-        // they go one at a time and only once every text batch is in.
         await new Promise<void>((resolve, reject) => {
           const inFlight = new Set<string>();
           const landed: Array<(() => void) | null> = [];
@@ -353,7 +344,7 @@ export function useBuilderSourceReviewBatches(args: {
             running += 1;
             for (const page of batch.pages) inFlight.add(page);
             if (batch.text) work.loadingTextPageCount += batch.pages.length;
-            load({
+            void load({
               scope: "selected",
               documentIds: batch.pages,
               bodyComparison: batch.text ? "text" : "blocks",
@@ -369,8 +360,6 @@ export function useBuilderSourceReviewBatches(args: {
                 },
               )
               .then((apply) => {
-                // A batch's pages stay in flight until its rows apply, so a
-                // batch that lands early is never sent again.
                 landed[order] = () => {
                   try {
                     apply();

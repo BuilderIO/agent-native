@@ -294,8 +294,6 @@ describe("useBuilderSourceReviewBatches", () => {
     await settle();
 
     expect(latest.data?.review?.rows).toHaveLength(100);
-    // At 85 rows the limit isn't reached yet, so the last five pages go out
-    // too while two batches are still on their way.
     expect(latest.data?.review?.totalRowCount).toBe(130);
     expect(latest.moreRowsBeyondLimit).toBe(true);
     expect(latest.progress).toEqual({ kind: "confirming", pageCount: 30 });

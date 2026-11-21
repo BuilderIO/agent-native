@@ -6,16 +6,10 @@ import type {
 
 export const BUILDER_REVIEW_FIRST_BATCH_SIZE = 5;
 export const BUILDER_REVIEW_TEXT_BATCH_SIZE = 20;
-// A block check converts each page to Builder's blocks, about 0.3-0.5 s a page
-// on beta, so a batch stays a few seconds long.
 export const BUILDER_REVIEW_BLOCKS_BATCH_SIZE = 5;
 export const BUILDER_REVIEW_CONCURRENT_BATCHES = 3;
-// Beta usually holds a concurrent request until another finishes, so a second
-// block check at once would only wait behind the first.
 export const BUILDER_REVIEW_CONCURRENT_BLOCKS_BATCHES = 1;
 export const BUILDER_REVIEW_ROW_LIMIT = 100;
-// Check prepares and dry-runs each row, about 1.25 s a row on beta, so three
-// rows keep a request near 4 s.
 export const BUILDER_REVIEW_CHECK_BATCH_SIZE = 3;
 
 const RESULT_STATUS_ORDER: Array<

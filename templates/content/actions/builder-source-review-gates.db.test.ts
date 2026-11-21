@@ -463,8 +463,6 @@ describe("Builder source review execution gates", () => {
       .select()
       .from(schema.contentDatabaseSourceChangeSets)
       .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
-    // An earlier change to the same page was pushed, which doesn't move a
-    // rejected page back up.
     await db.insert(schema.contentDatabaseSourceChangeSets).values({
       ...seededChange,
       id: `applied_${counter}`,
@@ -510,8 +508,6 @@ describe("Builder source review execution gates", () => {
       sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/later_entry_${counter}`,
       sourceDisplayKey: "Later article",
       provenance: "Builder CMS read adapter",
-      // Same title as the page, so only its body differs and no change is
-      // listed for it.
       sourceValuesJson: JSON.stringify({
         "data.title": "Later article",
         [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "changed-baseline-hash",
