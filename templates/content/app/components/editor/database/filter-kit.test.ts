@@ -55,6 +55,7 @@ function roundTrip(filters: DatabaseFilter[], mode: "and" | "or" = "and") {
   );
 }
 
+// oracle-change(templates/content/app/components/editor/database/filter-chips.test.ts): databaseFilterChipToReopen and foldDatabaseFilterChips went with Content's own chips, which the shared filter kit's chips replace
 describe("contentFilterFields", () => {
   const fields = contentFilterFields(properties, {
     nameLabel,

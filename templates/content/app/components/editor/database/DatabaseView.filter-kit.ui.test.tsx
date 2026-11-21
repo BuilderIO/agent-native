@@ -130,6 +130,10 @@ function button(name: string) {
   return match;
 }
 
+// oracle-change(templates/content/app/components/editor/database/DatabaseView.filter-chips.ui.test.tsx): it tested Content's own filter chips, which the shared filter kit's chips replace
+// oracle-change(templates/content/app/components/editor/database/DatabaseView.filter-groups.ui.test.tsx): it tested Content's advanced group editor, which the kit's groups replace
+// oracle-change(templates/content/app/components/editor/database/DatabaseView.filter-operators.ui.test.tsx): it tested Content's own operator and date menus, which the kit's editors replace
+// oracle-change(templates/content/app/components/editor/database/DatabaseView.filter-picker.ui.test.tsx): it tested Content's own add-filter picker, which the kit's add menu replaces
 describe("the filter row on the shared filter kit", () => {
   it("names a saved option filter's option and removes it with its chip", async () => {
     const latest = renderBar([

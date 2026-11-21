@@ -407,6 +407,7 @@ describe("database property picker", () => {
   });
 });
 
+// oracle-change: the tests of the new-rule field picker, inline chip labels and filter reordering went with those helpers, which the shared filter kit replaces
 describe("database view filtering", () => {
   it("supports number comparisons", () => {
     expect(

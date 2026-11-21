@@ -1842,6 +1842,7 @@ describe("DatabaseView UI regressions", () => {
     expect([...cellRendersByItemId.keys()]).toEqual([]);
   });
 
+  // oracle-change: the click-shield tests went with Content's own chip menus; the kit's modal popovers keep clicks off the table instead, as this test checks
   it("keeps clicks off the table while a filter chip is open, and gives them back when it closes", async () => {
     const { chip } = await renderStatusFilteredTable();
     await press(chip);
