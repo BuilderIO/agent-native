@@ -6,14 +6,8 @@ import { toast } from "sonner";
 import { openNotionOAuthUrl, useNotionConnection } from "@/hooks/use-notion";
 
 const POLL_MS = 2_000;
-/** How long sign-in may take before this stops looking for it. */
 const POLL_TIMEOUT_MS = 5 * 60_000;
 
-/**
- * Signs in to Notion from where the user is, in a pop-up, and watches for
- * the connection so the list of databases fills in without leaving the panel.
- * `isConnected` reads whether Notion is connected now.
- */
 export function useConnectNotionHere(isConnected: () => Promise<boolean>) {
   const t = useT();
   const { data: connection } = useNotionConnection();
@@ -61,7 +55,6 @@ export function useConnectNotionHere(isConnected: () => Promise<boolean>) {
     setConnecting(true);
     poll.current = window.setInterval(() => {
       if (popup.closed) {
-        // Closed or cancelled. One last look, in case sign-in finished as it closed.
         stop();
         void isConnected();
         return;

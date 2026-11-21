@@ -2024,11 +2024,14 @@ export function useSuggestSourceJoinKey(args: {
   );
 }
 
-/** Every refresh of a collection's source, whichever control started it. */
-const REFRESH_CONTENT_DATABASE_SOURCE_MUTATION_KEY = [
-  "content",
-  "refresh-content-database-source",
-];
+const SOURCE_REFRESH_MUTATION_KEY = ["content", "source-refresh"];
+
+export function githubSyncNowMutationOptions(sourceId: string) {
+  return {
+    mutationKey: [...SOURCE_REFRESH_MUTATION_KEY, "sync-github-folder"],
+    meta: { sourceId },
+  };
+}
 
 export function useRefreshContentDatabaseSource(documentId: string) {
   const queryClient = useQueryClient();
@@ -2036,7 +2039,10 @@ export function useRefreshContentDatabaseSource(documentId: string) {
     ContentDatabaseSourceStatusResponse,
     RefreshContentDatabaseSourceRequest
   >("refresh-content-database-source", {
-    mutationKey: REFRESH_CONTENT_DATABASE_SOURCE_MUTATION_KEY,
+    mutationKey: [
+      ...SOURCE_REFRESH_MUTATION_KEY,
+      "refresh-content-database-source",
+    ],
     skipActionQueryInvalidation: true,
     // A GitHub refresh that fails stores the problem on the source first, so
     // the status line rereads after a failure too.
@@ -2046,21 +2052,20 @@ export function useRefreshContentDatabaseSource(documentId: string) {
   });
 }
 
-/** Whether this tab is refreshing the source now, from any control. */
 export function useContentDatabaseSourceRefreshing(sourceId: string | null) {
   const refreshing = useMutationState({
     filters: {
-      mutationKey: REFRESH_CONTENT_DATABASE_SOURCE_MUTATION_KEY,
+      mutationKey: SOURCE_REFRESH_MUTATION_KEY,
       status: "pending",
     },
     select: (mutation) =>
+      mutation.options.meta?.sourceId ??
       (mutation.state.variables as RefreshContentDatabaseSourceRequest)
         .sourceId,
   });
   return sourceId !== null && refreshing.includes(sourceId);
 }
 
-/** Row-page banners read their collection's sources by id, without rows. */
 const rowPageSourcesQueryFilter = {
   queryKey: ["action", "get-content-database"],
   predicate: (query: Query) => {

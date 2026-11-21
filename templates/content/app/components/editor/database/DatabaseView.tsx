@@ -1365,8 +1365,6 @@ function DatabaseTable({
     if (panel !== "source") sourceHandoffActiveRef.current = false;
     setSettingsPanel(panel);
   };
-  // Opens Sources at one source's own page, as a status line's "From …"
-  // does; each request has a new id so a repeat opens it.
   const [sourceNavRequest, setSourceNavRequest] =
     useState<SourceNavRequest | null>(null);
   const openSourcePage = (step: SourceNavStep) => {
@@ -10354,7 +10352,6 @@ function AddSourceView({
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Integrations
         </div>
-        {/* Sign-in happens here, in a pop-up, so the list fills in place. */}
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
           label="Notion"

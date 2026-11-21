@@ -58,7 +58,6 @@ export function builderSourceContinuationFetchedCountDetail(
     : fetchedCount;
 }
 
-/** What edits made here can do to a Builder model's entries. */
 export function builderSourceWriteMode(
   source: Pick<ContentDatabaseSource, "metadata" | "capabilities"> | null,
 ): ContentDatabaseSourceWriteMode {

@@ -19,10 +19,6 @@ import {
 } from "./SourceStatusLine";
 import { dbText } from "./text";
 
-/**
- * Where a Builder model's rows have got to: still coming in, bodies still
- * syncing, or stopped by a failure. Null once everything is in.
- */
 function builderProgress(
   source: ContentDatabaseSource,
   clientError: boolean,
@@ -118,11 +114,6 @@ function builderProgress(
   };
 }
 
-/**
- * The status line of a collection a Builder model fills or adds details to:
- * which model, when it last updated, how far rows and bodies have got, and a
- * Retry when loading them failed.
- */
 export function BuilderSourceStatusLine({
   source,
   documentId,
@@ -140,9 +131,7 @@ export function BuilderSourceStatusLine({
   documentId: string;
   canEdit: boolean;
   pageCount: number;
-  /** A sync of this source is under way. */
   pending: boolean;
-  /** The last continuation this tab ran failed. */
   clientError: boolean;
   progressHighWater?: BuilderSourceProgressHighWater | undefined;
   onSyncNow: () => void;
@@ -152,7 +141,6 @@ export function BuilderSourceStatusLine({
 }) {
   const now = useNow();
   const addsDetails = source.metadata.federation?.role === "secondary";
-  // Details come in with the rows they join, so only items show progress.
   const progress = addsDetails
     ? null
     : builderProgress(source, clientError, progressHighWater);

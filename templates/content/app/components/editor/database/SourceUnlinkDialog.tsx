@@ -48,10 +48,6 @@ const UNLINK_TEXT: Record<
   },
 };
 
-/**
- * Asks before unlinking a source. Every source promises the same thing, that
- * the pages stay and are the collection's own to edit, plus what it stops.
- */
 export function SourceUnlinkDialog({
   open,
   onOpenChange,
@@ -70,6 +66,7 @@ export function SourceUnlinkDialog({
   onUnlinked?: (() => void) | undefined;
 }) {
   const unlink = useDisconnectContentDatabaseSource(documentId);
+  const refreshing = useContentDatabaseSourceRefreshing(sourceId);
   const text = UNLINK_TEXT[provider];
   return (
     <AlertDialog
@@ -94,9 +91,8 @@ export function SourceUnlinkDialog({
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
-            disabled={unlink.isPending}
+            disabled={unlink.isPending || refreshing}
             onClick={(event) => {
-              // Stays open until the unlink is saved, so a failure is seen here.
               event.preventDefault();
               unlink.mutate(
                 { documentId, sourceId },
@@ -130,7 +126,6 @@ export function SourceUnlinkDialog({
   );
 }
 
-/** "Unlink…" where a source's own page in Sources offers it, with its dialog. */
 export function SourceUnlinkButton({
   disabled,
   ...unlink
@@ -143,7 +138,6 @@ export function SourceUnlinkButton({
   onUnlinked?: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
-  // A refresh still running could write the source's rows after the unlink.
   const refreshing = useContentDatabaseSourceRefreshing(unlink.sourceId);
   return (
     <>

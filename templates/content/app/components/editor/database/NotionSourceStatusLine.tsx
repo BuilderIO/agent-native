@@ -16,19 +16,12 @@ import {
 } from "./SourceStatusLine";
 import { dbText } from "./text";
 
-/** Ends Notion's reason like a sentence, so the sentence after it reads apart. */
 function asSentence(reason: string | null) {
   const trimmed = reason?.trim();
   if (!trimmed) return null;
   return /[.!?…。！？]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
-/**
- * The status line of a Notion database that adds details to a collection:
- * which database, when its details last updated, and what went wrong if they
- * couldn't. A failed refresh isn't saved on the source, so one this tab ran
- * shows until the next one works.
- */
 export function NotionSourceStatusLine({
   source,
   documentId,
@@ -48,7 +41,6 @@ export function NotionSourceStatusLine({
     reason: string | null;
     asOf: string | null;
   } | null>(null);
-  // Stands only until the source updates, from this tab or any other.
   const localFailure =
     failure && failure.asOf === source.lastRefreshedAt ? failure : null;
   const failed =
@@ -56,7 +48,6 @@ export function NotionSourceStatusLine({
   const reason = localFailure ? localFailure.reason : source.lastError;
   const syncNow = () =>
     refresh.mutate(
-      // A one-page read replaces every cached row, so it would drop the rest.
       { documentId, sourceId: source.id, fullRefresh: true },
       {
         onSuccess: () => {

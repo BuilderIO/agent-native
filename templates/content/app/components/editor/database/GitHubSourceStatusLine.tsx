@@ -88,9 +88,8 @@ function announceSync(
   }
 }
 
-/** "Sync now", which asks GitHub now instead of waiting. */
 export function useSyncGitHubNow(source: ContentDatabaseSource) {
-  const sync = useSyncGitHubFolder();
+  const sync = useSyncGitHubFolder({ refreshingSourceId: source.id });
   const status = source.metadata.github;
   return {
     pending: sync.isPending,
@@ -372,11 +371,6 @@ function reconnectGitHub() {
   });
 }
 
-/**
- * The status line of a collection that comes from a GitHub folder: which
- * folder, when it last updated, where to edit it, and Details. A problem that
- * stops updates gets its own red line with the one thing to do about it.
- */
 export function GitHubSourceStatusLine({
   source,
   documentId,

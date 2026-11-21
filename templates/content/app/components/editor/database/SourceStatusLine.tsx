@@ -17,10 +17,8 @@ import {
 } from "./SourceUnlinkDialog";
 import { dbText } from "./text";
 
-/** How often "2 minutes ago" moves on. */
 const RELATIVE_TIME_TICK_MS = 30_000;
 
-/** Stands in for a name while a sentence is split around it. */
 const NAME_MARK = "\u0000";
 
 export function useNow(intervalMs = RELATIVE_TIME_TICK_MS) {
@@ -32,10 +30,6 @@ export function useNow(intervalMs = RELATIVE_TIME_TICK_MS) {
   return now;
 }
 
-/**
- * A sentence with a name in bold, in any language: the sentence is built with
- * a mark where the name goes and split around it.
- */
 export function SentenceWithName({
   sentence,
   name,
@@ -68,7 +62,6 @@ function DetailRow({
   );
 }
 
-/** Where a source is and how current it is, as Details and Sources show it. */
 export function SourceFacts({
   rows,
 }: {
@@ -85,7 +78,6 @@ export function SourceFacts({
   );
 }
 
-/** An item of the status line, led by its "·" (see the line for why). */
 export function Dotted({ children }: { children: ReactNode }) {
   return (
     <span className="inline-flex min-w-0 items-center">
@@ -97,7 +89,6 @@ export function Dotted({ children }: { children: ReactNode }) {
   );
 }
 
-/** "Sync now", which asks the source for changes instead of waiting. */
 export function SourceSyncNowButton({
   pending,
   disabled,
@@ -140,19 +131,10 @@ export interface SourceStatusUnlink {
 
 export interface SourceStatusProblem {
   text: ReactNode;
-  /** What to do about it, like Reconnect or Retry. */
   actions?: ReactNode;
-  /** Offers Unlink… beside the problem, for one only unlinking resolves. */
   offerUnlink?: boolean;
 }
 
-/**
- * The one line above a collection that comes from a source: where its pages
- * come from, when they last updated, and Details with Sync now and Unlink…. A
- * problem that stops updates gets its own red line with what to do about it,
- * and an update under way shows how far it has got. Each source fills in only
- * what it can do.
- */
 export function SourceStatusLine({
   provider,
   icon,
@@ -169,13 +151,9 @@ export function SourceStatusLine({
 }: {
   provider: string;
   icon: ReactNode;
-  /** "From the **docs** folder on GitHub". */
   from: ReactNode;
-  /** Opens the source's page in Sources; without it, `from` is plain text. */
   onOpenSource?: (() => void) | undefined;
-  /** "Updated 2 minutes ago"; null leaves it out, as while stopped. */
   updated: string | null;
-  /** More items on the line, like "Edit on GitHub", each led by its dot. */
   links?: ReactNode[];
   facts: ReactNode;
   sync: {
@@ -183,17 +161,13 @@ export function SourceStatusLine({
     disabled?: boolean | undefined;
     run: () => void;
   } | null;
-  /** Unlink… for people who can edit the collection; null for the rest. */
   unlink: SourceStatusUnlink | null;
   problem?: SourceStatusProblem | null;
-  /** Quiet lines under the line, like a pause the source recovers from. */
   notes?: string[];
-  /** How far an update has got; a null percent while it can't say. */
   progress?: { label: string; percent: number | null } | null;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
-  // A sync still running could write the source's rows after the unlink.
   const refreshing = useContentDatabaseSourceRefreshing(
     unlink ? unlink.sourceId : null,
   );
@@ -208,9 +182,6 @@ export function SourceStatusLine({
       className="mb-2 grid min-w-0 gap-1 text-xs"
       data-source-status={provider}
     >
-      {/* Every item starts with its dot, and the row sits one dot to the left
-          of a clipped box, so the dot of whichever item starts a line is cut
-          off: no line starts or ends with a dot, however the row wraps. */}
       <div className="-m-px overflow-hidden p-px">
         <div className="-ms-3 flex min-w-0 flex-wrap items-center gap-y-1 text-muted-foreground">
           <Dotted>
@@ -238,7 +209,6 @@ export function SourceStatusLine({
           {links?.map((link, index) => (
             <Dotted key={index}>{link}</Dotted>
           ))}
-          {/* No dot before Details, but the same lead, so it isn't cut off. */}
           <span className="ps-3">
             <Popover open={detailsOpen} onOpenChange={setDetailsOpen}>
               <PopoverTrigger asChild>
@@ -283,8 +253,6 @@ export function SourceStatusLine({
       </div>
 
       {problem ? (
-        // Only the problem is announced: the line above holds controls and a
-        // time that moves on every half minute.
         <div
           className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-destructive"
           role="alert"

@@ -1,6 +1,5 @@
 import { dbText } from "./text";
 
-/** The page's language, for numbers, dates and lists. */
 export function pageLocale(): string {
   return typeof document === "undefined" || !document.documentElement.lang
     ? "en-US"
@@ -16,7 +15,6 @@ const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ["minute", 60],
 ];
 
-/** "2 minutes ago", "just now" and the like, in the page's language. */
 export function sourceRelativeTime(iso: string, now = Date.now()): string {
   const at = Date.parse(iso);
   if (!Number.isFinite(at)) return "";
@@ -32,7 +30,6 @@ export function sourceRelativeTime(iso: string, now = Date.now()): string {
   return dbText("sourceJustNow");
 }
 
-/** "Updated 2 minutes ago", or "Not updated yet" before the first update. */
 export function sourceUpdatedText(
   updatedAt: string | null,
   now: number,
