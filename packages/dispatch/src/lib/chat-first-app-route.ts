@@ -3,6 +3,7 @@ export type ChatFirstAppRouteAnswer =
       status: "ok";
       app: string;
       confidence?: number;
+      explicit?: true;
       cached?: boolean;
       latencyMs?: number;
       model?: string;
@@ -25,13 +26,12 @@ export type ChatFirstAppRouteSkip =
   | "stale";
 
 export type ChatFirstAppRoutePlan<Target = { appId: string }> =
-  | { kind: "open"; target: Target }
+  | { kind: "open" | "warm"; target: Target }
   | { kind: "skip"; reason: ChatFirstAppRouteSkip };
 
 /**
- * What an early route answer may do to the pane. It opens only an installed
- * app other than Dispatch and the one already shown, and only while nothing has
- * changed the pane since the send.
+ * Warm a likely installed app while the pane still matches the send. Only
+ * an explicit choice can commit a visible pane before the tool handoff.
  */
 export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
   answer: ChatFirstAppRouteAnswer | "timeout";
@@ -69,7 +69,7 @@ export function planChatFirstAppRoute<Target extends { appId: string }>(input: {
     return { kind: "skip", reason: "shown" };
   }
   if (input.stale) return { kind: "skip", reason: "stale" };
-  return { kind: "open", target };
+  return { kind: answer.explicit === true ? "open" : "warm", target };
 }
 
 export type ChatFirstAppRouteRecord = {

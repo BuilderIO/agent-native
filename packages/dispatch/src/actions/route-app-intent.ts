@@ -21,6 +21,7 @@ type RouteAppIntentResult =
       status: "ok";
       app: string;
       confidence: number;
+      explicit?: true;
       provider: string;
       model: string;
       cached: boolean;
@@ -70,6 +71,7 @@ export default defineAction({
       status: z.literal("ok"),
       app: z.string(),
       confidence: z.number().min(0).max(1),
+      explicit: z.literal(true).optional(),
       provider: z.string(),
       model: z.string(),
       cached: z.boolean(),
@@ -124,6 +126,30 @@ export default defineAction({
       return { status: "failed", reason: "no_granted_apps" };
     }
 
+    const explicitName = /^(?:open|show|switch to|go to)\s+(.+?)[.!]?$/i
+      .exec(text)?.[1]
+      ?.trim()
+      .toLowerCase();
+    if (explicitName) {
+      const exactId = apps.find((app) => app.id.toLowerCase() === explicitName);
+      const byName = apps.filter(
+        (app) => app.name.toLowerCase() === explicitName,
+      );
+      const explicitApp = exactId ?? (byName.length === 1 ? byName[0] : null);
+      if (explicitApp) {
+        return {
+          status: "ok",
+          app: explicitApp.id,
+          confidence: 1,
+          explicit: true,
+          provider: "registration",
+          model: "exact-app-match",
+          cached: false,
+          latencyMs: 0,
+        };
+      }
+    }
+
     const hit = matchPointer(text, grantedPointers);
     if (hit && !openApp) {
       return {
@@ -135,6 +161,7 @@ export default defineAction({
         cached: false,
         latencyMs: 0,
         pointer: true,
+        ...(explicitName === hit.alias.toLowerCase() ? { explicit: true } : {}),
         ...(hit.objectId ? { objectId: hit.objectId } : {}),
         ...(hit.url ? { url: hit.url } : {}),
       };

@@ -38,6 +38,16 @@ describe("route-app-intent", () => {
     ]);
   });
 
+  it("recognizes an explicit registered app choice without classifying it", async () => {
+    expect(await run({ text: "Open Mail." })).toMatchObject({
+      status: "ok",
+      app: "mail",
+      confidence: 1,
+      explicit: true,
+    });
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
   it("opens a saved pointer's object instead of the Tasks default", async () => {
     mocks.listGrantedDispatchMcpApps.mockResolvedValue([
       { id: "tasks", name: "Tasks", description: "To-dos" },

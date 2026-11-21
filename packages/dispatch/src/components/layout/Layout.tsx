@@ -2347,7 +2347,7 @@ function DispatchLayout({
               ? { hostedLatencyMs: answer.latencyMs }
               : {}),
           } satisfies ChatFirstAppRouteRecord);
-          if (plan.kind !== "open") return;
+          if (plan.kind === "skip") return;
           const pane: DispatchChatFirstPane = plan.target;
           const registration = now.registrations.find(
             (candidate) => candidate.id === pane.appId,
@@ -2364,6 +2364,7 @@ function DispatchLayout({
               pane.path ?? registration.path ?? "/",
             );
           }
+          if (plan.kind !== "open") return;
           chatFirstRoutedPaneRef.current = { seq, chat, sentPane, pane };
           applyChatFirstRoutedPane();
         });

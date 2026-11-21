@@ -36,7 +36,7 @@ describe("planChatFirstAppRoute pointers", () => {
         },
       }),
     ).toEqual({
-      kind: "open",
+      kind: "warm",
       target: { appId: "content", url: "https://x/y" },
     });
   });
@@ -47,6 +47,7 @@ describe("planChatFirstAppRoute pointers", () => {
       app: "content",
       confidence: 1,
       pointer: true,
+      explicit: true as const,
       url: "https://x/y",
     };
     expect(
