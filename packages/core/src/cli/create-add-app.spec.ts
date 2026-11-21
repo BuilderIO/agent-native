@@ -129,6 +129,11 @@ describe("workspace chat starter", () => {
       suggestableCapabilities: [],
     });
     expect(fs.existsSync(path.join(appDir, "DESIGN.md"))).toBe(true);
+    const guidance = fs.readFileSync(path.join(appDir, "AGENTS.md"), "utf8");
+    expect(guidance).toContain("Use the 12-row blind visual review");
+    expect(guidance).not.toContain(
+      "Skip production build and extra test suites",
+    );
 
     const { appStateGet, appStatePut } = await jiti.import<
       typeof import("../application-state/store.js")

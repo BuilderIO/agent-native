@@ -67,18 +67,6 @@ export function wireChatStarterContract(
 };
 `,
   );
-  const pluginDir = path.join(appDir, "server", "plugins");
-  fs.mkdirSync(pluginDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(pluginDir, "app-capabilities.ts"),
-    `import { defineAppConfig } from "@agent-native/core/server";
-import manifest from "../../app.manifest.js";
-
-// Older core releases ignore the manifest layer until they support discovery.
-export default defineAppConfig({ app: {}, ...{ manifest } });
-`,
-  );
-
   const actionsDir = path.join(appDir, "actions");
   fs.writeFileSync(path.join(actionsDir, "view-screen.ts"), VIEW_SCREEN);
   fs.writeFileSync(path.join(actionsDir, "navigate.ts"), NAVIGATE);

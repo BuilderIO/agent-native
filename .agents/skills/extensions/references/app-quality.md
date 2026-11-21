@@ -13,4 +13,6 @@ uses the host's shared actions and scoped extension APIs. Use the real host
 route or slot for the 12-row rubric, automatic fails, blind reviewer, and
 60-second Playwright walkthrough. Verify state persistence, narrow layout,
 error recovery, and three applicable manifest-driven chat cases. Keep the
-extension in verification when either gate is incomplete.
+extension in verification when either gate is incomplete. Record the
+independent walkthrough in `app-quality-bar/preview-acceptance.md`, including
+which host slot reopened and which edit survived.

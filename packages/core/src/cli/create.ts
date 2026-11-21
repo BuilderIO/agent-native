@@ -2162,15 +2162,23 @@ function ensureAppQualityScaffold(
   }
 
   const agentsPath = path.join(appDir, "AGENTS.md");
+  if (isChatOnRampTemplate(templateName)) {
+    const instructions = fs.readFileSync(agentsPath, "utf8");
+    fs.writeFileSync(
+      agentsPath,
+      instructions.replace(
+        /^Use `adding-a-feature` for functional .*Skip production build and extra test suites\.$/m,
+        "Use `adding-a-feature` for functional changes and `frontend-design` for user-facing screens. Run typecheck and doctor before the app quality walkthrough.",
+      ),
+    );
+    wireChatStarterContract(appDir, appName, appTitleForScaffold(appName));
+  }
   fs.appendFileSync(
     agentsPath,
     "\n## App quality\n\nApply the five stages in `app-quality-bar` before presenting changed workflows as ready. " +
       "Keep the design decisions in `DESIGN.md` and routing and actions in `app.manifest.ts`. " +
       "Use the 12-row blind visual review and 60-second Playwright walkthrough against the running app.\n",
   );
-  if (isChatOnRampTemplate(templateName)) {
-    wireChatStarterContract(appDir, appName, appTitleForScaffold(appName));
-  }
 }
 
 function ensureGuardedScaffold(appDir: string): void {

@@ -3338,7 +3338,11 @@ describe("startWorkspaceAppCreation", () => {
     expect(local.mode).toBe("local-agent");
     if (local.mode !== "local-agent")
       throw new Error("Expected a local prompt");
-    expect(local.prompt).toContain("Dispatch mounts it at /onboarding");
+    expect(local.prompt).toContain(
+      "The default workspace mount is /onboarding",
+    );
+    expect(local.prompt).toContain("resolve the actual mount and home");
+    expect(local.prompt).toContain("reuse the existing scoped connection");
     expect(local.prompt).toContain('navigate("/review")');
     expect(local.prompt).not.toContain("/apps/onboarding");
     for (const requirement of [
@@ -3964,6 +3968,14 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
   });
 
+  function stubBuilderBranchStarted() {
+    mocks.runBuilderAgent.mockResolvedValueOnce({
+      branchName: "onboarding",
+      url: "https://builder.io/app/projects/project-1/branch/onboarding",
+      status: "processing",
+    });
+  }
+
   it.each([
     [400, "qa@example.test"],
     [422, "member@example.test"],
@@ -3982,6 +3994,7 @@ describe("startWorkspaceAppCreation", () => {
           builderStatus,
         }),
       );
+      stubBuilderBranchStarted();
 
       const result = await create("onboarding", {
         userEmail,
@@ -4036,6 +4049,30 @@ describe("startWorkspaceAppCreation", () => {
       ),
     });
     expect(mocks.runBuilderAgent).toHaveBeenCalledOnce();
+    stubBuilderBranchStarted();
+    await expect(create()).resolves.toMatchObject({ mode: "builder" });
+  });
+
+  it("retains membership guidance when the fallback actor lookup fails", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderRequestAuthorization.mockRejectedValueOnce(
+      new Error("Unable to look up the workspace actor"),
+    );
+    mocks.runBuilderAgent.mockRejectedValueOnce(
+      Object.assign(new Error("User not found for the provided email"), {
+        builderStatus: 400,
+      }),
+    );
+
+    await expect(create()).resolves.toMatchObject({
+      mode: "builder-unavailable",
+      message: expect.stringContaining(
+        "check the connected account and space membership",
+      ),
+    });
+    expect(mocks.runBuilderAgent).toHaveBeenCalledOnce();
+    stubBuilderBranchStarted();
     await expect(create()).resolves.toMatchObject({ mode: "builder" });
   });
 

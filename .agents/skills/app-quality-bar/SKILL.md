@@ -19,7 +19,7 @@ a starting point. Readiness is earned on the running preview.
    implementation. Record the visual direction, semantic tokens, type scale,
    density, route map, shortcuts, and behavior in populated, empty, pending,
    narrow, error, and offline states. Use the decision log below to compare
-   two or three concrete options and record rejected options. Keep it in
+   three concrete options and record rejected options. Keep it in
    `DESIGN.md`, the single required design contract.
 3. **Implement the contract.** Register `app.manifest.ts` with screens,
    entities, `viewPolicy`, and `suggestableCapabilities` that match actual
@@ -28,7 +28,7 @@ a starting point. Readiness is earned on the running preview.
    Use shared actions and SQL, publish current screen state, and make
    `navigate` report kept, queued, or confirmed navigation accurately. Opt in
    to realtime `useDbSync` where another tab or actor can change visible work.
-   Public workspace routes start at `/<id>`. React Router uses app-local paths.
+   Resolve the deployed mount and landing from the workspace registry or preview gateway. React Router uses app-local paths.
 4. **Review the preview.** Follow the canonical [capture procedure, 12-row
    rubric, and automatic fails](visual-review.md).
    Give a blind reviewer subagent only screenshots, the rubric, and the brief.
@@ -36,7 +36,7 @@ a starting point. Readiness is earned on the running preview.
    of at least 4.0, every row at least 3, and zero automatic fails. If
    independent review is unavailable, mark that gate pending.
 5. **Verify interactions.** Run the Playwright walkthrough below on a signed-in
-   disposable preview. Attach the result and screenshots to the handoff.
+   disposable preview. Attach the scored rubric, screenshots, and independent task receipts from [preview acceptance](preview-acceptance.md).
    Report an unavailable preview, fixture, or chat provider as incomplete.
 
 ## Pattern index
@@ -69,7 +69,10 @@ outside the timed run and keep the ordered assertions reproducible.
   Observe console errors, unexpected request failures, visible
   `Loading...` (including its ellipsis variant), and native
   `alert` / `confirm` / `prompt` dialogs. Fail on regressions.
-- Read the served `/_agent-native/manifest.json` through the app mount. Send
+- Read the capability manifest from the mounted discovery endpoint when the
+  running framework exposes it. On older runtimes use `app.manifest.ts` to
+  plan the same prompts and verify each binding in the signed-in preview.
+  Send
   three fresh prompts derived from its screens and actions: explicitly open
   a declared screen, query or narrow the current work, and create or edit a
   fixture. Assert active route or kept view, visible result, and saved state
