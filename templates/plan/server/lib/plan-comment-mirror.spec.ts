@@ -700,23 +700,20 @@ describe("Plan comments in the review kit", () => {
       { id: "orphan-kept", message: "Still in Plan" },
     ]);
     const at = "2026-11-20T12:00:00.000Z";
-    await mirrorReviewComments(
-      { resourceType: "plan", resourceId: planId },
-      [
-        {
-          id: "kit-written-root",
-          threadId: "kit-written-root",
-          parentCommentId: null,
-          body: "Written through the kit before Plan registered",
-          authorEmail: OWNER.userEmail,
-          authorName: null,
-          createdBy: "human",
-          resolved: false,
-          createdAt: at,
-          updatedAt: at,
-        },
-      ],
-    );
+    await mirrorReviewComments({ resourceType: "plan", resourceId: planId }, [
+      {
+        id: "kit-written-root",
+        threadId: "kit-written-root",
+        parentCommentId: null,
+        body: "Written through the kit before Plan registered",
+        authorEmail: OWNER.userEmail,
+        authorName: null,
+        createdBy: "human",
+        resolved: false,
+        createdAt: at,
+        updatedAt: at,
+      },
+    ]);
     await mirrorReviewComments(
       { resourceType: "plan", resourceId: "plan-deleted-elsewhere" },
       [
