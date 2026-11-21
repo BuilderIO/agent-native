@@ -249,7 +249,6 @@ export interface StartParams {
   mode: CaptureMode;
   source?: CaptureSource;
   cameraId?: string;
-  /** The camera's name, which rich recordings' camera track finds it by. */
   cameraLabel?: string;
   micId?: string;
   micLabel?: string;
