@@ -121,6 +121,37 @@ export function SourceSyncNowButton({
   );
 }
 
+export function SourceProgress({
+  label,
+  percent,
+}: {
+  label: string;
+  percent: number | null;
+}) {
+  return (
+    <div className="grid max-w-sm gap-1">
+      <div className="text-muted-foreground">{label}</div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn(
+            "h-full rounded-full bg-foreground/70 transition-all",
+            percent === null
+              ? "w-full animate-pulse"
+              : "w-(--source-sync-progress)",
+          )}
+          style={
+            percent === null
+              ? undefined
+              : ({
+                  "--source-sync-progress": `${percent}%`,
+                } as CSSProperties)
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 export interface SourceStatusUnlink {
   provider: SourceUnlinkProvider;
   documentId: string;
@@ -280,28 +311,7 @@ export function SourceStatusLine({
         </div>
       ))}
 
-      {progress ? (
-        <div className="grid max-w-sm gap-1">
-          <div className="text-muted-foreground">{progress.label}</div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn(
-                "h-full rounded-full bg-foreground/70 transition-all",
-                progress.percent === null
-                  ? "w-full animate-pulse"
-                  : "w-(--source-sync-progress)",
-              )}
-              style={
-                progress.percent === null
-                  ? undefined
-                  : ({
-                      "--source-sync-progress": `${progress.percent}%`,
-                    } as CSSProperties)
-              }
-            />
-          </div>
-        </div>
-      ) : null}
+      {progress ? <SourceProgress {...progress} /> : null}
 
       {unlink ? (
         <SourceUnlinkDialog

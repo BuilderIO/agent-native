@@ -1601,6 +1601,12 @@ describe("DatabaseView UI regressions", () => {
     await act(async () => {
       findButtonByText(
         document.body,
+        messagesByLocale["en-US"].database.sourceMore,
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
         messagesByLocale["en-US"].database.addAsItems,
       )?.click();
       await Promise.resolve();

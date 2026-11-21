@@ -152,6 +152,53 @@ const database = {
   githubNotShown: "{{count}} arquivos não exibidos",
   githubNotShownHeading: "Não exibidos",
   sourceShowingPagesAsOf: "Mostrando as páginas como estavam {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "As páginas vêm da pasta {{folder}} em {{repo}}.",
+  sourcePanelFromGitHubRepo: "As páginas vêm de {{repo}}.",
+  sourcePanelFromBuilderModel: "As páginas vêm do modelo {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Os detalhes vêm do modelo {{name}} e são adicionados às páginas correspondentes aqui.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Os detalhes vêm do banco de dados {{name}} e são adicionados às páginas correspondentes aqui.",
+  sourceUpToDate: "Atualizado · verificado {{time}}",
+  sourceNothingComingIn: "Nada está chegando ainda.",
+  sourceLoadingPageContent:
+    "Carregando o conteúdo das páginas: {{done}} de {{total}}",
+  sourceEditingGitHub:
+    "Você não pode editar estas páginas aqui. Edite no GitHub.",
+  sourceEditingNotion:
+    "Você não pode editar aqui os detalhes do Notion. Edite no Notion.",
+  sourceEditingBuilderDetails:
+    "Você não pode editar aqui os detalhes do Builder. Edite no Builder.",
+  sourceEditingBuilderReadOnly:
+    "As edições feitas aqui não são enviadas ao Builder.",
+  sourceEditingBuilderStageOnly:
+    "As edições feitas aqui são salvas no Builder para revisão, sem publicar.",
+  sourceEditingBuilderPublish:
+    "As edições feitas aqui mudam o site no ar depois da revisão.",
+  sourceNoChangesWaiting: "Nenhuma mudança esperando",
+  sourcePagesChangedOne: "1 página alterada",
+  sourcePagesChanged: "{{count}} páginas alteradas",
+  sourceChangesCheckFailed: "Não foi possível verificar se há mudanças.",
+  sourceReviewAndSend: "Revisar e enviar",
+  sourceMore: "Mais",
+  sourceBuilderEditsHeading: "O que acontece com minhas edições",
+  sourceBuilderEditsDontSend: "Não enviar",
+  sourceBuilderEditsSaveForReview: "Salvar no Builder para revisão",
+  sourceBuilderEditsPublish: "Publicar no site no ar",
+  sourceBuilderPublishConfirmTitle: "Publicar as edições no site no ar?",
+  sourceBuilderPublishConfirmBody:
+    "As edições que você enviar daqui depois da revisão vão mudar o site no ar na hora.",
+  sourceMatchedOn: "As páginas são combinadas por {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "As páginas são combinadas por {{field}}, ignorando maiúsculas.",
+  sourceMatchedOnCustom:
+    "As páginas são combinadas por {{field}} com uma regra própria.",
+  sourceUnlinkKeepsPages:
+    "As páginas continuam aqui e passam a ser suas para editar.",
+  sourceUnlinkKeepsDetailPages:
+    "As páginas continuam aqui e você ainda pode editá-las.",
+  sourceChooseDetails: "Escolher detalhes",
   githubSyncingProgress: "Trazendo mudanças: {{done}} de {{total}} arquivos",
   githubPicturesWaiting:
     "Algumas imagens só vão aparecer quando um administrador do espaço de trabalho configurar o armazenamento de arquivos.",

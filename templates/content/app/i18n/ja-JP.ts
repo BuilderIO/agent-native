@@ -154,6 +154,51 @@ const database = {
   githubNotShown: "{{count}} 個のファイルは表示されていません",
   githubNotShownHeading: "表示されていないファイル",
   sourceShowingPagesAsOf: "{{time}}の時点のページを表示しています。",
+  sourcePanelFromGitHubFolder:
+    "ページは {{repo}} の {{folder}} フォルダーから取り込まれます。",
+  sourcePanelFromGitHubRepo: "ページは {{repo}} から取り込まれます。",
+  sourcePanelFromBuilderModel: "ページは {{name}} モデルから取り込まれます。",
+  sourcePanelDetailsFromBuilderModel:
+    "詳細は {{name}} モデルから取り込まれ、ここで一致するページに追加されます。",
+  sourcePanelDetailsFromNotionDatabase:
+    "詳細は {{name}} データベースから取り込まれ、ここで一致するページに追加されます。",
+  sourceUpToDate: "最新 · {{time}}に確認",
+  sourceNothingComingIn: "まだ何も取り込まれていません。",
+  sourceLoadingPageContent:
+    "ページの内容を読み込み中: {{total}} 件中 {{done}} 件",
+  sourceEditingGitHub:
+    "これらのページはここでは編集できません。GitHub で編集してください。",
+  sourceEditingNotion:
+    "Notion の詳細はここでは編集できません。Notion で編集してください。",
+  sourceEditingBuilderDetails:
+    "Builder の詳細はここでは編集できません。Builder で編集してください。",
+  sourceEditingBuilderReadOnly: "ここでの編集は Builder に送信されません。",
+  sourceEditingBuilderStageOnly:
+    "ここでの編集はレビュー用に Builder に保存され、公開はされません。",
+  sourceEditingBuilderPublish:
+    "ここでの編集はレビュー後に公開中のサイトに反映されます。",
+  sourceNoChangesWaiting: "保留中の変更はありません",
+  sourcePagesChangedOne: "1 ページが変更されました",
+  sourcePagesChanged: "{{count}} ページが変更されました",
+  sourceChangesCheckFailed: "変更を確認できませんでした。",
+  sourceReviewAndSend: "レビューして送信",
+  sourceMore: "詳細設定",
+  sourceBuilderEditsHeading: "編集内容の扱い",
+  sourceBuilderEditsDontSend: "送信しない",
+  sourceBuilderEditsSaveForReview: "レビュー用に Builder に保存",
+  sourceBuilderEditsPublish: "公開中のサイトに公開",
+  sourceBuilderPublishConfirmTitle: "編集内容を公開中のサイトに公開しますか？",
+  sourceBuilderPublishConfirmBody:
+    "レビュー後にここから送信した編集内容は、すぐに公開中のサイトに反映されます。",
+  sourceMatchedOn: "ページは {{field}} で照合されます。",
+  sourceMatchedOnIgnoringCase:
+    "ページは {{field}} で照合されます（大文字と小文字は区別しません）。",
+  sourceMatchedOnCustom:
+    "ページは {{field}} で独自のルールにより照合されます。",
+  sourceUnlinkKeepsPages:
+    "ページはここに残り、自由に編集できるようになります。",
+  sourceUnlinkKeepsDetailPages: "ページはここに残り、引き続き編集できます。",
+  sourceChooseDetails: "詳細を選択",
   githubSyncingProgress:
     "変更を取り込んでいます：{{total}} 個中 {{done}} 個のファイル",
   githubPicturesWaiting:
