@@ -407,8 +407,6 @@ describe("AuthPage", () => {
       }
     }
     expect(oauthReturnTarget(target, "", t3CodeBrowser, "")).toBe(target);
-    // Callers that predate currentOrigin fall back to the page's own origin,
-    // which is empty outside a browser.
     expect(
       resolveOAuthReturnOrigin({
         previewOrigin: "",
