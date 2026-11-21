@@ -1812,6 +1812,43 @@ describe("what the session status event says caused it", () => {
     );
   });
 
+  it("keeps load when the page's first answer comes on a return to the tab after its reads gave up", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    let backendUp = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        backendUp
+          ? jsonResponse({ userId: "u", email: "u@x.test" })
+          : new Response(null, { status: 503 }),
+      ),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(40_000);
+    });
+    expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
+
+    backendUp = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledExactlyOnceWith(
+      true,
+      "load",
+    );
+  });
+
   it("says focus when a return to the tab re-reads a stale answer", async () => {
     await mountFresh(signedInThenOut());
     vi.spyOn(Date, "now").mockReturnValue(now + 30_001);

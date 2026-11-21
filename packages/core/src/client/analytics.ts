@@ -2984,8 +2984,9 @@ export function trackLifecycleEvent(
 }
 
 /**
- * What made the tab read the session: its first read in the page (`"load"`),
- * a return to the tab, by focus or by becoming visible, once the answer was
+ * What made the tab read the session: its first read in the page (`"load"`,
+ * kept until the page gets its first answer, even if that answer comes on a
+ * retry or a later return to the tab), a return to the tab, by focus or by becoming visible, once the answer was
  * stale (`"focus"`), a component mounting after the answer expired
  * (`"expired"`), a sign-in, sign-out, or account or organization switch in
  * this tab or another (`"auth_change"`), a request answered 401
