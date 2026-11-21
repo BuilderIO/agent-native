@@ -9847,10 +9847,13 @@ describe("AgentKitAssistantChat host behavior", () => {
     const composer = chatMocks.composerProps.composerRef.current;
     const prompt = "do I have any GitHub notifications from humans?";
     await act(async () => composer.setText(prompt));
-    const send = () =>
-      container.querySelector<HTMLButtonElement>(
+    const send = () => {
+      const button = container.querySelector<HTMLButtonElement>(
         '[data-agent-composer-slot="send-button"]',
-      )!;
+      );
+      if (!button) throw new Error("Send button not found");
+      return button;
+    };
     await act(async () => send().click());
     await flush();
     expect(startRun).toHaveBeenCalledOnce();
@@ -9871,7 +9874,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(prompt);
     await act(async () => send().click());
     await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
-    expect(startRun.mock.calls[1]![0].messages.at(-1)?.parts).toEqual([
+    expect(startRun.mock.calls[1]?.[0].messages.at(-1)?.parts).toEqual([
       { type: "text", text: prompt },
     ]);
     await client.shutdown();

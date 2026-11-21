@@ -3334,9 +3334,6 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       updatedAt,
     );
-    // Older persisted messages can be partial (including tool-only messages).
-    // Only an absent field means empty: present malformed values must still be
-    // rejected by the protocol validator below.
     const agentKitMessages = Array.isArray(agentKit?.messages)
       ? (agentKit.messages.map((value: unknown) => {
           const message = asRecord(value);

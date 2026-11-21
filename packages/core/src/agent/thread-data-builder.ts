@@ -4621,9 +4621,6 @@ function collectPrivateSnapshotContextForRepos(
       foundPrivateContent,
     );
   }
-  // Runs folded into a later assistant reply share that reply's content. Redact
-  // the whole reply when any constituent run is private, including when the
-  // private run is known only from the server's related run records.
   for (const candidate of repos) {
     const record = candidate as {
       agentKit?: unknown;
@@ -4697,8 +4694,6 @@ export function hasPrivateRunProjections(
         ? messageRuns.get(message.id)
         : undefined);
     if (typeof runId === "string") projected.add(runId);
-    // A server-folded reply can represent several continuation runs. Only
-    // accept identifiable messages, which the sanitizer can also redact.
     if (typeof message.id === "string") {
       for (const foldedRunId of foldedRunIdsOf(message))
         projected.add(foldedRunId);
