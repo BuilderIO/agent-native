@@ -727,6 +727,9 @@ export function useSetDocumentProperty(
           { documentId: databaseDocumentId },
         ],
       });
+      if (savedProperty?.definition.type !== "blocks") {
+        invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
+      }
     },
   });
   const scoped = withDatabaseScope(mutation, databaseId);
@@ -799,7 +802,7 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
     UpdateDatabaseItemsRequest
   >("update-database-items", {
     skipActionQueryInvalidation: true,
-    onSuccess: () => {
+    onSuccess: (data) => {
       const databaseQueries = contentDatabaseQueryFilter(databaseDocumentId);
       const constrainedQueries =
         contentDatabaseConstrainedQueryFilter(databaseDocumentId);
@@ -811,6 +814,9 @@ export function useUpdateDatabaseItems(databaseDocumentId: string) {
       });
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
+      });
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: data.databaseId,
       });
     },
   });
