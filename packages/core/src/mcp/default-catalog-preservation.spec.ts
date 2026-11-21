@@ -120,8 +120,9 @@ describe("default template catalogs when organization tools opt in", () => {
     "keeps Brain's existing default catalog when its policy is explicit",
     async () => {
       const brain = apps.find((app) => app.appId === "brain");
-      expect(brain).toBeDefined();
-      const config = brain!.surfaces[0]!.config;
+      const surface = brain?.surfaces[0];
+      if (!surface) throw new Error("Brain catalog surface is missing");
+      const config = surface.config;
       const { connectorCatalog: _catalog, ...implicit } = config;
       vi.stubEnv("AGENT_MODE", "production");
       vi.stubEnv("AGENT_PROD_CODE_EXECUTION", "off");
