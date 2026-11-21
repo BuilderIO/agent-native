@@ -623,6 +623,8 @@ interface EventRead {
   standaloneSetupTruncated: boolean;
   lastSessionDroppedFor: JourneyEventRow["journeyKind"] | null;
   pages: number;
+  billedPages: number;
+  uncachedPages: number;
   paginationConsistency: "stable" | "may_have_shifted";
   truncationReason:
     | "max_event_rows"
@@ -750,6 +752,8 @@ async function readJourneyEvents(
   let truncatedAt: JourneyEventRow["journeyKind"] | null = null;
   let overflowSessionId: string | null = null;
   let pages = 0;
+  let jobsClaimed = 0;
+  let uncachedPages = 0;
   let rowsFetched = 0;
   const pageTotals: JourneyPageTotal[] = [];
   const deadline = new AbortController();
@@ -783,7 +787,6 @@ async function readJourneyEvents(
     }
     const jobBudget =
       getOnboardingJourneyEventReadPageBudget(maxTotalBytesBilled);
-    let jobsClaimed = 0;
     let previousPageDecided: Promise<unknown> = Promise.resolve();
     const pageSignal = AbortSignal.any([querySignal, stopPrefetch.signal]);
     const fetchPage = (offset: number): PendingJourneyPage => {
@@ -871,6 +874,7 @@ async function readJourneyEvents(
         throw new OnboardingJourneyReadError(error, pages + 1);
       }
       pages += 1;
+      if (page.partial) uncachedPages += 1;
       raw.push(...page.rows);
       rowsFetched += page.rows.length;
       if (page.rows.length) {
@@ -969,6 +973,8 @@ async function readJourneyEvents(
     standaloneSetupTruncated: truncated,
     lastSessionDroppedFor,
     pages,
+    billedPages: jobsClaimed,
+    uncachedPages,
     paginationConsistency: journeyPagesAgree(
       pages,
       pageTotals,
@@ -981,6 +987,13 @@ async function readJourneyEvents(
     backendSink,
     stoppedPage,
   };
+}
+
+function journeyBudgetStopContinues(read: EventRead): boolean {
+  return (
+    read.truncationReason === "page_budget" &&
+    read.uncachedPages < read.billedPages
+  );
 }
 
 type JourneyPageTotal = { rows: number | null; fingerprint: number | null };
@@ -2416,7 +2429,7 @@ async function buildOnboardingJourneyCohorts(
     },
     tree: makeTree(partition.allSessionIds),
     ...((read.truncationReason === "read_deadline" ||
-      read.truncationReason === "page_budget") &&
+      journeyBudgetStopContinues(read)) &&
     observation.observationWatermark
       ? {
           continueWith: {
@@ -2728,9 +2741,18 @@ export async function getOnboardingJourney(
     );
   }
   const stoppedForBudget = read.truncationReason === "page_budget";
+  const budgetStopContinues = journeyBudgetStopContinues(read);
   if (stoppedForBudget) {
+    const budgetUsed = `The event read used up maxTotalBytesBilled=${args.maxTotalBytesBilled} before it finished`;
+    const callAgain = `calling again with the same arguments and observationWatermark="${observation.observationWatermark}"`;
+    const repeat =
+      "Each call can bill up to maxTotalBytesBilled again; repeat until this note is gone.";
     notes.push(
-      `The event read used up maxTotalBytesBilled=${args.maxTotalBytesBilled} before it finished. The pages it read are cached and cost nothing to read again, so calling again with the same arguments and observationWatermark="${observation.observationWatermark}" reads them and spends the budget on the pages after them. Each call can bill up to maxTotalBytesBilled again; repeat until this note is gone.`,
+      read.uncachedPages === 0
+        ? `${budgetUsed}. The pages it read are cached and cost nothing to read again, so ${callAgain} reads them and spends the budget on the pages after them. ${repeat}`
+        : budgetStopContinues
+          ? `${budgetUsed}. ${read.uncachedPages} of the pages it read came back with BigQuery warnings and were not cached, so ${callAgain} bills them again. The other pages it read are cached and cost nothing to read again, and the rest of the budget goes to the pages after them. ${repeat}`
+          : `${budgetUsed}, and every page it billed came back with BigQuery warnings, so none was cached. Calling again would bill the same pages without reading further; a higher maxTotalBytesBilled or a shorter date range reads further.`,
     );
   }
   const head = {
@@ -2738,7 +2760,8 @@ export async function getOnboardingJourney(
     app: args.app,
     rootN: built.rootN,
     ...(notes.length ? { notes } : {}),
-    ...((stoppedForTime || stoppedForBudget) && observation.observationWatermark
+    ...((stoppedForTime || budgetStopContinues) &&
+    observation.observationWatermark
       ? {
           continueWith: {
             observationWatermark: observation.observationWatermark,

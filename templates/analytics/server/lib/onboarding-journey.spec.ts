@@ -2132,6 +2132,55 @@ describe("getOnboardingJourney", () => {
     });
   });
 
+  it("says which budget-cut pages bill again because BigQuery returned them with warnings", async () => {
+    const total = 12_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`warned-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const read = async (warnedOffsets: number[]) => {
+      mocks.queryFirstPartyAnalytics.mockImplementation(
+        async (sql: string, _scope: unknown, options: unknown) => {
+          if (!sql.includes("journey_total_rows"))
+            return { rows: [], schema: [] };
+          const offset = pageOffset(sql);
+          await claimPageJob(options);
+          return {
+            rows: rows.slice(offset, offset + 4_000),
+            schema: [],
+            ...(warnedOffsets.includes(offset) ? { partial: true } : {}),
+          };
+        },
+      );
+      return (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+        maxEventRows: 20_000,
+        maxTotalBytesBilled: 50_000_000_000,
+      })) as JourneySummary;
+    };
+
+    const oneWarned = await read([0]);
+    expect(oneWarned.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 2,
+      truncated: true,
+    });
+    expect(oneWarned.notes?.join(" ")).toMatch(
+      /1 of the pages it read came back with BigQuery warnings and were not cached, so calling again with the same arguments and observationWatermark="[^"]+" bills them again\./,
+    );
+    expect(oneWarned.continueWith).toEqual({
+      observationWatermark: expect.any(String),
+    });
+
+    const allWarned = await read([0, 4_000]);
+    expect(allWarned.notes?.join(" ")).toMatch(
+      /every page it billed came back with BigQuery warnings, so none was cached\. Calling again would bill the same pages without reading further/,
+    );
+    expect(allWarned.continueWith).toBeUndefined();
+  });
+
   it("ends a read at its reported total without asking for an empty page", async () => {
     const total = 8_000;
     const rows = Array.from({ length: total }, (_, index) =>
