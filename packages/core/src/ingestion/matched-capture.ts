@@ -242,6 +242,12 @@ function validateBreakpointRecord(bp: BreakpointRecord): string | null {
     return "width and height must be positive integers";
   }
   if (!(bp.deviceScaleFactor > 0)) return "deviceScaleFactor must be positive";
+  if (
+    bp.reducedMotion !== undefined &&
+    bp.reducedMotion !== "reduce" &&
+    bp.reducedMotion !== "no-preference"
+  )
+    return "unsupported reducedMotion";
   if (bp.colorSpace && bp.colorSpace !== "srgb") {
     return `unsupported colorSpace "${bp.colorSpace}"`;
   }
@@ -281,6 +287,7 @@ function clockCheck(
   side: "source" | "destination",
   capture: SideCapture,
   tolerance: number,
+  requested: ClockStrategy,
 ): CheckEntry {
   const id = `clock-${side}`;
   if (!capture.clock.pinned || capture.clock.requestedTimeMs === null) {
@@ -290,6 +297,18 @@ function clockCheck(
       "could-not-run",
       capture.clock.reason ??
         `${side} clock could not be pinned (${capture.clock.kind}); comparison is unverified`,
+    );
+  }
+  if (
+    requested.kind === "unpinned" ||
+    capture.clock.kind !== requested.kind ||
+    capture.clock.requestedTimeMs !== requested.timeMs
+  ) {
+    return check(
+      bp,
+      id,
+      "fail",
+      `${side} capturer did not honor the requested clock`,
     );
   }
   const observed = capture.observed.timeMs;
@@ -473,8 +492,14 @@ async function compareBreakpoint(
   result.checks.push(
     ...validateSide(bp, "source", source),
     ...validateSide(bp, "destination", destination),
-    clockCheck(bp.name, "source", source, clockTolerance),
-    clockCheck(bp.name, "destination", destination, clockTolerance),
+    clockCheck(bp.name, "source", source, clockTolerance, input.source.clock),
+    clockCheck(
+      bp.name,
+      "destination",
+      destination,
+      clockTolerance,
+      input.destination.clock,
+    ),
   );
   if (
     source.observed.timeMs !== null &&
@@ -642,6 +667,15 @@ async function compareBreakpoint(
     threshold,
     pass: threshold === null ? null : rmse <= threshold,
   };
+  if (threshold !== null)
+    result.checks.push(
+      check(
+        bp.name,
+        "fidelity-threshold",
+        rmse <= threshold ? "pass" : "fail",
+        `rmse ${round(rmse)}% ${rmse <= threshold ? "meets" : "exceeds"} threshold ${threshold}%`,
+      ),
+    );
   return finalize(result);
 }
 
@@ -650,7 +684,9 @@ function round(n: number): number {
 }
 
 function finalize(result: BreakpointResult): BreakpointResult {
-  const failed = result.checks.filter((c) => c.status === "fail");
+  const failed = result.checks.filter(
+    (c) => c.status === "fail" && c.id !== "fidelity-threshold",
+  );
   const notRun = result.checks.filter((c) => c.status === "could-not-run");
   const captureFailed = notRun.some((c) => c.id.startsWith("capture-"));
   const onlyClock = notRun.every((c) => c.id.startsWith("clock-"));
@@ -712,8 +748,6 @@ export function summarizeResults(
       else if (c.status === "fail") fail++;
       else couldNotRun++;
     }
-    if (r.fidelity?.pass === false) fail++;
-    else if (r.fidelity?.pass === true) pass++;
   }
   return {
     results,
@@ -736,6 +770,16 @@ export async function runMatchedCheck(
     Math.min(input.concurrency ?? 2, MAX_CONCURRENCY),
   );
   const tolerance = input.clockToleranceMs ?? 1;
+  if (
+    input.motion &&
+    (!Number.isInteger(input.motion.frames) ||
+      input.motion.frames < 2 ||
+      !Number.isFinite(input.motion.intervalMs) ||
+      input.motion.intervalMs <= 0)
+  )
+    throw new Error(
+      "motion requires at least two frames and a positive finite intervalMs",
+    );
   const motion = input.motion
     ? {
         frames: Math.max(2, Math.min(input.motion.frames, MAX_MOTION_FRAMES)),
@@ -848,13 +892,13 @@ export function createPlaywrightCapturer(
       const requestedTimeMs = clock.kind === "unpinned" ? null : clock.timeMs;
       if (clock.kind === "playwright-clock") {
         await context.clock.install({ time: clock.timeMs - 1000 });
+        await page.clock.pauseAt(clock.timeMs);
       }
       await page.goto(request.target, { waitUntil: "load" });
 
       let pinned = false;
       let reason: string | undefined;
       if (clock.kind === "playwright-clock") {
-        await page.clock.pauseAt(clock.timeMs);
         pinned = true;
       } else if (clock.kind === "hook") {
         const applied = await page.evaluate(

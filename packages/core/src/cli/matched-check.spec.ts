@@ -81,7 +81,7 @@ describe("matched-check command", () => {
         "a-source.png",
         new Uint8Array([1]),
       );
-      expect(file).toBe(path.join(dir, "a-source.png"));
+      expect(file).toBe(path.join(await fs.realpath(dir), "a-source.png"));
       await expect(
         input.storeArtifact("../escape.png", new Uint8Array([1])),
       ).rejects.toThrow("escapes the output directory");
@@ -97,5 +97,26 @@ describe("matched-check command", () => {
       "boom",
     );
     expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses output options independently of the spec and rejects missing values", async () => {
+    mocks.runMatchedCheck.mockResolvedValue(report({}));
+    expect(await runMatchedCheckCommand(["--out", dir, spec])).toBe(0);
+    expect(await runMatchedCheckCommand([`--out=${dir}`, spec])).toBe(0);
+    await expect(runMatchedCheckCommand([spec, "--out"])).rejects.toThrow(
+      "requires a directory",
+    );
+  });
+
+  it("replaces an existing artifact symlink without following it", async () => {
+    const outside = path.join(dir, "outside");
+    await fs.writeFile(outside, "preserved");
+    await fs.symlink(outside, path.join(dir, "a-source.png"));
+    mocks.runMatchedCheck.mockImplementation(async (input) => {
+      await input.storeArtifact("a-source.png", new Uint8Array([1]));
+      return report({});
+    });
+    expect(await runMatchedCheckCommand([spec, "--out", dir])).toBe(0);
+    expect(await fs.readFile(outside, "utf8")).toBe("preserved");
   });
 });

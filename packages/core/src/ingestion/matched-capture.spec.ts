@@ -317,6 +317,7 @@ describe("matched capture", () => {
         ),
     });
     expect(report.totals.fail).toBe(1);
+    expect(report.totals.checks).toBe(must(report.results[0]).checks.length);
     expect(must(report.results[0]).diagnostics.join()).toContain(
       "exceeds threshold 1%",
     );
@@ -328,6 +329,30 @@ describe("matched capture", () => {
     });
     expect(passing.totals.fail).toBe(0);
     expect(must(passing.results[0]).fidelity?.pass).toBe(true);
+  });
+
+  it("rejects malformed motion and capturers that change the requested clock", async () => {
+    await expect(
+      runMatchedCheck({
+        ...base,
+        breakpoints: [{ name: "s", width: 8, height: 8, deviceScaleFactor: 1 }],
+        motion: { frames: NaN, intervalMs: 1 },
+        capture: (req) => good(req),
+      }),
+    ).rejects.toThrow("motion requires");
+    const report = await runMatchedCheck({
+      ...base,
+      breakpoints: [{ name: "s", width: 8, height: 8, deviceScaleFactor: 1 }],
+      capture: async (req) => {
+        const captured = await good(req);
+        captured.clock.requestedTimeMs = T + 100;
+        captured.observed.timeMs = T + 100;
+        return captured;
+      },
+    });
+    expect(must(report.results[0]).diagnostics.join()).toContain(
+      "did not honor the requested clock",
+    );
   });
 
   it("rejects an empty breakpoint list", async () => {
