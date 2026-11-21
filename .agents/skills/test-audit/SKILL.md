@@ -28,8 +28,8 @@ Where a test belongs and which CI lane runs it is owned by
 No new test is the default. Most fixes and features are proven by running the
 changed path (`verifying-changes`), not by a test that ships with them; a bug
 fix adds a regression test only when it passes the four questions below and
-fails on the pre-fix code. Before adding any test, answer four questions; a missing answer means do
-not add it:
+fails on the pre-fix code. Before adding any test, answer four questions; a
+missing answer means do not add it:
 
 1. What observable behavior, invariant, or independent contract does it protect?
 2. What credible regression makes it fail?
