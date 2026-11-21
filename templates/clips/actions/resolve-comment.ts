@@ -25,6 +25,7 @@ export default defineAction({
       .optional()
       .describe("Explicit resolved value. Omit to toggle."),
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const db = getDb();
     const [existing] = await db

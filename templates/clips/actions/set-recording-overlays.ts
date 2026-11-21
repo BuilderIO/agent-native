@@ -1,6 +1,6 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -24,6 +24,20 @@ export default defineAction({
         "The complete overlay list — either a JSON-encoded string (CLI) or an array (agent).",
       ),
   }),
+  needsApproval: async (args, ctx) => {
+    if (!isOutsideAgentCall(ctx)) return false;
+    const access = await resolveAccess("recording", args.recordingId);
+    if (!access) return false;
+    const kept = new Set(
+      typeof args.overlays === "string"
+        ? []
+        : parseRedactions(args.overlays).map(({ id }) => id),
+    );
+    return parseRedactions(parseEdits(access.resource.editsJson).overlays).some(
+      ({ id }) => !kept.has(id),
+    );
+  },
+  mcpTool: "search",
   run: async (args) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),
