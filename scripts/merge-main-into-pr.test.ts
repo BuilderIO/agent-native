@@ -11,6 +11,7 @@ const state = (mergeable: string, mergeStateStatus: string) => ({
   mergeable,
   mergeStateStatus,
   headRefOid: "abc",
+  baseRefName: "main",
 });
 
 describe("merge-main-into-pr decide", () => {
@@ -36,6 +37,14 @@ describe("merge-main-into-pr decide", () => {
     const d = decide(state("UNKNOWN", "UNKNOWN"));
     expect(d).toMatchObject({ allowed: false });
     expect(d.allowed === false && d.reason).toMatch(/UNKNOWN/);
+  });
+
+  it("refuses a conflicting PR whose base is not main", () => {
+    const d = decide({
+      ...state("CONFLICTING", "DIRTY"),
+      baseRefName: "integrate",
+    });
+    expect(d.allowed === false && d.reason).toMatch(/integrate/);
   });
 });
 
@@ -103,6 +112,19 @@ describe("merge-main-into-pr exit codes", () => {
       run: (a) => ({ status: 0, stdout: a[1] === "status" ? " M x" : "abc" }),
     });
     expect(mergeMainIntoPr(["1"], dirty.deps)).toBe(EXIT.precondition);
+    let merged = false;
+    const statusFailed = make({
+      run: (a) => ({
+        status: a[1] === "status" ? 128 : 0,
+        stdout: a[1] === "rev-parse" ? "abc" : "",
+      }),
+      merge: () => {
+        merged = true;
+        return 0;
+      },
+    });
+    expect(mergeMainIntoPr(["1"], statusFailed.deps)).toBe(EXIT.precondition);
+    expect(merged).toBe(false);
     const wrongHead = make({
       run: (a) => ({ status: 0, stdout: a[1] === "status" ? "" : "zzz" }),
     });

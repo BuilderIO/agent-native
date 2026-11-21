@@ -6,8 +6,8 @@ Merges origin/main into the checked-out PR branch only when GitHub reports a con
 Exit codes:
   0  merged cleanly, or --check and a merge is allowed
   1  merge left unresolved conflicts: resolve, git commit --no-edit, push
-  2  usage error or precondition failed (dirty tree, HEAD is not the live PR head, fetch failed)
-  3  refused: GitHub reports no conflict (or mergeability still UNKNOWN)
+  2  usage error or precondition failed (dirty tree or git status failed, HEAD is not the live PR head, fetch failed)
+  3  refused: GitHub reports no conflict, mergeability still UNKNOWN, or the PR base is not main
   4  git merge failed without conflicts: inspect git status, do not resolve
   5  GitHub query failed (gh error or unparseable JSON)`;
 
@@ -24,11 +24,18 @@ export type PrState = {
   mergeable: string;
   mergeStateStatus: string;
   headRefOid: string;
+  baseRefName: string;
 };
 
 export type Decision = { allowed: true } | { allowed: false; reason: string };
 
 export function decide(state: PrState): Decision {
+  if (state.baseRefName !== "main") {
+    return {
+      allowed: false,
+      reason: `PR targets ${state.baseRefName}, not main: GitHub's mergeability describes that base, so it cannot authorize merging origin/main.`,
+    };
+  }
   if (state.mergeable === "CONFLICTING" || state.mergeStateStatus === "DIRTY") {
     return { allowed: true };
   }
@@ -80,16 +87,19 @@ export function mergeMainIntoPr(argv: string[], deps: Deps): number {
   }
   if (argv.includes("--check")) return EXIT.ok;
 
-  if (
-    deps.run([
-      "git",
-      "status",
-      "--porcelain",
-      "--",
-      ":/",
-      ...AGENT_BOOKKEEPING_PATHS,
-    ]).stdout !== ""
-  ) {
+  const status = deps.run([
+    "git",
+    "status",
+    "--porcelain",
+    "--",
+    ":/",
+    ...AGENT_BOOKKEEPING_PATHS,
+  ]);
+  if (status.status !== 0) {
+    deps.log("refused: git status failed, so the tree cannot be shown clean.");
+    return EXIT.precondition;
+  }
+  if (status.stdout !== "") {
     deps.log("refused: working tree is not clean; commit your work first.");
     return EXIT.precondition;
   }
@@ -123,7 +133,13 @@ function readState(pr: string): PrState {
   for (let attempt = 0; attempt < 4; attempt++) {
     const r = spawnSync(
       "gh",
-      ["pr", "view", pr, "--json", "mergeable,mergeStateStatus,headRefOid"],
+      [
+        "pr",
+        "view",
+        pr,
+        "--json",
+        "mergeable,mergeStateStatus,headRefOid,baseRefName",
+      ],
       { encoding: "utf8" },
     );
     if (r.status !== 0) {
@@ -133,7 +149,12 @@ function readState(pr: string): PrState {
     if (state.mergeable !== "UNKNOWN") return state;
     spawnSync("sleep", ["3"]);
   }
-  return { mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", headRefOid: "" };
+  return {
+    mergeable: "UNKNOWN",
+    mergeStateStatus: "UNKNOWN",
+    headRefOid: "",
+    baseRefName: "",
+  };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
