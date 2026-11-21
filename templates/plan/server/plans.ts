@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 
 import { emit } from "@agent-native/core/event-bus";
+import { ensureReviewTables } from "@agent-native/core/review";
 import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   assertAccess,
@@ -17,6 +18,7 @@ import {
   normalizeCommentMentions,
   normalizePlanCommentResolutionTarget,
   parsePlanCommentAnchor,
+  planCommentRouting,
   type PlanCommentMention,
 } from "../shared/comment-context.js";
 import { isPlanKind, planPathForKind } from "../shared/plan-routes.js";
@@ -40,6 +42,7 @@ import {
 import { getDb, schema } from "./db/index.js";
 import { assertEditionsLabEnabled } from "./lib/editions-lab.js";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
+import { mirrorPlanComments } from "./lib/plan-comment-mirror.js";
 import {
   buildPlanContentHtml,
   parsePlanContent,
@@ -127,15 +130,6 @@ export function nowIso(): string {
 function nonEmpty(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
-}
-
-function parseMentionsJson(value: string | null | undefined) {
-  if (!value) return [];
-  try {
-    return normalizeCommentMentions(JSON.parse(value));
-  } catch {
-    return [];
-  }
 }
 
 function commentMentionsForInput(
@@ -461,11 +455,18 @@ export async function insertInitialPlanComments(input: {
 }) {
   const rows = buildInitialPlanCommentRows(input);
   if (rows.length === 0) return;
-  const db = getDb();
-  for (let i = 0; i < rows.length; i += PLAN_COMMENT_INSERT_CHUNK_SIZE) {
-    const chunk = rows.slice(i, i + PLAN_COMMENT_INSERT_CHUNK_SIZE);
-    await db.insert(schema.planComments).values(chunk);
-  }
+  await ensureReviewTables();
+  await getDb().transaction(async (tx) => {
+    for (let i = 0; i < rows.length; i += PLAN_COMMENT_INSERT_CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + PLAN_COMMENT_INSERT_CHUNK_SIZE);
+      await tx.insert(schema.planComments).values(chunk);
+    }
+    await mirrorPlanComments(
+      tx,
+      input.planId,
+      rows.map((row) => row.id),
+    );
+  });
 }
 
 export function planPath(id: string, kind: PlanKind = "plan"): string {
@@ -513,12 +514,7 @@ export function toSection(
 export function toComment(
   row: typeof schema.planComments.$inferSelect,
 ): PlanComment {
-  const anchor = parsePlanCommentAnchor(row.anchor);
-  const mentions = normalizeCommentMentions([
-    ...parseMentionsJson(row.mentionsJson),
-    ...(anchor?.mentions ?? []),
-    ...extractCommentMentions(row.message),
-  ]);
+  const { mentions, resolutionTarget } = planCommentRouting(row);
   return {
     id: row.id,
     planId: row.planId,
@@ -531,11 +527,7 @@ export function toComment(
     createdBy: row.createdBy,
     authorEmail: row.authorEmail,
     authorName: row.authorName,
-    resolutionTarget: normalizePlanCommentResolutionTarget(
-      row.resolutionTarget ??
-        anchor?.resolutionTarget ??
-        (mentions.length > 0 ? "human" : undefined),
-    ),
+    resolutionTarget,
     mentions,
     mentionsJson: row.mentionsJson,
     resolvedBy: row.resolvedBy,

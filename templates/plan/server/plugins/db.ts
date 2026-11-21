@@ -1,12 +1,17 @@
 // guard:allow-unscoped -- schema migrations and data backfills run system-wide
 // during startup, not in a user-scoped request path.
 import {
+  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
 
 import * as schema from "../db/schema.js";
+import {
+  copyPlanCommentsToReviewKit,
+  type PlanCommentCopyReport,
+} from "../lib/plan-comment-mirror.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -451,6 +456,35 @@ FROM renumbered WHERE plans.id = renumbered.id;
 CREATE UNIQUE INDEX IF NOT EXISTS plans_edition_issue_number_unique_idx
 ON plans(owner_email, COALESCE(org_id, ''), COALESCE(edition_series, 'daily'), edition_issue_number)
 WHERE kind = 'edition' AND edition_issue_number IS NOT NULL`,
+    },
+  },
+  {
+    version: 45,
+    name: "plan-comments-copy-to-review-kit",
+    sql: {},
+    run: async () => {
+      let report: PlanCommentCopyReport;
+      try {
+        report = await copyPlanCommentsToReviewKit();
+      } catch (error) {
+        console.error(
+          "[db] Couldn't copy plan comments to the review kit; it runs again on the next start:",
+          error instanceof Error ? error.message : error,
+        );
+        return deferMigration();
+      }
+      const summary = `[db] Copied ${report.comments} comment(s) on ${report.plans} plan(s) to the review kit`;
+      if (report.differences.length > 0) {
+        console.warn(
+          `${summary}; ${report.differences.length} still differ:`,
+          report.differences.slice(0, 20),
+        );
+      } else {
+        console.log(summary);
+      }
+      if (report.failedPlans.length > 0 || report.differences.length > 0) {
+        return deferMigration();
+      }
     },
   },
 ];
