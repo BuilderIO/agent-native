@@ -982,6 +982,25 @@ describe("knowledge updates send the revision they read", () => {
     expect(saved.knowledge.revision).not.toBe(read);
   });
 
+  it("returns the stored revision from an update that removes the company-context copy", async () => {
+    const id = await saveKnowledge({ evidence: [], publishCanonical: true });
+    const published = await storedRow(id);
+    expect(published.publishedResourcePath).not.toBeNull();
+    const saved = await asQa(() =>
+      writeKnowledgeRecord({
+        knowledgeId: id,
+        expectedRevision: knowledgeRevision(published),
+        title: "Atlas launch",
+        body: "Morgan will ship Atlas.",
+        evidence: [],
+        publishTier: "private",
+      }),
+    );
+    const row = await storedRow(id);
+    expect(row.publishedResourcePath).toBeNull();
+    expect(saved.knowledge.revision).toBe(knowledgeRevision(row));
+  });
+
   it("refuses an update made on a stale read, writing nothing and returning the current record", async () => {
     const id = await saveKnowledge();
     const read = knowledgeRevision(await storedRow(id));
@@ -1520,6 +1539,40 @@ describe("superseding knowledge sends the superseded record's revision", () => {
     expect(await storedRow(older)).toEqual(olderApplied);
     expect((await storedRow(newer)).body).toBe(
       "Morgan will ship Atlas after the final review.",
+    );
+  });
+
+  it("refuses a resent create once its first send superseded the record", async () => {
+    const { older } = await olderAndNewer();
+    const read = knowledgeRevision(await storedRow(older));
+    const create = {
+      title: "Atlas launch v3",
+      body: "Morgan will ship Atlas after review.",
+      supersedesId: older,
+      supersedesRevision: read,
+    };
+    const first = await saveKnowledge(create);
+    const archived = await storedRow(older);
+    expect(archived).toMatchObject({
+      status: "archived",
+      supersededById: first,
+    });
+    const count = (await database.select().from(schema.brainKnowledge)).length;
+    const refusal = {
+      errorCode: "knowledge_already_superseded",
+      statusCode: 409,
+      details: { supersededById: first },
+    };
+    await expect(saveKnowledge(create)).rejects.toMatchObject(refusal);
+    await expect(
+      saveKnowledge({
+        ...create,
+        supersedesRevision: knowledgeRevision(archived),
+      }),
+    ).rejects.toMatchObject(refusal);
+    expect(await storedRow(older)).toEqual(archived);
+    expect(await database.select().from(schema.brainKnowledge)).toHaveLength(
+      count,
     );
   });
 });

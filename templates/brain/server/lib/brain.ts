@@ -2760,6 +2760,16 @@ async function readSupersededKnowledge(
   const superseded: KnowledgeRow = access.resource;
   if (supersessionIsStored(superseded, id))
     return { row: superseded, stored: true };
+  const successor = superseded.supersededById;
+  if (superseded.status === "archived" && successor && successor !== id)
+    fail(
+      `Knowledge ${superseded.id} was already superseded by ${successor}, so nothing was saved. Edit ${successor}, or supersede it instead.`,
+      {
+        errorCode: "knowledge_already_superseded",
+        statusCode: 409,
+        details: { supersededById: successor },
+      },
+    );
   if (supersededChangedSinceRead(input, superseded, options))
     throw supersededConflict(superseded);
   return { row: superseded, stored: false };
