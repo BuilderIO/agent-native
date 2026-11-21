@@ -1,7 +1,4 @@
-import {
-  querySearchAnalytics,
-  type SearchAnalyticsRow,
-} from "../../search-console.js";
+import { querySearchAnalytics } from "../../search-console.js";
 import {
   searchConsoleConfigFingerprint,
   type SearchConsoleSite,
@@ -162,7 +159,8 @@ export const searchConsoleStep: ContentStep = {
 
     for (const [siteIndex, site] of sites.entries()) {
       const pageRegex = sitePageRegex(site);
-      const rows: SearchAnalyticsRow[] = [];
+      const values = new DailyMetricValues();
+      let lastReturnedDate: string | null = null;
       for (const range of ranges) {
         for (const row of await querySearchAnalytics({
           siteUrl: site.siteUrl,
@@ -173,56 +171,53 @@ export const searchConsoleStep: ContentStep = {
           maxRows: MAX_ROWS_PER_SITE,
           ...(signal ? { signal } : {}),
         })) {
-          rows.push(row);
-        }
-      }
-
-      const values = new DailyMetricValues();
-      let lastReturnedDate: string | null = null;
-      for (const row of rows) {
-        const [date, page] = row.keys;
-        if (!date || !page) continue;
-        if (!lastReturnedDate || date > lastReturnedDate) {
-          lastReturnedDate = date;
-        }
-        const key = pageKey(page);
-        if (!key) continue;
-        let item: ItemRef | undefined = byKey.get(key);
-        if (!item) {
-          const url = page.split("#")[0]!;
-          const created: StoredContentItem = {
-            source: "search_console",
-            externalId: key,
-            url,
-            publishedAt: null,
-          };
-          byKey.set(key, created);
-          newPages.set(key, {
-            source: "search_console",
-            externalId: key,
-            url,
-            title: null,
-            author: null,
-            authors: [],
-            publishedAt: null,
-            metadata: { siteUrl: site.siteUrl },
-          });
-          item = created;
-        }
-        values.add(item, date, SEARCH_CONSOLE_CLICKS_METRIC, row.clicks);
-        values.add(
-          item,
-          date,
-          SEARCH_CONSOLE_IMPRESSIONS_METRIC,
-          row.impressions,
-        );
-        if (typeof row.position === "number" && Number.isFinite(row.position)) {
+          const [date, page] = row.keys;
+          if (!date || !page) continue;
+          if (!lastReturnedDate || date > lastReturnedDate) {
+            lastReturnedDate = date;
+          }
+          const key = pageKey(page);
+          if (!key) continue;
+          let item: ItemRef | undefined = byKey.get(key);
+          if (!item) {
+            const url = page.split("#")[0]!;
+            const created: StoredContentItem = {
+              source: "search_console",
+              externalId: key,
+              url,
+              publishedAt: null,
+            };
+            byKey.set(key, created);
+            newPages.set(key, {
+              source: "search_console",
+              externalId: key,
+              url,
+              title: null,
+              author: null,
+              authors: [],
+              publishedAt: null,
+              metadata: { siteUrl: site.siteUrl },
+            });
+            item = created;
+          }
+          values.add(item, date, SEARCH_CONSOLE_CLICKS_METRIC, row.clicks);
           values.add(
             item,
             date,
-            SEARCH_CONSOLE_POSITION_WEIGHTED_METRIC,
-            row.position * row.impressions,
+            SEARCH_CONSOLE_IMPRESSIONS_METRIC,
+            row.impressions,
           );
+          if (
+            typeof row.position === "number" &&
+            Number.isFinite(row.position)
+          ) {
+            values.add(
+              item,
+              date,
+              SEARCH_CONSOLE_POSITION_WEIGHTED_METRIC,
+              row.position * row.impressions,
+            );
+          }
         }
       }
       if (
