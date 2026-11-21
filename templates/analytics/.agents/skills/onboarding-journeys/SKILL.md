@@ -151,7 +151,10 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   pages that start or collect a BigQuery job count; a page already in the
   query cache reads free. So when the aggregate budget cuts a read, calling
   again with `continueWith.observationWatermark` rereads the finished pages
-  free and spends the budget on the ones after them. Event
+  free and spends the budget on the ones after them. A page the cache did not
+  keep, because BigQuery returned it with warnings or the cache write failed,
+  bills again: the response note counts those pages, and leaves out
+  `continueWith` when no page the call billed was kept. Event
   page reads also stop after 15 seconds, and event and follow-up queries after
   22 in all, leaving the rest of a hosted call's time before its gateway gives
   up. Tree-format replay lookups run after that budget, so use
