@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   WORKSPACE_CONNECTION_PROVIDERS,
+  getWorkspaceConnectionOAuth,
   getWorkspaceConnectionProvider,
   isWorkspaceConnectionProviderId,
   listWorkspaceConnectionProviders,
@@ -39,6 +40,20 @@ describe("workspace connection provider catalog", () => {
       "anthropic-managed-agents",
       "generic",
     ]);
+  });
+
+  it("offers personal consent alongside the existing Slack credential setup", () => {
+    const slack = getWorkspaceConnectionProvider("slack");
+    expect(slack?.oauth).toBeUndefined();
+    expect(slack?.credentialKeys).toContainEqual(
+      expect.objectContaining({ key: "SLACK_BOT_TOKEN", required: true }),
+    );
+    expect(getWorkspaceConnectionOAuth(slack)?.provider).toBe("slack");
+    expect(
+      getWorkspaceConnectionOAuth(getWorkspaceConnectionProvider("zoom"))
+        ?.provider,
+    ).toBe("zoom");
+    expect(getWorkspaceConnectionOAuth(undefined)).toBeUndefined();
   });
 
   it("publishes least-privilege OAuth metadata for creative context providers", () => {
