@@ -62,15 +62,12 @@ const SERVED = [
   "set-recording-trims",
   "set-thumbnail",
   "split-recording",
-  "stitch-recordings",
   "sync-calendars",
   "trim-recording",
   "undo-edit",
   "update-comment",
   "update-cta",
   "update-dictation",
-  "update-meeting",
-  "update-recording",
   "update-recording-context",
 ] as const;
 
@@ -124,6 +121,34 @@ const IN_APP_ONLY = [
   "update-clips-recording-defaults",
 ] as const;
 
+const WIDENS_ACCESS = [
+  ["update-recording", { id: "rec-1", spaceIds: ["space-1"] }],
+  ["update-recording", { id: "rec-1", spaceIds: [] }],
+  ["update-recording", { id: "rec-1", password: null }],
+  ["update-recording", { id: "rec-1", expiresAt: null }],
+  ["update-meeting", { id: "meeting-1", visibility: "org" }],
+  ["update-meeting", { id: "meeting-1", visibility: "public" }],
+  ["update-meeting", { id: "meeting-1", shareTranscript: true }],
+  ["stitch-recordings", { sourceRecordingIds: ["rec-1", "rec-2"] }],
+  [
+    "stitch-recordings",
+    { sourceRecordingIds: ["rec-1", "rec-2"], visibility: "public" },
+  ],
+] as const;
+
+const KEEPS_ACCESS = [
+  ["update-recording", { id: "rec-1", title: "Renamed" }],
+  ["update-recording", { id: "rec-1", password: "share-password" }],
+  ["update-recording", { id: "rec-1", expiresAt: "2026-12-01T00:00:00.000Z" }],
+  ["update-meeting", { id: "meeting-1", userNotesMd: "Notes" }],
+  ["update-meeting", { id: "meeting-1", visibility: "private" }],
+  ["update-meeting", { id: "meeting-1", shareTranscript: false }],
+  [
+    "stitch-recordings",
+    { sourceRecordingIds: ["rec-1", "rec-2"], visibility: "private" },
+  ],
+] as const;
+
 type Exposure = {
   mcpTool?: boolean | "search";
   needsApproval?:
@@ -162,6 +187,37 @@ describe("Clips actions over MCP", () => {
       ).toBe(false);
       expect(await approves({}, { caller: "mcp" } as ActionRunContext)).toBe(
         true,
+      );
+    },
+  );
+
+  it.each(WIDENS_ACCESS)(
+    "serves %s through tool-search, and asks an outside agent first for %o",
+    async (name, args) => {
+      const action = await load(name);
+      expect(action.mcpTool).toBe("search");
+      const approves = action.needsApproval;
+      if (typeof approves !== "function") {
+        throw new Error(`${name} has no approval rule`);
+      }
+      expect(await approves(args, { caller: "mcp" } as ActionRunContext)).toBe(
+        true,
+      );
+      expect(await approves(args, { caller: "tool" } as ActionRunContext)).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each(KEEPS_ACCESS)(
+    "lets an outside agent call %s without asking for %o",
+    async (name, args) => {
+      const approves = (await load(name)).needsApproval;
+      if (typeof approves !== "function") {
+        throw new Error(`${name} has no approval rule`);
+      }
+      expect(await approves(args, { caller: "mcp" } as ActionRunContext)).toBe(
+        false,
       );
     },
   );

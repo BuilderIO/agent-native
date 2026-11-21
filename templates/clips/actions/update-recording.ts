@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -71,6 +75,11 @@ export default defineAction({
         "Required with chaptersJson: mediaUpdatedAt from the get-recording-player-data response used to create these times.",
       ),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (args.spaceIds !== undefined ||
+      (args.password !== undefined && !args.password) ||
+      (args.expiresAt !== undefined && !args.expiresAt)),
   mcpTool: "search",
   run: async (args) => {
     const access = assertRecordingNotExpired(
