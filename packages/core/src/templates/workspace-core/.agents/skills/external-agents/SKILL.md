@@ -247,13 +247,11 @@ connection or page WebMCP. Route UI through
 unless they explicitly opt into the full catalog, and
 `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools
 outside the compact MCP Apps catalog. Apps can set
-`externalAgents.authenticatedReads: "auto"` to automatically advertise every
-action that is GET + `readOnly` + `publicAgent.requiresAuth`, instead of
-maintaining a long connector allow-list. This policy never includes writes by
-default. Set `writes: "allowlisted"` to serve the writes your actions choose to
-serve; `writes: "ask_app_only"`, the default with automatic reads, is
-deprecated and warns at startup, so keep a write in the app with
-`mcpTool: false` instead. Use `denyActions` for defense-in-depth vetoes.
+`externalAgents.authenticatedReads: "auto"` advertises GET + `readOnly` +
+`publicAgent.requiresAuth` actions without a connector allow-list. Writes are
+excluded by default. Set `writes: "allowlisted"` to serve selected writes;
+`writes: "ask_app_only"`, the automatic-reads default, is deprecated and warns at startup. Keep a write in
+the app with `mcpTool: false`. Use `denyActions` for defense-in-depth vetoes.
 `tool-search` finds only the tools the connection is served, listed or
 `mcpTool: "search"` ones that `call-tool` runs. It names matching actions
 outside them under `notServed`, for the caller to hand to `ask_app`. Do not rely on
