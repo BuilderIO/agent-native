@@ -153,12 +153,12 @@ describe("route-app-intent", () => {
         openApp: "mail",
       });
       expect(result).toMatchObject({ status: "ok", app: choice });
-      if (choice === "tasks")
-        expect(result).toMatchObject({
-          pointer: true,
-          url: "https://example.com/reviews",
-        });
-      else expect(result).not.toHaveProperty("pointer");
+      expect("pointer" in result && result.pointer === true).toBe(
+        choice === "tasks",
+      );
+      expect("url" in result ? result.url : undefined).toBe(
+        choice === "tasks" ? "https://example.com/reviews" : undefined,
+      );
       expect(mocks.decide).toHaveBeenCalledOnce();
     },
   );
