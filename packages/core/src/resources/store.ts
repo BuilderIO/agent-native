@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import {
@@ -43,6 +44,26 @@ import {
 import { isPersistableAttachmentUrl } from "../shared/attachments.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
+import { SKILL_TRASH_PREFIX } from "./metadata.js";
+import {
+  deleteSharedPersonalMemory,
+  removeTombstonedSharedFile,
+  isPersonalMemoryResourcePath,
+  listSharedPersonalMemories,
+  MemoryDeleteFailedError,
+  MemoryDeleteStateUnknownError,
+  clearSharedMemoryTombstone,
+  readAbandonedMemoryDelete,
+  MemoryMirrorRepairError,
+  MemoryMirrorStaleError,
+  MemoryTombstoneError,
+  MemoryWriteConflictError,
+  readMemoryTombstone,
+  readMemoryTombstoneFloor,
+  withSharedMemoryLock,
+  readMirroredMemory,
+  writeSharedPersonalMemory,
+} from "./shared-memory.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
@@ -334,6 +355,8 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
 export interface TransactionScopedResourceWrite<T> {
   value: T;
   notifyAfterCommit: () => void | Promise<void>;
+  /** Call instead of notifyAfterCommit when the transaction rolls back. */
+  onRollback?: () => Promise<void>;
 }
 
 export interface PreparedResourceMutation<
@@ -381,9 +404,14 @@ export interface ResourceSnapshotWrite {
   >;
 }
 
-export interface ResourceSnapshotWriteResult {
+interface ResourceSnapshotWriteRecord {
   before: Resource | null;
   resource: Resource;
+}
+
+export interface ResourceSnapshotWriteResult extends ResourceSnapshotWriteRecord {
+  /** "conflict": a newer shared-file edit was adopted and `resource` holds it; "stale": the SQL write committed but the shared file may be out of date. */
+  mirror: "ok" | "stale" | "conflict";
 }
 
 function assertResourcePayloadIsSqlSafe(
@@ -441,8 +469,8 @@ let _lastScratchCleanupAt = 0;
 
 const AGENT_SCRATCH_TTL_MS = 24 * 60 * 60 * 1000;
 const SCRATCH_CLEANUP_INTERVAL_MS = 60 * 1000;
-const RESOURCE_META_SELECT =
-  "id, path, owner, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata";
+const RESOURCE_META_SELECT = sql`id, path, owner, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata`;
+const EXCLUDE_AGENT_SCRATCH = sql`AND (visibility IS NULL OR visibility != 'agent_scratch')`;
 const DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX = "dispatch-workspace-resource:";
 const DISPATCH_WORKSPACE_RESOURCE_METADATA_SOURCE =
   "dispatch-workspace-resource";
@@ -768,12 +796,6 @@ function serializeMetadata(
   if (value === undefined) return undefined;
   if (value === null) return null;
   return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function scratchFilterSql(options?: ResourceListOptions): string {
-  return options?.includeAgentScratch === true
-    ? ""
-    : " AND (visibility IS NULL OR visibility != 'agent_scratch')";
 }
 
 function normalizeWorkspaceAppId(value: unknown): string | null {
@@ -1742,11 +1764,12 @@ async function lookupScopedResourceForMcp(
   }
   const owner = input.scope === "personal" ? email : sharedResourceOwner(orgId);
   const owners = [owner];
-  // raw-sql-ok: interpolates a constant column list and a ? placeholder list
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT ${RESOURCE_META_SELECT}, substr(content, 1, 65537) AS content, CASE WHEN content = substr(content, 1, 65537) THEN 1 ELSE 0 END AS content_complete FROM resources WHERE owner IN (${owners.map(() => "?").join(", ")}) AND path = ? AND (visibility IS NULL OR visibility != 'agent_scratch')`,
-    args: [...owners, path],
-  });
+  const { rows } = await getDbExec().execute(sql`SELECT
+      ${RESOURCE_META_SELECT}, substr(content, 1, 65537) AS content,
+      CASE WHEN content = substr(content, 1, 65537) THEN 1 ELSE 0 END AS content_complete
+    FROM resources WHERE owner IN ${sql.in(owners)} AND path = ${sql.value(path)}
+    ${EXCLUDE_AGENT_SCRATCH}
+  `);
   input.signal?.throwIfAborted();
   const candidates = rows
     .map((row) => ({
@@ -1991,6 +2014,11 @@ export async function resourceGet(
   if (isLocalWorkspaceResourceId(id)) {
     return localWorkspaceResourceById(id);
   }
+  const mirrored = parseSharedMemoryId(id);
+  if (mirrored) {
+    if (!isRequestingOwner(mirrored.owner, options)) return null;
+    return resourceGetByPath(mirrored.owner, mirrored.path, options);
+  }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
   const { rows } = await client.execute({
@@ -2008,8 +2036,464 @@ export async function resourceGet(
   if (!isLegacySharedResourceVisibleToOrganization(resource, orgId)) {
     return null;
   }
-  const [visible] = await filterLegacyDispatchWorkspaceRows([resource], orgId);
+  const visible = (
+    await filterLegacyDispatchWorkspaceRows([resource], orgId)
+  ).at(0);
+  if (visible && isPersonalMemoryResourcePath(visible.owner, visible.path)) {
+    return resourceGetByPath(visible.owner, visible.path, options);
+  }
   return visible ?? null;
+}
+
+async function selectResourceByPath(
+  owner: string,
+  path: string,
+): Promise<Resource | undefined> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  return rows[0] ? rowToResource(rows[0]) : undefined;
+}
+
+function isNewerSharedMemory(
+  path: string,
+  shared: { content: string; mtimeMs: number },
+  dbResource: Resource | undefined,
+): boolean {
+  if (!dbResource) return true;
+  const dbIsEmptyIndex =
+    path === "memory/MEMORY.md" &&
+    dbResource.content.trim() === "# Memory Index" &&
+    shared.content.trim() !== "# Memory Index";
+  return (
+    shared.content !== dbResource.content &&
+    (shared.mtimeMs > dbResource.updatedAt || dbIsEmptyIndex)
+  );
+}
+
+async function adoptSharedMemory(
+  owner: string,
+  path: string,
+  shared: { content: string; mtimeMs: number; size: number },
+  dbResource: Resource | undefined,
+): Promise<Resource | null> {
+  const client = getDbExec();
+  const adoptedAt = Math.max(
+    Math.ceil(shared.mtimeMs),
+    dbResource?.updatedAt ?? 0,
+  );
+  if (dbResource) {
+    await client.execute({
+      sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE id = ? AND content = ? AND updated_at = ?`,
+      args: [
+        shared.content,
+        shared.size,
+        adoptedAt,
+        dbResource.id,
+        dbResource.content,
+        dbResource.updatedAt,
+      ],
+    });
+  } else {
+    await client.execute({
+      sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`,
+      args: [
+        crypto.randomUUID(),
+        path,
+        owner,
+        shared.content,
+        "text/markdown",
+        shared.size,
+        adoptedAt,
+        adoptedAt,
+      ],
+    });
+  }
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  return rows[0] ? rowToResource(rows[0]) : null;
+}
+
+function handleMirrorFailure(error: unknown): void {
+  console.error("[resources] Could not mirror personal memory:", error);
+}
+
+const memoryMirrorChains = new Map<string, Promise<unknown>>();
+const heldMirrorKeys = new AsyncLocalStorage<ReadonlySet<string>>();
+
+function underMemoryLock<T>(
+  owner: string,
+  path: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  return isPersonalMemoryResourcePath(owner, path)
+    ? serializeMemoryMirror(owner, path, work)
+    : work();
+}
+
+function serializeMemoryMirror<T>(
+  owner: string,
+  path: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const key = `${owner}\0${path}`;
+  const held = heldMirrorKeys.getStore();
+  if (held?.has(key)) return work();
+  const locked = () =>
+    heldMirrorKeys.run(new Set(held).add(key), () =>
+      withSharedMemoryLock(owner, path, work),
+    );
+  const run = (memoryMirrorChains.get(key) ?? Promise.resolve()).then(
+    locked,
+    locked,
+  );
+  const tail = run.catch(() => {});
+  memoryMirrorChains.set(key, tail);
+  void tail.then(() => {
+    if (memoryMirrorChains.get(key) === tail) memoryMirrorChains.delete(key);
+  });
+  return run;
+}
+
+type MirrorTarget = {
+  owner: string;
+  path: string;
+  content: string;
+  updatedAt: number;
+};
+
+const MIRROR_REPAIR_ATTEMPTS = 3;
+
+async function selectMirrorTarget(
+  owner: string,
+  path: string,
+): Promise<MirrorTarget | null> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT content, updated_at FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
+  });
+  const row = rows[0];
+  return row
+    ? {
+        owner,
+        path,
+        content: String(row.content),
+        updatedAt: Number(row.updated_at),
+      }
+    : null;
+}
+
+function sameMirrorTarget(a: MirrorTarget, b: MirrorTarget): boolean {
+  return a.updatedAt === b.updatedAt && a.content === b.content;
+}
+
+type DeletedRow = { id: string; updatedAt: number };
+
+async function publishDeleteTombstone(
+  owner: string,
+  path: string,
+  revisionHint: number,
+): Promise<{ marker: number; leftover?: MemoryMirrorStaleError }> {
+  try {
+    return {
+      marker: await deleteSharedPersonalMemory(
+        owner,
+        path,
+        revisionHint + 1,
+        "pending",
+      ),
+    };
+  } catch (error) {
+    if (error instanceof MemoryMirrorStaleError) {
+      return { marker: error.committed.updatedAt, leftover: error };
+    }
+    throw new MemoryTombstoneError(
+      `Could not record the deletion of ${path}; it was not deleted`,
+      { cause: error },
+    );
+  }
+}
+
+async function abandonDeleteTombstone(
+  owner: string,
+  path: string,
+  marker: number,
+): Promise<void> {
+  let cleared: boolean;
+  try {
+    cleared = await clearSharedMemoryTombstone(owner, path, marker);
+  } catch (clearError) {
+    throw new MemoryDeleteStateUnknownError(
+      `Could not delete ${path} or clear its deletion marker; whether it is hidden is unknown`,
+      { cause: clearError },
+    );
+  }
+  if (!cleared) return;
+  try {
+    const row = await selectMirrorTarget(owner, path);
+    if (row) await mirrorMemoryUnlocked(row);
+  } catch (repairError) {
+    throw new MemoryDeleteStateUnknownError(
+      `Could not delete ${path} and its shared copy could not be restored; it is still stored but other apps may not see it`,
+      { cause: repairError },
+    );
+  }
+}
+
+function deleteMirroredMemory(
+  owner: string,
+  path: string,
+  revisionHint: number,
+  deleteRow: () => Promise<DeletedRow | null>,
+  precheck?: () => Promise<boolean>,
+): Promise<{
+  deleted: DeletedRow | null;
+  leftover?: MemoryMirrorStaleError | undefined;
+}> {
+  return serializeMemoryMirror(owner, path, async () => {
+    if (precheck && !(await precheck())) return { deleted: null };
+    const { marker, leftover: published } = await publishDeleteTombstone(
+      owner,
+      path,
+      revisionHint,
+    );
+    let leftover = published;
+    let deleted: DeletedRow | null;
+    try {
+      deleted = await deleteRow();
+    } catch (error) {
+      let row: MirrorTarget | null;
+      try {
+        row = await selectMirrorTarget(owner, path);
+      } catch (readError) {
+        throw new MemoryDeleteStateUnknownError(
+          `Could not confirm whether ${path} was deleted`,
+          { cause: new AggregateError([error, readError]) },
+        );
+      }
+      if (row) {
+        await abandonDeleteTombstone(owner, path, marker);
+        throw new MemoryDeleteFailedError(
+          `Could not delete ${path}; it is still stored`,
+          { cause: error },
+        );
+      }
+      deleted = {
+        id: `shared-memory:${owner}:${path}`,
+        updatedAt: revisionHint,
+      };
+    }
+    if (!deleted && (await selectMirrorTarget(owner, path))) {
+      await abandonDeleteTombstone(owner, path, marker);
+      return { deleted: null };
+    }
+    try {
+      if (deleted) {
+        await deleteSharedPersonalMemory(owner, path, deleted.updatedAt + 1);
+      }
+      const row = await selectMirrorTarget(owner, path);
+      if (row) await mirrorMemoryUnlocked(row);
+    } catch (error) {
+      leftover ??=
+        error instanceof MemoryMirrorStaleError
+          ? error
+          : new MemoryMirrorStaleError(
+              `${path} was deleted but its shared copy could not be brought up to date`,
+              {
+                path,
+                content: "",
+                updatedAt: (deleted?.updatedAt ?? revisionHint) + 1,
+              },
+              { cause: error },
+            );
+    }
+    return { deleted, leftover };
+  });
+}
+
+function deletedRowFrom(
+  rows: Array<Record<string, unknown> | undefined>,
+): DeletedRow | null {
+  const row = rows[0];
+  return row ? { id: String(row.id), updatedAt: Number(row.updated_at) } : null;
+}
+
+function mirrorMemoryIfCurrent(
+  resource: MirrorTarget,
+  base?: { content: string; updatedAt: number },
+): Promise<void> {
+  return serializeMemoryMirror(resource.owner, resource.path, async () => {
+    if (base) await assertNoNewerSharedEdit(resource, base);
+    await mirrorMemoryUnlocked(resource);
+  });
+}
+
+async function assertNoNewerSharedEdit(
+  resource: MirrorTarget,
+  base: { content: string; updatedAt: number },
+): Promise<void> {
+  const current = await selectMirrorTarget(resource.owner, resource.path);
+  if (!current || !sameMirrorTarget(current, resource)) return;
+  const file = await readMirroredMemory(resource.owner, resource.path);
+  if (
+    file.state !== "present" ||
+    file.content === base.content ||
+    file.content === resource.content ||
+    file.mtimeMs <= base.updatedAt
+  ) {
+    return;
+  }
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
+    args: [resource.owner, resource.path],
+  });
+  const adopted = rows[0]
+    ? await adoptSharedMemory(
+        resource.owner,
+        resource.path,
+        file,
+        rowToResource(rows[0]),
+      )
+    : null;
+  throw new MemoryWriteConflictError(
+    `${resource.path} was edited in the shared memory directory after this write's base revision; its content was kept and this write was not applied`,
+    adopted ? { content: adopted.content, updatedAt: adopted.updatedAt } : null,
+  );
+}
+
+async function mirrorMemoryUnlocked(resource: MirrorTarget): Promise<void> {
+  for (let attempt = 0; attempt < MIRROR_REPAIR_ATTEMPTS; attempt++) {
+    const row = await selectMirrorTarget(resource.owner, resource.path);
+    if (!row) {
+      if (attempt === 0) return;
+      await deleteSharedPersonalMemory(resource.owner, resource.path);
+      if (!(await selectMirrorTarget(resource.owner, resource.path))) return;
+      continue;
+    }
+    if (attempt === 0 && !sameMirrorTarget(row, resource)) return;
+    await writeSharedPersonalMemory(
+      resource.owner,
+      resource.path,
+      row.content,
+      row.updatedAt,
+    );
+    const after = await selectMirrorTarget(resource.owner, resource.path);
+    if (after && sameMirrorTarget(after, row)) return;
+  }
+  throw new MemoryMirrorRepairError(
+    `${resource.path} kept changing while it was mirrored to the shared memory directory; the shared copy may be out of date`,
+  );
+}
+
+const ROWLESS_MEMORY_BASE = { content: "", updatedAt: 0 };
+
+type MirrorOutcome =
+  | { status: "ok" }
+  | { status: "conflict"; error: MemoryWriteConflictError }
+  | { status: "stale"; error: unknown };
+
+async function mirrorWriteOutcome(
+  resource: MirrorTarget,
+  base: { content: string; updatedAt: number },
+): Promise<MirrorOutcome> {
+  try {
+    await mirrorMemoryIfCurrent(resource, base);
+    return { status: "ok" };
+  } catch (error) {
+    if (error instanceof MemoryWriteConflictError) {
+      return { status: "conflict", error };
+    }
+    handleMirrorFailure(error);
+    return { status: "stale", error };
+  }
+}
+
+async function mirrorPutOrThrow(
+  resource: Resource,
+  base: { content: string; updatedAt: number },
+  requestSource: ResourceWriteOptions["requestSource"],
+): Promise<void> {
+  const outcome = await mirrorWriteOutcome(resource, base);
+  if (outcome.status === "ok") return;
+  emitResourceChange(resource.id, resource.path, resource.owner, requestSource);
+  if (outcome.status === "conflict") throw outcome.error;
+  throw new MemoryMirrorStaleError(
+    `${resource.path} was saved but could not be mirrored to the shared memory directory; other apps may read an older copy`,
+    {
+      path: resource.path,
+      content: resource.content,
+      updatedAt: resource.updatedAt,
+    },
+    { cause: outcome.error },
+  );
+}
+
+async function recoverAbortedMemoryDelete(
+  owner: string,
+  path: string,
+): Promise<void> {
+  if (!isPersonalMemoryResourcePath(owner, path)) return;
+  const marker = await readAbandonedMemoryDelete(owner, path);
+  if (marker === null) return;
+  await serializeMemoryMirror(owner, path, async () => {
+    if (await selectMirrorTarget(owner, path)) {
+      await abandonDeleteTombstone(owner, path, marker);
+    }
+  });
+}
+
+async function withoutTombstonedMemories(
+  owner: string,
+  workspace: boolean,
+  metas: ResourceMeta[],
+): Promise<ResourceMeta[]> {
+  if (workspace) return metas;
+  await Promise.all(
+    metas.map((meta) => recoverAbortedMemoryDelete(owner, meta.path)),
+  );
+  const floors = await Promise.all(
+    metas.map((meta) =>
+      isPersonalMemoryResourcePath(owner, meta.path)
+        ? readMemoryTombstoneFloor(owner, meta.path)
+        : null,
+    ),
+  );
+  return metas.filter((meta, index) => {
+    const floor = floors[index] ?? null;
+    return floor === null || meta.updatedAt > floor;
+  });
+}
+
+async function postTombstoneFloor(
+  owner: string,
+  path: string,
+): Promise<number> {
+  if (!isPersonalMemoryResourcePath(owner, path)) return 0;
+  const floor = await readMemoryTombstoneFloor(owner, path);
+  return floor === null ? 0 : floor + 1;
+}
+
+const SHARED_MEMORY_ID_PREFIX = "shared-memory:";
+
+function parseSharedMemoryId(
+  id: string,
+): { owner: string; path: string } | null {
+  if (!id.startsWith(SHARED_MEMORY_ID_PREFIX)) return null;
+  const rest = id.slice(SHARED_MEMORY_ID_PREFIX.length);
+  const split = rest.indexOf(":memory/");
+  if (split < 0) return null;
+  return { owner: rest.slice(0, split), path: rest.slice(split + 1) };
+}
+
+function isRequestingOwner(
+  owner: string,
+  options?: ResourceResolutionOptions,
+): boolean {
+  const email = options?.userEmail ?? getRequestUserEmail() ?? null;
+  return email !== null && email.toLowerCase() === owner.toLowerCase();
 }
 
 export async function resourceGetByPath(
@@ -2053,6 +2537,34 @@ export async function resourceGetByPath(
     orgId,
   );
   if (!workspace || isBareWorkspaceResourceOwner(owners[0])) {
+    if (!workspace && isPersonalMemoryResourcePath(owner, path)) {
+      await recoverAbortedMemoryDelete(owner, path);
+      const mirrored = await readMirroredMemory(owner, path);
+      const dbResource = resources.at(0);
+      if (
+        mirrored.state === "deleted" &&
+        dbResource &&
+        dbResource.updatedAt <= mirrored.deletedAt
+      ) {
+        return null;
+      }
+      const shared = mirrored.state === "present" ? mirrored : null;
+      if (shared && isNewerSharedMemory(path, shared, dbResource)) {
+        return serializeMemoryMirror(owner, path, async () => {
+          const current = await selectResourceByPath(owner, path);
+          const fresh = await readMirroredMemory(owner, path);
+          if (fresh.state === "present") {
+            return isNewerSharedMemory(path, fresh, current)
+              ? adoptSharedMemory(owner, path, fresh, current)
+              : (current ?? null);
+          }
+          const hidden =
+            fresh.state === "deleted" &&
+            (!current || current.updatedAt <= fresh.deletedAt);
+          return hidden ? null : (current ?? null);
+        });
+      }
+    }
     if (resources[0]) return resources[0];
   } else {
     const organizationResource = resources.find(
@@ -2131,13 +2643,21 @@ export function prepareResourceCreate(
         ],
       },
     ],
-    notifyAfterCommit: () =>
+    notifyAfterCommit: async () => {
+      if (isPersonalMemoryResourcePath(input.owner, input.path)) {
+        await mirrorPutOrThrow(
+          resource,
+          ROWLESS_MEMORY_BASE,
+          input.options?.requestSource,
+        );
+      }
       emitResourceChange(
         input.id,
         input.path,
         input.owner,
         input.options?.requestSource,
-      ),
+      );
+    },
   };
 }
 
@@ -2260,12 +2780,13 @@ export async function resourcePutWithDb(
   options?: ResourceWriteOptions,
 ): Promise<TransactionScopedResourceWrite<Resource>> {
   assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
-  const now = Date.now();
+  const tombstoneFloor = await postTombstoneFloor(owner, path);
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
   const isJobFile = path.startsWith("jobs/");
+  // raw-sql-ok: the interpolated fragment is a fixed column name chosen by path kind; every value is a bound ? arg.
   const { rows: existing } = await client.execute({
-    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata${isJobFile ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
+    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata, updated_at${isJobFile || isPersonalMemoryResourcePath(owner, path) ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
   });
   const existingRow = existing[0] as
@@ -2278,10 +2799,18 @@ export async function resourcePutWithDb(
         run_id?: string | null;
         expires_at?: number | null;
         metadata?: string | null;
+        updated_at?: number | null;
         content?: string | null;
       }
     | undefined;
 
+  const now = Math.max(
+    Date.now(),
+    tombstoneFloor,
+    isPersonalMemoryResourcePath(owner, path) && existingRow
+      ? Number(existingRow.updated_at) + 1
+      : 0,
+  );
   const id = existingRow?.id ?? crypto.randomUUID();
   const createdAt = existingRow ? Number(existingRow.created_at) : now;
   const createdBy = normalizeCreatedBy(
@@ -2354,6 +2883,18 @@ export async function resourcePutWithDb(
   return {
     value: resource,
     notifyAfterCommit: async () => {
+      if (isPersonalMemoryResourcePath(owner, path)) {
+        await mirrorPutOrThrow(
+          resource,
+          typeof existingRow?.content === "string"
+            ? {
+                content: existingRow.content,
+                updatedAt: Number(existingRow.updated_at),
+              }
+            : ROWLESS_MEMORY_BASE,
+          options?.requestSource,
+        );
+      }
       if (typeof existingRow?.content === "string") {
         await noteJobFrontmatterWrite({
           owner,
@@ -2397,16 +2938,18 @@ export async function resourcePut(
   if (owner === WORKSPACE_OWNER) {
     await assertWritableWorkspaceResourcePath(path);
   }
-  const write = await resourcePutWithDb(
-    getDbExec(),
-    owner,
-    path,
-    content,
-    mimeType,
-    options,
-  );
-  await write.notifyAfterCommit();
-  return write.value;
+  return underMemoryLock(owner, path, async () => {
+    const write = await resourcePutWithDb(
+      getDbExec(),
+      owner,
+      path,
+      content,
+      mimeType,
+      options,
+    );
+    await write.notifyAfterCommit();
+    return write.value;
+  });
 }
 
 export async function resourcePutIfAbsent(
@@ -2416,13 +2959,8 @@ export async function resourcePutIfAbsent(
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource | null> {
-  return resourcePutIfAbsentInternal(
-    owner,
-    path,
-    content,
-    mimeType,
-    options,
-    true,
+  return underMemoryLock(owner, path, () =>
+    resourcePutIfAbsentInternal(owner, path, content, mimeType, options, true),
   );
 }
 
@@ -2448,7 +2986,7 @@ async function resourcePutIfAbsentInternal(
   }
 
   const client = clientOverride ?? getDbExec();
-  const now = Date.now();
+  const now = Math.max(Date.now(), await postTombstoneFloor(owner, path));
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
   const id = crypto.randomUUID();
@@ -2489,9 +3027,7 @@ async function resourcePutIfAbsentInternal(
   });
   if (result.rowsAffected !== 1) return null;
 
-  if (emitChange) emitResourceChange(id, path, owner, options?.requestSource);
-
-  return {
+  const inserted: Resource = {
     id,
     path,
     owner,
@@ -2507,14 +3043,25 @@ async function resourcePutIfAbsentInternal(
     expiresAt,
     metadata,
   };
+  if (emitChange && isPersonalMemoryResourcePath(owner, path)) {
+    await mirrorPutOrThrow(
+      inserted,
+      ROWLESS_MEMORY_BASE,
+      options?.requestSource,
+    );
+  }
+  if (emitChange) emitResourceChange(id, path, owner, options?.requestSource);
+  return inserted;
 }
 
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
-  const resource = await writeResourceIfCurrent(input, getDbExec());
-  if (resource) await notifyResourceIfCurrent(input, resource);
-  return resource;
+  return underMemoryLock(input.owner, input.path, async () => {
+    const resource = await writeResourceIfCurrent(input, getDbExec());
+    if (resource) await notifyResourceIfCurrent(input, resource);
+    return resource;
+  });
 }
 
 /** The caller must emit the returned notification only after its transaction commits. */
@@ -2535,6 +3082,13 @@ async function notifyResourceIfCurrent(
   input: ResourceConditionalWrite,
   resource: Resource,
 ): Promise<void> {
+  if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+    await mirrorPutOrThrow(
+      resource,
+      { content: input.expectedContent, updatedAt: input.expectedUpdatedAt },
+      undefined,
+    );
+  }
   await noteJobFrontmatterWrite({
     owner: resource.owner,
     orgId: organizationIdFromResourceOwner(resource.owner),
@@ -2562,7 +3116,11 @@ async function writeResourceIfCurrent(
     await assertWritableWorkspaceResourcePath(input.path);
   }
 
-  const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
+  const now = Math.max(
+    Date.now(),
+    input.expectedUpdatedAt + 1,
+    await postTombstoneFloor(input.owner, input.path),
+  );
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
   const metadata = serializeMetadata(input.metadata);
@@ -2601,6 +3159,7 @@ async function writeResourceIfCurrent(
 export async function resourceDeleteWithDb(
   client: DbExec,
   id: string,
+  options?: { autocommit?: boolean },
 ): Promise<TransactionScopedResourceWrite<boolean>> {
   if (isLocalWorkspaceResourceId(id)) {
     throw new Error(
@@ -2608,20 +3167,129 @@ export async function resourceDeleteWithDb(
     );
   }
   const { rows } = await client.execute({
-    sql: `SELECT path, owner FROM resources WHERE id = ?`,
+    sql: `SELECT path, owner, updated_at, content FROM resources WHERE id = ?`,
     args: [id],
   });
   if (rows.length === 0) {
     return { value: false, notifyAfterCommit: () => {} };
   }
 
+  const path = String(rows[0].path);
+  const owner = String(rows[0].owner);
+  if (isPersonalMemoryResourcePath(owner, path)) {
+    const deleteById = async () =>
+      deletedRowFrom(
+        (
+          await client.execute({
+            sql: `DELETE FROM resources WHERE id = ? RETURNING id, updated_at`,
+            args: [id],
+          })
+        ).rows,
+      );
+    if (options?.autocommit) {
+      const { deleted, leftover } = await deleteMirroredMemory(
+        owner,
+        path,
+        Number(rows[0].updated_at),
+        deleteById,
+      );
+      return {
+        value: deleted !== null,
+        notifyAfterCommit: () => {
+          if (deleted) emitResourceDelete(id, path, owner);
+          if (leftover) throw leftover;
+        },
+      };
+    }
+    let marker = 0;
+    let leftover: MemoryMirrorStaleError | undefined;
+    const deleted = await serializeMemoryMirror(owner, path, async () => {
+      ({ marker, leftover } = await publishDeleteTombstone(
+        owner,
+        path,
+        Number(rows[0].updated_at),
+      ));
+      let removed: DeletedRow | null;
+      try {
+        removed = await deleteById();
+      } catch (error) {
+        await abandonDeleteTombstone(owner, path, marker);
+        throw new MemoryDeleteFailedError(
+          `Could not delete ${path}; it is still stored`,
+          { cause: error },
+        );
+      }
+      if (removed) {
+        try {
+          marker = await deleteSharedPersonalMemory(
+            owner,
+            path,
+            removed.updatedAt + 1,
+            "pending",
+          );
+        } catch (error) {
+          try {
+            const written = await readMemoryTombstone(owner, path);
+            if (
+              written !== null &&
+              !(await clearSharedMemoryTombstone(owner, path, written))
+            ) {
+              throw new Error("the deletion marker changed while clearing it");
+            }
+            await writeSharedPersonalMemory(
+              owner,
+              path,
+              String(rows[0].content),
+              Number(rows[0].updated_at),
+            );
+          } catch (cleanupError) {
+            throw new MemoryDeleteStateUnknownError(
+              `Could not delete ${path} and its deletion marker could not be removed; whether it is hidden is unknown`,
+              { cause: new AggregateError([error, cleanupError]) },
+            );
+          }
+          throw error;
+        }
+      }
+      return removed;
+    });
+    const rollback = () =>
+      serializeMemoryMirror(owner, path, () =>
+        abandonDeleteTombstone(owner, path, marker),
+      );
+    if (!deleted) await rollback();
+    return {
+      value: deleted !== null,
+      notifyAfterCommit: async () => {
+        if (deleted) {
+          emitResourceDelete(id, path, owner);
+          try {
+            await deleteSharedPersonalMemory(
+              owner,
+              path,
+              deleted.updatedAt + 1,
+            );
+          } catch (error) {
+            leftover ??=
+              error instanceof MemoryMirrorStaleError
+                ? error
+                : new MemoryMirrorStaleError(
+                    `${path} was deleted but its deletion marker could not be committed`,
+                    { path, content: "", updatedAt: deleted.updatedAt + 1 },
+                    { cause: error },
+                  );
+          }
+        }
+        if (leftover) throw leftover;
+      },
+      onRollback: rollback,
+    };
+  }
   const result = await client.execute({
     sql: `DELETE FROM resources WHERE id = ?`,
     args: [id],
   });
   const deleted = result.rowsAffected > 0;
-  const path = String(rows[0].path);
-  const owner = String(rows[0].owner);
   return {
     value: deleted,
     notifyAfterCommit: () => {
@@ -2668,15 +3336,17 @@ function localWorkspaceResourceSnapshot(resource: Resource) {
 
 export async function resourcePutIfSnapshot(
   input: ResourceSnapshotWrite,
-): Promise<ResourceSnapshotWriteResult | null> {
-  return resourcePutIfSnapshotInternal(input, true);
+): Promise<ResourceSnapshotWriteRecord | null> {
+  return underMemoryLock(input.owner, input.path, () =>
+    resourcePutIfSnapshotInternal(input, true),
+  );
 }
 
 async function resourcePutIfSnapshotInternal(
   input: ResourceSnapshotWrite,
   emitChange: boolean,
   clientOverride?: DbExec,
-): Promise<ResourceSnapshotWriteResult | null> {
+): Promise<ResourceSnapshotWriteRecord | null> {
   assertResourcePayloadIsSqlSafe(
     input.content,
     input.mimeType,
@@ -2762,7 +3432,11 @@ async function resourcePutIfSnapshotInternal(
       : previous.createdBy,
   );
   const client = clientOverride ?? getDbExec();
-  const updatedAt = Math.max(Date.now(), previous.updatedAt + 1);
+  const updatedAt = Math.max(
+    Date.now(),
+    previous.updatedAt + 1,
+    await postTombstoneFloor(input.owner, input.path),
+  );
   let { visibility, threadId, runId, expiresAt } = previous;
   if (
     (["visibility", "threadId", "runId", "expiresAt"] as const).some((key) =>
@@ -2811,6 +3485,13 @@ async function resourcePutIfSnapshotInternal(
   if (rows.length !== 1) return null;
   const resource = rowToResource(rows[0]);
   if (emitChange) {
+    if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+      await mirrorPutOrThrow(
+        resource,
+        { content: previous.content, updatedAt: previous.updatedAt },
+        input.options?.requestSource,
+      );
+    }
     await noteJobFrontmatterWrite({
       owner: resource.owner,
       orgId: organizationIdFromResourceOwner(resource.owner),
@@ -2866,11 +3547,11 @@ export async function resourcePutSnapshotBatchIfCurrent(
     throw new Error("Resource snapshot batches require database transactions.");
   }
 
-  let result: readonly ResourceSnapshotWriteResult[];
+  let result: readonly ResourceSnapshotWriteRecord[];
   try {
     result = await client.transaction(async (tx) => {
       await options?.beforeWrite?.(tx);
-      const written: ResourceSnapshotWriteResult[] = [];
+      const written: ResourceSnapshotWriteRecord[] = [];
       for (const write of writes) {
         const result = await resourcePutIfSnapshotInternal(write, false, tx);
         if (!result) throw SNAPSHOT_WRITE_CONFLICT;
@@ -2883,8 +3564,31 @@ export async function resourcePutSnapshotBatchIfCurrent(
     throw error;
   }
 
-  for (const [index, { before, resource }] of result.entries()) {
-    if (before) {
+  const results: ResourceSnapshotWriteResult[] = [];
+  for (const [index, entry] of result.entries()) {
+    const { before } = entry;
+    let { resource } = entry;
+    let mirror: ResourceSnapshotWriteResult["mirror"] = "ok";
+    if (isPersonalMemoryResourcePath(resource.owner, resource.path)) {
+      const outcome = await mirrorWriteOutcome(
+        resource,
+        before
+          ? { content: before.content, updatedAt: before.updatedAt }
+          : ROWLESS_MEMORY_BASE,
+      );
+      mirror = outcome.status;
+      if (outcome.status === "conflict" && outcome.error.adopted) {
+        const { content, updatedAt } = outcome.error.adopted;
+        resource = {
+          ...resource,
+          content,
+          updatedAt,
+          size: Buffer.byteLength(content, "utf8"),
+        };
+      }
+    }
+    results.push({ before, resource, mirror });
+    if (before && mirror !== "conflict") {
       await noteJobFrontmatterWrite({
         owner: resource.owner,
         orgId: organizationIdFromResourceOwner(resource.owner),
@@ -2901,7 +3605,7 @@ export async function resourcePutSnapshotBatchIfCurrent(
       writes[index]?.options?.requestSource,
     );
   }
-  return result;
+  return results;
 }
 
 export async function resourcePutSnapshotPairIfCurrent(
@@ -2916,7 +3620,16 @@ export async function resourcePutSnapshotPairIfCurrent(
     | null;
 }
 
-export async function resourceRestoreSnapshotIfCurrent(
+export function resourceRestoreSnapshotIfCurrent(
+  snapshot: Resource,
+  current: Resource | null,
+): Promise<boolean> {
+  return underMemoryLock(snapshot.owner, snapshot.path, () =>
+    restoreSnapshotIfCurrent(snapshot, current),
+  );
+}
+
+async function restoreSnapshotIfCurrent(
   snapshot: Resource,
   current: Resource | null,
 ): Promise<boolean> {
@@ -2967,6 +3680,7 @@ export async function resourceRestoreSnapshotIfCurrent(
   const restoredAt = Math.max(
     Date.now(),
     (current?.updatedAt ?? snapshot.updatedAt) + 1,
+    await postTombstoneFloor(snapshot.owner, snapshot.path),
   );
   if (!current) {
     const { rows } = await client.execute({
@@ -2989,6 +3703,13 @@ export async function resourceRestoreSnapshotIfCurrent(
       ],
     });
     if (rows.length !== 1) return false;
+    if (isPersonalMemoryResourcePath(snapshot.owner, snapshot.path)) {
+      await mirrorPutOrThrow(
+        rowToResource(rows[0]),
+        ROWLESS_MEMORY_BASE,
+        undefined,
+      );
+    }
     emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
     return true;
   }
@@ -3011,6 +3732,13 @@ export async function resourceRestoreSnapshotIfCurrent(
     ],
   });
   if (rows.length !== 1) return false;
+  if (isPersonalMemoryResourcePath(snapshot.owner, snapshot.path)) {
+    await mirrorPutOrThrow(
+      rowToResource(rows[0]),
+      { content: current.content, updatedAt: current.updatedAt },
+      undefined,
+    );
+  }
   emitResourceChange(snapshot.id, snapshot.path, snapshot.owner);
   return true;
 }
@@ -3036,16 +3764,37 @@ export async function resourceDeleteIfCurrent(
 
   const client = getDbExec();
   const match = resourceSnapshotMatch(resource);
-  // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
-  const result = await client.execute({
-    sql: `DELETE FROM resources WHERE ${match.sql}`,
-    args: match.args,
-  });
-  const deleted = result.rowsAffected === 1;
-  if (deleted) {
-    emitResourceDelete(resource.id, resource.path, resource.owner);
-  }
-  return deleted;
+  const deleteRow = async () => {
+    // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
+    const result = await client.execute({
+      sql: `DELETE FROM resources WHERE ${match.sql} RETURNING id, updated_at`,
+      args: match.args,
+    });
+    return deletedRowFrom(result.rows);
+  };
+  const { deleted, leftover } = isPersonalMemoryResourcePath(
+    resource.owner,
+    resource.path,
+  )
+    ? await deleteMirroredMemory(
+        resource.owner,
+        resource.path,
+        resource.updatedAt,
+        deleteRow,
+        async () => {
+          // raw-sql-ok: resourceSnapshotMatch is fixed clause text; every value is a bound ? arg.
+          const { rows } = await client.execute({
+            sql: `SELECT 1 FROM resources WHERE ${match.sql}`,
+            args: match.args,
+          });
+          return rows.length === 1;
+        },
+      )
+    : { deleted: await deleteRow(), leftover: undefined };
+  if (!deleted) return false;
+  emitResourceDelete(resource.id, resource.path, resource.owner);
+  if (leftover) throw leftover;
+  return true;
 }
 
 export async function resourceDelete(id: string): Promise<boolean> {
@@ -3060,7 +3809,15 @@ export async function resourceDelete(id: string): Promise<boolean> {
     return deleted;
   }
 
-  const write = await resourceDeleteWithDb(getDbExec(), id);
+  const mirrored = parseSharedMemoryId(id);
+  if (mirrored) {
+    if (!isRequestingOwner(mirrored.owner)) return false;
+    return resourceDeleteByPath(mirrored.owner, mirrored.path);
+  }
+
+  const write = await resourceDeleteWithDb(getDbExec(), id, {
+    autocommit: true,
+  });
   await write.notifyAfterCommit();
   return write.value;
 }
@@ -3085,22 +3842,43 @@ export async function resourceDeleteByPath(
     await assertWritableWorkspaceResourcePath(path);
   }
   const client = getDbExec();
-
-  const { rows } = await client.execute({
-    sql: `SELECT id FROM resources WHERE owner = ? AND path = ?`,
-    args: [owner, path],
-  });
-  if (rows.length === 0) return false;
-
-  const result = await client.execute({
-    sql: `DELETE FROM resources WHERE owner = ? AND path = ?`,
-    args: [owner, path],
-  });
-  const deleted = result.rowsAffected > 0;
-  if (deleted) {
-    emitResourceDelete(rows[0].id as string, path, owner);
+  const deleteRow = async () => {
+    const result = await client.execute({
+      sql: `DELETE FROM resources WHERE owner = ? AND path = ? RETURNING id, updated_at`,
+      args: [owner, path],
+    });
+    return deletedRowFrom(result.rows);
+  };
+  if (!isPersonalMemoryResourcePath(owner, path)) {
+    const deleted = await deleteRow();
+    if (!deleted) return false;
+    emitResourceDelete(deleted.id, path, owner);
+    return true;
   }
-  return deleted;
+  const existing = await selectMirrorTarget(owner, path);
+  if (!existing) {
+    const mirrored = await readMirroredMemory(owner, path);
+    if (mirrored.state === "deleted") {
+      if (!(await removeTombstonedSharedFile(owner, path))) return false;
+      emitResourceDelete(`shared-memory:${owner}:${path}`, path, owner);
+      return true;
+    }
+    if (mirrored.state !== "present") return false;
+  }
+  const { deleted, leftover } = await deleteMirroredMemory(
+    owner,
+    path,
+    existing?.updatedAt ?? 0,
+    deleteRow,
+  );
+  if (existing && !deleted) return false;
+  emitResourceDelete(
+    deleted?.id ?? `shared-memory:${owner}:${path}`,
+    path,
+    owner,
+  );
+  if (leftover) throw leftover;
+  return true;
 }
 
 export async function resourceList(
@@ -3115,40 +3893,46 @@ export async function resourceList(
   }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
-  const visibilitySql = scratchFilterSql(options);
+  const visibilitySql =
+    options?.includeAgentScratch === true ? sql`` : EXCLUDE_AGENT_SCRATCH;
   const workspace = isWorkspaceResourceOwner(owner);
   const owners = workspace
     ? workspaceReadOwners(owner, options?.orgId)
     : [owner];
   const listOwner = async (candidate: string): Promise<ResourceMeta[]> => {
-    const query = pathPrefix
-      ? {
-          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
-          args: [candidate, prefixLike(pathPrefix)],
-        }
-      : {
-          sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-          args: [candidate],
-        };
+    const prefixSql = pathPrefix
+      ? sql`AND path LIKE ${sql.value(prefixLike(pathPrefix))} ESCAPE '!'`
+      : sql``;
+    const trashSql =
+      pathPrefix === SKILL_TRASH_PREFIX
+        ? sql``
+        : sql`AND path NOT LIKE ${sql.value(prefixLike(SKILL_TRASH_PREFIX))} ESCAPE '!'`;
+    const query = sql`
+      SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ${sql.value(candidate)}
+      ${prefixSql} ${visibilitySql} ${trashSql}
+    `;
     const listRows = async (limit?: number, offset = 0) =>
       client.execute(
         limit === undefined
           ? query
-          : {
-              sql: `${query.sql} ORDER BY path LIMIT ? OFFSET ?`,
-              args: [...query.args, limit, offset],
-            },
+          : sql`${query} ORDER BY path LIMIT ${sql.value(limit)} OFFSET ${sql.value(offset)}`,
+      );
+    const visibleMetas = async (rows: Array<Record<string, unknown>>) =>
+      withoutTombstonedMemories(
+        owner,
+        workspace,
+        await filterLegacyDispatchWorkspaceRows(
+          rows
+            .map(rowToMeta)
+            .filter((resource) =>
+              isLegacySharedResourceVisibleToOrganization(resource, orgId),
+            ),
+          orgId,
+        ),
       );
     if (options?.limit === undefined) {
       const { rows } = await listRows();
-      return filterLegacyDispatchWorkspaceRows(
-        rows
-          .map(rowToMeta)
-          .filter((resource) =>
-            isLegacySharedResourceVisibleToOrganization(resource, orgId),
-          ),
-        orgId,
-      );
+      return visibleMetas(rows);
     }
 
     const limit = Math.max(0, Math.floor(options.limit));
@@ -3156,15 +3940,7 @@ export async function resourceList(
     let offset = 0;
     while (resources.length < limit) {
       const { rows } = await listRows(limit, offset);
-      const visible = await filterLegacyDispatchWorkspaceRows(
-        rows
-          .map(rowToMeta)
-          .filter((resource) =>
-            isLegacySharedResourceVisibleToOrganization(resource, orgId),
-          ),
-        orgId,
-      );
-      resources.push(...visible);
+      resources.push(...(await visibleMetas(rows)));
       offset += rows.length;
       if (rows.length < limit) break;
     }
@@ -3174,7 +3950,39 @@ export async function resourceList(
   const resources = ownerResources.reduce((merged, candidate) =>
     mergeResourceMetas(merged, candidate),
   );
-  if (!workspace) return limitResourceMetas(resources, options?.limit);
+  if (!workspace) {
+    if (
+      !pathPrefix ||
+      "memory/".startsWith(pathPrefix) ||
+      pathPrefix.startsWith("memory/")
+    ) {
+      const sharedMemories = await listSharedPersonalMemories(owner);
+      if (sharedMemories.length > 0) {
+        const sharedMetas: ResourceMeta[] = sharedMemories
+          .filter((item) => !pathPrefix || item.path.startsWith(pathPrefix))
+          .map((item) => ({
+            id: `shared-memory:${owner}:${item.path}`,
+            path: item.path,
+            owner,
+            mimeType: "text/markdown",
+            size: item.size,
+            createdAt: item.mtimeMs,
+            updatedAt: item.mtimeMs,
+            createdBy: "user",
+            visibility: "workspace",
+            threadId: null,
+            runId: null,
+            expiresAt: null,
+            metadata: null,
+          }));
+        return limitResourceMetas(
+          mergeResourceMetas(sharedMetas, resources),
+          options?.limit,
+        );
+      }
+    }
+    return limitResourceMetas(resources, options?.limit);
+  }
 
   const local = await localWorkspaceResourceMetas(pathPrefix, options?.limit);
   const primaryResources = ownerResources[0] ?? [];
@@ -3214,17 +4022,16 @@ export async function resourceListContentByOwnersAndPrefixes(
   if (visibleOwners.length === 0) return [];
 
   const client = getDbExec();
-  const ownerSql = visibleOwners.map(() => "?").join(", ");
-  const prefixSql = uniquePrefixes
-    .map(() => "path LIKE ? ESCAPE '!'")
-    .join(" OR ");
-  const query = {
-    sql: `SELECT id, path, owner, content, metadata FROM resources WHERE owner IN (${ownerSql}) AND (${prefixSql})${scratchFilterSql()}`,
-    args: [
-      ...visibleOwners,
-      ...uniquePrefixes.map((prefix) => prefixLike(prefix)),
-    ],
-  };
+  const prefixSql = sql.join(
+    uniquePrefixes.map(
+      (prefix) => sql`path LIKE ${sql.value(prefixLike(prefix))} ESCAPE '!'`,
+    ),
+    sql` OR `,
+  );
+  const query = sql`
+    SELECT id, path, owner, content, metadata FROM resources
+    WHERE owner IN ${sql.in(visibleOwners)} AND (${prefixSql}) ${EXCLUDE_AGENT_SCRATCH}
+  `;
   let rows: Awaited<ReturnType<DbExec["execute"]>>["rows"];
   try {
     ({ rows } = await client.execute(query));
@@ -3675,11 +4482,18 @@ export async function resourceMoveIfCurrent(
  * row stored for exactly that owner and path, whatever its visibility, since
  * the (path, owner) index covers every row. Unlike `resourceGetByPath`, it
  * leaves out organization rows and grants, which a move never lands on.
+ * With `orgId`, a shared row from before organizations counts only when that
+ * organization can see it, as `resourceGetByPath` reads it. With `holding`,
+ * only rows that hold exactly that content and type count.
  */
 export async function resourceStoredPathsTaken(
   owner: string,
   paths: readonly string[],
-  options: { localFiles?: boolean } = {},
+  options: {
+    localFiles?: boolean;
+    orgId?: string | null;
+    holding?: { content: string; mimeType: string };
+  } = {},
 ): Promise<Set<string>> {
   const candidates = [...new Set(paths)];
   const taken = new Set<string>();
@@ -3693,9 +4507,23 @@ export async function resourceStoredPathsTaken(
     return taken;
   }
   await ensureTable();
+  const { holding } = options;
   const { rows } = await getDbExec().execute(
-    sql`SELECT path FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(candidates)}`,
+    holding
+      ? sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(candidates)} AND mime_type = ${sql.value(holding.mimeType)} AND content = ${sql.value(holding.content)}`
+      : sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(candidates)}`,
   );
-  for (const row of rows) taken.add(String(row.path));
+  for (const row of rows) {
+    if (
+      options.orgId !== undefined &&
+      !isLegacySharedResourceVisibleToOrganization(
+        { owner: String(row.owner), metadata: nullableString(row.metadata) },
+        options.orgId,
+      )
+    ) {
+      continue;
+    }
+    taken.add(String(row.path));
+  }
   return taken;
 }

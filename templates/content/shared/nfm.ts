@@ -3966,6 +3966,11 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
   return canonical;
 }
 
+export function appendNfmBlocks(body: string, blocks: string): string {
+  const kept = body.replace(/[\r\n]+$/, "");
+  return kept && kept !== "<empty-block/>" ? `${kept}\n${blocks}` : blocks;
+}
+
 /**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes

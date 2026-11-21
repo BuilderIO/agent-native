@@ -1483,6 +1483,20 @@ export function createBigQueryAgentReconciler(
   };
 }
 
+export async function createRequestBigQueryAgentReconciler(
+  signal?: AbortSignal,
+): Promise<BigQueryAgentReconciler> {
+  const { token, principal } = await getBigQueryAccess(
+    signal ? { signal } : {},
+  );
+  return createBigQueryAgentReconciler(token, {
+    credentialScope: cacheScopeForContext(
+      requireRequestCredentialContext("BIGQUERY_PROJECT_ID"),
+    ),
+    credentialFingerprint: principal,
+  });
+}
+
 async function dryRunBillableEstimate(
   sql: string,
   signal?: AbortSignal,
@@ -2035,6 +2049,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           body: JSON.stringify({
             jobReference: { projectId, jobId },
             configuration: {
+              ...(usage.workload === "alert"
+                ? { labels: { agent_native_workload: "alert" } }
+                : {}),
               query: {
                 query: cacheableSql,
                 useLegacySql: false,

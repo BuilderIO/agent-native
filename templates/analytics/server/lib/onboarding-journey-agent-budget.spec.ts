@@ -1,10 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ read: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  read: vi.fn(),
+  reconciler: { credentialScope: "scope", credentialFingerprint: "principal" },
+  createReconciler: vi.fn(),
+}));
 
 vi.mock("./bigquery-agent-budget.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./bigquery-agent-budget.js")>()),
   readBigQueryAgentBudget: mocks.read,
+}));
+
+vi.mock("./bigquery.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./bigquery.js")>()),
+  createRequestBigQueryAgentReconciler: mocks.createReconciler,
 }));
 
 import {
@@ -59,6 +68,7 @@ function snapshot({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.createReconciler.mockResolvedValue(mocks.reconciler);
 });
 
 describe("an outside agent's onboarding journey allowance", () => {
@@ -71,7 +81,74 @@ describe("an outside agent's onboarding journey allowance", () => {
       applied: 125 * GB,
       refusal: null,
     });
-    expect(mocks.read).toHaveBeenCalledWith(identity);
+    expect(mocks.read).toHaveBeenCalledWith(identity, {
+      reconcile: mocks.reconciler,
+    });
+  });
+
+  it("looks up the request's BigQuery access with the action's abort signal", async () => {
+    mocks.read.mockResolvedValueOnce(snapshot());
+    const signal = new AbortController().signal;
+    await outsideAgentOnboardingEventBytes(
+      identity,
+      undefined,
+      session,
+      signal,
+    );
+    expect(mocks.createReconciler).toHaveBeenCalledWith(signal);
+  });
+
+  it("sizes pages from the unreconciled budget when BigQuery access cannot be resolved", async () => {
+    vi.spyOn(console, "warn").mockImplementationOnce(() => {});
+    mocks.createReconciler.mockRejectedValueOnce(new Error("no credentials"));
+    mocks.read.mockResolvedValueOnce(snapshot());
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
+    ).resolves.toMatchObject({ applied: 125 * GB, refusal: null });
+    expect(mocks.read).toHaveBeenCalledWith(identity, {});
+  });
+
+  it("asks for a retry, not approval, when reservations it could not settle leave no room for a page", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.createReconciler.mockRejectedValue(new Error("no credentials"));
+    const unsettled = snapshot({ personRemaining: 40 * GB });
+    unsettled.person.reservedBytes = 75 * GB;
+    mocks.read.mockResolvedValueOnce(unsettled);
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
+    ).resolves.toMatchObject({ refusal: { code: "budget_unavailable" } });
+    mocks.read.mockResolvedValueOnce(snapshot({ personRemaining: 40 * GB }));
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, session),
+    ).resolves.toMatchObject({ refusal: { code: "approval_required" } });
+  });
+
+  it("stops when the call is cancelled during the BigQuery access lookup", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const aborted = new DOMException("Aborted", "AbortError");
+    mocks.createReconciler.mockRejectedValueOnce(aborted);
+    await expect(
+      outsideAgentOnboardingEventBytes(
+        identity,
+        undefined,
+        session,
+        controller.signal,
+      ),
+    ).rejects.toBe(aborted);
+    expect(mocks.read).not.toHaveBeenCalled();
+  });
+
+  it("settles reservations of queries that already finished before it counts pages", async () => {
+    mocks.read.mockImplementationOnce(
+      async (_identity: unknown, options?: { reconcile?: unknown }) =>
+        options?.reconcile === mocks.reconciler
+          ? snapshot()
+          : snapshot({ personRemaining: 75 * GB }),
+    );
+    await expect(
+      outsideAgentOnboardingEventBytes(identity, undefined, person),
+    ).resolves.toMatchObject({ applied: 125 * GB, refusal: null });
   });
 
   it("caps the pages at what is left after the follow-ups", async () => {

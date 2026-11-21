@@ -1807,6 +1807,294 @@ describe("when something fails part way", () => {
   });
 });
 
+describe("with an indexing budget every server shares", () => {
+  let accounts = 0;
+
+  function budgeted(
+    embed: EmbeddingFamily["embed"],
+    connectionId = `account-${++accounts}`,
+    capacity = 2,
+  ): EmbeddingFamily {
+    return {
+      ...family,
+      documentBudget: {
+        scope: {
+          providerId: "fake-embeddings",
+          tenantId: "space",
+          connectionId,
+        },
+        policy: { capacity, windowMs: 60_000 },
+      },
+      embed,
+    };
+  }
+
+  function gateway(room: { left: number }, purposes: string[]) {
+    return budgeted(async (inputs, purpose, options) => {
+      const { EmbeddingProviderError } = await import("../embeddings/index.js");
+      purposes.push(purpose);
+      if (room.left <= 0) {
+        throw new EmbeddingProviderError(
+          "Embedding provider fake failed with status 429.",
+          429,
+        );
+      }
+      room.left -= 1;
+      return family.embed(inputs, purpose, options);
+    });
+  }
+
+  function resolveTo(
+    pick: (
+      identity: { orgId?: string; userEmail?: string } | undefined,
+    ) => EmbeddingFamily,
+  ) {
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async (identity) => pick(identity),
+    });
+  }
+
+  function restore() {
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async (identity) =>
+        identity?.orgId === "org-no-provider" ? null : family,
+    });
+  }
+
+  function embedded(ids: string[]) {
+    return ids.filter((id) => store.keys().includes(`wiki/page/${id}/0`));
+  }
+
+  async function waiting(prefix: string, seconds: number) {
+    const { rows } = await run(
+      `SELECT resource_id FROM app_resource_changes
+       WHERE consumer = 'search-embeddings' AND resource_id LIKE ?
+         AND available_at > now() + make_interval(secs => ?)
+       ORDER BY resource_id`,
+      [`${prefix}%`, seconds],
+    );
+    return rows.map((row) => String(row.resource_id));
+  }
+
+  async function passTime() {
+    await run(
+      `UPDATE provider_connection_budgets
+       SET window_started_at = window_started_at - 60000,
+           resume_at = CASE WHEN resume_at IS NULL THEN NULL ELSE CAST(? AS BIGINT) END`,
+      [Date.now() - 1],
+    );
+  }
+
+  async function cleanUp(prefix: string) {
+    restore();
+    await passTime();
+    await run(`DELETE FROM pages WHERE id LIKE ?`, [`${prefix}%`]);
+    await settle();
+    await drain();
+    expect(await pendingIds()).toEqual([]);
+  }
+
+  it("indexes only its share of the provider's limit, so searches keep the rest", async () => {
+    const long = "Paced laptop notes. ".repeat(900);
+    const ids = Array.from({ length: 8 }, (_, index) => `paced-${index}`);
+    for (const id of ids) await insertPage(id, "Paced laptop", long);
+    await settle();
+    const room = { left: 3 };
+    const purposes: string[] = [];
+    const paced = gateway(room, purposes);
+    resolveTo(() => paced);
+    try {
+      await drain();
+      expect(purposes).toEqual(["document", "document"]);
+      expect(embedded(ids)).toHaveLength(4);
+      expect(await waiting("paced-", 1)).toHaveLength(4);
+
+      await settle();
+      await drain();
+      expect(purposes).toEqual(["document", "document"]);
+      expect(embedded(ids)).toHaveLength(4);
+
+      await expect(
+        searchAs(
+          { userEmail: "reader@a.com", orgId: "org-a" },
+          "paced laptop hardware while indexing",
+        ),
+      ).resolves.toMatchObject({ status: "used" });
+      expect(purposes).toEqual(["document", "document", "query"]);
+
+      room.left = 3;
+      await passTime();
+      await settle();
+      await drain();
+      expect(embedded(ids)).toEqual(ids);
+      expect(purposes.filter((purpose) => purpose === "document")).toHaveLength(
+        4,
+      );
+    } finally {
+      await cleanUp("paced-");
+    }
+  });
+
+  it("holds indexing back on every server when a search is rate limited, so the next searches get the provider", async () => {
+    for (const id of ["held-1", "held-2"]) {
+      await insertPage(id, "Held laptop", `Hardware ${id}.`);
+    }
+    await settle();
+    const room = { left: 0 };
+    const purposes: string[] = [];
+    const held = gateway(room, purposes);
+    resolveTo(() => held);
+    try {
+      await expect(
+        searchAs(
+          { userEmail: "reader@a.com", orgId: "org-a" },
+          "held laptop hardware refused",
+        ),
+      ).resolves.toEqual({ status: "unavailable", reason: "error" });
+
+      room.left = 3;
+      await drain();
+      expect(purposes).toEqual(["query"]);
+      expect(await waiting("held-", 100)).toEqual(["held-1", "held-2"]);
+
+      await expect(
+        searchAs(
+          { userEmail: "reader@a.com", orgId: "org-a" },
+          "held laptop hardware answered",
+        ),
+      ).resolves.toMatchObject({ status: "used" });
+      expect(purposes).toEqual(["query", "query"]);
+
+      await passTime();
+      await settle();
+      await drain();
+      expect(embedded(["held-1", "held-2"])).toEqual(["held-1", "held-2"]);
+    } finally {
+      await cleanUp("held-");
+    }
+  });
+
+  it("spends none of the budget on a call it has no time left to make", async () => {
+    const long = "laptop ".repeat(2500);
+    const ids = Array.from({ length: 4 }, (_, index) => `late-call-${index}`);
+    for (const id of ids) await insertPage(id, "Laptop", long);
+    await settle();
+    let clock = Date.now();
+    const deadline = clock + 500;
+    let slow = true;
+    const purposes: string[] = [];
+    const late = budgeted(async (inputs, purpose, options) => {
+      purposes.push(purpose);
+      if (slow) clock = deadline;
+      return family.embed(inputs, purpose, options);
+    });
+    resolveTo(() => late);
+    try {
+      const restoreClock = vi
+        .spyOn(Date, "now")
+        .mockImplementation(() => clock);
+      try {
+        await search.drainSemanticIndex(registration, deadline);
+      } finally {
+        restoreClock.mockRestore();
+      }
+      expect(purposes).toEqual(["document"]);
+      expect(embedded(ids)).toHaveLength(2);
+
+      slow = false;
+      await settle();
+      await drain();
+      expect(purposes).toEqual(["document", "document"]);
+      expect(embedded(ids)).toHaveLength(3);
+      expect(await waiting("late-call-", 1)).toHaveLength(1);
+    } finally {
+      await cleanUp("late-call-");
+    }
+  });
+
+  it("keeps pacing indexing when its budget's policy changes", async () => {
+    const long = "Policy laptop notes. ".repeat(900);
+    const ids = Array.from({ length: 8 }, (_, index) => `policy-${index}`);
+    for (const id of ids) await insertPage(id, "Policy laptop", long);
+    await settle();
+    const purposes: string[] = [];
+    const embed: EmbeddingFamily["embed"] = async (
+      inputs,
+      purpose,
+      options,
+    ) => {
+      purposes.push(purpose);
+      return family.embed(inputs, purpose, options);
+    };
+    resolveTo(() => budgeted(embed, "policy-account", 1));
+    try {
+      await drain();
+      expect(embedded(ids)).toHaveLength(2);
+
+      resolveTo(() => budgeted(embed, "policy-account", 2));
+      await settle();
+      await drain();
+      expect(purposes).toHaveLength(3);
+      expect(embedded(ids)).toHaveLength(6);
+      expect(await waiting("policy-", 1)).toHaveLength(2);
+    } finally {
+      await cleanUp("policy-");
+    }
+  });
+
+  it("shares a hold across organizations using one set of credentials, but not with other credentials", async () => {
+    const { EmbeddingProviderError } = await import("../embeddings/index.js");
+    await insertPage("account-first", "First laptop", "Hardware first.", {
+      orgId: "org-account-1",
+    });
+    await insertPage("account-second", "Second laptop", "Hardware second.", {
+      orgId: "org-account-2",
+    });
+    await insertPage("account-own", "Own laptop", "Hardware own.", {
+      orgId: "org-account-1",
+      ownerEmail: "own@account.com",
+    });
+    await settle();
+    let firstCalls = 0;
+    let secondCalls = 0;
+    const first = budgeted(async () => {
+      firstCalls += 1;
+      throw new EmbeddingProviderError(
+        "Embedding provider fake failed with status 429.",
+        429,
+      );
+    }, "shared-account");
+    const second = budgeted(async (inputs, purpose, options) => {
+      secondCalls += 1;
+      return family.embed(inputs, purpose, options);
+    }, "shared-account");
+    const own = budgeted(family.embed, "own-account");
+    resolveTo((identity) =>
+      identity?.userEmail === "own@account.com"
+        ? own
+        : identity?.orgId === "org-account-2"
+          ? second
+          : first,
+    );
+    try {
+      await drain();
+      expect(firstCalls).toBe(1);
+      expect(secondCalls).toBe(0);
+      expect(
+        embedded(["account-first", "account-second", "account-own"]),
+      ).toEqual(["account-own"]);
+      expect(await waiting("account-", 1)).toEqual([
+        "account-first",
+        "account-second",
+      ]);
+    } finally {
+      await cleanUp("account-");
+    }
+  });
+});
+
 describe("without a vector store or provider", () => {
   it("says why the lane can't answer, and never throws", async () => {
     search.configureSemanticSearch({

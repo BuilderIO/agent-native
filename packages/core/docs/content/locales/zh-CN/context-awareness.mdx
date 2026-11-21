@@ -361,6 +361,18 @@ await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 使用 `navigate(path, { replace: true, flushSync: true })` 而不是包装它
 在视图转换中，使地址栏和可见页面保持在一起。
 
+### 智能体保持用户当前视图 {#agent-keeps-view}
+
+只有当用户要求查看某样东西时，用户的屏幕才会切换。这适用于所有智能体：内置聊天、通过 MCP 或 WebMCP 的外部智能体，以及通过 A2A 的对等方（`@agent-native/core` 中的 `isAgentCaller(ctx)`）。
+
+- 读取从不导航。在智能体调用期间写入 `navigate` 的只读操作会在应用状态存储层被拒绝。
+- 写入默认不移动视图。未带 `intent: "open"` 就写入 `navigate` 的智能体写入会被拒绝；调用 `@agent-native/core/application-state` 中的 `navigateAfterWrite(navigation, { ctx, intent })` 可在未设置 `intent: "open"` 时平滑跳过跳转，或在专门用于打开界面的操作上设置 `allowsAgentNavigation: true`。
+- 打开单个条目需要 `intent: "open"`。`createNavigateAction()` 和应用状态存储层默认对条目 ID 字段（`id`、`*Id`）和详情路径强制执行该规则，无需每个应用单独编写代码。仅在需要自定义判断时向 `createNavigateAction()` 传入 `isDetailView`。
+
+```ts
+export const navigate = createNavigateAction();
+```
+
 ## useNavigationState 挂钩 {#use-navigation-state}
 
 `useNavigationState` 是 **您的应用程序的钩子，而不是框架导入。** 每个模板都在 `app/hooks/use-navigation-state.ts` 上发布一个，并从应用程序 shell (`root.tsx`) 调用它一次。这是连接两个方向导航的单一位置：

@@ -303,6 +303,8 @@ export interface UpdateResourceSuggestionInput {
   observedRevision: number;
   idempotencyKey: string;
   operations: SuggestionOperation[];
+  /** The revision `operations` were written against, when newer than the suggestion's. */
+  baseRevision?: string;
   summary?: string;
 }
 

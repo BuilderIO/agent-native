@@ -24,7 +24,9 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
-    const owner = await getNotionDocumentOwner(documentId);
+    const owner = await getNotionDocumentOwner(documentId, {
+      requireOwner: true,
+    });
     if (args.flushOpenEditor) {
       await flushNotionDocumentEditor(documentId, owner);
     }

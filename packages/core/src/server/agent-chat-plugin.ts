@@ -71,6 +71,7 @@ import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_TURN_GRANT_FIELD,
+  AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD,
   AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRunMarkerExpectsBackgroundRuntime,
@@ -145,6 +146,7 @@ import {
   getRunById,
   readBackgroundRunClaim,
   retryRunThreadProjection,
+  type UserStopOptions,
 } from "../agent/run-store.js";
 import { buildAssistantTurnFromRunJournal } from "../agent/run-thread-projector.js";
 import {
@@ -294,6 +296,7 @@ import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-sess
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
@@ -337,6 +340,7 @@ import {
 import { captureError } from "./capture-error.js";
 import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import type { CliWrapperFlags } from "./cli-wrapper-flags.js";
+import { isWorkspaceRuntime } from "./derived-secret.js";
 import {
   discoveredActionMcpAnnotations,
   importDevActionEntry,
@@ -2799,13 +2803,6 @@ export function createAgentChatPlugin(
           }),
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
-          // Priority: A2A-JWT verified email (set by the A2A handler in
-          // request-context) > dev session DB (dev only) > Google OAuth
-          // tokeninfo (prod only). Without the JWT-verified-email path,
-          // cross-app A2A calls landed owned by `local@localhost` (dev) or
-          // `dispatch@shared`, which made resources invisible to the actual
-          // signed-in user.
-          //
           // SECURITY: we deliberately do NOT trust `context.metadata.userEmail`
           // as a fallback. The A2A endpoint runs in three modes — JWT-signed
           // (verified email lands in request context), API-key (caller is
@@ -2883,26 +2880,6 @@ export function createAgentChatPlugin(
                   args: [],
                 });
                 if (rows[0]) userEmail = rows[0].email as string;
-              } catch {}
-            }
-          }
-
-          if (!userEmail && !isDev) {
-            const googleToken = context.metadata?.googleToken as string;
-            if (googleToken) {
-              try {
-                const res = await fetch(
-                  `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(googleToken)}`,
-                );
-                if (res.ok) {
-                  const info = (await res.json()) as {
-                    email?: string;
-                    email_verified?: string;
-                  };
-                  if (info.email && info.email_verified === "true") {
-                    userEmail = info.email;
-                  }
-                }
               } catch {}
             }
           }
@@ -7755,10 +7732,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             let reason = "user";
             let safeBoundary = false;
+            let stop: UserStopOptions = {};
             try {
               const body = await readBody(event);
               reason = clientAbortReason(body?.reason);
               safeBoundary = body?.safeBoundary === true;
+              if (
+                Number.isSafeInteger(body?.shownThroughSeq) &&
+                body.shownThroughSeq >= -1
+              ) {
+                stop = { shownThroughSeq: body.shownThroughSeq };
+              }
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
@@ -7770,6 +7754,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 aborted = isUserStop
                   ? await abortRunAndTurnDurably(runId, reason, {
                       safeBoundary: true,
+                      ...stop,
                     })
                   : await abortRunAtSafeBoundaryDurably(runId, reason);
                 if (isUserStop && !aborted) {
@@ -7783,7 +7768,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // the cross-isolate abort + terminal event to be durable. Returning
                 // early lets Retry collide with the still-running row.
                 if (isUserStop) {
-                  await abortRunAndTurnDurably(runId, reason);
+                  await abortRunAndTurnDurably(runId, reason, stop);
                 } else {
                   await abortRunDurably(runId, reason);
                 }
@@ -9374,6 +9359,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     }),
                 );
               } catch (error) {
+                if (error instanceof ForbiddenError) {
+                  setResponseStatus(event, 403);
+                  return { error: error.message };
+                }
                 if (!(error instanceof ForkThreadBoundaryError)) throw error;
                 throw createError({
                   statusCode: 400,
@@ -10442,6 +10431,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         return result;
       };
 
+      options?.onQueuedSubmissionDrainReady?.((threadId) => {
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        scheduleQueuedSubmissionInboxDrain({
+          threadId,
+          turnContinues: false,
+          ...(waitUntil ? { waitUntil } : {}),
+          drain: drainQueuedSubmissionInbox,
+          onError: (error) =>
+            console.error(
+              `[agent-chat] queued submission drain failed for ${threadId}:`,
+              error,
+            ),
+        });
+      });
+
       // A Function URL is a separate origin, so the browser cannot send the
       // Amplify session cookie with the stream request. Mint a short-lived,
       // audience-bound handoff on the authenticated foreground origin.
@@ -10809,7 +10813,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // This self-dispatch is cookieless (HMAC-only). Restore the verified
             // per-turn initiator captured before dispatch; the shared thread
             // owner is not necessarily the member who submitted this turn.
-            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+            await seedBackgroundAgentRunOwnerContext(
+              event,
+              prepared.runId,
+              preparedMarkerRecord?.[
+                AGENT_CHAT_BACKGROUND_INITIATOR_SIGNATURE_FIELD
+              ],
+            );
             if (
               preparedMarkerRecord?.payloadRef === true &&
               getAppConfig().agent.interactiveChatTurns
@@ -11014,6 +11024,75 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return processPendingAutomationFailureAlerts();
         };
 
+        const recordNetlifyIdleSweep = async (input: {
+          startedAt: number;
+          jobsChecked: boolean;
+          unclaimedBackgroundRuns: { scanned: number };
+          queuedSubmissionDrain: { scanned: number } | null;
+          automationFailureAlerts: { attempted: number } | null;
+          appSweepHandlers: { skipped?: string };
+        }) => {
+          try {
+            if (!isNetlifyRecurringJobsRuntime() || isWorkspaceRuntime()) {
+              return;
+            }
+            const { recordNetlifySweepOutcome } =
+              await import("../jobs/netlify-wake-marker.js");
+            const foundWork =
+              input.unclaimedBackgroundRuns.scanned > 0 ||
+              (input.queuedSubmissionDrain?.scanned ?? 0) > 0 ||
+              (input.automationFailureAlerts?.attempted ?? 0) > 0 ||
+              input.appSweepHandlers.skipped !== undefined;
+            if (foundWork) {
+              await recordNetlifySweepOutcome({
+                startedAt: input.startedAt,
+                busy: true,
+                nextDueAt: null,
+              });
+              return;
+            }
+            const { hasRunningRuns } = await import("../agent/run-store.js");
+            const { nextQueuedSubmissionDueAt } =
+              await import("../chat-threads/store.js");
+            const { nextAutomationFailureAlertDueAt } =
+              await import("../jobs/run-history.js");
+            const { nextRecurringJobWakeAt } =
+              await import("../jobs/scheduler.js");
+            const { nextStaleWorkDueAt } =
+              await import("../jobs/stale-reaper.js");
+            const { nextRecurringSweepHandlerDueAt } =
+              await import("../jobs/sweep-hooks.js");
+            const { nextAgentHarnessRecoveryDueAt } =
+              await import("../agent/harness/store.js");
+            const { nextStaleAgentTeamRunDueAt } =
+              await import("./agent-teams-run-queue.js");
+            const busy = await hasRunningRuns({ fresh: true });
+            const dueTimes = busy
+              ? []
+              : [
+                  input.jobsChecked
+                    ? await nextRecurringJobWakeAt(schedulerDeps)
+                    : null,
+                  input.jobsChecked ? await nextStaleWorkDueAt() : null,
+                  await nextQueuedSubmissionDueAt(),
+                  await nextAutomationFailureAlertDueAt(),
+                  await nextRecurringSweepHandlerDueAt(),
+                  await nextAgentHarnessRecoveryDueAt(),
+                  await nextStaleAgentTeamRunDueAt(),
+                ].filter((dueAt): dueAt is number => dueAt !== null);
+            await recordNetlifySweepOutcome({
+              startedAt: input.startedAt,
+              busy,
+              nextDueAt: dueTimes.length ? Math.min(...dueTimes) : null,
+            });
+          } catch (error) {
+            console.warn(
+              "[recurring-jobs] Idle check failed; the sweep stays on its minute cadence:",
+              error,
+            );
+          }
+        };
+
         // Every platform trigger lands here: Netlify's scheduled function (via
         // the durable background function), Vercel Cron, and the Cloudflare
         // worker's Cron Trigger. Keeping the sweep behind an authenticated,
@@ -11042,6 +11121,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
+            const sweepStartedAt = Date.now();
             // Stale reaping runs FIRST and site-wide, before the open-ended job
             // sweep can spend the platform wall. It is the durable driver the
             // in-process fast sweep below cannot be on serverless: that timer is
@@ -11209,6 +11289,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (incompleteSteps.length > 0) {
                 setResponseStatus(event, 500);
+              } else {
+                await recordNetlifyIdleSweep({
+                  startedAt: sweepStartedAt,
+                  jobsChecked: false,
+                  unclaimedBackgroundRuns,
+                  queuedSubmissionDrain,
+                  automationFailureAlerts,
+                  appSweepHandlers,
+                });
               }
               return {
                 ok: incompleteSteps.length === 0,
@@ -11242,6 +11331,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   appSweepHandlers,
                 };
               }
+              await recordNetlifyIdleSweep({
+                startedAt: sweepStartedAt,
+                jobsChecked: true,
+                unclaimedBackgroundRuns,
+                queuedSubmissionDrain,
+                automationFailureAlerts,
+                appSweepHandlers,
+              });
               return {
                 ok: true,
                 staleRunsReaped,

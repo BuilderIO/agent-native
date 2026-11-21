@@ -1,5 +1,7 @@
 export const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 export const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
+export const STALE_CHUNK_NAVIGATING_AT_KEY =
+  "__agentNativeStaleChunkNavigatingAt";
 export const CHUNK_RECOVERY_QUERY_PARAM = "__agentNativeChunkRecovery";
 export const CHUNK_RECOVERY_QUERY_VALUE = "1";
 export const CHUNK_RECOVERY_CACHE_BUSTER_PARAM =
@@ -44,6 +46,7 @@ const cacheBusterParam=${JSON.stringify(CHUNK_RECOVERY_CACHE_BUSTER_PARAM)};
 const pathSuffix=${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
 const originalHashParam=${JSON.stringify(CHUNK_RECOVERY_ORIGINAL_HASH_PARAM)};
 const reloadKey=${JSON.stringify(STALE_CHUNK_RELOAD_AT_KEY)};
+const navigatingKey=${JSON.stringify(STALE_CHUNK_NAVIGATING_AT_KEY)};
 const warmupAttr=${JSON.stringify(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)};
 const externalEmbedKey=${JSON.stringify(EXTERNAL_EMBED_WINDOW_KEY)};
 const exhaustedKey=${JSON.stringify(STALE_CHUNK_EXHAUSTED_KEY)};
@@ -80,6 +83,7 @@ last=Number(window[reloadKey])||0;
 if(last>0&&now-last<=${STALE_CHUNK_RELOAD_COOLDOWN_MS})return;
 }
 window[reloadKey]=now;
+window[navigatingKey]=now;
 const originalHash=url.hash;
 const trailingSlash=url.pathname.endsWith("/")?"/":"";
 const routePath=trailingSlash?url.pathname.slice(0,-1):url.pathname;
@@ -90,7 +94,7 @@ const recoveryHash=new URLSearchParams();
 recoveryHash.set(cacheBusterParam,now.toString(36));
 recoveryHash.set(originalHashParam,originalHash);
 url.hash=recoveryHash.toString();
-location.assign(url.href);
+try{location.assign(url.href);}catch(error){delete window[navigatingKey];throw error;}
 event.stopImmediatePropagation();
 },true);
 })();`;

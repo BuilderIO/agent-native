@@ -644,6 +644,31 @@ async function setFailureAlertOutcome(
   });
 }
 
+/**
+ * When `processPendingAutomationFailureAlerts` next has an alert to send, as
+ * epoch ms, or `null` when none is waiting. An alert still being evaluated is
+ * due now and answers `0`; one claimed by a sender is due when its claim lapses.
+ */
+export async function nextAutomationFailureAlertDueAt(): Promise<
+  number | null
+> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `SELECT MIN(CASE
+                WHEN failure_alert_state = 'evaluating' THEN 0
+                WHEN failure_alert_state = 'pending' THEN failure_alert_next_attempt_at
+                ELSE failure_alert_claimed_at + ? END) AS due_at
+          FROM automation_runs
+          WHERE failure_alert_state = 'sending' OR (
+            failure_alert_state IN ('evaluating', 'pending')
+            AND status IN ('error', 'interrupted')
+            AND notification_email IS NOT NULL)`,
+    args: [FAILURE_ALERT_LEASE_MS],
+  });
+  const dueAt = (result.rows[0] as { due_at?: unknown } | undefined)?.due_at;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
+}
+
 export async function processPendingAutomationFailureAlerts(options?: {
   limit?: number;
   runId?: string;

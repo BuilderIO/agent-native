@@ -4,11 +4,18 @@ const mocks = vi.hoisted(() => ({
   decide: vi.fn(),
   getRequestUserEmail: vi.fn(),
   listGrantedDispatchMcpApps: vi.fn(),
+  listPointerRows: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/decisions", () => ({ decide: mocks.decide }));
 vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
+  getRequestOrgId: () => "org_1",
+}));
+vi.mock("@agent-native/core/resources/store", () => ({
+  resourceListContentByOwnersAndPrefixes: mocks.listPointerRows,
+  resourcePut: vi.fn(),
+  sharedResourceOwner: (orgId: string) => `org:${orgId}`,
 }));
 vi.mock("../server/lib/mcp-gateway.js", () => ({
   listGrantedDispatchMcpApps: mocks.listGrantedDispatchMcpApps,
@@ -24,10 +31,169 @@ describe("route-app-intent", () => {
     vi.clearAllMocks();
     vi.spyOn(console, "info").mockImplementation(() => {});
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.listPointerRows.mockResolvedValue([]);
     mocks.listGrantedDispatchMcpApps.mockResolvedValue([
       { id: "calendar", name: "Calendar", description: "" },
       { id: "mail", name: "Mail", description: "Email inbox" },
     ]);
+  });
+
+  it("opens a saved pointer's object instead of the Tasks default", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      { id: "tasks", name: "Tasks", description: "To-dos" },
+      { id: "content", name: "Content", description: "Docs" },
+    ]);
+    mocks.listPointerRows.mockResolvedValue([
+      {
+        id: "p1",
+        owner: "owner@example.com",
+        path: "pointers/todo-list.json",
+        content: JSON.stringify({
+          alias: "todo list",
+          appId: "content",
+          url: "https://example.com/content/page/abc",
+        }),
+      },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "jev",
+      model: "jev-1",
+      cached: false,
+      answers: { app: { type: "choice", name: "app", choice: "tasks" } },
+    });
+
+    const result = await run({ text: "whats on my todo list" });
+
+    expect(result).toMatchObject({
+      status: "ok",
+      app: "content",
+      pointer: true,
+      url: "https://example.com/content/page/abc",
+    });
+    expect(mocks.decide).not.toHaveBeenCalled();
+    expect(mocks.listPointerRows).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores pointers to apps that are not granted and feeds the rest to decide", async () => {
+    mocks.listPointerRows.mockResolvedValue([
+      {
+        id: "p1",
+        owner: "owner@example.com",
+        path: "pointers/todo-list.json",
+        content: JSON.stringify({
+          alias: "todo list",
+          appId: "gone",
+          url: "u",
+        }),
+      },
+      {
+        id: "p2",
+        owner: "owner@example.com",
+        path: "pointers/standup-notes.json",
+        content: JSON.stringify({
+          alias: "standup notes",
+          appId: "mail",
+          url: "u",
+        }),
+      },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "jev",
+      model: "jev-1",
+      cached: false,
+      answers: { app: { type: "choice", name: "app", choice: "mail" } },
+    });
+
+    const result = await run({ text: "whats on my todo list" });
+
+    expect(result).toMatchObject({ status: "ok", app: "mail" });
+    expect(result).not.toHaveProperty("pointer");
+    const parts = mocks.decide.mock.calls[0][0].input;
+    expect(parts).toContainEqual({
+      type: "json",
+      value: { savedPointers: [{ alias: "standup notes", appId: "mail" }] },
+    });
+    expect(mocks.decide.mock.calls[0][0].options.cacheKey).toMatch(/\.v3$/);
+  });
+
+  it.each(["mail", "tasks"])(
+    "lets classification resolve a cross-app pointer to %s",
+    async (choice) => {
+      mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+        { id: "mail", name: "Mail", description: "Email inbox" },
+        { id: "tasks", name: "Tasks", description: "Pull requests" },
+      ]);
+      mocks.listPointerRows.mockResolvedValue([
+        {
+          id: "p1",
+          owner: "owner@example.com",
+          path: "pointers/github.json",
+          content: JSON.stringify({
+            alias: "GitHub",
+            appId: "tasks",
+            url: "https://example.com/reviews",
+          }),
+        },
+      ]);
+      mocks.decide.mockResolvedValue({
+        status: "ok",
+        provider: "test",
+        model: "test",
+        cached: false,
+        answers: { app: { type: "choice", name: "app", choice } },
+      });
+
+      const result = await run({
+        text:
+          choice === "mail"
+            ? "GitHub notifications from people"
+            : "open my GitHub reviews",
+        openApp: "mail",
+      });
+      expect(result).toMatchObject({ status: "ok", app: choice });
+      expect("pointer" in result && result.pointer === true).toBe(
+        choice === "tasks",
+      );
+      expect("url" in result ? result.url : undefined).toBe(
+        choice === "tasks" ? "https://example.com/reviews" : undefined,
+      );
+      expect(mocks.decide).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("lets the request select another app despite a pointer in the current app", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      { id: "mail", name: "Mail", description: "Email inbox" },
+      { id: "tasks", name: "Tasks", description: "Pull requests" },
+    ]);
+    mocks.listPointerRows.mockResolvedValue([
+      {
+        id: "p1",
+        owner: "owner@example.com",
+        path: "pointers/github.json",
+        content: JSON.stringify({
+          alias: "GitHub",
+          appId: "mail",
+          url: "https://example.com/mail",
+        }),
+      },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "test",
+      model: "test",
+      cached: false,
+      answers: { app: { type: "choice", name: "app", choice: "tasks" } },
+    });
+    const result = await run({
+      text: "show my GitHub pull requests",
+      openApp: "mail",
+    });
+    expect(result).toMatchObject({ status: "ok", app: "tasks" });
+    expect(result).not.toHaveProperty("pointer");
+    expect(mocks.decide).toHaveBeenCalledOnce();
   });
 
   it("is reachable by desktop MCP clients but hidden from the in-app agent", () => {

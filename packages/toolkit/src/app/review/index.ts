@@ -5,6 +5,7 @@ export * from "./ReviewAgentMark.js";
 export * from "./comment-send-key.js";
 export * from "./review-comment-drafts.js";
 export * from "./review-comment-images.js";
+export * from "./review-mention-people.js";
 export * from "./ReviewCommentComposer.js";
 export type { ReviewComposerFormatLabels } from "./ReviewComposerToolbar.js";
 export * from "./ReviewStatusBadge.js";

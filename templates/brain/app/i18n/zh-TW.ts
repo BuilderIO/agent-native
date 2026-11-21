@@ -448,6 +448,11 @@ const messages = {
       "選取 Markdown 或純文字的資料夾或檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
     chooseMarkdownFolder: "選取資料夾",
     importMarkdownFiles: "匯入文件",
+    manualImportScreeningUnavailable:
+      "Brain 無法檢查這次匯入。內容未儲存，也未加入佇列。請在檢查服務可用後重試。",
+    distillationHandoffCancelled: "蒸餾任務交接已在送達前取消。",
+    distillationDeliveryUnknown:
+      "蒸餾任務是否送達尚未確認。重試前請檢查是否已有部分工作。",
     companyContextUpload: "上傳公司脈絡",
     companyContextAdminOnly: "只有組織擁有者和管理員可以上傳公司脈絡。",
     companyContextOpenFailed: "無法開啟公司脈絡上傳。請再試一次。",

@@ -14,6 +14,7 @@ import {
   vi,
 } from "vitest";
 
+import { withFixtureProvenance } from "../../test-utils/knowledge-provenance.js";
 import * as schema from "../db/schema.js";
 
 const harness = vi.hoisted(() => ({
@@ -38,6 +39,8 @@ vi.mock(
   }),
 );
 vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => null,
+  mutateOrgSetting: async () => undefined,
   getSetting: vi.fn(async () => ({
     privacyClassifier: "deterministic",
     defaultPublishTier: "company",
@@ -567,49 +570,64 @@ describe("evidence-backed intelligence", () => {
       .update(schema.brainRawCaptures)
       .set({ content: quote })
       .where(eq(schema.brainRawCaptures.id, "capture-a"));
-    await database.insert(schema.brainKnowledge).values({
-      id: "legacy-mention",
-      sourceId: "source-a",
-      captureId: "capture-a",
-      audienceId: "audience-a",
-      title: "Annual planning",
-      body: quote,
-      kind: "fact",
-      status: "published",
-      publishTier: "company",
-      ownerEmail: email,
-      createdBy: email,
-      orgId: "qa-org",
-      visibility: "org",
-      entitiesJson: JSON.stringify([
-        { type: "person", name: "Ann" },
-        { type: "project", name: "Atlas" },
-      ]),
-      evidenceJson: JSON.stringify([
-        { captureId: "capture-a", sourceId: "source-a", quote },
-      ]),
-    });
+    const captureContent = new Map([["capture-a", quote]]);
     await database.insert(schema.brainKnowledge).values(
-      Array.from({ length: 110 }, (_value, index) => ({
-        id: `archived-mention-${index}`,
-        sourceId: "source-a",
-        captureId: "capture-a",
-        audienceId: "audience-a",
-        title: "Archived planning",
-        body: quote,
-        kind: "fact" as const,
-        status: "archived" as const,
-        publishTier: "company" as const,
-        ownerEmail: email,
-        createdBy: email,
-        orgId: "qa-org",
-        visibility: "org" as const,
-        updatedAt: "2030-01-01T00:00:00.000Z",
-        entitiesJson: JSON.stringify([{ type: "project", name: "Atlas" }]),
-        evidenceJson: JSON.stringify([
-          { captureId: "capture-a", sourceId: "source-a", quote },
-        ]),
-      })),
+      await withFixtureProvenance<typeof schema.brainKnowledge.$inferInsert>(
+        {
+          id: "legacy-mention",
+          sourceId: "source-a",
+          captureId: "capture-a",
+          audienceId: "audience-a",
+          title: "Annual planning",
+          body: quote,
+          kind: "fact",
+          status: "published",
+          publishTier: "company",
+          ownerEmail: email,
+          createdBy: email,
+          orgId: "qa-org",
+          visibility: "org",
+          entitiesJson: JSON.stringify([
+            { type: "person", name: "Ann" },
+            { type: "project", name: "Atlas" },
+          ]),
+          evidenceJson: JSON.stringify([
+            { captureId: "capture-a", sourceId: "source-a", quote },
+          ]),
+        },
+        captureContent,
+      ),
+    );
+    await database.insert(schema.brainKnowledge).values(
+      await Promise.all(
+        Array.from({ length: 110 }, (_value, index) =>
+          withFixtureProvenance(
+            {
+              id: `archived-mention-${index}`,
+              sourceId: "source-a",
+              captureId: "capture-a",
+              audienceId: "audience-a",
+              title: "Archived planning",
+              body: quote,
+              kind: "fact" as const,
+              status: "archived" as const,
+              publishTier: "company" as const,
+              ownerEmail: email,
+              createdBy: email,
+              orgId: "qa-org",
+              visibility: "org" as const,
+              updatedAt: "2030-01-01T00:00:00.000Z",
+              entitiesJson: JSON.stringify([
+                { type: "project", name: "Atlas" },
+              ]),
+              evidenceJson: JSON.stringify([
+                { captureId: "capture-a", sourceId: "source-a", quote },
+              ]),
+            },
+            captureContent,
+          ),
+        ),
+      ),
     );
     const people = await getEntityGraph({ type: "person" });
     expect(people.entities).toEqual([]);
@@ -1131,4 +1149,55 @@ describe("evidence-backed intelligence", () => {
       expect(await lookupKnowledgeReferences("Atlas")).toEqual([]);
     },
   );
+  it("persists a verification reminder interval and clears it when status is cleared", async () => {
+    const { item } = await writeIntelligence(input());
+    const verified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+      remindInDays: 90,
+    });
+    expect(verified.verification.state).toBe("verified");
+    const { remindAt, verifiedAt } = verified.verification;
+    expect(remindAt).toBeTruthy();
+    expect(verifiedAt).toBeTruthy();
+    if (!remindAt || !verifiedAt)
+      throw new Error("Expected remindAt and verifiedAt timestamps");
+    const deltaDays = Math.round(
+      (Date.parse(remindAt) - Date.parse(verifiedAt)) / 86_400_000,
+    );
+    expect(deltaDays).toBe(90);
+
+    const reverified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(reverified.verification.state).toBe("verified");
+    expect(reverified.verification.remindAt).toBe(remindAt);
+
+    await database
+      .update(schema.brainKnowledgeVerifications)
+      .set({ remindAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(schema.brainKnowledgeVerifications.knowledgeId, item.id));
+    const reverifiedOverdue = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(reverifiedOverdue.verification.state).toBe("verified");
+    expect(reverifiedOverdue.verification.remindAt).toBeNull();
+
+    const cleared = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "unverified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(cleared.verification.state).toBe("unverified");
+    expect(cleared.verification.remindAt).toBeNull();
+  });
 });
