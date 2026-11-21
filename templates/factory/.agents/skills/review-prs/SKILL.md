@@ -704,9 +704,9 @@ local work without explicit authorization.
 
 During review-only work, do not sync `origin/main`. During an explicitly
 authorized `/ship` for the same PR, follow that skill's safe-sync rule: merge
-fresh `origin/main` only when `gh pr view <n> --json mergeable,mergeStateStatus`
-reports `CONFLICTING` or `DIRTY`, after verifying HEAD is the live PR head and
-the worktree is clean. Use a normal merge, never a rebase. Never sync just to
+fresh `origin/main` only when `gh pr view <n> --json baseRefName,mergeable,mergeStateStatus`
+reports base `main` and `CONFLICTING` or `DIRTY`, after verifying HEAD is the
+live PR head and the worktree is clean. Use a normal merge, never a rebase. Never sync just to
 clear a behind count or restart checks.
 
 ## End-of-run recap
