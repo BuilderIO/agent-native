@@ -250,6 +250,7 @@ describe("an outside agent's estimate", () => {
         { ownerEmail: "caller@example.test", orgId: "org-1" },
         undefined,
         { followUpMode: "session", splitDesignFirstTouch: false },
+        undefined,
       );
       expect(must(mocks.estimate.mock.calls[0])[6]).toBe(50_000_000_000);
       expect(result).toEqual({
@@ -281,6 +282,7 @@ describe("an outside agent's estimate", () => {
         experimentId: "first_run_builder_credits",
         splitDesignFirstTouch: false,
       },
+      undefined,
     );
     expect(() =>
       action.schema.parse({

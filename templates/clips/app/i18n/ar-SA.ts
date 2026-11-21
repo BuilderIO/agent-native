@@ -1173,6 +1173,10 @@ const messages = {
     reconnect: "إعادة الاتصال",
     connectedAs: "متصل باسم {{account}}",
     needsReconnect: "يجب إعادة ربط {{account}}.",
+    calendarsDescription: "يعرض Clips الاجتماعات من التقويمات التي تفعّلها.",
+    mainCalendar: "التقويم الرئيسي",
+    showCalendar: "عرض الاجتماعات من {{calendar}}",
+    calendarsLoadFailed: "تعذّر تحميل تقويمات هذا الحساب.",
     disconnectFailed: "تعذّر فصل التقويم.",
     disconnectCalendarDescription:
       "يتوقف Clips عن مزامنة الاجتماعات القادمة من {{account}}.",
