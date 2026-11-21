@@ -43,6 +43,7 @@ interface Row {
 }
 
 const mocks = vi.hoisted(() => {
+  const resourceWrites: Row[] = [];
   const col = (table: string, name: string) => ({ table, name });
   const table = (name: string, columns: string[]) =>
     Object.fromEntries([
@@ -103,6 +104,7 @@ const mocks = vi.hoisted(() => {
       "tagsJson",
       "entitiesJson",
       "evidenceJson",
+      "provenanceJson",
       "publishedResourcePath",
       "supersedesId",
       "supersededById",
@@ -253,6 +255,16 @@ const mocks = vi.hoisted(() => {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
       if (sql.includes("FROM resources WHERE owner = ? AND path = ?")) {
         const [, path] = args as string[];
+        if (sql.startsWith("SELECT content")) {
+          const latest = resourceWrites
+            .filter((write) => write.path === path)
+            .pop();
+          return {
+            rows:
+              latest && !latest.deleted ? [{ content: latest.content }] : [],
+            rowsAffected: 0,
+          };
+        }
         return { rows: [{ id: path }], rowsAffected: 0 };
       }
       if (sql.includes("FROM organizations")) {
@@ -616,8 +628,8 @@ const mocks = vi.hoisted(() => {
         return Object.assign(
           Promise.resolve({ rowsAffected: changed.length }),
           {
-            returning: vi.fn(async () =>
-              changed.map((row) => ({ id: row.id })),
+            returning: vi.fn(async (fields?: Row) =>
+              changed.map((row) => (fields ? { id: row.id } : { ...row })),
             ),
           },
         );
@@ -678,7 +690,7 @@ const mocks = vi.hoisted(() => {
       publicChannelExclusionPatterns: [] as string[],
     },
     orgSettings: new Map<string, Record<string, unknown>>(),
-    resourceWrites: [] as Row[],
+    resourceWrites,
   };
 });
 
@@ -2360,6 +2372,7 @@ describe("Brain knowledge quality gates", () => {
     const published = await setKnowledgeCanonicalResource(
       result.knowledge!.id,
       true,
+      result.knowledge.revision,
     );
     expect(published.publishedResourcePath).toMatch(
       /^context\/company-brain\/beta-date-/,
@@ -2374,6 +2387,7 @@ describe("Brain knowledge quality gates", () => {
     const unpublished = await setKnowledgeCanonicalResource(
       result.knowledge!.id,
       false,
+      published.revision,
     );
     expect(unpublished.publishedResourcePath).toBeNull();
     expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
@@ -2383,6 +2397,133 @@ describe("Brain knowledge quality gates", () => {
         deleted: true,
       },
     );
+  });
+
+  it("refuses to publish a newer body than the revision that was previewed", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const evidence = [
+      {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+      },
+    ];
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence,
+      publishTier: "company",
+    });
+    const previewed = created.knowledge.revision;
+    const edited = await writeKnowledgeRecord({
+      knowledgeId: created.knowledge.id,
+      expectedRevision: previewed,
+      title: "Beta date",
+      body: "The team moved the beta to May 27.",
+      evidence,
+      publishTier: "company",
+    });
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(edited.knowledge.id, true, previewed),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: {
+        current: {
+          id: edited.knowledge.id,
+          body: "The team moved the beta to May 27.",
+        },
+        currentRevision: edited.knowledge.revision,
+      },
+    });
+    expect(mocks.resourceWrites).toHaveLength(writes);
+  });
+
+  it("refuses a publish from an older preview even when the newer body is already published", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const evidence = [
+      {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+      },
+    ];
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence,
+      publishTier: "company",
+    });
+    const previewed = created.knowledge.revision;
+    const edited = await writeKnowledgeRecord({
+      knowledgeId: created.knowledge.id,
+      expectedRevision: previewed,
+      title: "Beta date",
+      body: "The team moved the beta to May 27.",
+      evidence,
+      publishTier: "company",
+    });
+    const published = await setKnowledgeCanonicalResource(
+      edited.knowledge.id,
+      true,
+      edited.knowledge.revision,
+    );
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(edited.knowledge.id, true, previewed),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: {
+        current: {
+          id: edited.knowledge.id,
+          body: "The team moved the beta to May 27.",
+          publishedResourcePath: published.publishedResourcePath,
+        },
+        currentRevision: published.revision,
+      },
+    });
+    expect(mocks.resourceWrites).toHaveLength(writes);
+  });
+
+  it("refuses to publish again once the audience can't be published, even with its copy in place", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      publishTier: "company",
+    });
+    const published = await setKnowledgeCanonicalResource(
+      created.knowledge.id,
+      true,
+      created.knowledge.revision,
+    );
+    const audience = mocks.rows.audiences.find((row) => row.id === "aud_org");
+    expect(audience).toBeDefined();
+    if (audience) audience.kind = "source";
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(
+        created.knowledge.id,
+        true,
+        published.revision,
+      ),
+    ).rejects.toThrow(/Audience-restricted Brain knowledge/);
+    expect(mocks.resourceWrites).toHaveLength(writes);
   });
 
   it("previews the same canonical Markdown that publishing writes", async () => {
@@ -2428,7 +2569,11 @@ describe("Brain knowledge quality gates", () => {
       '1. Planning note (https://example.test/source/beta): "Decision: ship the beta on May 20."',
     );
 
-    await setKnowledgeCanonicalResource(result.knowledge!.id, true);
+    await setKnowledgeCanonicalResource(
+      result.knowledge.id,
+      true,
+      preview.revision,
+    );
     expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
       {
         path: preview.path,
@@ -2454,6 +2599,7 @@ describe("Brain knowledge quality gates", () => {
 
     const updated = await writeKnowledgeRecord({
       knowledgeId: created.knowledge!.id,
+      expectedRevision: created.knowledge.revision,
       title: "Updated beta date",
       body: "The updated beta plan still ships May 20.",
       evidence: [],
@@ -2494,6 +2640,7 @@ describe("Brain knowledge quality gates", () => {
 
     const updated = await writeKnowledgeRecord({
       knowledgeId: created.knowledge!.id,
+      expectedRevision: created.knowledge.revision,
       title: "Beta launch date",
       body: "The beta launch still ships May 20.",
       evidence: [],
@@ -2607,7 +2754,11 @@ describe("Brain knowledge quality gates", () => {
     expect(result.mode).toBe("knowledge");
 
     await expect(
-      setKnowledgeCanonicalResource(result.knowledge!.id, true),
+      setKnowledgeCanonicalResource(
+        result.knowledge.id,
+        true,
+        result.knowledge.revision,
+      ),
     ).rejects.toThrow(/Only published Brain knowledge/);
   });
 
