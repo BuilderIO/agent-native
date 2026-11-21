@@ -1448,6 +1448,12 @@ export const migrations = runMigrations(
     },
     {
       version: 104,
+      name: "recording-made-by",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by TEXT;
+      ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by_agent TEXT`,
+    },
+    {
+      version: 105,
       name: "recording-comments-copy-to-review-kit",
       sql: {},
       run: copyRecordingCommentsOnce,

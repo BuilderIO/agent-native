@@ -28,6 +28,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   mcpTool: true,
+  searchHints: ["move a dashboard to a folder", "organize dashboards"],
   run: async (
     { dashboardId, folderId, expectedUpdatedAt, idempotencyKey },
     actionContext,

@@ -112,6 +112,7 @@ export type RecordingPlatform =
   | "extension"
   | "mobile"
   | "import"
+  | "agent"
   | "unknown";
 
 const recordingPlatforms = new Set<RecordingPlatform>([
@@ -120,6 +121,7 @@ const recordingPlatforms = new Set<RecordingPlatform>([
   "extension",
   "mobile",
   "import",
+  "agent",
   "unknown",
 ]);
 

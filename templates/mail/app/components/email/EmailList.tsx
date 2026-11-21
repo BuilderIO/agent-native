@@ -1225,10 +1225,21 @@ export function EmailList({
     priorityWindowIds,
     rankedPriorityThreads,
   ]);
+  const reportedThreadOrderRef = useRef<string[] | null>(null);
   useEffect(() => {
-    onThreadOrderChange?.(
-      threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
+    if (!onThreadOrderChange) return;
+    const threadIds = threads.map(
+      (t) => t.latestMessage.threadId || t.latestMessage.id,
     );
+    const reported = reportedThreadOrderRef.current;
+    if (
+      reported?.length === threadIds.length &&
+      reported.every((id, index) => id === threadIds[index])
+    ) {
+      return;
+    }
+    reportedThreadOrderRef.current = threadIds;
+    onThreadOrderChange(threadIds);
   }, [onThreadOrderChange, threads]);
 
   const focusedIndex = threads.findIndex(

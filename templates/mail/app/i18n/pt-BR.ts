@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Nota para mim",
     },
     inbox: {
-      atLeastCount: "Pelo menos {{count}}",
+      conversationsCount: "Conversas: {{count}}",
+      conversationsAtLeastCount: "Conversas: pelo menos {{count}}",
+      unreadCount: "Conversas não lidas: {{count}}",
+      draftsToReviewCount: "Rascunhos para revisar: {{count}}",
       syncing: "Sincronizando caixa de entrada…",
     },
     sort: {
@@ -177,7 +180,7 @@ const messages = {
       filtersLimitReached: "Você pode salvar até 20 filtros.",
     },
     tabSettings: {
-      splitInbox: "Caixa de entrada dividida",
+      splitInbox: "Dividir a caixa de entrada em abas",
       views: "Visualizações",
       categories: "Categorias",
       rename: "Renomear",
@@ -185,7 +188,7 @@ const messages = {
       savedFilters: "Filtros salvos",
       combinedInbox: "Caixa de entrada combinada",
       allTab: "Aba Todas",
-      help: "A caixa combinada reúne todas as contas; desative-a para separar os e-mails em abas.",
+      help: "Mostra as visualizações, marcadores e filtros salvos que você escolheu como abas separadas da caixa de entrada. Desative para ver todos os e-mails da caixa de entrada em uma só aba.",
       aiSetup: "Configurar tags e regras de IA",
     },
     accounts: {
@@ -213,6 +216,14 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Aplicar",
       attachFile: "Anexar arquivo",
+      attachFromContent: "Anexar do Content",
+      searchContentPages: "Pesquisar páginas do Content",
+      contentPagesLoading: "Carregando páginas…",
+      contentPagesFailed: "Não foi possível carregar suas páginas do Content",
+      contentPagesRetry: "Tentar novamente",
+      contentPagesEmpty: "Nenhuma página encontrada",
+      contentFileMarkdown: "Arquivo Markdown",
+      contentFileCsv: "Arquivo CSV",
       bold: "Negrito",
       cancel: "Cancelar",
       closeAllDrafts: "Fechar todos os rascunhos",
@@ -473,6 +484,8 @@ const messages = {
       scheduledCancelled: "Email agendado cancelado.",
       scheduledCancelFailed: "Falha ao cancelar email agendado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "Falha ao anexar a página do Content",
+      waitForAttachments: "Aguarde os anexos terminarem e depois envie.",
       failedToUploadImage: "Falha ao enviar imagem",
       storageBuilderRefused:
         "O Builder.io recusou a conexão de armazenamento de arquivos do Mail, então o arquivo não foi anexado. Reconecte o Builder.io ou use seu próprio armazenamento e tente novamente.",
