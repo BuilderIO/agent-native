@@ -149,8 +149,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "사이드바 고정",
-      unpinSidebar: "사이드바 고정 해제",
       closeSidebar: "사이드바 닫기",
       settings: "설정",
       aiSettings: "태그 및 규칙 관리",

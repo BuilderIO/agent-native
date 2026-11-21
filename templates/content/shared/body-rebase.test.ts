@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { rebaseBodyEdit } from "./rebase.js";
+import { rebaseBodyEdit } from "./body-rebase.js";
 
 describe("rebaseBodyEdit", () => {
   it("applies an edit to a block nobody else changed, keeping theirs", () => {

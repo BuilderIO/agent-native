@@ -149,6 +149,10 @@ import {
   type CommentBlockTarget,
 } from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
+import {
+  DesignScreenPaste,
+  type DesignScreenPasteOptions,
+} from "./design-screen/design-screen-paste";
 import { DrawDiagramsContext } from "./draw-diagrams";
 import {
   isEditorDraftSaveAccepted,
@@ -266,6 +270,7 @@ import {
 } from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { useTurnTableIntoCollection } from "./use-turn-table-into-collection";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
@@ -1870,6 +1875,11 @@ interface VisualEditorProps {
     updatedAt: string;
     sequence: number;
   } | null;
+  mergedLocalSave?: {
+    sent: string;
+    value: string;
+    revision: string;
+  } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
@@ -2354,6 +2364,7 @@ interface VisualEditorExtensionOptions {
   findCommentQuote?: CommentHighlightOptions["findQuote"];
   /** Turns a pasted Analytics panel link into a chart while it returns one. */
   analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
+  designScreenPaste?: DesignScreenPasteOptions["getContext"];
 }
 
 export function hasAncestorType(
@@ -3420,6 +3431,7 @@ export function createVisualEditorExtensions({
   onMediaSourceCommitted,
   findCommentQuote,
   analyticsChartPaste,
+  designScreenPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
     preset: "content",
@@ -3529,6 +3541,9 @@ export function createVisualEditorExtensions({
       NotionMarkdownShortcuts,
       ...(analyticsChartPaste
         ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
+      ...(designScreenPaste
+        ? [DesignScreenPaste.configure({ getContext: designScreenPaste })]
         : []),
       MarkdownPasteDetection,
       SelectAllDocument,
@@ -3854,6 +3869,7 @@ export function VisualEditor({
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
+  mergedLocalSave,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
@@ -4281,6 +4297,29 @@ export function VisualEditor({
         : null,
     [documentId, localFileMode],
   );
+  const designLinks = useActionQuery(
+    "get-design-links",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const designLinkOriginsRef = useRef<readonly string[]>([]);
+  designLinkOriginsRef.current = designLinks.data?.linkOrigins ?? [];
+  const getDesignScreenPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            documentId,
+            canEdit: !suggestingRef.current,
+            linkOrigins: designLinkOriginsRef.current,
+            t: tRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -4349,6 +4388,7 @@ export function VisualEditor({
         onMediaSourceCommitted,
         findCommentQuote,
         analyticsChartPaste: getAnalyticsChartPasteContext,
+        designScreenPaste: getDesignScreenPasteContext,
       }),
       Extension.create({
         name: "suggestingCaretOnPageSwap",
@@ -4432,6 +4472,7 @@ export function VisualEditor({
       onMediaSourceCommitted,
       findCommentQuote,
       getAnalyticsChartPasteContext,
+      getDesignScreenPasteContext,
     ],
   );
 
@@ -4863,6 +4904,19 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  const turnTableIntoCollection = useTurnTableIntoCollection({
+    editor,
+    documentId,
+    bodyIsLiveCopy,
+    persist: (markdown) =>
+      Promise.resolve(
+        persistEditorContent(editor, {
+          markdown,
+          immediate: true,
+          userInitiated: true,
+        }),
+      ).then(isEditorDraftSaveAccepted),
+  });
   const appliedContentResetKeyRef = useRef(contentResetKey);
   useLayoutEffect(() => {
     if (!editor || appliedContentResetKeyRef.current === contentResetKey)
@@ -5429,6 +5483,7 @@ export function VisualEditor({
       : contentRevision,
     compareContentRevisions: compareDocumentBodyRevisions,
     acknowledgedLocalSnapshot,
+    mergedLocalSave,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null
       : collabContentRevision,
@@ -6201,6 +6256,11 @@ export function VisualEditor({
           documentId={documentId}
           editor={editor}
           onComment={onComment}
+          onTurnTableIntoCollection={
+            documentId && !directoryWidgetEditing
+              ? turnTableIntoCollection
+              : undefined
+          }
           suggesting={suggesting}
         />
       ) : null}

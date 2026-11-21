@@ -3332,6 +3332,22 @@ export async function listQueuedSubmissionReceipts(
   );
 }
 
+/**
+ * When the signed server sweep next has a queued submission to drain, as epoch
+ * ms, or `null` when the queue is empty. A receipt with no retry time is due
+ * now and answers `0`.
+ */
+export async function nextQueuedSubmissionDueAt(): Promise<number | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT MIN(COALESCE(retry_after, 0)) AS due_at
+          FROM agent_chat_submission_inbox WHERE state = 'queued'`,
+    args: [],
+  });
+  const dueAt = (rows[0] as { due_at?: unknown } | undefined)?.due_at;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
+}
+
 /** Records a run admission in the same transaction that persists its user message. */
 export async function markQueuedSubmissionSubmitted(
   tx: DbExec,
