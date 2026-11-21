@@ -112,9 +112,7 @@ impl FrameTimeline {
     /// Where a frame at `recording_secs` would go. A frame from before the
     /// first one, held until the clock started, goes at zero.
     pub(super) fn place(&self, recording_secs: f64) -> f64 {
-        let earliest = self
-            .last_secs
-            .map_or(0.0, |last| last + self.spacing_secs);
+        let earliest = self.last_secs.map_or(0.0, |last| last + self.spacing_secs);
         recording_secs.max(earliest)
     }
 
@@ -138,9 +136,7 @@ impl FrameTimeline {
     /// Where the file ends: when the track stopped, but never before its last
     /// frame has been shown for a frame interval.
     pub(super) fn end_secs(&self, stopped_secs: Option<f64>) -> f64 {
-        let after_last = self
-            .last_secs
-            .map_or(0.0, |last| last + self.spacing_secs);
+        let after_last = self.last_secs.map_or(0.0, |last| last + self.spacing_secs);
         stopped_secs.unwrap_or(after_last).max(after_last)
     }
 }

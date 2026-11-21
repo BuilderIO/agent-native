@@ -349,14 +349,15 @@ impl Shared {
         let uid = NSString::from_str(device_uid);
         let device = unsafe { AVCaptureDevice::deviceWithUniqueID(&uid) }
             .ok_or_else(|| format!("{} is no longer available", this.device_name))?;
-        let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&device) }
-            .map_err(|error| {
+        let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&device) }.map_err(
+            |error| {
                 format!(
                     "{} could not be opened: {}",
                     this.device_name,
                     error.localizedDescription()
                 )
-            })?;
+            },
+        )?;
         let session = unsafe { AVCaptureSession::new() };
         let output = unsafe { AVCaptureVideoDataOutput::new() };
         let settings = unsafe {
@@ -596,7 +597,8 @@ impl Shared {
         let started = state.started;
         let after_last = state.timeline.end_secs(None);
         let mut end_secs = state.timeline.end_secs(stopped_secs);
-        if started && stopped_secs.is_some_and(|stopped| stopped - after_last > CAMERA_SILENCE_SECS) {
+        if started && stopped_secs.is_some_and(|stopped| stopped - after_last > CAMERA_SILENCE_SECS)
+        {
             state
                 .stopped_early
                 .get_or_insert_with(|| "the camera stopped sending frames".into());
@@ -750,6 +752,9 @@ mod tests {
         wait_until_closed(&track);
         let report = lock(&track.report).clone();
         assert!(report.closed);
-        assert_eq!((report.frames, report.end_ms, report.format), (0, None, None));
+        assert_eq!(
+            (report.frames, report.end_ms, report.format),
+            (0, None, None)
+        );
     }
 }

@@ -128,7 +128,11 @@ mod tests {
 
     #[test]
     fn the_bubble_camera_is_found_by_its_web_view_name() {
-        let cameras = names(&["FaceTime HD Camera", "Alice’s iPhone Camera", "OBS Virtual Camera"]);
+        let cameras = names(&[
+            "FaceTime HD Camera",
+            "Alice’s iPhone Camera",
+            "OBS Virtual Camera",
+        ]);
         assert_eq!(pick_camera(&cameras, Some("OBS Virtual Camera")), Some(2));
         // WebKit can add the model's USB id or other words to the name.
         assert_eq!(

@@ -573,17 +573,12 @@ pub(super) fn attach_rich_recording(
         starts.push(camera_track_start(app, &clock, camera_label, recording_id));
     }
     starts.push(screen_track_start(&clock, &capture, recording_id));
-    let started = start_sources(
-        recording_id,
-        &folder,
-        starts,
-        || {
-            Arc::new(TrackUploadCtrl::new(
-                Arc::clone(&tracks_stopped),
-                Arc::clone(&gate),
-            ))
-        },
-    );
+    let started = start_sources(recording_id, &folder, starts, || {
+        Arc::new(TrackUploadCtrl::new(
+            Arc::clone(&tracks_stopped),
+            Arc::clone(&gate),
+        ))
+    });
     if started.is_empty() {
         return skip("no track could start");
     }
