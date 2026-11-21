@@ -14,7 +14,6 @@ import {
 } from "../server/lib/guarded-writes";
 
 export default defineAction({
-  searchHints: ["move a dashboard to a folder", "file a dashboard in a folder"],
   description:
     "Put a dashboard in a folder, or take it out of its folder with folderId null. A personal folder takes an owned private dashboard; a shared folder takes an org-visible one.",
   schema: z.object({
