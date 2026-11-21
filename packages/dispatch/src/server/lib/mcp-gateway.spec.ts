@@ -13,6 +13,8 @@ import {
 
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
+  directoryStatus: vi.fn(),
+  resolveAccessMany: vi.fn(),
   getBuiltinAgents: vi.fn(() => []),
   listWorkspaceApps: vi.fn(),
   getUserSetting: vi.fn(),
@@ -43,7 +45,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverAgents: mocks.discoverAgents,
+  discoverAgentsWithDirectoryStatus: async (...args: unknown[]) => ({
+    agents: await mocks.discoverAgents(...args),
+    directory: mocks.directoryStatus(),
+  }),
   getBuiltinAgents: mocks.getBuiltinAgents,
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccessMany: mocks.resolveAccessMany,
 }));
 
 vi.mock("./app-creation-store.js", () => ({
@@ -203,6 +213,8 @@ beforeEach(() => {
   mocks.signA2AOrgMemberDelegationToken.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
+  mocks.directoryStatus.mockReturnValue({ status: "available" });
+  mocks.resolveAccessMany.mockResolvedValue(new Map());
   mocks.getBuiltinAgents.mockReturnValue([]);
   mocks.listWorkspaceApps.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
@@ -494,6 +506,182 @@ describe("Dispatch MCP gateway app discovery", () => {
     ).rejects.toThrow(/one\/fleet, two\/fleet/);
   });
 
+  it("uses scoped directory manifests during an outage and rechecks current grants", async () => {
+    const workspaceFleet = {
+      ...analyticsAgent,
+      id: "workspace/fleet",
+      name: "Fleet",
+      source: "org-directory",
+      aliases: ["Delivery desk"],
+    };
+    const templateFleet = {
+      ...analyticsAgent,
+      id: "fleet",
+      name: "Fleet",
+      source: "builtin",
+    };
+    const listFor = (
+      orgId: string,
+      userEmail = "directory-cache@example.test",
+    ) =>
+      runWithRequestContext(
+        { userEmail, orgId, requestOrigin: "http://localhost:8092" },
+        () => listDispatchMcpApps(),
+      );
+    mocks.discoverAgents.mockResolvedValue([workspaceFleet, templateFleet]);
+    await listFor("directory-org");
+
+    mocks.discoverAgents.mockResolvedValue([templateFleet]);
+    mocks.directoryStatus.mockReturnValue({
+      status: "unavailable",
+      reason: "request-failed",
+    });
+    const sameScope = await listFor("directory-org");
+    expect(sameScope.degradedSources).toEqual([
+      {
+        source: "workspace-directory",
+        status: "unavailable",
+        usingCache: true,
+      },
+    ]);
+    expect(sameScope.apps).toContainEqual(
+      expect.objectContaining({
+        id: "workspace/fleet",
+        aliases: ["Delivery desk"],
+        granted: true,
+      }),
+    );
+    const resolve = (app: string) =>
+      runWithRequestContext(
+        {
+          userEmail: "directory-cache@example.test",
+          orgId: "directory-org",
+          requestOrigin: "http://localhost:8092",
+        },
+        () => resolveGrantedDispatchMcpApp(app),
+      );
+    await expect(resolve("fleet")).resolves.toMatchObject({
+      id: "workspace/fleet",
+    });
+    await expect(resolve("Delivery desk")).resolves.toMatchObject({
+      id: "workspace/fleet",
+    });
+    expect((await listFor("another-org")).apps.map((app) => app.id)).toEqual([
+      "dispatch",
+      "fleet",
+    ]);
+    expect(
+      (await listFor("directory-org", "another-person@example.test")).apps.map(
+        (app) => app.id,
+      ),
+    ).toEqual(["dispatch", "fleet"]);
+
+    mocks.getOrgSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["fleet"],
+    });
+    await expect(resolve("workspace/fleet")).rejects.toThrow(/not granted/);
+    expect((await listFor("directory-org")).apps).toContainEqual(
+      expect.objectContaining({ id: "workspace/fleet", granted: false }),
+    );
+
+    mocks.directoryStatus.mockReturnValue({ status: "forbidden" });
+    expect((await listFor("directory-org")).apps.map((app) => app.id)).toEqual([
+      "dispatch",
+      "fleet",
+    ]);
+    mocks.directoryStatus.mockReturnValue({
+      status: "unavailable",
+      reason: "timeout",
+    });
+    expect((await listFor("directory-org")).degradedSources).toEqual([
+      {
+        source: "workspace-directory",
+        status: "unavailable",
+        usingCache: false,
+      },
+    ]);
+  });
+
+  it("rechecks workspace sharing before opening a cached mount", async () => {
+    const id = "cached-workspace-app";
+    const url = "https://beta.agent-workspace.builder.io";
+    const request = {
+      userEmail: "mount-cache@example.test",
+      orgId: "mount-cache-org",
+      requestOrigin: "https://beta.dispatch.agent-native.com",
+    };
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, id, url: `${url}/dispatch/apps/${id}` },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      { id, path: "/actual-mount", url: `${url}/actual-mount` },
+    ]);
+    await runWithRequestContext(request, () => listDispatchMcpApps());
+
+    mocks.listWorkspaceApps.mockRejectedValue({ statusCode: 503 });
+    mocks.resolveAccessMany.mockResolvedValue(
+      new Map([
+        [
+          id,
+          {
+            role: "viewer",
+            resource: { path: "/actual-mount", orgEnabled: true },
+          },
+        ],
+      ]),
+    );
+    const open = () =>
+      runWithRequestContext(request, () => resolveGrantedDispatchMcpApp(id));
+    await expect(open()).resolves.toMatchObject({
+      homeUrl: `${url}/actual-mount`,
+    });
+    expect(mocks.resolveAccessMany).toHaveBeenCalledWith(
+      "workspace-app",
+      [id],
+      { userEmail: request.userEmail, orgId: request.orgId },
+    );
+
+    mocks.resolveAccessMany.mockResolvedValue(
+      new Map([
+        [
+          id,
+          { role: "viewer", resource: { path: "/moved", orgEnabled: true } },
+        ],
+      ]),
+    );
+    await expect(open()).rejects.toThrow(/mount resolves/);
+
+    mocks.resolveAccessMany.mockResolvedValue(new Map());
+    await expect(open()).rejects.toThrow(/mount resolves/);
+  });
+
+  it("keeps last-known remote manifests when strict connected discovery fails", async () => {
+    const request = {
+      userEmail: "strict-discovery@example.test",
+      orgId: "strict-discovery-org",
+      requestOrigin: "http://localhost:8092",
+    };
+    const read = () => runWithRequestContext(request, listDispatchMcpApps);
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, id: "remote/project", source: "remote-agent" },
+    ]);
+    await read();
+    expect(mocks.discoverAgents).toHaveBeenCalledWith("dispatch", {
+      requireReadableAgentSources: true,
+    });
+
+    mocks.discoverAgents.mockRejectedValue(new Error("directory unavailable"));
+    const result = await read();
+    expect(result.apps.map((app) => app.id)).toEqual([
+      "dispatch",
+      "remote/project",
+    ]);
+    expect(result.degradedSources).toEqual([
+      { source: "connected-apps", status: "unavailable", usingCache: true },
+    ]);
+  });
+
   it("lists a discovered app without a description as an empty description", async () => {
     const { description: _omitted, ...agent } = analyticsAgent;
     mocks.discoverAgents.mockResolvedValue([agent]);
@@ -509,18 +697,26 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.find((app) => app.id === "analytics")?.description).toBe("");
   });
 
-  it("keeps discovered agents available when mounted app lookup fails", async () => {
+  it("reports a mounted discovery failure while keeping other apps available", async () => {
     mocks.listWorkspaceApps.mockRejectedValue({ status: 503 });
 
-    const apps = await runWithRequestContext(
+    const { apps, degradedSources } = await runWithRequestContext(
       {
-        userEmail: "owner@example.test",
+        userEmail: "discovery-unavailable@example.test",
         requestOrigin: "http://localhost:8092",
       },
-      () => listGrantedDispatchMcpApps(),
+      () => listDispatchMcpApps(),
     );
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
+    expect(degradedSources).toEqual([
+      {
+        source: "workspace-mounts",
+        status: "unavailable",
+        usingCache: false,
+        httpStatus: 503,
+      },
+    ]);
   });
 
   it("refuses a Workspace app on its Dispatch page URL while the mounted lookup is unavailable", async () => {

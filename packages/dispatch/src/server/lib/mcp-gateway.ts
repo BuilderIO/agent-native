@@ -55,6 +55,10 @@ import {
   isAppAllowedByMcpAccess,
   type DispatchMcpAppAccessSettings,
 } from "./mcp-access-store.js";
+import {
+  discoverDispatchMcpApps,
+  type DispatchMcpDegradedSource,
+} from "./mcp-app-discovery.js";
 
 const DISPATCH_APP_ID = "dispatch";
 const DISPATCH_NAME = "Dispatch";
@@ -96,6 +100,8 @@ export interface DispatchMcpAccessibleApp {
   homeUrl?: string;
   mcpUrl?: string;
   color: string;
+  source?: DiscoveredAgent["source"];
+  aliases?: string[];
   granted: boolean;
   mountedPathUnavailable?: boolean;
 }
@@ -821,6 +827,8 @@ function toAccessibleApp(
     description: typeof agent.description === "string" ? agent.description : "",
     url: projectEnvironmentUrl(agent.url),
     color: agent.color,
+    ...(agent.source ? { source: agent.source } : {}),
+    ...(agent.aliases?.length ? { aliases: agent.aliases } : {}),
     granted: isAppAllowedByMcpAccess(agent.id, settings),
   };
 }
@@ -828,23 +836,19 @@ function toAccessibleApp(
 export async function listDispatchMcpApps(): Promise<{
   settings: DispatchMcpAppAccessSettings;
   apps: DispatchMcpAccessibleApp[];
+  degradedSources: DispatchMcpDegradedSource[];
 }> {
-  const [settings, agents, mountedApps] = await Promise.all([
-    getDispatchMcpAppAccessSettings(),
-    discoverAgents("dispatch"),
-    listWorkspaceApps({ includeAgentCards: false }).catch((error: unknown) => {
-      console.warn(
-        "[dispatch] Workspace app lookup failed during MCP app discovery",
-        { status: httpStatusFromError(error) },
-      );
-      return [];
-    }),
-  ]);
+  const [settings, { agents, mountedApps, degradedSources }] =
+    await Promise.all([
+      getDispatchMcpAppAccessSettings(),
+      discoverDispatchMcpApps(),
+    ]);
   const mountedAppsById = new Map(
     mountedApps.map((app) => [normalizeAppId(app.id), app]),
   );
   return {
     settings,
+    degradedSources,
     apps: [
       dispatchSelfApp(settings),
       ...agents
@@ -861,8 +865,9 @@ export async function listDispatchMcpApps(): Promise<{
               ? mountedWorkspaceAppHomeUrl(mountedApp)
               : null;
           if (homeUrl) return { ...accessible, homeUrl };
-          // A Dispatch app-page URL is only usable through a verified mount.
-          return isDispatchAppPageUrl(accessible.url)
+          // Mounted installations require a verified mount and sharing decision.
+          return agent.source === "workspace" ||
+            isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
             : accessible;
         }),
@@ -870,18 +875,63 @@ export async function listDispatchMcpApps(): Promise<{
   };
 }
 
+export async function listGrantedDispatchMcpAppsWithStatus(): Promise<{
+  apps: DispatchMcpAccessibleApp[];
+  degradedSources: DispatchMcpDegradedSource[];
+}> {
+  const { apps, degradedSources } = await listDispatchMcpApps();
+  return {
+    degradedSources,
+    apps: apps.filter(
+      (app) => app.granted && !app.mountedPathUnavailable && safeAppOrigin(app),
+    ),
+  };
+}
+
 export async function listGrantedDispatchMcpApps(): Promise<
   DispatchMcpAccessibleApp[]
 > {
-  const { apps } = await listDispatchMcpApps();
-  return apps.filter(
-    (app) => app.granted && !app.mountedPathUnavailable && safeAppOrigin(app),
-  );
+  return (await listGrantedDispatchMcpAppsWithStatus()).apps;
 }
 
 export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
   const apps = await listGrantedDispatchMcpApps();
   return Array.from(new Set(apps.flatMap((app) => safeAppOrigin(app) ?? [])));
+}
+
+function matchDispatchAppCandidates(
+  apps: DispatchMcpAccessibleApp[],
+  target: string,
+): DispatchMcpAccessibleApp[] {
+  const exact = apps.filter((app) => normalizeAppId(app.id) === target);
+  // Qualified IDs address only the specified installation.
+  if (target.includes("/")) return exact;
+
+  const granted = apps.filter((app) => app.granted);
+  const exactGranted = exact.filter((app) => app.granted);
+  const qualified = granted.filter((app) =>
+    normalizeAppId(app.id).endsWith(`/${target}`),
+  );
+  const namedOrAliased = granted.filter((app) =>
+    [app.name, ...(app.aliases ?? [])].some(
+      (name) => normalizeAppId(name) === target,
+    ),
+  );
+  const normalMatches = [
+    ...new Set([...exactGranted, ...qualified, ...namedOrAliased]),
+  ];
+  const workspaceMatches = normalMatches.filter(
+    (app) =>
+      app.source === "workspace" ||
+      app.source === "org-directory" ||
+      (app.source !== "builtin" && qualified.includes(app)),
+  );
+  const exactWorkspace = workspaceMatches.filter((app) => exact.includes(app));
+  if (exactWorkspace.length) return exactWorkspace;
+  if (workspaceMatches.length) return workspaceMatches;
+  if (exactGranted.length) return exactGranted;
+  if (qualified.length) return qualified;
+  return namedOrAliased.length ? namedOrAliased : exact;
 }
 
 export async function resolveGrantedDispatchMcpApp(
@@ -890,20 +940,7 @@ export async function resolveGrantedDispatchMcpApp(
   const target = normalizeAppId(app);
   if (!target) throw new Error("app is required");
   const { apps } = await listDispatchMcpApps();
-  const exact = apps.filter(
-    (candidate) => normalizeAppId(candidate.id) === target,
-  );
-  const qualified = apps.filter((candidate) =>
-    normalizeAppId(candidate.id).endsWith(`/${target}`),
-  );
-  const named = apps.filter(
-    (candidate) => normalizeAppId(candidate.name) === target,
-  );
-  const candidates = exact.length
-    ? exact
-    : qualified.length
-      ? qualified
-      : named;
+  const candidates = matchDispatchAppCandidates(apps, target);
   if (candidates.length > 1) {
     throw new Error(
       `Ambiguous app "${app}". Choose one of: ${candidates.map((candidate) => candidate.id).join(", ")}.`,
@@ -1011,20 +1048,7 @@ async function resolveWorkspaceSsoApp(
   const target = normalizeAppId(app);
   if (!target) throw new Error("app is required");
   const apps = await listWorkspaceSsoApps();
-  const exact = apps.filter(
-    (candidate) => normalizeAppId(candidate.id) === target,
-  );
-  const qualified = apps.filter((candidate) =>
-    normalizeAppId(candidate.id).endsWith(`/${target}`),
-  );
-  const named = apps.filter(
-    (candidate) => normalizeAppId(candidate.name) === target,
-  );
-  const candidates = exact.length
-    ? exact
-    : qualified.length
-      ? qualified
-      : named;
+  const candidates = matchDispatchAppCandidates(apps, target);
   if (candidates.length > 1) {
     throw new Error(
       `Ambiguous app "${app}". Choose one of: ${candidates.map((candidate) => candidate.id).join(", ")}.`,
