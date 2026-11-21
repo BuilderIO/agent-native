@@ -700,6 +700,7 @@ export const calendarAccounts = table("calendar_accounts", {
   })
     .notNull()
     .default("connected"),
+  enabledCalendarIdsJson: text("enabled_calendar_ids_json"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -713,6 +714,7 @@ export const calendarEvents = table("calendar_events", {
   id: text("id").primaryKey(),
   calendarAccountId: text("calendar_account_id").notNull(),
   externalId: text("external_id").notNull(),
+  calendarId: text("calendar_id"),
   title: text("title").notNull().default(""),
   description: text("description").notNull().default(""),
   start: text("start").notNull(),

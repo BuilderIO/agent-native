@@ -1454,6 +1454,12 @@ export const migrations = runMigrations(
     },
     {
       version: 105,
+      name: "calendar-enabled-calendars",
+      sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS enabled_calendar_ids_json TEXT;
+      ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS calendar_id TEXT`,
+    },
+    {
+      version: 106,
       name: "recording-comments-copy-to-review-kit",
       sql: {},
       run: copyRecordingCommentsOnce,
