@@ -4,11 +4,13 @@ import {
   BLOCK_IDENTITY_ATTR,
   BLOCK_IDENTITY_NODE_TYPES,
   blockIdentityIdsByPath,
+  editorBlockIdsForSavedText,
   knownBlockIdsByPath,
 } from "./block-identity-ids.js";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   blocksFieldPathsById,
+  blocksFieldTreeShape,
   catchUpBlocksFieldIdentity,
   exposeBlocksFieldIdentity,
   legacyBlocksFieldIdentity,
@@ -206,6 +208,51 @@ describe("block identity IDs", () => {
         "1": "block_elsewhere",
       }),
     ).toEqual({ "0": oneId });
+  });
+
+  it("moves the editor's IDs onto saved text by content the two share once", () => {
+    const shapeOf = (markdown: string) =>
+      blocksFieldTreeShape(nfmToDoc(markdown) as PMNode);
+    const editorMarkdown = L("Beta", "Alpha", "Note", "Note", "Gamma");
+    const ids = {
+      shape: shapeOf(editorMarkdown),
+      idsByPath: byPath(
+        "block_a",
+        "block_b",
+        "block_n1",
+        "block_n2",
+        "block_c",
+      ),
+    };
+    const savedMarkdown = L(
+      "Intro",
+      "Beta",
+      "Alpha",
+      "Note",
+      "Note",
+      "Gamma 2",
+    );
+
+    expect(
+      editorBlockIdsForSavedText({
+        editorMarkdown,
+        savedMarkdown: editorMarkdown,
+        ids,
+      }),
+    ).toBe(ids);
+    expect(
+      editorBlockIdsForSavedText({ editorMarkdown, savedMarkdown, ids }),
+    ).toEqual({
+      shape: shapeOf(savedMarkdown),
+      idsByPath: byPath(undefined, "block_a", "block_b"),
+    });
+    expect(
+      editorBlockIdsForSavedText({
+        editorMarkdown,
+        savedMarkdown,
+        ids: { ...ids, shape: "shape_of_another_tree" },
+      }),
+    ).toBeUndefined();
   });
 
   it("drops an ID the editor names at two places", () => {

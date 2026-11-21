@@ -2,14 +2,13 @@
 
 import {
   BLOCK_IDENTITY_ATTR,
-  blockTextHashesByPath,
+  blockContentHashesByPath,
   editorBlockIdsOf,
   identityBlockIds,
 } from "@shared/block-identity-ids";
 import {
   legacyBlocksFieldIdentity,
   blocksFieldPathsById,
-  blocksFieldTextHash,
 } from "@shared/blocks-field-identity";
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
@@ -153,6 +152,57 @@ describe("block links", () => {
     );
   });
 
+  it("fingerprints every kind of block the way the server does", () => {
+    const nfm = [
+      "#   Heading with spaces",
+      "Paragraph with **bold**, _italic_ and `code`",
+      "> Quote",
+      "* Star bullet",
+      "\t- Nested item",
+      "1. Numbered",
+      "[ ] Task",
+      "---",
+      "```ts",
+      "const stable = true",
+      "```",
+      '<callout icon="💡">',
+      "\tInside",
+      "</callout>",
+      "<details>",
+      "<summary>A toggle</summary>",
+      "\tHidden child",
+      "</details>",
+      "<columns>",
+      "\t<column>",
+      "\t\tLeft",
+      "\t</column>",
+      "\t<column>",
+      "\t\tRight",
+      "\t</column>",
+      "</columns>",
+      "<table>",
+      "<tr>",
+      "<td>a</td>",
+      "<td>b</td>",
+      "</tr>",
+      "</table>",
+      "![A caption](https://cdn.example.com/x.png)",
+      "After",
+    ].join("\n");
+    const ids = tableIds(nfm);
+    const target = open(nfm);
+
+    expect(
+      stampBlockIdentityIds(target, {
+        ...ids,
+        contentByPath: blockContentHashesByPath(nfm),
+      }),
+    ).toBe("stamped");
+    expect(editorDocBlockIds(target.state.doc).idsByPath).toEqual(
+      ids.idsByPath,
+    );
+  });
+
   it("copies the ID a block holds without asking the server", async () => {
     const target = open("Apples\nPears");
     stampBlockIdentityIds(target, {
@@ -230,7 +280,21 @@ describe("block links", () => {
     const ids = {
       shape: editorDocBlockIds(target.state.doc).shape,
       idsByPath: { "0": "block_apples", "1": "block_pears" },
-      textByPath: blockTextHashesByPath("Apples\nPears"),
+      contentByPath: blockContentHashesByPath("Apples\nPears"),
+    };
+
+    expect(stampBlockIdentityIds(target, ids)).toBe("stale");
+    expect(editorDocBlockIds(target.state.doc).idsByPath).toEqual({});
+  });
+
+  it("tells two images with the same caption apart by what they show", () => {
+    const one = "![Photo](https://cdn.example.com/one.png)";
+    const two = "![Photo](https://cdn.example.com/two.png)";
+    const target = open(`${two}\n${one}`);
+    const ids = {
+      shape: editorDocBlockIds(target.state.doc).shape,
+      idsByPath: { "0": "block_one", "1": "block_two" },
+      contentByPath: blockContentHashesByPath(`${one}\n${two}`),
     };
 
     expect(stampBlockIdentityIds(target, ids)).toBe("stale");
@@ -264,6 +328,36 @@ describe("block links", () => {
     expect(target.state.doc.child(1).attrs[BLOCK_IDENTITY_ATTR]).toBe("dup");
     expect(heldBlockLinkId(target.state.doc, blockAt(target, 0))).toBeNull();
     expect(heldBlockLinkId(target.state.doc, blockAt(target, 1))).toBeNull();
+  });
+
+  it("copies no link the server names for a block when another block holds that ID", async () => {
+    const target = open("Apples\nPears");
+    target.view.dispatch(
+      target.state.tr
+        .setNodeAttribute(
+          blockAt(target, 0).pos,
+          BLOCK_IDENTITY_ATTR,
+          "block_pears",
+        )
+        .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+    );
+    hooks.callAction.mockResolvedValue({
+      ids: {
+        shape: editorDocBlockIds(target.state.doc).shape,
+        idsByPath: { "1": "block_pears" },
+        contentByPath: blockContentHashesByPath("Apples\nPears"),
+      },
+    });
+
+    await expect(
+      blockLinkId({
+        editor: target,
+        block: blockAt(target, 1),
+        documentId: "doc-1",
+        stamp: true,
+      }),
+    ).resolves.toBeNull();
+    expect(target.state.doc.child(1).attrs[BLOCK_IDENTITY_ATTR]).toBeNull();
   });
 
   it("gives no ID for a block deleted while the save runs", async () => {
@@ -340,7 +434,7 @@ describe("opening a block link", () => {
     hooks.callAction.mockResolvedValueOnce({
       state: "live",
       path: "1",
-      text: blocksFieldTextHash("Pears"),
+      content: blockContentHashesByPath("Apples\nPears")["1"],
     });
     await reveal(target, "block_pears");
 
@@ -357,7 +451,7 @@ describe("opening a block link", () => {
     hooks.callAction.mockResolvedValueOnce({
       state: "live",
       path: "1",
-      text: blocksFieldTextHash("Pears"),
+      content: blockContentHashesByPath("Apples\nPears")["1"],
     });
     await reveal(target, "block_pears");
 

@@ -2,6 +2,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import {
   BLOCK_IDENTITY_ATTR,
   BLOCK_IDENTITY_NODE_TYPES,
+  blockContentHashesByPath,
   blockIdentityIdOf,
   type BodyBlockIds,
   type EditorBlockIds,
@@ -10,9 +11,8 @@ import { contentBlockLinkPath } from "@shared/block-link";
 import {
   BLOCKS_FIELD_BLOCK_KINDS,
   blocksFieldShape,
-  blocksFieldTextHash,
 } from "@shared/blocks-field-identity";
-import { isEditorTerminalFiller } from "@shared/nfm";
+import { docToNfm, isEditorTerminalFiller, type PMNode } from "@shared/nfm";
 import type { Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
@@ -92,32 +92,38 @@ function lacksIds(doc: ProseMirrorNode): boolean {
   );
 }
 
-function textHashOf(node: ProseMirrorNode): string {
-  let text = "";
-  node.descendants((child) => {
-    if (child.isText) text += child.text ?? "";
-  });
-  return blocksFieldTextHash(text);
+type ReadBlockIds = EditorBlockIds & {
+  contentByPath?: Record<string, string>;
+};
+
+function savedContentHashes(editor: Editor): () => Record<string, string> {
+  let hashes: Record<string, string> | undefined;
+  return () =>
+    (hashes ??= blockContentHashesByPath(docToNfm(editor.getJSON() as PMNode)));
 }
 
-function sameText(
-  ids: EditorBlockIds & { textByPath?: Record<string, string> },
-  { path, node }: BlockPlace,
+function sameContent(
+  ids: ReadBlockIds,
+  path: string,
+  hashes: () => Record<string, string>,
 ): boolean {
-  return !ids.textByPath || ids.textByPath[path] === textHashOf(node);
+  return !ids.contentByPath || ids.contentByPath[path] === hashes()[path];
+}
+
+function holding(doc: ProseMirrorNode, id: string): BlockPlace[] {
+  return blockPlaces(doc).filter(({ node }) => blockIdentityIdOf(node) === id);
 }
 
 function soleHolder(doc: ProseMirrorNode, id: string): BlockPlace | null {
-  const holding = blockPlaces(doc).filter(
-    ({ node }) => blockIdentityIdOf(node) === id,
-  );
-  return holding.length === 1 ? (holding[0] ?? null) : null;
+  const holders = holding(doc, id);
+  return holders.length === 1 ? (holders[0] ?? null) : null;
 }
 
 export function stampBlockIdentityIds(
   editor: Editor,
-  ids: EditorBlockIds & { textByPath?: Record<string, string> },
+  ids: ReadBlockIds,
 ): "stamped" | "unchanged" | "stale" | "mismatch" {
+  const hashes = savedContentHashes(editor);
   const places = blockPlaces(editor.state.doc);
   if (shapeOf(places) !== ids.shape) return "mismatch";
   const held = new Set(
@@ -128,8 +134,7 @@ export function stampBlockIdentityIds(
   );
   const tr = editor.state.tr;
   let stale = false;
-  for (const place of places) {
-    const { path, pos, node } = place;
+  for (const { path, pos, node } of places) {
     const id = ids.idsByPath[path];
     if (
       !id ||
@@ -139,7 +144,7 @@ export function stampBlockIdentityIds(
     ) {
       continue;
     }
-    if (!sameText(ids, place)) {
+    if (!sameContent(ids, path, hashes)) {
       stale = true;
       continue;
     }
@@ -269,9 +274,11 @@ export async function blockLinkId(args: {
     const places = blockPlaces(editor.state.doc);
     if (at === null || shapeOf(places) !== ids.shape) return null;
     const place = places.find((candidate) => candidate.pos === at);
-    return place && sameText(ids, place)
-      ? (ids.idsByPath[place.path] ?? null)
-      : null;
+    const id = place ? ids.idsByPath[place.path] : undefined;
+    if (!place || !id) return null;
+    if (!sameContent(ids, place.path, savedContentHashes(editor))) return null;
+    const holders = holding(editor.state.doc, id);
+    return holders.every((holder) => holder.pos === at) ? id : null;
   };
   try {
     for (const step of args.save ? [null, args.save] : [null]) {
@@ -301,12 +308,15 @@ export function blockLinkUrl(documentId: string, blockId: string): string {
 }
 
 export function linkedBlockPlace(
-  doc: ProseMirrorNode,
-  target: { id: string } | { path: string; text: string },
+  editor: Editor,
+  target: { id: string } | { path: string; content: string },
 ): BlockPlace | null {
+  const { doc } = editor.state;
   if ("id" in target) return soleHolder(doc, target.id);
   const place = blockPlaces(doc).find(({ path }) => path === target.path);
-  return place && textHashOf(place.node) === target.text ? place : null;
+  if (!place) return null;
+  const hashes = savedContentHashes(editor);
+  return hashes()[target.path] === target.content ? place : null;
 }
 
 const LINKED_HIGHLIGHT_MS = 2500;
@@ -337,7 +347,7 @@ export async function resolveBlockLink(documentId: string, blockId: string) {
     { documentId, blockId },
     { method: "GET" },
   )) as
-    | { state: "live"; path: string; text: string }
+    | { state: "live"; path: string; content: string }
     | { state: "deleted" }
     | { state: "missing" };
 }
@@ -363,17 +373,19 @@ export function useLinkedBlockReveal(args: {
     if (handledRef.current === key) return;
     handledRef.current = key;
     let done = false;
-    let at: { path: string; text: string } | null = null;
+    let at: { path: string; content: string } | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const find = () =>
+      linkedBlockPlace(editor, { id: blockId }) ??
+      (at === null ? null : linkedBlockPlace(editor, at));
     const tryReveal = () => {
       if (done || editor.isDestroyed) return done;
-      const place =
-        linkedBlockPlace(editor.state.doc, { id: blockId }) ??
-        (at === null ? null : linkedBlockPlace(editor.state.doc, at));
-      if (!place) return false;
+      if (!find()) return false;
       finish();
       requestAnimationFrame(() => {
-        if (!editor.isDestroyed) revealLinkedBlock(editor, place.pos);
+        if (editor.isDestroyed) return;
+        const place = find();
+        if (place) revealLinkedBlock(editor, place.pos);
       });
       return true;
     };
@@ -393,7 +405,7 @@ export function useLinkedBlockReveal(args: {
         .then((found) => {
           if (done) return;
           if (found.state === "live") {
-            at = { path: found.path, text: found.text };
+            at = { path: found.path, content: found.content };
             tryReveal();
             return;
           }

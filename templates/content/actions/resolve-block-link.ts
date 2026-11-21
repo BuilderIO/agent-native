@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { blockTextHashesByPath } from "../shared/block-identity-ids.js";
+import { blockContentHashesByPath } from "../shared/block-identity-ids.js";
 import { blocksFieldPathsById } from "../shared/blocks-field-identity.js";
 import { readBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { bodyBlocksPropertyIds } from "./_body-block-fields.js";
@@ -22,7 +22,7 @@ export default defineAction({
     z.object({
       state: z.literal("live"),
       path: z.string(),
-      text: z.string(),
+      content: z.string(),
     }),
     z.object({ state: z.literal("deleted") }),
     z.object({ state: z.literal("missing") }),
@@ -41,8 +41,8 @@ export default defineAction({
       });
       const path = blocksFieldPathsById(identity.blocks).get(blockId);
       if (path !== undefined) {
-        const text = blockTextHashesByPath(markdown)[path] ?? "";
-        return { state: "live" as const, path, text };
+        const content = blockContentHashesByPath(markdown)[path] ?? "";
+        return { state: "live" as const, path, content };
       }
       deleted ||= identity.tombstones.some((block) => block.id === blockId);
     }

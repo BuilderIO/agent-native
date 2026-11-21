@@ -66,6 +66,7 @@ import type {
   DocumentUpdateResponse,
   LiveCopyBodySave,
 } from "../shared/api.js";
+import { editorBlockIdsForSavedText } from "../shared/block-identity-ids.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
@@ -1733,7 +1734,13 @@ const updateDocumentAction = defineAction({
             afterWrite: async () => {
               if (lockedContentChanged && content !== undefined) {
                 const editorIds =
-                  content === editorContent ? args.editorBlockIds : undefined;
+                  args.editorBlockIds && editorContent !== undefined
+                    ? editorBlockIdsForSavedText({
+                        editorMarkdown: editorContent,
+                        savedMarkdown: content,
+                        ids: args.editorBlockIds,
+                      })
+                    : undefined;
                 for (const field of primaryBlocksFields) {
                   await persistBlocksFieldIdentity({
                     db: tx as unknown as ReturnType<typeof getDb>,

@@ -15,6 +15,7 @@ import {
   stampBlockIdentityIds,
 } from "../block-links";
 import { createVisualEditorExtensions } from "../VisualEditor";
+import { copiedSlice, pastedSlice } from "./BlockIdentityIds";
 
 let editor: Editor | null = null;
 
@@ -179,6 +180,46 @@ describe("block identity IDs in the editor", () => {
       expect(target.state.doc.textContent.length).toBe(length + 3);
       expect(heldIds()).toEqual(before);
     }
+  });
+
+  it("keeps the IDs of whole blocks a drag carries, and of no block it cuts", () => {
+    const target = open("Apples ripen.\nPears bruise.\nPlums fall.");
+    stamp(target, ["block_a", "block_b", "block_c"]);
+    target.commands.setTextSelection({ from: 3, to: textEnd(target, 2) - 2 });
+
+    const { dom, slice } = target.view.serializeForClipboard(
+      target.state.selection.content(),
+    );
+    const ids = (dragged: boolean) => {
+      const { content } = pastedSlice(slice, dragged);
+      return Array.from({ length: content.childCount }, (_, index) =>
+        blockIdentityIdOf(content.child(index)),
+      );
+    };
+    expect(dom.innerHTML).not.toContain("block_");
+    expect(ids(true)).toEqual([null, "block_b", null]);
+    expect(ids(false)).toEqual([null, null, null]);
+  });
+
+  it("moves a dragged block's ID with it", () => {
+    const target = open("Apples ripen.\nPears bruise.\nPlums fall.");
+    stamp(target, ["block_a", "block_b", "block_c"]);
+    const from = target.state.doc.child(0).nodeSize;
+    const to = from + target.state.doc.child(1).nodeSize;
+    const dragged = pastedSlice(
+      copiedSlice(target.state.doc.slice(from, to)),
+      true,
+    );
+    const tr = target.state.tr.delete(from, to);
+    target.view.dispatch(
+      tr.replace(tr.doc.content.size, tr.doc.content.size, dragged),
+    );
+
+    expect(held(target)).toEqual([
+      ["Apples ripen.", "block_a"],
+      ["Plums fall.", "block_c"],
+      ["Pears bruise.", "block_b"],
+    ]);
   });
 
   it("stamps only a tree with the shape the IDs were read from, and never over an ID", () => {

@@ -2,9 +2,9 @@ import {
   BLOCKS_FIELD_BLOCK_KINDS,
   blocksFieldPathsById,
   blocksFieldShape,
-  blocksFieldTextHash,
   blocksFieldTreeShape,
   isAddressableBlocksFieldKind,
+  snapshotBlocksFieldMarkdown,
   visitBlocksFieldBlocks,
   type BlocksFieldBlock,
   type StoredBlocksFieldIdentity,
@@ -41,23 +41,46 @@ export interface EditorBlockIds {
 }
 
 export interface BodyBlockIds extends EditorBlockIds {
-  textByPath: Record<string, string>;
+  contentByPath: Record<string, string>;
 }
 
-function textOf(node: PMNode): string {
-  return node.type === "text"
-    ? (node.text ?? "")
-    : (node.content ?? []).map(textOf).join("");
-}
-
-export function blockTextHashesByPath(
+export function blockContentHashesByPath(
   markdown: string,
 ): Record<string, string> {
-  const hashes: Record<string, string> = {};
-  visitBlocksFieldBlocks(nfmToDoc(markdown) as PMNode, (node, { path }) => {
-    hashes[path] = blocksFieldTextHash(textOf(node));
-  });
-  return hashes;
+  return Object.fromEntries(
+    snapshotBlocksFieldMarkdown(markdown).map(({ path, contentHash }) => [
+      path,
+      contentHash,
+    ]),
+  );
+}
+
+function pathsByUniqueContent(markdown: string) {
+  const paths = new Map<string, string | null>();
+  for (const { path, contentHash } of snapshotBlocksFieldMarkdown(markdown)) {
+    paths.set(contentHash, paths.has(contentHash) ? null : path);
+  }
+  return paths;
+}
+
+export function editorBlockIdsForSavedText(args: {
+  editorMarkdown: string;
+  savedMarkdown: string;
+  ids: EditorBlockIds;
+}): EditorBlockIds | undefined {
+  if (args.editorMarkdown === args.savedMarkdown) return args.ids;
+  const shapeOf = (markdown: string) =>
+    blocksFieldTreeShape(nfmToDoc(markdown) as PMNode);
+  if (shapeOf(args.editorMarkdown) !== args.ids.shape) return undefined;
+  const editorPaths = pathsByUniqueContent(args.editorMarkdown);
+  const savedPaths = pathsByUniqueContent(args.savedMarkdown);
+  const idsByPath: Record<string, string> = {};
+  for (const [content, editorPath] of editorPaths) {
+    const id = editorPath === null ? undefined : args.ids.idsByPath[editorPath];
+    const savedPath = savedPaths.get(content);
+    if (id && savedPath) idsByPath[savedPath] = id;
+  }
+  return { shape: shapeOf(args.savedMarkdown), idsByPath };
 }
 
 export function editorBlockIdsOf(doc: PMNode): EditorBlockIds {

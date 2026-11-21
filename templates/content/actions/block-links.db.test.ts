@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { blockTextHashesByPath } from "../shared/block-identity-ids.js";
+import { blockContentHashesByPath } from "../shared/block-identity-ids.js";
 import { blocksFieldTreeShape } from "../shared/blocks-field-identity.js";
 import { nfmToDoc, type PMNode } from "../shared/nfm.js";
 
@@ -174,14 +174,14 @@ describe("block links", () => {
       ids: {
         shape: shapeOf("Alpha\nBeta\nGamma"),
         idsByPath: byPath(...ids),
-        textByPath: blockTextHashesByPath("Alpha\nBeta\nGamma"),
+        contentByPath: blockContentHashesByPath("Alpha\nBeta\nGamma"),
       },
     });
     for (const [index, id] of ids.entries()) {
       await expect(resolve(documentId, id)).resolves.toEqual({
         state: "live",
         path: `${index}`,
-        text: blockTextHashesByPath("Alpha\nBeta\nGamma")[`${index}`],
+        content: blockContentHashesByPath("Alpha\nBeta\nGamma")[`${index}`],
       });
     }
     await expect(readIds(documentId, OUTSIDER)).resolves.toEqual({ ids: null });
@@ -214,7 +214,32 @@ describe("block links", () => {
     });
   });
 
-  it("ignores the editor's IDs when a merge saves text the editor didn't send", async () => {
+  it("keeps a stale tab's IDs on its blocks when a merge adds another tab's change", async () => {
+    const content = "Alpha\nBeta\nGamma";
+    const { documentId, ids } = await rowPage(content);
+    const base = { revision: await revisionOf(documentId), content };
+    const [alpha, beta, gamma] = [idAt(ids, 0), idAt(ids, 1), idAt(ids, 2)];
+    await browserSave({
+      documentId,
+      base,
+      content: "Alpha\nBeta\nGamma, edited",
+      idsByPath: byPath(alpha, beta, gamma),
+    });
+
+    await expect(
+      browserSave({
+        documentId,
+        base,
+        content: "Beta\nAlpha\nGamma",
+        idsByPath: byPath(alpha, beta, gamma),
+      }),
+    ).resolves.toMatchObject({ content: "Beta\nAlpha\nGamma, edited" });
+    expect((await readIds(documentId)).ids?.idsByPath).toEqual(
+      byPath(alpha, beta, gamma),
+    );
+  });
+
+  it("follows the merged text when a stale tab's IDs are older than another tab's move", async () => {
     const content = "Alpha\nBeta\nGamma";
     const { documentId, ids } = await rowPage(content);
     const base = { revision: await revisionOf(documentId), content };
@@ -245,7 +270,7 @@ describe("block links", () => {
     await expect(resolve(documentId, beta)).resolves.toEqual({
       state: "live",
       path: "1",
-      text: blockTextHashesByPath("Alpha\nBeta\nGamma")["1"],
+      content: blockContentHashesByPath("Alpha\nBeta\nGamma")["1"],
     });
 
     await save(documentId, "Alpha\nGamma", byPath(idAt(ids, 0), idAt(ids, 2)));
@@ -261,7 +286,7 @@ describe("block links", () => {
     await expect(resolve(documentId, beta)).resolves.toEqual({
       state: "live",
       path: "1",
-      text: blockTextHashesByPath("Alpha\nBeta, restored\nGamma")["1"],
+      content: blockContentHashesByPath("Alpha\nBeta, restored\nGamma")["1"],
     });
   });
 

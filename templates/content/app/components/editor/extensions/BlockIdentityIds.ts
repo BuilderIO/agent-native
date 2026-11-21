@@ -36,34 +36,75 @@ function holders(doc: PMNode): Holder[] {
 
 const hasContent = (node: PMNode) => !node.isTextblock || node.content.size > 0;
 
-function withoutIds(fragment: Fragment): Fragment {
+function withoutId(node: PMNode, content: Fragment): PMNode {
+  const id = ADDRESSABLE.has(node.type.name) && blockIdentityIdOf(node);
+  return !id && content === node.content
+    ? node
+    : node.type.create(
+        id ? { ...node.attrs, [BLOCK_IDENTITY_ATTR]: null } : node.attrs,
+        content,
+        node.marks,
+      );
+}
+
+function mapChildren(
+  fragment: Fragment,
+  map: (node: PMNode, index: number) => PMNode,
+): Fragment {
   let changed = false;
   const nodes: PMNode[] = [];
   for (let index = 0; index < fragment.childCount; index++) {
     const node = fragment.child(index);
-    const content = withoutIds(node.content);
-    const id = ADDRESSABLE.has(node.type.name) && blockIdentityIdOf(node);
-    if (!id && content === node.content) {
-      nodes.push(node);
-      continue;
-    }
-    changed = true;
-    nodes.push(
-      node.type.create(
-        id ? { ...node.attrs, [BLOCK_IDENTITY_ATTR]: null } : node.attrs,
-        content,
-        node.marks,
-      ),
-    );
+    const next = map(node, index);
+    changed ||= next !== node;
+    nodes.push(next);
   }
   return changed ? Fragment.from(nodes) : fragment;
 }
 
-export function sliceWithoutBlockIds(slice: Slice): Slice {
-  const content = withoutIds(slice.content);
+function allWithoutIds(fragment: Fragment): Fragment {
+  return mapChildren(fragment, (node) =>
+    withoutId(node, allWithoutIds(node.content)),
+  );
+}
+
+function edgesWithoutIds(
+  fragment: Fragment,
+  openStart: number,
+  openEnd: number,
+): Fragment {
+  const last = fragment.childCount - 1;
+  return mapChildren(fragment, (node, index) => {
+    const start = index === 0 ? openStart : 0;
+    const end = index === last ? openEnd : 0;
+    return start > 0 || end > 0
+      ? withoutId(
+          node,
+          edgesWithoutIds(
+            node.content,
+            Math.max(start - 1, 0),
+            Math.max(end - 1, 0),
+          ),
+        )
+      : node;
+  });
+}
+
+function withContent(slice: Slice, content: Fragment): Slice {
   return content === slice.content
     ? slice
     : new Slice(content, slice.openStart, slice.openEnd);
+}
+
+export function copiedSlice(slice: Slice): Slice {
+  return withContent(
+    slice,
+    edgesWithoutIds(slice.content, slice.openStart, slice.openEnd),
+  );
+}
+
+export function pastedSlice(slice: Slice, dragged: boolean): Slice {
+  return dragged ? slice : withContent(slice, allWithoutIds(slice.content));
 }
 
 export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
@@ -104,8 +145,9 @@ export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
       new Plugin({
         key: new PluginKey("blockIdentityIds"),
         props: {
-          transformCopied: sliceWithoutBlockIds,
-          transformPasted: sliceWithoutBlockIds,
+          transformCopied: copiedSlice,
+          transformPasted: (slice, view) =>
+            pastedSlice(slice, view.dragging !== null),
         },
         appendTransaction(transactions, oldState, newState) {
           if (!editor.isEditable || !transactions.some(isEdit)) return null;
