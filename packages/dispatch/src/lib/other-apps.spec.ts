@@ -394,7 +394,13 @@ describe("chatFirstExternalApps", () => {
     ]);
   });
 
-  it("lists nothing until the mounted app list has loaded", () => {
-    expect(chatFirstExternalApps(connected, undefined)).toEqual([]);
+  it("lists nothing while the mounted app list is loading", () => {
+    expect(chatFirstExternalApps(connected, "loading")).toEqual([]);
+  });
+
+  it("keeps every hosted and connected app when the mounted list is unreadable", () => {
+    expect(
+      chatFirstExternalApps(connected, "unreadable").map((app) => app.id),
+    ).toEqual(["slides", "fleet", "mail-2"]);
   });
 });

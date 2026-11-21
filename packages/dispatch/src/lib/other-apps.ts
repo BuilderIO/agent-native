@@ -104,13 +104,14 @@ export function filterBuiltInApps(
 
 /**
  * Apps outside this workspace that the chat-first pane can open: first-party
- * hosted apps and apps connected from another workspace. None until the
- * mounted list has loaded: an unloaded list is not an empty one, and an
- * external row must never stand in for a mounted app with the same id.
+ * hosted apps and apps connected from another workspace. None while the
+ * mounted list is loading, so an external row never stands in for a mounted
+ * app with the same id. When the mounted list is unreadable they are all
+ * kept, since no mounted app can be shown to shadow them.
  */
 export function chatFirstExternalApps(
   connectedApps: ConnectedAppSummary[],
-  workspaceApps: WorkspaceAppId[] | undefined,
+  workspaceApps: WorkspaceAppId[] | "loading" | "unreadable",
 ): {
   id: string;
   name: string;
@@ -119,7 +120,8 @@ export function chatFirstExternalApps(
   source: "builtin" | "connected";
   hiddenFromLaunchers?: boolean;
 }[] {
-  if (!workspaceApps) return [];
+  if (workspaceApps === "loading") return [];
+  const mounted = workspaceApps === "unreadable" ? [] : workspaceApps;
   const summary = (app: ConnectedAppSummary, url: string) => ({
     id: app.id,
     name: app.name,
@@ -127,14 +129,14 @@ export function chatFirstExternalApps(
     url,
   });
   return [
-    ...filterBuiltInApps(connectedApps, workspaceApps, {
+    ...filterBuiltInApps(connectedApps, mounted, {
       includeHiddenFromLaunchers: true,
     }).map((app) => ({
       ...summary(app, app.homeUrl?.trim() || app.url),
       source: "builtin" as const,
       ...(app.hiddenFromLaunchers ? { hiddenFromLaunchers: true } : {}),
     })),
-    ...filterOtherApps(connectedApps, workspaceApps).map((app) => ({
+    ...filterOtherApps(connectedApps, mounted).map((app) => ({
       ...summary(app, app.url),
       source: "connected" as const,
     })),
