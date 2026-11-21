@@ -475,6 +475,11 @@ impl Shared {
     }
 
     fn on_frame(this: &Arc<Self>, raw: *mut c_void) {
+        // Once the track closes, frames still on their way are not kept, as
+        // the bubble may have let the camera go.
+        if this.closing.load(Ordering::SeqCst) {
+            return;
+        }
         // SAFETY: `raw` is the live sample buffer AVFoundation handed over.
         let pts = unsafe { CMSampleBufferGetPresentationTimeStamp(raw) };
         let Some(host_secs) = this.host_secs(pts) else {

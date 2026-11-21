@@ -65,16 +65,21 @@ impl CameraFormat {
 
 /// The camera the bubble shows among `names`, the cameras AVFoundation lists:
 /// the one named `label`, the web view's name for it; else the one camera
-/// whose name is close to it; else the only camera there is.
+/// whose name is close to it; else the only camera there is. Two cameras of
+/// that very name give none, since either could be the bubble's.
 pub(super) fn pick_camera(names: &[String], label: Option<&str>) -> Option<usize> {
     let label = label.map(str::trim).filter(|label| !label.is_empty());
     if let Some(label) = label {
         let wanted = super::normalize_audio_device_name(label);
-        if let Some(exact) = names
+        let mut exact = names
             .iter()
-            .position(|name| super::normalize_audio_device_name(name) == wanted)
-        {
-            return Some(exact);
+            .enumerate()
+            .filter(|(_, name)| super::normalize_audio_device_name(name) == wanted)
+            .map(|(index, _)| index);
+        match (exact.next(), exact.next()) {
+            (Some(only), None) => return Some(only),
+            (Some(_), Some(_)) => return None,
+            _ => {}
         }
         let mut close = names
             .iter()
@@ -158,6 +163,10 @@ mod tests {
         assert_eq!(pick_camera(&usb, Some("USB Camera Pro")), Some(1));
         assert_eq!(pick_camera(&usb, Some("usb camera")), Some(0));
         assert_eq!(pick_camera(&usb, Some("USB Camera Pro (046d:0893)")), None);
+        // Two of the same model share a name, and either could be the bubble's.
+        let twins = names(&["USB Camera", "FaceTime HD Camera", "USB Camera"]);
+        assert_eq!(pick_camera(&twins, Some("USB Camera")), None);
+        assert_eq!(pick_camera(&twins, Some("FaceTime HD Camera")), Some(1));
         assert_eq!(pick_camera(&cameras, None), None);
         // The only camera there is must be the bubble's.
         let one = names(&["FaceTime HD Camera"]);

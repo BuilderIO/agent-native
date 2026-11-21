@@ -632,7 +632,8 @@ pub(super) fn attach_rich_recording(
             recording_id,
         ));
     }
-    if has_camera {
+    let camera_bubble = has_camera && session.restart.include_camera_overlay;
+    if camera_bubble {
         starts.push(camera_track_start(app, &clock, camera_label, recording_id));
     }
     starts.push(screen_track_start(&clock, &capture, recording_id));
@@ -662,7 +663,7 @@ pub(super) fn attach_rich_recording(
         gate,
         clock,
         capture,
-        camera_bubble: has_camera && session.restart.include_camera_overlay,
+        camera_bubble,
         app_version: app.package_info().version.to_string(),
         pauses: Vec::new(),
         stopped_at: None,
