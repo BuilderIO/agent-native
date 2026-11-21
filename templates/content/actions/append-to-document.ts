@@ -33,6 +33,15 @@ function savedAnyway(error: unknown) {
   return error instanceof ActionContractError && error.details?.saved === true;
 }
 
+async function refuseCollection(documentId: string) {
+  if (await getDatabaseByDocumentId(documentId)) {
+    fail("A collection's page doesn't take blocks. Pick a page.", {
+      errorCode: "DOCUMENT_IS_COLLECTION",
+      statusCode: 400,
+    });
+  }
+}
+
 export default defineAction({
   description:
     "Add blocks to the end of a page, for the block menu's Move to. The editor removes the block from its own page once this returns.",
@@ -66,12 +75,7 @@ export default defineAction({
       const access = await assertAccess("document", documentId, "editor");
       const page = access.resource;
       assertEditableDocument(page);
-      if (await getDatabaseByDocumentId(documentId)) {
-        fail("A collection's page doesn't take blocks. Pick a page.", {
-          errorCode: "DOCUMENT_IS_COLLECTION",
-          statusCode: 400,
-        });
-      }
+      await refuseCollection(documentId);
       assertSourceAllowsPageEdit(page);
       assertAgentsMayEditPageText(page, ctx);
       const existing = (page.content as string | null) ?? "";
@@ -104,6 +108,7 @@ export default defineAction({
         if (attempt === 0 && isRevisionConflict(error)) continue;
         if (!savedAnyway(error)) throw error;
       }
+      await refuseCollection(documentId);
 
       await writeAppState("refresh-signal", { ts: Date.now() }).catch(
         (error: unknown) => {

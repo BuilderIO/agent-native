@@ -21,6 +21,21 @@ const TEST_DB_PATH = join(
   `append-to-document-${process.pid}-${Date.now()}.pglite`,
 );
 
+const missedOnce = vi.hoisted(() => new Set<string>());
+
+vi.mock("./_database-utils.js", async (importOriginal) => {
+  const utils = await importOriginal<typeof import("./_database-utils.js")>();
+  return {
+    ...utils,
+    getDatabaseByDocumentId: (
+      ...args: Parameters<typeof utils.getDatabaseByDocumentId>
+    ) =>
+      missedOnce.delete(args[0])
+        ? Promise.resolve(null)
+        : utils.getDatabaseByDocumentId(...args),
+  };
+});
+
 type Schema = typeof import("../server/db/schema.js");
 let getDb: typeof import("../server/db/index.js").getDb;
 let schema: Schema;
@@ -229,6 +244,27 @@ describe("append-to-document", () => {
       statusCode: 400,
     });
     expect(await body(id)).toBe("");
+  });
+
+  it("refuses a page made into a collection while the block was added", async () => {
+    const id = await createPage("Plan line.", { title: "Tasks" });
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values({
+        id: `db_${id}`,
+        ownerEmail: OWNER,
+        documentId: id,
+        title: "Tasks",
+        createdAt: now,
+        updatedAt: now,
+      });
+    missedOnce.add(id);
+    await expect(append(id, "Moved paragraph.")).rejects.toMatchObject({
+      errorCode: "DOCUMENT_IS_COLLECTION",
+      statusCode: 400,
+    });
+    expect(missedOnce.has(id)).toBe(false);
   });
 
   it("keeps a moved heading that reads as the page's title", async () => {
