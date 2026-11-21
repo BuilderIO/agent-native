@@ -181,7 +181,7 @@ describe("verifying an outside agent's dashboard edit", () => {
     for (const panel of result.panels) {
       expect(panel).toMatchObject({
         status: "unverified",
-        note: "outside_agent_budget",
+        note: "outside_agent_approval_required",
       });
       expect(panel.error).toContain(
         "Allowing up to $5.00 today needs your approval on Analytics' review page, which this call can't ask for.",

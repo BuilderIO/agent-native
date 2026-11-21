@@ -16,6 +16,7 @@ import {
   type OutsideAgentIdentity,
 } from "./bigquery-agent-budget.js";
 import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
+import { getFirstPartyAnalyticsBackend } from "./first-party-analytics-backend.js";
 
 export const ALLOWANCE_APPROVED_VIA = "mcp-review-page";
 
@@ -26,23 +27,14 @@ export function needsAllowanceApproval(
   return budgetRefusalFor(budget, bytes)?.code === "approval_required";
 }
 
-export function withApprovedAllowance(
-  budget: BigQueryAgentBudgetSnapshot,
-): BigQueryAgentBudgetSnapshot {
-  if (budget.person.approvedToday) return budget;
-  const { person } = budget;
-  return {
-    ...budget,
-    person: {
-      ...person,
-      approvedToday: true,
-      limitBytes: person.ceilingBytes,
-      remainingBytes: Math.max(
-        0,
-        person.ceilingBytes - person.settledBytes - person.reservedBytes,
-      ),
-    },
-  };
+export async function firstPartyQueriesRunOnBigQuery(
+  identity: OutsideAgentIdentity,
+): Promise<boolean> {
+  const backend = await getFirstPartyAnalyticsBackend({
+    userEmail: identity.ownerEmail,
+    orgId: identity.orgId,
+  });
+  return backend.sink === "bigquery";
 }
 
 export function allowanceApprovalNotice(
@@ -61,13 +53,17 @@ export function allowanceApprovalNotice(
 
 export async function allowanceBudget(
   ctx: ActionRunContext | undefined,
+  now?: Date,
 ): Promise<{
   identity: OutsideAgentIdentity;
   budget: BigQueryAgentBudgetSnapshot;
 } | null> {
   try {
     const identity = outsideAgentIdentity(ctx?.userEmail, ctx?.orgId);
-    return { identity, budget: await readBigQueryAgentBudget(identity) };
+    return {
+      identity,
+      budget: await readBigQueryAgentBudget(identity, now ? { now } : {}),
+    };
   } catch (error) {
     if (error instanceof BigQueryAgentBudgetUnavailableError) return null;
     throw error;

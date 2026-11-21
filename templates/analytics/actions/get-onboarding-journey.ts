@@ -9,9 +9,9 @@ import { z } from "zod";
 import {
   allowanceApprovalNotice,
   allowanceBudget,
+  firstPartyQueriesRunOnBigQuery,
   needsAllowanceApproval,
   recordReviewedAllowance,
-  withApprovedAllowance,
 } from "../server/lib/bigquery-agent-approval.js";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import {
@@ -29,9 +29,8 @@ import {
   isCalendarDate,
 } from "../server/lib/first-party-metric-catalog.js";
 import {
-  onboardingFollowUpBytes,
+  approvedOutsideAgentOnboardingBound,
   outsideAgentOnboardingEventBytes,
-  planOutsideAgentOnboardingBytes,
   smallestOutsideAgentOnboardingCall,
 } from "../server/lib/onboarding-journey-agent-budget.js";
 import {
@@ -42,6 +41,7 @@ import {
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
+  ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_JOURNEY_QUERY_BUDGET_MS,
   OnboardingJourneyReadError,
   JourneyRecordingsError,
@@ -295,6 +295,7 @@ export default defineAction({
     const read = await allowanceBudget(ctx);
     return (
       read !== null &&
+      (await firstPartyQueriesRunOnBigQuery(read.identity)) &&
       needsAllowanceApproval(
         read.budget,
         smallestOutsideAgentOnboardingCall(args),
@@ -302,19 +303,17 @@ export default defineAction({
     );
   },
   approvalNotice: async (args, ctx) => {
-    const read = await allowanceBudget(ctx);
-    if (!read) return undefined;
-    const plan = planOutsideAgentOnboardingBytes(
-      withApprovedAllowance(read.budget),
-      args.maxTotalBytesBilled,
-      args,
-    );
-    return allowanceApprovalNotice(
-      read.budget,
-      plan.refusal
-        ? smallestOutsideAgentOnboardingCall(args)
-        : plan.applied + onboardingFollowUpBytes(args),
-    );
+    const read = await allowanceBudget(ctx, new Date(ctx.askedAt));
+    return read
+      ? allowanceApprovalNotice(
+          read.budget,
+          approvedOutsideAgentOnboardingBound(
+            read.budget,
+            args.maxTotalBytesBilled,
+            args,
+          ),
+        )
+      : undefined;
   },
   approvalProof: "review-page",
   run: async (args, context?: ActionRunContext) => {
@@ -378,15 +377,20 @@ export default defineAction({
       };
       const askVia =
         context?.caller === "mcp" ? "get-onboarding-journey" : undefined;
-      await recordReviewedAllowance(identity);
-      const { requested, applied, refusal } =
-        await outsideAgentOnboardingEventBytes(
-          identity,
-          args.maxTotalBytesBilled,
-          call,
-          context?.signal,
-          askVia,
-        );
+      const onBigQuery = await firstPartyQueriesRunOnBigQuery(identity);
+      if (onBigQuery) await recordReviewedAllowance(identity);
+      const unbudgeted =
+        args.maxTotalBytesBilled ??
+        ONBOARDING_EVENTS_OUTSIDE_AGENT_DEFAULT_MAX_TOTAL_BYTES_BILLED;
+      const { requested, applied, refusal } = onBigQuery
+        ? await outsideAgentOnboardingEventBytes(
+            identity,
+            args.maxTotalBytesBilled,
+            call,
+            context?.signal,
+            askVia,
+          )
+        : { requested: unbudgeted, applied: unbudgeted, refusal: null };
       if (refusal) throw refusal;
       const { value, report } = await runOutsideAgentBigQueryCall(
         {

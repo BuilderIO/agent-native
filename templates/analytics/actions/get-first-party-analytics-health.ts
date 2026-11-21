@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   allowanceApprovalNotice,
   allowanceBudget,
+  firstPartyQueriesRunOnBigQuery,
   needsAllowanceApproval,
   recordReviewedAllowance,
 } from "../server/lib/bigquery-agent-approval.js";
@@ -23,7 +24,6 @@ import {
   OutsideAgentBigQueryRefusalError,
 } from "../server/lib/bigquery-agent-context.js";
 import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery.js";
-import { getFirstPartyAnalyticsBackend } from "../server/lib/first-party-analytics-backend.js";
 import {
   FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
   getFirstPartyAnalyticsHealth,
@@ -127,19 +127,17 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpNeedsApproval: async (_args, ctx) => {
     const read = await allowanceBudget(ctx);
-    if (!read) return false;
-    const backend = await getFirstPartyAnalyticsBackend({
-      userEmail: read.identity.ownerEmail,
-      orgId: read.identity.orgId,
-    });
-    if (backend.sink !== "bigquery") return false;
-    return needsAllowanceApproval(
-      read.budget,
-      FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+    return (
+      read !== null &&
+      (await firstPartyQueriesRunOnBigQuery(read.identity)) &&
+      needsAllowanceApproval(
+        read.budget,
+        FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+      )
     );
   },
   approvalNotice: async (_args, ctx) => {
-    const read = await allowanceBudget(ctx);
+    const read = await allowanceBudget(ctx, new Date(ctx.askedAt));
     return read
       ? allowanceApprovalNotice(
           read.budget,

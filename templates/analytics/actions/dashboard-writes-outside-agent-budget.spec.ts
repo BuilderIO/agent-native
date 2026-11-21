@@ -601,3 +601,48 @@ describe("in-app dashboard writes are unchanged", () => {
     expect(budget.read).not.toHaveBeenCalled();
   });
 });
+
+describe("an MCP dashboard edit past the no-ask allowance", () => {
+  it("is saved, and points at the reads that can ask rather than an inspect that stops the same way", async () => {
+    await seedDashboard("d1", ["a"]);
+    budget.admit.mockImplementation(async (_identity, request) => ({
+      status: "refused",
+      code: "approval_required",
+      scope: "person",
+      reservedBytes: request.reservedBytes,
+      budget: today(),
+    }));
+    const result = (await actions.mutate.run(
+      {
+        dashboardId: "d1",
+        operations: [{ op: "insertPanel", panel: panel("b") }],
+        expectedUpdatedAt: SEED_AT,
+        idempotencyKey: newKey(),
+      },
+      MCP,
+    )) as {
+      verified: boolean;
+      nextStep: string;
+      unverified: Array<{ panelId: string; note?: string; reason: string }>;
+    };
+
+    const [saved] = await harness.db
+      .select({ config: schema.dashboards.config })
+      .from(schema.dashboards);
+    expect(JSON.parse(must(saved).config).panels).toHaveLength(2);
+    expect(result.verified).toBe(false);
+    expect(result.unverified).toEqual([
+      {
+        panelId: "b",
+        title: "Panel b",
+        status: "unverified",
+        note: "outside_agent_approval_required",
+        reason:
+          "its query would take the outside agent past today's no-ask BigQuery allowance, which only the person can raise, on Analytics' review page, so it was not run",
+      },
+    ]);
+    expect(result.nextStep).toBe(
+      "Saved, but not run: b, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point. Raising the allowance needs the person's approval on Analytics' review page, which a dashboard edit can't ask for: a get-onboarding-journey or get-first-party-analytics-health call over MCP asks once when it needs more, or an Analytics organization admin can raise the daily allowance. Until then, do not claim those panels render.",
+    );
+  });
+});

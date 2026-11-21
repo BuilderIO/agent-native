@@ -37,6 +37,7 @@ const database = vi.hoisted(() => {
 });
 const orgSettings = vi.hoisted(() => new Map<string, unknown>());
 const jobs = vi.hoisted(() => ({ count: 0, cap: [] as number[] }));
+const backend = vi.hoisted(() => ({ sink: "bigquery" }));
 
 interface GrantCall {
   nonce: string;
@@ -44,6 +45,7 @@ interface GrantCall {
   argumentsHash: string;
   expiresAt: number;
   approvalNotice?: string | null;
+  createdAt?: number;
 }
 interface Grant extends GrantCall {
   consumed: boolean;
@@ -58,21 +60,25 @@ interface ToolResult {
     bigQueryBudget?: {
       today?: { person: { limitUsd: number; approvedToday: boolean } };
       refusal?: { code: string; message: string };
+      maxTotalBytesBilled?: { requested: number; applied: number };
     };
   };
 }
 
 const approvalStore = vi.hoisted(() => {
   const grants = new Map<string, Grant>();
+  const hooks = { beforeInsert: () => {} };
   const create = async (grant: GrantCall) => {
+    hooks.beforeInsert();
     grants.set(grant.nonce, {
       ...grant,
       consumed: false,
-      createdAt: Date.now(),
+      createdAt: grant.createdAt ?? Date.now(),
     });
   };
   return {
     grants,
+    hooks,
     create,
     mock: async (importOriginal: () => Promise<object>) => ({
       ...(await importOriginal()),
@@ -187,7 +193,7 @@ vi.mock(
     ...(await importOriginal<
       typeof import("../server/lib/first-party-analytics-backend")
     >()),
-    getFirstPartyAnalyticsBackend: async () => ({ sink: "bigquery" }),
+    getFirstPartyAnalyticsBackend: async () => ({ sink: backend.sink }),
   }),
 );
 
@@ -230,7 +236,9 @@ vi.mock("../server/lib/onboarding-journey", async (importOriginal) => {
   return {
     ...actual,
     getOnboardingJourney: async () => {
-      await admitJob(actual.ONBOARDING_EVENTS_MAX_BYTES_BILLED);
+      if (backend.sink === "bigquery") {
+        await admitJob(actual.ONBOARDING_EVENTS_MAX_BYTES_BILLED);
+      }
       return {
         window: { from: "2026-11-01", to: "2026-11-02" },
         app: "all",
@@ -250,9 +258,13 @@ const {
   BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
   BIGQUERY_AGENT_BUDGET_SETTING_KEY,
   BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  formatUsd,
+  OUTSIDE_AGENT_ORG_LIMIT_BYTES,
   OUTSIDE_AGENT_PERSON_BASE_BYTES,
   OUTSIDE_AGENT_PERSON_CEILING_BYTES,
 } = await import("../server/lib/bigquery-agent-budget");
+const { onboardingFollowUpBytes } =
+  await import("../server/lib/onboarding-journey-agent-budget");
 const { billedBytesForUsd } = await import("../server/lib/bigquery-pricing");
 const { default: getHealth } =
   await import("./get-first-party-analytics-health");
@@ -314,13 +326,14 @@ async function seedJob(
   bytes: number,
   state: "settled" | "pending",
   at: Date = NOON,
+  owner = "alice@example.com",
 ) {
   const id = `seed_${Math.random().toString(36).slice(2)}`;
   await must(database.client).query(
     `INSERT INTO analytics_bigquery_agent_jobs (request_id, project_id, job_id, owner_email, org_id, org_key,
        credential_scope, source, utc_day, reserved_bytes, billed_bytes, state, submission_state, created_at,
        lease_expires_at, resolved_at)
-     VALUES ($1, 'builder-3b0a2', $1, 'alice@example.com', 'org-1', 'org:org-1', 'default', 'seed', $2, $3,
+     VALUES ($1, 'builder-3b0a2', $1, $9, 'org-1', 'org:org-1', 'default', 'seed', $2, $3,
        $4, $5, 'accepted', $6, $7, $8)`,
     [
       id,
@@ -331,7 +344,23 @@ async function seedJob(
       at.toISOString(),
       new Date(at.getTime() + 6 * 3_600_000).toISOString(),
       state === "settled" ? at.toISOString() : null,
+      owner,
     ],
+  );
+  return id;
+}
+
+async function settleJob(id: string, billedBytes: number) {
+  await must(database.client).query(
+    "UPDATE analytics_bigquery_agent_jobs SET state = 'settled', billed_bytes = $2, resolved_at = $3 WHERE request_id = $1",
+    [id, billedBytes, new Date().toISOString()],
+  );
+}
+
+async function releaseJob(id: string) {
+  await must(database.client).query(
+    "UPDATE analytics_bigquery_agent_jobs SET state = 'released', resolved_at = $2 WHERE request_id = $1",
+    [id, new Date().toISOString()],
   );
 }
 
@@ -374,6 +403,8 @@ beforeEach(async () => {
   }
   orgSettings.clear();
   approvalStore.grants.clear();
+  approvalStore.hooks.beforeInsert = () => {};
+  backend.sink = "bigquery";
   jobs.count = 0;
   jobs.cap.length = 0;
   elicit.mockClear();
@@ -447,8 +478,15 @@ describe("asking an MCP agent's person once past the no-ask allowance", () => {
     expect(jobs.count).toBe(2);
   });
 
-  it("asks the onboarding journey where it would refuse, stating the journey's cost", async () => {
-    await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB, "settled");
+  it("asks the onboarding journey where it would refuse, stating a cost its approved run can't exceed", async () => {
+    const personSpent = OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB;
+    await seedJob(personSpent, "settled");
+    const othersReservation = await seedJob(
+      OUTSIDE_AGENT_ORG_LIMIT_BYTES - personSpent - 80_000 * MB,
+      "pending",
+      NOON,
+      "bob@example.com",
+    );
     const call = await connect();
     const window = { dateFrom: "2026-11-01", dateTo: "2026-11-02" };
     const asked = await call("get-onboarding-journey", window);
@@ -463,11 +501,58 @@ describe("asking an MCP agent's person once past the no-ask allowance", () => {
     );
     expect(jobs.count).toBe(0);
 
+    await releaseJob(othersReservation);
     approveOnReviewPage(grant);
     const ran = await call("get-onboarding-journey", window);
     expect(ran.isError).not.toBe(true);
     expect(await allowanceRows()).toHaveLength(1);
     expect(jobs.count).toBe(1);
+    const { applied } = must(budgetOf(ran).maxTotalBytesBilled);
+    expect(grant.approvalNotice).toContain(
+      `This call can bill up to ${formatUsd(applied + onboardingFollowUpBytes({ followUpMode: "session" }))}.`,
+    );
+  });
+
+  it("asks nothing and records nothing for an onboarding journey whose queries run on Postgres", async () => {
+    backend.sink = "postgres";
+    await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB, "settled");
+    const call = await connect();
+    const result = await call("get-onboarding-journey", {
+      dateFrom: "2026-11-01",
+      dateTo: "2026-11-02",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(approvalStore.grants.size).toBe(0);
+    expect(await allowanceRows()).toEqual([]);
+    expect(jobs.count).toBe(0);
+  });
+
+  it("uses an approval whose reservation settled lower before the retry, so a later crossing asks nothing", async () => {
+    await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 300 * MB, "settled");
+    const running = await seedJob(500 * MB, "pending");
+    const call = await connect();
+    expect((await call("get-first-party-analytics-health")).isError).toBe(true);
+    const grant = onlyGrant();
+
+    approveOnReviewPage(grant);
+    await settleJob(running, MB);
+    expect((await call("get-first-party-analytics-health")).isError).not.toBe(
+      true,
+    );
+    expect(grant.consumed).toBe(true);
+    expect(await allowanceRows()).toEqual([
+      expect.objectContaining({
+        utc_day: "2026-11-17",
+        approved_via: "mcp-review-page",
+      }),
+    ]);
+
+    await seedJob(500 * MB, "settled");
+    expect((await call("get-first-party-analytics-health")).isError).not.toBe(
+      true,
+    );
+    expect(approvalStore.grants.size).toBe(1);
+    expect(jobs.count).toBe(2);
   });
 
   it("asks nothing when an admin-raised allowance covers the call", async () => {
@@ -494,17 +579,27 @@ describe("asking an MCP agent's person once past the no-ask allowance", () => {
     expect(await allowanceRows()).toEqual([]);
   });
 
-  it("records nothing for an approval used after 00:00 UTC and asks again for the new day", async () => {
-    const lateEvening = new Date("2026-11-17T23:55:00.000Z");
-    vi.setSystemTime(lateEvening);
+  it("records nothing for an approval used after 00:00 UTC, even one whose grant was made past midnight, and asks again for the new day", async () => {
+    const lastSecond = new Date("2026-11-17T23:59:59.900Z");
+    vi.setSystemTime(lastSecond);
     await seedJob(
       OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB,
       "pending",
-      lateEvening,
+      lastSecond,
     );
     const call = await connect();
+    approvalStore.hooks.beforeInsert = () => {
+      vi.setSystemTime(new Date("2026-11-18T00:00:00.100Z"));
+    };
     expect((await call("get-first-party-analytics-health")).isError).toBe(true);
+    approvalStore.hooks.beforeInsert = () => {};
     const grant = onlyGrant();
+    expect(grant.approvalNotice).toContain(
+      "The approval expires at 00:00 UTC (2026-11-18T00:00:00.000Z).",
+    );
+    expect(new Date(grant.createdAt).toISOString().slice(0, 10)).toBe(
+      "2026-11-17",
+    );
 
     vi.setSystemTime(new Date("2026-11-18T00:01:00.000Z"));
     approveOnReviewPage(grant);

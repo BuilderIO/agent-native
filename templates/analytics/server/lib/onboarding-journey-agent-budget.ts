@@ -99,6 +99,22 @@ export function planOutsideAgentOnboardingBytes(
   };
 }
 
+export function approvedOutsideAgentOnboardingBound(
+  budget: BigQueryAgentBudgetSnapshot,
+  requestedBytes: number | undefined,
+  call: OutsideAgentOnboardingCall,
+): number {
+  const unspent: BigQueryAgentBudgetSnapshot = {
+    ...budget,
+    person: { ...budget.person, remainingBytes: budget.person.ceilingBytes },
+    org: { ...budget.org, remainingBytes: budget.org.limitBytes },
+  };
+  const plan = planOutsideAgentOnboardingBytes(unspent, requestedBytes, call);
+  return plan.refusal
+    ? smallestOutsideAgentOnboardingCall(call)
+    : plan.applied + onboardingFollowUpBytes(call);
+}
+
 export async function outsideAgentOnboardingEventBytes(
   identity: OutsideAgentIdentity,
   requestedBytes: number | undefined,

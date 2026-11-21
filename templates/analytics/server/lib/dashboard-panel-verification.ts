@@ -87,6 +87,7 @@ export type PanelUnverifiedNote =
   | "too_expensive"
   | "not_executed:over_budget"
   | "outside_agent_budget"
+  | "outside_agent_approval_required"
   | "outside_agent_estimate_unavailable";
 
 export interface PanelVerification {
@@ -189,6 +190,8 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
     "more panels were affected than the per-save verification cap runs",
   outside_agent_budget:
     "the outside agent's daily BigQuery budget did not allow its query, so it was not run",
+  outside_agent_approval_required:
+    "its query would take the outside agent past today's no-ask BigQuery allowance, which only the person can raise, on Analytics' review page, so it was not run",
   outside_agent_estimate_unavailable:
     "BigQuery's dry run gave no usable cost estimate, so the outside agent's query was not run",
 };
@@ -788,7 +791,9 @@ async function verifyOne(
       note:
         budgetRefusal.code === "estimate_unavailable"
           ? "outside_agent_estimate_unavailable"
-          : "outside_agent_budget",
+          : budgetRefusal.code === "approval_required"
+            ? "outside_agent_approval_required"
+            : "outside_agent_budget",
       error: budgetRefusal.message,
     });
   }
@@ -1349,7 +1354,9 @@ export function describePanelOutcome(panel: PanelVerification): string {
         ? ""
         : ` (~${formatBytes(panel.estimatedBytes)}, ${formatUsd(usdForBytes(panel.estimatedBytes))} per refresh)`
     }`;
-    return panel.error ? `${why} (${clipHead(panel.error, 200)})` : why;
+    return panel.error && panel.note !== "outside_agent_approval_required"
+      ? `${why} (${clipHead(panel.error, 200)})`
+      : why;
   }
   if (panel.status === "empty") {
     return panel.rowCount
@@ -1464,8 +1471,14 @@ export async function verifyPanelWrite(
   const notRun = attention.filter(
     (panel) => panel.note === "not_executed:over_budget",
   );
+  const needAllowance = attention.filter(
+    (panel) => panel.note === "outside_agent_approval_required",
+  );
   const problems = attention.filter(
-    (panel) => !notRun.includes(panel) && !panel.visualOnly,
+    (panel) =>
+      !notRun.includes(panel) &&
+      !needAllowance.includes(panel) &&
+      !panel.visualOnly,
   );
   // inspect-dashboard-panel refuses a section or extension panel.
   const configProblems = attention.filter((panel) => panel.visualOnly);
@@ -1515,6 +1528,11 @@ export async function verifyPanelWrite(
             ...(notRun.length > 0
               ? [
                   `Not run: ${idList(notRun)} were beyond the per-save cap of ${DEFAULT_MAX_EXECUTED} executed panels, so only the verified panels are confirmed. Call inspect-dashboard-panel before claiming the others render.`,
+                ]
+              : []),
+            ...(needAllowance.length > 0
+              ? [
+                  `Saved, but not run: ${idList(needAllowance)}, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point. Raising the allowance needs the person's approval on Analytics' review page, which a dashboard edit can't ask for: a get-onboarding-journey or get-first-party-analytics-health call over MCP asks once when it needs more, or an Analytics organization admin can raise the daily allowance. Until then, do not claim those panels render.`,
                 ]
               : []),
           ].join(" "),
