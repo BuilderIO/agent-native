@@ -2809,6 +2809,8 @@ function providerAccessErrorGuidance(
  * exception is the provider's own remote MCP endpoint, which may receive it as
  * a per-request bearer (`mcp-client/workspace-connection-servers.ts`); it is
  * still never stored on the server config or shown to the agent.
+ * Pass the operation's requiredScopes with a workspace connection to verify
+ * both the connection grant and the scopes on the stored token.
  */
 export async function resolveProviderApiOAuthAccessToken(
   args: {
@@ -5447,7 +5449,6 @@ async function resolveOAuthBearerToken(options: {
     options.auth.oauthProvider,
     ownerEmail,
   );
-  // Personal workspace credentials are usable only through their connection grant.
   const eligibleAccounts = accounts.filter(
     (entry) =>
       options.connectionId ||
@@ -5560,7 +5561,7 @@ async function resolveOAuthBearerToken(options: {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
       provider: options.auth.oauthProvider,
-      connectionId: options.connectionId,
+      connectionId: options.connectionId ?? null,
       message: `${options.auth.tokenLabel} is missing required OAuth scopes.`,
       reason: "reauthorize",
     });
@@ -5584,7 +5585,7 @@ async function resolveOAuthBearerToken(options: {
       return throwWorkspaceConnectionRequired({
         runtime: options.runtime,
         provider: options.auth.oauthProvider,
-        connectionId: options.connectionId,
+        connectionId: options.connectionId ?? null,
         message: error.message,
         reason: "reauthorize",
       });
@@ -5744,7 +5745,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     });
   }
   const connection = resolved.connection;
-  const personal = connection.config?.personalProviderOAuth === true;
+  const personal = isPersonalProviderConnection(connection);
   if (
     (personal &&
       (connection.config.workspaceConnectionScope !== "user" ||
@@ -5762,7 +5763,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     return throwWorkspaceConnectionRequired({
       runtime: options.runtime,
       provider: options.workspaceProvider,
-      connectionId: requestedConnectionId,
+      connectionId: requestedConnectionId ?? null,
       message: `${options.auth.tokenLabel} is unavailable for this scope.`,
     });
   }
@@ -5803,6 +5804,12 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     connectionId: endpointOwner.connectionId,
     connectionLabel: resolved.connection.label,
   };
+}
+
+function isPersonalProviderConnection(connection: {
+  config?: WorkspaceConnection["config"];
+}): boolean {
+  return connection.config?.personalProviderOAuth === true;
 }
 
 function isPermanentGoogleOAuthRefreshFailure(error: unknown): boolean {
@@ -6006,7 +6013,7 @@ async function resolvePersonalProviderOAuthAccess(options: {
               access_token: data.access_token,
               refresh_token: data.refresh_token,
               expiry_date: Date.now() + expiresIn * 1_000,
-              scope: data.scope ?? stored.scope,
+              ...(data.scope === undefined ? {} : { scope: data.scope }),
             };
           },
         },
@@ -6034,7 +6041,6 @@ async function resolvePersonalProviderOAuthAccess(options: {
       `${label} OAuth credential is expired or missing required access.`,
     );
   }
-  // These providers can revoke still-unexpired credentials independently.
   const { response, data } = await fetchBoundedOAuthRefreshJson<{
     ok?: boolean;
     id?: string;

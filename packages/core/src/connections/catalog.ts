@@ -149,7 +149,6 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       authorizationUrl: "https://slack.com/oauth/v2/authorize",
       tokenUrl: "https://slack.com/api/oauth.v2.access",
       scopes: [...SLACK_PUBLIC_HISTORY_OAUTH_SCOPES, "search:read.public"],
-      // Preserve legacy installations. Operations check the grant they need.
       requiredScopes: [],
     },
     capabilities: ["search", "import", "messages"],
@@ -169,7 +168,6 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         "cloud_recording:read:list_user_recordings",
         "cloud_recording:read:list_recording_files",
       ],
-      // Calendar and existing recording connections may hold different scopes.
       requiredScopes: [],
     },
     capabilities: ["meetings", "import"],

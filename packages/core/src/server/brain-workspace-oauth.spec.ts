@@ -174,10 +174,14 @@ describe("workspace OAuth consent", () => {
       state: "fixture",
       challenge: "fixture",
     };
+    const slackProvider = getWorkspaceConnectionProvider("slack");
+    const zoomProvider = getWorkspaceConnectionProvider("zoom");
+    if (!slackProvider || !zoomProvider)
+      throw new Error("Workspace OAuth catalog entries are missing.");
     const slack = new URL(
       buildWorkspaceProviderAuthorizationUrl({
         ...input,
-        provider: getWorkspaceConnectionProvider("slack")!,
+        provider: slackProvider,
         optionalScopes: ["search:read.public"],
       }),
     );
@@ -188,7 +192,7 @@ describe("workspace OAuth consent", () => {
     const zoom = new URL(
       buildWorkspaceProviderAuthorizationUrl({
         ...input,
-        provider: getWorkspaceConnectionProvider("zoom")!,
+        provider: zoomProvider,
         requestedScopes: [zoomScopes[1]],
         optionalScopes: [zoomScopes[2]],
       }),
