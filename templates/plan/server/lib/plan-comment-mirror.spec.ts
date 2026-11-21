@@ -695,16 +695,28 @@ describe("Plan comments in the review kit", () => {
     await expectStoresAgree(planId);
   });
 
-  it("clears comments only the kit holds, so the copy can finish", async () => {
+  it("clears a gone plan's comments, and keeps ones written through the kit on a plan that's still here", async () => {
     const planId = await newPlan([
-      { id: "orphan-root", message: "Copied, then removed without the mirror" },
       { id: "orphan-kept", message: "Still in Plan" },
     ]);
-    const { getDb, schema } = dbModule;
-    await getDb()
-      .delete(schema.planComments)
-      .where(eq(schema.planComments.id, "orphan-root"));
     const at = "2026-11-20T12:00:00.000Z";
+    await mirrorReviewComments(
+      { resourceType: "plan", resourceId: planId },
+      [
+        {
+          id: "kit-written-root",
+          threadId: "kit-written-root",
+          parentCommentId: null,
+          body: "Written through the kit before Plan registered",
+          authorEmail: OWNER.userEmail,
+          authorName: null,
+          createdBy: "human",
+          resolved: false,
+          createdAt: at,
+          updatedAt: at,
+        },
+      ],
+    );
     await mirrorReviewComments(
       { resourceType: "plan", resourceId: "plan-deleted-elsewhere" },
       [
@@ -727,10 +739,16 @@ describe("Plan comments in the review kit", () => {
 
     expect(report.failedPlans).toEqual([]);
     expect(report.differences).toEqual([]);
-    expect(await stored("orphan-root")).toMatchObject({ status: "deleted" });
     expect(await stored("orphan-kept")).toMatchObject({ status: "open" });
+    expect(await stored("kit-written-root")).toMatchObject({
+      status: "open",
+      body: "Written through the kit before Plan registered",
+    });
+    expect(report.kitWrittenComments).toContainEqual({
+      planId,
+      id: "kit-written-root",
+    });
     expect(await stored("kit-only-root")).toMatchObject({ status: "deleted" });
-    await expectStoresAgree(planId);
   });
 
   it("refuses plan comment writes through the kit's own actions", async () => {

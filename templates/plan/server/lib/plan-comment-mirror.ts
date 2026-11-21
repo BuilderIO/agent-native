@@ -205,6 +205,7 @@ export interface PlanCommentCopyReport {
   comments: number;
   failedPlans: string[];
   differences: Array<{ planId: string } & ReviewMirrorDifference>;
+  kitWrittenComments: Array<{ planId: string; id: string }>;
 }
 
 const PLAN_PAGE_SIZE = 200;
@@ -217,6 +218,7 @@ export async function copyPlanCommentsToReviewKit(): Promise<PlanCommentCopyRepo
     comments: 0,
     failedPlans: [],
     differences: [],
+    kitWrittenComments: [],
   };
   let after = "";
   for (;;) {
@@ -274,7 +276,7 @@ async function copyPlan(
       if (plans.length === 0) {
         await deleteMirroredPlanComments(planId, "all");
         const { differences } = await comparePlanComments(resource, []);
-        return { comments: 0, differences };
+        return { comments: 0, differences, kitWritten: [] };
       }
       const rows = await tx
         .select()
@@ -299,18 +301,23 @@ async function copyPlan(
         await deleteMirroredPlanComments(planId, ids, by);
       }
       const { differences } = await comparePlanComments(resource, copies);
-      const extra = differences
-        .filter((difference) => difference.problem === "extra")
-        .map((difference) => difference.id);
-      if (extra.length === 0) return { comments: copies.length, differences };
-      await deleteMirroredPlanComments(planId, extra);
-      const recheck = await comparePlanComments(resource, copies);
-      return { comments: copies.length, differences: recheck.differences };
+      return {
+        comments: copies.length,
+        differences: differences.filter(
+          (difference) => difference.problem !== "extra",
+        ),
+        kitWritten: differences
+          .filter((difference) => difference.problem === "extra")
+          .map((difference) => difference.id),
+      };
     });
     report.plans += 1;
     report.comments += copied.comments;
     for (const difference of copied.differences) {
       report.differences.push({ planId, ...difference });
+    }
+    for (const id of copied.kitWritten) {
+      report.kitWrittenComments.push({ planId, id });
     }
   } catch (error) {
     report.failedPlans.push(planId);

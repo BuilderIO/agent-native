@@ -474,6 +474,12 @@ WHERE kind = 'edition' AND edition_issue_number IS NOT NULL`,
         return deferMigration();
       }
       const summary = `[db] Copied ${report.comments} comment(s) on ${report.plans} plan(s) to the review kit`;
+      if (report.kitWrittenComments.length > 0) {
+        console.warn(
+          `[db] Kept ${report.kitWrittenComments.length} plan comment(s) that were written through the review kit's own actions and aren't in Plan:`,
+          report.kitWrittenComments.slice(0, 20),
+        );
+      }
       if (report.differences.length > 0) {
         console.warn(
           `${summary}; ${report.differences.length} still differ:`,
