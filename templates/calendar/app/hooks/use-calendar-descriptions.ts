@@ -2,9 +2,14 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import type { ExternalCalendar } from "@shared/api";
+import { normalizeCalendarDescription } from "@shared/calendar-descriptions";
+
 type CalendarDescriptionTarget =
   | { accountEmail: string; feedId?: never }
   | { feedId: string; accountEmail?: never };
+
+const EXTERNAL_CALENDARS_KEY = ["action", "list-external-calendars"];
 
 /** Saves, or with empty text clears, an account's or feed's description. */
 export function useUpdateCalendarDescription() {
@@ -13,10 +18,25 @@ export function useUpdateCalendarDescription() {
     meta: surfaceMutationError(),
     mutationFn: (args: CalendarDescriptionTarget & { description: string }) =>
       callAction("update-calendar-description", args, { method: "PUT" }),
-    onSuccess: (_result, args) => {
+    onMutate: async (args) => {
+      if (!args.feedId) return;
+      // A feed color change saves the whole cached feed list, so the cache
+      // must hold the new description before the request lands; otherwise
+      // picking a color right after typing one would save the old text.
+      await queryClient.cancelQueries({ queryKey: EXTERNAL_CALENDARS_KEY });
+      const description = normalizeCalendarDescription(args.description);
+      queryClient.setQueriesData<ExternalCalendar[]>(
+        { queryKey: EXTERNAL_CALENDARS_KEY },
+        (feeds) =>
+          feeds?.map((feed) =>
+            feed.id === args.feedId ? { ...feed, description } : feed,
+          ),
+      );
+    },
+    onSettled: (_result, _error, args) => {
       if (args.feedId) {
         void queryClient.invalidateQueries({
-          queryKey: ["action", "list-external-calendars"],
+          queryKey: EXTERNAL_CALENDARS_KEY,
         });
         return;
       }
