@@ -26,8 +26,9 @@ Where a test belongs and which CI lane runs it is owned by
 ## Authoring gate
 
 No new test is the default. Most fixes and features are proven by running the
-changed path (`verifying-changes`), not by a test that ships with them. Before
-adding any test, answer four questions; a missing answer means do not add it:
+changed path (`verifying-changes`), not by a test that ships with them; a bug
+fix adds a regression test only when it meets the regression bar below. Before adding any test, answer four questions; a missing answer means do
+not add it:
 
 1. What observable behavior, invariant, or independent contract does it protect?
 2. What credible regression makes it fail?
@@ -57,8 +58,7 @@ The shared checklist for both modes: the authoring gate rejects a new test that
 matches one, and audits hunt for existing tests that do.
 
 - assertion-free coverage probes;
-- absence tests for a removed feature, route, or flag, unless the removal itself
-  is a security or public contract;
+- absence tests for a removed feature, route, or flag;
 - self-comparisons and identity copiers;
 - copied fixtures, inventories, manifests, or export lists;
 - exact source, import, or string greps;
