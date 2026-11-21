@@ -7,11 +7,12 @@ import {
   getAccountDescriptions,
 } from "../server/lib/calendar-descriptions.js";
 import { listGoogleCalendars } from "../server/lib/google-calendar.js";
+import { owningAccountEmail } from "../shared/calendar-descriptions.js";
 
 export default defineAction({
   mcpTool: "search",
   description:
-    "Discover Google Calendar sources available through every connected account. Source keys are opaque and must be passed back to list-events; names and roles in client requests are never trusted. accountDescription says what the user uses that account for.",
+    "Discover Google Calendar sources available through every connected account. Source keys are opaque and must be passed back to list-events; names and roles in client requests are never trusted. accountDescription says what the user uses the calendar's account for: the account whose primary calendar it is, or else the account it is read through.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -28,7 +29,7 @@ export default defineAction({
       calendars: result.calendars.map((calendar) => {
         const accountDescription = accountDescriptionFor(
           descriptions,
-          calendar.accountEmail,
+          owningAccountEmail(calendar),
         );
         return accountDescription
           ? { ...calendar, accountDescription }

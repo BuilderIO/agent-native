@@ -5,9 +5,9 @@ import {
   normalizeCalendarDescription,
   withFeedDescription,
 } from "../../shared/calendar-descriptions.js";
+import { mutateExternalCalendars } from "./external-calendars.js";
 
 const ACCOUNT_DESCRIPTIONS_KEY = "calendar-account-descriptions";
-const EXTERNAL_CALENDARS_KEY = "external-calendars";
 
 function accountKey(email: string): string {
   return email.trim().toLowerCase();
@@ -28,14 +28,9 @@ function readAccountDescriptions(stored: unknown): Record<string, string> {
 export async function getAccountDescriptions(
   owner: string,
 ): Promise<Record<string, string>> {
-  try {
-    return readAccountDescriptions(
-      await getUserSetting(owner, ACCOUNT_DESCRIPTIONS_KEY),
-    );
-  } catch (error) {
-    console.warn("[calendar] couldn't read account descriptions", error);
-    return {};
-  }
+  return readAccountDescriptions(
+    await getUserSetting(owner, ACCOUNT_DESCRIPTIONS_KEY),
+  );
 }
 
 export function accountDescriptionFor(
@@ -65,17 +60,13 @@ export async function setFeedDescription(
   description: string | undefined,
 ): Promise<ExternalCalendar | null> {
   let updated: ExternalCalendar | null = null;
-  await mutateUserSetting(owner, EXTERNAL_CALENDARS_KEY, (current) => {
-    const feeds = Array.isArray(current)
-      ? (current as unknown as ExternalCalendar[])
-      : [];
-    const next = feeds.map((feed) => {
+  await mutateExternalCalendars(owner, (feeds) =>
+    feeds.map((feed) => {
       if (feed.id !== feedId) return feed;
       const changed = withFeedDescription(feed, description);
       updated = changed;
       return changed;
-    });
-    return next as unknown as Record<string, unknown>;
-  });
+    }),
+  );
   return updated;
 }

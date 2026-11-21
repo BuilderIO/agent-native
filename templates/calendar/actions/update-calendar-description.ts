@@ -6,7 +6,7 @@ import {
   setAccountDescription,
   setFeedDescription,
 } from "../server/lib/calendar-descriptions.js";
-import { getOwnedAccountEmails } from "../server/lib/google-calendar.js";
+import { getConnectedAccounts } from "../server/lib/google-calendar.js";
 import {
   MAX_CALENDAR_DESCRIPTION_LENGTH,
   normalizeCalendarDescription,
@@ -71,7 +71,7 @@ export default defineAction({
 
     if (accountEmail) {
       const target = accountEmail.trim().toLowerCase();
-      const owned = (await getOwnedAccountEmails(owner)).find(
+      const owned = (await getConnectedAccounts(owner)).find(
         (email) => email.trim().toLowerCase() === target,
       );
       if (!owned) {

@@ -74,6 +74,49 @@ describe("list-google-calendars action", () => {
     ]);
   });
 
+  it("describes a merged primary calendar by the account it belongs to", async () => {
+    listGoogleCalendarsMock.mockResolvedValue({
+      calendars: [
+        {
+          sourceKey: "s1",
+          canonicalKey: "c1",
+          accountEmail: "assistant@example.com",
+          calendarId: "work@example.com",
+          name: "work@example.com",
+          selected: true,
+          primary: true,
+          accessRole: "owner",
+          readOnly: false,
+          sourcePaths: [
+            {
+              sourceKey: "s1",
+              accountEmail: "assistant@example.com",
+              accessRole: "owner",
+              primary: false,
+            },
+            {
+              sourceKey: "s2",
+              accountEmail: "work@example.com",
+              accessRole: "owner",
+              primary: true,
+            },
+          ],
+        },
+      ],
+      errors: [],
+    });
+    getUserSettingMock.mockResolvedValue({
+      "work@example.com": "Work meetings",
+      "assistant@example.com": "Assistant inbox",
+    });
+
+    const result = await action.run({});
+
+    expect(result.calendars).toEqual([
+      expect.objectContaining({ accountDescription: "Work meetings" }),
+    ]);
+  });
+
   it("refuses unauthenticated discovery", async () => {
     getRequestUserEmailMock.mockReturnValue(undefined);
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
-  getOwnedAccountEmails: vi.fn(),
+  getConnectedAccounts: vi.fn(),
   settings: new Map<string, unknown>(),
 }));
 
@@ -30,10 +30,11 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("../server/lib/google-calendar.js", () => ({
-  getOwnedAccountEmails: mocks.getOwnedAccountEmails,
+  getConnectedAccounts: mocks.getConnectedAccounts,
 }));
 
 import action from "./update-calendar-description.js";
+import updateExternalCalendars from "./update-external-calendars.js";
 
 const owner = "owner@example.com";
 const run = (args: Parameters<typeof action.run>[0]) => action.run(args);
@@ -45,7 +46,7 @@ describe("update-calendar-description", () => {
     vi.clearAllMocks();
     mocks.settings.clear();
     mocks.getRequestUserEmail.mockReturnValue(owner);
-    mocks.getOwnedAccountEmails.mockResolvedValue([
+    mocks.getConnectedAccounts.mockResolvedValue([
       "work@example.com",
       "me@example.com",
     ]);
@@ -152,6 +153,49 @@ describe("update-calendar-description", () => {
     await expect(
       isValid({ accountEmail: "work@example.com", description: "x" }),
     ).resolves.toBe(true);
+  });
+
+  it("keeps saved feed descriptions when the whole feed list is replaced", async () => {
+    mocks.settings.set(`${owner}:external-calendars`, [
+      {
+        id: "talks",
+        name: "Talks",
+        url: "https://a.test/t.ics",
+        color: "blue",
+        description: "Talks",
+      },
+      {
+        id: "holidays",
+        name: "Holidays",
+        url: "https://a.test/h.ics",
+        color: "green",
+        description: "Holidays",
+      },
+    ]);
+
+    await updateExternalCalendars.run({
+      calendars: [
+        { id: "talks", name: "Talks", url: "https://a.test/t.ics", color: "red" },
+        {
+          id: "holidays",
+          name: "Holidays",
+          url: "https://a.test/h.ics",
+          color: "green",
+          description: " ",
+        },
+      ],
+    });
+
+    expect(mocks.settings.get(`${owner}:external-calendars`)).toEqual([
+      {
+        id: "talks",
+        name: "Talks",
+        url: "https://a.test/t.ics",
+        color: "red",
+        description: "Talks",
+      },
+      { id: "holidays", name: "Holidays", url: "https://a.test/h.ics", color: "green" },
+    ]);
   });
 
   it("refuses unauthenticated calls", async () => {

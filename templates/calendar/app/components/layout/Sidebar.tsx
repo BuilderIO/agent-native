@@ -10,6 +10,7 @@ import {
   AppSidebarNavItem,
 } from "@agent-native/toolkit/app/shared";
 import type { GoogleCalendarSource, OverlayPerson } from "@shared/api";
+import { owningAccountEmail } from "@shared/calendar-descriptions";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCalendar,
@@ -602,7 +603,7 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
                 value={calendar.accountDescription}
                 onSave={(description) =>
                   updateDescription.mutate({
-                    accountEmail: calendar.accountEmail,
+                    accountEmail: owningAccountEmail(calendar),
                     description,
                   })
                 }

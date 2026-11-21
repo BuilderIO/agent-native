@@ -1,4 +1,4 @@
-import type { ExternalCalendar } from "./api.js";
+import type { ExternalCalendar, GoogleCalendarSource } from "./api.js";
 
 export const MAX_CALENDAR_DESCRIPTION_LENGTH = 300;
 
@@ -18,4 +18,13 @@ export function withFeedDescription(
   if (description) next.description = description;
   else delete next.description;
   return next;
+}
+
+export function owningAccountEmail(
+  calendar: Pick<GoogleCalendarSource, "accountEmail" | "sourcePaths">,
+): string {
+  return (
+    calendar.sourcePaths?.find((path) => path.primary)?.accountEmail ??
+    calendar.accountEmail
+  );
 }
