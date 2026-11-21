@@ -3,6 +3,7 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
+import { builderAutosaveMessagesByLocale } from "./builder-autosave-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
 import {
   discussionMessages,
@@ -2023,7 +2024,9 @@ const enUS = {
     aiResponseMode: "Response",
     aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
-    aiUnavailable: "Unavailable",
+    aiModelNotConnected:
+      "{{model}} isn’t connected. Click its name to choose another model.",
+    aiModelNotConnectedAlone: "{{model}} isn’t connected.",
     aiReplyInThread: "Reply in thread",
     aiApplyAndResolve: "Apply changes and resolve",
     aiPromptSuggest: "Suggest changes for this comment.",
@@ -2352,6 +2355,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2417,6 +2421,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    builderAutosave: enUS.builderAutosave,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2939,6 +2944,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    builderAutosave: builderAutosaveMessagesByLocale[locale],
   };
 }
 

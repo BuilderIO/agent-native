@@ -1969,6 +1969,56 @@ export function isBuilderCmsWriteEffect(
   return (BUILDER_CMS_WRITE_EFFECTS as readonly unknown[]).includes(value);
 }
 
+export function builderEntryEditorUrl(entryId: string) {
+  return `https://builder.io/content/${encodeURIComponent(entryId)}`;
+}
+
+export type BuilderArticleAutosaveState =
+  | "idle"
+  | "saving"
+  | "saved"
+  | "waiting"
+  | "failed"
+  | "review";
+
+export type BuilderArticleAutosaveReason =
+  | "builder_editor_changes"
+  | "checking_last_save"
+  | "another_save_running"
+  | "published"
+  | "needs_review"
+  | "edit_conflict"
+  | "builder_changed"
+  | "save_failed"
+  | "unconfirmed_save";
+
+export interface BuilderArticleAutosaveStatus {
+  enabled: boolean;
+  state: BuilderArticleAutosaveState;
+  reason: BuilderArticleAutosaveReason | null;
+  error: string | null;
+  lastSavedAt: string | null;
+  due: boolean;
+  dueSoon: boolean;
+  canSave: boolean;
+}
+
+export interface BuilderArticleRowStatus {
+  documentId: string;
+  databaseId: string;
+  sourceId: string;
+  databaseItemId: string;
+  entryId: string | null;
+  builderUrl: string | null;
+  autosave: BuilderArticleAutosaveStatus | null;
+}
+
+export interface ListBuilderArticleAutosavesResponse {
+  databaseId: string | null;
+  sourceId: string | null;
+  rows: BuilderArticleRowStatus[];
+}
+
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;
   databaseItemId: string | null;
