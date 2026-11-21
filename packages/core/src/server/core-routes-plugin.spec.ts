@@ -1,7 +1,10 @@
 import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { defineAppConfig } from "../app-config/store.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/store.js";
 import {
   listFileUploadProviders,
   registerFileUploadProvider,
@@ -75,11 +78,11 @@ describe("GET /_agent-native/manifest.json", () => {
       name: "Items",
       homePath: "/items",
     });
-    const reset = defineAppConfig({ manifest });
+    defineAppConfig({ manifest });
     try {
       expect(await (await fetchManifest()).json()).toEqual(manifest);
     } finally {
-      reset();
+      resetAppConfigForTests();
     }
   });
 });

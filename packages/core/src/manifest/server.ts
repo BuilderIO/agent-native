@@ -1,4 +1,5 @@
 import { getAppConfig } from "../app-config/store.js";
+import { resolveAppHomePath } from "../shared/app-home-path.js";
 import { deriveAppManifest } from "./index.js";
 
 export const APP_MANIFEST_RESOURCE = {
@@ -36,14 +37,22 @@ export function getAppManifest(
   actionNames: readonly string[] = [],
   defaults: { id?: string | undefined; name?: string | undefined } = {},
 ) {
-  const { app, manifest } = getAppConfig();
+  const { app, manifest, workspace } = getAppConfig();
   return (
     manifest ??
     deriveAppManifest(
       {
-        id: app.id ?? app.legacyId ?? defaults.id,
+        id: app.id ?? app.legacyId ?? app.workspaceId ?? defaults.id,
         name: app.name ?? defaults.name,
-        homePath: app.homePath,
+        homePath: resolveAppHomePath(
+          {
+            ...(app.homePath === undefined ? {} : { homePath: app.homePath }),
+            ...(app.workspaceId === undefined
+              ? {}
+              : { workspaceId: app.workspaceId }),
+          },
+          workspace,
+        ),
       },
       actionNames,
     )

@@ -1,6 +1,9 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 
-import { defineAppConfig } from "../app-config/store.js";
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/store.js";
 import { deriveAppManifest } from "./index.js";
 import {
   getAppManifest,
@@ -9,41 +12,47 @@ import {
   registerManifestActions,
 } from "./server.js";
 
+afterEach(resetAppConfigForTests);
+
 it("derives a fallback from the configured app and its allowed actions", () => {
   const app = {};
   registerManifestActions(app, ["list-items", "delete-item", "internal-task"]);
   registerManifestActionDenials(app, [" delete-item "]);
   registerManifestActionDenials(app, ["internal-task"]);
-  const reset = defineAppConfig({
+  defineAppConfig({
     app: { id: "items", name: "Items", homePath: "/items" },
   });
-  try {
-    expect(
-      getAppManifest(getManifestActions(app), {
-        id: "fallback",
-        name: "Fallback",
-      }),
-    ).toEqual(
-      deriveAppManifest({ id: "items", name: "Items", homePath: "/items" }, [
-        "list-items",
-      ]),
-    );
-    expect(getManifestActions({})).toEqual([]);
-  } finally {
-    reset();
-  }
+  expect(
+    getAppManifest(getManifestActions(app), {
+      id: "fallback",
+      name: "Fallback",
+    }),
+  ).toEqual(
+    deriveAppManifest({ id: "items", name: "Items", homePath: "/items" }, [
+      "list-items",
+    ]),
+  );
+  expect(getManifestActions({})).toEqual([]);
 });
 
 it("prefers a declared manifest over fallback metadata", () => {
   const manifest = deriveAppManifest({ id: "items", name: "Items" }, [
     "show-item",
   ]);
-  const reset = defineAppConfig({ manifest });
-  try {
-    expect(getAppManifest(["other-action"], { id: "fallback" })).toEqual(
-      manifest,
-    );
-  } finally {
-    reset();
-  }
+  defineAppConfig({ manifest });
+  expect(getAppManifest(["other-action"], { id: "fallback" })).toEqual(
+    manifest,
+  );
+});
+
+it("uses the workspace app's landing route as the fallback screen", () => {
+  defineAppConfig({
+    app: { workspaceId: "items" },
+    workspace: {
+      appsJson: JSON.stringify([{ id: "items", homePath: "/inbox" }]),
+    },
+  });
+  const manifest = getAppManifest();
+  expect(manifest.id).toBe("items");
+  expect(manifest.screens.definitions.home?.show.route).toBe("/inbox");
 });

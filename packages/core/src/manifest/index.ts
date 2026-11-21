@@ -125,8 +125,8 @@ export function deriveAppManifest(
   },
   actionNames: readonly string[] = [],
 ): AppCapabilityManifest {
-  const id = app.id ?? "app";
-  const displayName = app.name ?? id;
+  const id = app.id?.trim() || "app";
+  const displayName = app.name?.trim() || id;
   return defineAppManifest({
     id,
     displayName,
