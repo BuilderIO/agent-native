@@ -261,7 +261,7 @@ export function contentDatabaseItemsContainingDocumentFilter(
         | ContentDatabaseNavigationPageResponse
         | undefined;
       return (
-        data?.items.some((item) =>
+        data?.items?.some((item) =>
           "document" in item
             ? item.document.id === documentId
             : item.documentId === documentId,

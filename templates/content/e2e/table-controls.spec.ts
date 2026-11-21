@@ -388,6 +388,7 @@ test.describe("inline table controls", () => {
       timeout: 30_000,
     });
     await expect(page.getByText("Collection unavailable")).toHaveCount(0);
+    await expect(page.getByText("Something went wrong")).toHaveCount(0);
   });
 
   test("the table's block menu sets its headers and width, and they are saved", async ({
