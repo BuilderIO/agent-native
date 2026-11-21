@@ -722,15 +722,13 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     expect(mismatches).toEqual([]);
   });
 
-  // Where an app sends outside agents' writes through ask_app, tool-search
-  // serves only read-only actions.
-  it("marks every search-served view-screen read-only", () => {
+  it("marks every search-served view-screen read-only, so tool-search serves it where writes go through ask_app", () => {
     const writes = apps.flatMap((app) =>
       advertisements(app)
         .filter(
           ({ tool, entry }) =>
             tool.name === "view-screen" &&
-            entry?.mcpTool === "search" &&
+            entry.mcpTool === "search" &&
             !isReadOnlyAction(entry),
         )
         .map(() => app.appId),
