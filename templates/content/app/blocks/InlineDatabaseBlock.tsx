@@ -15,7 +15,7 @@ import {
 } from "@/hooks/use-content-database";
 import { useDocument } from "@/hooks/use-documents";
 
-const MISSING_COLLECTION_RECHECK_DELAYS_MS = [1000, 2000, 4000, 8000];
+const MISSING_COLLECTION_RECHECK_DELAYS_MS = [1000, 2000, 4000];
 
 const InlineDatabaseView = lazy(async () => {
   const module = await import("@/components/editor/database/DatabaseView");
@@ -62,7 +62,7 @@ export function InlineDatabaseRead({
     let timer: number | undefined;
     const schedule = () => {
       timer = window.setTimeout(() => {
-        void refetch();
+        void refetch({ cancelRefetch: false });
         attempt += 1;
         if (attempt < MISSING_COLLECTION_RECHECK_DELAYS_MS.length) schedule();
       }, MISSING_COLLECTION_RECHECK_DELAYS_MS[attempt]);

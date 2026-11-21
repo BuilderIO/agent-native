@@ -62,8 +62,16 @@ export async function assertContentDatabaseLifecycleAccess(
 }
 
 type InlineDatabaseBlockSet =
-  | { ok: true; ownerBlockIds: Set<string>; blockDatabaseIds: Set<string> }
+  | { ok: true; ownerBlockIds: Set<string>; inlineDatabaseKeys: Set<string> }
   | { ok: false };
+
+function inlineDatabaseKey(
+  ownerBlockId: string,
+  databaseId: string,
+  databaseDocumentId: string,
+) {
+  return JSON.stringify([ownerBlockId, databaseId, databaseDocumentId]);
+}
 
 function walkNodes(node: PMNode | undefined, visit: (node: PMNode) => void) {
   if (!node) return;
@@ -92,7 +100,7 @@ export async function collectInlineDatabaseOwnerBlockIds(
   }
 
   const ownerBlockIds = new Set<string>();
-  const blockDatabaseIds = new Set<string>();
+  const inlineDatabaseKeys = new Set<string>();
   const inlineBlocks: PMNode[] = [];
   walkNodes(doc, (node) => {
     if (
@@ -116,7 +124,16 @@ export async function collectInlineDatabaseOwnerBlockIds(
       if (!parsed || parsed.type !== "inline-database") return { ok: false };
       if (!isInlineDatabaseData(parsed.data)) return { ok: false };
       if (parsed.data.ownerBlockId) ownerBlockIds.add(parsed.data.ownerBlockId);
-      if (parsed.data.databaseId) blockDatabaseIds.add(parsed.data.databaseId);
+      const { databaseId, databaseDocumentId } = parsed.data;
+      if (databaseId && databaseDocumentId) {
+        for (const id of [blockId, parsed.data.ownerBlockId]) {
+          if (id) {
+            inlineDatabaseKeys.add(
+              inlineDatabaseKey(id, databaseId, databaseDocumentId),
+            );
+          }
+        }
+      }
     } catch {
       return { ok: false };
     }
@@ -126,7 +143,7 @@ export async function collectInlineDatabaseOwnerBlockIds(
     return { ok: false };
   }
 
-  return { ok: true, ownerBlockIds, blockDatabaseIds };
+  return { ok: true, ownerBlockIds, inlineDatabaseKeys };
 }
 
 export async function reconcileInlineDatabasesForDocumentWithDb(args: {
@@ -171,6 +188,13 @@ export async function reconcileInlineDatabasesForDocumentWithDb(args: {
           {
             database,
             blockPresent: parsed.ownerBlockIds.has(database.ownerBlockId),
+            blockNamesIt: parsed.inlineDatabaseKeys.has(
+              inlineDatabaseKey(
+                database.ownerBlockId,
+                database.id,
+                database.documentId,
+              ),
+            ),
           },
         ]
       : [],
@@ -182,10 +206,7 @@ export async function reconcileInlineDatabasesForDocumentWithDb(args: {
     .map(({ database }) => database);
   const returned = owned
     .filter(
-      ({ database, blockPresent }) =>
-        !!database.deletedAt &&
-        blockPresent &&
-        parsed.blockDatabaseIds.has(database.id),
+      ({ database, blockNamesIt }) => !!database.deletedAt && blockNamesIt,
     )
     .map(({ database }) => database);
 

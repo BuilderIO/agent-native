@@ -427,18 +427,22 @@ the table was, in one step that one undo takes back; undoing it leaves the
 collection unlinked, so the page's next save moves it to Trash.
 
 An inline collection's block menu offers the reverse, "Turn into table". It
-reads the rows its current view shows, in that order with its filters and
-search, as text: a "Name" column with each row's title, then one column per
-property the view shows. It puts a plain table where the block was, in one
-undoable step, and the page's next save moves the collection to Trash. A view
-with more than 500 rows or 49 properties stays a collection. An agent does the
-same with `export-document` (format `csv`) or `get-content-database`, then
-`edit-document`.
+reads the rows its current view shows, as text, with the view's filters,
+search and sort. Grouping doesn't carry over: rows in collapsed groups are
+included, in sort order. The table has a "Name" column with each row's title,
+then one column per property the view shows. It puts a plain table where the
+block was, in one undoable step, and the page's next save moves the collection
+to Trash. A view with more than 500 rows or 49 properties stays a collection.
+An agent does the same with `export-document` (format `csv`) or
+`get-content-database`, then `edit-document`.
 
-A save whose body brings back a removed inline collection's block (same block
-ID, same `databaseId`) takes that collection back out of Trash, if it went
-there because a save dropped its block. A collection deleted on purpose, whose
-page is in Trash, stays there; restore it with `restore-content-database`.
+A save whose body brings back a removed inline collection's block (one block
+with the same block ID, `databaseId` and `databaseDocumentId`) takes that
+collection back out of Trash, if it went there because a save dropped its
+block. A collection deleted on purpose, whose page is in Trash, stays there;
+restore it with `restore-content-database`. If the block still shows
+"Collection unavailable" after the page saves, restore the collection the same
+way.
 
 Read `get-content-database.mutationContract` immediately before a single-row
 mutation. Pass its exact target and schema revision to create, exact item and

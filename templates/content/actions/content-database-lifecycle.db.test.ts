@@ -1666,6 +1666,99 @@ describe("inline database lifecycle reconcile", () => {
     );
   });
 
+  it("keeps an inline database deleted when it is deleted on purpose after a save removed its block", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const rowDocumentId = await createDocument({
+      parentId: databaseDocumentId,
+      title: "Row",
+    });
+    const block = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    const save = (content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: hostDocumentId, content }),
+      );
+    await save(block);
+    await save("The database block was removed.");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteContentDatabaseAction.run({ databaseId }),
+    );
+
+    await save(block);
+
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+    expect(await documentRow(databaseDocumentId)).toMatchObject({
+      trashedAt: expect.any(String),
+      trashRootId: databaseDocumentId,
+    });
+    expect(await documentRow(rowDocumentId)).toMatchObject({
+      trashedAt: expect.any(String),
+      trashRootId: databaseDocumentId,
+    });
+  });
+
+  it("restores a removed inline database only for one block that names its block, collection and page together", async () => {
+    const hostDocumentId = await createDocument({ title: "Host" });
+    const ownerBlockId = nextId("inline_database");
+    const { databaseId, databaseDocumentId } = await createDatabase({
+      hostDocumentId,
+      ownerBlockId,
+    });
+    const save = (content: string) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run({ id: hostDocumentId, content }),
+      );
+    const block = inlineDatabaseBlock({
+      blockId: ownerBlockId,
+      databaseId,
+      databaseDocumentId,
+    });
+    await save(block);
+    await save("The database block was removed.");
+
+    await save(
+      [
+        inlineDatabaseBlock({
+          blockId: ownerBlockId,
+          databaseId: nextId("db"),
+          databaseDocumentId: nextId("dbdoc"),
+        }),
+        inlineDatabaseBlock({
+          blockId: nextId("inline_database"),
+          databaseId,
+          databaseDocumentId,
+        }),
+      ].join("\n\n"),
+    );
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+
+    await save(
+      inlineDatabaseBlock({
+        blockId: ownerBlockId,
+        databaseId,
+        databaseDocumentId: nextId("dbdoc"),
+      }),
+    );
+    expect((await databaseRow(databaseId))?.deletedAt).toEqual(
+      expect.any(String),
+    );
+
+    await save(block);
+    expect((await databaseRow(databaseId))?.deletedAt).toBeNull();
+  });
+
   it("rolls back the browser receipt when inline database reconciliation fails", async () => {
     const hostDocumentId = await createDocument({ title: "Host" });
     const ownerBlockId = nextId("inline_database");

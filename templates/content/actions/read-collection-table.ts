@@ -37,7 +37,7 @@ export default defineAction({
       fail(`Document "${documentId}" not found.`, { statusCode: 404 });
     }
     const projection = await buildCollectionExportProjection(documentId, {
-      scope: { kind: "current_view", viewId, query: tableQuery },
+      scope: { kind: "view_query", viewId, query: tableQuery },
       propertyIds,
       includePrimaryBody: false,
       blockPropertyIds: [],

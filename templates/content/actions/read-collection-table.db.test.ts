@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -198,6 +199,75 @@ describe("read-collection-table", () => {
       rows: [
         ["Dune", "Read", "Frank Herbert"],
         ["Ulysses", "Read", "James Joyce"],
+      ],
+    });
+  });
+
+  it("reads the rows the view's own query shows, not the saved filters a personal view replaced", async () => {
+    const { databaseId, documentId, rowIds } = await createCollection(
+      "personal",
+      ["Dune", "Emma", "Ulysses"],
+    );
+    await addProperty({
+      id: "personal-status",
+      databaseId,
+      name: "Status",
+      type: "text",
+      position: 0,
+    });
+    await setPropertyValue(rowIds[0], "personal-status", "read");
+    await setPropertyValue(rowIds[1], "personal-status", "unread");
+    await setPropertyValue(rowIds[2], "personal-status", "read");
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "primary",
+          views: [
+            {
+              id: "primary",
+              name: "Table",
+              type: "table",
+              filters: [
+                {
+                  key: "personal-status",
+                  label: "Status",
+                  operator: "equals",
+                  value: "unread",
+                },
+              ],
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, databaseId));
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      readCollectionTableAction.run({
+        documentId,
+        viewId: "primary",
+        tableQuery: {
+          ...EMPTY_QUERY,
+          filters: [
+            {
+              key: "personal-status",
+              label: "Status",
+              operator: "equals",
+              value: "read",
+            },
+          ],
+          sorts: [{ key: "name", label: "Name", direction: "desc" }],
+        },
+        propertyIds: ["personal-status"],
+      }),
+    );
+
+    expect(result).toEqual({
+      fits: true,
+      properties: ["Status"],
+      rows: [
+        ["Ulysses", "read"],
+        ["Dune", "read"],
       ],
     });
   });
