@@ -10,6 +10,7 @@ import {
 import consumeReviewFeedback from "@agent-native/core/review/actions/consume-review-feedback";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
 import deleteReviewComment from "@agent-native/core/review/actions/delete-review-comment";
+import listReviewComments from "@agent-native/core/review/actions/list-review-comments";
 import reactToReviewComment from "@agent-native/core/review/actions/react-to-review-comment";
 import replyReviewComment from "@agent-native/core/review/actions/reply-review-comment";
 import resolveReviewThread from "@agent-native/core/review/actions/resolve-review-thread";
@@ -475,6 +476,46 @@ describe("Plan comments in the review kit", () => {
       deletedBy: OWNER.userEmail,
     });
     expect((await stored("gone-reply"))?.status).toBe("deleted");
+  });
+
+  it("hides a deleted plan's comments from the kit, even from people it was shared with", async () => {
+    const viewer = { userEmail: "viewer@example.test", orgId: "viewer-org" };
+    const planId = await newPlan([
+      { id: "trashed-root", message: "Still visible?" },
+    ]);
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.planShares)
+      .values({
+        id: `share-${planId}`,
+        resourceId: planId,
+        principalType: "user",
+        principalId: viewer.userEmail,
+        role: "viewer",
+        createdBy: OWNER.userEmail,
+      });
+    const list = action<{ comments: Array<{ id: string }> }>({
+      default: listReviewComments,
+    });
+    const args = list.schema.parse({
+      resourceType: "plan",
+      resourceId: planId,
+    });
+    const listAs = (who: typeof viewer) =>
+      runWithRequestContext(who, () => list.run(args, who));
+
+    expect((await listAs(viewer)).comments.map(({ id }) => id)).toEqual([
+      "trashed-root",
+    ]);
+
+    await call(deletePlan, { planId, mode: "soft" });
+    await expect(listAs(viewer)).rejects.toThrow();
+    await expect(listAs(OWNER)).rejects.toThrow();
+
+    await call(deletePlan, { planId, mode: "restore" });
+    expect((await listAs(viewer)).comments.map(({ id }) => id)).toEqual([
+      "trashed-root",
+    ]);
   });
 
   it("rolls the kit's copy back with a comment write that fails", async () => {
