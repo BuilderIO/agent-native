@@ -64,6 +64,12 @@ export default defineAction({
           .describe(
             "Expanded document IDs, most important first; each one this read returns comes back with its first child page in branches, and branchesTruncated is true when the cap left any out",
           ),
+        pagesOnly: z
+          .boolean()
+          .optional()
+          .describe(
+            "true leaves out a linked local folder's subfolder rows, for a picker that only takes pages",
+          ),
       })
       .optional()
       .describe(
@@ -140,6 +146,7 @@ export default defineAction({
         limit: limit ?? 20,
         cursor: navigation.cursor,
         expand: navigation.expand,
+        pagesOnly: navigation.pagesOnly ?? false,
       });
     }
 
