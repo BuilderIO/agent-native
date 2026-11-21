@@ -3751,6 +3751,7 @@ function PageEditorSessionBody({
             siblingDocumentIds: cachedFilesSiblingDocumentIds(
               queryClient,
               documentId,
+              navigationPath,
             ),
             filesRootDocumentIds: cachedFilesRootDocumentIds(
               queryClient,

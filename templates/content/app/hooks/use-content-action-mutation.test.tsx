@@ -548,6 +548,37 @@ describe("Trash writes", () => {
     expect(fetched.sort()).toEqual(["a", "ab", "top"]);
   });
 
+  it("delete of a page no cached branch or path places rereads the top level and open linked folders", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const folderReads: Array<[string, QueryKey, unknown]> = [
+      ["top", navigation(FILES, null), branch(a, "other")],
+      ["a", navigation(FILES, a), branch(ab)],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ];
+    const fetched: string[] = [];
+    for (const [name, key, data] of folderReads) {
+      queryClient.setQueryData(key, data);
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          fetched.push(name);
+          return data;
+        },
+        staleTime: Infinity,
+        retry: false,
+      });
+      unsubscribes.push(observer.subscribe(() => {}));
+    }
+    actionResponses["delete-document"] = { success: true, deleted: 1 };
+    const remove = await renderHook(() => useDeleteDocument());
+
+    await act(() => remove.current.mutateAsync({ id: "pinned-only" }));
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["a", "top"]);
+  });
+
   it("delete refreshes the open parent's path when only a cached path knows the parent", async () => {
     await mountReads(["otherPath", "pagePath"]);
     queryClient.setQueryData(

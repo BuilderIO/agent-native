@@ -3019,6 +3019,7 @@ export function DocumentSidebar({
               siblingDocumentIds: cachedFilesSiblingDocumentIds(
                 queryClient,
                 id,
+                activePath,
               ),
               filesRootDocumentIds: cachedFilesRootDocumentIds(queryClient, id),
               pendingTrashIds: pendingTrash.documentIds,

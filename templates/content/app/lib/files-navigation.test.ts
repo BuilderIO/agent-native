@@ -422,7 +422,7 @@ describe("cachedFilesRootDocumentIds", () => {
 });
 
 describe("cachedFilesSiblingDocumentIds", () => {
-  it("lists the other pages of each cached tree read that lists the page", () => {
+  it("lists the other pages of the folder the page is in now, from every cached page of its branch", () => {
     const queryClient = new QueryClient();
     const notes = "local-source-directory:vault:notes";
     const key = (
@@ -458,11 +458,36 @@ describe("cachedFilesSiblingDocumentIds", () => {
       key(null, { pagesOnly: true }),
       page([row("inbox"), row("picker-only")]),
     );
+    queryClient.setQueryData(
+      key("local-source-directory:vault:old"),
+      page([row("today"), row("left-behind")]),
+    );
+    const pathTo = (documentId: string, parentId: string | null) => [
+      ...(parentId ? [{ id: parentId, parentId: null }] : []),
+      { id: documentId, parentId },
+    ];
 
-    expect(cachedFilesSiblingDocumentIds(queryClient, "today")).toEqual([
-      "yesterday",
-    ]);
-    expect(cachedFilesSiblingDocumentIds(queryClient, "inbox")).toEqual([]);
+    expect(
+      cachedFilesSiblingDocumentIds(
+        queryClient,
+        "today",
+        pathTo("today", notes),
+      ),
+    ).toEqual(["yesterday", "later"]);
+    expect(
+      cachedFilesSiblingDocumentIds(
+        queryClient,
+        "later",
+        pathTo("later", notes),
+      ),
+    ).toEqual(["today", "yesterday"]);
+    expect(
+      cachedFilesSiblingDocumentIds(
+        queryClient,
+        "inbox",
+        pathTo("inbox", null),
+      ),
+    ).toEqual([]);
   });
 });
 

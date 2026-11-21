@@ -662,3 +662,16 @@ describe("Files navigation of a space without a linked folder", () => {
     ).toEqual([]);
   });
 });
+
+describe("a new page's ID", () => {
+  it("can't take the namespace of linked folder rows", async () => {
+    const create = (await import("./create-document.js")).default;
+    const idIssues = (id: string) =>
+      create.schema
+        .safeParse({ id, title: "Notes" })
+        .error?.issues.filter((issue) => issue.path[0] === "id") ?? [];
+
+    expect(idIssues(folder("vault", "notes"))).toHaveLength(1);
+    expect(idIssues("page-1")).toEqual([]);
+  });
+});

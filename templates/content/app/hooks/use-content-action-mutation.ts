@@ -275,6 +275,24 @@ export function contentLocalFolderBranchesFilter(
   };
 }
 
+function contentTopAndLocalFolderBranchesFilter(
+  databaseId: string | null | undefined,
+): QueryFilters {
+  return {
+    queryKey: navigationQueryKey,
+    predicate: (query) => {
+      const branch = navigationBranch(query);
+      return (
+        !!branch &&
+        (!databaseId || branch.databaseId === databaseId) &&
+        (branch.parentId === null ||
+          (typeof branch.parentId === "string" &&
+            isLocalSourceDirectoryId(branch.parentId)))
+      );
+    },
+  };
+}
+
 export function contentFilesCollectionFilter(): QueryFilters {
   return {
     queryKey: ["action"],
@@ -402,6 +420,8 @@ export function contentPlacementTargets(
     ...cachedParents(queryClient, documentIds, current),
     ...parentIds.filter((id): id is string => id !== null),
   ]);
+  const unplaced =
+    current.length === 0 && parents.length === 0 && parentIds.length === 0;
   return [
     contentNavigationBranchFilter({
       documentIds: [...documentIds, ...parents],
@@ -410,5 +430,6 @@ export function contentPlacementTargets(
       branches: current,
     }),
     contentNavigationContextFilter([...documentIds, ...parents]),
+    ...(unplaced ? [contentTopAndLocalFolderBranchesFilter(databaseId)] : []),
   ];
 }

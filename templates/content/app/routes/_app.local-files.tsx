@@ -30,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { invalidateContentQueries } from "@/hooks/use-content-action-mutation";
 import { useDocuments } from "@/hooks/use-documents";
 import { messagesByLocale } from "@/i18n-data";
 import {
@@ -57,6 +58,7 @@ import {
   runNativeFolderPickerWithCrashSentinel,
 } from "@/lib/local-folder-picker-safety";
 import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
+import { localFolderSyncTreeTargets } from "@/lib/local-folder-sync-refresh";
 import { cn } from "@/lib/utils";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -139,6 +141,7 @@ interface ImportContentSourceResult {
   filesSeen: number;
   created: Array<{ id: string; path: string; title: string }>;
   updated: Array<{ id: string; path: string; title: string }>;
+  removed?: Array<{ id: string; path: string; title: string }>;
   unchanged: Array<{ id: string; path: string; title: string }>;
   skipped: Array<{ path: string; reason: string }>;
   errors: Array<{ path: string; reason: string }>;
@@ -1110,6 +1113,17 @@ export default function LocalFilesRoute() {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
+      if (connection.filesDatabaseId) {
+        invalidateContentQueries(
+          queryClient,
+          localFolderSyncTreeTargets({
+            filesDatabaseId: connection.filesDatabaseId,
+            created: result.created,
+            updated: result.updated,
+            removed: result.removed ?? [],
+          }),
+        );
+      }
     }
     return { directories: nextDirectories, result };
   }
