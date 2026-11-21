@@ -229,6 +229,24 @@ const databaseMessages = {
   builderReviewShowMore: "Show more",
   builderReviewRemainingBatches:
     "Review again after this batch to prepare the remaining Builder changes.",
+  builderReviewLoadingMorePagesOne: "Loading changes for 1 more page…",
+  builderReviewLoadingMorePages: "Loading changes for {{count}} more pages…",
+  builderReviewConfirmingBodiesOne:
+    "Double-checking 1 body change against Builder…",
+  builderReviewConfirmingBodies:
+    "Double-checking {{count}} body changes against Builder…",
+  builderReviewFindingPages: "Finding pages with changes…",
+  builderReviewRowsMatchBuilderOne:
+    "1 page already matches Builder once its body is converted, so it’s left out.",
+  builderReviewRowsMatchBuilder:
+    "{{count}} pages already match Builder once their bodies are converted, so they’re left out.",
+  builderReviewLoadFailed: "Some changes didn’t load: {{message}}",
+  bodyDiffAdded: "Added:",
+  bodyDiffRemoved: "Removed:",
+  bodyDiffMoreLinesOne: "1 more changed line",
+  bodyDiffMoreLines: "{{count}} more changed lines",
+  bodyDiffMoreChangesOne: "1 more change not shown",
+  bodyDiffMoreChanges: "{{count}} more changes not shown",
   builderBodiesSyncingProgress: "Syncing {{hydrated}} of {{total}} bodies.",
   builderBodiesSyncFinishedWithFailures:
     "{{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
@@ -272,6 +290,11 @@ const databaseMessages = {
   failedToSavePagePreview: "Failed to save page preview",
   failedToSaveView: "Failed to save view",
   failedToUpdateCheckbox: "Failed to update checkbox",
+  undoPropertyChangedSince: "Not undone: this property changed after your edit",
+  redoPropertyChangedSince:
+    "Not redone: this property changed after you undid it",
+  undoPropertyFailed: "Couldn't undo the property change",
+  redoPropertyFailed: "Couldn't redo the property change",
   failedToUpdateEverySelectedRow: "Failed to update every selected row",
   removeSelectedRowsFromDatabaseQuestion:
     "Remove selected rows from collection?",
@@ -1621,6 +1644,7 @@ const enUS = {
       delete: "Delete",
       insertBelow: "Insert block below",
       insertAbove: "Insert block above",
+      turnIntoCollection: "Turn into collection",
       askAgent: "Ask agent",
       columns: "Columns",
       syncedBlock: "Synced block",
@@ -1763,9 +1787,26 @@ const enUS = {
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
+    newPagePlaceholder: "Start writing",
+    newPageLine: "Start writing, {{draft}}, or {{import}}",
+    newPageLineWithoutImport: "Start writing, or {{draft}}",
+    newPageLineDraft: "draft it with the agent",
+    newPageLineImport: "import Markdown",
+    newPageDraftPrompt: "Draft this page about ",
+    newPageDraftPromptTitled: "Draft this page about {{title}}",
+    newPageAgentContextLabel: "This page",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
     failedToCreateDatabase: "Failed to create inline collection",
+    turningIntoCollection: "Turning the table into a collection...",
+    turnedIntoCollection: "Table turned into a collection",
+    failedToTurnIntoCollection: "Couldn’t turn the table into a collection",
+    tableChangedWhileTurning:
+      "The table changed while it was turning into a collection, so it was left as it is. Try again.",
+    tableTooBigForCollection:
+      "A collection can take a table of up to 500 rows and 50 columns.",
+    tableTextTooLongForCollection:
+      "In a collection, a row’s name (the table’s first column) can be up to 500 characters, and other cells up to 20,000. Shorten the long cells and try again.",
     failedToCreatePage: "Failed to create page",
     generateWithAi: "Generate with AI",
     dropMedia: "Drop media",
@@ -2216,6 +2257,8 @@ const enUS = {
       "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
+    workspaceReferenceProtected:
+      "Workspace references are protected and cannot be changed as pages.",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",
     failedPermanentDeletePage: "Failed to permanently delete page",
     failedMovePage: "Failed to move page",

@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 const mockAppStatePut = vi.fn();
+const mockAppStateGet = vi.fn<() => Promise<Record<string, unknown> | null>>(
+  async () => null,
+);
 
 vi.mock("../application-state/store.js", () => ({
-  appStateGet: vi.fn(async () => null),
+  appStateGet: (...args: unknown[]) => mockAppStateGet(...(args as [])),
   appStatePut: (...args: unknown[]) => mockAppStatePut(...args),
   appStateDelete: vi.fn(),
   appStateCompareAndSet: vi.fn(async () => true),
@@ -19,7 +22,6 @@ vi.mock("../db/client.js", () => ({
 }));
 
 import { defineAction } from "../action.js";
-import { AgentNavigationRefusedError } from "../application-state/agent-navigation.js";
 import { createNavigateAction } from "./actions.js";
 
 function navigatedPaths(): unknown[] {
@@ -31,39 +33,42 @@ function navigatedPaths(): unknown[] {
 describe("createNavigateAction keeps the user's view by default", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAppStateGet.mockResolvedValue({ view: "tasks", path: "/tasks" });
     process.env.AGENT_USER_EMAIL = "person@example.com";
   });
 
   const navigate = createNavigateAction();
 
   it.each(["tool", "mcp", "webmcp", "a2a"] as const)(
-    "refuses a %s detail navigation without an open intent",
+    "keeps the current view and returns a typed result for %s detail navigation without an open intent",
     async (caller) => {
-      await expect(
-        navigate.run({ path: "/tasks/t1" }, { caller }),
-      ).rejects.toThrow(AgentNavigationRefusedError);
-      await expect(
-        navigate.run({ path: "/tasks/t1" }, { caller }),
-      ).rejects.toMatchObject({
-        name: "AgentNavigationRefusedError",
-        code: "agent_navigation_refused",
+      const result = await navigate.run({ path: "/tasks/t1" }, { caller });
+      expect(result).toMatchObject({
+        kept: true,
+        navigated: false,
+        reason: "detail-requires-open-intent",
+        currentView: { view: "tasks", path: "/tasks" },
         message: expect.stringContaining('intent: "open"'),
       });
+      expect(result).not.toBeInstanceOf(Error);
       expect(navigatedPaths()).toEqual([]);
     },
   );
 
-  it("refuses navigating even to a list view during an edit without intent open", async () => {
+  it("keeps the current view and returns a typed result even for a list view during an edit without intent open", async () => {
     const editAction = defineAction({
       description: "Edit an item and try to navigate.",
       schema: z.object({}),
       run: async (_args, ctx) => {
-        await navigate.run({ path: "/tasks" }, ctx);
+        return await navigate.run({ path: "/tasks" }, ctx);
       },
     });
-    await expect(editAction.run({}, { caller: "mcp" })).rejects.toBeInstanceOf(
-      AgentNavigationRefusedError,
-    );
+    await expect(editAction.run({}, { caller: "mcp" })).resolves.toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "write-keeps-view",
+      currentView: { view: "tasks", path: "/tasks" },
+    });
     expect(navigatedPaths()).toEqual([]);
   });
 
@@ -81,5 +86,22 @@ describe("createNavigateAction keeps the user's view by default", () => {
     await navigate.run({ path: "/tasks" }, { caller: "mcp" });
     await navigate.run({ path: "/tasks/t1" }, { caller: "frontend" });
     expect(navigatedPaths()).toEqual(["/tasks", "/tasks/t1"]);
+  });
+
+  it("refuses navigating when invoked inside a read-only agent action", async () => {
+    const readAction = defineAction({
+      description: "Read-only action trying to navigate.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await navigate.run({ path: "/tasks" }, ctx);
+      },
+    });
+    await expect(readAction.run({}, { caller: "mcp" })).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+      reason: "read-only-action",
+    });
+    expect(navigatedPaths()).toEqual([]);
   });
 });

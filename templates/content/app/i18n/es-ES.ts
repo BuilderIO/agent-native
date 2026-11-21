@@ -405,6 +405,12 @@ const database = {
   failedToSavePagePreview: "No se pudo guardar la vista previa",
   failedToSaveView: "No se pudo guardar la vista",
   failedToUpdateCheckbox: "No se pudo actualizar la casilla",
+  undoPropertyChangedSince:
+    "No se deshizo: esta propiedad cambió después de tu edición",
+  redoPropertyChangedSince:
+    "No se rehízo: esta propiedad cambió después de deshacer",
+  undoPropertyFailed: "No se pudo deshacer el cambio de la propiedad",
+  redoPropertyFailed: "No se pudo rehacer el cambio de la propiedad",
   failedToUpdateEverySelectedRow:
     "No se pudieron actualizar todas las filas seleccionadas",
   filter: "Filtro",
@@ -742,6 +748,7 @@ const editor = {
     delete: "Eliminar",
     insertBelow: "Insertar bloque debajo",
     insertAbove: "Insertar bloque encima",
+    turnIntoCollection: "Convertir en colección",
     askAgent: "Preguntar al agente",
     columns: "Columnas",
     syncedBlock: "Bloque sincronizado",
@@ -792,9 +799,26 @@ const editor = {
   creatingDatabase: "Creando colección integrada...",
   databaseCreated: "Colección creada",
   emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
+  newPagePlaceholder: "Empieza a escribir",
+  newPageLine: "Empieza a escribir, {{draft}} o {{import}}",
+  newPageLineWithoutImport: "Empieza a escribir o {{draft}}",
+  newPageLineDraft: "redáctala con el agente",
+  newPageLineImport: "importa Markdown",
+  newPageDraftPrompt: "Redacta esta página sobre ",
+  newPageDraftPromptTitled: "Redacta esta página sobre {{title}}",
+  newPageAgentContextLabel: "Esta página",
   describeWhatToGenerate: "Describe qué generar...",
   enterToSubmit: "Entra para enviar",
   failedToCreateDatabase: "No se pudo crear la colección integrada",
+  turningIntoCollection: "Convirtiendo la tabla en una colección...",
+  turnedIntoCollection: "Tabla convertida en una colección",
+  failedToTurnIntoCollection: "No se pudo convertir la tabla en una colección",
+  tableChangedWhileTurning:
+    "La tabla cambió mientras se convertía en una colección, así que se dejó como estaba. Inténtalo de nuevo.",
+  tableTooBigForCollection:
+    "Una colección admite tablas de hasta 500 filas y 50 columnas.",
+  tableTextTooLongForCollection:
+    "En una colección, el nombre de una fila (la primera columna de la tabla) puede tener hasta 500 caracteres, y las demás celdas hasta 20.000. Acorta las celdas largas e inténtalo de nuevo.",
   generateWithAi: "Generar con IA",
   untitledDatabase: "Colección sin título",
   media: {
@@ -1963,6 +1987,24 @@ const overrides = {
     builderReviewShowMore: "Mostrar más",
     builderReviewRemainingBatches:
       "Revisa de nuevo después de este lote para preparar los cambios restantes de Builder.",
+    builderReviewLoadingMorePagesOne: "Cargando cambios de 1 página más…",
+    builderReviewLoadingMorePages: "Cargando cambios de {{count}} páginas más…",
+    builderReviewConfirmingBodiesOne:
+      "Comprobando 1 cambio del cuerpo con Builder…",
+    builderReviewConfirmingBodies:
+      "Comprobando {{count}} cambios del cuerpo con Builder…",
+    builderReviewFindingPages: "Buscando páginas con cambios…",
+    builderReviewRowsMatchBuilderOne:
+      "1 página ya coincide con Builder al convertir su cuerpo, así que no se incluye.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} páginas ya coinciden con Builder al convertir sus cuerpos, así que no se incluyen.",
+    builderReviewLoadFailed: "Algunos cambios no se cargaron: {{message}}",
+    bodyDiffAdded: "Añadido:",
+    bodyDiffRemoved: "Eliminado:",
+    bodyDiffMoreLinesOne: "1 línea cambiada más",
+    bodyDiffMoreLines: "{{count}} líneas cambiadas más",
+    bodyDiffMoreChangesOne: "1 cambio más sin mostrar",
+    bodyDiffMoreChanges: "{{count}} cambios más sin mostrar",
     builderBodiesSyncingProgress:
       "Sincronizando {{hydrated}} de {{total}} cuerpos.",
     builderBodiesSyncFinishedWithFailures:
@@ -2333,6 +2375,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Esto borra la creación pendiente y cualquier borrador sin guardar. Si la página ya se había guardado, seguirá en tu espacio de trabajo.",
     failedDeletePage: "No se pudo eliminar la página",
+    workspaceReferenceProtected:
+      "Las referencias de espacios de trabajo están protegidas y no se pueden modificar como páginas.",
     failedPermanentDeletePage: "No se pudo eliminar la página permanentemente",
     failedRestorePage: "No se pudo restaurar la página",
     failedMovePage: "No se pudo mover la página",

@@ -382,6 +382,10 @@ const database = {
   failedToSavePagePreview: "فشل حفظ معاينة الصفحة",
   failedToSaveView: "فشل حفظ العرض",
   failedToUpdateCheckbox: "فشل تحديث مربع الاختيار",
+  undoPropertyChangedSince: "لم يتم التراجع: تغيّرت هذه الخاصية بعد تعديلك",
+  redoPropertyChangedSince: "لم تتم الإعادة: تغيّرت هذه الخاصية بعد التراجع",
+  undoPropertyFailed: "تعذّر التراجع عن تغيير الخاصية",
+  redoPropertyFailed: "تعذّرت إعادة تغيير الخاصية",
   failedToUpdateEverySelectedRow: "تعذر تحديث كل الصفوف المحددة",
   filter: "تصفية",
   filterBy: "تصفية حسب...",
@@ -716,6 +720,7 @@ const editor = {
     delete: "حذف",
     insertBelow: "إدراج كتلة أدناه",
     insertAbove: "إدراج كتلة أعلاه",
+    turnIntoCollection: "تحويل إلى مجموعة",
     askAgent: "اسأل الوكيل",
     columns: "أعمدة",
     syncedBlock: "كتلة متزامنة",
@@ -760,9 +765,26 @@ const editor = {
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
   databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
+  newPagePlaceholder: "ابدأ الكتابة",
+  newPageLine: "ابدأ الكتابة، أو {{draft}}، أو {{import}}",
+  newPageLineWithoutImport: "ابدأ الكتابة، أو {{draft}}",
+  newPageLineDraft: "اكتب مسودتها مع الوكيل",
+  newPageLineImport: "استورد Markdown",
+  newPageDraftPrompt: "اكتب مسودة لهذه الصفحة عن ",
+  newPageDraftPromptTitled: "اكتب مسودة لهذه الصفحة عن {{title}}",
+  newPageAgentContextLabel: "هذه الصفحة",
   describeWhatToGenerate: "وصف ما سيتم إنشاؤه...",
   enterToSubmit: "أدخل لتقديم",
   failedToCreateDatabase: "فشل في إنشاء المجموعة المضمنة",
+  turningIntoCollection: "جارٍ تحويل الجدول إلى مجموعة...",
+  turnedIntoCollection: "تم تحويل الجدول إلى مجموعة",
+  failedToTurnIntoCollection: "تعذّر تحويل الجدول إلى مجموعة",
+  tableChangedWhileTurning:
+    "تغيّر الجدول أثناء تحويله إلى مجموعة، لذا تُرك كما هو. حاول مرة أخرى.",
+  tableTooBigForCollection:
+    "يمكن للمجموعة أن تأخذ جدولًا يصل إلى 500 صف و50 عمودًا.",
+  tableTextTooLongForCollection:
+    "في المجموعة، يمكن أن يصل اسم الصف (العمود الأول من الجدول) إلى 500 حرف، والخلايا الأخرى إلى 20,000 حرف. اختصر الخلايا الطويلة وحاول مرة أخرى.",
   generateWithAi: "إنشاء باستخدام الذكاء الاصطناعي",
   untitledDatabase: "مجموعة بدون عنوان",
   media: {
@@ -1666,6 +1688,24 @@ const overrides = {
     builderReviewShowMore: "عرض المزيد",
     builderReviewRemainingBatches:
       "راجع مرة أخرى بعد هذه الدفعة لتحضير تغييرات Builder المتبقية.",
+    builderReviewLoadingMorePagesOne: "جارٍ تحميل تغييرات صفحة واحدة أخرى…",
+    builderReviewLoadingMorePages: "جارٍ تحميل تغييرات {{count}} صفحات أخرى…",
+    builderReviewConfirmingBodiesOne:
+      "جارٍ التحقق من تغيير واحد في المحتوى مع Builder…",
+    builderReviewConfirmingBodies:
+      "جارٍ التحقق من {{count}} تغييرات في المحتوى مع Builder…",
+    builderReviewFindingPages: "جارٍ البحث عن الصفحات التي تغيّرت…",
+    builderReviewRowsMatchBuilderOne:
+      "صفحة واحدة تطابق Builder بعد تحويل محتواها، لذا لم تُدرج.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} صفحات تطابق Builder بعد تحويل محتواها، لذا لم تُدرج.",
+    builderReviewLoadFailed: "لم يتم تحميل بعض التغييرات: {{message}}",
+    bodyDiffAdded: "مُضاف:",
+    bodyDiffRemoved: "محذوف:",
+    bodyDiffMoreLinesOne: "سطر آخر متغيّر",
+    bodyDiffMoreLines: "{{count}} أسطر أخرى متغيّرة",
+    bodyDiffMoreChangesOne: "تغيير آخر غير معروض",
+    bodyDiffMoreChanges: "{{count}} تغييرات أخرى غير معروضة",
     builderBodiesSyncingProgress:
       "تتم مزامنة {{hydrated}} من {{total}} من النصوص.",
     builderBodiesSyncFinishedWithFailures:
@@ -2027,6 +2067,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
+    workspaceReferenceProtected:
+      "مراجع مساحات العمل محمية ولا يمكن تغييرها كصفحات.",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",
     failedMovePage: "فشل نقل الصفحة",

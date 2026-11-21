@@ -147,6 +147,7 @@ import {
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
+import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   getDesktopContentFiles,
@@ -3070,7 +3071,10 @@ export function DocumentSidebar({
         }
         toast.error(t("sidebar.failedDeletePage"), {
           description:
-            err instanceof Error ? err.message : t("empty.genericError"),
+            workspaceReferenceErrorMessage(
+              err,
+              t("sidebar.workspaceReferenceProtected"),
+            ) ?? (err instanceof Error ? err.message : t("empty.genericError")),
         });
       }
     },
@@ -3087,6 +3091,7 @@ export function DocumentSidebar({
       navigationContextQuery.data,
       pendingTrash.documentIds,
       queryClient,
+      t,
     ],
   );
 

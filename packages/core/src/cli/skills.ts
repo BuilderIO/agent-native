@@ -45,6 +45,7 @@ import {
   installScreenMemoryForClient,
   resolveScreenMemoryStoreDir,
 } from "./mcp.js";
+import { shimSpawnTarget } from "./process.js";
 import {
   createAgentSymlink,
   prepareAgentSymlink,
@@ -3523,9 +3524,10 @@ async function runCommand(
     const silent = options.stdio === "silent";
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
-    const child = spawn(cmd, args, {
+    const [spawnCmd, spawnArgs, shell] = shimSpawnTarget(cmd, args);
+    const child = spawn(spawnCmd, spawnArgs, {
       stdio: pipeToStderr || silent ? ["inherit", "pipe", "pipe"] : "inherit",
-      shell: process.platform === "win32",
+      shell,
       env: process.env,
     });
     if (pipeToStderr) {

@@ -2,8 +2,6 @@ import { toPublicFrameworkPath } from "../shared/framework-route-prefix.js";
 import {
   isAgentNativeFirstPartyAppOrigin,
   isBuilderIoEmbedOrigin,
-  isChatGptMcpSandboxOrigin,
-  isClaudeMcpContentOrigin,
   isLocalMcpEmbedOrigin,
   isMcpProductHostOrigin,
 } from "../shared/mcp-embed-headers.js";
@@ -153,8 +151,6 @@ export function isKnownFrameHostOrigin(origin: string): boolean {
   if (
     isBuilderIoEmbedOrigin(origin) ||
     isAgentNativeFirstPartyAppOrigin(origin) ||
-    isClaudeMcpContentOrigin(origin) ||
-    isChatGptMcpSandboxOrigin(origin) ||
     isMcpProductHostOrigin(origin)
   ) {
     return true;

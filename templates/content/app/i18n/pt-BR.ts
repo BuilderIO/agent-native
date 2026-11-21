@@ -405,6 +405,12 @@ const database = {
   failedToSavePagePreview: "Falha ao salvar prévia da página",
   failedToSaveView: "Falha ao salvar visualização",
   failedToUpdateCheckbox: "Falha ao atualizar caixa de seleção",
+  undoPropertyChangedSince:
+    "Não desfeito: esta propriedade mudou depois da sua edição",
+  redoPropertyChangedSince:
+    "Não refeito: esta propriedade mudou depois de desfazer",
+  undoPropertyFailed: "Não foi possível desfazer a alteração da propriedade",
+  redoPropertyFailed: "Não foi possível refazer a alteração da propriedade",
   failedToUpdateEverySelectedRow:
     "Falha ao atualizar todas as linhas selecionadas",
   filter: "Filtro",
@@ -743,6 +749,7 @@ const editor = {
     delete: "Excluir",
     insertBelow: "Inserir bloco abaixo",
     insertAbove: "Inserir bloco acima",
+    turnIntoCollection: "Transformar em coleção",
     askAgent: "Perguntar ao agente",
     columns: "Colunas",
     syncedBlock: "Bloco sincronizado",
@@ -794,9 +801,27 @@ const editor = {
   creatingDatabase: "Criando coleção embutida...",
   databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
+  newPagePlaceholder: "Comece a escrever",
+  newPageLine: "Comece a escrever, {{draft}} ou {{import}}",
+  newPageLineWithoutImport: "Comece a escrever ou {{draft}}",
+  newPageLineDraft: "rascunhe com o agente",
+  newPageLineImport: "importe Markdown",
+  newPageDraftPrompt: "Rascunhe esta página sobre ",
+  newPageDraftPromptTitled: "Rascunhe esta página sobre {{title}}",
+  newPageAgentContextLabel: "Esta página",
   describeWhatToGenerate: "Descreva o que gerar...",
   enterToSubmit: "Entre para enviar",
   failedToCreateDatabase: "Falha ao criar coleção embutida",
+  turningIntoCollection: "Transformando a tabela em uma coleção...",
+  turnedIntoCollection: "Tabela transformada em coleção",
+  failedToTurnIntoCollection:
+    "Não foi possível transformar a tabela em uma coleção",
+  tableChangedWhileTurning:
+    "A tabela mudou enquanto era transformada em coleção, então foi mantida como estava. Tente novamente.",
+  tableTooBigForCollection:
+    "Uma coleção aceita tabelas de até 500 linhas e 50 colunas.",
+  tableTextTooLongForCollection:
+    "Em uma coleção, o nome de uma linha (a primeira coluna da tabela) pode ter até 500 caracteres, e as outras células até 20.000. Encurte as células longas e tente novamente.",
   generateWithAi: "Gere com IA",
   untitledDatabase: "Coleção sem título",
   media: {
@@ -1712,6 +1737,25 @@ const overrides = {
     builderReviewShowMore: "Mostrar mais",
     builderReviewRemainingBatches:
       "Revise novamente após este lote para preparar as alterações restantes do Builder.",
+    builderReviewLoadingMorePagesOne: "Carregando alterações de mais 1 página…",
+    builderReviewLoadingMorePages:
+      "Carregando alterações de mais {{count}} páginas…",
+    builderReviewConfirmingBodiesOne:
+      "Conferindo 1 alteração do corpo com o Builder…",
+    builderReviewConfirmingBodies:
+      "Conferindo {{count}} alterações do corpo com o Builder…",
+    builderReviewFindingPages: "Procurando páginas com alterações…",
+    builderReviewRowsMatchBuilderOne:
+      "1 página já corresponde ao Builder depois que o corpo é convertido, então ficou de fora.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} páginas já correspondem ao Builder depois que os corpos são convertidos, então ficaram de fora.",
+    builderReviewLoadFailed: "Algumas alterações não carregaram: {{message}}",
+    bodyDiffAdded: "Adicionado:",
+    bodyDiffRemoved: "Removido:",
+    bodyDiffMoreLinesOne: "Mais 1 linha alterada",
+    bodyDiffMoreLines: "Mais {{count}} linhas alteradas",
+    bodyDiffMoreChangesOne: "Mais 1 alteração não exibida",
+    bodyDiffMoreChanges: "Mais {{count}} alterações não exibidas",
     builderBodiesSyncingProgress:
       "Sincronizando {{hydrated}} de {{total}} corpos.",
     builderBodiesSyncFinishedWithFailures:
@@ -2087,6 +2131,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Isso limpa a criação pendente e qualquer rascunho não salvo. Se a página já tiver sido salva, ela permanecerá no seu espaço de trabalho.",
     failedDeletePage: "Falha ao excluir página",
+    workspaceReferenceProtected:
+      "As referências a espaços de trabalho são protegidas e não podem ser alteradas como páginas.",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",
     failedMovePage: "Falha ao mover página",
