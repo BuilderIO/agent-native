@@ -40,6 +40,7 @@ import {
   withExecutionLeaseRequested,
   type ExecutionFence,
 } from "./execution-fence.js";
+import { LeaseRenewalDiagnostics } from "./lease-renewal-diagnostics.js";
 import {
   AGENT_RUN_NO_OUTPUT_ERROR_CODE,
   resolvePrivateSafeError,
@@ -1907,15 +1908,24 @@ export function startRun(
   let livenessResolved = false;
   let heartbeatAttempt = 0;
   let pendingHeartbeats = 0;
+  const leaseRenewalDiagnostics = options?.executionLease
+    ? new LeaseRenewalDiagnostics(runId, {
+        intervalMs: 1_500,
+        attemptDeadlineMs: HEARTBEAT_ATTEMPT_DEADLINE_MS,
+        maxPending: MAX_PENDING_HEARTBEATS,
+      })
+    : undefined;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight && pendingHeartbeats < MAX_PENDING_HEARTBEATS) {
       heartbeatInFlight = true;
+      const measurement = leaseRenewalDiagnostics?.start(pendingHeartbeats);
       pendingHeartbeats += 1;
       const attempt = ++heartbeatAttempt;
       // One renewal stuck acquiring a connection must not hold the slot until
       // the lease lapses, so a later tick retries while it settles. Only one
       // retry may overlap it, or a stalled pool would fill with renewals.
       const releaseStuckHeartbeat = setTimeout(() => {
+        measurement?.deadlineReached();
         if (heartbeatAttempt === attempt) heartbeatInFlight = false;
       }, HEARTBEAT_ATTEMPT_DEADLINE_MS);
       (options?.executionLease
@@ -1927,6 +1937,9 @@ export function startRun(
         : updateRunHeartbeat(runId).then(() => true)
       )
         .then((livenessConfirmed) => {
+          measurement?.settle(
+            livenessConfirmed ? "renewed" : "fence_unavailable",
+          );
           consecutiveHeartbeatFailures = 0;
           if (livenessConfirmed && !livenessResolved) {
             livenessResolved = true;
@@ -1934,6 +1947,10 @@ export function startRun(
           }
         })
         .catch((error) => {
+          measurement?.settle(
+            error instanceof StaleExecutionFenceError ? "fence_lost" : "error",
+            error,
+          );
           if (error instanceof StaleExecutionFenceError) {
             if (!completionInProgress) return abortForRevokedLease();
             return;
@@ -2298,7 +2315,10 @@ export function startRun(
         await inspectSqlAbortState(false);
         consecutiveAbortCheckFailures = 0;
         if (isRunAborted()) return;
-        await runFn(send, runControl.chunkSignal, runControl);
+        const runBody = () => runFn(send, runControl.chunkSignal, runControl);
+        await (leaseRenewalDiagnostics
+          ? leaseRenewalDiagnostics.run(runBody)
+          : runBody());
       });
       return;
     }

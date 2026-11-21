@@ -11,6 +11,10 @@ import {
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
+import {
+  rebaseBodyEdit,
+  type BodyTextRange,
+} from "../../shared/body-rebase.js";
 import { newlySharedCommentAnchorIds } from "../../shared/comment-block-anchor.js";
 import { commentAnchorTextOf } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
@@ -31,7 +35,6 @@ import {
   applySuggestionEdit,
   type ApplySuggestionInput,
 } from "./apply-suggestion-edit.js";
-import { rebaseBodyEdit, type BodyTextRange } from "./rebase.js";
 import {
   CONTENT_ANCHOR_TEXT_TASK,
   CONTENT_HOLDS_BODY_TASK,
