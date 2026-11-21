@@ -126,12 +126,21 @@ description: "app/이 에이전트가 호출하는 동일한 actions를 읽고 �
       optional: true,
       description:
         "[useQuery 옵션](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 중 `queryKey`와 `queryFn`을 제외한 모든 것입니다. 이 둘은 후크가 직접 설정합니다.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "쿼리가 읽는 리소스를 type 또는 type:id 태그로 지정합니다.",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      '`["action", name, params]` 아래에 캐시됩니다. 변형 작업이 완료될 때마다 별도의 수동 무효화 없이 자동으로 다시 가져옵니다.',
+      '`["action", name, params]`에 캐시됩니다. 일치하는 변경이 쿼리를 자동으로 무효화합니다.',
   }}
 />
 
@@ -176,6 +185,13 @@ const { data, isLoading } = useActionQuery(
         "[useMutation 옵션](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 중 `mutationFn`을 제외한 모든 것입니다. 이는 후크가 직접 설정합니다.",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "뮤테이션이 변경하는 리소스를 로컬 무효화용 type 또는 type:id 태그로 지정합니다.",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -195,7 +211,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      '성공 시 `source: "action"`으로 변경 이벤트를 내보내므로, 영향을 받는 데이터를 읽는 모든 `useActionQuery()`가 자동으로 다시 가져옵니다. 수동 무효화가 필요하지 않습니다.',
+      "성공하면 무효화를 건너뛰지 않는 한 일치하는 action 쿼리를 자동으로 무효화합니다.",
   }}
 />
 
@@ -224,6 +240,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### 리소스 범위 무효화 {#resource-scoped-invalidation}
+
+두 후크는 선택적 `resources` 배열을 받습니다. 쿼리는 읽는 리소스를, 뮤테이션은 변경하는 리소스를 지정합니다. 전체 리소스 유형에는 `type`을, 특정 ID에는 `type:id`를 사용합니다. 로컬 뮤테이션을 매칭할 때는 `type:id` 태그의 첫 번째 콜론이 유형과 ID를 구분합니다. 유형에는 콜론을 포함할 수 없지만 ID에는 콜론을 포함할 수 있습니다. 동기화 이벤트는 유형과 ID를 별도로 전달합니다.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+콜론이 없는 유형과 비어 있지 않은 레코드 ID가 있는 태그에서는 로컬 뮤테이션과 동기화 이벤트의 매칭이 대칭적입니다. 유형 전체에 대한 로컬 변경에는 `type:`이 아닌 `type`을 사용합니다. 로컬 뮤테이션을 매칭할 때 `design:layer`는 유형 `design`과 ID `layer`를 뜻합니다. `resourceType`이 `design:layer`인 동기화 이벤트는 `design`과 다른 유형이며 쿼리 태그 `design`과 일치하지 않습니다. `ticket` 태그는 `ticket` 및 모든 `ticket:id` 태그와 일치합니다. `ticket:123` 태그는 `ticket` 및 `ticket:123`과 일치하지만 `ticket:456`과는 일치하지 않습니다. 태그가 없는 쿼리는 보수적으로 무효화됩니다. 태그가 없는 뮤테이션은 모든 action 쿼리를 무효화합니다.
+
+action 동기화 이벤트에서는 `resourceType`과 `resourceId`가 변경된 리소스를 별도로 식별합니다. `resourceId`가 없거나 비어 있으면 해당 유형과 일치하는 모든 쿼리가 무효화됩니다. 억제되지 않은 action 이벤트 중 하나라도 `resourceType`이 없으면 배치의 리소스 범위 지정이 비활성화되고 모든 action 쿼리가 대상이 됩니다. 선택적 predicate는 여전히 무효화를 필터링할 수 있습니다.
+
+action 이벤트를 포함하고 action 또는 app-state 이벤트로만 구성된 배치에서는 리소스 필터가 억제되지 않은 action 이벤트에서 변경된 리소스 중 하나와 일치합니다. `actionInvalidatePredicate`가 있으면 쿼리는 필터와 predicate를 모두 통과해야 합니다. predicate는 억제된 action 이벤트를 포함해 관련된 awareness 외 이벤트의 전체 배치를 받습니다. 배치에 데이터를 변경하는 다른 소스도 있으면 리소스 범위 지정은 비활성화되지만 predicate는 계속 적용됩니다. 데이터를 변경하는 다른 이벤트는 있지만 억제되지 않은 action 이벤트가 없는 배치에서도 predicate는 광범위한 action 무효화를 필터링합니다.
+
+action의 `changeResource`는 이벤트 전달과 접근 검사에 사용할 리소스 하나를 지정합니다. action이 쓰는 모든 대상을 빠짐없이 나열하는 것은 아닙니다. 레코드별 쿼리 태그는 관련된 각 action의 전달된 마커가 쿼리가 의존하는 모든 레코드를 나타낼 때만 안전합니다. 마커의 유형 안에서 발생하는 일괄 쓰기나 여러 레코드에 걸친 의존성에는 유형 전체를 나타내는 쿼리 태그로 전달된 이벤트를 일치시킬 수 있습니다. 여러 유형에 걸친 의존성에는 전달되는 각 이벤트의 유형을 쿼리 태그에 포함하거나 태그 없는 쿼리를 사용합니다. 독립적으로 전달되는 여러 이벤트로 영향을 받은 레코드를 다룰 수도 있지만, 관련된 각 사용자가 접근 권한이 있는 이벤트를 받아야 합니다. 클라이언트 태그를 넓혀도 이벤트가 전달된 후의 일치 여부만 달라집니다. 전달 리소스에 접근할 수 없는 사용자에게 이벤트가 보이게 하지는 못합니다. 관련 사용자에게 접근 가능한 이벤트가 전달되도록 해야 합니다.
 
 ### callAction {#call-action}
 
@@ -437,10 +482,10 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "action 이벤트가 촉발하는 광범위한 무효화를 필터링합니다. 거의 필요하지 않습니다. 비용이 큰 활성 쿼리를 명시적 새로 고침 방식으로 유지하면서, 일반적인 소스 버전 관리 쿼리들은 여전히 `useChangeVersion`으로 반응하도록 하는 데 사용하세요.",
+            "쿼리와 묶인 이벤트를 사용해 동기화 무효화를 필터링합니다. 배치 동작은 리소스 범위 무효화를 참조하세요.",
         },
         {
           name: "suppressActionInvalidationFor",

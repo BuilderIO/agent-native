@@ -126,12 +126,21 @@ Il y a deux hooks d'action que vous êtes le plus susceptible d'utiliser : `useA
       optional: true,
       description:
         "Tout ce qui vient des [options de useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) sauf `queryKey` et `queryFn`, que le hook définit lui-même.",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Ressources lues par la requête, sous forme d’étiquettes type ou type:id.",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      'Mis en cache sous `["action", name, params]`. Se relance automatiquement chaque fois qu\'une action de mutation se termine, sans invalidation manuelle nécessaire.',
+      'Mis en cache sous `["action", name, params]`. Les changements correspondants invalident automatiquement la requête.',
   }}
 />
 
@@ -176,6 +185,13 @@ const { data, isLoading } = useActionQuery(
         "Tout ce qui vient des [options de useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) sauf `mutationFn`, que le hook définit lui-même.",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "Ressources modifiées par la mutation, sous forme d’étiquettes type ou type:id pour l’invalidation locale.",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -196,7 +212,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      'En cas de succès, émet un événement de changement avec `source: "action"`, afin que chaque `useActionQuery()` lisant les données affectées se relance automatiquement. Aucune invalidation manuelle n\'est nécessaire.',
+      "En cas de succès, invalide automatiquement les requêtes d’action correspondantes, sauf si l’invalidation est désactivée.",
   }}
 />
 
@@ -225,6 +241,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### Invalidation par ressource {#resource-scoped-invalidation}
+
+Les deux hooks acceptent un tableau facultatif `resources`. Une requête indique les ressources qu’elle lit et une mutation celles qu’elle modifie. Utilisez `type` pour tout un type de ressource ou `type:id` pour un ID précis. Lors de la comparaison des mutations locales, le premier deux-points d’une étiquette `type:id` sépare le type de l’ID. Le type ne doit pas contenir de deux-points, mais l’ID peut en contenir. Les événements de synchronisation transmettent le type et l’ID séparément.
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+Pour les types sans deux-points et les étiquettes dont l’ID d’enregistrement n’est pas vide, la correspondance est symétrique entre les mutations locales et les événements de synchronisation. Pour une modification locale de tout un type, utilisez `type`, pas `type:`. Lors de la comparaison des mutations locales, `design:layer` désigne le type `design` et l’ID `layer`. Un événement de synchronisation dont le `resourceType` est `design:layer` a un type distinct de `design` et ne correspond pas à l’étiquette de requête `design`. Une étiquette `ticket` correspond à `ticket` et à toute étiquette `ticket:id`. Une étiquette `ticket:123` correspond à `ticket` et à `ticket:123`, mais pas à `ticket:456`. Les requêtes sans étiquette sont invalidées par précaution. Une mutation sans étiquette invalide toutes les requêtes d’action.
+
+Pour un événement de synchronisation d’action, `resourceType` et `resourceId` identifient séparément la ressource modifiée. Si `resourceId` est absent ou vide, toutes les requêtes correspondant à ce type sont invalidées. Si un événement d’action non supprimé n’a pas de `resourceType`, le filtrage par ressource est désactivé pour le lot et toutes les requêtes d’action sont concernées. Le prédicat facultatif peut toujours filtrer l’invalidation.
+
+Pour un lot contenant des événements d’action et uniquement des événements d’action ou app-state, le filtre de ressources correspond à toute ressource modifiée dans les événements d’action non supprimés. Avec `actionInvalidatePredicate`, une requête doit satisfaire à la fois le filtre et le prédicat. Le prédicat reçoit tout le lot pertinent hors événements awareness, y compris les événements d’action supprimés. Si le lot contient aussi une autre source qui modifie les données, le filtrage par ressource est désactivé, mais le prédicat reste appliqué. Dans un lot avec un autre événement qui modifie les données mais sans événement d’action non supprimé, le prédicat filtre aussi l’invalidation générale des actions.
+
+`changeResource` d’une action désigne une ressource pour la livraison de l’événement et le contrôle d’accès. Ce n’est pas nécessairement la liste exhaustive des écritures de l’action. Les étiquettes de requête propres à un enregistrement ne sont sûres que si le marqueur livré de chaque action pertinente représente tous les enregistrements dont dépend la requête. Pour les écritures groupées ou les dépendances entre enregistrements du type du marqueur, une étiquette de requête couvrant ce type peut correspondre à l’événement livré. Pour les dépendances entre types, incluez le type de chaque événement livré dans les étiquettes de la requête ou utilisez une requête sans étiquette. Plusieurs événements livrés indépendamment peuvent couvrir les enregistrements concernés, à condition que chaque personne concernée reçoive un événement auquel elle est autorisée à accéder. Élargir les étiquettes côté client ne modifie la correspondance qu’après la livraison. Cela ne rend pas l’événement visible à une personne sans accès à sa ressource de livraison. Assurez-vous que les personnes concernées reçoivent un événement auquel elles ont accès.
 
 ### callAction {#call-action}
 
@@ -439,10 +484,10 @@ Le texte de la notification dépend de l'échec. Une requête annulée n'affiche
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "Filtre l'invalidation large qu'un événement d'action déclenche. Rarement nécessaire. Utilisez-le pour garder une requête active coûteuse sur une sémantique de rafraîchissement explicite, alors que les requêtes normales à version de source continuent de réagir via `useChangeVersion`.",
+            "Filtre l’invalidation de synchronisation à partir de la requête et des événements regroupés. Voir Invalidation par ressource pour le comportement des lots.",
         },
         {
           name: "suppressActionInvalidationFor",

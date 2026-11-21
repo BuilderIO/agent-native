@@ -126,12 +126,21 @@ description: "app/ がエージェントが呼び出すのと同じアクショ�
       optional: true,
       description:
         "[useQuery オプション](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) のすべて (`queryKey` と `queryFn` を除く。これらはフック自体が設定します)。",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "クエリが読み取るリソースを type または type:id タグで指定します。",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      '`["action", name, params]` の下にキャッシュされます。手動の無効化なしで、変更アクションが完了するたびに自動的に再フェッチされます。',
+      '`["action", name, params]` にキャッシュされます。一致する変更によってクエリが自動的に無効化されます。',
   }}
 />
 
@@ -176,6 +185,13 @@ const { data, isLoading } = useActionQuery(
         "[useMutation オプション](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) のすべて (`mutationFn` を除く。これはフック自体が設定します)。",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "ミューテーションが変更するリソースを、ローカルの無効化用に type または type:id タグで指定します。",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -195,7 +211,7 @@ const { data, isLoading } = useActionQuery(
   returns={{
     type: "UseMutationResult",
     description:
-      '成功すると `source: "action"` で変更イベントを発行するため、変更されたデータを読み取っているすべての `useActionQuery()` が自動的に再フェッチされます。手動の無効化は不要です。',
+      "成功すると、無効化をスキップしない限り、一致するアクションクエリが自動的に無効化されます。",
   }}
 />
 
@@ -224,6 +240,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### リソースによる無効化 {#resource-scoped-invalidation}
+
+両方のフックは省略可能な `resources` 配列を受け取ります。クエリは読み取るリソースを、ミューテーションは変更するリソースを指定します。リソース型全体には `type`、特定の ID には `type:id` を使います。ローカルミューテーションの照合では、`type:id` タグの最初のコロンが型と ID を区切ります。型にコロンを含めることはできませんが、ID にはコロンを含めることができます。同期イベントでは型と ID が別々に保持されます。
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+コロンを含まない型と、空でないレコード ID を持つタグでは、ローカルミューテーションと同期イベントの照合は対称的です。型全体に対するローカル変更には `type:` ではなく `type` を使います。ローカルミューテーションの照合では、`design:layer` は型 `design` と ID `layer` を意味します。`resourceType` が `design:layer` の同期イベントは `design` とは別の型であり、クエリタグ `design` には一致しません。`ticket` タグは `ticket` と任意の `ticket:id` タグに一致します。`ticket:123` タグは `ticket` と `ticket:123` に一致しますが、`ticket:456` には一致しません。タグのないクエリは安全のため無効化されます。タグのないミューテーションはすべてのアクションクエリを無効化します。
+
+アクションの同期イベントでは、`resourceType` と `resourceId` が変更されたリソースを別々に指定します。`resourceId` がないか空の場合、その型に一致するすべてのクエリが無効化されます。抑制されていないアクションイベントのいずれかに `resourceType` がない場合、バッチのリソース絞り込みは無効になり、すべてのアクションクエリが対象になります。省略可能な述語によるフィルタリングは引き続き行えます。
+
+アクションイベントを含み、アクションまたは app-state イベントだけで構成されるバッチでは、リソースフィルターは抑制されていないアクションイベントで変更されたリソースのいずれかに一致します。`actionInvalidatePredicate` を指定した場合、クエリはフィルターと述語の両方を満たす必要があります。述語には、抑制されたアクションイベントを含む、関連する awareness 以外のバッチ全体が渡されます。バッチにデータを変更する別のソースも含まれる場合は、リソースの絞り込みは無効になりますが、述語は適用されます。データを変更する別のイベントがあり、抑制されていないアクションイベントがないバッチでも、述語は広範なアクションの無効化をフィルタリングします。
+
+アクションの `changeResource` は、イベントの配信とアクセス確認に使う一つのリソースを指定します。アクションが書き込むすべての対象を列挙するものとは限りません。レコード単位のクエリタグが安全なのは、関連する各アクションの配信されたマーカーが、クエリの依存するすべてのレコードを表す場合だけです。マーカーの型内での一括書き込みや複数レコードにまたがる依存関係には、型全体のクエリタグを使うと配信されたイベントに一致させることができます。複数の型にまたがる依存関係では、配信される各イベントの型をクエリタグに含めるか、タグのないクエリを使います。独立して配信される複数のイベントで影響を受けるレコードをカバーすることもできますが、関係する各閲覧者がアクセスを許可されたイベントを受け取る必要があります。クライアントのタグを広げても変わるのは配信後の照合だけです。配信先リソースへのアクセス権がない閲覧者にイベントが見えるようにはなりません。関係する閲覧者がアクセスできるイベントを受け取れるようにしてください。
 
 ### callAction {#call-action}
 
@@ -438,10 +483,10 @@ try {
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "アクション イベントがトリガーする広範な無効化をフィルタリングします。ほとんど必要ありません。通常のソース バージョン管理されたクエリが `useChangeVersion` を通じて反応し続ける一方で、高コストなアクティブ クエリを明示的なリフレッシュのセマンティクスに保つために使用します。",
+            "クエリとまとめられたイベントを使って同期の無効化をフィルタリングします。バッチの動作は「リソースによる無効化」を参照してください。",
         },
         {
           name: "suppressActionInvalidationFor",

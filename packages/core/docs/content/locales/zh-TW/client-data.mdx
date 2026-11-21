@@ -125,12 +125,20 @@ description: "app/ 用來讀取、寫入，並與代理所呼叫的相同 action
       optional: true,
       description:
         "來自 [useQuery options](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 的所有內容，除了 `queryKey` 和 `queryFn`，這兩者由此掛鉤自行設定。",
+      fields: [
+        {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description: "查詢讀取的資源，使用 type 或 type:id 標籤。",
+        },
+      ],
     },
   ]}
   returns={{
     type: "UseQueryResult<TResult>",
     description:
-      '快取於 `["action", name, params]` 之下。每當一個變異 action 完成時就會自動重新取得，不需要手動失效。',
+      '快取於 `["action", name, params]` 下。相符的變更會自動使查詢失效。',
   }}
 />
 
@@ -175,6 +183,13 @@ const { data, isLoading } = useActionQuery(
         "來自 [useMutation options](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 的所有內容，除了 `mutationFn`，此項由此掛鉤自行設定。",
       fields: [
         {
+          name: "resources",
+          type: "readonly string[]",
+          optional: true,
+          description:
+            "變異修改的資源，使用 type 或 type:id 標籤進行本機失效處理。",
+        },
+        {
           name: "method",
           type: '"POST" | "PUT" | "DELETE"',
           optional: true,
@@ -193,8 +208,7 @@ const { data, isLoading } = useActionQuery(
   ]}
   returns={{
     type: "UseMutationResult",
-    description:
-      '成功後會發出 `source: "action"` 的變更事件，因此每個讀取受影響資料的 `useActionQuery()` 都會自動重新取得。不需要手動失效。',
+    description: "成功時自動使相符的 action 查詢失效，除非跳過失效作業。",
   }}
 />
 
@@ -223,6 +237,35 @@ const { mutate, isPending } = useActionMutation("send-ticket-reply", {
 
 mutate({ ticketId, body: draft });
 ```
+
+### 依資源限定失效範圍 {#resource-scoped-invalidation}
+
+兩個掛鉤都接受選用的 `resources` 陣列。查詢指定它讀取的資源，變異指定它修改的資源。使用 `type` 表示整個資源類型，使用 `type:id` 表示特定 ID。比對本機變異時，`type:id` 標籤中的第一個冒號用來分隔類型與 ID。類型不能包含冒號，但 ID 可以包含冒號。同步事件分別攜帶類型與 ID。
+
+```ts
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+const tickets = useActionQuery("list-tickets", {}, { resources: ["ticket"] });
+const ticket = useActionQuery(
+  "get-ticket",
+  { ticketId },
+  { resources: [`ticket:${ticketId}`] },
+);
+const reply = useActionMutation("send-ticket-reply", {
+  resources: [`ticket:${ticketId}`],
+});
+```
+
+對於不含冒號的類型和紀錄 ID 非空的標籤，本機變異和同步事件使用對稱比對。對於整個類型的本機變更，使用 `type`，而不是 `type:`。比對本機變異時，`design:layer` 表示類型 `design` 和 ID `layer`。`resourceType` 為 `design:layer` 的同步事件使用的類型不同於 `design`，不會符合查詢標籤 `design`。`ticket` 標籤符合 `ticket` 和任何 `ticket:id` 標籤。`ticket:123` 標籤符合 `ticket` 和 `ticket:123`，但不符合 `ticket:456`。沒有標籤的查詢會保守地失效。沒有標籤的變異會使所有 action 查詢失效。
+
+對於 action 同步事件，`resourceType` 和 `resourceId` 分別識別已變更的資源。若 `resourceId` 缺少或為空，所有符合該類型的查詢都會失效。若任何未被抑制的 action 事件缺少 `resourceType`，該批次會停用資源範圍篩選，所有 action 查詢都可能失效。選用的述詞仍可篩選失效作業。
+
+對於包含 action 事件且只包含 action 或 app-state 事件的批次，資源篩選器會符合未被抑制的 action 事件中任一已變更資源。提供 `actionInvalidatePredicate` 時，查詢必須同時通過資源篩選器和述詞。述詞會收到完整的相關非 awareness 事件批次，包括被抑制的 action 事件。若批次還包含其他會變更資料的來源，資源範圍篩選會停用，但仍會套用述詞。對於包含其他資料變更事件但沒有未被抑制的 action 事件的批次，述詞也會篩選廣泛的 action 失效作業。
+
+action 的 `changeResource` 指定一個用於事件傳送和存取檢查的資源。它不一定是 action 寫入內容的完整清單。只有當每個相關 action 傳送的標記能代表查詢依賴的所有紀錄時，使用特定紀錄的查詢標籤才安全。對於標記類型內的批次寫入或跨紀錄依賴，可以使用涵蓋整個類型的查詢標籤比對已傳送的事件。對於跨類型依賴，請在查詢標籤中包含每個已傳送事件的類型，或使用不帶標籤的查詢。多個獨立傳送的事件可以涵蓋受影響的紀錄，但每位相關檢視者都必須收到自己有權存取的事件。擴大用戶端標籤只會改變事件傳送後的比對，不能讓無權存取傳送資源的檢視者看到該事件。必須確保相關檢視者收到自己有權存取的事件。
 
 ### callAction {#call-action}
 
@@ -432,10 +475,10 @@ toast 的文字取決於失敗類型。被取消的請求不會顯示任何內�
         },
         {
           name: "actionInvalidatePredicate",
-          type: "(query: Query) => boolean",
+          type: '(query: Query, events: readonly import("@agent-native/core/client/use-db-sync").SyncEvent[]) => boolean',
           optional: true,
           description:
-            "篩選一個 action 事件觸發的廣泛失效範圍。極少需要用到。用它讓某個昂貴的活動查詢維持明確重新整理的語意，而一般的來源版本化查詢仍透過 `useChangeVersion` 反應。",
+            "使用查詢和合併的事件篩選同步失效作業。批次行為請參閱「依資源限定失效範圍」。",
         },
         {
           name: "suppressActionInvalidationFor",
