@@ -22,6 +22,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { firstRow } from "../server/lib/first-row.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -671,7 +672,7 @@ async function navigationGrouping(
       ),
     )
     .limit(1);
-  const definition: (typeof definitions)[number] | undefined = definitions[0];
+  const definition = firstRow(definitions);
   if (
     !definition ||
     definition.systemRole ||
@@ -1845,7 +1846,7 @@ export async function getContentDatabaseNavigationPage(args: {
               sql`true`,
             )
             .where(filesRows);
-          const counts: (typeof countRows)[number] | undefined = countRows[0];
+          const counts = firstRow(countRows);
           const shown = grouping.groups.flatMap((candidate, index) => {
             const count = Number(counts?.[`group${index}`] ?? 0);
             return count > 0 || sharedView.hideEmptyGroups !== true
