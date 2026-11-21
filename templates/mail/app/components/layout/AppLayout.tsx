@@ -155,6 +155,7 @@ import { isKnownMailView } from "@/routes/$view";
 
 import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
+import { MailCount, MailCountText } from "./MailCount";
 import { SearchBar } from "./SearchBar";
 import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
@@ -1577,58 +1578,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
                 </AppSidebarHeader>
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                  {/* Accounts */}
-                  {hasAccounts && (
-                    <div className="px-4 pt-5 pb-4 border-b border-border/20">
-                      <div className="space-y-2">
-                        {accounts.map((account) => {
-                          const isActive =
-                            activeAccounts.size === 0 ||
-                            activeAccounts.has(account.email);
-                          return (
-                            <button
-                              key={account.email}
-                              data-an-block
-                              onClick={() => {
-                                setActiveAccounts((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.size === 0) {
-                                    for (const a of accounts) {
-                                      if (a.email !== account.email)
-                                        next.add(a.email);
-                                    }
-                                  } else if (next.has(account.email)) {
-                                    next.delete(account.email);
-                                    if (next.size === 0) return new Set();
-                                  } else {
-                                    next.add(account.email);
-                                    if (next.size === accounts.length)
-                                      return new Set();
-                                  }
-                                  return next;
-                                });
-                              }}
-                              className={cn(
-                                "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-opacity",
-                                isActive ? "opacity-100" : "opacity-30",
-                              )}
-                            >
-                              <AccountAvatar
-                                email={account.email}
-                                photoUrl={account.photoUrl}
-                                imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
-                                fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
-                              />
-                              <span className="text-[13px] text-foreground truncate">
-                                {account.email}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
                   <div className="px-2 py-3">
                     <div className="space-y-0.5">
                       {[
@@ -1697,16 +1646,24 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           <span>{item.label}</span>
                           {item.id === "draft-queue" &&
                             queuedDrafts.count > 0 && (
-                              <span className="text-[12px] text-amber-300 tabular-nums">
-                                {queuedDrafts.count}
-                              </span>
+                              <MailCount
+                                display={formatNumber(queuedDrafts.count)}
+                                meaning={t("mail.inbox.draftsToReviewCount", {
+                                  count: formatNumber(queuedDrafts.count),
+                                })}
+                                className="text-[12px] text-amber-300 tabular-nums"
+                              />
                             )}
                           {item.id === "inbox" &&
                             !!inboxSidebarUnreadCount &&
                             inboxSidebarUnreadCount > 0 && (
-                              <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                {inboxSidebarUnreadCount}
-                              </span>
+                              <MailCount
+                                display={formatNumber(inboxSidebarUnreadCount)}
+                                meaning={t("mail.inbox.unreadCount", {
+                                  count: formatNumber(inboxSidebarUnreadCount),
+                                })}
+                                className="text-[12px] text-muted-foreground/50 tabular-nums"
+                              />
                             )}
                         </Link>
                       ))}
@@ -1755,9 +1712,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                   </span>
                                 </span>
                                 {count !== undefined && count > 0 && (
-                                  <span className="text-[12px] text-muted-foreground tabular-nums">
-                                    {formatNumber(count)}
-                                  </span>
+                                  <MailCount
+                                    display={formatNumber(count)}
+                                    meaning={t("mail.inbox.unreadCount", {
+                                      count: formatNumber(count),
+                                    })}
+                                    className="text-[12px] text-muted-foreground tabular-nums"
+                                  />
                                 )}
                               </Link>
                             );
@@ -1810,6 +1771,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               >
                 {topBarTabs.map((tab, tabIndex) => {
                   const count = tab.total;
+                  const countMeaning =
+                    count !== undefined && count > 0
+                      ? t(
+                          tab.totalIsLowerBound
+                            ? "mail.inbox.conversationsAtLeastCount"
+                            : "mail.inbox.conversationsCount",
+                          { count: formatNumber(count) },
+                        )
+                      : undefined;
                   const dragItemForTab: DragItem | undefined = tab.pinnedId
                     ? { group: "label", id: tab.pinnedId }
                     : tab.filterId
@@ -1847,13 +1817,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       <span data-an-mask={tab.isSystemView ? undefined : ""}>
                         {tab.label}
                       </span>
-                      {count !== undefined && count > 0 && (
+                      {count !== undefined && countMeaning && (
                         <span
-                          aria-label={
-                            tab.totalIsLowerBound
-                              ? t("mail.inbox.atLeastCount", { count })
-                              : undefined
-                          }
                           className={cn(
                             "text-[11px] tabular-nums",
                             tab.isActive
@@ -1861,7 +1826,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               : "text-muted-foreground/70",
                           )}
                         >
-                          {tab.totalIsLowerBound ? `${count}+` : count}
+                          <MailCountText
+                            display={
+                              tab.totalIsLowerBound
+                                ? `${formatNumber(count)}+`
+                                : formatNumber(count)
+                            }
+                            meaning={countMeaning}
+                          />
                         </span>
                       )}
                     </RouterSidebarLink>
@@ -1876,11 +1848,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       {showLeft && (
                         <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full z-10" />
                       )}
-                      {tab.tooltip ? (
+                      {tab.tooltip || countMeaning ? (
                         <Tooltip>
                           <TooltipTrigger asChild>{link}</TooltipTrigger>
                           <TooltipContent data-an-block>
-                            {tab.tooltip}
+                            {tab.tooltip && <div>{tab.tooltip}</div>}
+                            {countMeaning && <div>{countMeaning}</div>}
                           </TooltipContent>
                         </Tooltip>
                       ) : (
@@ -1956,7 +1929,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
                     combinedInbox={combineInbox}
-                    showSplitInbox={accounts.length > 1}
                     allTabVisible={showAllTab}
                     savedFilters={savedFilters}
                     labelAliases={labelAliases}
@@ -2437,6 +2409,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const location = useLocation();
   const isAgentChatRoute = isMailChatPath(location.pathname);
   const isMobile = useIsMobile();
@@ -2620,9 +2593,13 @@ function StandardLayout({ children }: AppLayoutProps) {
                 >
                   <span>{item.label}</span>
                   {item.id === "draft-queue" && queuedDrafts.count > 0 && (
-                    <span className="text-[12px] text-amber-300 tabular-nums">
-                      {queuedDrafts.count}
-                    </span>
+                    <MailCount
+                      display={formatNumber(queuedDrafts.count)}
+                      meaning={t("mail.inbox.draftsToReviewCount", {
+                        count: formatNumber(queuedDrafts.count),
+                      })}
+                      className="text-[12px] text-amber-300 tabular-nums"
+                    />
                   )}
                 </Link>
               ))}
@@ -2720,7 +2697,6 @@ function TabSettingsPopover({
   labelDisplayNames,
   pinnedLabels,
   combinedInbox,
-  showSplitInbox,
   allTabVisible,
   savedFilters,
   labelAliases,
@@ -2739,7 +2715,6 @@ function TabSettingsPopover({
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
   combinedInbox: boolean;
-  showSplitInbox: boolean;
   allTabVisible: boolean;
   savedFilters: SavedMailFilter[];
   labelAliases: Record<string, string>;
@@ -3037,21 +3012,26 @@ function TabSettingsPopover({
         </div>
       </div>
 
-      {showSplitInbox && (
-        <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
-          <label
-            htmlFor="split-inbox-toggle"
-            className="text-[13px] text-foreground"
-          >
-            {t("mail.tabSettings.splitInbox")}
-          </label>
-          <Switch
-            id="split-inbox-toggle"
-            checked={!combinedInbox}
-            onCheckedChange={(checked) => onCombinedInboxChange(!checked)}
-          />
-        </div>
-      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center justify-between border-t border-border/30 px-3 py-2">
+            <label
+              htmlFor="split-inbox-toggle"
+              className="text-[13px] text-foreground"
+            >
+              {t("mail.tabSettings.splitInbox")}
+            </label>
+            <Switch
+              id="split-inbox-toggle"
+              checked={!combinedInbox}
+              onCheckedChange={(checked) => onCombinedInboxChange(!checked)}
+            />
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-64">
+          {t("mail.tabSettings.help")}
+        </TooltipContent>
+      </Tooltip>
     </>
   );
 }

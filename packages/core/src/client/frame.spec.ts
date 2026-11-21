@@ -195,4 +195,39 @@ describe("frame bridge", () => {
       "*",
     );
   });
+  it.each([
+    "https://0123456789abcdef0123456789abcdef.claudemcpcontent.com",
+    "https://abc.web-sandbox.oaiusercontent.com",
+  ])("ignores %s without an embed session", async (origin) => {
+    const fetchSpy = stubSessionResponse({ error: "Not authenticated" });
+    const parent = parentWindow();
+    setParent(parent);
+    const frame = await loadFrame();
+
+    dispatchFrameOrigin(origin, parent);
+    // fixed-sleep-ok: message events dispatch on a later task, so a refusal needs one turn
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(frame.isKnownFrameHostOrigin(origin)).toBe(false);
+    expect(frame.getFrameOrigin()).toBeNull();
+    expect(parent.postMessage).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://0123456789abcdef0123456789abcdef.claudemcpcontent.com",
+    "https://abc.web-sandbox.oaiusercontent.com",
+  ])("handshakes with %s on a confirmed embed session", async (origin) => {
+    setEmbedToken("embed-session");
+    stubSessionResponse({
+      email: "member@example.com",
+      token: "embed-session",
+    });
+    const parent = parentWindow();
+    setParent(parent);
+    const frame = await loadFrame();
+
+    dispatchFrameOrigin(origin, parent);
+    await vi.waitFor(() => expect(frame.getFrameOrigin()).toBe(origin));
+  });
 });

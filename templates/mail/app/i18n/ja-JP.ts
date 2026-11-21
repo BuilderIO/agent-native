@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "自分へのメモ",
     },
     inbox: {
-      atLeastCount: "少なくとも{{count}}",
+      conversationsCount: "会話: {{count}}件",
+      conversationsAtLeastCount: "会話: {{count}}件以上",
+      unreadCount: "未読の会話: {{count}}件",
+      draftsToReviewCount: "確認待ちの下書き: {{count}}件",
       syncing: "受信トレイを同期中…",
     },
     sort: {
@@ -169,7 +172,7 @@ const messages = {
       filtersLimitReached: "保存できるフィルターは最大20件です。",
     },
     tabSettings: {
-      splitInbox: "受信トレイを分割",
+      splitInbox: "受信トレイをタブに分割",
       views: "ビュー",
       categories: "カテゴリ",
       rename: "名前を変更",
@@ -177,7 +180,7 @@ const messages = {
       savedFilters: "保存したフィルター",
       combinedInbox: "統合受信トレイ",
       allTab: "すべてタブ",
-      help: "統合受信トレイでは全アカウントをまとめて表示します。オフにするとタブに分かれます。",
+      help: "選んだビュー、ラベル、保存済みフィルタを受信トレイの個別のタブとして表示します。オフにすると、受信トレイのメールをすべて1つのタブで表示します。",
       aiSetup: "AI タグとルールを設定",
     },
     accounts: {
@@ -205,6 +208,14 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "適用",
       attachFile: "ファイルを添付",
+      attachFromContent: "Content から添付",
+      searchContentPages: "Content のページを検索",
+      contentPagesLoading: "ページを読み込んでいます…",
+      contentPagesFailed: "Content のページを読み込めませんでした",
+      contentPagesRetry: "再試行",
+      contentPagesEmpty: "ページが見つかりません",
+      contentFileMarkdown: "Markdown ファイル",
+      contentFileCsv: "CSV ファイル",
       bold: "太字",
       cancel: "キャンセル",
       closeAllDrafts: "すべての下書きを閉じる",
@@ -467,6 +478,8 @@ const messages = {
       scheduledCancelled: "予約メールをキャンセルしました。",
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "Content のページを添付できませんでした",
+      waitForAttachments: "添付ファイルの追加が終わってから送信してください。",
       failedToUploadImage: "画像のアップロードに失敗しました",
       storageBuilderRefused:
         "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか独自のストレージを使ってから、もう一度お試しください。",

@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "ملاحظة لنفسي",
     },
     inbox: {
-      atLeastCount: "على الأقل {{count}}",
+      conversationsCount: "المحادثات: {{count}}",
+      conversationsAtLeastCount: "المحادثات: {{count}} على الأقل",
+      unreadCount: "المحادثات غير المقروءة: {{count}}",
+      draftsToReviewCount: "مسودات للمراجعة: {{count}}",
       syncing: "جارٍ مزامنة الوارد…",
     },
     sort: {
@@ -169,7 +172,7 @@ const messages = {
       filtersLimitReached: "يمكنك حفظ ما يصل إلى 20 فلترًا.",
     },
     tabSettings: {
-      splitInbox: "صندوق وارد مقسّم",
+      splitInbox: "تقسيم صندوق الوارد إلى علامات تبويب",
       views: "وجهات النظر",
       categories: "الفئات",
       rename: "إعادة تسمية",
@@ -177,7 +180,7 @@ const messages = {
       savedFilters: "الفلاتر المحفوظة",
       combinedInbox: "صندوق وارد موحد",
       allTab: "تبويب الكل",
-      help: "يعرض صندوق الوارد الموحّد جميع الحسابات معًا؛ أوقفه لتقسيم البريد إلى علامات تبويب.",
+      help: "يعرض طرق العرض والتصنيفات وعوامل التصفية المحفوظة التي اخترتها كعلامات تبويب منفصلة في صندوق الوارد. أوقفه لعرض كل بريد الوارد في علامة تبويب واحدة.",
       aiSetup: "إعداد وسوم وقواعد الذكاء الاصطناعي",
     },
     accounts: {
@@ -205,6 +208,14 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "تطبيق",
       attachFile: "إرفاق ملف",
+      attachFromContent: "إرفاق من Content",
+      searchContentPages: "البحث في صفحات Content",
+      contentPagesLoading: "جارٍ تحميل الصفحات…",
+      contentPagesFailed: "تعذّر تحميل صفحات Content",
+      contentPagesRetry: "إعادة المحاولة",
+      contentPagesEmpty: "لم يتم العثور على صفحات",
+      contentFileMarkdown: "ملف Markdown",
+      contentFileCsv: "ملف CSV",
       bold: "غامق",
       cancel: "إلغاء",
       closeAllDrafts: "إغلاق جميع المسودات",
@@ -462,6 +473,8 @@ const messages = {
       scheduledCancelled: "تم إلغاء البريد المجدول.",
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "تعذّر إرفاق صفحة Content",
+      waitForAttachments: "انتظر حتى تكتمل إضافة المرفقات، ثم أرسل.",
       failedToUploadImage: "فشل تحميل الصورة",
       storageBuilderRefused:
         "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو استخدم مساحة التخزين الخاصة بك، ثم حاول مرة أخرى.",

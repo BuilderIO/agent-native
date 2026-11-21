@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Note to Self",
     },
     inbox: {
-      atLeastCount: "At least {{count}}",
+      conversationsCount: "Conversations: {{count}}",
+      conversationsAtLeastCount: "Conversations: at least {{count}}",
+      unreadCount: "Unread conversations: {{count}}",
+      draftsToReviewCount: "Drafts to review: {{count}}",
       syncing: "Syncing inbox…",
     },
     sort: {
@@ -167,7 +170,7 @@ const messages = {
       filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
-      splitInbox: "Split inbox",
+      splitInbox: "Split inbox into tabs",
       views: "Views",
       categories: "Categories",
       rename: "Rename",
@@ -175,7 +178,7 @@ const messages = {
       savedFilters: "Saved filters",
       combinedInbox: "Combined inbox",
       allTab: "All tab",
-      help: "Combined inbox shows every account together; turn it off to split mail into tabs.",
+      help: "Shows your chosen views, labels, and saved filters as separate inbox tabs. Turn it off to see all inbox mail in one Inbox tab.",
       aiSetup: "Set up AI tags and rules",
     },
     accounts: {
@@ -203,6 +206,14 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Apply",
       attachFile: "Attach file",
+      attachFromContent: "Attach from Content",
+      searchContentPages: "Search Content pages",
+      contentPagesLoading: "Loading pages…",
+      contentPagesFailed: "Couldn't load your Content pages",
+      contentPagesRetry: "Try again",
+      contentPagesEmpty: "No pages found",
+      contentFileMarkdown: "Markdown file",
+      contentFileCsv: "CSV file",
       bold: "Bold",
       cancel: "Cancel",
       closeAllDrafts: "Close all drafts",
@@ -460,6 +471,8 @@ const messages = {
       uncertainScheduledRetryStarted: "A new copy is being sent.",
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
+      failedToAttachContentPage: "Failed to attach Content page",
+      waitForAttachments: "Wait for attachments to finish, then send.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:
         "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io or use your own storage, then try again.",

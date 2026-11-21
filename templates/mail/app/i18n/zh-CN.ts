@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "给自己的备注",
     },
     inbox: {
-      atLeastCount: "至少 {{count}}",
+      conversationsCount: "会话：{{count}}",
+      conversationsAtLeastCount: "会话：至少 {{count}}",
+      unreadCount: "未读会话：{{count}}",
+      draftsToReviewCount: "待审阅草稿：{{count}}",
       syncing: "收件箱同步中…",
     },
     sort: {
@@ -157,7 +160,7 @@ const messages = {
       filtersLimitReached: "最多可保存 20 个筛选条件。",
     },
     tabSettings: {
-      splitInbox: "拆分收件箱",
+      splitInbox: "将收件箱拆分为标签页",
       views: "视图",
       categories: "分类",
       rename: "重命名",
@@ -165,7 +168,7 @@ const messages = {
       savedFilters: "已保存的筛选条件",
       combinedInbox: "合并收件箱",
       allTab: "全部标签页",
-      help: "合并收件箱会一起显示所有账户；关闭后，邮件会按标签分到不同标签页。",
+      help: "将你选择的视图、标签和已保存的筛选器显示为单独的收件箱标签页。关闭后，所有收件箱邮件会显示在一个标签页中。",
       aiSetup: "设置 AI 标签和规则",
     },
     accounts: {
@@ -193,6 +196,14 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "应用",
       attachFile: "附加文件",
+      attachFromContent: "从 Content 附加",
+      searchContentPages: "搜索 Content 页面",
+      contentPagesLoading: "正在加载页面…",
+      contentPagesFailed: "无法加载你的 Content 页面",
+      contentPagesRetry: "重试",
+      contentPagesEmpty: "未找到页面",
+      contentFileMarkdown: "Markdown 文件",
+      contentFileCsv: "CSV 文件",
       bold: "加粗",
       cancel: "取消",
       closeAllDrafts: "关闭所有草稿",
@@ -450,6 +461,8 @@ const messages = {
       scheduledCancelled: "定时邮件已取消。",
       scheduledCancelFailed: "取消定时邮件失败",
       failedToAttachFile: "附加文件失败",
+      failedToAttachContentPage: "附加 Content 页面失败",
+      waitForAttachments: "请等待附件添加完成后再发送。",
       failedToUploadImage: "上传图片失败",
       storageBuilderRefused:
         "Builder.io 拒绝了 Mail 的文件存储连接，因此未能附加文件。请重新连接 Builder.io 或使用自己的存储，然后重试。",

@@ -30,6 +30,7 @@ function createDefaultAvailability(timezone: string): AvailabilityConfig {
 }
 
 export default defineAction({
+  mcpTool: "search",
   description: "Get availability configuration",
   schema: z.object({}),
   http: { method: "GET" },
