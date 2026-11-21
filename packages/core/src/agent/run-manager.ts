@@ -636,13 +636,12 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
-// Retained private text is blanked, so the events that really held a reply are remembered here.
-const privateReplyTextEvents = new WeakSet<AgentChatEvent>();
+const retainedPrivateRepliesWithText = new WeakSet<AgentChatEvent>();
 
 export function carriesAssistantText(event: AgentChatEvent): boolean {
   return (
     event.type === "text" &&
-    (event.text.trim().length > 0 || privateReplyTextEvents.has(event))
+    (event.text.trim().length > 0 || retainedPrivateRepliesWithText.has(event))
   );
 }
 
@@ -2136,7 +2135,7 @@ export function startRun(
       runEvent.event.type === "text" &&
       runEvent.event.text.trim().length > 0
     ) {
-      privateReplyTextEvents.add(retainedEvent.event);
+      retainedPrivateRepliesWithText.add(retainedEvent.event);
     }
     run.events.push(retainedEvent);
     for (const subscriber of run.subscribers) {
