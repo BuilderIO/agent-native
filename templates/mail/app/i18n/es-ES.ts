@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Nota para mí",
     },
     inbox: {
-      atLeastCount: "Al menos {{count}}",
+      conversationsCount: "Conversaciones: {{count}}",
+      conversationsAtLeastCount: "Conversaciones: al menos {{count}}",
+      unreadCount: "Conversaciones no leídas: {{count}}",
+      draftsToReviewCount: "Borradores por revisar: {{count}}",
       syncing: "Sincronizando bandeja...",
     },
     sort: {
@@ -158,8 +161,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Fijar barra lateral",
-      unpinSidebar: "Desfijar barra lateral",
       closeSidebar: "Cerrar barra lateral",
       settings: "Ajustes",
       aiSettings: "Administrar etiquetas y reglas",
@@ -177,7 +178,7 @@ const messages = {
       filtersLimitReached: "Puedes guardar hasta 20 filtros.",
     },
     tabSettings: {
-      splitInbox: "Bandeja de entrada dividida",
+      splitInbox: "Dividir la bandeja de entrada en pestañas",
       views: "Vistas",
       categories: "Categorías",
       rename: "Cambiar nombre",
@@ -185,7 +186,7 @@ const messages = {
       savedFilters: "Filtros guardados",
       combinedInbox: "Bandeja de entrada combinada",
       allTab: "Pestaña Todo",
-      help: "La bandeja combinada reúne todas las cuentas; desactívala para separar el correo en pestañas.",
+      help: "Muestra las vistas, etiquetas y filtros guardados que elijas como pestañas separadas de la bandeja de entrada. Desactívalo para ver todo el correo de entrada en una sola pestaña.",
       aiSetup: "Configurar etiquetas y reglas de IA",
     },
     accounts: {
@@ -213,6 +214,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Aplicar",
       attachFile: "Adjuntar archivo",
+      attachFromContent: "Adjuntar desde Content",
+      searchContentPages: "Buscar páginas de Content",
+      contentPagesLoading: "Cargando páginas…",
+      contentPagesFailed: "No se pudieron cargar tus páginas de Content",
+      contentPagesRetry: "Reintentar",
+      contentPagesEmpty: "No se encontraron páginas",
+      contentFileMarkdown: "Archivo Markdown",
+      contentFilePdf: "Archivo PDF",
+      contentPageFormat: "Adjuntar páginas como",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "Archivo CSV",
       bold: "Negrita",
       cancel: "Cancelar",
       closeAllDrafts: "Cerrar todos los borradores",
@@ -475,6 +488,15 @@ const messages = {
       scheduledCancelled: "Email programado cancelado.",
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "No se pudo adjuntar la página de Content",
+      contentPagePdfTextUnsupported:
+        "Esta página tiene texto que un PDF aún no puede mostrar, como chino, japonés, coreano, árabe, hebreo o hindi. Adjúntala como Markdown.",
+      contentPagePdfTooLong:
+        "Esta página es demasiado larga o ancha para adjuntarla como PDF. Adjúntala como Markdown.",
+      contentPagePdfUnavailable:
+        "Content no pudo crear un PDF de esta página. Adjúntala como Markdown.",
+      waitForAttachments:
+        "Espera a que terminen de añadirse los adjuntos y luego envía.",
       failedToUploadImage: "No se pudo subir la imagen",
       storageBuilderRefused:
         "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",

@@ -1277,7 +1277,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const bookingTimeZone = await getOwnerBookingTimeZone(hostEmail);
 
     const eventTitle = buildBookingEventTitle({
-      explicitTitle: body.eventTitle,
+      explicitTitle: undefined,
       hostEmail,
       hostEmails: requiredHostEmails,
       attendeeName,

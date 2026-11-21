@@ -205,7 +205,6 @@ export async function isAllowedFigmaSvgRenderRequest(
 }
 
 const MAX_RENDER_REDIRECTS = 5;
-const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 function isTopLevelNavigation(
   request: import("@playwright/test").Request,
@@ -234,6 +233,7 @@ export async function routeAllowedRenderRequests(
   context: import("@playwright/test").BrowserContext,
   isAllowed: (url: string) => Promise<boolean> = (url) =>
     isAllowedFigmaSvgRenderRequest(url),
+  safeFetch: SafeImageFetch = ssrfSafeFetch,
 ): Promise<{ blockedNavigations: string[] }> {
   const blockedNavigations: string[] = [];
   await context.route("**/*", async (route) => {
@@ -251,41 +251,64 @@ export async function routeAllowedRenderRequests(
       await route.continue();
       return;
     }
-    let url = request.url();
-    let method = request.method();
-    let postData = request.postDataBuffer() ?? undefined;
-    for (let hop = 0; hop <= MAX_RENDER_REDIRECTS; hop++) {
-      let response: import("@playwright/test").APIResponse;
-      try {
-        response = await route.fetch({
-          url,
-          method,
-          postData,
-          maxRedirects: 0,
-        });
-      } catch {
-        await route.abort("failed");
-        return;
-      }
-      const location = response.headers()["location"];
-      if (!REDIRECT_STATUSES.has(response.status()) || !location) {
-        await route.fulfill({ response });
-        return;
-      }
-      url = new URL(location, url).href;
-      if (!(await isAllowed(url))) {
-        await route.abort("blockedbyclient");
-        return;
-      }
-      if (
-        response.status() === 303 ||
-        (method === "POST" && response.status() <= 302)
-      ) {
-        method = "GET";
-        postData = undefined;
-      }
+    const method = request.method();
+    const headers = new Headers(request.headers());
+    for (const name of [
+      "host",
+      "content-length",
+      "connection",
+      "accept-encoding",
+    ]) {
+      headers.delete(name);
     }
-    await route.abort("blockedbyclient");
+    const postData = request.postDataBuffer();
+    let response: Response;
+    try {
+      response = await safeFetch(
+        request.url(),
+        {
+          method,
+          headers,
+          ...(postData && method !== "GET" && method !== "HEAD"
+            ? { body: new Uint8Array(postData) }
+            : {}),
+          signal: AbortSignal.timeout(30_000),
+        },
+        {
+          maxRedirects: MAX_RENDER_REDIRECTS,
+          requireDispatcher: true,
+          assertUrlAllowed: async (hopUrl) => {
+            if (!(await isAllowed(hopUrl))) {
+              throw new Error(`Render request blocked (${hopUrl})`);
+            }
+          },
+        },
+      );
+    } catch {
+      await route.abort("blockedbyclient");
+      return;
+    }
+    try {
+      const body = Buffer.from(await response.arrayBuffer());
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value, name) => {
+        if (
+          name === "content-encoding" ||
+          name === "content-length" ||
+          name === "transfer-encoding"
+        ) {
+          return;
+        }
+        responseHeaders[name] = value;
+      });
+      await route.fulfill({
+        status: response.status,
+        headers: responseHeaders,
+        body,
+      });
+    } catch {
+      await route.abort("failed");
+    }
   });
   return { blockedNavigations };
 }
@@ -362,6 +385,9 @@ export async function renderDesignToFigmaSvg(
   try {
     const context = await browser.newContext({
       viewport: { width: options.width, height: options.height },
+    });
+    await context.routeWebSocket("**/*", (ws) => {
+      void ws.close();
     });
     await context.addInitScript(
       "globalThis.__name = globalThis.__name || function (value) { return value; };",

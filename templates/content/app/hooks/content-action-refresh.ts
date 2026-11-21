@@ -29,6 +29,7 @@ const COMMENT_COUNT_MUTATIONS = new Set([
 
 const DOCUMENT_MUTATIONS = new Set([
   "add-github-pull-requests",
+  "append-to-document",
   "create-and-link-notion-page",
   "decide-resource-suggestion",
   "decide-resource-suggestion-proposal",
@@ -57,6 +58,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "push-builder-doc",
   "push-notion-page",
   "refresh-content-database-source",
+  "run-builder-article-autosave",
   "reorder-document-property",
   "resolve-local-folder-conflict",
   "resolve-notion-sync-conflict",
@@ -104,6 +106,7 @@ export const DATABASE_RESULT_MUTATIONS = new Set([
   "reorder-document-property",
   "restore-content-database",
   "restore-document",
+  "run-builder-article-autosave",
   "set-document-property",
   "submit-content-database-form",
   "sync-github-folder",

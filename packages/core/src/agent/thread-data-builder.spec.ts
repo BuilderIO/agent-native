@@ -7389,6 +7389,30 @@ describe("live-client marker", () => {
 });
 
 describe("private run projections survive snapshot sanitizing", () => {
+  it("recognizes a folded private run and redacts the entire combined reply", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "folded",
+            role: "assistant",
+            content: [{ type: "text", text: "private reply" }],
+            metadata: {
+              runId: "later-run",
+              custom: { foldedRunIds: ["private-run", "later-run"] },
+            },
+          },
+        },
+      ],
+    };
+    expect(hasPrivateRunProjections(repo, ["private-run"])).toBe(true);
+    expect(hasPrivateRunProjections(repo, ["unknown-run"])).toBe(false);
+    const sanitized = sanitizeThreadDataForPrivateActions(repo, new Set(), [
+      { runId: "private-run", omitFromPersistedHistory: true },
+    ]);
+    expect(JSON.stringify(sanitized)).not.toContain("private reply");
+  });
+
   it("still attributes a redacted server-projected reply to its private run", () => {
     const message = buildAssistantMessage(
       [

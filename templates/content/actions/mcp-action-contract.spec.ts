@@ -46,9 +46,11 @@ import patchDatabaseItems from "./patch-database-items.js";
 import permanentlyDeleteDocument from "./permanently-delete-document.js";
 import pullDocument from "./pull-document.js";
 import readComposerSource from "./read-composer-source.js";
+import readDocumentFile from "./read-document-file.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
+import searchContentDatabaseRows from "./search-content-database-rows.js";
 import searchDocuments from "./search-documents.js";
 import setDocumentProperty from "./set-document-property.js";
 import shareLocalFileDocument from "./share-local-file-document.js";
@@ -104,6 +106,7 @@ describe("Content action-owned agent catalogs", () => {
     "create-github-pull-request-collection": createGitHubPullRequestCollection,
     "add-github-pull-requests": addGitHubPullRequests,
     "read-composer-source": readComposerSource,
+    "read-document-file": readDocumentFile,
   };
 
   const deferredDatabaseActions = {
@@ -381,13 +384,29 @@ describe("Content action-owned agent catalogs", () => {
     expect(parameters.properties.rows.items.properties).not.toHaveProperty(
       "propertyValues",
     );
-    expect(parameters.properties.target.properties).not.toHaveProperty(
+    expect(parameters.properties.target.properties).toHaveProperty(
+      "authorityScope",
+    );
+    expect(parameters.properties.target.required).not.toContain(
       "authorityScope",
     );
     expect(patchDatabaseItems.tool.description).toContain("atomic");
     expect(updateDatabaseItems.tool.description).toContain(
       "patch-database-items",
     );
+  });
+
+  it("advertises an MCP output contract on every code-mode pilot action", () => {
+    for (const action of [
+      getDocument,
+      getContentDatabase,
+      listContentDatabases,
+      searchDocuments,
+      searchContentDatabaseRows,
+      patchDatabaseItems,
+    ]) {
+      expect(action.mcpOutputContract?.response).toBeDefined();
+    }
   });
 
   it("keeps source composition and destructive migration actions out of compact MCP discovery", () => {

@@ -3,7 +3,9 @@ import { creativeContextMessagesByLocale } from "@agent-native/creative-context/
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
 import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
+import { builderAutosaveMessagesByLocale } from "./builder-autosave-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
+import { designScreenMessagesByLocale } from "./design-screen-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -229,6 +231,24 @@ const databaseMessages = {
   builderReviewShowMore: "Show more",
   builderReviewRemainingBatches:
     "Review again after this batch to prepare the remaining Builder changes.",
+  builderReviewLoadingMorePagesOne: "Loading changes for 1 more page…",
+  builderReviewLoadingMorePages: "Loading changes for {{count}} more pages…",
+  builderReviewConfirmingBodiesOne:
+    "Double-checking 1 body change against Builder…",
+  builderReviewConfirmingBodies:
+    "Double-checking {{count}} body changes against Builder…",
+  builderReviewFindingPages: "Finding pages with changes…",
+  builderReviewRowsMatchBuilderOne:
+    "1 page already matches Builder once its body is converted, so it’s left out.",
+  builderReviewRowsMatchBuilder:
+    "{{count}} pages already match Builder once their bodies are converted, so they’re left out.",
+  builderReviewLoadFailed: "Some changes didn’t load: {{message}}",
+  bodyDiffAdded: "Added:",
+  bodyDiffRemoved: "Removed:",
+  bodyDiffMoreLinesOne: "1 more changed line",
+  bodyDiffMoreLines: "{{count}} more changed lines",
+  bodyDiffMoreChangesOne: "1 more change not shown",
+  bodyDiffMoreChanges: "{{count}} more changes not shown",
   builderBodiesSyncingProgress: "Syncing {{hydrated}} of {{total}} bodies.",
   builderBodiesSyncFinishedWithFailures:
     "{{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
@@ -272,6 +292,11 @@ const databaseMessages = {
   failedToSavePagePreview: "Failed to save page preview",
   failedToSaveView: "Failed to save view",
   failedToUpdateCheckbox: "Failed to update checkbox",
+  undoPropertyChangedSince: "Not undone: this property changed after your edit",
+  redoPropertyChangedSince:
+    "Not redone: this property changed after you undid it",
+  undoPropertyFailed: "Couldn't undo the property change",
+  redoPropertyFailed: "Couldn't redo the property change",
   failedToUpdateEverySelectedRow: "Failed to update every selected row",
   removeSelectedRowsFromDatabaseQuestion:
     "Remove selected rows from collection?",
@@ -1621,6 +1646,7 @@ const enUS = {
       delete: "Delete",
       insertBelow: "Insert block below",
       insertAbove: "Insert block above",
+      turnIntoCollection: "Turn into collection",
       askAgent: "Ask agent",
       columns: "Columns",
       syncedBlock: "Synced block",
@@ -1640,6 +1666,20 @@ const enUS = {
         "Components from the source file can’t be duplicated or deleted here.",
       lockedSuggesting: "Suggestions can’t add or remove this kind of block.",
       lockedPage: "This page doesn’t allow that change.",
+      lockedCollection: "A collection stays on the page it belongs to.",
+      lockedUploadedClip:
+        "A Clip uploaded to this page stays on it, since the page decides who can watch it.",
+      moveTo: "Move to",
+      moveToTitle: "Move block to",
+      movingTo: "Moving to {{title}}…",
+      movedTo: "Moved to {{title}}",
+      copiedTo:
+        "Copied to {{title}}. The block changed while it moved, so it’s still here too.",
+      copiedPageClosed:
+        "Copied to {{title}}. The page it came from closed before the move finished, so the block is still there too.",
+      moveChanged: "The block changed before it could move, so nothing moved.",
+      moveFailed: "Couldn’t move the block to {{title}}",
+      openPage: "Open",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",
@@ -1763,9 +1803,26 @@ const enUS = {
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
+    newPagePlaceholder: "Start writing",
+    newPageLine: "Start writing, {{draft}}, or {{import}}",
+    newPageLineWithoutImport: "Start writing, or {{draft}}",
+    newPageLineDraft: "draft it with the agent",
+    newPageLineImport: "import Markdown",
+    newPageDraftPrompt: "Draft this page about ",
+    newPageDraftPromptTitled: "Draft this page about {{title}}",
+    newPageAgentContextLabel: "This page",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
     failedToCreateDatabase: "Failed to create inline collection",
+    turningIntoCollection: "Turning the table into a collection...",
+    turnedIntoCollection: "Table turned into a collection",
+    failedToTurnIntoCollection: "Couldn’t turn the table into a collection",
+    tableChangedWhileTurning:
+      "The table changed while it was turning into a collection, so it was left as it is. Try again.",
+    tableTooBigForCollection:
+      "A collection can take a table of up to 500 rows and 50 columns.",
+    tableTextTooLongForCollection:
+      "In a collection, a row’s name (the table’s first column) can be up to 500 characters, and other cells up to 20,000. Shorten the long cells and try again.",
     failedToCreatePage: "Failed to create page",
     generateWithAi: "Generate with AI",
     dropMedia: "Drop media",
@@ -1982,7 +2039,9 @@ const enUS = {
     aiResponseMode: "Response",
     aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
-    aiUnavailable: "Unavailable",
+    aiModelNotConnected:
+      "{{model}} isn’t connected. Click its name to choose another model.",
+    aiModelNotConnectedAlone: "{{model}} isn’t connected.",
     aiReplyInThread: "Reply in thread",
     aiApplyAndResolve: "Apply changes and resolve",
     aiPromptSuggest: "Suggest changes for this comment.",
@@ -2311,6 +2370,8 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  designScreen: designScreenMessagesByLocale["en-US"],
+  builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2376,6 +2437,8 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    designScreen: enUS.designScreen,
+    builderAutosave: enUS.builderAutosave,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2898,6 +2961,8 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    designScreen: designScreenMessagesByLocale[locale],
+    builderAutosave: builderAutosaveMessagesByLocale[locale],
   };
 }
 

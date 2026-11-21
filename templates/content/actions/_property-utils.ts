@@ -849,7 +849,7 @@ export async function listPropertiesForDatabase(
   return withTargets;
 }
 
-function serializePropertyDefinition(
+export function serializePropertyDefinition(
   definition: typeof schema.documentPropertyDefinitions.$inferSelect,
 ) {
   const type = definition.type as DocumentPropertyType;

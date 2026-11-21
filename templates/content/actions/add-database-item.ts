@@ -11,8 +11,8 @@ import {
 } from "./_database-property-input.js";
 import {
   createDatabaseRow,
-  databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
+  databaseMutationTargetInputSchema,
   assertDatabaseWidgetWriteTarget,
 } from "./_database-row-mutation.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -29,7 +29,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
   propertyEntries: databasePropertyEntriesSchema,
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .extend({ target: databaseMutationTargetInputSchema.strict() })
   .omit({ propertyValues: true })
   .strict();
 

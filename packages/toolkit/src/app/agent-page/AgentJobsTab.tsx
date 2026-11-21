@@ -83,6 +83,7 @@ type ListedAutomation =
       kind: "recurring";
       resource: RecurringJob;
       triggerType: "schedule";
+      canRunNow?: boolean;
     }
   | {
       kind: "automation";
@@ -90,20 +91,55 @@ type ListedAutomation =
       triggerType: "event" | "schedule" | "manual" | "webhook";
     };
 
-function listRecurringJobs(jobs: RecurringJob[]): ListedAutomation[] {
-  return jobs.map((resource) => ({
-    kind: "recurring",
-    resource,
-    triggerType: "schedule",
-  }));
+function listRecurringJobs(
+  jobs: RecurringJob[],
+  automations: Automation[],
+): ListedAutomation[] {
+  const byId = new Map(
+    automations.map((automation) => [automation.resourceId, automation]),
+  );
+  return jobs.map((job) => {
+    const automation = byId.get(job.id);
+    return {
+      kind: "recurring",
+      resource:
+        automation && !(job.lastStatus === "paused" && !job.enabled)
+          ? {
+              ...job,
+              lastRun: automation.lastRun,
+              lastCheck: automation.lastCheck,
+              lastStatus: automation.lastStatus,
+              lastError: automation.lastError,
+            }
+          : job,
+      triggerType: "schedule",
+      canRunNow: job.capabilities?.canOperate ?? job.canUpdate,
+    };
+  });
 }
 
-function listAutomations(automations: Automation[]): ListedAutomation[] {
-  return automations.map((resource) => ({
-    kind: "automation",
-    resource,
-    triggerType: resource.triggerType,
-  }));
+function listAutomations(
+  automations: Automation[],
+  jobs: RecurringJob[],
+): ListedAutomation[] {
+  const jobIds = new Set(jobs.map((job) => job.id));
+  return automations
+    .filter((resource) => !jobIds.has(resource.resourceId))
+    .map(
+      (resource): ListedAutomation =>
+        resource.classification === "recurring-job"
+          ? {
+              kind: "recurring",
+              resource: {
+                ...resource,
+                instructions: resource.body,
+                canUpdate: false,
+              },
+              triggerType: "schedule",
+              canRunNow: resource.capabilities.canOperate,
+            }
+          : { kind: "automation", resource, triggerType: resource.triggerType },
+    );
 }
 
 type Translate = ReturnType<typeof useT>;
@@ -413,13 +449,17 @@ function AgentJobsTabContent({
     });
   };
 
+  const personalJobs = personalJobsQuery.data ?? [];
+  const organizationJobs = organizationJobsQuery.data ?? [];
+  const personalAutomations = personalAutomationsQuery.data ?? [];
+  const organizationAutomations = organizationAutomationsQuery.data ?? [];
   const personalEntries = [
-    ...listRecurringJobs(personalJobsQuery.data ?? []),
-    ...listAutomations(personalAutomationsQuery.data ?? []),
+    ...listRecurringJobs(personalJobs, personalAutomations),
+    ...listAutomations(personalAutomations, personalJobs),
   ];
   const organizationEntries = [
-    ...listRecurringJobs(organizationJobsQuery.data ?? []),
-    ...listAutomations(organizationAutomationsQuery.data ?? []),
+    ...listRecurringJobs(organizationJobs, organizationAutomations),
+    ...listAutomations(organizationAutomations, organizationJobs),
   ];
   const linkedTarget = linkedId
     ? [...personalEntries, ...organizationEntries].find(
@@ -463,8 +503,7 @@ function AgentJobsTabContent({
   ) => {
     const input = {
       operation,
-      name: entry.resource.name,
-      scope: entry.resource.scope,
+      resourceId: entry.resource.id,
       ...patch,
     };
     const options = onSuccess ? { onSuccess } : undefined;
@@ -508,6 +547,10 @@ function AgentJobsTabContent({
         : entry.resource.instructions;
     const failed =
       resource.lastStatus === "error" || resource.lastStatus === "interrupted";
+    const canRunNow =
+      entry.kind === "recurring"
+        ? (entry.canRunNow ?? resource.canUpdate)
+        : resource.canUpdate && entry.resource.capabilities.canOperate;
 
     return (
       <article
@@ -644,18 +687,17 @@ function AgentJobsTabContent({
                   <IconEye aria-hidden="true" />
                   {t("jobs.details", { defaultValue: "Details" })}
                 </DropdownMenuItem>
+                {canRunNow ? (
+                  <DropdownMenuItem
+                    disabled={runAutomationMutation.isPending}
+                    onSelect={() => setRunTarget(entry)}
+                  >
+                    <IconPlayerPlay aria-hidden="true" />
+                    {t("jobs.runNow", { defaultValue: "Run now" })}
+                  </DropdownMenuItem>
+                ) : null}
                 {resource.canUpdate ? (
                   <>
-                    {entry.kind !== "automation" ||
-                    entry.resource.capabilities.canOperate ? (
-                      <DropdownMenuItem
-                        disabled={runAutomationMutation.isPending}
-                        onSelect={() => setRunTarget(entry)}
-                      >
-                        <IconPlayerPlay aria-hidden="true" />
-                        {t("jobs.runNow", { defaultValue: "Run now" })}
-                      </DropdownMenuItem>
-                    ) : null}
                     {entry.kind === "automation" ? (
                       <DropdownMenuItem
                         onSelect={() => openEditor(entry.resource)}
@@ -1032,8 +1074,7 @@ function AgentJobsTabContent({
                 if (!runTarget) return;
                 runAutomationMutation.mutate(
                   {
-                    name: runTarget.resource.name,
-                    scope: runTarget.resource.scope,
+                    resourceId: runTarget.resource.id,
                   },
                   { onSuccess: () => setRunTarget(null) },
                 );
