@@ -7,11 +7,16 @@ import type {
   ContentDatabaseNavigationPageResponse,
   Document,
 } from "@shared/api";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  defaultScheduler,
+  notifyManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -1063,6 +1068,68 @@ describe("PagedContentFilesSidebarView", () => {
     await act(async () => root.unmount());
   });
 
+  it("shows an open page with several values in each of its groups, even when one group's first page lists it", async () => {
+    const openDocument = {
+      id: "open-page",
+      parentId: null,
+      title: "Open page",
+      content: "",
+      icon: null,
+      position: 99,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies Document;
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: args.navigation.locate
+        ? { ...page([]), locatedGroupIds: ["tags:red", "tags:blue"] }
+        : {
+            ...page([navigationItem("open-page")]),
+            groups: [
+              {
+                id: "tags:red",
+                label: "Red",
+                unset: false,
+                count: 2,
+                page: page([
+                  navigationItem("open-page"),
+                  navigationItem("red-2"),
+                ]),
+              },
+              {
+                id: "tags:blue",
+                label: "Blue",
+                unset: false,
+                count: 2,
+                page: page([navigationItem("blue-1")], "blue-cursor"),
+              },
+            ],
+          },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const { container, root } = await renderHarness({
+      activeDocumentId: openDocument.id,
+      activePathDocuments: [openDocument],
+    });
+
+    expect(
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      ),
+    ).toEqual([
+      "/page/open-page",
+      "/page/red-2",
+      "/page/blue-1",
+      "/page/open-page",
+    ]);
+
+    await act(async () => root.unmount());
+  });
+
   it("takes a page moving to another space out of its groups, and shows one moving in in the no-value group", async () => {
     useFilesNavigationPage.mockImplementation(() => ({
       data: {
@@ -1096,24 +1163,39 @@ describe("PagedContentFilesSidebarView", () => {
         (link) => link.getAttribute("href"),
       );
     const failMoves: Array<(error: Error) => void> = [];
+    const started: Promise<void>[] = [];
     const moving: Promise<unknown>[] = [];
     const startMove = (move: FilesRowMove) => {
       const answer = new Promise<never>((_resolve, reject) => {
         failMoves.push(reject);
       });
+      let sent = () => {};
+      started.push(
+        new Promise<void>((resolve) => {
+          sent = resolve;
+        }),
+      );
       moving.push(
         queryClient
           .getMutationCache()
           .build(queryClient, {
             mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
-            mutationFn: (_variables: { id: string; parentId: string | null }) =>
-              answer,
+            mutationFn: (_variables: {
+              id: string;
+              parentId: string | null;
+            }) => {
+              sent();
+              return answer;
+            },
             onMutate: (): MoveDocumentContext => ({ move }),
           })
           .execute({ id: move.documentId, parentId: move.parentId })
           .catch(() => {}),
       );
     };
+
+    notifyManager.setScheduler((callback) => callback());
+    onTestFinished(() => notifyManager.setScheduler(defaultScheduler));
 
     await act(async () => {
       startMove({
@@ -1137,7 +1219,7 @@ describe("PagedContentFilesSidebarView", () => {
         from: { databaseId: "other-files", parentId: null },
         item: navigationItem("arriving"),
       });
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await Promise.all(started);
     });
     expect(links()).toEqual([
       "/page/draft-1",
@@ -1148,7 +1230,6 @@ describe("PagedContentFilesSidebarView", () => {
     await act(async () => {
       for (const fail of failMoves) fail(new Error("Move is unavailable"));
       await Promise.all(moving);
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
     expect(links()).toEqual(["/page/draft-1", "/page/draft-2", "/page/none-1"]);
 

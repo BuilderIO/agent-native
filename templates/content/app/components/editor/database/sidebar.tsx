@@ -306,14 +306,7 @@ function PagedContentFilesBranch({
   const activeDocument = props.activePathDocuments.find(
     (document) => document.id === props.activeDocumentId,
   );
-  const locateId =
-    groups &&
-    activeDocument &&
-    !groups.some((group) =>
-      group.page.items.some((item) => item.documentId === activeDocument.id),
-    )
-      ? activeDocument.id
-      : undefined;
+  const locateId = groups && activeDocument ? activeDocument.id : undefined;
   const located = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: props.databaseId,
@@ -589,7 +582,13 @@ function PagedContentFilesBranch({
     const groupRows = (group: ContentDatabaseNavigationGroup) =>
       [
         ...group.page.items,
-        ...(revealed && locatedGroupIds.has(group.id) ? [revealed] : []),
+        ...(revealed &&
+        locatedGroupIds.has(group.id) &&
+        !group.page.items.some(
+          (item) => item.documentId === revealed.documentId,
+        )
+          ? [revealed]
+          : []),
         ...(group.id === keptGroupId ? kept : []),
       ].filter(shownInGroups);
     const firstGroupId = groups.find(
