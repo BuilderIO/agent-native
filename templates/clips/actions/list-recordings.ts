@@ -15,6 +15,7 @@ import {
   not,
   notInArray,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { z } from "zod";
 
@@ -269,6 +270,7 @@ export default defineAction({
     }
 
     const orgId = await getActiveOrganizationId();
+    let listWithin: SQL | undefined;
 
     if (args.view === "library" || args.view === "from-content") {
       const email = getRequestUserEmail();
@@ -325,8 +327,10 @@ export default defineAction({
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
       } else if (!libraryFilter || isDefaultLibraryFilter(libraryFilter)) {
         // Library's own list sits beside its folder cards. A filter hides
-        // the cards, so it looks inside every folder instead.
-        whereClauses.push(isNull(schema.recordings.folderId));
+        // the cards, so it looks inside every folder instead, and the
+        // choices offered here count what it would find there.
+        if (filterInMemory) listWithin = isNull(schema.recordings.folderId);
+        else whereClauses.push(isNull(schema.recordings.folderId));
       }
     }
 
@@ -435,6 +439,7 @@ export default defineAction({
             where: whereClauses,
             state: libraryFilter,
             orderBy,
+            listWithin,
           })
         : null;
 

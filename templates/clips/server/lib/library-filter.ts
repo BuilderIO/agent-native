@@ -59,10 +59,13 @@ export async function filterLibraryRecordings({
   where,
   state,
   orderBy,
+  listWithin,
 }: {
   where: (SQL | undefined)[];
   state: FilterState;
   orderBy: SQL[];
+  /** Narrows the list and its count, not the choices (see evaluateLibraryFilter). */
+  listWithin?: SQL;
 }): Promise<LibraryFilterResult> {
   // guard:allow-unscoped — both callers, list-recordings and view-screen, put their access filter in `where`.
   const timeZone = requestTimeZone();
@@ -90,6 +93,9 @@ export async function filterLibraryRecordings({
         hasTranscript: sql<number>`(
           CASE WHEN ${transcriptHasTextSql()} THEN 1 ELSE 0 END
         )`,
+        listed: listWithin
+          ? sql<number>`(CASE WHEN ${listWithin} THEN 1 ELSE 0 END)`
+          : sql<number>`1`,
       })
       .from(schema.recordings)
       .leftJoin(
@@ -112,6 +118,9 @@ export async function filterLibraryRecordings({
     tags.push(row.tag);
     tagsByRecording.set(row.recordingId, tags);
   }
+  const listedIds = new Set(
+    rows.filter((row) => Number(row.listed) > 0).map((row) => row.id),
+  );
   return evaluateLibraryFilter(
     rows.map((row) => ({
       id: row.id,
@@ -126,5 +135,6 @@ export async function filterLibraryRecordings({
     })),
     state,
     { today: filterToday(timeZone), ...(timeZone ? { timeZone } : {}) },
+    listWithin ? (row) => listedIds.has(row.id) : undefined,
   );
 }

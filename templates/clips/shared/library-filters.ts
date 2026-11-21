@@ -233,10 +233,17 @@ export interface LibraryFilterResult {
   tags: string[];
 }
 
+/**
+ * `listed` narrows the list and its count but not the choices: the option
+ * counts, the tags and the hidden count still read every row. Library's own
+ * view lists what's outside folders, while a filter picked from it looks
+ * inside them too, so its choices have to count those.
+ */
 export function evaluateLibraryFilter(
   rows: readonly LibraryFilterRow[],
   state: FilterState,
   context: FilterMatchContext,
+  listed?: (row: LibraryFilterRow) => boolean,
 ): LibraryFilterResult {
   const tags = [...new Set(rows.flatMap((row) => row.tags))].sort((a, b) =>
     a.localeCompare(b),
@@ -252,12 +259,13 @@ export function evaluateLibraryFilter(
       ids.map((id) => [id, counts.option(field.id, id) ?? 0]),
     );
   }
+  const ids = (listed ? rows.filter(listed) : rows)
+    .filter((row) => matchesFilter(row, state, fields, context))
+    .map((row) => row.id);
   return {
-    ids: rows
-      .filter((row) => matchesFilter(row, state, fields, context))
-      .map((row) => row.id),
+    ids,
     counts: {
-      matching: counts.matching,
+      matching: listed ? ids.length : counts.matching,
       hiddenByPinned: counts.hiddenByPinned,
       options,
     },

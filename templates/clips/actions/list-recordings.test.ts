@@ -171,6 +171,19 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+const mockFilterLibraryRecordings = vi.hoisted(() =>
+  vi.fn(async () => ({
+    ids: [],
+    counts: { matching: 0, hiddenByPinned: 0, options: {} },
+    tags: [],
+  })),
+);
+
+vi.mock("../server/lib/library-filter.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/lib/library-filter.js")>()),
+  filterLibraryRecordings: mockFilterLibraryRecordings,
+}));
+
 vi.mock("../server/lib/recordings.js", () => ({
   countedViewCondition: () => ({ kind: "counted-view-condition" }),
   getActiveOrganizationId: async () => "org_123",
@@ -620,6 +633,18 @@ describe("list-recordings Library source", () => {
       });
     },
   );
+
+  it("counts the default view's choices inside folders too", async () => {
+    await action.run(
+      action.schema.parse({ view: "library", countOnly: true, filters: "" }),
+    );
+    const [options] = mockFilterLibraryRecordings.mock.calls[0] as unknown as [
+      { where: unknown[]; listWithin: unknown },
+    ];
+    const outsideFolders = { kind: "is-null", column: "recordings.folderId" };
+    expect(options.where).not.toContainEqual(outsideFolders);
+    expect(options.listWithin).toEqual(outsideFolders);
+  });
 
   it("lists both kinds when the source is all", async () => {
     const conditions = await countConditions({ source: "all" });

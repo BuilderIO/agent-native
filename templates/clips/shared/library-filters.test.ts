@@ -126,6 +126,21 @@ describe("Library filter", () => {
     expect(counts.option("unknown", "x")).toBeUndefined();
   });
 
+  it("lists only the listed rows but offers choices from every row", () => {
+    const outsideFolders = new Set(["recorded", "uploaded"]);
+    const result = evaluateLibraryFilter(
+      rows,
+      readLibraryFilter(""),
+      utc,
+      (row) => outsideFolders.has(row.id),
+    );
+    expect(result.ids).toEqual(["recorded"]);
+    expect(result.counts.matching).toBe(1);
+    expect(result.counts.options.source).toEqual({ clips: 3, content: 1 });
+    expect(result.counts.hiddenByPinned).toBe(1);
+    expect(result.tags).toEqual(["bug", "demo"]);
+  });
+
   it("buckets lengths at 1, 5 and 20 minutes", () => {
     expect(libraryLength(59_999)).toBe("under_1m");
     expect(libraryLength(60_000)).toBe("1_to_5m");
