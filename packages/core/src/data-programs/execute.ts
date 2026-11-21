@@ -693,6 +693,7 @@ async function executeSharedRun(
   sharing: OrgSharing,
   deadline: number,
   callerReserveMs: number,
+  programReadAt?: number,
 ): Promise<SharedRunOutcome> {
   if (deadline - Date.now() - callerReserveMs < MIN_RUN_TIMEOUT_MS) {
     return { kind: "no_time" };
@@ -703,6 +704,7 @@ async function executeSharedRun(
     paramsJson: JSON.stringify(args.params ?? {}),
     status: "running",
     triggeredBy: args.triggeredBy,
+    ...(programReadAt === undefined ? {} : { startedAt: programReadAt }),
   });
   const runTimeoutMs = deadline - Date.now() - callerReserveMs;
   if (runTimeoutMs < MIN_RUN_TIMEOUT_MS) {
@@ -860,10 +862,11 @@ const MIN_SCHEDULED_RUN_MS = PANEL_VIEW_TIMEOUT_MS;
  * time limit left, so one the sweep cuts short doesn't count against the
  * program. Only an owner confirmed gone pauses the schedule for
  * `refreshTtlMs`; an owner check that fails any other way waits at most five
- * minutes. A run recorded
- * after a save counts as the saved version's, so a program saved, archived or
- * switched off during the owner check is left to the next pass, which reads it
- * as it is then. Only the server's sweep calls this.
+ * minutes. The program is read again after the owner check, and one saved,
+ * archived or switched off meanwhile is left to the next pass. The run is
+ * recorded as starting just before that read, so a save the read misses still
+ * makes the run older than the save, and its rows are never served as the
+ * saved version's. Only the server's sweep calls this.
  */
 export async function runScheduledDataProgram(
   program: DataProgramRow,
@@ -896,6 +899,7 @@ export async function runScheduledDataProgram(
     program.ownerEmail,
     sharing.viewer.orgId,
   );
+  const programReadAt = Date.now();
   const current = (
     await listScheduledDataPrograms(program.appId, program.id)
   ).find((p) => p.id === program.id);
@@ -942,6 +946,7 @@ export async function runScheduledDataProgram(
     sharing,
     Math.min(options.deadline, Date.now() + DEFAULT_TIMEOUT_MS),
     0,
+    programReadAt,
   );
   return run.kind === "saved" ? "refreshed" : run.kind;
 }

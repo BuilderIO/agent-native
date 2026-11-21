@@ -505,6 +505,31 @@ describe("runScheduledDataProgram", () => {
     },
   );
 
+  it("records the run as starting no later than the program's second read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      let readAt = 0;
+      storeMocks.listScheduledDataPrograms.mockImplementation(async () => {
+        readAt = Date.now();
+        vi.setSystemTime(readAt + 1_000);
+        return [makeProgram()];
+      });
+      readsOrgToken();
+      const { runScheduledDataProgram } = await loadExecute();
+
+      await expect(
+        runScheduledDataProgram(makeProgram(), { deadline: farDeadline() }),
+      ).resolves.toBe("refreshed");
+
+      const [recorded] = storeMocks.recordDataProgramRun.mock.calls[0] as [
+        { startedAt?: number },
+      ];
+      expect(recorded.startedAt).toBeLessThanOrEqual(readAt);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts nothing when reading the program again leaves too little time", async () => {
     const controller = new AbortController();
     storeMocks.listScheduledDataPrograms.mockImplementation(async () => {
