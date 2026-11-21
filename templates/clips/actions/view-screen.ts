@@ -56,6 +56,7 @@ import {
   recordingEmbedProvider,
 } from "../shared/embed-provider.js";
 import { readLibraryFilter } from "../shared/library-filters.js";
+import { buildStepGuide } from "../shared/step-guide.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
@@ -214,11 +215,16 @@ async function fetchBugReportSummary(recordingId: string) {
   };
 }
 
+const GUIDE_CONTEXT_LIMIT = 500;
+
 async function fetchLibrary({
   folderId,
   shared = false,
   fromContent = false,
   organizationId,
+  kind,
+  oldestFirst = false,
+  limit = 50,
   filters,
 }: {
   folderId?: string;
@@ -226,6 +232,9 @@ async function fetchLibrary({
   /** The caller's uploads from Content pages, which Library leaves out. */
   fromContent?: boolean;
   organizationId?: string | null;
+  kind?: "image" | "video";
+  oldestFirst?: boolean;
+  limit?: number;
   filters?: string;
 }) {
   const db = getDb();
@@ -271,6 +280,9 @@ async function fetchLibrary({
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
   }
+  if (kind) {
+    conditions.push(eq(schema.recordings.kind, kind));
+  }
   if (libraryFilter && libraryFilter.items.length > 0) {
     const { ids } = await filterLibraryRecordings({
       where: conditions,
@@ -278,14 +290,18 @@ async function fetchLibrary({
       orderBy: [desc(schema.recordings.updatedAt)],
     });
     if (ids.length === 0) return [];
-    conditions.push(inArray(schema.recordings.id, ids.slice(0, 50)));
+    conditions.push(inArray(schema.recordings.id, ids.slice(0, limit)));
   }
   const rows = await db
     .select()
     .from(schema.recordings)
     .where(and(...conditions))
-    .orderBy(desc(schema.recordings.updatedAt))
-    .limit(50);
+    .orderBy(
+      oldestFirst
+        ? asc(schema.recordings.createdAt)
+        : desc(schema.recordings.updatedAt),
+    )
+    .limit(limit);
   const pages =
     libraryFilter && librarySources(libraryFilter).includes("content")
       ? await contentPageUrls(rows.map((r) => r.id))
@@ -652,6 +668,31 @@ export default defineAction({
           recordings,
           folders,
         };
+        break;
+      }
+      case "guide": {
+        if (nav.folderId) {
+          const recordings = await fetchLibrary({
+            folderId: nav.folderId,
+            organizationId,
+            kind: "image",
+            oldestFirst: true,
+            limit: GUIDE_CONTEXT_LIMIT + 1,
+          });
+          const steps = buildStepGuide(
+            recordings.slice(0, GUIDE_CONTEXT_LIMIT),
+          );
+          screen.guide = {
+            folderId: nav.folderId,
+            count: steps.length,
+            truncated: recordings.length > GUIDE_CONTEXT_LIMIT,
+            steps: steps.map((step) => ({
+              number: step.number,
+              title: step.title,
+              recording: step.recording,
+            })),
+          };
+        }
         break;
       }
       case "shared": {

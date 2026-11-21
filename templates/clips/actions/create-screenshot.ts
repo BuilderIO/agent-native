@@ -214,6 +214,7 @@ export default defineAction({
         mediaUpdatedAt: now,
       }),
       status: "ready" as const,
+      mediaUpdatedAt: now,
     };
   },
 });

@@ -9,6 +9,7 @@ import { unreadLibraryFilterParts } from "../shared/library-filters.js";
 
 const Views = [
   "library",
+  "guide",
   "shared",
   "spaces",
   "space",
@@ -62,7 +63,9 @@ export default defineAction({
       folderId: z
         .string()
         .optional()
-        .describe("Folder id — for view=library scoped to a folder"),
+        .describe(
+          "Folder id — for view=library scoped to a folder, or view=guide to show a step-capture folder as a numbered guide",
+        ),
       shareId: z
         .string()
         .optional()
