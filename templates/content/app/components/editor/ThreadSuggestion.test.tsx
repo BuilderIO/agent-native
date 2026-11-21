@@ -11,8 +11,23 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThreadSuggestionBody } from "./ThreadSuggestion";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, string>) =>
+    (
+      ({
+        "comments.suggestionReplaceWith": "Replace “{{old}}” with “{{new}}”",
+        "comments.suggestionAddText": "Add “{{text}}”",
+        "comments.suggestionRemoveText": "Remove “{{text}}”",
+      }) as Partial<Record<string, string>>
+    )[key]?.replace(
+      /\{\{(\w+)\}\}/g,
+      (_, name: string) => values?.[name] ?? "",
+    ) ?? key,
 }));
+
+const changes = () =>
+  [...host.querySelectorAll("[data-suggestion-change]")].map(
+    (change) => change.textContent,
+  );
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -111,14 +126,21 @@ describe("ThreadSuggestionBody", () => {
 
     expect(host.textContent?.match(/Hyphenate Open-source/g)).toHaveLength(1);
     openGroup();
-    const diffs = [...host.querySelectorAll("[data-thread-suggestion-diff]")];
-    expect(diffs.map((diff) => diff.querySelector("del")?.textContent)).toEqual(
-      ["Open source ", "Open source "],
-    );
-    expect(diffs.map((diff) => diff.querySelector("ins")?.textContent)).toEqual(
-      ["Open-source ", "Open-source "],
-    );
-    expect(diffs[0]!.textContent).not.toContain("Fork");
+    expect(changes()).toEqual([
+      "Replace “Open·source” with “Open-source”",
+      "Replace “Open·source” with “Open-source”",
+    ]);
+    const first = host.querySelector("[data-suggestion-change]");
+    expect(
+      first?.querySelector(
+        '[data-suggestion-change-text="removed"] .line-through',
+      )?.textContent,
+    ).toBe("·");
+    expect(
+      first?.querySelector(
+        '[data-suggestion-change-text="inserted"] .underline',
+      )?.textContent,
+    ).toBe("-");
 
     act(() => button("editor.acceptSuggestion", 1).click());
     expect(onDecide).toHaveBeenCalledWith(suggestions[1], "accepted");
@@ -229,8 +251,11 @@ describe("ThreadSuggestionBody", () => {
 
     expect(host.querySelector("[data-suggestion-proposal]")).toBeNull();
     expect(host.querySelectorAll("[data-thread-suggestion]")).toHaveLength(1);
-    const diff = host.querySelector("[data-thread-suggestion-diff]");
-    expect(diff?.querySelector("del")?.textContent).toBeTruthy();
+    expect(changes()).toHaveLength(1);
+    expect(
+      host.querySelector('[data-suggestion-change-text="removed"]')
+        ?.textContent,
+    ).toMatch(/^Open source is open\.[\s\S]*Fork Open source$/);
 
     act(() => button("editor.acceptSuggestion").click());
     expect(onDecideUnit).toHaveBeenCalledWith(pieces, "accepted");
@@ -266,11 +291,10 @@ describe("ThreadSuggestionBody", () => {
     render(pieces, { onDecideUnit });
 
     expect(host.querySelectorAll("[data-thread-suggestion]")).toHaveLength(1);
-    const shown = [
-      ...host.querySelectorAll("[data-thread-suggestion-diff]"),
-    ].map((diff) => diff.textContent);
-    expect(shown.join(" ")).toContain("Remove this.");
-    expect(shown.join(" ")).toContain("receive");
+    expect(changes()).toEqual([
+      "Remove “Remove this.”",
+      "Replace “Teh team will recieve” with “The team will receive”",
+    ]);
 
     act(() => button("editor.acceptSuggestion").click());
     expect(onDecideUnit).toHaveBeenCalledWith(pieces, "accepted");

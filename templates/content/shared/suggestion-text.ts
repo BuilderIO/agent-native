@@ -285,3 +285,66 @@ function computeSuggestionTextPresentationForSource(
           ),
   );
 }
+
+function presentedText(node: SuggestionPresentationNode): string {
+  if (node.type === "lineBreak") return "\n";
+  if ("value" in node) return node.value;
+  return node.children.map(presentedText).join("");
+}
+
+export function suggestionPresentationLength(
+  nodes: readonly SuggestionPresentationNode[],
+): number {
+  return nodes.map(presentedText).join("").length;
+}
+
+function slicePresentation(
+  nodes: readonly SuggestionPresentationNode[],
+  from: number,
+  to: number,
+): SuggestionPresentationNode[] {
+  const sliced: SuggestionPresentationNode[] = [];
+  let offset = 0;
+  for (const node of nodes) {
+    const start = offset;
+    const length = presentedText(node).length;
+    offset += length;
+    if (start + length <= from || start >= to) continue;
+    if (start >= from && start + length <= to) sliced.push(node);
+    else if ("value" in node)
+      sliced.push({
+        ...node,
+        value: node.value.slice(Math.max(0, from - start), to - start),
+      });
+    else if ("children" in node)
+      sliced.push({
+        ...node,
+        children: slicePresentation(node.children, from - start, to - start),
+      });
+  }
+  return sliced;
+}
+
+const CLIP_SLACK = 16;
+
+export function clipSuggestionPresentation(
+  nodes: SuggestionPresentationNode[],
+  { head, tail }: { head: number; tail: number },
+): SuggestionPresentationNode[] {
+  const text = nodes.map(presentedText).join("");
+  if (text.length <= head + tail + CLIP_SLACK) return nodes;
+  const headSpace = text.slice(0, head + 1).search(/\s\S*$/);
+  const headEnd = headSpace > head / 2 ? headSpace : head;
+  const tailFrom = text.length - tail;
+  const tailSpace = text.slice(tailFrom - 1).search(/\s/);
+  const tailStart =
+    tailSpace >= 0 && tailSpace < tail / 2 ? tailFrom + tailSpace : tailFrom;
+  const ellipsis = `${headEnd === headSpace ? " " : ""}…${
+    /\s/.test(text[tailStart - 1] ?? "") ? " " : ""
+  }`;
+  return [
+    ...slicePresentation(nodes, 0, headEnd),
+    { type: "text", value: ellipsis },
+    ...slicePresentation(nodes, tailStart, text.length),
+  ];
+}

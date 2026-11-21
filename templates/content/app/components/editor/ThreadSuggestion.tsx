@@ -8,21 +8,21 @@ import {
   IconCircleCheck,
   IconCircleX,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 import { AgentAvatar, modelDisplayName } from "./agent-identity";
-import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 import { CommentRow } from "./CommentRow";
+import { SuggestionChange } from "./SuggestionChange";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
 import {
   piecesOfStaleUnits,
+  reviewUnitLabel,
   reviewUnitOperations,
   reviewUnits,
-  suggestionLineExcerpt,
 } from "./thread-suggestions";
 
 type ThreadSuggestionProps = {
@@ -88,14 +88,11 @@ function SuggestionStatus({
   );
 }
 
-/**
- * One edit's word diff with the same Accept and Reject icons as a suggestion
- * card, or how it ended. The icons sit at the top end and the diff wraps
- * around them, so a narrow thread card keeps the diff's width.
- */
 function ThreadSuggestionEdit({
   suggestion,
   operations,
+  wordLevel,
+  whole,
   canDecide,
   busy,
   conflict,
@@ -106,6 +103,8 @@ function ThreadSuggestionEdit({
   suggestion: ResourceSuggestion;
   /** What the edit changes: usually one, or each piece that can't read as one. */
   operations: ResourceSuggestion["operations"];
+  wordLevel: boolean;
+  whole: boolean;
   canDecide: boolean;
   busy: boolean;
   conflict: boolean;
@@ -115,23 +114,16 @@ function ThreadSuggestionEdit({
 }) {
   const t = useT();
   const statusLabel = useStatusLabel();
-  const diffs = useMemo(
-    () =>
-      operations
-        .map((operation) => {
-          const excerpt = suggestionLineExcerpt([operation]);
-          return excerpt
-            ? trimDiffContext(wordDiff(excerpt.before, excerpt.after))
-            : [];
-        })
-        .filter((segments) => segments.length > 0),
-    [operations],
-  );
   const pending = suggestion.status === "pending";
   const decidable = pending && canDecide;
   const conflicted = conflict || suggestion.status === "stale";
+  const changes = operations.some((operation) => {
+    const before = operation.before as { changedText?: unknown } | undefined;
+    const after = operation.after as { changedText?: unknown } | undefined;
+    return !!before?.changedText || !!after?.changedText;
+  });
   if (
-    !diffs.length &&
+    !changes &&
     !conflicted &&
     !decidable &&
     !(showStatus && statusLabel(suggestion.status))
@@ -152,37 +144,15 @@ function ThreadSuggestionEdit({
           />
         </div>
       ) : null}
-      {diffs.map((segments, diffIndex) => (
-        <p
-          key={diffIndex}
-          aria-label={t("comments.suggestedChange")}
-          className={cn(
-            "whitespace-pre-wrap break-words leading-6",
-            !pending && suggestion.status !== "accepted" && "opacity-70",
-          )}
-          data-thread-suggestion-diff
-        >
-          {segments.map((segment, index) =>
-            segment.kind === "removed" ? (
-              <del
-                key={index}
-                className="text-muted-foreground decoration-muted-foreground/70"
-              >
-                {segment.text}
-              </del>
-            ) : segment.kind === "added" ? (
-              <ins
-                key={index}
-                className="text-[hsl(var(--suggestion))] no-underline"
-              >
-                {segment.text}
-              </ins>
-            ) : (
-              <span key={index}>{segment.text}</span>
-            ),
-          )}
-        </p>
-      ))}
+      <SuggestionChange
+        operations={operations}
+        wordLevel={wordLevel}
+        whole={whole}
+        className={cn(
+          "leading-6",
+          !pending && suggestion.status !== "accepted" && "opacity-70",
+        )}
+      />
       {conflicted ? (
         <p role="alert" className="mt-1 text-xs text-destructive">
           {t("editor.toolbar.conflict")}
@@ -240,6 +210,10 @@ export function ThreadSuggestionBody({
       key={unit.leader.id}
       suggestion={unit.leader}
       operations={reviewUnitOperations(unit)}
+      wordLevel={
+        unit.members.length > 1 || reviewUnitLabel(unit.leader) !== null
+      }
+      whole={defaultExpanded}
       canDecide={canDecide}
       busy={unit.members.some(busy)}
       conflict={unit.members.some(cantAccept)}

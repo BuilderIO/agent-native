@@ -567,14 +567,8 @@ describe("comments sidebar layout", () => {
     expect(source).toContain('t("comments.targetFilter")');
     expect(source).toContain('["open", "resolved", "all"] as const');
     expect(source).toContain("historySuggestions.map((suggestion)");
+    // oracle-change: suggestion summaries moved from CommentsSidebar into SuggestionChange and are asserted by rendering in CommentsSidebar.drafts.test.tsx
     expect(source).toContain("renderSuggestionCard(thread.suggestion)");
-    expect(source).toContain(
-      "renderSuggestionText(previousText, previousPresentation)",
-    );
-    expect(source).toContain('t("comments.suggestionWith")');
-    expect(source).toContain(
-      "<SuggestionText content={content} context={context} />",
-    );
     const presentation = suggestionTextPresentation("**Echo**  ");
     expect(presentation[presentation.length - 1]).toEqual({
       type: "text",

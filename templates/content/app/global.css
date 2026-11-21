@@ -3068,11 +3068,11 @@ button.discussion-subject-quote:hover {
   color: hsl(var(--suggestion));
 }
 
-/* New words after the struck words they replace start a little apart, so the
-   two runs don't read as one word. */
+/* New words after the struck words they replace start clearly apart, wider
+   than a word space, so the two runs read as two things, not one phrase. */
 .content-editor
   .suggestion-inline-widget.suggestion-insert--spaced[data-suggestion-widget] {
-  margin-inline-start: 0.3em;
+  margin-inline-start: 0.55em;
 }
 
 /* A whole suggested line is drawn as the block it adds or removes, marked by
