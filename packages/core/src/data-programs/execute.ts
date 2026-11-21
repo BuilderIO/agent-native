@@ -1130,10 +1130,7 @@ function backgroundRunOutcome(
   failure: BackgroundRunFailure | null;
   update: UpdateDataProgramRunInput;
 } {
-  if (
-    execution.status === "succeeded" ||
-    (execution.status === "failed" && execution.stdoutTruncated === true)
-  ) {
+  if (execution.status === "succeeded") {
     const parsed = parseDataProgramResult(execution.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
@@ -1161,6 +1158,24 @@ function backgroundRunOutcome(
         errorMessage: parsed.error.message,
       },
     };
+  }
+
+  if (execution.status === "failed" && execution.stdoutTruncated === true) {
+    const parsed = parseDataProgramResult(execution.stdout, {
+      maxRows: MAX_PROGRAM_ROWS,
+      maxBytes: MAX_PROGRAM_RESULT_BYTES,
+      outputTruncated: true,
+    });
+    if (!parsed.ok && parsed.error.code === "result_too_large") {
+      return {
+        failure: { code: parsed.error.code, message: parsed.error.message },
+        update: {
+          status: "failed",
+          errorCode: parsed.error.code,
+          errorMessage: parsed.error.message,
+        },
+      };
+    }
   }
 
   if (execution.status === "timed_out") {

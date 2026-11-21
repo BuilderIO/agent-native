@@ -1509,6 +1509,48 @@ describe("data-programs/execute", () => {
       },
     );
 
+    it("keeps a failed background run failed when its output was cut off after a whole result", async () => {
+      queuedBackgroundRun();
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        discardSandboxExecutionOutput:
+          sandboxMocks.discardSandboxExecutionOutput,
+        enqueueSandboxExecution: vi.fn(),
+        getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
+          id: "exec_done",
+          status: "failed",
+          stdout:
+            DATA_PROGRAM_SENTINEL +
+            JSON.stringify({ rows: [{ a: 1 }] }) +
+            "\nlog line",
+          stderr: "Unhandled error: boom after emit",
+          stdoutTruncated: true,
+        }),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+        "dpr_queued",
+        expect.objectContaining({
+          status: "failed",
+          errorCode: "program_error",
+          errorMessage: "boom after emit",
+        }),
+      );
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toEqual({
+        code: "program_error",
+        message: "boom after emit",
+      });
+    });
+
     it.each([
       [
         "its rows",
