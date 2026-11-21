@@ -55,6 +55,7 @@ import {
   parsePropertyOptions,
   parsePropertyValue,
 } from "../shared/properties.js";
+import { processWithConcurrency } from "./_batch-utils.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import {
@@ -895,6 +896,7 @@ function combineRevisions(parts: NavigationRevision[]) {
 // document IDs it accepts.
 export const MAX_NAVIGATION_EXPANDED_BRANCHES = 32;
 export const MAX_NAVIGATION_EXPAND_IDS = 100;
+const NAVIGATION_GROUP_READ_CONCURRENCY = 4;
 
 /** Sort keys a Files view can hold that aren't property IDs. */
 export const FILES_NAVIGATION_SORT_KEYS: ReadonlyMap<
@@ -1051,6 +1053,7 @@ export async function getContentDatabaseNavigationPage(args: {
   cursor?: string;
   expand?: readonly string[];
   group?: string;
+  locate?: string;
 }): Promise<ContentDatabaseNavigationPageResponse> {
   if (args.database.systemRole !== "files" || !args.database.spaceId) {
     fail("Navigation mode is only available for a Files database.", {
@@ -1060,6 +1063,15 @@ export async function getContentDatabaseNavigationPage(args: {
   }
   if (args.group !== undefined && args.parentId !== null) {
     fail("A Files navigation group is read from the top level.", {
+      errorCode: "invalid_navigation_group",
+      statusCode: 400,
+    });
+  }
+  if (
+    args.locate !== undefined &&
+    (args.parentId !== null || args.group !== undefined || args.cursor)
+  ) {
+    fail("A Files navigation page is located from the top level.", {
       errorCode: "invalid_navigation_group",
       statusCode: 400,
     });
@@ -1717,6 +1729,47 @@ export async function getContentDatabaseNavigationPage(args: {
     };
   };
 
+  const groupCounts = async (where: SQL | undefined) => {
+    if (!grouping) return [];
+    const countRows = await db
+      .select(
+        Object.fromEntries(
+          grouping.groups.map((candidate, index) => [
+            `group${index}`,
+            sql<number>`(count(*) filter (where ${candidate.predicate}))::int`,
+          ]),
+        ),
+      )
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .leftJoin(
+        sql`lateral ${storedValueSource(sql`${schema.documents.id}`, grouping.propertyId)}`,
+        sql`true`,
+      )
+      .where(where);
+    const counts = firstRow(countRows);
+    return grouping.groups.map((candidate, index) => ({
+      candidate,
+      count: Number(counts?.[`group${index}`] ?? 0),
+    }));
+  };
+
+  if (args.locate !== undefined) {
+    const located = await groupCounts(
+      and(filesRows, eq(schema.documents.id, args.locate)),
+    );
+    return {
+      items: [],
+      pagination: { limit: args.limit, hasMore: false, nextCursor: null },
+      locatedGroupIds: located.flatMap(({ candidate, count }) =>
+        count > 0 ? [candidate.id] : [],
+      ),
+    };
+  }
+
   const expandIds = group ? [] : (args.expand ?? []);
   // The requested parent and the expanded folders pass the same access,
   // trash, and deletion checks before any of their children are read.
@@ -1827,55 +1880,32 @@ export async function getContentDatabaseNavigationPage(args: {
   const groupReads =
     grouping && !group && !cursor
       ? (async () => {
-          const countRows = await db
-            .select(
-              Object.fromEntries(
-                grouping.groups.map((candidate, index) => [
-                  `group${index}`,
-                  sql<number>`(count(*) filter (where ${candidate.predicate}))::int`,
-                ]),
-              ),
-            )
-            .from(schema.contentDatabaseItems)
-            .innerJoin(
-              schema.documents,
-              eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-            )
-            .leftJoin(
-              sql`lateral ${storedValueSource(sql`${schema.documents.id}`, grouping.propertyId)}`,
-              sql`true`,
-            )
-            .where(filesRows);
-          const counts = firstRow(countRows);
-          const shown = grouping.groups.flatMap((candidate, index) => {
-            const count = Number(counts?.[`group${index}`] ?? 0);
-            return count > 0 || sharedView.hideEmptyGroups !== true
-              ? [{ candidate, count }]
-              : [];
-          });
-          return Promise.all(
-            shown.map(
-              async ({
-                candidate,
-                count,
-              }): Promise<ContentDatabaseNavigationGroup> => ({
-                id: candidate.id,
-                label: candidate.label,
-                unset: candidate.unset,
-                count,
-                page:
-                  count > 0
-                    ? await readBranch(null, null, candidate)
-                    : {
-                        items: [],
-                        pagination: {
-                          limit: args.limit,
-                          hasMore: false,
-                          nextCursor: null,
-                        },
-                      },
-              }),
-            ),
+          const shown = (await groupCounts(filesRows)).filter(
+            ({ count }) => count > 0 || sharedView.hideEmptyGroups !== true,
+          );
+          const pages = new Map<string, ContentDatabaseNavigationPage>();
+          await processWithConcurrency(
+            shown.filter(({ count }) => count > 0),
+            NAVIGATION_GROUP_READ_CONCURRENCY,
+            async ({ candidate }) => {
+              pages.set(candidate.id, await readBranch(null, null, candidate));
+            },
+          );
+          return shown.map(
+            ({ candidate, count }): ContentDatabaseNavigationGroup => ({
+              id: candidate.id,
+              label: candidate.label,
+              unset: candidate.unset,
+              count,
+              page: pages.get(candidate.id) ?? {
+                items: [],
+                pagination: {
+                  limit: args.limit,
+                  hasMore: false,
+                  nextCursor: null,
+                },
+              },
+            }),
           );
         })()
       : null;

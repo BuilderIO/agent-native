@@ -88,6 +88,28 @@ function branchKey(parentId: string | null = null) {
   );
 }
 
+const groupParams = filesNavigationPageParams({
+  databaseId: FILES,
+  parentId: null,
+  group: "stage:idea",
+});
+const groupPageParams = filesNavigationPageParams({
+  databaseId: FILES,
+  parentId: null,
+  group: "stage:idea",
+  cursor: "idea-cursor",
+});
+
+function groupIds(queryClient: QueryClient) {
+  return (
+    queryClient
+      .getQueryData<ContentDatabaseNavigationPageResponse>(
+        filesNavigationQueryKey(groupPageParams),
+      )
+      ?.items.map((item) => item.documentId) ?? []
+  );
+}
+
 function cachedRows(queryClient: QueryClient, parentId: string | null = null) {
   return (
     queryClient.getQueryData<ContentDatabaseNavigationPageResponse>(
@@ -162,6 +184,20 @@ describe("pages this tab created in the Files tree", () => {
     ).toEqual(["a", "b", "new-1", "new-2"]);
     // Both rows are the server's now; a later read is taken as it comes.
     expect(await reread(queryClient, page([row("a")]))).toEqual(["a"]);
+  });
+
+  it("stay out of a group's pages, which list only what the server puts in the group", async () => {
+    queryClient.setQueryData(
+      filesNavigationQueryKey(groupPageParams),
+      page([row("idea-21")]),
+    );
+    startCreate(queryClient, created("new"));
+    expect(ids(queryClient)).toEqual(["a", "b", "new"]);
+    expect(groupIds(queryClient)).toEqual(["idea-21"]);
+
+    callActionWithRetry.mockResolvedValueOnce(page([row("idea-1")]));
+    const result = await readFilesNavigationPage(queryClient, groupParams, []);
+    expect(result).toEqual(page([row("idea-1")]));
   });
 
   it("keep a new page at the end of the first page of a branch longer than one page", async () => {
@@ -409,6 +445,19 @@ describe("a page moved in the Files tree", () => {
     expect(ids(queryClient)).toEqual(["folder", "a"]);
     expect(ids(queryClient, "folder")).toEqual(["child", "b"]);
     expect(cachedRows(queryClient, "folder")[1]?.parentId).toBe("folder");
+  });
+
+  it("stays in a group's pages, since a group lists pages from every level", () => {
+    queryClient.setQueryData(branchKey(), page([row("folder"), row("b")]));
+    queryClient.setQueryData(
+      filesNavigationQueryKey(groupPageParams),
+      page([row("b")]),
+    );
+
+    move("b", "folder");
+
+    expect(ids(queryClient)).toEqual(["folder"]);
+    expect(groupIds(queryClient)).toEqual(["b"]);
   });
 
   it("gives a folder without children its first one, and an emptied folder none", () => {

@@ -1415,12 +1415,13 @@ export interface ContentDatabaseNavigationPageResponse {
    */
   branchesTruncated?: boolean;
   groups?: ContentDatabaseNavigationGroup[];
+  locatedGroupIds?: string[];
 }
 
 /** One Files navigation page on its own, without expanded folders. */
 export type ContentDatabaseNavigationPage = Omit<
   ContentDatabaseNavigationPageResponse,
-  "branches" | "branchesTruncated" | "groups"
+  "branches" | "branchesTruncated" | "groups" | "locatedGroupIds"
 >;
 
 export interface ContentDatabaseNavigationGroup {

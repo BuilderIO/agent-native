@@ -122,6 +122,33 @@ export interface ContentFilesSidebarRenderReorder {
  */
 export type ActivePathDocument = Document & { hasChildren?: boolean };
 
+function activePathItem(
+  document: ActivePathDocument,
+  activePathDocuments: readonly ActivePathDocument[],
+): ContentDatabaseNavigationItem {
+  return {
+    membershipId: `active-path-${document.id}`,
+    membershipPosition: document.position,
+    documentId: document.id,
+    parentId: document.parentId,
+    title: document.title,
+    icon: serializeIconValue(parseIconValue(document.icon)),
+    type: document.database ? "database" : "page",
+    hasChildren:
+      document.hasChildren === true ||
+      activePathDocuments.some(
+        (candidate) => candidate.parentId === document.id,
+      ),
+    spaceId: null,
+    sourceKind: document.source?.kind ?? null,
+    isFavorite: document.isFavorite,
+    canEdit: document.canEdit !== false,
+    canManage: document.canManage === true,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+}
+
 export function navigationItemAsDatabaseItem(
   item: ContentDatabaseNavigationItem,
   document: Document | undefined,
@@ -276,6 +303,31 @@ function PagedContentFilesBranch({
       ? (query.data as ContentDatabaseNavigationPageResponse)
       : undefined;
   const groups = cursor === undefined ? data?.groups : undefined;
+  const activeDocument = props.activePathDocuments.find(
+    (document) => document.id === props.activeDocumentId,
+  );
+  const locateId =
+    groups &&
+    activeDocument &&
+    !groups.some((group) =>
+      group.page.items.some((item) => item.documentId === activeDocument.id),
+    )
+      ? activeDocument.id
+      : undefined;
+  const located = useFilesNavigationPage(
+    filesNavigationPageParams({
+      databaseId: props.databaseId,
+      parentId: null,
+      locate: locateId ?? "",
+    }),
+    undefined,
+    { enabled: locateId !== undefined },
+  );
+  const locatedGroupIds = new Set(
+    locateId !== undefined && located.data && !("available" in located.data)
+      ? (located.data.locatedGroupIds ?? [])
+      : [],
+  );
   // Only the first page of a branch reloads it; later pages reach it through
   // the reloadBranch prop.
   const reloadBranch = (automatic: boolean) => {
@@ -502,19 +554,26 @@ function PagedContentFilesBranch({
   );
 
   if (groups) {
-    const listed = new Set(
-      groups.flatMap((group) =>
+    const revealed =
+      activeDocument && locatedGroupIds.size > 0
+        ? activePathItem(activeDocument, props.activePathDocuments)
+        : undefined;
+    const listed = new Set([
+      ...groups.flatMap((group) =>
         group.page.items.map((item) => item.documentId),
       ),
-    );
+      ...(revealed ? [revealed.documentId] : []),
+    ]);
     const kept = keptFilesRows(queryClient, props.databaseId, null).filter(
       (item) => !listed.has(item.documentId),
     );
     const keptGroupId = groups.find((group) => group.unset)?.id;
     const groupRows = (group: ContentDatabaseNavigationGroup) =>
-      [...group.page.items, ...(group.id === keptGroupId ? kept : [])].filter(
-        (item) => !pendingTrash.documentIds.has(item.documentId),
-      );
+      [
+        ...group.page.items,
+        ...(revealed && locatedGroupIds.has(group.id) ? [revealed] : []),
+        ...(group.id === keptGroupId ? kept : []),
+      ].filter((item) => !pendingTrash.documentIds.has(item.documentId));
     const firstGroupId = groups.find(
       (group) =>
         !collapsedGroupIds.has(group.id) && groupRows(group).length > 0,
@@ -566,7 +625,7 @@ function PagedContentFilesBranch({
                       group={group.id}
                       cursor={nextCursor}
                       precedingDocumentIds={
-                        new Set(group.page.items.map((item) => item.documentId))
+                        new Set(groupRows(group).map((item) => item.documentId))
                       }
                       reloadBranch={branchReload}
                     />
@@ -605,27 +664,7 @@ function PagedContentFilesBranch({
         document.parentId === props.parentId &&
         !pageDocumentIds.has(document.id),
     )
-    .map((document) => ({
-      membershipId: `active-path-${document.id}`,
-      membershipPosition: document.position,
-      documentId: document.id,
-      parentId: document.parentId,
-      title: document.title,
-      icon: serializeIconValue(parseIconValue(document.icon)),
-      type: document.database ? ("database" as const) : ("page" as const),
-      hasChildren:
-        document.hasChildren === true ||
-        props.activePathDocuments.some(
-          (candidate) => candidate.parentId === document.id,
-        ),
-      spaceId: null,
-      sourceKind: document.source?.kind ?? null,
-      isFavorite: document.isFavorite,
-      canEdit: document.canEdit !== false,
-      canManage: document.canManage === true,
-      createdAt: document.createdAt,
-      updatedAt: document.updatedAt,
-    }));
+    .map((document) => activePathItem(document, props.activePathDocuments));
   const movedInItems =
     cursor === undefined
       ? [...pendingMoves.values()]

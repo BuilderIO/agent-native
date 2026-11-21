@@ -980,4 +980,86 @@ describe("PagedContentFilesSidebarView", () => {
 
     await act(async () => root.unmount());
   });
+
+  it("shows the open page in each group that lists it, even past the group's first page", async () => {
+    const openDocument = {
+      id: "open-page",
+      parentId: "root-1",
+      title: "Open page",
+      content: "",
+      icon: null,
+      position: 99,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies Document;
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data: args.navigation.locate
+        ? { ...page([]), locatedGroupIds: ["stage:draft"] }
+        : args.navigation.group
+          ? page([navigationItem("open-page"), navigationItem("draft-2")])
+          : {
+              ...page([navigationItem("root-1", null, true)]),
+              groups: [
+                {
+                  id: "stage:draft",
+                  label: "Draft",
+                  unset: false,
+                  count: 3,
+                  page: page([navigationItem("draft-1")], "draft-cursor"),
+                },
+                {
+                  id: "stage:live",
+                  label: "Live",
+                  unset: false,
+                  count: 1,
+                  page: page([navigationItem("live-1")]),
+                },
+              ],
+            },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const { container, root } = await renderHarness({
+      activeDocumentId: openDocument.id,
+      activePathDocuments: [openDocument],
+    });
+    const links = () =>
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      );
+
+    expect(useFilesNavigationPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        navigation: { parentId: null, cursor: undefined, locate: "open-page" },
+      }),
+      undefined,
+      { enabled: true },
+    );
+    expect(links()).toEqual([
+      "/page/draft-1",
+      "/page/open-page",
+      "/page/live-1",
+    ]);
+    expect(
+      container.querySelector('[aria-label="Expand Open page"]'),
+    ).toBeNull();
+
+    await act(async () =>
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "Show more")
+        ?.click(),
+    );
+    expect(links()).toEqual([
+      "/page/draft-1",
+      "/page/open-page",
+      "/page/draft-2",
+      "/page/live-1",
+    ]);
+
+    await act(async () => root.unmount());
+  });
 });

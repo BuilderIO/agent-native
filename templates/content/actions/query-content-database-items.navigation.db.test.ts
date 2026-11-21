@@ -3585,7 +3585,12 @@ describe("Files navigation groups", () => {
   }
 
   const read = (
-    navigation: { parentId: string | null; cursor?: string; group?: string },
+    navigation: {
+      parentId: string | null;
+      cursor?: string;
+      group?: string;
+      locate?: string;
+    },
     limit?: number,
   ) =>
     runWithRequestContext({ userEmail: OWNER, timezone: "UTC" }, () =>
@@ -3852,6 +3857,89 @@ describe("Files navigation groups", () => {
         (item) => item.documentId,
       ),
     ).toEqual(["group-epsilon"]);
+  });
+
+  it("keeps a group's cursor until a row moves across it", async () => {
+    await setView({
+      groupByPropertyId: definitions.tags.id,
+      sorts: [by("notes")],
+    });
+    const blueId = "group-tags:tag-blue";
+    const first = await read({ parentId: null }, 1);
+    const blue = first.groups?.find((group) => group.id === blueId);
+    expect(blue?.page.items.map((item) => item.documentId)).toEqual([
+      "group-alpha",
+    ]);
+    const cursor = blue?.page.pagination.nextCursor ?? undefined;
+    expect(cursor).toEqual(expect.any(String));
+    const epsilonNotes = eq(
+      schema.documentPropertyValues.id,
+      "group-value-epsilon-notes",
+    );
+    const setEpsilonNotes = (notes: string) =>
+      getDb()
+        .update(schema.documentPropertyValues)
+        .set({ valueJson: JSON.stringify(notes) })
+        .where(epsilonNotes);
+    try {
+      await setEpsilonNotes("third");
+      expect(
+        (await read({ parentId: null, group: blueId, cursor }, 1)).items.map(
+          (item) => item.documentId,
+        ),
+      ).toEqual(["group-epsilon"]);
+      await setEpsilonNotes("a note");
+      await expect(
+        read({ parentId: null, group: blueId, cursor }, 1),
+      ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+    } finally {
+      await setEpsilonNotes("second");
+    }
+  });
+
+  it("locates a page in the groups that list it", async () => {
+    await setView({ groupByPropertyId: definitions.tags.id });
+    const groupsListing = (documentId: string) =>
+      tableGroups("tags")
+        .filter((group) => group.ids.includes(documentId))
+        .map((group) => group.id);
+    for (const documentId of ["group-alpha", "group-beta-grandchild"]) {
+      const located = await read({ parentId: null, locate: documentId });
+      expect(located.items).toEqual([]);
+      expect(located.groups).toBeUndefined();
+      expect(located.locatedGroupIds).toEqual(groupsListing(documentId));
+    }
+    expect(groupsListing("group-alpha")).toHaveLength(2);
+    for (const documentId of ["group-hidden", "group-trashed", "missing"]) {
+      expect(
+        (await read({ parentId: null, locate: documentId })).locatedGroupIds,
+      ).toEqual([]);
+    }
+    await setView({
+      groupByPropertyId: definitions.tags.id,
+      filters: [
+        { key: "name", label: "Name", operator: "equals", value: "epsilon" },
+      ],
+    });
+    expect(
+      (await read({ parentId: null, locate: "group-alpha" })).locatedGroupIds,
+    ).toEqual([]);
+    await setView({});
+    expect(
+      (await read({ parentId: null, locate: "group-alpha" })).locatedGroupIds,
+    ).toEqual([]);
+    await setView({ groupByPropertyId: definitions.tags.id });
+    const first = await read({ parentId: null }, 1);
+    const cursor = first.groups?.[0]?.page.pagination.nextCursor ?? undefined;
+    for (const navigation of [
+      { parentId: "group-beta", locate: "group-alpha" },
+      { parentId: null, group: "group-tags:tag-blue", locate: "group-alpha" },
+      { parentId: null, cursor, locate: "group-alpha" },
+    ]) {
+      await expect(read(navigation)).rejects.toMatchObject({
+        errorCode: "invalid_navigation_group",
+      });
+    }
   });
 
   it("doesn't group on a property or view the sidebar can't group", async () => {

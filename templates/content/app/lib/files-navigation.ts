@@ -69,6 +69,7 @@ export function filesNavigationPageParams(args: {
   parentId: string | null;
   cursor?: string;
   group?: string;
+  locate?: string;
 }) {
   return {
     databaseId: args.databaseId,
@@ -77,6 +78,7 @@ export function filesNavigationPageParams(args: {
       parentId: args.parentId,
       cursor: args.cursor,
       ...(args.group === undefined ? {} : { group: args.group }),
+      ...(args.locate === undefined ? {} : { locate: args.locate }),
     },
   };
 }
@@ -87,6 +89,10 @@ export type FilesNavigationPageParams = ReturnType<
 
 export function filesNavigationQueryKey(params: FilesNavigationPageParams) {
   return ["action", "query-content-database-items", params] as const;
+}
+
+function listsBranch({ navigation }: FilesNavigationPageParams) {
+  return navigation.group === undefined && navigation.locate === undefined;
 }
 
 type FilesNavigationRead =
@@ -198,6 +204,7 @@ export function showCreatedFilesRow(
   });
   updateCachedFilesPages(queryClient, (page, params) =>
     params.databaseId === databaseId &&
+    listsBranch(params) &&
     params.navigation.parentId === item.parentId &&
     params.navigation.cursor === undefined &&
     !page.items.some((listed) => listed.documentId === document.id)
@@ -323,7 +330,7 @@ function withCreatedFilesRows(
   readStartMark: number,
 ): ContentDatabaseNavigationPage {
   const rows = createdFilesRows.get(queryClient);
-  if (!rows?.size) return page;
+  if (!rows?.size || !listsBranch(params)) return page;
   const { databaseId, navigation } = params;
   const firstPage = navigation.cursor === undefined;
   const listed = new Set(page.items.map((item) => item.documentId));
@@ -462,7 +469,7 @@ export function moveCachedFilesRow(
 ) {
   const inDestination = (params: FilesNavigationPageParams) =>
     params.databaseId === move.databaseId &&
-    params.navigation.parentId === move.parentId;
+    (!listsBranch(params) || params.navigation.parentId === move.parentId);
   updateCachedFilesPages(queryClient, (page, params) => {
     const listed = page.items.some(
       (item) => item.documentId === move.documentId,
@@ -474,6 +481,7 @@ export function moveCachedFilesRow(
       };
     }
     return !listed &&
+      listsBranch(params) &&
       inDestination(params) &&
       params.navigation.cursor === undefined
       ? { ...page, items: [...page.items, move.item] }
