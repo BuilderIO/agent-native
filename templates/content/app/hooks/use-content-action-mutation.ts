@@ -340,8 +340,19 @@ export function contentRowTargets(
   documentIds: readonly string[],
 ): ContentQueryTarget[] {
   const branches = branchesListing(queryClient, documentIds);
+  const folders = withFolderAncestors(
+    branches.flatMap((branch) =>
+      typeof branch.parentId === "string" &&
+      isLocalSourceDirectoryId(branch.parentId)
+        ? [branch.parentId]
+        : [],
+    ),
+  );
   return [
-    contentNavigationBranchFilter({ documentIds, branches }),
+    contentNavigationBranchFilter({
+      documentIds: [...documentIds, ...folders],
+      branches,
+    }),
     contentNavigationContextFilter([
       ...documentIds,
       ...cachedParents(queryClient, documentIds, branches),

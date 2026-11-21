@@ -320,6 +320,45 @@ describe("sidebar writes refresh only the affected branch", () => {
     );
   });
 
+  it("rename of a linked folder's file refreshes every folder above it, up to the top level", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const folderReads: Array<[string, QueryKey, unknown]> = [
+      ["top", navigation(FILES, null), branch(a, "other")],
+      ["a", navigation(FILES, a), branch(ab)],
+      ["ab", navigation(FILES, ab), branch("only")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ];
+    const fetched: string[] = [];
+    for (const [name, key, data] of folderReads) {
+      queryClient.setQueryData(key, data);
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          fetched.push(name);
+          return data;
+        },
+        staleTime: Infinity,
+        retry: false,
+      });
+      unsubscribes.push(observer.subscribe(() => {}));
+    }
+    actionResponses["update-document"] = {
+      id: "only",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "only", title: "Renamed" }),
+    );
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["a", "ab", "top"]);
+  });
+
   it("rename refreshes the path through the renamed page's parent, whose arrow can follow a name filter", async () => {
     await mountReads(["otherPath", "pagePath"]);
     queryClient.setQueryData(
