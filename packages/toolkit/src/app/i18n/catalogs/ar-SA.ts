@@ -743,6 +743,8 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.providerHtml": "أرجع المزوّد صفحة خطأ بتنسيق HTML.",
   "errorMessages.providerNetwork":
     "تعذّر الوصول إلى مزوّد النموذج. تحقّق من اتصالك وأعد المحاولة.",
+  "errorMessages.emailVerificationRequired":
+    "تحقّق من عنوان بريد إلكتروني مؤهل لدى حساب أو مساحة مزوّد الذكاء الاصطناعي المتصل، ثم أعد المحاولة.",
   "errorMessages.providerRateLimit":
     "يفرض مزوّد النموذج حاليًا حدًا على معدل طلبات هذه المحادثة. انتظر قليلًا، ثم أعد المحاولة.",
   "errorMessages.providerTransientRejection":
@@ -1281,7 +1283,8 @@ const messages: ToolkitAgentChatTranslation = {
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "errorMessages.invalidAttachmentNamed":
     "رفض موفّر النموذج {{name}} لأن تنسيقه أو حجمه غير مدعوم. صدّر الصور بحجم أصغر بصيغة PNG أو JPEG أو GIF أو WebP. للمستندات، استخدم تنسيقًا مدعومًا أو الصق النص ذي الصلة ثم أعد المحاولة.",
-  "recovery.resendVerificationEmail": "إعادة إرسال رسالة التحقق",
+  "recovery.resendVerificationEmail":
+    "إعادة إرسال رسالة التحقق من حساب التطبيق",
   "recovery.sendingVerificationEmail": "جارٍ الإرسال...",
   "recovery.verificationEmailRequested":
     "تم طلب رسالة التحقق. تحقق من صندوق الوارد ومجلد الرسائل غير المرغوب فيها.",

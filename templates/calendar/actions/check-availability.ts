@@ -54,6 +54,8 @@ function projectTimeChoice(result: unknown) {
 }
 
 export default defineAction({
+  mcpTool: true,
+  readOnly: true,
   description: "Check available time slots for a given date",
   schema: z.object({
     date: z

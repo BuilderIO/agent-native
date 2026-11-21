@@ -153,13 +153,24 @@ collection stays off until a property owner adds the service account that
 
 The `signups` step writes `signups_first_touch` per article: people who
 first landed on the article and later signed up, on the day of that first
-visit, so a window's days add up to its total. It is the only step that reads
-the warehouse. It stays `not_configured` until `configure-content-collection`
-sets its `signups` tables, `signupSource`, `signupsSince` and
-`maxBytesBilled`. Measure the cap with `estimate-content-signups-cost` (a dry
-run, free) and get the spend approved before turning the step on. Each run
-dry-runs first, stops as `cost_limited` without querying when the estimate is
-over the cap, and runs the join with that cap as BigQuery's billing limit.
+visit, so a window's days add up to its total. It reads the warehouse. It
+stays `not_configured` until `configure-content-collection` sets its `signups`
+tables, `signupSource`, `signupsSince` and `maxBytesBilled`. Measure the cap
+with `estimate-content-signups-cost` (a dry run, free) and get the spend
+approved before turning the step on. Each run dry-runs first, stops as
+`cost_limited` without querying when the estimate is over the cap, and runs the
+join with that cap as BigQuery's billing limit.
+
+The `agent_native_signups` step writes `agent_native_signups` per article:
+signups in the organization's own first-party analytics (the Agent-Native
+apps' signups) whose link has `utm_source` set to the blog's host and
+`utm_content` set to the article's handle, on the signup day. A tag that names
+no collected article, such as `/hackathon`, is never credited, and test
+identities don't count. It reads the warehouse behind the same dry run and cap:
+set `agentNativeSignups.eventsTable` and `maxBytesBilled` with
+`configure-content-collection`, and measure the cap with
+`estimate-content-signups-cost` and `step: "agent_native_signups"`, which
+prices the first run's 90-day backfill. Later runs read back three days.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing

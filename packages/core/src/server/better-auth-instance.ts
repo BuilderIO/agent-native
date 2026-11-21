@@ -86,6 +86,7 @@ import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import {
   createFrameworkSCIMIdentity,
   frameworkOrgBridgePlugin,
+  resolveFrameworkSSOUser,
 } from "../org/scim-provisioning.js";
 import {
   enforceSignupAdmission,
@@ -93,6 +94,7 @@ import {
   isDeploymentEmailDomainAllowed,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
+import type { ConsentCategory } from "../shared/consent.js";
 import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
@@ -113,7 +115,10 @@ import {
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
-import { requestAllowsConsentCategoryFromHeaders } from "./consent-route.js";
+import {
+  requestConsentCategoryStateFromHeaders,
+  type ConsentCategoryState,
+} from "./consent-route.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
@@ -311,14 +316,18 @@ export async function emitSignupEventForCreatedUser(
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
   const cookieHeader = requestHeaders.get("cookie");
-  const performanceAllowed = requestAllowsConsentCategoryFromHeaders(
-    requestHeaders,
-    "performance",
-  );
-  const targetingAllowed = requestAllowsConsentCategoryFromHeaders(
-    requestHeaders,
-    "targeting",
-  );
+  const consent = {
+    performance: requestConsentCategoryStateFromHeaders(
+      requestHeaders,
+      "performance",
+    ),
+    targeting: requestConsentCategoryStateFromHeaders(
+      requestHeaders,
+      "targeting",
+    ),
+  };
+  const performanceAllowed = consent.performance === "allowed";
+  const targetingAllowed = consent.targeting === "allowed";
   const requestSessionId = performanceAllowed
     ? normalizeAnalyticsSessionId(
         requestHeaders.get("x-agent-native-session-id"),
@@ -419,6 +428,7 @@ export async function emitSignupEventForCreatedUser(
     attribution: eventAttribution,
     anonymousId: eventAnonymousId,
     sessionId: eventSessionId,
+    consent: ownsSignupAttribution ? consent : undefined,
   });
 }
 
@@ -447,6 +457,7 @@ export async function trackSignupEvent({
   attribution,
   anonymousId,
   sessionId,
+  consent,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -467,6 +478,7 @@ export async function trackSignupEvent({
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
   sessionId?: string;
+  consent?: Record<ConsentCategory, ConsentCategoryState>;
 }): Promise<void> {
   identify(email, {
     email,
@@ -493,6 +505,12 @@ export async function trackSignupEvent({
       ...cleanAttribution,
       ...(typeof emailVerified === "boolean"
         ? { email_verified: emailVerified }
+        : {}),
+      ...(consent && consent.performance !== "allowed"
+        ? { analytics_consent: consent.performance }
+        : {}),
+      ...(consent && consent.targeting !== "allowed"
+        ? { attribution_consent: consent.targeting }
         : {}),
     },
     {
@@ -1655,6 +1673,15 @@ export async function replaceUnverifiedCredentialWithGoogle(input: {
       );
     }
 
+    await tx.execute({
+      sql: 'DELETE FROM "session" WHERE user_id = ?',
+      args: [input.userId],
+    });
+    await tx.execute({
+      sql: "DELETE FROM sessions WHERE LOWER(email) = LOWER(?)",
+      args: [input.email],
+    });
+
     const updated = await tx.execute({
       sql: 'UPDATE "user" SET email_verified = ?, updated_at = ? WHERE id = ? AND email = ? AND email_verified = ?',
       args: [true, timestamp, input.userId, input.email, unverified],
@@ -2291,6 +2318,14 @@ async function createBetterAuthInstance(
   );
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
+  if (
+    enterpriseAuthAdaptersBuilt &&
+    (access.sso.enabled || access.scim.enabled)
+  ) {
+    enterprisePlugins.push(
+      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
+    );
+  }
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
     const { sso } = await loadOptionalPeer(
       "@better-auth/sso",
@@ -2299,23 +2334,11 @@ async function createBetterAuthInstance(
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
-        resolveUser: async ({ providerUser }, context) => {
-          const existing = await context.database.findOne<{
-            id: string;
-          }>({
-            model: "user",
-            where: [
-              {
-                field: "email",
-                value: providerUser.email.trim().toLowerCase(),
-                mode: "insensitive",
-              },
-            ],
-          });
-          return existing
-            ? { action: "link", userId: existing.id, profile: "preserve" }
-            : { action: "continue" };
-        },
+        resolveUser: ({ providerId, providerUser }, context) =>
+          resolveFrameworkSSOUser(
+            { providerId, email: providerUser.email },
+            context.database,
+          ),
         provisionUserOnEveryLogin: true,
         provisionUser: async ({ user }) => {
           await autoJoinDomainMatchingOrgs(user.email, {
@@ -2346,9 +2369,6 @@ async function createBetterAuthInstance(
         "AUTH_SCIM_CREDENTIAL_HASH_SECRET (or BETTER_AUTH_SECRET) must contain at least 32 characters when SCIM is enabled",
       );
     }
-    enterprisePlugins.push(
-      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
-    );
     enterprisePlugins.push(
       scim({
         connections: [],

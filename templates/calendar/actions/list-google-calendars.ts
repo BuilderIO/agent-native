@@ -5,6 +5,7 @@ import { z } from "zod";
 import { listGoogleCalendars } from "../server/lib/google-calendar.js";
 
 export default defineAction({
+  mcpTool: "search",
   description:
     "Discover Google Calendar sources available through every connected account. Source keys are opaque and must be passed back to list-events; names and roles in client requests are never trusted.",
   schema: z.object({}),
