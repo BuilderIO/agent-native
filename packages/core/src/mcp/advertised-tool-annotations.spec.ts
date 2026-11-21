@@ -721,4 +721,20 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     );
     expect(mismatches).toEqual([]);
   });
+
+  // Where an app sends outside agents' writes through ask_app, tool-search
+  // serves only read-only actions.
+  it("marks every search-served view-screen read-only", () => {
+    const writes = apps.flatMap((app) =>
+      advertisements(app)
+        .filter(
+          ({ tool, entry }) =>
+            tool.name === "view-screen" &&
+            entry?.mcpTool === "search" &&
+            !isReadOnlyAction(entry),
+        )
+        .map(() => app.appId),
+    );
+    expect([...new Set(writes)].sort()).toEqual([]);
+  });
 });

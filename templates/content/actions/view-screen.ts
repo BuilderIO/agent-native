@@ -867,6 +867,7 @@ export default defineAction({
     "See what the user is currently looking at on screen. Returns bounded navigation, document previews, the current collection window, and the editor's current text selection (if any); use get-document for full page content.",
   deferLoading: false,
   schema: z.object({}),
+  readOnly: true,
   http: false,
   mcpTool: "search",
   run: async () => {

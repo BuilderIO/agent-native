@@ -209,7 +209,7 @@
     "update-source",
     "write-knowledge"
   ],
-  "calendar": ["navigate", "view-screen"],
+  "calendar": ["navigate"],
   "chat": ["navigate"],
   "clips": [
     "accept-invite",
@@ -287,8 +287,7 @@
     "update-dictation",
     "update-meeting",
     "update-member-role",
-    "update-recording",
-    "view-screen"
+    "update-recording"
   ],
   "content": [
     "add-comment",
@@ -380,7 +379,6 @@
     "update-database-items",
     "upsert-database-item-by-key",
     "validate-builder-source-execution",
-    "view-screen",
     "write-local-component-file"
   ],
   "crm": [
@@ -505,8 +503,7 @@
     "restore-form",
     "retry-response-deliveries",
     "show-response-insight",
-    "update-form",
-    "view-screen"
+    "update-form"
   ],
   "mail": [
     "apply-ai-filter",
