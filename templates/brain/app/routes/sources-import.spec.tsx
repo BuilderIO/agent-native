@@ -60,13 +60,13 @@ it("submits optional participant labels for each selected file", async () => {
     root?.render(createElement(MemoryRouter, {}, createElement(Sources))),
   );
   const open = [...document.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("sources.companyContextUpload"),
+    button.textContent.includes("sources.companyContextUpload"),
   );
   expect(open).toBeDefined();
   await act(async () => open?.click());
   const inputs =
     document.querySelectorAll<HTMLInputElement>('input[type="file"]');
-  const input = inputs[1];
+  const input = inputs.item(1);
   expect(input).toBeDefined();
   Object.defineProperty(input, "files", {
     configurable: true,
@@ -76,10 +76,10 @@ it("submits optional participant labels for each selected file", async () => {
     ],
   });
   await act(async () =>
-    input?.dispatchEvent(new Event("change", { bubbles: true })),
+    input.dispatchEvent(new Event("change", { bubbles: true })),
   );
   const label = [...document.querySelectorAll("label")].find((entry) =>
-    entry.textContent?.includes("sources.importParticipants"),
+    entry.textContent.includes("sources.importParticipants"),
   );
   const participants = label?.querySelector("input");
   expect(participants).toBeDefined();
@@ -92,7 +92,7 @@ it("submits optional participant labels for each selected file", async () => {
     participants?.dispatchEvent(new Event("input", { bubbles: true }));
   });
   const submit = [...document.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("sources.importMarkdownFiles"),
+    button.textContent.includes("sources.importMarkdownFiles"),
   );
   expect(submit).toBeDefined();
   await act(async () => submit?.click());

@@ -858,7 +858,6 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   delete comparable.captureSanitization;
   // Connectors stamp every re-pull with a fresh run id; it must not re-queue unchanged captures.
   delete comparable.syncRunId;
-  // Legacy markers may have described connector fallback times; the new source marker affects citation freshness.
   delete comparable.capturedAtExplicit;
   return stableJson(comparable);
 }
@@ -1097,7 +1096,13 @@ export async function commitPreparedCaptureWithWarnings(
     nextMetadata.capturedAtSource = "manual-markdown";
   }
   const nextMetadataJson = stableJson(nextMetadata);
-  const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
+  const requestedCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
+  const nextCapturedAt =
+    existing &&
+    Number.isFinite(Date.parse(existing.capturedAt)) &&
+    Date.parse(existing.capturedAt) === Date.parse(requestedCapturedAt)
+      ? existing.capturedAt
+      : requestedCapturedAt;
   const contentChanged = existing?.contentHash !== nextContentHash;
   const metadataChanged = Boolean(
     existing &&
@@ -1235,15 +1240,21 @@ export async function commitPreparedCaptureWithWarnings(
         ],
         scoped,
       );
-      if (prepared.preserveExistingKind) {
+      if (existing || prepared.preserveExistingKind) {
         const current = firstRow(
           await scoped
-            .select({ kind: schema.brainRawCaptures.kind })
+            .select()
             .from(schema.brainRawCaptures)
             .where(eq(schema.brainRawCaptures.id, captureId))
             .limit(1),
         );
-        if (!current || current.kind !== values.kind) {
+        if (existing && stableJson(current) !== stableJson(existing)) {
+          throw new Error("Capture changed during import. Retry the import.");
+        }
+        if (
+          prepared.preserveExistingKind &&
+          (!current || current.kind !== values.kind)
+        ) {
           throw new Error(
             "Capture kind changed during screening. Screen the capture again before storing it.",
           );

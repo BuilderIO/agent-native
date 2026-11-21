@@ -20,6 +20,7 @@ import * as schema from "../db/schema.js";
 const harness = vi.hoisted(() => ({
   db: null as unknown,
   autoRedactEmails: false,
+  beforeTransaction: null as null | (() => Promise<void>),
 }));
 const email = "qa-fleet@builder.io";
 
@@ -125,6 +126,11 @@ function first<T>(values: readonly T[]): T {
   return value;
 }
 
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Expected a capture");
+  return value;
+}
+
 const quoted = (value: string) => `"${value.split('"').join('""')}"`;
 
 beforeAll(async () => {
@@ -160,8 +166,11 @@ beforeAll(async () => {
   harness.db = new Proxy(database, {
     get(target, property, receiver) {
       if (property === "transaction")
-        return (callback: (tx: unknown) => Promise<unknown>) =>
-          target.transaction(async (tx) => {
+        return async (callback: (tx: unknown) => Promise<unknown>) => {
+          const beforeTransaction = harness.beforeTransaction;
+          harness.beforeTransaction = null;
+          if (beforeTransaction) await beforeTransaction();
+          return target.transaction(async (tx) => {
             const original = harness.db;
             harness.db = tx;
             try {
@@ -170,6 +179,7 @@ beforeAll(async () => {
               harness.db = original;
             }
           });
+        };
       return Reflect.get(target, property, receiver);
     },
   });
@@ -178,6 +188,7 @@ afterAll(async () => client.close());
 
 beforeEach(async () => {
   harness.autoRedactEmails = false;
+  harness.beforeTransaction = null;
   for (const table of Object.values(schema)) await database.delete(table);
   const now = "2026-11-18T10:00:00.000Z";
   await database.insert(schema.brainSources).values({
@@ -623,14 +634,16 @@ describe("evidence-backed intelligence", () => {
       .set({ provider: "granola" })
       .where(eq(schema.brainSources.id, "source-a"));
     const { createCapture } = await import("./brain.js");
-    const capture = await createCapture({
-      sourceId: "source-a",
-      externalId: "granola:meeting",
-      title: "Meeting",
-      kind: "transcript",
-      content: "Morgan will ship Atlas.",
-      capturedAt: "2026-05-20T15:00:00.000Z",
-    });
+    const capture = required(
+      await createCapture({
+        sourceId: "source-a",
+        externalId: "granola:meeting",
+        title: "Meeting",
+        kind: "transcript",
+        content: "Morgan will ship Atlas.",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+      }),
+    );
     expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
       "capturedAtExplicit",
     );
@@ -729,7 +742,7 @@ describe("evidence-backed intelligence", () => {
         capturedAt: "2026-05-20T15:00:00.000Z",
         metadata: { location: "Launch" },
       };
-      const capture = await createCapture(captureInput);
+      const capture = required(await createCapture(captureInput));
       const metadata = JSON.parse(capture.metadataJson);
       delete metadata.capturedAtExplicit;
       await database
@@ -746,7 +759,7 @@ describe("evidence-backed intelligence", () => {
         entities: [],
         evidence: [{ captureId: capture.id, quote: captureInput.content }],
       });
-      const same = await createCapture(captureInput);
+      const same = required(await createCapture(captureInput));
       expect(same.status).toBe("distilled");
       expect(JSON.parse(same.metadataJson)).not.toHaveProperty(
         "capturedAtSource",
@@ -756,16 +769,108 @@ describe("evidence-backed intelligence", () => {
           (record) => record.id,
         ),
       ).toEqual([item.id]);
-      const changed = await createCapture({
-        ...captureInput,
-        ...(change === "date"
-          ? { capturedAt: "2026-05-21T15:00:00.000Z" }
-          : { content: "Morgan will ship Atlas tomorrow." }),
-      });
+      const changed = required(
+        await createCapture({
+          ...captureInput,
+          ...(change === "date"
+            ? { capturedAt: "2026-05-21T15:00:00.000Z" }
+            : { content: "Morgan will ship Atlas tomorrow." }),
+        }),
+      );
       expect(changed.status).toBe("queued");
       expect((await listIntelligence({ id: item.id })).records).toEqual([]);
     },
   );
+
+  it("preserves knowledge when reimporting an equivalent meeting instant", async () => {
+    const file = {
+      path: "same-instant.md",
+      content: "Morgan will ship Atlas.",
+      kind: "transcript" as const,
+      capturedAt: "2026-05-20T15:00:00.000Z",
+    };
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: file.capturedAt })
+      .where(eq(schema.brainRawCaptures.id, entry.captureId));
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, capturedAt: "2026-05-20T10:00:00-05:00" }],
+      enqueueDistillation: false,
+    });
+    const capture = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(capture.status).toBe("distilled");
+    expect(capture.capturedAt).toBe(file.capturedAt);
+    expect(
+      (await listIntelligence({ id: item.id })).records.map(
+        (record) => record.id,
+      ),
+    ).toEqual([item.id]);
+  });
+
+  it("rejects a stale reimport rather than overwriting a concurrent capture update", async () => {
+    const { createCapture } = await import("./brain.js");
+    const file = {
+      sourceId: "source-a",
+      externalId: "markdown:race.md",
+      title: "Race",
+      kind: "transcript" as const,
+      content: "Morgan will ship Atlas.",
+      privacyClassifier: "deterministic" as const,
+    };
+    const capture = required(
+      await createCapture({
+        ...file,
+        capturedAt: "2026-05-20T15:00:00.000Z",
+        capturedAtSource: "manual-markdown",
+        metadata: { participantsCount: 1 },
+      }),
+    );
+    harness.beforeTransaction = async () => {
+      await database
+        .update(schema.brainRawCaptures)
+        .set({
+          capturedAt: "2026-05-21T15:00:00.000Z",
+          metadataJson: JSON.stringify({
+            participantsCount: 2,
+            capturedAtSource: "manual-markdown",
+          }),
+        })
+        .where(eq(schema.brainRawCaptures.id, capture.id));
+    };
+    await expect(createCapture(file)).rejects.toThrow(
+      "Capture changed during import",
+    );
+    const current = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, capture.id)),
+    );
+    expect(current.capturedAt).toBe("2026-05-21T15:00:00.000Z");
+    expect(JSON.parse(current.metadataJson)).toMatchObject({
+      participantsCount: 2,
+      capturedAtSource: "manual-markdown",
+    });
+  });
 
   it("preserves transcript kind on an unspecified Markdown reimport and permits an explicit document transition", async () => {
     const file = { path: "meeting.md", content: "Morgan will ship Atlas." };
