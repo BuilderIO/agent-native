@@ -18242,7 +18242,19 @@ describe("runAgentLoop", () => {
     const long = "x".repeat(300);
     expect(
       permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
-    ).toBeLessThanOrEqual(241);
+    ).toBeLessThanOrEqual(240);
+    expect(
+      permanentPreconditionReason("t", `Error running t: ${"y".repeat(240)}`),
+    ).toBe(`${"y".repeat(239)}…`);
+    expect(
+      permanentPreconditionReason(
+        "t",
+        "Save a shared key that every member of the organization can read, " +
+          "the way a team saves its other provider keys in Settings, e.g. a " +
+          "bot token " +
+          "owned by the organization rather than by any one member ".repeat(3),
+      ),
+    ).toMatch(/e\.g\. a bot token owned .*…$/);
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
@@ -18451,6 +18463,123 @@ describe("runAgentLoop", () => {
     expect((stop as { error: string }).error).toContain(
       "needs to be fixed outside this chat",
     );
+  });
+
+  it.each([
+    {
+      label:
+        "ends the reason Dispatch cut to 'as the ow….' on Nov 20 on its last whole sentence",
+      thrown:
+        'github credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. Personal keys are " +
+        "readable only by their own owner's signed-in sessions, and this run " +
+        "resolves credentials as the owner identity behind the integration, job, " +
+        'or automation — so it needs "GITHUB_TOKEN" saved with Workspace or ' +
+        "Organization scope instead.",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        'credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. That needs to " +
+        "be fixed outside this chat",
+    },
+    {
+      label:
+        "ends a long single sentence on a whole word, without a stray period",
+      thrown:
+        "github credential not configured for " +
+        "the repository workspace ".repeat(12).trim(),
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        "credential not configured for " +
+        "the repository workspace ".repeat(8).trimEnd() +
+        "… That needs to be fixed outside this chat",
+    },
+    {
+      label: "keeps the longest missing-key error's fix and drops its key list",
+      thrown:
+        "hubspot credential not configured. Ask an organization owner or " +
+        'admin to save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or ' +
+        "Organization scope. This workspace has it only as a Personal key, " +
+        "which works only for the member who saved it. Tried: " +
+        "HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_ACCESS_TOKEN",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: hubspot " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or Organization ' +
+        "scope. This workspace has it only as a Personal key, which works " +
+        "only for the member who saved it. That needs to be fixed outside " +
+        "this chat",
+    },
+    {
+      label:
+        "keeps the fix and drops the cause when the longest key name pushes the cause past the limit",
+      thrown:
+        "bigquery credential not configured. Ask an organization owner or " +
+        'admin to save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace ' +
+        "or Organization scope. This workspace has it only as a Personal " +
+        "key, which works only for the member who saved it. Tried: " +
+        "BIGQUERY_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: bigquery " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace or ' +
+        "Organization scope. That needs to be fixed outside this chat",
+    },
+  ])("$label in the stop headline", async ({ thrown, headline }) => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(thrown);
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `github-${streamCalls}`,
+              name: "github-repo-list-files",
+              input: { repo: "BuilderIO/agent-native" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "github-repo-list-files": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const stop = events.find((e) => e.type === "error") as {
+      error: string;
+      details: string;
+    };
+    expect(stop.error).toContain(headline);
+    expect(stop.error).not.toContain("….");
+    expect(stop.details).toContain(thrown);
   });
 
   function importFileEngine(): AgentEngine {
