@@ -251,6 +251,7 @@ describe("an outside agent's estimate", () => {
         undefined,
         { followUpMode: "session", splitDesignFirstTouch: false },
         undefined,
+        caller === "mcp" ? "get-onboarding-journey" : undefined,
       );
       expect(must(mocks.estimate.mock.calls[0])[6]).toBe(50_000_000_000);
       expect(result).toEqual({
@@ -283,6 +284,7 @@ describe("an outside agent's estimate", () => {
         splitDesignFirstTouch: false,
       },
       undefined,
+      "get-onboarding-journey",
     );
     expect(() =>
       action.schema.parse({

@@ -196,6 +196,7 @@ export default defineAction({
               splitDesignFirstTouch: args.splitDesignFirstTouch,
             },
             context?.signal,
+            context?.caller === "mcp" ? "get-onboarding-journey" : undefined,
           )
         : null;
       if (allowance?.refusal) throw allowance.refusal;

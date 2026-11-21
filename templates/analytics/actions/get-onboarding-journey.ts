@@ -6,6 +6,13 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  allowanceApprovalNotice,
+  allowanceBudget,
+  needsAllowanceApproval,
+  recordReviewedAllowance,
+  withApprovedAllowance,
+} from "../server/lib/bigquery-agent-approval.js";
 import { outsideAgentIdentity } from "../server/lib/bigquery-agent-budget.js";
 import {
   describeOutsideAgentBigQueryReport,
@@ -21,7 +28,12 @@ import {
   FIRST_PARTY_TEMPLATE_NAMES,
   isCalendarDate,
 } from "../server/lib/first-party-metric-catalog.js";
-import { outsideAgentOnboardingEventBytes } from "../server/lib/onboarding-journey-agent-budget.js";
+import {
+  onboardingFollowUpBytes,
+  outsideAgentOnboardingEventBytes,
+  planOutsideAgentOnboardingBytes,
+  smallestOutsideAgentOnboardingCall,
+} from "../server/lib/onboarding-journey-agent-budget.js";
 import {
   DEFAULT_ONBOARDING_EVENT_ROW_BUDGET,
   getOnboardingJourney,
@@ -279,6 +291,32 @@ export default defineAction({
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
+  mcpNeedsApproval: async (args, ctx) => {
+    const read = await allowanceBudget(ctx);
+    return (
+      read !== null &&
+      needsAllowanceApproval(
+        read.budget,
+        smallestOutsideAgentOnboardingCall(args),
+      )
+    );
+  },
+  approvalNotice: async (args, ctx) => {
+    const read = await allowanceBudget(ctx);
+    if (!read) return undefined;
+    const plan = planOutsideAgentOnboardingBytes(
+      withApprovedAllowance(read.budget),
+      args.maxTotalBytesBilled,
+      args,
+    );
+    return allowanceApprovalNotice(
+      read.budget,
+      plan.refusal
+        ? smallestOutsideAgentOnboardingCall(args)
+        : plan.applied + onboardingFollowUpBytes(args),
+    );
+  },
+  approvalProof: "review-page",
   run: async (args, context?: ActionRunContext) => {
     const days =
       (Date.parse(`${args.dateTo}T00:00:00Z`) -
@@ -333,16 +371,21 @@ export default defineAction({
         );
       }
       const identity = outsideAgentIdentity(scope.userEmail, scope.orgId);
+      const call = {
+        followUpMode: args.followUpMode,
+        experimentId: args.experimentId,
+        splitDesignFirstTouch: args.splitDesignFirstTouch,
+      };
+      const askVia =
+        context?.caller === "mcp" ? "get-onboarding-journey" : undefined;
+      await recordReviewedAllowance(identity);
       const { requested, applied, refusal } =
         await outsideAgentOnboardingEventBytes(
           identity,
           args.maxTotalBytesBilled,
-          {
-            followUpMode: args.followUpMode,
-            experimentId: args.experimentId,
-            splitDesignFirstTouch: args.splitDesignFirstTouch,
-          },
+          call,
           context?.signal,
+          askVia,
         );
       if (refusal) throw refusal;
       const { value, report } = await runOutsideAgentBigQueryCall(
@@ -351,6 +394,7 @@ export default defineAction({
           source: "get-onboarding-journey",
           reservation: "full-cap",
           leaseMs: ONBOARDING_JOURNEY_QUERY_BUDGET_MS + 60_000,
+          ...(askVia ? { askVia } : {}),
         },
         () =>
           getOnboardingJourney(scope, journeyArgs(applied), context?.signal),
