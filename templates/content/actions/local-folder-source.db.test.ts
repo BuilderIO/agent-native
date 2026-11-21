@@ -1356,6 +1356,7 @@ describe("local-folder Content source", () => {
     expect(renamed.updated).toEqual([
       expect.objectContaining({ id: "stable-local-page", path: "new-name.md" }),
     ]);
+    expect(renamed.removed).toEqual([]);
     await expect(
       getDb()
         .select()
@@ -1369,6 +1370,9 @@ describe("local-folder Content source", () => {
       syncLocalFolder.run({ sourceId: connection.sourceId, files: {} }),
     );
     expect(deletion.conflicts).toHaveLength(0);
+    expect(deletion.removed).toEqual([
+      { id: "stable-local-page", path: "new-name.md" },
+    ]);
     await expect(
       getDb()
         .select()

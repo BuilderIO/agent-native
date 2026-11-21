@@ -19,6 +19,7 @@ import {
 import type { HostOverlayStatusResult } from "../shared/api.js";
 
 export default defineAction({
+  mcpTool: "search",
   description:
     "Check whether each booking-link host's real working hours are being used for that link, or only their free/busy. Reports, per host, whether they have added the link owner back to their own calendar and whether they have saved a working-hours schedule.",
   schema: z.object({

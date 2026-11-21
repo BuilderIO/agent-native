@@ -4057,6 +4057,56 @@ export async function withBuilderBodiesSourceValues(
   );
 }
 
+type BuilderBodyConversion = {
+  blocksJson: string | null;
+  blocksHash: string | null;
+  warnings: string[];
+};
+
+const BUILDER_BODY_CONVERSION_CACHE_LIMIT = 100;
+const builderBodyConversionCache = new Map<string, BuilderBodyConversion>();
+
+async function convertBuilderBodyCached(
+  inputs: {
+    localContent: string;
+    losslessContent: string | null;
+    sidecars: Record<string, string>;
+    mergeReadableBaseline: boolean;
+  },
+  convert: () => Promise<{ blocks: unknown[] | null; warnings: string[] }>,
+): Promise<BuilderBodyConversion> {
+  const key = createHash("sha256")
+    .update(
+      stableValueString([
+        inputs.mergeReadableBaseline,
+        inputs.localContent,
+        inputs.losslessContent,
+        inputs.sidecars,
+      ]),
+    )
+    .digest("hex");
+  const cached = builderBodyConversionCache.get(key);
+  if (cached) {
+    builderBodyConversionCache.delete(key);
+    builderBodyConversionCache.set(key, cached);
+    return cached;
+  }
+  const converted = await convert();
+  const conversion: BuilderBodyConversion = converted.blocks
+    ? {
+        blocksJson: JSON.stringify(converted.blocks),
+        blocksHash: builderBlocksHash(converted.blocks),
+        warnings: converted.warnings,
+      }
+    : { blocksJson: null, blocksHash: null, warnings: converted.warnings };
+  builderBodyConversionCache.set(key, conversion);
+  if (builderBodyConversionCache.size > BUILDER_BODY_CONVERSION_CACHE_LIMIT) {
+    const oldest = builderBodyConversionCache.keys().next().value;
+    if (oldest !== undefined) builderBodyConversionCache.delete(oldest);
+  }
+  return conversion;
+}
+
 export async function builderBodyChangeForLocalContent(args: {
   row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
   localContent: string | null | undefined;
@@ -4067,6 +4117,8 @@ export async function builderBodyChangeForLocalContent(args: {
    * converted and compared by hash.
    */
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
+  comparison?: "text" | "blocks";
+  onNeedsBlocks?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
@@ -4140,6 +4192,32 @@ export async function builderBodyChangeForLocalContent(args: {
   }
   const currentBodyExcerpt = liveBaseline ? null : bodyExcerpt(currentContent);
 
+  if (args.comparison === "text") {
+    args.onNeedsBlocks?.();
+    if (
+      liveBaseline ||
+      (normalizedLocalContent &&
+        (normalizedLocalContent ===
+          normalizeBuilderBodyBaselineContent(currentContent) ||
+          normalizedLocalContent ===
+            normalizeBuilderBodyBaselineContent(losslessContent)))
+    ) {
+      return null;
+    }
+    return {
+      summary: "Builder body changed.",
+      currentExcerpt: currentBodyExcerpt,
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash,
+      proposedHash: null,
+      proposedContent: localContent,
+      proposedBlocksJson: null,
+      sidecarsJson,
+      warnings: [],
+      textOnly: true,
+    };
+  }
+
   let sidecars: Record<string, string> = {};
   try {
     const parsed = JSON.parse(sidecarsJson) as unknown;
@@ -4159,25 +4237,29 @@ export async function builderBodyChangeForLocalContent(args: {
       !!losslessContent &&
       !localContent.includes("<Builder") &&
       (args.usesCurrentHydrationCodec || !usesCurrentMediaConverter);
-    const proposed = !canMergeReadableBaseline
-      ? {
-          blocks: await builderMdxBodyToBuilderBlocks(
-            normalizeUnsourcedBuilderCreateMdx(localContent),
-            sidecars,
-          ),
-          warnings: [] as string[],
-        }
-      : canMergeReadableBaseline
-        ? await builderReadableBodyToBuilderBlocks({
-            localContent,
-            losslessContent,
-            sidecars,
-          })
-        : {
-            blocks: await builderMdxBodyToBuilderBlocks(localContent, sidecars),
-            warnings: [] as string[],
-          };
-    if (!proposed.blocks) {
+    const proposed = await convertBuilderBodyCached(
+      {
+        localContent,
+        losslessContent: canMergeReadableBaseline ? losslessContent : null,
+        sidecars,
+        mergeReadableBaseline: canMergeReadableBaseline,
+      },
+      async () =>
+        canMergeReadableBaseline
+          ? builderReadableBodyToBuilderBlocks({
+              localContent,
+              losslessContent,
+              sidecars,
+            })
+          : {
+              blocks: await builderMdxBodyToBuilderBlocks(
+                normalizeUnsourcedBuilderCreateMdx(localContent),
+                sidecars,
+              ),
+              warnings: [] as string[],
+            },
+    );
+    if (!proposed.blocksJson) {
       return {
         summary: "Builder body blocks changed, but need attention before push.",
         currentExcerpt: currentBodyExcerpt,
@@ -4190,8 +4272,7 @@ export async function builderBodyChangeForLocalContent(args: {
         warnings: proposed.warnings,
       };
     }
-    const proposedBlocks = proposed.blocks;
-    const proposedHash = builderBlocksHash(proposedBlocks);
+    const proposedHash = proposed.blocksHash;
     if (currentHash && proposedHash === currentHash) return null;
     return {
       summary: "Builder body blocks changed.",
@@ -4200,7 +4281,7 @@ export async function builderBodyChangeForLocalContent(args: {
       currentHash,
       proposedHash,
       proposedContent: localContent,
-      proposedBlocksJson: JSON.stringify(proposedBlocks),
+      proposedBlocksJson: proposed.blocksJson,
       sidecarsJson,
       warnings: proposed.warnings,
     };
@@ -4241,10 +4322,27 @@ function normalizeUnsourcedBuilderCreateMdx(content: string) {
 
 export async function builderBodyChangeForUnsourcedLocalCreate(args: {
   localContent: string | null | undefined;
+  comparison?: "text" | "blocks";
+  onNeedsBlocks?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const localContent = args.localContent ?? "";
   if (!localContent.trim()) return null;
   const sidecarsJson = "{}";
+  if (args.comparison === "text") {
+    args.onNeedsBlocks?.();
+    return {
+      summary: "Builder draft body ready to create.",
+      currentExcerpt: null,
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash: null,
+      proposedHash: null,
+      proposedContent: localContent,
+      proposedBlocksJson: null,
+      sidecarsJson,
+      warnings: [],
+      textOnly: true,
+    };
+  }
 
   try {
     const blocks = await builderMdxBodyToBuilderBlocks(
@@ -4294,12 +4392,16 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   allowUnsourcedCreate: boolean;
   localContent: string | null | undefined;
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
+  comparison?: "text" | "blocks";
+  onNeedsBlocks?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
     if (identity.isSyntheticFixture) {
       return builderBodyChangeForUnsourcedLocalCreate({
         localContent: args.localContent,
+        comparison: args.comparison,
+        onNeedsBlocks: args.onNeedsBlocks,
       });
     }
     if (!args.isHydrated) return null;
@@ -4310,12 +4412,31 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
         Boolean(args.bodyHydrationVersion) &&
         !builderBodyHydrationIsCodecMigration(args.bodyHydrationVersion),
       liveBaseline: args.liveBaseline,
+      comparison: args.comparison,
+      onNeedsBlocks: args.onNeedsBlocks,
     });
   }
   if (!args.allowUnsourcedCreate) return null;
   return builderBodyChangeForUnsourcedLocalCreate({
     localContent: args.localContent,
+    comparison: args.comparison,
+    onNeedsBlocks: args.onNeedsBlocks,
   });
+}
+
+function sameCancelledBodyChange(
+  stored: ContentDatabaseSourceBodyChange | null | undefined,
+  candidate: ContentDatabaseSourceBodyChange | null | undefined,
+) {
+  if (candidate?.textOnly) {
+    return (
+      !!stored &&
+      (stored.proposedContent ?? null) ===
+        (candidate.proposedContent ?? null) &&
+      (stored.currentHash ?? null) === (candidate.currentHash ?? null)
+    );
+  }
+  return stableValueString(stored) === stableValueString(candidate);
 }
 
 export function buildBuilderLocalOutboundChangeSets(args: {
@@ -4375,8 +4496,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         stored.pushMode === candidate.pushMode &&
         stableValueString(stored.fieldChanges) ===
           stableValueString(candidate.fieldChanges) &&
-        stableValueString(stored.bodyChange) ===
-          stableValueString(candidate.bodyChange),
+        sameCancelledBodyChange(stored.bodyChange, candidate.bodyChange),
     );
 
   const storedChangeSetIds = new Set(
@@ -4770,10 +4890,16 @@ export async function getContentDatabaseSourceSnapshotById(
   });
 }
 
+export type BuilderReviewBodyComparisonOptions = {
+  builderBodyComparison?: "text" | "blocks";
+  blocksCheckDocumentIds?: Set<string>;
+};
+
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
   documentIds?: string[],
+  comparison: BuilderReviewBodyComparisonOptions = {},
 ): Promise<ContentDatabaseSource | null> {
   const db = getDb();
   if (sourceId) {
@@ -4791,6 +4917,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
           includeHeavyBuilderBodyValues: true,
           documentIds,
           hydrateExecutionPayloads: documentIds !== undefined,
+          ...comparison,
         })
       : null;
   }
@@ -4807,6 +4934,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
         includeHeavyBuilderBodyValues: true,
         documentIds,
         hydrateExecutionPayloads: documentIds !== undefined,
+        ...comparison,
       })
     : null;
 }
@@ -4863,6 +4991,9 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
   const rows = await getDb()
     .select({
       documentId: sourceRows.documentId,
+      isSyntheticFixture: sql<boolean>`COALESCE(${isSyntheticFixture}, false)`,
+      localContentDiffers,
+      bodyHydrationVersion: items.bodyHydrationVersion,
     })
     .from(sourceRows)
     .innerJoin(
@@ -4892,22 +5023,26 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
         ),
       ),
     );
-  return rows.map((row) => row.documentId);
+  return rows
+    .filter(
+      (row) =>
+        row.isSyntheticFixture ||
+        row.localContentDiffers ||
+        !row.bodyHydrationVersion ||
+        builderBodyHydrationIsCodecMigration(row.bodyHydrationVersion),
+    )
+    .map((row) => row.documentId);
 }
 
-export async function getContentDatabaseSourceSnapshotForReview(
+export async function builderReviewDocumentScope(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
-  documentIds?: string[],
-): Promise<ContentDatabaseSource | null> {
-  if (documentIds?.length) {
-    return getContentDatabaseSourceSnapshotForWrite(
-      database,
-      sourceId,
-      documentIds,
-    );
-  }
-
+): Promise<{
+  source: ContentDatabaseSourceRowDb;
+  lightweight: ContentDatabaseSource;
+  reviewableChangeSetIds: string[];
+  documentIds: string[] | null;
+} | null> {
   const db = getDb();
   const [source] = sourceId
     ? await db
@@ -4939,39 +5074,77 @@ export async function getContentDatabaseSourceSnapshotForReview(
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
   );
+  const reviewableChangeSetIds = reviewableChanges.map(
+    (changeSet) => changeSet.id,
+  );
   const knownReviewDocumentIds = knownBuilderReviewDocumentIds(
     reviewableChanges,
     100,
   );
   if (knownReviewDocumentIds) {
-    return loadSourceSnapshot(source, database, {
-      includeHeavyBuilderBodyValues: true,
+    return {
+      source,
+      lightweight,
+      reviewableChangeSetIds,
       documentIds: knownReviewDocumentIds,
-    });
+    };
   }
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
-    return loadSourceSnapshot(source, database, {
-      includeHeavyBuilderBodyValues: true,
-      hydrateExecutionPayloadsForChangeSetIds: reviewableChanges.map(
-        (changeSet) => changeSet.id,
-      ),
-    });
+    return { source, lightweight, reviewableChangeSetIds, documentIds: null };
   }
   const candidateDocumentIds = new Set(
     reviewableChanges.flatMap((changeSet) =>
       changeSet.documentId ? [changeSet.documentId] : [],
     ),
   );
-  for (const documentId of await findBuilderReviewBodyCandidateDocumentIds({
-    database,
-    source,
-  })) {
+  const bodyCandidateDocumentIds = new Set(
+    await findBuilderReviewBodyCandidateDocumentIds({ database, source }),
+  );
+  for (const row of lightweight.rows) {
+    if (bodyCandidateDocumentIds.delete(row.documentId)) {
+      candidateDocumentIds.add(row.documentId);
+    }
+  }
+  for (const documentId of bodyCandidateDocumentIds) {
     candidateDocumentIds.add(documentId);
   }
-  if (candidateDocumentIds.size === 0) return lightweight;
-  return loadSourceSnapshot(source, database, {
-    includeHeavyBuilderBodyValues: true,
+  return {
+    source,
+    lightweight,
+    reviewableChangeSetIds,
     documentIds: [...candidateDocumentIds],
+  };
+}
+
+export async function getContentDatabaseSourceSnapshotForReview(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+  documentIds?: string[],
+  comparison: BuilderReviewBodyComparisonOptions = {},
+): Promise<ContentDatabaseSource | null> {
+  if (documentIds?.length) {
+    return getContentDatabaseSourceSnapshotForWrite(
+      database,
+      sourceId,
+      documentIds,
+      comparison,
+    );
+  }
+
+  const scope = await builderReviewDocumentScope(database, sourceId);
+  if (!scope) return null;
+  if (scope.documentIds === null) {
+    return loadSourceSnapshot(scope.source, database, {
+      includeHeavyBuilderBodyValues: true,
+      hydrateExecutionPayloadsForChangeSetIds: scope.reviewableChangeSetIds,
+      ...comparison,
+    });
+  }
+  if (scope.documentIds.length === 0) return scope.lightweight;
+  return loadSourceSnapshot(scope.source, database, {
+    includeHeavyBuilderBodyValues: true,
+    documentIds: scope.documentIds,
+    ...comparison,
   });
 }
 
@@ -5318,7 +5491,7 @@ async function loadSourceSnapshot(
     documentIds?: string[];
     hydrateExecutionPayloads?: boolean;
     hydrateExecutionPayloadsForChangeSetIds?: string[];
-  },
+  } & BuilderReviewBodyComparisonOptions,
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
   const [fieldRows, changeRows, propertyDefs] = await Promise.all([
@@ -5628,6 +5801,8 @@ async function loadSourceSnapshot(
                   ) ?? {},
                 )
               : null,
+          comparison: options.builderBodyComparison,
+          onNeedsBlocks: () => options.blocksCheckDocumentIds?.add(documentId),
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),

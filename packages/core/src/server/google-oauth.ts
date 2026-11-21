@@ -23,7 +23,7 @@ import {
   hasBetterAuthUserEmail,
   trackSignupEvent,
 } from "./better-auth-instance.js";
-import { requestAllowsConsentCategory } from "./consent-route.js";
+import { requestConsentCategoryState } from "./consent-route.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
@@ -1029,11 +1029,12 @@ export async function createOAuthSession(
     }
     if (shouldTrackSignup && opts.trackSignup) {
       const signupCookieHeader = getHeader(event, "cookie") ?? null;
-      const performanceAllowed = requestAllowsConsentCategory(
-        event,
-        "performance",
-      );
-      const targetingAllowed = requestAllowsConsentCategory(event, "targeting");
+      const consent = {
+        performance: requestConsentCategoryState(event, "performance"),
+        targeting: requestConsentCategoryState(event, "targeting"),
+      };
+      const performanceAllowed = consent.performance === "allowed";
+      const targetingAllowed = consent.targeting === "allowed";
       const baseAttribution = targetingAllowed
         ? (opts.trackSignup.attribution ??
           signupAttributionFromCookieHeader(signupCookieHeader))
@@ -1073,6 +1074,7 @@ export async function createOAuthSession(
         attribution,
         anonymousId,
         sessionId,
+        consent,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so

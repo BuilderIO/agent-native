@@ -64,6 +64,7 @@ jobs:
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
+      storybook_tests: ${{ steps.scope.outputs.storybook_tests }}
       changeset: ${{ steps.scope.outputs.changeset }}
       verify_execution_lease: ${{ steps.scope.outputs.verify_execution_lease }}
       core_mutation: ${{ steps.scope.outputs.core_mutation }}
@@ -1829,6 +1830,18 @@ jobs:
           pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
           ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
 
+  storybook-tests:
+    name: Storybook story tests
+    needs: change-scope
+    if: needs.change-scope.outputs.storybook_tests == 'true'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/storybook-tests.yml
+    secrets:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      STORYBOOK_NETLIFY_SITE_ID: ${{ secrets.STORYBOOK_NETLIFY_SITE_ID }}
+
   brain-evals:
     name: Brain evals
     needs: change-scope
@@ -2267,6 +2280,7 @@ jobs:
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/otel build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
@@ -2500,6 +2514,7 @@ jobs:
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
           pnpm --filter @agent-native/otel build
