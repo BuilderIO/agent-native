@@ -382,6 +382,7 @@
 }
 
 .agent-native-app-main {
+  position: relative;
   container: agent-native-main / inline-size;
 }
 
