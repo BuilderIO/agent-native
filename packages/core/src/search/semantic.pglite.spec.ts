@@ -1087,7 +1087,7 @@ describe("when something fails part way", () => {
         },
       ]);
 
-      refusing = "Gadget refused-2";
+      refusing = "Gadget refused-1";
       await passHour();
       await drain();
       expect(embedded()).toEqual(["refused-3"]);
@@ -1095,9 +1095,23 @@ describe("when something fails part way", () => {
       await passHour();
       await drain();
       expect(refused).toBe(2);
-      expect(embedded()).toEqual(["refused-1", "refused-3"]);
+      expect(embedded()).toEqual(["refused-3"]);
       expect(await waits()).toEqual([
-        { resource_id: "refused-2", attempts: 2, hour: true, two_hours: true },
+        { resource_id: "refused-1", attempts: 2, hour: true, two_hours: true },
+        { resource_id: "refused-2", attempts: 1, hour: true, two_hours: false },
+      ]);
+
+      await passHour();
+      await drain();
+      expect(refused).toBe(2);
+      expect(embedded()).toEqual(["refused-2", "refused-3"]);
+      expect(await waits()).toEqual([
+        {
+          resource_id: "refused-1",
+          attempts: 2,
+          hour: true,
+          two_hours: false,
+        },
       ]);
     } finally {
       family.embed = embed;
