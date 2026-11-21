@@ -19,7 +19,7 @@ import {
   type MoveDocumentContext,
 } from "@/hooks/use-pending-moves";
 import { DELETE_DOCUMENT_MUTATION_KEY } from "@/hooks/use-pending-trash";
-import { keepMovedFilesRow } from "@/lib/files-navigation";
+import { type FilesRowMove, keepMovedFilesRow } from "@/lib/files-navigation";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 
 const useFilesNavigationPage = vi.hoisted(() => vi.fn());
@@ -1059,6 +1059,98 @@ describe("PagedContentFilesSidebarView", () => {
       "/page/draft-2",
       "/page/live-1",
     ]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("takes a page moving to another space out of its groups, and shows one moving in in the no-value group", async () => {
+    useFilesNavigationPage.mockImplementation(() => ({
+      data: {
+        ...page([navigationItem("none-1")]),
+        groups: [
+          {
+            id: "stage:draft",
+            label: "Draft",
+            unset: false,
+            count: 2,
+            page: page([navigationItem("draft-1"), navigationItem("draft-2")]),
+          },
+          {
+            id: "stage:__ungrouped__",
+            label: "No Stage",
+            unset: true,
+            count: 1,
+            page: page([navigationItem("none-1")]),
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const queryClient = new QueryClient();
+    const { container, root } = await renderHarness({ queryClient });
+    const links = () =>
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).map(
+        (link) => link.getAttribute("href"),
+      );
+    const failMoves: Array<(error: Error) => void> = [];
+    const moving: Promise<unknown>[] = [];
+    const startMove = (move: FilesRowMove) => {
+      const answer = new Promise<never>((_resolve, reject) => {
+        failMoves.push(reject);
+      });
+      moving.push(
+        queryClient
+          .getMutationCache()
+          .build(queryClient, {
+            mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
+            mutationFn: (_variables: { id: string; parentId: string | null }) =>
+              answer,
+            onMutate: (): MoveDocumentContext => ({ move }),
+          })
+          .execute({ id: move.documentId, parentId: move.parentId })
+          .catch(() => {}),
+      );
+    };
+
+    await act(async () => {
+      startMove({
+        documentId: "draft-1",
+        databaseId: "files",
+        parentId: "none-1",
+        from: { databaseId: "files", parentId: null },
+        item: { ...navigationItem("draft-1"), parentId: "none-1" },
+      });
+      startMove({
+        documentId: "draft-2",
+        databaseId: "other-files",
+        parentId: null,
+        from: { databaseId: "files", parentId: null },
+        item: navigationItem("draft-2"),
+      });
+      startMove({
+        documentId: "arriving",
+        databaseId: "files",
+        parentId: null,
+        from: { databaseId: "other-files", parentId: null },
+        item: navigationItem("arriving"),
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(links()).toEqual([
+      "/page/draft-1",
+      "/page/none-1",
+      "/page/arriving",
+    ]);
+
+    await act(async () => {
+      for (const fail of failMoves) fail(new Error("Move is unavailable"));
+      await Promise.all(moving);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(links()).toEqual(["/page/draft-1", "/page/draft-2", "/page/none-1"]);
 
     await act(async () => root.unmount());
   });

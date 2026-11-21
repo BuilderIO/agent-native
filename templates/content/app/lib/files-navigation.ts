@@ -487,6 +487,30 @@ export function moveCachedFilesRow(
       ? { ...page, items: [...page.items, move.item] }
       : undefined;
   });
+  updateCachedFilesPages(queryClient, (page, params) => {
+    const { groups } = page as ContentDatabaseNavigationPageResponse;
+    if (
+      params.databaseId === move.databaseId ||
+      !groups?.some((group) =>
+        group.page.items.some((item) => item.documentId === move.documentId),
+      )
+    ) {
+      return undefined;
+    }
+    const next: ContentDatabaseNavigationPageResponse = {
+      ...page,
+      groups: groups.map((group) => ({
+        ...group,
+        page: {
+          ...group.page,
+          items: group.page.items.filter(
+            (item) => item.documentId !== move.documentId,
+          ),
+        },
+      })),
+    };
+    return next;
+  });
   const oldParentId = move.from.parentId;
   const oldBranch =
     oldParentId === null

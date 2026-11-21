@@ -407,14 +407,26 @@ describe("a page moved in the Files tree", () => {
     queryClient = new QueryClient();
   });
 
-  function plan(documentId: string, parentId: string | null) {
-    const planned = filesRowMove(queryClient, { documentId, parentId });
+  function plan(
+    documentId: string,
+    parentId: string | null,
+    databaseId?: string,
+  ) {
+    const planned = filesRowMove(queryClient, {
+      documentId,
+      parentId,
+      databaseId,
+    });
     if (!planned) throw new Error(`${documentId} has no cached Files row`);
     return planned;
   }
 
-  function move(documentId: string, parentId: string | null) {
-    moveCachedFilesRow(queryClient, plan(documentId, parentId));
+  function move(
+    documentId: string,
+    parentId: string | null,
+    databaseId?: string,
+  ) {
+    moveCachedFilesRow(queryClient, plan(documentId, parentId, databaseId));
   }
 
   /** The server answered the move, as `useMoveDocument` handles it. */
@@ -458,6 +470,41 @@ describe("a page moved in the Files tree", () => {
 
     expect(ids(queryClient)).toEqual(["folder"]);
     expect(groupIds(queryClient)).toEqual(["b"]);
+  });
+
+  it("leaves a grouped read's groups only when it moves to another collection", () => {
+    const groupedIds = () =>
+      queryClient
+        .getQueryData<ContentDatabaseNavigationPageResponse>(branchKey())
+        ?.groups?.map((group) =>
+          group.page.items.map((item) => item.documentId),
+        );
+    queryClient.setQueryData(branchKey(), {
+      ...page([row("folder"), row("a"), row("b")]),
+      groups: [
+        {
+          id: "stage:idea",
+          label: "Idea",
+          unset: false,
+          count: 2,
+          page: page([row("a"), row("b")]),
+        },
+        {
+          id: "stage:__ungrouped__",
+          label: "No Stage",
+          unset: true,
+          count: 1,
+          page: page([row("folder")]),
+        },
+      ],
+    } satisfies ContentDatabaseNavigationPageResponse);
+
+    move("a", "folder");
+    expect(groupedIds()).toEqual([["a", "b"], ["folder"]]);
+
+    move("b", null, "other-files");
+    expect(ids(queryClient)).toEqual(["folder"]);
+    expect(groupedIds()).toEqual([["a"], ["folder"]]);
   });
 
   it("gives a folder without children its first one, and an emptied folder none", () => {

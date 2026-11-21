@@ -564,8 +564,26 @@ function PagedContentFilesBranch({
       ),
       ...(revealed ? [revealed.documentId] : []),
     ]);
-    const kept = keptFilesRows(queryClient, props.databaseId, null).filter(
-      (item) => !listed.has(item.documentId),
+    const shownInGroups = (item: ContentDatabaseNavigationItem) => {
+      if (pendingTrash.documentIds.has(item.documentId)) return false;
+      const move = pendingMoves.get(item.documentId);
+      return !move || move.databaseId === props.databaseId;
+    };
+    const kept = [
+      ...[...pendingMoves.values()]
+        .filter(
+          (move) =>
+            move.databaseId === props.databaseId &&
+            move.from.databaseId !== props.databaseId &&
+            move.parentId === null,
+        )
+        .map((move) => move.item),
+      ...keptFilesRows(queryClient, props.databaseId, null),
+    ].filter(
+      (item, index, all) =>
+        !listed.has(item.documentId) &&
+        all.findIndex((other) => other.documentId === item.documentId) ===
+          index,
     );
     const keptGroupId = groups.find((group) => group.unset)?.id;
     const groupRows = (group: ContentDatabaseNavigationGroup) =>
@@ -573,7 +591,7 @@ function PagedContentFilesBranch({
         ...group.page.items,
         ...(revealed && locatedGroupIds.has(group.id) ? [revealed] : []),
         ...(group.id === keptGroupId ? kept : []),
-      ].filter((item) => !pendingTrash.documentIds.has(item.documentId));
+      ].filter(shownInGroups);
     const firstGroupId = groups.find(
       (group) =>
         !collapsedGroupIds.has(group.id) && groupRows(group).length > 0,
@@ -643,7 +661,7 @@ function PagedContentFilesBranch({
         })}
         {keptGroupId === undefined
           ? kept
-              .filter((item) => !pendingTrash.documentIds.has(item.documentId))
+              .filter(shownInGroups)
               .map((item) => renderRow(item, false, true))
           : null}
       </>
@@ -690,7 +708,9 @@ function PagedContentFilesBranch({
     .filter((item) => {
       if (pendingTrash.documentIds.has(item.documentId)) return false;
       const move = pendingMoves.get(item.documentId);
-      return flat || !move || movesHere(move);
+      return (
+        !move || (flat ? move.databaseId === props.databaseId : movesHere(move))
+      );
     })
     .map((item) =>
       !item.hasChildren && movingInto.has(item.documentId)
