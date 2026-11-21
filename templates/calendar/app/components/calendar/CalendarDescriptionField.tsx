@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { isComposingKey } from "@agent-native/toolkit/app/review";
 import {
   MAX_CALENDAR_DESCRIPTION_LENGTH,
   normalizeCalendarDescription,
@@ -43,7 +44,7 @@ export function CalendarDescriptionField({
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
         onKeyDown={(event) => {
-          if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+          if (event.key !== "Enter" || isComposingKey(event)) return;
           event.preventDefault();
           event.currentTarget.blur();
         }}

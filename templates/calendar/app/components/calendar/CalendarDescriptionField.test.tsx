@@ -44,16 +44,19 @@ async function typeText(textarea: HTMLTextAreaElement, text: string) {
   });
 }
 
-async function pressEnter(textarea: HTMLTextAreaElement, isComposing: boolean) {
+async function pressEnter(
+  textarea: HTMLTextAreaElement,
+  { isComposing = false, keyCode = 13 } = {},
+) {
+  const event = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+    isComposing,
+  });
+  Object.defineProperty(event, "keyCode", { value: keyCode });
   await act(async () => {
-    textarea.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Enter",
-        bubbles: true,
-        cancelable: true,
-        isComposing,
-      }),
-    );
+    textarea.dispatchEvent(event);
   });
 }
 
@@ -74,7 +77,7 @@ describe("CalendarDescriptionField", () => {
     const textarea = await renderField(onSave);
 
     await typeText(textarea, "Team rota");
-    await pressEnter(textarea, false);
+    await pressEnter(textarea);
 
     expect(onSave).toHaveBeenCalledWith("Team rota");
   });
@@ -84,7 +87,18 @@ describe("CalendarDescriptionField", () => {
     const textarea = await renderField(onSave);
 
     await typeText(textarea, "会議");
-    await pressEnter(textarea, true);
+    await pressEnter(textarea, { isComposing: true });
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(textarea);
+  });
+
+  it("doesn't save on a composition Enter reported only by its key code", async () => {
+    const onSave = vi.fn();
+    const textarea = await renderField(onSave);
+
+    await typeText(textarea, "会議");
+    await pressEnter(textarea, { keyCode: 229 });
 
     expect(onSave).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(textarea);
