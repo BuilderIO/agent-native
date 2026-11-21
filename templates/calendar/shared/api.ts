@@ -368,6 +368,7 @@ export interface GoogleAuthStatus {
     expiresAt?: string;
     photoUrl?: string;
     shared?: boolean;
+    description?: string;
   }>;
 }
 
@@ -382,6 +383,7 @@ export interface GoogleCalendarSource {
   primary: boolean;
   accessRole: "freeBusyReader" | "reader" | "writer" | "owner";
   readOnly: boolean;
+  accountDescription?: string;
   sourcePaths?: Array<{
     sourceKey: string;
     accountEmail: string;
@@ -395,6 +397,7 @@ export interface ExternalCalendar {
   name: string;
   url: string;
   color: string;
+  description?: string;
 }
 
 export interface Settings {
