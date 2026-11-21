@@ -104,12 +104,19 @@ function renderBar(
 }
 
 function button(name: string) {
-  const match = [...document.querySelectorAll<HTMLElement>("button")].find(
+  const buttons = [...document.querySelectorAll<HTMLElement>("button")];
+  const match = buttons.find(
     (candidate) =>
       candidate.getAttribute("aria-label") === name ||
       candidate.textContent.trim() === name,
   );
-  if (!match) throw new Error(`No button named ${name}`);
+  if (!match) {
+    const names = buttons.map(
+      (candidate) =>
+        candidate.getAttribute("aria-label") ?? candidate.textContent.trim(),
+    );
+    throw new Error(`No button named ${name} among: ${names.join(" | ")}`);
+  }
   return match;
 }
 

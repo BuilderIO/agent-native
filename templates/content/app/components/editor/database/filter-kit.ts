@@ -164,8 +164,7 @@ function kitValue(value: string, operator: KitFilterOperator): string[] {
 function contentValue(rule: FilterRule): string {
   if (!filterOperatorTakesValue(rule.operator)) return "";
   if (rule.operator === "between") {
-    const start = rule.value.at(0) ?? "";
-    const end = rule.value.at(1) ?? "";
+    const [start = "", end = ""] = rule.value;
     return start || end ? JSON.stringify([start, end]) : "";
   }
   return databaseFilterEncodeSelectedValues(rule.value);

@@ -7540,7 +7540,7 @@ type SourceNavStep =
 type SourceNavRequest = { id: number; stack: SourceNavStep[] };
 
 function sourceNavTitle(stack: SourceNavStep[]): string {
-  const top = stack.at(-1);
+  const top = stack.length > 0 ? stack[stack.length - 1] : undefined;
   if (!top) return dbText("sources");
   if (top.kind === "provider") return "Builder";
   if (top.kind === "space") return top.spaceName;
