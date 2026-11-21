@@ -791,6 +791,9 @@ const editor = {
     "Änderungen hier können nach einer Prüfung in Builder veröffentlicht werden.",
   syncedPageNotion:
     "Einige Details auf dieser Seite stammen aus der Datenbank {{name}} in Notion und können hier nur angesehen werden.",
+  syncedPageSourceUnreadable:
+    "Es konnte nicht geprüft werden, woher diese Seite stammt.",
+  syncedPageCheckAgain: "Erneut versuchen",
   textColor: "Textfarbe",
   resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",

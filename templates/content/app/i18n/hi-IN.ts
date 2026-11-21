@@ -746,6 +746,8 @@ const editor = {
     "यहाँ किए गए बदलाव समीक्षा के बाद Builder में प्रकाशित किए जा सकते हैं।",
   syncedPageNotion:
     "इस पेज के कुछ विवरण Notion में {{name}} डेटाबेस से आते हैं और यहाँ केवल देखने के लिए हैं।",
+  syncedPageSourceUnreadable: "यह पेज कहाँ से आता है, इसकी जाँच नहीं हो सकी।",
+  syncedPageCheckAgain: "फिर से कोशिश करें",
   textColor: "टेक्स्ट का रंग",
   resizeColumns: "कॉलम का आकार बदलें",
   backgroundColor: "पृष्ठभूमि का रंग",

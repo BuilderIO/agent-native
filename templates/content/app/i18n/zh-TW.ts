@@ -490,6 +490,8 @@ const overrides = {
     syncedPageBuilderPublish: "在這裡所做的編輯經審核後可以發布到 Builder。",
     syncedPageNotion:
       "此頁面上的部分詳細資料來自 Notion 中的 {{name}} 資料庫，在這裡僅供檢視。",
+    syncedPageSourceUnreadable: "無法確認此頁面的來源。",
+    syncedPageCheckAgain: "重試",
     copyUnsavedText: "複製我未儲存的文字",
     unsavedTextCopied: "已複製未儲存的文字",
     useDiskVersion: "使用磁碟版本",

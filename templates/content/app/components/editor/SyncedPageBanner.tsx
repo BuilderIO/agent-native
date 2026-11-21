@@ -48,7 +48,12 @@ const BUILDER_EDIT_KEYS = {
   publish_updates: "editor.syncedPageBuilderPublish",
 } as const;
 
-function useRowPageSources(document: Document): ContentDatabaseSource[] {
+type RowPageSources =
+  | { state: "pending" }
+  | { state: "unreadable"; retry: () => void }
+  | { state: "read"; sources: ContentDatabaseSource[] };
+
+function useRowPageSources(document: Document): RowPageSources {
   const membership = document.databaseMembership;
   const read = useContentDatabaseById(
     membership?.databaseId &&
@@ -58,14 +63,22 @@ function useRowPageSources(document: Document): ContentDatabaseSource[] {
       : null,
     { limit: 0 },
   );
-  const data =
-    read.data && !isContentDatabaseUnavailable(read.data) ? read.data : null;
-  return data?.sources ?? (data?.source ? [data.source] : []);
+  if (read.data) {
+    const data = isContentDatabaseUnavailable(read.data) ? null : read.data;
+    return {
+      state: "read",
+      sources: data?.sources ?? (data?.source ? [data.source] : []),
+    };
+  }
+  if (read.isError) {
+    return { state: "unreadable", retry: () => void read.refetch() };
+  }
+  return { state: "pending" };
 }
 
 export function SyncedPageBanner({ document }: { document: Document }) {
   const t = useT();
-  const sources = useRowPageSources(document);
+  const rowPage = useRowPageSources(document);
 
   if (document.source?.mode === "github") {
     return (
@@ -84,6 +97,22 @@ export function SyncedPageBanner({ document }: { document: Document }) {
       </SyncedPageLine>
     );
   }
+
+  if (rowPage.state === "unreadable") {
+    return (
+      <SyncedPageLine provider="unknown">
+        {t("editor.syncedPageSourceUnreadable")}{" "}
+        <button
+          type="button"
+          className="underline underline-offset-2 hover:text-foreground"
+          onClick={rowPage.retry}
+        >
+          {t("editor.syncedPageCheckAgain")}
+        </button>
+      </SyncedPageLine>
+    );
+  }
+  const sources = rowPage.state === "read" ? rowPage.sources : [];
 
   const membershipSourceId = document.databaseMembership?.sourceId ?? null;
   const builder = sources.find(

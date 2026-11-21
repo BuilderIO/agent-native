@@ -1715,6 +1715,8 @@ const enUS = {
       "Edits here can be published to Builder after review.",
     syncedPageNotion:
       "Some details on this page come from the {{name}} database in Notion and are view only here.",
+    syncedPageSourceUnreadable: "Couldn’t check where this page comes from.",
+    syncedPageCheckAgain: "Try again",
     copyUnsavedText: "Copy my unsaved text",
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",

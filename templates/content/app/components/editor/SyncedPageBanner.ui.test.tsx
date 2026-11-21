@@ -141,4 +141,29 @@ describe("Synced page banner", () => {
     renderUi(<SyncedPageBanner document={rowPage()} />);
     expect(banner()).toBe(null);
   });
+
+  it("says it couldn't check the page's source when the collection can't be read, and tries again", () => {
+    const refetch = vi.fn(() => Promise.resolve());
+    collection.read.mockReturnValue({
+      data: undefined,
+      isError: true,
+      refetch,
+    });
+    renderUi(<SyncedPageBanner document={rowPage()} />);
+    expect(banner()?.textContent).toBe(
+      "Couldn’t check where this page comes from. Try again",
+    );
+    banner()?.querySelector("button")?.click();
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the banner from the last read when a later read fails", () => {
+    collection.read.mockReturnValue({
+      data: { sources: [builderSource({ writeMode: "read_only" })] },
+      isError: true,
+      refetch: vi.fn(),
+    });
+    renderUi(<SyncedPageBanner document={rowPage()} />);
+    expect(banner()?.dataset.syncedPageBanner).toBe("builder");
+  });
 });

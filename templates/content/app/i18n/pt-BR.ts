@@ -787,6 +787,9 @@ const editor = {
     "As edições feitas aqui podem ser publicadas no Builder depois de revisadas.",
   syncedPageNotion:
     "Alguns detalhes desta página vêm do banco de dados {{name}} no Notion e aqui são somente para visualização.",
+  syncedPageSourceUnreadable:
+    "Não foi possível verificar de onde vem esta página.",
+  syncedPageCheckAgain: "Tentar novamente",
   textColor: "Cor do texto",
   resizeColumns: "Redimensionar colunas",
   backgroundColor: "Cor de fundo",

@@ -721,6 +721,8 @@ const editor = {
   syncedPageBuilderPublish: "在这里所做的编辑经审核后可以发布到 Builder。",
   syncedPageNotion:
     "此页面上的部分详细信息来自 Notion 中的 {{name}} 数据库，在这里仅供查看。",
+  syncedPageSourceUnreadable: "无法确认此页面的来源。",
+  syncedPageCheckAgain: "重试",
   textColor: "文本颜色",
   resizeColumns: "调整列宽",
   backgroundColor: "背景颜色",

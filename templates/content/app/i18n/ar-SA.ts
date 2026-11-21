@@ -749,6 +749,8 @@ const editor = {
   syncedPageBuilderPublish: "يمكن نشر التعديلات هنا في Builder بعد المراجعة.",
   syncedPageNotion:
     "بعض التفاصيل في هذه الصفحة تأتي من قاعدة بيانات {{name}} في Notion وهي للعرض فقط هنا.",
+  syncedPageSourceUnreadable: "تعذّر التحقق من مصدر هذه الصفحة.",
+  syncedPageCheckAgain: "إعادة المحاولة",
   textColor: "لون النص",
   resizeColumns: "تغيير حجم الأعمدة",
   backgroundColor: "لون الخلفية",
