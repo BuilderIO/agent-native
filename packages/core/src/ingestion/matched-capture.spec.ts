@@ -374,6 +374,32 @@ describe("matched capture", () => {
     }
   });
 
+  it("rejects invalid capture dimensions and crops before capturing", async () => {
+    const valid = { name: "test", width: 8, height: 8, deviceScaleFactor: 1 };
+    const cases = [
+      { ...valid, width: 0 },
+      { ...valid, height: 1.5 },
+      { ...valid, deviceScaleFactor: 0 },
+      { ...valid, crop: { left: -1, top: 0, width: 2, height: 2 } },
+      { ...valid, crop: { left: 7, top: 0, width: 2, height: 2 } },
+      { ...valid, crop: { left: 0, top: 7, width: 2, height: 2 } },
+    ];
+    for (const breakpoint of cases) {
+      let captured = false;
+      const report = await runMatchedCheck({
+        ...base,
+        breakpoints: [breakpoint],
+        capture: async (req) => {
+          captured = true;
+          return good(req);
+        },
+      });
+      expect(must(report.results[0]).validity).toBe("invalid");
+      expect(must(report.results[0]).fidelity).toBeUndefined();
+      expect(captured).toBe(false);
+    }
+  });
+
   it("waits for in-flight breakpoints before surfacing a failure", async () => {
     let finished = false;
     const run = runMatchedCheck({
