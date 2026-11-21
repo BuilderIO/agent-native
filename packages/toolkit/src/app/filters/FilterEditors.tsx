@@ -332,7 +332,7 @@ function FilterChoiceMenu<Choice extends string>({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-8 min-w-0 shrink-0 gap-1 px-2 font-normal text-muted-foreground"
+          className="min-w-0 shrink-0 gap-1 text-muted-foreground"
         >
           <span className="truncate">{label(selected)}</span>
           <IconChevronDown className="size-3.5" />
