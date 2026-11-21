@@ -444,8 +444,16 @@ export function actionApprovalError(message: string): CallToolResult {
   };
 }
 
-/** Where a call's approval stands when the review page has to decide it. */
-export type McpApprovalReviewReason = "unprompted" | "declined" | "opened";
+/**
+ * Where a call's approval stands when the review page has to decide it.
+ * `review-page`: the action takes approval only there, and the client can't
+ * open the page itself.
+ */
+export type McpApprovalReviewReason =
+  | "unprompted"
+  | "review-page"
+  | "declined"
+  | "opened";
 
 function priorRunNote(review: McpApprovalReview): string {
   if (!review.priorRun) return "";
@@ -475,15 +483,18 @@ export async function actionApprovalReviewResult(
   const status =
     reason === "unprompted"
       ? `${name} needs the user's approval before it runs, and this client cannot show an approval prompt. Ask the user to review it here: ${url}`
-      : reason === "declined"
-        ? `${name} was not approved. If the user did not see an approval prompt, they can review it here: ${url}`
-        : `${name} is waiting for the user's decision on its review page: ${url}`;
+      : reason === "review-page"
+        ? `${name} needs the user's approval on its review page before it runs. Ask the user to review it here: ${url}`
+        : reason === "declined"
+          ? `${name} was not approved. If the user did not see an approval prompt, they can review it here: ${url}`
+          : `${name} is waiting for the user's decision on its review page: ${url}`;
+  const notice = review.notice ? `\n\n${review.notice}` : "";
   return {
     content: [
       {
         type: "text" as const,
         text:
-          `${status}
+          `${status}${notice}
 
 After they approve, call ${name} again with exactly the same arguments before ${new Date(review.expiresAt).toISOString()}. It runs once; different arguments need a new approval.` +
           priorRunNote(review) +
@@ -3861,7 +3872,9 @@ export async function createMCPServerForRequest(
   }
   const hasApprovalActions = Object.values(actions).some(
     (entry) =>
-      entry.needsApproval !== undefined || actionUserTurn(entry) === "approval",
+      entry.needsApproval !== undefined ||
+      entry.mcpNeedsApproval !== undefined ||
+      actionUserTurn(entry) === "approval",
   );
   const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
   const approvalAppId = mcpApprovalAppId(config);
@@ -4076,8 +4089,10 @@ export async function createMCPServerForRequest(
         ? envelope[CLIENT_CAPABILITIES_META_KEY]
         : server.getClientCapabilities()
     )?.elicitation;
+    const reviewPageProof = actions[name]?.approvalProof === "review-page";
     // A bare `elicitation: {}` declares form mode.
     const offersForm =
+      !reviewPageProof &&
       elicitation !== undefined &&
       (elicitation.form !== undefined || elicitation.url === undefined);
     const reviewUrl = mcpApprovalReviewUrl(review.nonce, requestMeta);
@@ -4106,7 +4121,7 @@ export async function createMCPServerForRequest(
       }
       return actionApprovalReviewResult(
         review,
-        "unprompted",
+        reviewPageProof ? "review-page" : "unprompted",
         requestMeta,
         effectiveIdentity?.userEmail,
       );
