@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.fn();
 
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 

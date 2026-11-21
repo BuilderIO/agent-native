@@ -45,6 +45,10 @@ function stripBasePath(pathname: string): string {
   return pathname;
 }
 
+function isChatPath(pathname: string): boolean {
+  return pathname === "/chat" || pathname.startsWith("/chat/");
+}
+
 function threadIdFromPath(pathname: string): string | null {
   const match = stripBasePath(pathname).match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -139,9 +143,38 @@ export default function ChatRoute() {
     readChatFirstMode() ||
     new URLSearchParams(location.search).get("chatFirst") === "1";
 
+  const isMountedRef = useRef(true);
+  const locationPathnameRef = useRef(location.pathname);
+  const tracksWindowChatPathRef = useRef(false);
+  useEffect(() => {
+    locationPathnameRef.current = location.pathname;
+    if (
+      typeof window !== "undefined" &&
+      isChatPath(stripBasePath(window.location.pathname))
+    ) {
+      tracksWindowChatPathRef.current = true;
+    }
+  }, [location.pathname]);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const navigateThreadUrl = useCallback(
-    (path: string, options?: { replace?: boolean }) =>
-      navigate(dispatchNavTarget(path), options),
+    (path: string, options?: { replace?: boolean }) => {
+      if (!isMountedRef.current) return;
+      if (!isChatPath(stripBasePath(locationPathnameRef.current))) return;
+      if (
+        tracksWindowChatPathRef.current &&
+        typeof window !== "undefined" &&
+        !isChatPath(stripBasePath(window.location.pathname))
+      ) {
+        return;
+      }
+      void navigate(dispatchNavTarget(path), options);
+    },
     [navigate],
   );
   const threadUrlSync = useMemo<DispatchThreadUrlSync>(

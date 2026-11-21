@@ -767,7 +767,8 @@ export function FirstRunOnboarding({
   ]);
   // Preview never fetches status, so show the activation path it would offer.
   const canActivateBuilderFreeCredits =
-    previewMode || connectFlow.agentNativeProvisioningEnabled;
+    previewMode ||
+    (connectFlow.agentNativeProvisioningEnabled && !connectFlow.accountExists);
   // A deployment that hides commercial surfaces never offers free credits.
   const freeCreditsOffered =
     canActivateBuilderFreeCredits && !commercialSurfacesHidden();
@@ -1212,7 +1213,20 @@ export function FirstRunOnboarding({
               </Badge>
             </div>
           </div>
-          {commercialSurfacesHidden() ? null : (
+          {accountExists ? (
+            <div
+              role="status"
+              data-testid="first-run-builder-account-exists"
+              className="flex flex-col gap-1 rounded-[10px] bg-muted px-4 py-3 text-xs leading-5"
+            >
+              <p className="text-[13px] font-semibold text-foreground">
+                {t("agentChat.onboarding.builderAccountExistsTitle")}
+              </p>
+              <p className="text-muted-foreground">
+                {t("agentChat.onboarding.builderAccountExistsDescription")}
+              </p>
+            </div>
+          ) : commercialSurfacesHidden() ? null : (
             <div
               className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30"
               data-testid="first-run-builder-free-credits"
@@ -1244,7 +1258,12 @@ export function FirstRunOnboarding({
             <button
               type="button"
               data-testid="first-run-builder-sign-in"
-              className={cn(mutedButtonClass, "w-full")}
+              className={cn(
+                accountExists
+                  ? ONBOARDING_PRIMARY_BUTTON_CLASS
+                  : mutedButtonClass,
+                "w-full",
+              )}
               onClick={() => handleBuilder(false)}
               disabled={connectFlow.connecting}
             >

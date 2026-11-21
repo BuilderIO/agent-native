@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppStateForCurrentTab = vi.fn();
 
-vi.mock("@agent-native/core/application-state", () => ({
+vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/application-state")
+  >()),
   writeAppStateForCurrentTab: (...args: unknown[]) =>
     mockWriteAppStateForCurrentTab(...args),
 }));
@@ -53,6 +56,19 @@ describe("clips navigate action", () => {
         dictationId: "dct_456",
       },
     );
+  });
+
+  it("carries meetingsTab through to application state for the past meetings view", async () => {
+    const result = await action.run({
+      view: "meetings",
+      meetingsTab: "past",
+    });
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "meetings",
+      meetingsTab: "past",
+    });
+    expect(result).toBe("Navigating to meetings:past");
   });
 
   it("carries viewer panel and playback context through to application state", async () => {

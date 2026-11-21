@@ -173,6 +173,8 @@ await appAction("save-data-program", {
 
 截断始终是显式的（结果中的 `truncated: true`）——绝不会静默丢弃。
 
+在生产环境和后台运行中，沙箱最多保留一次运行约 4.5 MiB 的打印输出，包括 `emit()` 的那一行和你的日志。超出这一长度的结果无法截断，因此会以 `result_too_large` 失败：请减少提交的行数或减少日志。
+
 ## 参数与 dashboard 面板绑定 {#params-and-panel-binding}
 
 程序可声明一个可选的 `paramsSchema`（描述所接受参数的 JSON Schema）和 `defaultParams`。dashboard 采用 `"program"` 面板源的方式，是在面板的查询字段中放入一个小型 JSON 描述符，而不是查询字符串：

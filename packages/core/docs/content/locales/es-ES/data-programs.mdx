@@ -173,6 +173,8 @@ Límites impuestos en cada ejecución (no configurables por programa):
 
 El truncamiento siempre es explícito (`truncated: true` en el resultado) — nunca una pérdida silenciosa.
 
+En producción y en las ejecuciones en segundo plano, el sandbox conserva unos 4,5 MiB de la salida impresa de una ejecución, contando la línea de `emit()` y sus registros. Un resultado impreso más allá de ese límite no se puede recortar, así que falla como `result_too_large`: emita menos filas o registre menos.
+
 ## Params y vinculación de paneles de dashboard {#params-and-panel-binding}
 
 Los programas declaran un `paramsSchema` opcional (JSON Schema que describe los params aceptados) y `defaultParams`. Un dashboard adopta la fuente de panel `"program"` colocando un pequeño descriptor JSON en el campo de consulta del panel en lugar de una cadena de consulta:

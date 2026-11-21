@@ -21,9 +21,10 @@ import {
   type AgentNativeHostCommandHandlers,
   type AgentNativeHostContext,
   type AgentNativeHostContextGetter,
+  type AgentNativeHostRouteContext,
   type AgentNativeHostSession,
 } from "./host-bridge.js";
-import { scrubUrl } from "./url-scrub.js";
+import { scrubLocationHash, scrubQueryString, scrubUrl } from "./url-scrub.js";
 import type {
   AgentNativeWebMcpClient,
   AgentNativeWebMcpTool,
@@ -358,6 +359,41 @@ function withScrubbedUrl<T extends { url?: string | undefined }>(value: T): T {
   return value.url ? { ...value, url: scrubUrl(value.url) } : value;
 }
 
+function scrubSearch(search: string): string {
+  const query = scrubQueryString(search);
+  return query ? `?${query}` : "";
+}
+
+function scrubRoute(
+  route: AgentNativeHostRouteContext,
+): AgentNativeHostRouteContext {
+  const { search, hash } = route;
+  return {
+    ...route,
+    ...(typeof search === "string" ? { search: scrubSearch(search) } : {}),
+    ...(typeof hash === "string" ? { hash: scrubLocationHash(hash) } : {}),
+  };
+}
+
+function withScrubbedLocations(
+  context: AgentNativeHostContext,
+): AgentNativeHostContext {
+  const { route, session, screen } = context;
+  return {
+    ...withScrubbedUrl(context),
+    ...(route ? { route: scrubRoute(route) } : {}),
+    ...(session ? { session: withScrubbedUrl(session) } : {}),
+    ...(screen
+      ? {
+          screen: {
+            ...withScrubbedUrl(screen),
+            ...(screen.route ? { route: scrubRoute(screen.route) } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 function serializeForBrowserSession<T>(value: T, label: string): T {
   if (value === undefined) return value;
   try {
@@ -512,7 +548,9 @@ async function executeDirectBrowserSessionRequest(
   sessionId: string,
 ): Promise<unknown> {
   if (request.type === "get-context") {
-    return withScrubbedUrl(await resolveDirectContext(options, sessionId));
+    return withScrubbedLocations(
+      await resolveDirectContext(options, sessionId),
+    );
   }
   if (request.type === "list-actions") {
     return resolveDirectActionManifest(options);
@@ -615,7 +653,9 @@ async function executeBrowserSessionRequest(
   }
 
   if (request.type === "get-context") {
-    return withScrubbedUrl(await requestAgentNativeHostContext(hostOptions));
+    return withScrubbedLocations(
+      await requestAgentNativeHostContext(hostOptions),
+    );
   }
   if (request.type === "list-actions") {
     return requestAgentNativeHostActions(hostOptions);
@@ -735,7 +775,7 @@ export function createAgentNativeBrowserSessionBridge(
           registrationController.signal,
           requestAbortMs(options),
         );
-        const context = withScrubbedUrl(rawContext);
+        const context = withScrubbedLocations(rawContext);
         return await serializeSessionMutation(async () => {
           if (
             registrationStopGeneration !== stopGeneration ||

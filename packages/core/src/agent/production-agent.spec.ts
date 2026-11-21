@@ -5141,101 +5141,113 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
-  it("uses trusted private-thread history for model input even when the client strips markers", async () => {
-    const secret = "private-prior-sentinel";
-    const snapshot = {
-      messages: [
-        {
-          message: {
-            id: "u1",
-            role: "user",
-            content: [{ type: "text", text: "public question" }],
-          },
-        },
-        {
-          message: {
-            id: "a1",
-            role: "assistant",
-            content: [{ type: "text", text: "public answer" }],
-          },
-        },
-        {
-          message: {
-            id: "a2",
-            role: "assistant",
-            metadata: { runId: "private-run" },
-            content: [{ type: "text", text: secret }],
-          },
-        },
-      ],
-    };
-    const access = vi
-      .spyOn(chatThreadStore, "resolveThreadAccess")
-      .mockResolvedValue({
-        id: "private-thread",
-        threadData: JSON.stringify(snapshot),
-      } as never);
-    const provenance = vi
-      .spyOn(runStore, "getThreadPrivateHistoryState")
-      .mockResolvedValue({
-        hasPrivateHistory: true,
-        projectionPending: false,
-        privateRunIds: ["private-run"],
-      });
-    const inputs: string[] = [];
-    const engine: AgentEngine = {
-      ...engineWithUncalledStream(),
-      async *stream(opts) {
-        inputs.push(JSON.stringify(opts.messages));
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text", text: "done" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
+  it.each([
+    { label: "direct", metadata: { runId: "private-run" } },
+    {
+      label: "folded",
+      metadata: {
+        runId: "later-run",
+        custom: { foldedRunIds: ["private-run", "later-run"] },
       },
-    };
-    const handler = createProductionAgentHandler({
-      systemPrompt: "Test",
-      engine,
-      actions: {},
-      prepareRequest: () => ({ followUpSuggestions: false }),
-    });
-    const event = mockEvent(
-      new Request("http://app.example.com/_agent-native/agent-chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          message: "new request",
-          threadId: "private-thread",
-          history: [{ role: "assistant", content: secret }],
-          structuredHistory: [
-            { role: "assistant", content: [{ type: "text", text: secret }] },
-          ],
-          loadedSkillSlugs: [secret],
+    },
+  ])(
+    "uses trusted private-thread history for model input when the client strips markers ($label)",
+    async ({ metadata }) => {
+      const secret = "private-prior-sentinel";
+      const snapshot = {
+        messages: [
+          {
+            message: {
+              id: "u1",
+              role: "user",
+              content: [{ type: "text", text: "public question" }],
+            },
+          },
+          {
+            message: {
+              id: "a1",
+              role: "assistant",
+              content: [{ type: "text", text: "public answer" }],
+            },
+          },
+          {
+            message: {
+              id: "a2",
+              role: "assistant",
+              metadata,
+              content: [{ type: "text", text: secret }],
+            },
+          },
+        ],
+      };
+      const access = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({
+          id: "private-thread",
+          threadData: JSON.stringify(snapshot),
+        } as never);
+      const provenance = vi
+        .spyOn(runStore, "getThreadPrivateHistoryState")
+        .mockResolvedValue({
+          hasPrivateHistory: true,
+          projectionPending: false,
+          privateRunIds: ["private-run"],
+        });
+      const inputs: string[] = [];
+      const engine: AgentEngine = {
+        ...engineWithUncalledStream(),
+        async *stream(opts) {
+          inputs.push(JSON.stringify(opts.messages));
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+        prepareRequest: () => ({ followUpSuggestions: false }),
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "new request",
+            threadId: "private-thread",
+            history: [{ role: "assistant", content: secret }],
+            structuredHistory: [
+              { role: "assistant", content: [{ type: "text", text: secret }] },
+            ],
+            loadedSkillSlugs: [secret],
+          }),
         }),
-      }),
-    );
-    try {
-      const response = await runWithRequestContext(
-        { userEmail: "alice@example.com", orgId: "acme", run: {} },
-        () => handler(event),
       );
-      if (response instanceof ReadableStream) {
-        const reader = response.getReader();
-        while (!(await reader.read()).done) {}
+      try {
+        const response = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+        if (response instanceof ReadableStream) {
+          const reader = response.getReader();
+          while (!(await reader.read()).done) {}
+        }
+        expect(inputs.length).toBeGreaterThan(0);
+        expect(inputs.join("")).not.toContain(secret);
+        expect(inputs.join("")).toContain("public answer");
+        expect(inputs.join("")).toContain("new request");
+        expect(access.mock.invocationCallOrder[0]).toBeLessThan(
+          provenance.mock.invocationCallOrder[0],
+        );
+      } finally {
+        access.mockRestore();
+        provenance.mockRestore();
       }
-      expect(inputs.length).toBeGreaterThan(0);
-      expect(inputs.join("")).not.toContain(secret);
-      expect(inputs.join("")).toContain("public answer");
-      expect(inputs.join("")).toContain("new request");
-      expect(access.mock.invocationCallOrder[0]).toBeLessThan(
-        provenance.mock.invocationCallOrder[0],
-      );
-    } finally {
-      access.mockRestore();
-      provenance.mockRestore();
-    }
-  });
+    },
+  );
 
   it("omits stripped private history from durable dispatch payloads", async () => {
     const secret = "private-dispatch-sentinel";
@@ -7331,6 +7343,88 @@ describe("createProductionAgentHandler", () => {
     },
   );
 
+  it("requires the approval's ask id even when the paused call is in history", async () => {
+    const input = { to: "other@example.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-key-only");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const runAction = vi.fn(async () => "sent");
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved.",
+          approvedToolCalls: [approvalKey],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-key-only",
+                  name: "send-email",
+                  input,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-key-only",
+                  toolName: "send-email",
+                  toolInput: JSON.stringify(input),
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (result instanceof ReadableStream) {
+        await new Response(result).text();
+      }
+
+      expect(event.res.status).toBe(409);
+      expect(result).toEqual({
+        error: "The agent run failed.",
+        code: "approved_tool_call_not_pending",
+        retryable: false,
+      });
+      expect(runAction).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+    }
+  });
+
   it("fails explicitly when an approved call is missing from structured history", async () => {
     const engine = engineWithUncalledStream();
     const handler = createProductionAgentHandler({
@@ -8426,6 +8520,14 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
+    const approvalId =
+      "agent-tool-approval-00000000-0000-4000-8000-000000000001";
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-publish");
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({ id: "thread-publish", threadData: "{}" } as never);
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -8452,7 +8554,9 @@ describe("createProductionAgentHandler", () => {
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
                   message: "Approved. Continue.",
+                  threadId: "thread-publish",
                   approvedToolCalls: [approvalKey],
+                  approvedToolCallAskIds: [approvalId],
                   structuredHistory: [
                     {
                       role: "assistant",
@@ -8462,6 +8566,7 @@ describe("createProductionAgentHandler", () => {
                           id: "call-publish",
                           name: "publish",
                           input,
+                          approvalAskId: approvalId,
                         },
                       ],
                     },
@@ -8475,6 +8580,7 @@ describe("createProductionAgentHandler", () => {
                           toolInput: "{}",
                           content: "Awaiting human approval.",
                           approvalPause: true,
+                          approvalAskId: approvalId,
                         },
                       ],
                     },
@@ -8508,6 +8614,8 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
+      resolveApproval.mockRestore();
+      resolveThreadAccess.mockRestore();
     }
   });
 

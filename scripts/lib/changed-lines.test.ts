@@ -196,6 +196,11 @@ describe("parseUnifiedDiff", () => {
         ?.get(path.resolve(CWD, "src/a.ts"))
         .lines.map((line: { text: string }) => line.text),
     ).toEqual(["--y", "---z", "const c = 3;"]);
+    expect(
+      removed
+        ?.get(path.resolve(CWD, "src/a.ts"))
+        .lines.map((line: { oldLine: number }) => line.oldLine),
+    ).toEqual([1, 2, 3]);
   });
 
   it("keeps line numbers across hunks and files in a normal diff", () => {

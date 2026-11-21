@@ -664,12 +664,15 @@ export interface UpdateDataProgramRunInput {
   durationMs?: number | null;
   credentialUsesJson?: string | null;
   keep?: number;
+  /** Update only a queued or running run, so the first read to finish it wins. */
+  onlyIfActive?: boolean;
 }
 
+/** Returns whether the run was updated. */
 export async function updateDataProgramRun(
   runId: string,
   updates: UpdateDataProgramRunInput,
-): Promise<void> {
+): Promise<boolean> {
   await ensureDataProgramTables();
   const client = getDbExec();
   const sets: string[] = [];
@@ -695,13 +698,17 @@ export async function updateDataProgramRun(
   if (updates.durationMs !== undefined) push("duration_ms", updates.durationMs);
   if (updates.credentialUsesJson !== undefined)
     push("credential_uses", updates.credentialUsesJson);
-  if (sets.length === 0) return;
+  if (sets.length === 0) return false;
 
   args.push(runId);
-  await client.execute({
-    sql: `UPDATE data_program_runs SET ${sets.join(", ")} WHERE id = ?`,
+  // raw-sql-ok: joins this function's fixed column names; every value is a bound ? arg
+  const result = await client.execute({
+    sql: `UPDATE data_program_runs SET ${sets.join(", ")} WHERE id = ?${
+      updates.onlyIfActive ? " AND status IN ('queued', 'running')" : ""
+    }`,
     args,
   });
+  if (updates.onlyIfActive && result.rowsAffected === 0) return false;
 
   const { rows } = await client.execute({
     sql: `SELECT program_id, params_hash FROM data_program_runs WHERE id = ?`,
@@ -717,6 +724,7 @@ export async function updateDataProgramRun(
       updates.keep ?? DEFAULT_RUN_KEEP,
     );
   }
+  return true;
 }
 
 export async function getLatestSuccessfulRun(

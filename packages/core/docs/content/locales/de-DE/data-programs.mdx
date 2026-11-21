@@ -173,6 +173,8 @@ Bei jedem Lauf durchgesetzte Obergrenzen (nicht pro Programm konfigurierbar):
 
 Kürzung ist immer explizit (`truncated: true` im Ergebnis) — nie ein stiller Verlust.
 
+In der Produktion und bei Hintergrundläufen behält die Sandbox etwa 4,5 MiB der Ausgabe eines Laufs, die Zeile von `emit()` und Ihre Logs zusammen. Ein Ergebnis, das darüber hinaus ausgegeben wird, lässt sich nicht kürzen und schlägt daher mit `result_too_large` fehl: Emittieren Sie weniger Zeilen oder loggen Sie weniger.
+
 ## Params und Dashboard-Panel-Bindung {#params-and-panel-binding}
 
 Programme deklarieren ein optionales `paramsSchema` (JSON Schema, das akzeptierte Params beschreibt) und `defaultParams`. Ein Dashboard übernimmt die `"program"`-Panel-Quelle, indem es einen kleinen JSON-Deskriptor im Abfragefeld des Panels statt einer Abfragezeichenfolge platziert:

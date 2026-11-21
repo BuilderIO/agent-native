@@ -53,6 +53,7 @@ import {
   SHARED_RUN_FAILED,
   SHARED_RUN_NOT_SHAREABLE,
   type DataProgramRow,
+  type UpdateDataProgramRunInput,
   type DataProgramRunRow,
 } from "./store.js";
 
@@ -60,6 +61,9 @@ const PANEL_VIEW_TIMEOUT_MS = 25_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
+const PROGRAM_LOGS_ROOM_CHARS = 512 * 1024;
+const PROGRAM_MAX_OUTPUT_CHARS =
+  MAX_PROGRAM_RESULT_BYTES + PROGRAM_LOGS_ROOM_CHARS;
 const NOT_SHAREABLE_RETRY_MS = 24 * 60 * 60 * 1000;
 const MIN_RUN_TIMEOUT_MS = 1_000;
 const VIEWER_CHECK_RESERVE_MS = 1_000;
@@ -368,6 +372,7 @@ async function executeProgramCode(
       extraBridgeTools: new Set(),
       context: buildActionRunContext(ctx),
       evaluator: evaluator ?? _configuredEvaluator ?? "node",
+      maxStdoutChars: PROGRAM_MAX_OUTPUT_CHARS,
       ...(credentialLedger ? { credentialLedger } : {}),
     });
 
@@ -386,13 +391,18 @@ async function executeProgramCode(
     const parsed = parseDataProgramResult(result.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
+      outputTruncated: result.stdoutTruncated === true,
     });
     if (!parsed.ok) {
       // A run that fails before emit() never prints a result, so report what
       // the program threw, or else that the sandbox failed, rather than a
       // missing emit().
-      if (parsed.error.code === "emit_missing" && result.exitCode !== 0) {
-        const thrown = thrownProgramMessage(result.stderr);
+      const thrown =
+        result.exitCode !== 0 ? thrownProgramMessage(result.stderr) : undefined;
+      if (
+        (parsed.error.code === "emit_missing" && result.exitCode !== 0) ||
+        (parsed.error.code === "result_too_large" && thrown !== undefined)
+      ) {
         return {
           ok: false,
           code: thrown ? "program_error" : "sandbox_error",
@@ -1083,6 +1093,7 @@ async function runBackgroundProgram(
   const active = await getActiveRun(program.id, paramsHash);
   let statusUnknown = false;
   let finishedFailure: BackgroundRunFailure | null = null;
+  let finishedElsewhere = false;
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
@@ -1107,7 +1118,9 @@ async function runBackgroundProgram(
       execution.status !== "running"
     ) {
       try {
-        finishedFailure = await finalizeBackgroundRun(active.id, execution);
+        const finished = await finalizeBackgroundRun(active.id, execution);
+        if (finished.saved) finishedFailure = finished.failure;
+        else finishedElsewhere = true;
       } catch (err) {
         // The run stays queued for the next read to save. Until then the
         // caller gets the failure and the last good rows, not older rows
@@ -1134,7 +1147,9 @@ async function runBackgroundProgram(
     // it would run the broken program again on every read.
     const failed =
       finishedFailure ??
-      (active ? null : await recentBackgroundFailure(program, paramsHash));
+      (active && !finishedElsewhere
+        ? null
+        : await recentBackgroundFailure(program, paramsHash));
     if (failed) {
       return failureWithLastGood(
         program.id,
@@ -1160,7 +1175,7 @@ async function runBackgroundProgram(
       const { execution } = await enqueueSandboxExecution({
         code: `${prelude}\n${program.code}`,
         timeoutMs: backgroundTimeout,
-        maxOutputChars: 200_000,
+        maxOutputChars: PROGRAM_MAX_OUTPUT_CHARS,
         owner: args.ctx.userEmail,
         orgId: args.ctx.orgId ?? null,
         caller:
@@ -1250,47 +1265,104 @@ async function recentBackgroundFailure(
   };
 }
 
-/** Saves a finished run. Returns the failure it saved, or null on success. */
+type FinalizedBackgroundRun =
+  | { saved: true; failure: BackgroundRunFailure | null }
+  | { saved: false };
+
 async function finalizeBackgroundRun(
   runId: string,
   execution: {
+    id: string;
     status: string;
     stdout: string;
     stderr: string;
+    stdoutTruncated?: boolean;
     error?: string | null;
     finishedAt?: number | null;
   },
-): Promise<BackgroundRunFailure | null> {
+): Promise<FinalizedBackgroundRun> {
   // When the program finished, not when a read noticed, so a panel's clock
   // doesn't make the rows look newer than they are.
   const finishedAt = execution.finishedAt ?? Date.now();
+  const { failure, update } = backgroundRunOutcome(runId, execution);
+  const saved = await updateDataProgramRun(runId, {
+    ...update,
+    logsTail: truncateLogs(execution.stdout, execution.stderr),
+    finishedAt,
+    onlyIfActive: true,
+  });
+  if (!saved) return { saved: false };
+
+  try {
+    const { discardSandboxExecutionOutput } =
+      await import("../coding-tools/sandbox/index.js");
+    await discardSandboxExecutionOutput(execution.id);
+  } catch (err) {
+    console.error(
+      `[data-programs] couldn't discard background run ${runId}'s output:`,
+      err,
+    );
+  }
+  return { saved: true, failure };
+}
+
+function backgroundRunOutcome(
+  runId: string,
+  execution: Parameters<typeof finalizeBackgroundRun>[1],
+): {
+  failure: BackgroundRunFailure | null;
+  update: UpdateDataProgramRunInput;
+} {
   if (execution.status === "succeeded") {
     const parsed = parseDataProgramResult(execution.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
+      outputTruncated: execution.stdoutTruncated === true,
     });
     if (parsed.ok) {
       const rowsJson = JSON.stringify(parsed.result.rows);
-      await updateDataProgramRun(runId, {
-        status: "succeeded",
-        rowsJson,
-        schemaJson: JSON.stringify(parsed.result.schema),
-        truncated: parsed.result.truncated,
-        rowCount: parsed.result.rows.length,
-        byteSize: Buffer.byteLength(rowsJson, "utf8"),
-        logsTail: truncateLogs(execution.stdout, execution.stderr),
-        finishedAt,
-      });
-      return null;
+      return {
+        failure: null,
+        update: {
+          status: "succeeded",
+          rowsJson,
+          schemaJson: JSON.stringify(parsed.result.schema),
+          truncated: parsed.result.truncated,
+          rowCount: parsed.result.rows.length,
+          byteSize: Buffer.byteLength(rowsJson, "utf8"),
+        },
+      };
     }
-    await updateDataProgramRun(runId, {
-      status: "failed",
-      errorCode: parsed.error.code,
-      errorMessage: parsed.error.message,
-      logsTail: truncateLogs(execution.stdout, execution.stderr),
-      finishedAt,
+    return {
+      failure: { code: parsed.error.code, message: parsed.error.message },
+      update: {
+        status: "failed",
+        errorCode: parsed.error.code,
+        errorMessage: parsed.error.message,
+      },
+    };
+  }
+
+  if (execution.status === "failed" && execution.stdoutTruncated === true) {
+    const parsed = parseDataProgramResult(execution.stdout, {
+      maxRows: MAX_PROGRAM_ROWS,
+      maxBytes: MAX_PROGRAM_RESULT_BYTES,
+      outputTruncated: true,
     });
-    return { code: parsed.error.code, message: parsed.error.message };
+    if (
+      !parsed.ok &&
+      parsed.error.code === "result_too_large" &&
+      thrownProgramMessage(execution.stderr) === undefined
+    ) {
+      return {
+        failure: { code: parsed.error.code, message: parsed.error.message },
+        update: {
+          status: "failed",
+          errorCode: parsed.error.code,
+          errorMessage: parsed.error.message,
+        },
+      };
+    }
   }
 
   if (execution.status === "timed_out") {
@@ -1298,14 +1370,14 @@ async function finalizeBackgroundRun(
       code: "timeout",
       message: "Background execution timed out.",
     };
-    await updateDataProgramRun(runId, {
-      status: "timed_out",
-      errorCode: timedOut.code,
-      errorMessage: timedOut.message,
-      logsTail: truncateLogs(execution.stdout, execution.stderr),
-      finishedAt,
-    });
-    return timedOut;
+    return {
+      failure: timedOut,
+      update: {
+        status: "timed_out",
+        errorCode: timedOut.code,
+        errorMessage: timedOut.message,
+      },
+    };
   }
 
   // A set `error` means the executor itself failed; otherwise the program
@@ -1324,12 +1396,12 @@ async function finalizeBackgroundRun(
   const failed: BackgroundRunFailure = thrown
     ? { code: "program_error", message: thrown }
     : { code: "sandbox_error", message: "Background execution failed." };
-  await updateDataProgramRun(runId, {
-    status: "failed",
-    errorCode: failed.code,
-    errorMessage: failed.message,
-    logsTail: truncateLogs(execution.stdout, execution.stderr),
-    finishedAt,
-  });
-  return failed;
+  return {
+    failure: failed,
+    update: {
+      status: "failed",
+      errorCode: failed.code,
+      errorMessage: failed.message,
+    },
+  };
 }

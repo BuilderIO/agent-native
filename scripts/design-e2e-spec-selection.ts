@@ -5,9 +5,6 @@ import { fileURLToPath } from "node:url";
 const DESIGN_E2E_PREFIX = "templates/design/e2e/";
 const LONG_MUSIC_APP_SPEC = "e2e/interaction-responsive-music-app.spec.ts";
 const LONG_LANDING_PAGE_SPEC = "e2e/interaction-landing-page-build.spec.ts";
-const LOOPBACK_ONLY_DESIGN_SPECS = new Set([
-  "e2e/home-system-selection.spec.ts",
-]);
 const LONG_LANDING_PAGE_TEST_TITLES = [
   "Shift+A wraps four selected nav links into a horizontal auto-layout frame inside Navbar without moving them",
   "Cmd+G groups two layers selected in the Layers panel and one Cmd+Z restores the ungrouped document",
@@ -73,13 +70,11 @@ export function resolveDesignE2ESpecs(
   {
     isFile = isRunnableSpec,
     readFile = (specPath) => readFileSync(specPath, "utf8"),
-    includeLoopbackOnlySpecs = process.env.E2E_AI_SIDEBAR_LOOPBACK === "1",
     includeLandingPageWorkflowSpec = process.env
       .DESIGN_CANVAS_LANDING_PAGE_WORKFLOW === "1",
   }: {
     isFile?: IsFile;
     readFile?: ReadFile;
-    includeLoopbackOnlySpecs?: boolean;
     includeLandingPageWorkflowSpec?: boolean;
   } = {},
 ): ResolvedDesignE2ESpecs {
@@ -149,10 +144,6 @@ export function resolveDesignE2ESpecs(
       specPath === LONG_LANDING_PAGE_SPEC &&
       !includeLandingPageWorkflowSpec
     ) {
-      filteredSpecs.push(specPath);
-      continue;
-    }
-    if (LOOPBACK_ONLY_DESIGN_SPECS.has(specPath) && !includeLoopbackOnlySpecs) {
       filteredSpecs.push(specPath);
       continue;
     }

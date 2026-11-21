@@ -626,6 +626,41 @@ describe("data-programs/store", () => {
       expect(latest?.truncated).toBe(true);
     });
 
+    it("lets only the first onlyIfActive update finish a queued run", async () => {
+      const {
+        ensureDataProgramTables,
+        recordDataProgramRun,
+        updateDataProgramRun,
+        getLatestRun,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const run = await recordDataProgramRun({
+        programId,
+        paramsHash: "race",
+        paramsJson: "{}",
+        status: "queued",
+        executionId: "exec_1",
+        triggeredBy: "panel_view",
+      });
+
+      const first = await updateDataProgramRun(run.id, {
+        status: "succeeded",
+        rowsJson: JSON.stringify([{ a: 1 }]),
+        onlyIfActive: true,
+      });
+      const second = await updateDataProgramRun(run.id, {
+        status: "failed",
+        errorCode: "emit_missing",
+        onlyIfActive: true,
+      });
+
+      expect(first).toBe(true);
+      expect(second).toBe(false);
+      const latest = await getLatestRun(programId, "race");
+      expect(latest?.status).toBe("succeeded");
+      expect(latest?.errorCode).toBeNull();
+    });
+
     it("getLatestSuccessfulRun ignores failed runs", async () => {
       const {
         ensureDataProgramTables,

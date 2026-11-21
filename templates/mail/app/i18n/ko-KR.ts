@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "나에게 보내는 메모",
     },
     inbox: {
-      atLeastCount: "최소 {{count}}",
+      conversationsCount: "대화: {{count}}개",
+      conversationsAtLeastCount: "대화: {{count}}개 이상",
+      unreadCount: "읽지 않은 대화: {{count}}개",
+      draftsToReviewCount: "검토할 초안: {{count}}개",
       syncing: "받은편지함 동기화 중…",
     },
     sort: {
@@ -146,8 +149,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "사이드바 고정",
-      unpinSidebar: "사이드바 고정 해제",
       closeSidebar: "사이드바 닫기",
       settings: "설정",
       aiSettings: "태그 및 규칙 관리",
@@ -165,7 +166,7 @@ const messages = {
       filtersLimitReached: "필터는 최대 20개까지 저장할 수 있습니다.",
     },
     tabSettings: {
-      splitInbox: "분할 받은편지함",
+      splitInbox: "받은편지함을 탭으로 나누기",
       views: "조회수",
       categories: "카테고리",
       rename: "이름 변경",
@@ -173,7 +174,7 @@ const messages = {
       savedFilters: "저장된 필터",
       combinedInbox: "통합 받은편지함",
       allTab: "전체 탭",
-      help: "통합 받은편지함은 모든 계정을 함께 표시합니다. 끄면 메일이 탭으로 나뉩니다.",
+      help: "선택한 보기, 라벨, 저장된 필터를 받은편지함의 별도 탭으로 표시합니다. 끄면 받은편지함의 모든 메일을 하나의 탭에서 봅니다.",
       aiSetup: "AI 태그 및 규칙 설정",
     },
     accounts: {
@@ -201,6 +202,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "적용",
       attachFile: "파일 첨부",
+      attachFromContent: "Content에서 첨부",
+      searchContentPages: "Content 페이지 검색",
+      contentPagesLoading: "페이지를 불러오는 중…",
+      contentPagesFailed: "Content 페이지를 불러오지 못했습니다",
+      contentPagesRetry: "다시 시도",
+      contentPagesEmpty: "페이지를 찾을 수 없습니다",
+      contentFileMarkdown: "Markdown 파일",
+      contentFilePdf: "PDF 파일",
+      contentPageFormat: "페이지 첨부 형식",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "CSV 파일",
       bold: "굵게",
       cancel: "취소",
       closeAllDrafts: "모든 초안 닫기",
@@ -461,6 +474,14 @@ const messages = {
       scheduledCancelled: "예약 이메일이 취소되었습니다.",
       scheduledCancelFailed: "예약 이메일 취소 실패",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "Content 페이지를 첨부하지 못했습니다",
+      contentPagePdfTextUnsupported:
+        "이 페이지에는 중국어, 일본어, 한국어, 아랍어, 히브리어, 힌디어처럼 PDF에서 아직 표시할 수 없는 텍스트가 있습니다. 대신 Markdown으로 첨부하세요.",
+      contentPagePdfTooLong:
+        "이 페이지는 너무 길거나 너무 넓어서 PDF로 첨부할 수 없습니다. 대신 Markdown으로 첨부하세요.",
+      contentPagePdfUnavailable:
+        "Content에서 이 페이지의 PDF를 만들지 못했습니다. 대신 Markdown으로 첨부하세요.",
+      waitForAttachments: "첨부 파일 추가가 끝난 후 보내세요.",
       failedToUploadImage: "이미지 업로드 실패",
       storageBuilderRefused:
         "Builder.io가 Mail의 파일 저장소 연결을 거부해 파일을 첨부하지 못했습니다. Builder.io를 다시 연결하거나 자체 저장소를 사용한 뒤 다시 시도하세요.",

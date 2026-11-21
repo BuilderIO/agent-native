@@ -6,8 +6,11 @@ import {
   getSession,
   isElectron,
   logOAuthStateDecodeFailure,
+  matchesDesktopOAuthBrowserBinding,
+  oauthCallbackOwner,
   oauthCallbackResponse,
   oauthErrorPage,
+  prepareDesktopOAuthBrowserBinding,
   resolveOAuthRedirectUri,
   safeReturnPath,
 } from "@agent-native/core/server";
@@ -96,6 +99,9 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
           app: OAUTH_STATE_APP_ID,
           returnUrl,
           flowId,
+          desktopBrowserBindingHash: flowId
+            ? prepareDesktopOAuthBrowserBinding(event)
+            : undefined,
         });
         const url = await getGoogleDocsAuthUrl(redirectUri, state, owner);
         if (q.redirect === "1") {
@@ -135,6 +141,17 @@ export const handleGoogleDocsCallback = defineEventHandler(
       }
       desktop = state.desktop ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        setResponseStatus(event, 401);
+        return oauthErrorPage("Session expired. Please log in and try again.");
+      }
 
       const googleError = query.error as string | undefined;
       if (googleError) {
@@ -149,7 +166,7 @@ export const handleGoogleDocsCallback = defineEventHandler(
         return oauthErrorPage("Missing Google authorization code.");
       }
 
-      const owner = state.owner || (await getSession(event))?.email;
+      const owner = oauthCallbackOwner((await getSession(event))?.email, state);
       if (!owner) {
         setResponseStatus(event, 401);
         return oauthErrorPage("Session expired. Please log in and try again.");

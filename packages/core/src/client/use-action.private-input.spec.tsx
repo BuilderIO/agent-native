@@ -901,6 +901,30 @@ describe("private ui action mutation", () => {
     }
   });
 
+  it("requests the action cache flush after the private success callback", async () => {
+    const events: string[] = [];
+    const onFlush = () => events.push("flush");
+    window.addEventListener("agentNative:actionCacheFlush", onFlush);
+    routes.unshift((call) =>
+      bodyText(call.body).includes(SECRET) ? jsonResponse({}) : undefined,
+    );
+    const harness = await renderPrivate({
+      onSuccess: () => {
+        events.push("onSuccess");
+      },
+    });
+    try {
+      await act(async () => {
+        await harness.result.mutateAsync(RAW_VARIABLES);
+      });
+      expect(events).toEqual(["onSuccess", "flush"]);
+    } finally {
+      window.removeEventListener("agentNative:actionCacheFlush", onFlush);
+      harness.stopSnapshots();
+      await harness.unmount();
+    }
+  });
+
   it("fences success callbacks if a synchronous sync subscriber changes scope", async () => {
     const onSuccess = vi.fn();
     const listener = () => recordSessionIdentity("other-actor", "org-b");

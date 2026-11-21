@@ -1,0 +1,36 @@
+/*
+ * Part: separator
+ *
+ *   <div class="separator" role="separator"        Base UI Separator
+ *        data-orientation="horizontal|vertical"
+ *        data-color="accent|gray|danger|warning|success|info">
+ *
+ * Radix Themes' separator: a hairline along its orientation in the
+ * nearest `data-color`, gray unless set. It runs the full length,
+ * and a vertical one stretches to its row.
+ */
+
+@layer components {
+  .separator {
+    --_separator-size: 100%;
+    flex-shrink: 0;
+    border: 0;
+    background-color: var(--accent-a5);
+  }
+
+  .separator[data-orientation="horizontal"] {
+    width: var(--_separator-size);
+    height: 1px;
+  }
+
+  .separator[data-orientation="vertical"] {
+    width: 1px;
+    height: var(--_separator-size);
+  }
+
+  /* A percentage of a row with no set height is nothing; stretching isn't. */
+  .separator[data-orientation="vertical"] {
+    align-self: stretch;
+    height: auto;
+  }
+}

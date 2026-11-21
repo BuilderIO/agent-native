@@ -11,11 +11,33 @@ describe("Clips shared navigation", () => {
     expect(pathFromCommand({ view: "shared" })).toBe("/shared");
   });
 
-  it("describes and maps the From Content list", () => {
+  it("sends the old From Content list to the Library's filter", () => {
     expect(stateFromLocation("/from-content", "")).toEqual({
-      view: "from-content",
+      view: "library",
+      filters: "source=content",
     });
-    expect(pathFromCommand({ view: "from-content" })).toBe("/from-content");
+    expect(pathFromCommand({ view: "from-content" })).toBe(
+      "/library?source=content",
+    );
+  });
+
+  it("describes and maps the Library's filter", () => {
+    expect(
+      stateFromLocation("/library", "?q=demo&source=all&r=madeBy:equals:agent"),
+    ).toEqual({
+      view: "library",
+      search: "demo",
+      filters: "source=all&r=madeBy:equals:agent",
+    });
+    expect(stateFromLocation("/library", "?source=clips")).toEqual({
+      view: "library",
+    });
+    expect(
+      pathFromCommand({
+        view: "library",
+        filters: "r=madeBy:equals:agent&r=typo:equals:x",
+      }),
+    ).toBe("/library?r=madeBy:equals:agent");
   });
 
   it("describes the focused viewer panel and requested timestamp", () => {

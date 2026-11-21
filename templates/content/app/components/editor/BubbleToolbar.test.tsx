@@ -551,6 +551,123 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).toBe("<p>Comment on this text</p>");
   });
 
+  it("offers Suggest edit after Comment only to someone who can suggest", () => {
+    const editorHost = document.createElement("div");
+    const toolbarHost = document.createElement("div");
+    editorElement = editorHost;
+    toolbarElement = toolbarHost;
+    document.body.append(editorHost, toolbarHost);
+    const suggestingEditor = new Editor({
+      element: editorHost,
+      extensions: [StarterKit],
+      content: "<p>Suggest an edit here</p>",
+    });
+    editor = suggestingEditor;
+    suggestingEditor.commands.setTextSelection({ from: 1, to: 8 });
+    const onComment = vi.fn();
+    const onSuggestEdit = vi.fn();
+    const labels = () =>
+      [...toolbarHost.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      );
+    const toolbarRoot = createRoot(toolbarHost);
+    root = toolbarRoot;
+
+    act(() =>
+      toolbarRoot.render(
+        <BubbleToolbar editor={suggestingEditor} onComment={onComment} />,
+      ),
+    );
+    expect(labels()).not.toContain("editor.suggestEdit");
+
+    act(() =>
+      toolbarRoot.render(
+        <BubbleToolbar
+          editor={suggestingEditor}
+          onComment={onComment}
+          onSuggestEdit={onSuggestEdit}
+        />,
+      ),
+    );
+    expect(labels().slice(-2)).toEqual([
+      "editor.comment",
+      "editor.suggestEdit",
+    ]);
+
+    const suggestEdit = defined(
+      toolbarHost.querySelector<HTMLButtonElement>(
+        'button[aria-label="editor.suggestEdit"]',
+      ),
+    );
+    act(() => {
+      suggestEdit.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(onSuggestEdit).toHaveBeenCalledOnce();
+    expect(onComment).not.toHaveBeenCalled();
+    expect(suggestingEditor.state.selection.from).toBe(1);
+    expect(suggestingEditor.state.selection.to).toBe(8);
+  });
+
+  it("offers Suggest edit to a reader who can't edit, with or without Comment", () => {
+    const editorHost = document.createElement("div");
+    const toolbarHost = document.createElement("div");
+    editorElement = editorHost;
+    toolbarElement = toolbarHost;
+    document.body.append(editorHost, toolbarHost);
+    const readerEditor = new Editor({
+      element: editorHost,
+      extensions: [StarterKit],
+      content: "<p>Suggest an edit here</p>",
+      editable: false,
+    });
+    editor = readerEditor;
+    const onComment = vi.fn();
+    const onSuggestEdit = vi.fn();
+    const labels = () =>
+      [...toolbarHost.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      );
+    const toolbarRoot = createRoot(toolbarHost);
+    root = toolbarRoot;
+
+    act(() =>
+      toolbarRoot.render(
+        <ReadOnlyCommentBubble
+          editor={readerEditor}
+          onComment={onComment}
+          onSuggestEdit={onSuggestEdit}
+        />,
+      ),
+    );
+    expect(labels()).toEqual(["editor.comment", "editor.suggestEdit"]);
+
+    act(() =>
+      toolbarRoot.render(
+        <ReadOnlyCommentBubble
+          editor={readerEditor}
+          onSuggestEdit={onSuggestEdit}
+        />,
+      ),
+    );
+    expect(labels()).toEqual(["editor.suggestEdit"]);
+
+    readerEditor.commands.setTextSelection({ from: 1, to: 8 });
+    const suggestEdit = defined(
+      toolbarHost.querySelector<HTMLButtonElement>(
+        'button[aria-label="editor.suggestEdit"]',
+      ),
+    );
+    act(() => {
+      suggestEdit.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(onSuggestEdit).toHaveBeenCalledOnce();
+    expect(readerEditor.getHTML()).toBe("<p>Suggest an edit here</p>");
+  });
+
   it("opens the link input for selected editor text on Mod+K", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
@@ -621,6 +738,88 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).toContain(
       '<a target="_blank" rel="noopener noreferrer nofollow" href="https://www.builder.io/">Builder</a>',
     );
+  });
+
+  it("applies the link on Enter and keeps the key out of the editor", () => {
+    const host = document.createElement("div");
+    const toolbar = document.createElement("div");
+    editorElement = host;
+    toolbarElement = toolbar;
+    document.body.append(host, toolbar);
+    const view = new Editor({
+      element: host,
+      extensions: [StarterKit],
+      content: "<p>Builder link</p>",
+    });
+    editor = view;
+    view.commands.setTextSelection({ from: 1, to: 8 });
+    const mount = createRoot(toolbar);
+    root = mount;
+    act(() => mount.render(<BubbleToolbar editor={view} />));
+    const linkInput = () =>
+      toolbar.querySelector<HTMLInputElement>(
+        'input[aria-label="editor.pasteLink"]',
+      );
+    const openLinkInput = () => {
+      act(() =>
+        defined(
+          toolbar.querySelector<HTMLButtonElement>(
+            'button[aria-label="editor.link"]',
+          ),
+        ).click(),
+      );
+      return defined(linkInput());
+    };
+    const press = (
+      input: HTMLInputElement,
+      key: string,
+      init: KeyboardEventInit = {},
+    ) => {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      act(() => {
+        input.dispatchEvent(event);
+      });
+      return event;
+    };
+    const setValue = defined(
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set,
+    );
+
+    const input = openLinkInput();
+    act(() => {
+      setValue.call(input, "https://www.builder.io/");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const composing = [{ isComposing: true }, { keyCode: 229 }].map((init) =>
+      press(input, "Enter", init),
+    );
+
+    expect(composing.map((event) => event.defaultPrevented)).toEqual([
+      false,
+      false,
+    ]);
+    expect(linkInput()).toBe(input);
+    expect(view.getHTML()).toBe("<p>Builder link</p>");
+
+    const enter = press(input, "Enter");
+
+    expect(enter.defaultPrevented).toBe(true);
+    expect(view.getHTML()).toBe(
+      '<p><a target="_blank" rel="noopener noreferrer nofollow" href="https://www.builder.io/">Builder</a> link</p>',
+    );
+    expect(linkInput()).toBeNull();
+
+    const escape = press(openLinkInput(), "Escape");
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(linkInput()).toBeNull();
+    expect(view.getAttributes("link").href).toBe("https://www.builder.io/");
   });
 
   it("saves a link removal made while the link input has focus", () => {
