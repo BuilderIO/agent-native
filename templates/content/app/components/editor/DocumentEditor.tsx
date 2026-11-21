@@ -3514,7 +3514,6 @@ function PageEditorSessionBody({
   suggestionDraftSaveFailedRef.current = suggestionDraftSaveFailed;
   const refusedForOlderPageRef = useRef<{
     page: Pick<Document, "content" | "revision" | "updatedAt">;
-    /** The Page revision the refused save was written against. */
     sentRevision: string;
     refuse: () => void;
   } | null>(null);
@@ -7131,8 +7130,8 @@ function PageEditorSessionBody({
 
   const refuseUnlessDraftFollowsPage = useCallback(
     async (base: SuggestionDraftSession, refuse: () => void) => {
-      // A closing editor has no follow left to move the draft.
-      if (suggestionAutosaveRef.current.disposed) {
+      const editorClosed = () => suggestionAutosaveRef.current.disposed;
+      if (editorClosed()) {
         refuse();
         return;
       }
@@ -7158,20 +7157,27 @@ function PageEditorSessionBody({
         refuse();
         return;
       }
-      // A discarded or restarted draft has nothing left to save. The same
-      // draft may have moved onto a newer Page with the same text meanwhile;
-      // the follow then saves it again instead of refusing.
       if (suggestionBaseRef.current?.id !== base.id) return;
-      if (suggestionAutosaveRef.current.disposed) {
+      if (editorClosed()) {
         refuse();
         return;
       }
-      // Sync may have delivered a newer Page while this read was in flight.
+      const heldPages = [
+        currentDocumentRef.current,
+        ...queryClient
+          .getQueriesData<Pick<Document, "revision" | "updatedAt">>(
+            documentQueryFilter(documentId),
+          )
+          .flatMap(([, cached]) => (cached ? [cached] : [])),
+      ];
       if (
-        laterPage<Pick<Document, "revision" | "updatedAt">>(
-          currentDocumentRef.current,
-          refreshedDocument,
-        ) === refreshedDocument
+        heldPages.every(
+          (held) =>
+            laterPage<Pick<Document, "revision" | "updatedAt">>(
+              held,
+              refreshedDocument,
+            ) === refreshedDocument,
+        )
       )
         patchDocumentCaches(queryClient, documentId, {
           content: refreshedDocument.content,
@@ -7218,6 +7224,7 @@ function PageEditorSessionBody({
           suggestionAutosaveRef.current,
           suggestionDraftRef.current === draft,
         );
+        refusedForOlderPageRef.current = null;
         setSuggestionDraftSaveFailed(false);
         if (!keepMode) endSession();
         return persisted;
@@ -7455,6 +7462,12 @@ function PageEditorSessionBody({
         if (changedElsewhere) {
           adoptConfirmedSuggestions();
           const conflict = () => {
+            if (suggestionAutosaveRef.current.disposed) {
+              if (!suggestionDraftSaveFailedRef.current)
+                toast.error(t("editor.suggestionAmendmentFailed"));
+              suggestionDraftSaveFailedRef.current = true;
+              return;
+            }
             setSuggestionAmendmentConflict(true);
             void queryClient.invalidateQueries(documentQueryFilter(documentId));
           };
@@ -7541,6 +7554,7 @@ function PageEditorSessionBody({
         }
         const alreadyFailed = suggestionDraftSaveFailedRef.current;
         const refuse = () => {
+          suggestionDraftSaveFailedRef.current = true;
           setSuggestionDraftSaveFailed(true);
           if (autosave && !clientError) {
             retrySuggestionAutosave(
@@ -7687,8 +7701,6 @@ function PageEditorSessionBody({
       refusedForOlderPageRef.current = null;
       clearSuggestionAutosave();
       autosave.disposed = true;
-      // The draft can't move once the editor closes, and the server would
-      // refuse it where it is.
       if (refused) refused.refuse();
       else if (unsaved)
         void flushSuggestionDraftRef.current({
@@ -7915,9 +7927,9 @@ function PageEditorSessionBody({
       if (follow.kind === "wait") timer = setTimeout(check, follow.ms);
       else if (follow.kind === "stay" && refused) {
         refusedForOlderPageRef.current = null;
-        // Already on a newer Page with the same text, so saving again can work.
-        if (session && session.baseRevision !== refused.sentRevision)
-          scheduleSuggestionAutosave();
+        const movedToSameText =
+          session !== null && session.baseRevision !== refused.sentRevision;
+        if (movedToSameText) scheduleSuggestionAutosave();
         else refused.refuse();
       } else if (follow.kind === "rebase" && session) {
         suggestionBaseRef.current = {

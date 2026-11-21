@@ -2983,8 +2983,8 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
   const creates: Array<{ baseRevision: string; changed: string[] }> = [];
   const amends: Array<{ baseRevision: string; changed: string[] }> = [];
   const stored = new Map<string, ResourceSuggestion>();
-  const cacheKey = () => ["action", "get-document", { id: fixture.page!.id }];
-  let heldRead: Promise<Document> | null = null;
+  const cacheKey = () => ["action", "get-document", { id: fixture.page?.id }];
+  let heldRead: Promise<Document | null> | null = null;
   let toastError: ReturnType<typeof vi.spyOn>;
 
   const savedSuggestion = (
@@ -3101,7 +3101,6 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       await act(async () => vi.advanceTimersByTimeAsync(100));
   }
 
-  /** Another tab saves the Page; this tab hears of it only when `seen`. */
   async function anotherTabSaves(
     content: string,
     revision: string,
@@ -3119,13 +3118,12 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     if (seen) await act(async () => renderEditor({ host: "page" }));
   }
 
-  /** Holds the next read of the Page until the returned call. */
   function holdNextRead() {
-    let release!: (page: Document) => void;
+    let release!: (page: Document | null) => void;
     heldRead = new Promise((resolve) => {
       release = resolve;
     });
-    return async (page: Document) => act(async () => release(page));
+    return async (page: Document | null) => act(async () => release(page));
   }
 
   async function typeWhileAnotherTabSaves(draft: string, newer: string) {
@@ -3204,7 +3202,7 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       { baseRevision: "r1", changed: [" Typed here."] },
     ]);
     await act(async () => renderEditor({ host: "page" }));
-    await release(fixture.page!);
+    await release(fixture.page);
     await advance(3_000);
     expect(creates).toEqual([
       { baseRevision: "r1", changed: [" Typed here."] },
@@ -3224,10 +3222,32 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     ]);
     expect(toastError).not.toHaveBeenCalled();
     await act(async () => root.render(null));
+    expect(toastError).toHaveBeenCalledOnce();
     expect(toastError).toHaveBeenCalledWith(
       "editor.suggestionCreateFailed",
       expect.anything(),
     );
+  });
+
+  it("keeps an alert when the editor closes while words added to a saved suggestion wait to move", async () => {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await advance(1_500);
+    expect(creates).toHaveLength(1);
+    act(() =>
+      fixture.editor?.onChange(
+        page("Opening paragraph. Typed here. And more.", "Closing paragraph."),
+      ),
+    );
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    await advance(1_300);
+    expect(amends).toEqual([
+      { baseRevision: "r1", changed: [" Typed here. And more."] },
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    expect(toastError).toHaveBeenCalledOnce();
+    expect(toastError).toHaveBeenCalledWith("editor.suggestionAmendmentFailed");
   });
 
   it("keeps the alert when the editor closes while the refused save is being checked", async () => {
@@ -3238,14 +3258,15 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     await advance(1_100);
     expect(toastError).not.toHaveBeenCalled();
     await act(async () => root.render(null));
-    await release(fixture.page!);
+    await release(fixture.page);
+    expect(toastError).toHaveBeenCalledOnce();
     expect(toastError).toHaveBeenCalledWith(
       "editor.suggestionCreateFailed",
       expect.anything(),
     );
   });
 
-  it("moves onto the newest Page when the check reads one older than this tab already has", async () => {
+  it("moves onto the newest Page when the check reads one older than sync already delivered", async () => {
     fixture.cachedDocument = true;
     queryClient.setQueryData(cacheKey(), fixture.page);
     const savedAgain = page(
@@ -3254,13 +3275,18 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     );
     await startSuggesting();
     act(() => fixture.editor?.onChange(typed));
-    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z");
+    await anotherTabSaves(elsewhere, "r2", "2026-10-19T12:05:00.000Z", {
+      seen: false,
+    });
     const release = holdNextRead();
     await advance(1_100);
-    const stale = fixture.page!;
-    await anotherTabSaves(savedAgain, "r3", "2026-10-19T12:06:00.000Z");
+    const stale = fixture.page;
+    await anotherTabSaves(savedAgain, "r3", "2026-10-19T12:06:00.000Z", {
+      seen: false,
+    });
     await release(stale);
     expect(queryClient.getQueryData<Document>(cacheKey())?.revision).toBe("r3");
+    await act(async () => renderEditor({ host: "page" }));
     await advance(6_000);
     expect(creates).toEqual([
       { baseRevision: "r1", changed: [" Typed here."] },

@@ -43,7 +43,6 @@ function pageIsNewer(
   return page.updatedAt > base.updatedAt;
 }
 
-/** The later of two reads of the Page; the first when neither is newer. */
 export function laterPage<
   Page extends { revision?: string; updatedAt: string },
 >(first: Page, second: Page): Page {
