@@ -3833,7 +3833,10 @@ export async function startWorkspaceAppCreation(input: {
       err,
       fallbackDetail: "Builder could not start the app branch",
       builderErrorMessage:
-        "Builder could not start the app branch. This is usually temporary — try again.",
+        isActionContractError(err) &&
+        err.errorCode === "builder_space_membership_required"
+          ? "Builder could not start the app branch because your email is not a member of the connected Builder space. Ask a space admin to add you, then try again."
+          : "Builder could not start the app branch. This is usually temporary — try again.",
     });
   }
 
