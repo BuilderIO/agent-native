@@ -4644,9 +4644,9 @@ describe("provider API runtime", () => {
   it("explains an out-of-scope credential instead of reporting it missing", async () => {
     resolveCredential.mockResolvedValue(null);
     describeCredentialScopeGap.mockResolvedValue(
-      '"HUBSPOT_ACCESS_TOKEN" is saved in this workspace only as a Personal key. ' +
-        "Ask an organization owner or admin to save one with Workspace or " +
-        "Organization scope.",
+      'Ask an organization owner or admin to save "HUBSPOT_ACCESS_TOKEN" ' +
+        "with Workspace or Organization scope. This workspace has it only " +
+        "as a Personal key.",
     );
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -4662,7 +4662,7 @@ describe("provider API runtime", () => {
       );
 
     expect(error?.message).toMatch(
-      /^hubspot credential not configured\. "HUBSPOT_ACCESS_TOKEN" is saved .* Organization scope\. Tried: \S/,
+      /^hubspot credential not configured\. Ask an organization owner or admin to save "HUBSPOT_ACCESS_TOKEN" .* Personal key\. Tried: \S/,
     );
     expect(describeCredentialScopeGap).toHaveBeenCalledWith(
       expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),

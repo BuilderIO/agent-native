@@ -394,7 +394,8 @@ export async function resolveCredential(
  *    reads the error (the run's own person, a job's other readers, a Slack
  *    channel) and whether Settings lets a member save that key as Personal
  *    are both unknown here, so "the integration did it" and "save your own"
- *    are each wrong for some runs.
+ *    are each wrong for some runs. The fix comes first, so a chat stop's
+ *    240-character headline keeps it for every key name.
  *  - The key is saved in a DIFFERENT organization the caller also belongs to.
  *    Credentials are per-organization, so gaining a second organization (or
  *    having `active-org-id` repointed at one) orphans every key synced under
@@ -440,9 +441,9 @@ export async function describeCredentialScopeGap(
   for (const key of keys) {
     if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
       return (
-        `"${key}" is saved in this workspace only as a Personal key, which ` +
-        `works only for the member who saved it. Ask an organization owner ` +
-        `or admin to save one with Workspace or Organization scope.`
+        `Ask an organization owner or admin to save "${key}" with ` +
+        `Workspace or Organization scope. This workspace has it only as a ` +
+        `Personal key, which works only for the member who saved it.`
       );
     }
 

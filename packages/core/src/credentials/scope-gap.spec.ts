@@ -80,10 +80,9 @@ describe("describeCredentialScopeGap", () => {
       );
 
       expect(message).toBe(
-        '"GITHUB_TOKEN" is saved in this workspace only as a Personal key, ' +
-          "which works only for the member who saved it. Ask an " +
-          "organization owner or admin to save one with Workspace or " +
-          "Organization scope.",
+        'Ask an organization owner or admin to save "GITHUB_TOKEN" with ' +
+          "Workspace or Organization scope. This workspace has it only as " +
+          "a Personal key, which works only for the member who saved it.",
       );
       expect(message).not.toContain("integration");
       expect(message).not.toContain("Save your own");

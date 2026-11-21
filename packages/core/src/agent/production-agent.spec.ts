@@ -18497,18 +18497,33 @@ describe("runAgentLoop", () => {
     {
       label: "keeps the longest missing-key error's fix and drops its key list",
       thrown:
-        'hubspot credential not configured. "HUBSPOT_ACCESS_TOKEN" is saved ' +
-        "in this workspace only as a Personal key, which works only for the " +
-        "member who saved it. Ask an organization owner or admin to save one " +
-        "with Workspace or Organization scope. Tried: " +
+        "hubspot credential not configured. Ask an organization owner or " +
+        'admin to save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or ' +
+        "Organization scope. This workspace has it only as a Personal key, " +
+        "which works only for the member who saved it. Tried: " +
         "HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_ACCESS_TOKEN",
       headline:
         "I stopped because github-repo-list-files can't run yet: hubspot " +
-        'credential not configured. "HUBSPOT_ACCESS_TOKEN" is saved in this ' +
-        "workspace only as a Personal key, which works only for the member " +
-        "who saved it. Ask an organization owner or admin to save one with " +
-        "Workspace or Organization scope. That needs to be fixed outside " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or Organization ' +
+        "scope. This workspace has it only as a Personal key, which works " +
+        "only for the member who saved it. That needs to be fixed outside " +
         "this chat",
+    },
+    {
+      label:
+        "keeps the fix and drops the cause when the longest key name pushes the cause past the limit",
+      thrown:
+        "bigquery credential not configured. Ask an organization owner or " +
+        'admin to save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace ' +
+        "or Organization scope. This workspace has it only as a Personal " +
+        "key, which works only for the member who saved it. Tried: " +
+        "BIGQUERY_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: bigquery " +
+        "credential not configured. Ask an organization owner or admin to " +
+        'save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace or ' +
+        "Organization scope. That needs to be fixed outside this chat",
     },
   ])("$label in the stop headline", async ({ thrown, headline }) => {
     let streamCalls = 0;
