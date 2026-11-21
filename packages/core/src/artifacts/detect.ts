@@ -269,16 +269,27 @@ function databaseRowReceipt(
   const target = asRecord(mutationReceipt?.target);
   const rowLink = asRecord(mutationReceipt?.rowLink);
   const id = stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
+  if (!id) return null;
   const createdDocument = asRecord(asRecord(result.createdItem)?.document);
   const title =
-    id && stringValue(createdDocument?.id) === id
+    stringValue(createdDocument?.id) === id
       ? stringValue(createdDocument?.title)
       : undefined;
+  const url = [
+    stringValue(row?.urlPath),
+    stringValue(rowLink?.urlPath),
+    resultUrl(result),
+  ]
+    .filter((value): value is string => !!value)
+    .find((candidate) => {
+      const reference = parseArtifactReferenceUrl(candidate);
+      return reference?.kind === "document" && reference.id === id;
+    });
   return receipt(
     "document",
     id,
     title ? { ...result, title } : result,
-    stringValue(row?.urlPath) ?? stringValue(rowLink?.urlPath),
+    url ?? null,
   );
 }
 

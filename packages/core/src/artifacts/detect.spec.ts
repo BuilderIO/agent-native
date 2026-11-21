@@ -161,6 +161,32 @@ describe("detectArtifactReceipts", () => {
       { createdDocumentId: "doc_4", createdDocumentTitle: "Intake" },
       [{ kind: "document", id: "doc_4", title: "Intake" }],
     ],
+    [
+      "a row link naming another page",
+      "add-database-item",
+      {
+        receipt: {
+          row: { documentId: "row_doc_6", urlPath: "/page/other_doc" },
+          rowLink: { urlPath: "/page/row_doc_6?db=db_1" },
+        },
+      },
+      [{ kind: "document", id: "row_doc_6", url: "/page/row_doc_6?db=db_1" }],
+    ],
+    [
+      "receipt and result links that name another page",
+      "upsert-database-item-by-key",
+      {
+        receipt: { row: { documentId: "row_doc_7", urlPath: "/page/other" } },
+        url: "/page/other_doc",
+      },
+      [{ kind: "document", id: "row_doc_7" }],
+    ],
+    [
+      "a result link naming the row",
+      "add-database-item",
+      { receipt: { row: { documentId: "row_doc_8" } }, url: "/page/row_doc_8" },
+      [{ kind: "document", id: "row_doc_8", url: "/page/row_doc_8" }],
+    ],
     ["no receipt", "add-database-item", { createdItem: { id: "item_5" } }, []],
     ["a receipt with no row", "add-database-item", { receipt: {} }, []],
   ])("reads a database row from %s", (_case, tool, result, expected) => {
