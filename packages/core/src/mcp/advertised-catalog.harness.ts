@@ -339,6 +339,7 @@ export async function withCatalogClient<T>(
     fullCatalog: boolean;
     fullSurface: boolean;
     inlineMcpApps?: boolean;
+    oauthScopes?: string[];
   },
   inspect: (client: Client) => Promise<T>,
 ): Promise<T> {
@@ -348,7 +349,7 @@ export async function withCatalogClient<T>(
       userEmail: "catalog-contract@example.com",
       orgDomain: undefined,
       orgId: null,
-      oauthScopes: ["mcp:read", "mcp:write"],
+      oauthScopes: request.oauthScopes ?? ["mcp:read", "mcp:write"],
     },
     {
       transport: "http",
