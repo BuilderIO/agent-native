@@ -106,6 +106,29 @@ export async function hasImportedTranscript(
   return rows.some((row) => row.source === IMPORTED_TRANSCRIPT_SOURCE);
 }
 
+export async function hasFinishedNativeTranscript(
+  recordingId: string,
+): Promise<boolean> {
+  const t = schema.recordingTranscripts;
+  const rows = await getDb()
+    .select({
+      status: t.status,
+      source: t.source,
+      fullText: t.fullText,
+      segmentsJson: t.segmentsJson,
+    })
+    .from(t)
+    .where(eq(t.recordingId, recordingId))
+    .limit(1);
+  return rows.some(
+    (row) =>
+      row.status === "ready" &&
+      row.source !== IMPORTED_TRANSCRIPT_SOURCE &&
+      (Boolean(row.fullText.trim()) ||
+        (Boolean(row.segmentsJson) && row.segmentsJson !== "[]")),
+  );
+}
+
 /** Newest first. Callers must check the reader may edit the recording. */
 export async function listTranscriptVersions(
   db: Db,

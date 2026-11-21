@@ -19,6 +19,9 @@ vi.mock("../server/lib/transcript-versions.js", async (importOriginal) => ({
   hasImportedTranscript: vi.fn(
     async () => stored.recording?.transcript === "imported",
   ),
+  hasFinishedNativeTranscript: vi.fn(
+    async () => stored.recording?.transcript === "finished",
+  ),
 }));
 
 const SERVED = [
@@ -67,7 +70,6 @@ const SERVED = [
   "rename-space",
   "reprocess-recording",
   "resolve-comment",
-  "save-browser-transcript",
   "search-dictations",
   "set-recording-trims",
   "set-thumbnail",
@@ -148,6 +150,7 @@ const REDACTION = {
 };
 const REDACTED = { editsJson: JSON.stringify({ overlays: [REDACTION] }) };
 const IMPORTED = { transcript: "imported" };
+const FINISHED = { transcript: "finished" };
 const EXPIRES = "2026-12-01T00:00:00.000Z";
 const LATER = "2026-12-31T00:00:00.000Z";
 const SOONER = "2026-11-25T00:00:00.000Z";
@@ -167,6 +170,16 @@ const WIDENS_ACCESS = [
     "update-recording",
     { id: "rec-1", expiresAt: LATER },
     { password: null, expiresAt: EXPIRES },
+  ],
+  [
+    "update-recording",
+    { id: "rec-1", enableDownloads: true },
+    { enableDownloads: false },
+  ],
+  [
+    "update-recording",
+    { id: "rec-1", enableComments: true },
+    { enableComments: false },
   ],
   ["update-meeting", { id: "meeting-1", visibility: "org" }, null],
   ["update-meeting", { id: "meeting-1", visibility: "public" }, null],
@@ -206,6 +219,11 @@ const WIDENS_ACCESS = [
     REDACTED,
   ],
   ["request-transcript", { recordingId: "rec-1", regenerate: true }, IMPORTED],
+  [
+    "save-browser-transcript",
+    { recordingId: "rec-1", fullText: "Hello", overwriteReady: true },
+    FINISHED,
+  ],
 ] as const;
 
 const KEEPS_ACCESS = [
@@ -226,6 +244,16 @@ const KEEPS_ACCESS = [
     { password: null, expiresAt: EXPIRES },
   ],
   ["update-recording", { id: "rec-1", expiresAt: LATER }, null],
+  [
+    "update-recording",
+    { id: "rec-1", enableDownloads: true, enableComments: true },
+    { enableDownloads: true, enableComments: true },
+  ],
+  [
+    "update-recording",
+    { id: "rec-1", enableDownloads: false, enableComments: false },
+    null,
+  ],
   ["update-meeting", { id: "meeting-1", userNotesMd: "Notes" }, null],
   ["update-meeting", { id: "meeting-1", visibility: "private" }, null],
   ["update-meeting", { id: "meeting-1", shareTranscript: false }, null],
@@ -261,6 +289,12 @@ const KEEPS_ACCESS = [
   ["request-transcript", { recordingId: "rec-1" }, IMPORTED],
   ["request-transcript", { recordingId: "rec-1", regenerate: true }, {}],
   ["request-transcript", { recordingId: "rec-1", regenerate: true }, null],
+  ["save-browser-transcript", { recordingId: "rec-1", fullText: "Hello" }, {}],
+  [
+    "save-browser-transcript",
+    { recordingId: "rec-1", fullText: "Hello", overwriteReady: true },
+    IMPORTED,
+  ],
 ] as const;
 
 type Exposure = {

@@ -80,12 +80,19 @@ export default defineAction({
     if (args.spaceIds !== undefined) return true;
     if (args.password !== undefined && !args.password?.trim()) return true;
     if (args.expiresAt === null) return true;
-    if (args.password === undefined && args.expiresAt === undefined) {
+    if (
+      args.password === undefined &&
+      args.expiresAt === undefined &&
+      args.enableComments !== true &&
+      args.enableDownloads !== true
+    ) {
       return false;
     }
     const access = await resolveAccess("recording", args.id);
     if (!access) return false;
     const stored = access.resource;
+    if (args.enableComments === true && !stored.enableComments) return true;
+    if (args.enableDownloads === true && !stored.enableDownloads) return true;
     if (args.password !== undefined && stored.password) return true;
     return (
       typeof args.expiresAt === "string" &&
