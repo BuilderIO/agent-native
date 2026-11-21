@@ -7,6 +7,7 @@ import { getDbExec } from "@agent-native/core/db";
 import {
   compareMirroredReviewComments,
   getReviewCommentById,
+  mirrorReviewComments,
   registerReviewableResource,
 } from "@agent-native/core/review";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
@@ -523,7 +524,7 @@ describe("Clips comments in the review kit", () => {
     expect(await kitRows("rec-legacy")).toEqual(kitBefore);
   });
 
-  it("reports a recording whose comments only the kit still has", async () => {
+  it("clears comments only the kit still has, so the copy can finish", async () => {
     await createRecording("rec-kit-only");
     const comment = await as(OWNER, () =>
       addComment.run({
@@ -536,17 +537,32 @@ describe("Clips comments in the review kit", () => {
     await getDb()
       .delete(schema.recordingComments)
       .where(eq(schema.recordingComments.recordingId, "rec-kit-only"));
+    const at = "2026-11-20T12:00:00.000Z";
+    await mirrorReviewComments(
+      { resourceType: "recording", resourceId: "rec-deleted-elsewhere" },
+      [
+        {
+          id: "kit-only-recording-root",
+          threadId: "kit-only-recording-root",
+          parentCommentId: null,
+          body: "On a recording another server deleted",
+          authorEmail: OWNER,
+          authorName: null,
+          createdBy: "human",
+          resolved: false,
+          createdAt: at,
+          updatedAt: at,
+        },
+      ],
+    );
 
     const report = await mirror.copyRecordingCommentsToReviewKit();
-    expect(report.differences).toEqual([
-      { recordingId: "rec-kit-only", id: comment.id, problem: "extra" },
-    ]);
-    expect((await stored(comment.id))?.body).toBe("Gone from Clips");
 
-    await mirror.deleteMirroredRecordingComments("rec-kit-only", "all");
-    expect(
-      (await mirror.copyRecordingCommentsToReviewKit()).differences,
-    ).toEqual([]);
+    expect(report.failedRecordings).toEqual([]);
+    expect(report.differences).toEqual([]);
+    for (const id of [comment.id, "kit-only-recording-root"]) {
+      expect(await stored(id)).toMatchObject({ status: "deleted", body: "" });
+    }
   });
 
   it("refuses recording comment writes through the kit's own actions", async () => {

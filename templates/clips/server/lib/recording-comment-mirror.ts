@@ -209,7 +209,10 @@ async function copyRecording(
         .where(eq(schema.recordings.id, recordingId))
         .for("update");
       const recording = firstRow(recordings);
-      if (!recording) return null;
+      if (!recording) {
+        await deleteMirroredRecordingComments(recordingId, "all");
+        return null;
+      }
       const resource = {
         resourceType: RECORDING_REVIEW_RESOURCE,
         resourceId: recordingId,
@@ -230,7 +233,13 @@ async function copyRecording(
         resource,
         copies,
       );
-      return { rows, copies, differences };
+      const extra = differences
+        .filter((difference) => difference.problem === "extra")
+        .map((difference) => difference.id);
+      if (extra.length === 0) return { rows, copies, differences };
+      await deleteMirroredRecordingComments(recordingId, extra);
+      const recheck = await compareMirroredReviewComments(resource, copies);
+      return { rows, copies, differences: recheck.differences };
     });
     if (!copied) return;
     report.recordings += 1;
