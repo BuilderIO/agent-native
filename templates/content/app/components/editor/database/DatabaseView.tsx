@@ -8519,8 +8519,8 @@ function sourceNavTitle(
   stack: SourceNavStep[],
   sources: ContentDatabaseSource[],
 ): { text: string; icon?: ReactNode } {
-  if (stack.length === 0) return { text: dbText("sources") };
-  const top = stack[stack.length - 1];
+  const top = stack.slice(-1).pop();
+  if (!top) return { text: dbText("sources") };
   if (top.kind === "provider") return BUILDER_TITLE;
   if (top.kind === "space") return { text: top.spaceName };
   if (top.kind === "addSource") return { text: dbText("addASource") };
