@@ -1,3 +1,4 @@
+import { suggestionNodeRole } from "../app/components/editor/suggestions/model";
 import {
   canonicalizeNfm,
   docToNfm,
@@ -28,8 +29,10 @@ type TextRun = {
   escapedBlockMarker?: boolean;
   /** Its placeholder starts with a digit, as the run's bytes do. */
   digitLead?: boolean;
+  frame: number;
 };
 type TextRange = { from: number; to: number };
+type FramedRange = TextRange & { frame: number };
 
 export class SuggestionFormattingMappingError extends Error {
   constructor() {
@@ -107,6 +110,7 @@ function computeFormattingRuns(
   // Block syntax between two runs maps to their shared text boundary; an image,
   // rule, or empty block there is a document position of its own and does not.
   let nonTextPending = false;
+  let frame = 0;
   // `position` is the node's index among its siblings: NFM protects leading
   // whitespace only in a block's first inline node.
   const withMarkers = (node: PMNode, position = 0): PMNode => {
@@ -131,6 +135,7 @@ function computeFormattingRuns(
         sourceTo: -1,
         nonTextBefore: nonTextPending,
         verbatim: true,
+        frame,
       });
       nonTextPending = false;
       offset += text.length;
@@ -151,6 +156,7 @@ function computeFormattingRuns(
       // An empty cell has no text, so a zero-length run gives typing into it
       // a position on both sides.
       const index = runs.length;
+      frame += 1;
       runs.push({
         text: "",
         marks: "[]",
@@ -163,7 +169,9 @@ function computeFormattingRuns(
         sourceTo: -1,
         nonTextBefore: nonTextPending,
         emptyCell: true,
+        frame,
       });
+      frame += 1;
       nonTextPending = true;
       const marker = { type: "text", text: `${markerPrefix}${index}x` };
       return { ...node, content: [{ ...paragraph, content: [marker] }] };
@@ -197,6 +205,7 @@ function computeFormattingRuns(
         nonTextBefore: nonTextPending,
         escapedBlockMarker: spellings.escapedBlockMarker.has(node),
         digitLead,
+        frame,
       });
       nonTextPending = false;
       offset += node.text.length;
@@ -208,10 +217,11 @@ function computeFormattingRuns(
       !node.content?.length
     )
       nonTextPending = true;
-    return {
-      ...node,
-      ...(node.content ? { content: node.content.map(withMarkers) } : {}),
-    };
+    const isFrame = suggestionNodeRole(node.type) === "frame";
+    if (isFrame) frame += 1;
+    const content = node.content?.map(withMarkers);
+    if (isFrame) frame += 1;
+    return { ...node, ...(content ? { content } : {}) };
   };
   const withPlaceholders = docToNfm({
     type: "doc",
@@ -799,13 +809,16 @@ function textBoundarySourceOffset(run: TextRun, index: number): number | null {
   return offset === undefined ? null : run.sourceFrom + offset;
 }
 
-function mergeRanges(ranges: TextRange[]): TextRange[] {
-  const merged: TextRange[] = [];
+function mergeRanges(ranges: FramedRange[]): FramedRange[] {
+  const merged: FramedRange[] = [];
+  let previous: FramedRange | undefined;
   for (const range of ranges.sort((left, right) => left.from - right.from)) {
-    const previous = merged[merged.length - 1];
-    if (previous && range.from <= previous.to)
+    if (previous?.frame === range.frame && range.from <= previous.to)
       previous.to = Math.max(previous.to, range.to);
-    else merged.push({ ...range });
+    else {
+      previous = { ...range };
+      merged.push(previous);
+    }
   }
   return merged;
 }
@@ -849,14 +862,14 @@ export function suggestionFormattingChanges(
   if (!previous || !next) throw new SuggestionFormattingMappingError();
   let left = 0;
   let right = 0;
-  const changes: TextRange[] = [];
+  const changes: FramedRange[] = [];
   while (left < previous.runs.length && right < next.runs.length) {
     const beforeRun = previous.runs[left]!;
     const afterRun = next.runs[right]!;
     const from = Math.max(beforeRun.from, afterRun.from);
     const to = Math.min(beforeRun.to, afterRun.to);
     if (beforeRun.marks !== afterRun.marks && to > from)
-      changes.push({ from, to });
+      changes.push({ from, to, frame: beforeRun.frame });
     if (beforeRun.to <= afterRun.to) left += 1;
     if (afterRun.to <= beforeRun.to) right += 1;
   }
