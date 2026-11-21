@@ -477,7 +477,9 @@ function contentDatabaseRowReceiptArtifact(
     stringValue(createdDocument?.id) === id
       ? stringValue(createdDocument?.title)
       : undefined;
-  const url = stringValue(receiptRow?.urlPath) ?? stringValue(rowLink?.urlPath);
+  const url = [stringValue(receiptRow?.urlPath), stringValue(rowLink?.urlPath)]
+    .filter((value): value is string => !!value)
+    .find((candidate) => artifactUrlReferencesId(candidate, "document", id));
   return {
     id,
     ...(title ? { title } : {}),

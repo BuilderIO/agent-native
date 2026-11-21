@@ -891,6 +891,45 @@ describe("appendA2AArtifactLinks", () => {
       expect(text).not.toContain("Other page");
     });
 
+    it("keeps a receipt link only when it names the row", () => {
+      const results = [
+        {
+          tool: "add-database-item",
+          result: JSON.stringify({
+            receipt: {
+              row: { documentId: "row_doc_5", urlPath: "/page/other_doc" },
+              rowLink: { urlPath: "/page/row_doc_5?db=db_1" },
+            },
+          }),
+        },
+        {
+          tool: "upsert-database-item-by-key",
+          result: JSON.stringify({
+            receipt: {
+              row: { documentId: "row_doc_6", urlPath: "/page/other_doc" },
+            },
+          }),
+        },
+      ];
+      const options = { baseUrl: "https://content.agent.test" };
+
+      const text = buildA2ARecoverableArtifactMessage(results, options);
+      expect(text).toContain(
+        "- Document: https://content.agent.test/page/row_doc_5?db=db_1 (ID: row_doc_5)",
+      );
+      expect(text).toContain(
+        "- Document: https://content.agent.test/page/row_doc_6 (ID: row_doc_6)",
+      );
+      expect(text).not.toContain("other_doc");
+      expect(
+        guardA2AArtifactResponse(
+          "Added it: https://content.agent.test/page/other_doc",
+          results,
+          options,
+        ).rejectedUnverifiedArtifactReferences,
+      ).toBe(true);
+    });
+
     it("lists nothing when a result names no row", () => {
       expect(
         buildA2ARecoverableArtifactMessage(
