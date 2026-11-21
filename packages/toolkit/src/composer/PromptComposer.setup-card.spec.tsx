@@ -35,12 +35,16 @@ async function render({
   configured,
   otherProviderConfigured = false,
   catalogFailed = false,
+  modelListUnavailable = false,
+  onRetryModelList,
   onModelConnectionRequiredChange,
 }: {
   readiness: ComposerAgentEngineState;
   configured: boolean;
   otherProviderConfigured?: boolean;
   catalogFailed?: boolean;
+  modelListUnavailable?: boolean;
+  onRetryModelList?: () => void;
   onModelConnectionRequiredChange?: (required: boolean) => void;
 }) {
   await act(async () => {
@@ -88,6 +92,8 @@ async function render({
           onModelChange={vi.fn()}
           onConnectProvider={vi.fn()}
           modelListLoading={catalogFailed ? false : undefined}
+          modelListUnavailable={modelListUnavailable}
+          onRetryModelList={onRetryModelList}
           onModelConnectionRequiredChange={onModelConnectionRequiredChange}
           includeDefaultMentionSearch={false}
           includeDefaultSlashSkills={false}
@@ -186,6 +192,73 @@ describe("PromptComposer with no AI connected", () => {
     expect(card()).toBeNull();
     expect(editor()?.getAttribute("contenteditable")).toBe("true");
     expect(onRequired).not.toHaveBeenCalledWith(true);
+  });
+
+  it("removes a setup card inferred from an unconfigured catalog when refresh fails", async () => {
+    const retry = vi.fn();
+    await render({ readiness: "unknown", configured: false });
+    expect(card()).not.toBeNull();
+    await render({
+      readiness: "unknown",
+      configured: false,
+      modelListUnavailable: true,
+      onRetryModelList: retry,
+    });
+    expect(card()).toBeNull();
+    expect(editor()?.getAttribute("contenteditable")).toBe("true");
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    await act(async () => trigger.click());
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toContain("Add your own keys");
+  });
+
+  it("offers retry when its model adapter cannot load the catalog", async () => {
+    const retry = vi.fn();
+    await act(async () => {
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            models: {
+              useChatModels: () => ({
+                selectedModel: "example-model",
+                selectedEngine: "anthropic",
+                selectedEffort: "auto",
+                availableModels: [],
+                isLoading: false,
+                catalogUnavailable: true,
+                refreshEngines: retry,
+                onModelChange: vi.fn(),
+                onEffortChange: vi.fn(),
+              }),
+            },
+          }}
+        >
+          <PromptComposer
+            autoFocus={false}
+            onSubmit={vi.fn()}
+            onConnectProvider={vi.fn()}
+            includeDefaultMentionSearch={false}
+            includeDefaultSlashSkills={false}
+            voiceEnabled={false}
+          />
+        </ComposerRuntimeAdaptersProvider>,
+      );
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    await act(async () => trigger.click());
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toContain("Add your own keys");
+    const retryItem = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Retry"))!;
+    await act(async () => retryItem.click());
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the prompt open while the model list has a connected provider", async () => {

@@ -141,9 +141,7 @@ export interface PromptComposerProps {
   /** Run the host's empty-composer action when Enter is pressed. */
   onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
-  onBeforeSubmit?: (
-    draft?: ComposerDraftSnapshot,
-  ) => boolean | Promise<boolean>;
+  onBeforeSubmit?: TiptapComposerProps["onBeforeSubmit"];
   onSubmissionPendingChange?: (pending: boolean) => void;
   /**
    * Called synchronously when a submit takes its draft, before any preflight
@@ -317,6 +315,8 @@ export interface PromptComposerProps {
   availableModels?: EngineModelGroup[];
   /** Whether the external model list is still being resolved. */
   modelListLoading?: boolean;
+  modelListUnavailable?: boolean;
+  onRetryModelList?: () => void;
   /** Show the chevron after the model name (default true; see TiptapComposer). */
   modelSelectorChevron?: boolean;
   selectedModel?: string;
@@ -903,6 +903,8 @@ function PromptComposerInner({
   onSlashCommand,
   availableModels,
   modelListLoading,
+  modelListUnavailable,
+  onRetryModelList,
   modelSelectorChevron = true,
   selectedModel,
   defaultModel,
@@ -1022,6 +1024,9 @@ function PromptComposerInner({
   const composerModelListLoading =
     showModelSelector &&
     (modelListLoading ?? (availableModels ? false : models.isLoading));
+  const composerModelListUnavailable =
+    modelListUnavailable ??
+    (availableModels ? false : models.catalogUnavailable);
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
@@ -1051,7 +1056,10 @@ function PromptComposerInner({
   const missingApiKey =
     engineStatusChecksEnabled &&
     (engineState === "missing" ||
-      (engineState !== "configured" && modelListNeedsConnection));
+      (engineState !== "configured" &&
+        !composerModelListLoading &&
+        !composerModelListUnavailable &&
+        modelListNeedsConnection));
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const [providerCheckPending, setProviderCheckPending] = useState(false);
   const [providerSetupRequired, setProviderSetupRequired] = useState(false);
@@ -1219,9 +1227,15 @@ function PromptComposerInner({
         ...(submitOptions?.submissionId
           ? { submissionId: submitOptions.submissionId }
           : {}),
-        model: composerModel,
-        engine: composerEngine,
-        effort: composerEffort,
+        model: submitOptions?.verifiedModel
+          ? submitOptions.verifiedModel.model
+          : composerModel,
+        engine: submitOptions?.verifiedModel
+          ? submitOptions.verifiedModel.engine
+          : composerEngine,
+        effort: submitOptions?.verifiedModel
+          ? submitOptions.verifiedModel.effort
+          : composerEffort,
         attachments,
         ...(submitOptions?.composerModeContext === undefined
           ? {}
@@ -1410,6 +1424,11 @@ function PromptComposerInner({
           agentOnly={agentOnly}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
+          modelListUnavailable={composerModelListUnavailable}
+          onRetryModelList={
+            onRetryModelList ??
+            (availableModels ? undefined : models.refreshEngines)
+          }
           modelSelectorChevron={modelSelectorChevron}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
