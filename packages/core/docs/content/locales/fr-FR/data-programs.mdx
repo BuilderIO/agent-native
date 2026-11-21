@@ -222,6 +222,18 @@ Quand l'exécution limitée à l'organisation n'est pas partageable, la propre e
 
 Les clés ont leur place dans les réglages : une clé écrite dans le code d'un programme part de toute façon avec la propre exécution de chaque visualiseur, donc le partage ne change pas qui peut voir ce qu'elle renvoie.
 
+### Garder l'exécution partagée à jour selon un calendrier {#scheduled-refresh}
+
+Quand un programme est enregistré avec `scheduledRefresh: true`, le serveur le réexécute avec ses `defaultParams` tous les `refreshTtlMs`, pour que l'exécution partagée de l'organisation soit prête avant que quiconque ouvre le panneau. C'est le balayage récurrent du framework qui la lance, la même tâche serveur qui tourne chaque minute et pilote les automatisations : elle n'a besoin ni d'un navigateur ouvert ni d'un appel au modèle.
+
+- **C'est l'exécution partagée de l'organisation, faite à l'avance.** L'exécution planifiée suit toutes les règles ci-dessus : identifiants de l'organisation uniquement, lectures uniquement, rien qui appartienne à une seule personne, et un visualiseur ne la reçoit que si sa propre exécution lirait les mêmes identifiants. Une exécution planifiée non partageable est enregistrée comme un refus et retentée un jour plus tard. Elle n'est jamais suivie d'une exécution avec la clé personnelle de quelqu'un, puisque personne ne l'attend.
+- **Elle s'exécute en tant que propriétaire du programme, vérifié à chaque fois.** Avant chaque exécution, le propriétaire est vérifié comme les automatisations vérifient le leur. S'il a quitté l'organisation ou n'existe plus, rien ne s'exécute et l'exécution est enregistrée comme échouée avec `schedule_owner_invalid`, puis le propriétaire n'est revérifié qu'après `refreshTtlMs` ; si la vérification elle-même échoue, l'exécution est enregistrée comme échouée avec `schedule_owner_unverified` et le propriétaire est revérifié cinq minutes plus tard.
+- **Elle rafraîchit un peu en avance.** Une exécution est due trois minutes avant de devenir périmée, ce qui couvre l'intervalle du balayage et la limite de 120 secondes d'une exécution : les visualiseurs continuent de lire l'exécution partagée au lieu d'exécuter le programme eux-mêmes. Un rafraîchissement qui échoue est retenté cinq minutes plus tard, et une exécution ne démarre que s'il reste au balayage au moins 25 secondes, la limite de temps de l'exécution propre d'un panneau. Une exécution planifiée n'a que ce qui reste des 90 secondes du balayage : celle qui manque de temps est enregistrée avec `schedule_timed_out` et retentée après `refreshTtlMs`, sans bloquer les exécutions partagées des visualiseurs.
+- **Elle couvre un seul jeu de params.** Un panneau lit l'exécution planifiée quand les `params` de son descripteur correspondent aux `defaultParams` du programme (ou que les deux sont vides). Un panneau avec d'autres params garde son cache habituel.
+- **Elle exige une organisation, `refreshMode: "ttl"`, un `refreshTtlMs` d'au moins 15 minutes et un programme au premier plan.** Enregistrer `scheduledRefresh: true` sans eux échoue ; les programmes en arrière-plan ne partagent pas encore d'exécutions. Un enregistrement ultérieur qui omet `scheduledRefresh` garde le réglage, `false` le désactive, et archiver le programme l'arrête.
+
+`get-data-program` renvoie `scheduledRefresh` et un résumé `orgSharedRun` (statut, erreur et heure de fin, sans les lignes ni leur nombre), pour voir si le calendrier suit.
+
 ## Modèle de sécurité {#security}
 
 <Callout id="doc-block-dp-security" tone="success">

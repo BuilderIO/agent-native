@@ -19,6 +19,7 @@ import {
   DATA_PROGRAM_SHARES_CREATE_SQL,
   DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
   DATA_PROGRAMS_APP_NAME_INDEX_SQL,
+  DATA_PROGRAMS_SCHEDULED_REFRESH_COLUMN_SQL,
   DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
   DATA_PROGRAM_SHARES_NOTIFIED_AT_COLUMN_SQL,
   dataProgramRunsCreateSql,
@@ -31,6 +32,8 @@ export const MAX_PROGRAM_ROWS = 10_000;
 export const MAX_PROGRAM_RESULT_BYTES = 4 * 1024 * 1024;
 export const MAX_ACTIVE_PROGRAMS_PER_APP = 200;
 export const MIN_REFRESH_TTL_MS = 60_000;
+/** The shortest `refreshTtlMs` a program with a scheduled refresh can have. */
+export const MIN_SCHEDULED_REFRESH_MS = 15 * 60_000;
 
 const DEFAULT_RUN_KEEP = 5;
 
@@ -90,6 +93,17 @@ export const dataProgramsStore = defineStore({
         );
       },
     },
+    {
+      name: "data-programs-scheduled-refresh",
+      run: async (exec) => {
+        await ensureColumnExists(
+          "data_programs",
+          "scheduled_refresh",
+          DATA_PROGRAMS_SCHEDULED_REFRESH_COLUMN_SQL,
+          { injectedClient: exec },
+        );
+      },
+    },
   ],
 });
 
@@ -129,6 +143,7 @@ export interface DataProgramRow {
   refreshMode: DataProgramRefreshMode;
   refreshTtlMs: number;
   background: boolean;
+  scheduledRefresh: boolean;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
@@ -150,6 +165,7 @@ interface RawDataProgramRow {
   refreshMode: string;
   refreshTtlMs: number;
   background: number | boolean;
+  scheduledRefresh?: number | boolean | null;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
@@ -176,6 +192,7 @@ function rowFromRaw(row: RawDataProgramRow): DataProgramRow {
     refreshMode: normalizeRefreshMode(row.refreshMode),
     refreshTtlMs: Number(row.refreshTtlMs) || 300_000,
     background: Boolean(row.background),
+    scheduledRefresh: Boolean(row.scheduledRefresh),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     archivedAt: row.archivedAt ?? null,
@@ -201,6 +218,8 @@ export interface UpsertDataProgramInput {
   refreshMode?: DataProgramRefreshMode;
   refreshTtlMs?: number;
   background?: boolean;
+  /** Left out, an existing program keeps its setting. */
+  scheduledRefresh?: boolean;
   ownerEmail: string;
   orgId?: string | null;
 }
@@ -229,6 +248,30 @@ export async function upsertDataProgram(
     MIN_REFRESH_TTL_MS,
   );
   const refreshMode = input.refreshMode ?? existing?.refreshMode ?? "ttl";
+  const scheduledRefresh =
+    input.scheduledRefresh ?? existing?.scheduledRefresh ?? false;
+  if (scheduledRefresh) {
+    if (!(existing ? existing.orgId : input.orgId)) {
+      throw new Error(
+        "A scheduled refresh needs an organization: it keeps the run the org shares fresh.",
+      );
+    }
+    if (refreshMode === "manual") {
+      throw new Error(
+        'A scheduled refresh reruns the program every refreshTtlMs, so it needs refreshMode "ttl".',
+      );
+    }
+    if (input.background ?? existing?.background) {
+      throw new Error(
+        "Background programs can't have a scheduled refresh yet: they don't share runs with the org. Save this one with background: false to schedule it as a foreground program.",
+      );
+    }
+    if (refreshTtlMs < MIN_SCHEDULED_REFRESH_MS) {
+      throw new Error(
+        `A scheduled refresh reruns the program every refreshTtlMs, which must be at least ${MIN_SCHEDULED_REFRESH_MS / 60_000} minutes.`,
+      );
+    }
+  }
 
   if (existing) {
     const next = {
@@ -241,6 +284,7 @@ export async function upsertDataProgram(
       refreshMode,
       refreshTtlMs,
       background: Boolean(input.background),
+      scheduledRefresh,
     };
     // Reads treat runs from before updatedAt as stale, and seeded programs
     // are saved again on every ensure, so a save that changes nothing keeps it.
@@ -254,6 +298,7 @@ export async function upsertDataProgram(
       .set({
         ...next,
         background: next.background ? 1 : 0,
+        scheduledRefresh: next.scheduledRefresh ? 1 : 0,
         updatedAt: unchanged ? existing.updatedAt : now,
         archivedAt: null,
       })
@@ -299,6 +344,7 @@ export async function upsertDataProgram(
     refreshMode,
     refreshTtlMs,
     background: input.background ? 1 : 0,
+    scheduledRefresh: scheduledRefresh ? 1 : 0,
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
@@ -399,6 +445,33 @@ export async function listDataPrograms(
     .select()
     .from(dataPrograms)
     .where(where)) as RawDataProgramRow[];
+  return rows.map(rowFromRaw);
+}
+
+/**
+ * Every live program in the app with a scheduled refresh, whoever owns it, or
+ * only `programId` while it still has one. Only the server's own sweep calls
+ * this: it has no caller to check access for, and each run it starts checks
+ * the program's owner instead.
+ */
+export async function listScheduledDataPrograms(
+  appId: string,
+  programId?: string,
+): Promise<DataProgramRow[]> {
+  await ensureDataProgramTables();
+  // guard:allow-unscoped — the server sweep has no caller; each run checks the owner.
+  const rows = (await getDb()
+    .select()
+    .from(dataPrograms)
+    .where(
+      and(
+        eq(dataPrograms.appId, appId),
+        eq(dataPrograms.scheduledRefresh, 1),
+        isNull(dataPrograms.archivedAt),
+        programId === undefined ? undefined : eq(dataPrograms.id, programId),
+      ),
+    )
+    .orderBy(dataPrograms.id)) as RawDataProgramRow[];
   return rows.map(rowFromRaw);
 }
 
