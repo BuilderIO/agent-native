@@ -1032,7 +1032,7 @@ describe("when something fails part way", () => {
     expect(await pendingIds()).toEqual([]);
   });
 
-  it("holds every page back for an hour when the provider refuses its credentials, counting no attempt", async () => {
+  it("holds pages back when the provider refuses its credentials, the ones it was sent longest, so a page refused alone holds back no others", async () => {
     const { EmbeddingProviderError } = await import("../embeddings/index.js");
     const ids = ["refused-1", "refused-2", "refused-3"];
     for (const id of ids) {
@@ -1044,40 +1044,67 @@ describe("when something fails part way", () => {
        WHERE consumer = 'search-embeddings' AND resource_id = 'refused-3'`,
     );
     const embed = family.embed;
+    let refusing = "Gadget";
     let refused = 0;
-    family.embed = async () => {
-      refused += 1;
-      throw new EmbeddingProviderError(
-        "Embedding provider fake failed with status 403.",
-        403,
-      );
+    family.embed = async (inputs, purpose, options) => {
+      if (inputs.some((input) => input.text?.includes(refusing))) {
+        refused += 1;
+        throw new EmbeddingProviderError(
+          "Embedding provider fake failed with status 403.",
+          403,
+        );
+      }
+      return embed(inputs, purpose, options);
     };
+    const waits = async () => {
+      const { rows } = await run(
+        `SELECT resource_id, attempts,
+                available_at > now() + interval '3500 seconds' AS hour,
+                available_at > now() + interval '7100 seconds' AS two_hours
+         FROM app_resource_changes
+         WHERE consumer = 'search-embeddings' AND resource_id LIKE 'refused-%'
+         ORDER BY resource_id`,
+      );
+      return rows;
+    };
+    const passHour = () =>
+      run(
+        `UPDATE app_resource_changes SET available_at = available_at - interval '1 hour'
+         WHERE consumer = 'search-embeddings' AND resource_id LIKE 'refused-%'`,
+      );
+    const embedded = () => ids.filter((id) => keysFor(id).length > 0);
     try {
       await drain();
+      expect(refused).toBe(1);
+      expect(await waits()).toEqual([
+        { resource_id: "refused-1", attempts: 1, hour: true, two_hours: true },
+        { resource_id: "refused-2", attempts: 1, hour: true, two_hours: true },
+        {
+          resource_id: "refused-3",
+          attempts: 600,
+          hour: true,
+          two_hours: false,
+        },
+      ]);
+
+      refusing = "Gadget refused-2";
+      await passHour();
+      await drain();
+      expect(embedded()).toEqual(["refused-3"]);
+
+      await passHour();
+      await drain();
+      expect(refused).toBe(2);
+      expect(embedded()).toEqual(["refused-1", "refused-3"]);
+      expect(await waits()).toEqual([
+        { resource_id: "refused-2", attempts: 2, hour: true, two_hours: true },
+      ]);
     } finally {
       family.embed = embed;
+      await run(`DELETE FROM pages WHERE id LIKE 'refused-%'`);
+      await settle();
+      await drain();
     }
-    expect(refused).toBe(1);
-    const { rows } = await run(
-      `SELECT resource_id, attempts, available_at > now() + interval '3500 seconds' AS waiting
-       FROM app_resource_changes
-       WHERE consumer = 'search-embeddings' AND resource_id LIKE 'refused-%'
-       ORDER BY resource_id`,
-    );
-    expect(rows).toEqual([
-      { resource_id: "refused-1", attempts: 0, waiting: true },
-      { resource_id: "refused-2", attempts: 0, waiting: true },
-      { resource_id: "refused-3", attempts: 600, waiting: true },
-    ]);
-
-    await settle();
-    await drain();
-    expect(ids.flatMap((id) => keysFor(id))).toEqual(
-      ids.map((id) => `wiki/page/${id}/0`),
-    );
-    await run(`DELETE FROM pages WHERE id LIKE 'refused-%'`);
-    await settle();
-    await drain();
     expect(await pendingIds()).toEqual([]);
   });
 
@@ -2033,8 +2060,8 @@ describe("with an indexing budget every server shares", () => {
     const refusing = budgeted(async () => {
       calls += 1;
       throw new EmbeddingProviderError(
-        "Embedding provider fake failed with status 403.",
-        403,
+        "Embedding provider fake failed with status 401.",
+        401,
       );
     });
     resolveTo(() => refusing);
