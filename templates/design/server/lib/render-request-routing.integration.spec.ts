@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -11,6 +12,15 @@ const isAllowed = async (url: string) => {
   if (parsed.protocol === "about:" || parsed.protocol === "data:") return true;
   return parsed.hostname === "localhost";
 };
+
+const localSafeFetch: typeof ssrfSafeFetch = (url, init, options) =>
+  ssrfSafeFetch(url, init, {
+    ...options,
+    allowedPrivateOrigins: [
+      `http://localhost:${port}`,
+      `http://127.0.0.1:${port}`,
+    ],
+  });
 
 let browser: Browser;
 let server: http.Server;
@@ -49,7 +59,7 @@ beforeEach(() => {
 
 async function render(html: string) {
   const context = await browser.newContext();
-  await routeAllowedRenderRequests(context, isAllowed);
+  await routeAllowedRenderRequests(context, isAllowed, localSafeFetch);
   const page = await context.newPage();
   await page.setContent(html, { waitUntil: "load" });
   await page.waitForLoadState("networkidle");
@@ -88,7 +98,11 @@ describe("routeAllowedRenderRequests", () => {
 
   it("refuses to navigate the page away and reports it", async () => {
     const context = await browser.newContext();
-    const requests = await routeAllowedRenderRequests(context, isAllowed);
+    const requests = await routeAllowedRenderRequests(
+      context,
+      isAllowed,
+      localSafeFetch,
+    );
     const page = await context.newPage();
     try {
       await page.setContent(

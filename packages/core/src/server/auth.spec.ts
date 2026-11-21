@@ -3328,7 +3328,7 @@ describe("server/auth", () => {
     });
 
     it("preserves matching Builder preview proxy return URLs in OAuth state", async () => {
-      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
       vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
@@ -3463,6 +3463,60 @@ describe("server/auth", () => {
         "https://agent-workspace.builder.io/_agent-native/google/callback",
       );
       expect(rejectedState.returnUrl).toBeUndefined();
+    });
+
+    it("drops Builder preview proxy return URLs in production OAuth state", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => "state-secret"),
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+            listOrganizations: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const { decodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const authUrlHandler = app.use.mock.calls.find(
+        (call: unknown[]) => call[0] === "/_agent-native/google/auth-url",
+      )?.[1];
+      const previewOrigin =
+        "https://940ebc5a83164aa6a37dde445e494f3a-electric-cliff-2caez1jb.builderio.xyz";
+      const result = await authUrlHandler(
+        createMockEvent({
+          path: "/_agent-native/google/auth-url",
+          query: {
+            return: `${previewOrigin}/dispatch?builder.preview=interact`,
+          },
+          headers: {
+            host: "agent-workspace.builder.io",
+            "x-forwarded-proto": "https",
+            referer: `${previewOrigin}/?builder.preview=interact`,
+          },
+        }),
+      );
+      const state = decodeOAuthState(
+        new URL(result.url).searchParams.get("state") || undefined,
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+      expect(state.returnUrl).toBeUndefined();
     });
 
     it("uses a derived A2A secret for Google OAuth state in production workspaces", async () => {
@@ -13051,6 +13105,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_google_1",
         sessionId: "session_google_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -13127,6 +13182,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_state_1",
         sessionId: "session_state_1",
+        consent: { performance: "allowed", targeting: "allowed" },
       });
     });
 
@@ -13187,6 +13243,7 @@ describe("server/auth", () => {
           origin: "mcp_oauth",
           anonymousId: undefined,
           sessionId: undefined,
+          consent: { performance: "withheld", targeting: "withheld" },
         }),
       );
       expect(trackSignupEvent.mock.calls[0]?.[0].attribution).toBeUndefined();
@@ -13253,6 +13310,7 @@ describe("server/auth", () => {
           attribution: undefined,
           anonymousId: "anon_state_targeting_revoked",
           sessionId: "session_state_targeting_revoked",
+          consent: { performance: "allowed", targeting: "withheld" },
         }),
       );
     });

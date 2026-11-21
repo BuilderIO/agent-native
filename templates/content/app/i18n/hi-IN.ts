@@ -379,6 +379,10 @@ const database = {
   failedToSavePagePreview: "पेज प्रीव्यू सहेजने में विफल",
   failedToSaveView: "दृश्य सहेजने में विफल",
   failedToUpdateCheckbox: "चेकबॉक्स अपडेट करने में विफल",
+  undoPropertyChangedSince: "पूर्ववत नहीं हुआ: आपके संपादन के बाद यह प्रॉपर्टी बदल गई",
+  redoPropertyChangedSince: "फिर से नहीं हुआ: पूर्ववत करने के बाद यह प्रॉपर्टी बदल गई",
+  undoPropertyFailed: "प्रॉपर्टी का बदलाव पूर्ववत नहीं हो सका",
+  redoPropertyFailed: "प्रॉपर्टी का बदलाव फिर से नहीं हो सका",
   failedToUpdateEverySelectedRow: "हर चुनी गई पंक्ति अपडेट नहीं हो सकी",
   filter: "फ़िल्टर",
   filterBy: "इसके अनुसार फ़िल्टर करें...",
@@ -755,6 +759,14 @@ const editor = {
   creatingDatabase: "इनलाइन संग्रह बनाया जा रहा है...",
   databaseCreated: "संग्रह बनाया गया",
   emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
+  newPagePlaceholder: "लिखना शुरू करें",
+  newPageLine: "लिखना शुरू करें, {{draft}}, या {{import}}",
+  newPageLineWithoutImport: "लिखना शुरू करें, या {{draft}}",
+  newPageLineDraft: "एजेंट से ड्राफ़्ट कराएं",
+  newPageLineImport: "Markdown इंपोर्ट करें",
+  newPageDraftPrompt: "इस विषय पर यह पेज ड्राफ़्ट करें: ",
+  newPageDraftPromptTitled: "{{title}} पर यह पेज ड्राफ़्ट करें",
+  newPageAgentContextLabel: "यह पेज",
   describeWhatToGenerate: "वर्णन करें कि क्या उत्पन्न करना है...",
   enterToSubmit: "सबमिट करने के लिए दर्ज करें",
   failedToCreateDatabase: "इनलाइन संग्रह बनाने में विफल",
@@ -1643,6 +1655,24 @@ const overrides = {
     builderReviewShowMore: "और दिखाएँ",
     builderReviewRemainingBatches:
       "शेष Builder परिवर्तन तैयार करने के लिए इस बैच के बाद फिर से समीक्षा करें।",
+    builderReviewLoadingMorePagesOne: "1 और पेज के बदलाव लोड हो रहे हैं…",
+    builderReviewLoadingMorePages: "{{count}} और पेजों के बदलाव लोड हो रहे हैं…",
+    builderReviewConfirmingBodiesOne:
+      "मुख्य पाठ के 1 बदलाव का Builder से मिलान हो रहा है…",
+    builderReviewConfirmingBodies:
+      "मुख्य पाठ के {{count}} बदलावों का Builder से मिलान हो रहा है…",
+    builderReviewFindingPages: "बदलाव वाले पेज ढूँढे जा रहे हैं…",
+    builderReviewRowsMatchBuilderOne:
+      "1 पेज का मुख्य पाठ बदलने पर वह Builder से मेल खाता है, इसलिए उसे शामिल नहीं किया गया।",
+    builderReviewRowsMatchBuilder:
+      "{{count}} पेजों का मुख्य पाठ बदलने पर वे Builder से मेल खाते हैं, इसलिए उन्हें शामिल नहीं किया गया।",
+    builderReviewLoadFailed: "कुछ बदलाव लोड नहीं हुए: {{message}}",
+    bodyDiffAdded: "जोड़ा गया:",
+    bodyDiffRemoved: "हटाया गया:",
+    bodyDiffMoreLinesOne: "1 और बदली हुई पंक्ति",
+    bodyDiffMoreLines: "{{count}} और बदली हुई पंक्तियाँ",
+    bodyDiffMoreChangesOne: "1 और बदलाव नहीं दिखाया गया",
+    bodyDiffMoreChanges: "{{count}} और बदलाव नहीं दिखाए गए",
     builderBodiesSyncingProgress:
       "{{total}} में से {{hydrated}} मुख्य भाग सिंक हो रहे हैं।",
     builderBodiesSyncFinishedWithFailures:
@@ -1997,6 +2027,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "इससे लंबित निर्माण और कोई भी सहेजा नहीं गया ड्राफ़्ट साफ़ हो जाएगा। अगर पेज पहले से सहेजा गया है, तो वह आपके कार्यक्षेत्र में बना रहेगा।",
     failedDeletePage: "पेज हटाया नहीं जा सका",
+    workspaceReferenceProtected:
+      "कार्यक्षेत्र के संदर्भ सुरक्षित हैं और उन्हें पेज की तरह बदला नहीं जा सकता।",
     failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
     failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",
     failedMovePage: "पेज स्थानांतरित नहीं हो सका",

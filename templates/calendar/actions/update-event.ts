@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -225,19 +226,24 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
-  needsApproval: async ({
-    id,
-    accountEmail: requestedAccountEmail,
-    scope,
-    sendUpdates,
-    notificationMessage,
-    targetAccountEmail,
-    attendees,
-    addAttendees,
-  }) => {
+  needsApproval: async (
+    {
+      id,
+      accountEmail: requestedAccountEmail,
+      scope,
+      status,
+      sendUpdates,
+      notificationMessage,
+      targetAccountEmail,
+      attendees,
+      addAttendees,
+    },
+    ctx,
+  ) => {
     if (targetAccountEmail !== undefined || !!notificationMessage?.trim()) {
       return true;
     }
+    if (status === "cancelled" && isOutsideAgentCall(ctx)) return true;
     if (sendUpdates === "none") return false;
     if (sendUpdates === undefined) return namesGuests(addAttendees);
 
