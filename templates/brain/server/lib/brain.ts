@@ -2275,6 +2275,18 @@ export async function setKnowledgeCanonicalResource(
           { errorCode: "intelligence_canonical_forbidden", statusCode: 403 },
         );
       }
+      if (published) {
+        if (!(await canPublishCanonicalAudience(row.audienceId))) {
+          throw new Error(
+            "Audience-restricted Brain knowledge cannot become workspace-wide canonical context.",
+          );
+        }
+        if (row.status !== "published") {
+          throw new Error(
+            "Only published Brain knowledge can become company context.",
+          );
+        }
+      }
       const resource = buildCanonicalResource(
         canonicalValuesFromKnowledgeRow(row),
       );
@@ -2297,24 +2309,9 @@ export async function setKnowledgeCanonicalResource(
       if (decision === "already_applied" || stored)
         return serializeKnowledge(row);
 
-      let publishedResourcePath: string | null = null;
-      if (published) {
-        if (!(await canPublishCanonicalAudience(row.audienceId))) {
-          throw new Error(
-            "Audience-restricted Brain knowledge cannot become workspace-wide canonical context.",
-          );
-        }
-        if (row.status !== "published") {
-          throw new Error(
-            "Only published Brain knowledge can become company context.",
-          );
-        }
-        publishedResourcePath = await publishKnowledgeResourceInTransaction(
-          row.id,
-          resource,
-          effects,
-        );
-      }
+      const publishedResourcePath = published
+        ? await publishKnowledgeResourceInTransaction(row.id, resource, effects)
+        : null;
       if (
         row.publishedResourcePath &&
         row.publishedResourcePath !== publishedResourcePath

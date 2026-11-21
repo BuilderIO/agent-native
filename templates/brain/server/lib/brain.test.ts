@@ -43,6 +43,7 @@ interface Row {
 }
 
 const mocks = vi.hoisted(() => {
+  const resourceWrites: Row[] = [];
   const col = (table: string, name: string) => ({ table, name });
   const table = (name: string, columns: string[]) =>
     Object.fromEntries([
@@ -254,6 +255,17 @@ const mocks = vi.hoisted(() => {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
       if (sql.includes("FROM resources WHERE owner = ? AND path = ?")) {
         const [, path] = args as string[];
+        if (sql.startsWith("SELECT content")) {
+          const matching = resourceWrites.filter(
+            (write) => write.path === path,
+          );
+          const latest = matching[matching.length - 1];
+          return {
+            rows:
+              latest && !latest.deleted ? [{ content: latest.content }] : [],
+            rowsAffected: 0,
+          };
+        }
         return { rows: [{ id: path }], rowsAffected: 0 };
       }
       if (sql.includes("FROM organizations")) {
@@ -679,7 +691,7 @@ const mocks = vi.hoisted(() => {
       publicChannelExclusionPatterns: [] as string[],
     },
     orgSettings: new Map<string, Record<string, unknown>>(),
-    resourceWrites: [] as Row[],
+    resourceWrites,
   };
 });
 
@@ -2477,6 +2489,41 @@ describe("Brain knowledge quality gates", () => {
         currentRevision: published.revision,
       },
     });
+    expect(mocks.resourceWrites).toHaveLength(writes);
+  });
+
+  it("refuses to publish again once the audience can't be published, even with its copy in place", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      publishTier: "company",
+    });
+    const published = await setKnowledgeCanonicalResource(
+      created.knowledge.id,
+      true,
+      created.knowledge.revision,
+    );
+    const audience = mocks.rows.audiences.find((row) => row.id === "aud_org");
+    expect(audience).toBeDefined();
+    if (audience) audience.kind = "source";
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(
+        created.knowledge.id,
+        true,
+        published.revision,
+      ),
+    ).rejects.toThrow(/Audience-restricted Brain knowledge/);
     expect(mocks.resourceWrites).toHaveLength(writes);
   });
 
