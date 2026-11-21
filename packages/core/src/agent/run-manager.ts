@@ -637,6 +637,7 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
 }
 
 const retainedPrivateRepliesWithText = new WeakSet<AgentChatEvent>();
+const retainedPrivateCompletedUiTools = new WeakSet<AgentChatEvent>();
 
 export function carriesAssistantText(event: AgentChatEvent): boolean {
   return (
@@ -663,10 +664,9 @@ export function carriesAssistantText(event: AgentChatEvent): boolean {
  */
 export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
-  privateCompletedUiTools: ReadonlySet<number> = new Set(),
 ): boolean {
   let toolResultAfterLastAssistantText = false;
-  for (const { event, seq } of run.events) {
+  for (const { event } of run.events) {
     if (event.type === "done" && event.reason === "action_settled") {
       toolResultAfterLastAssistantText = false;
       continue;
@@ -681,7 +681,7 @@ export function endsAfterToolResultWithoutAssistantFinal(
         event.isError === true ||
         (event.chatUI === undefined &&
           event.mcpApp === undefined &&
-          !privateCompletedUiTools.has(seq));
+          !retainedPrivateCompletedUiTools.has(event));
       continue;
     }
     if (
@@ -1043,7 +1043,6 @@ export function startRun(
   threadToRun.set(threadId, runId);
 
   let privateTurn = false;
-  const privateCompletedUiTools = new Set<number>();
   const safeRunError = (error: unknown) =>
     privateTurn ? new Error("Private content omitted") : error;
 
@@ -2128,7 +2127,7 @@ export function startRun(
       (runEvent.event.chatUI !== undefined ||
         runEvent.event.mcpApp !== undefined)
     ) {
-      privateCompletedUiTools.add(runEvent.seq);
+      retainedPrivateCompletedUiTools.add(retainedEvent.event);
     }
     if (
       runEvent.event.omitFromPersistedHistory === true &&
@@ -2578,10 +2577,7 @@ export function startRun(
           terminalEventForCompletion?.event.type === "done" &&
           terminalEventForCompletion.event.reason === "action_settled"
         ) &&
-        (endsAfterToolResultWithoutAssistantFinal(
-          run,
-          privateCompletedUiTools,
-        ) ||
+        (endsAfterToolResultWithoutAssistantFinal(run) ||
           endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&

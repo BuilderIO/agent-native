@@ -9337,6 +9337,7 @@ describe("run manager soft timeout", () => {
   it("completes private text and UI tool responses without an unwanted continuation", async () => {
     for (const kind of ["text", "ui"] as const) {
       const runId = `run-private-completion-${kind}`;
+      let completionBoundary: boolean | undefined;
       const run = startRun(
         runId,
         `thread-${runId}`,
@@ -9359,10 +9360,15 @@ describe("run manager soft timeout", () => {
           if (kind === "text")
             await send({ type: "text", text: "private final answer" });
         },
-        undefined,
+        (completionRun) => {
+          completionBoundary =
+            endsAfterToolResultWithoutAssistantFinal(completionRun);
+        },
         { softTimeoutMs: 0 },
       );
       await run.finalized;
+      expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+      expect(completionBoundary).toBe(false);
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
       expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
       expect(JSON.stringify(run.events)).not.toContain("private final answer");
