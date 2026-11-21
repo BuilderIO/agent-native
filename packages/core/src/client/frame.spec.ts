@@ -87,7 +87,7 @@ describe("frame bridge", () => {
     const parent = parentWindow();
     setParent(parent);
     setEmbedToken("test-embed-ticket");
-    stubSessionResponse({
+    const session = stubSessionResponse({
       email: "member@example.test",
       token: "test-embed-ticket",
     });
@@ -127,6 +127,12 @@ describe("frame bridge", () => {
       expect(port.postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({ error: expect.any(String) }),
       );
+      session.mockResolvedValueOnce(new Response(null, { status: 401 }));
+      send("read");
+      await vi.waitFor(() => expect(port.close).toHaveBeenCalledTimes(4));
+      expect(port.postMessage).toHaveBeenLastCalledWith({
+        error: expect.stringContaining("could not be verified"),
+      });
     } finally {
       window.history.replaceState(null, "", originalUrl);
     }

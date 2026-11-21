@@ -1139,7 +1139,9 @@ describe("useDbSync", () => {
     containers.push(container);
 
     await act(async () => {
-      root.render(<SyncProbe queryClient={queryClient} />);
+      root.render(
+        <SyncProbe queryClient={queryClient} queryKeys={["sql-chart"]} />,
+      );
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1368,10 +1370,7 @@ describe("useDbSync", () => {
 
     await act(async () => {
       root.render(
-        <SyncProbe
-          queryClient={queryClient}
-          queryKeys={["action", "sql-chart"]}
-        />,
+        <SyncProbe queryClient={queryClient} queryKeys={["sql-chart"]} />,
       );
       await Promise.resolve();
       await Promise.resolve();

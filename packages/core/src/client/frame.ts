@@ -234,8 +234,6 @@ if (typeof window !== "undefined") {
   });
 }
 
-let verifiedViewSession: { token: string; check: Promise<boolean> } | undefined;
-
 async function handleEmbeddedViewRequest(event: MessageEvent): Promise<void> {
   const port = event.ports.at(0);
   const token = getEmbedAuthToken();
@@ -262,15 +260,7 @@ async function handleEmbeddedViewRequest(event: MessageEvent): Promise<void> {
     return;
   }
   try {
-    if (verifiedViewSession?.token !== token) {
-      verifiedViewSession = {
-        token,
-        check: embedSessionAllowsUnlistedParent(),
-      };
-    }
-    const session = verifiedViewSession;
-    if (!(await session.check)) {
-      if (verifiedViewSession === session) verifiedViewSession = undefined;
+    if (!(await embedSessionAllowsUnlistedParent())) {
       port.postMessage({
         error: "The embedded app session could not be verified.",
       });

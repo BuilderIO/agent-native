@@ -1934,13 +1934,6 @@ export function useDbSync(
             window.location.pathname +
             window.location.search +
             window.location.hash;
-          const queryKeys = queryKeysRef.current;
-          const matchesQueryKey = queryKeys?.length
-            ? (query: Query) =>
-                queryKeys.includes(String(query.queryKey[0])) ||
-                (query.queryKey[0] === "action" &&
-                  queryKeys.includes(String(query.queryKey[1])))
-            : undefined;
           const appPredicate = actionInvalidatePredicateRef.current;
           // Narrowing is only sound when nothing else in the batch changed data:
           // a db or collab change in the same batch has an unknown affected set.
@@ -1950,9 +1943,8 @@ export function useDbSync(
             ? changedActionResourceTypes(actionEvents)
             : undefined;
           const predicate =
-            appPredicate || changedResources || resourceType || matchesQueryKey
+            appPredicate || changedResources || resourceType
               ? (query: Query) =>
-                  (!matchesQueryKey || matchesQueryKey(query)) &&
                   (!appPredicate || appPredicate(query, invalidating)) &&
                   (changedResources
                     ? actionQueryAffectedByResources(query, changedResources)
@@ -2427,12 +2419,7 @@ export function useDbSync(
                   )
                 )
                   return false;
-                const declared = queryKeysRef.current;
-                return (
-                  !declared?.length ||
-                  declared.includes("action") ||
-                  declared.includes(String(query.queryKey[1]))
-                );
+                return true;
               }
               return [
                 ...(queryKeysRef.current ?? []),
