@@ -13,7 +13,10 @@ import {
 import { resetAppConfigForTests } from "../app-config/index.js";
 import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
-import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
+import {
+  IMMUTABLE_ASSET_CACHE_CONTROL,
+  IMMUTABLE_ASSET_PATH_PATTERN,
+} from "./immutable-assets.js";
 import {
   buildStart,
   isDurableBackgroundWorkspaceDeployEnabled,
@@ -1536,13 +1539,28 @@ describe("workspace deploy", () => {
     );
     expect(config.version).toBe(3);
     expect(config.routes).toContainEqual({ handle: "filesystem" });
+    // Vercel rejects more than 2048 routes, or a src over 4096 characters.
+    expect(config.routes.length).toBeLessThanOrEqual(2048);
+    for (const route of config.routes) {
+      expect(route.src?.length ?? 0).toBeLessThanOrEqual(4096);
+    }
     const immutableAssetRoutes = config.routes.filter(
       (route: { headers?: Record<string, string> }) =>
         route.headers?.["cache-control"] === IMMUTABLE_ASSET_CACHE_CONTROL,
     );
+    // The hit phase runs only for a served static file, so a missing hashed
+    // path that falls through to an app's function never gets these headers.
+    const hitIndex = config.routes.findIndex(
+      (route: { handle?: string }) => route.handle === "hit",
+    );
+    expect(hitIndex).toBe(config.routes.length - 3);
+    expect(config.routes.slice(hitIndex + 1)).toEqual(immutableAssetRoutes);
     expect(immutableAssetRoutes).toEqual([
       {
-        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/dispatch/assets/",
+        ),
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1552,7 +1570,10 @@ describe("workspace deploy", () => {
         continue: true,
       },
       {
-        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
+        src: IMMUTABLE_ASSET_PATH_PATTERN.replace(
+          "^/assets/",
+          "^/starter/assets/",
+        ),
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1576,13 +1597,6 @@ describe("workspace deploy", () => {
     expect(
       immutableAssetRoutes.map((route: { src: string }) =>
         new RegExp(route.src).test("/dispatch/assets/app.js"),
-      ),
-    ).toEqual([false, false]);
-    expect(
-      immutableAssetRoutes.map((route: { src: string }) =>
-        new RegExp(route.src).test(
-          "/dispatch/assets/nested/missing-aB12_cdE.js",
-        ),
       ),
     ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(
