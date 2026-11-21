@@ -287,6 +287,28 @@ describe("pending suggestion amendments", () => {
     ).rejects.toMatchObject({ errorCode: "idempotency_conflict" });
   });
 
+  it("replays an amendment recorded before amendments could name a basis", async () => {
+    const recorded = await client.transaction((tx) =>
+      amendSuggestion(
+        tx,
+        suggestion,
+        request().operations,
+        "Original",
+        "amend-1",
+        JSON.stringify({
+          id: suggestion.id,
+          observedRevision: 1,
+          operations: request().operations,
+          summary: null,
+        }),
+      ),
+    );
+    expect(await updateResourceSuggestion.run(request(), author)).toEqual(
+      recorded,
+    );
+    expect(validate).not.toHaveBeenCalled();
+  });
+
   it("rejects changed canonical basis through adapter validation without an amendment", async () => {
     validate.mockRejectedValueOnce(new Error("Canonical changed"));
     await expect(

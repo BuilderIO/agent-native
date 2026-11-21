@@ -465,9 +465,7 @@ export const updateResourceSuggestion = defineAction({
       observedRevision: args.observedRevision,
       operations: args.operations,
       summary: args.summary ?? null,
-      ...(args.baseRevision === undefined
-        ? {}
-        : { baseRevision: args.baseRevision }),
+      baseRevision: args.baseRevision,
     });
     return db.transaction(async (tx) => {
       const current = await getSuggestion(args.id, tx);

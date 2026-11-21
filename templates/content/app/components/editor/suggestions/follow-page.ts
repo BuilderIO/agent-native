@@ -120,6 +120,7 @@ export function carryOwnSuggestions(args: {
       const operation = after[index];
       const entry = entries.get(suggestionOperationKey(previous));
       if (
+        !operation ||
         !entry ||
         operation.kind !== previous.kind ||
         operation.before.changedText !== previous.before.changedText ||
