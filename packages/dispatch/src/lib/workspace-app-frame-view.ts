@@ -14,6 +14,8 @@ export function workspaceAppFramePath(url: URL): string {
   const safe = new URL(url);
   if (safe.searchParams.has(EMBED_TOKEN_QUERY_PARAM)) {
     safe.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
+  }
+  if (safe.searchParams.has(DISPATCH_CHILD_BROWSER_TAB_PARAM)) {
     safe.searchParams.delete(DISPATCH_CHILD_BROWSER_TAB_PARAM);
   }
   return safe.pathname + safe.search + safe.hash;
