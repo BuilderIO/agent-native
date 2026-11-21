@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 
+import { IMPORTED_TRANSCRIPT_SOURCE } from "../../shared/transcript-import.js";
 import { getDb, schema } from "../db/index.js";
 
 /**
@@ -91,6 +92,18 @@ export async function saveTranscriptVersion(
       and(eq(v.recordingId, replaced.recordingId), notInArray(v.id, kept)),
     );
   return id;
+}
+
+export async function hasImportedTranscript(
+  recordingId: string,
+): Promise<boolean> {
+  const t = schema.recordingTranscripts;
+  const rows = await getDb()
+    .select({ source: t.source })
+    .from(t)
+    .where(eq(t.recordingId, recordingId))
+    .limit(1);
+  return rows.some((row) => row.source === IMPORTED_TRANSCRIPT_SOURCE);
 }
 
 /** Newest first. Callers must check the reader may edit the recording. */

@@ -13,17 +13,6 @@ import { assertNativeRecordingMedia } from "./lib/native-media.js";
 const MAX_CAS_ATTEMPTS = 5;
 const MAX_OVERLAYS = 200;
 
-function readOverlays(overlays: string | Record<string, unknown>[]) {
-  if (typeof overlays !== "string") return overlays;
-  try {
-    const parsed = JSON.parse(overlays);
-    if (!Array.isArray(parsed)) throw new Error("expected an array");
-    return parsed as unknown[];
-  } catch (e: any) {
-    throw new Error(`Invalid --overlays JSON: ${e.message ?? e}`);
-  }
-}
-
 export default defineAction({
   description:
     "Replace the overlay list on a recording. Today that means redaction boxes: {id,kind:'redact',style:'solid',startMs,endMs,keys:[{atMs,x,y,w,h}]} with coordinates normalized 0-1 and one key per position the box moves through. This only records where the boxes are — the video still shows everything until `burn-recording-redactions` renders them in.",
@@ -37,16 +26,13 @@ export default defineAction({
   }),
   needsApproval: async (args, ctx) => {
     if (!isOutsideAgentCall(ctx)) return false;
-    let kept: Set<string>;
-    try {
-      kept = new Set(
-        parseRedactions(readOverlays(args.overlays)).map(({ id }) => id),
-      );
-    } catch {
-      return false;
-    }
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) return false;
+    const kept = new Set(
+      typeof args.overlays === "string"
+        ? []
+        : parseRedactions(args.overlays).map(({ id }) => id),
+    );
     return parseRedactions(parseEdits(access.resource.editsJson).overlays).some(
       ({ id }) => !kept.has(id),
     );
@@ -57,7 +43,18 @@ export default defineAction({
       await assertAccess("recording", args.recordingId, "editor"),
     );
 
-    const incoming: unknown[] = readOverlays(args.overlays);
+    let incoming: unknown[];
+    if (typeof args.overlays === "string") {
+      try {
+        const parsed = JSON.parse(args.overlays);
+        if (!Array.isArray(parsed)) throw new Error("expected an array");
+        incoming = parsed;
+      } catch (e: any) {
+        throw new Error(`Invalid --overlays JSON: ${e.message ?? e}`);
+      }
+    } else {
+      incoming = args.overlays;
+    }
 
     if (incoming.length > MAX_OVERLAYS) {
       throw new Error(

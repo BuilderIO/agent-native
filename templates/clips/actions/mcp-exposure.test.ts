@@ -12,6 +12,15 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ),
 }));
 
+vi.mock("../server/lib/transcript-versions.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/transcript-versions.js")
+  >()),
+  hasImportedTranscript: vi.fn(
+    async () => stored.recording?.transcript === "imported",
+  ),
+}));
+
 const SERVED = [
   "add-comment",
   "add-vocabulary-term",
@@ -58,7 +67,6 @@ const SERVED = [
   "rename-folder",
   "rename-space",
   "reprocess-recording",
-  "request-transcript",
   "resolve-comment",
   "save-browser-transcript",
   "search-dictations",
@@ -139,6 +147,7 @@ const REDACTION = {
   keys: [{ atMs: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
 };
 const REDACTED = { editsJson: JSON.stringify({ overlays: [REDACTION] }) };
+const IMPORTED = { transcript: "imported" };
 const EXPIRES = "2026-12-01T00:00:00.000Z";
 const LATER = "2026-12-31T00:00:00.000Z";
 const SOONER = "2026-11-25T00:00:00.000Z";
@@ -176,6 +185,7 @@ const WIDENS_ACCESS = [
     { recordingId: "rec-1", overlays: "[]" },
     REDACTED,
   ],
+  ["request-transcript", { recordingId: "rec-1", regenerate: true }, IMPORTED],
 ] as const;
 
 const KEEPS_ACCESS = [
@@ -228,6 +238,9 @@ const KEEPS_ACCESS = [
     { recordingId: "rec-1", overlays: [] },
     { editsJson: null },
   ],
+  ["request-transcript", { recordingId: "rec-1" }, IMPORTED],
+  ["request-transcript", { recordingId: "rec-1", regenerate: true }, {}],
+  ["request-transcript", { recordingId: "rec-1", regenerate: true }, null],
 ] as const;
 
 type Exposure = {
