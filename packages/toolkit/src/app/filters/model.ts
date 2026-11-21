@@ -848,7 +848,7 @@ export type FilterDateBound = { day: string } | { instant: number };
 export function resolveFilterDateBound(
   value: string,
   today: string,
-  options: { times?: boolean; timeZone?: string } = {},
+  options: { times?: boolean | undefined; timeZone?: string | undefined } = {},
 ): FilterDateBound | null {
   const day = resolveFilterDay(value, today);
   if (day !== null) return { day };
