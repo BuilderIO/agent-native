@@ -7157,8 +7157,7 @@ function PageEditorSessionBody({
         refuse();
         return;
       }
-      if (suggestionBaseRef.current?.id !== base.id) return;
-      if (editorClosed()) {
+      if (editorClosed() || suggestionBaseRef.current?.id !== base.id) {
         refuse();
         return;
       }
