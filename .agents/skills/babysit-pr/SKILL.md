@@ -170,17 +170,13 @@ Use `patch` for fixes, docs, and refactors, `minor` for additive features, and
 
 ## Syncing main
 
-Merge `origin/main` only when GitHub reports `CONFLICTING`. A behind count,
-pending checks, or a failing check whose fix exists only on `main` are no
-reason to sync: in the last case, stop and report blocked with what `main` has. Use a normal merge, never a rebase, with the tree clean
-and HEAD equal to the live PR head:
-
-```bash
-dirty=$(git status --porcelain -- ':/' ':(top,exclude)learnings.md' ':(top,exclude)bridge/**' ':(top,exclude)data/**') \
-  && test -z "$dirty" \
-  && [ "$(git rev-parse HEAD)" = "$(gh pr view $ARGUMENTS --json headRefOid --jq .headRefOid)" ] \
-  && git fetch origin main && git merge --no-edit origin/main
-```
+Run `node scripts/merge-main-into-pr.ts $ARGUMENTS`. It merges `origin/main`
+only when GitHub reports the PR `CONFLICTING`/`DIRTY` and refuses otherwise
+(exit 3): a behind count, pending checks, or a failing check whose fix exists
+only on `main` are no reason to sync (in the last case, stop and report
+blocked with what `main` has). It is a normal merge, never a rebase, and
+requires a clean tree and HEAD equal to the live PR head. Exit 1 means
+conflicts: resolve them, `git commit --no-edit`, push.
 
 For a `pnpm-lock.yaml` conflict, take one side with
 `git checkout --theirs -- pnpm-lock.yaml`, then

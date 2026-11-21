@@ -52,10 +52,10 @@ git rev-list --count HEAD..origin/main
   head when updating an existing PR), and carry only this task's changes.
 - If a dirty path isn't part of this task, leave it untouched and say so in
   the report.
-- Being behind `main` is fine. Merge `origin/main` only when GitHub reports
-  `CONFLICTING`; if a required check needs a fix that exists only on `main`,
-  stop and report blocked instead of syncing. Use a normal merge, never a
-  rebase.
+- Being behind `main` is fine. Merge `origin/main` only through
+  `node scripts/merge-main-into-pr.ts <n>`, which refuses unless GitHub reports
+  `CONFLICTING`/`DIRTY`; if a required check needs a fix that exists only on
+  `main`, stop and report blocked instead of syncing. Never rebase.
 
 ## 2. Validate and push
 

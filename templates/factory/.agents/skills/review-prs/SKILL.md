@@ -704,10 +704,9 @@ local work without explicit authorization.
 
 During review-only work, do not sync `origin/main`. During an explicitly
 authorized `/ship` for the same PR, follow that skill's safe-sync rule: merge
-fresh `origin/main` for a confirmed conflict or a failing required check fixed
-there, after verifying the exact live head and a clean task-owned worktree.
-Use a normal merge for shared branches. Never sync just to clear a behind
-count or restart checks.
+fresh `origin/main` only through `node scripts/merge-main-into-pr.ts <n>`, which
+refuses unless GitHub reports a conflict and checks the exact live head and a
+clean worktree. Never sync just to clear a behind count or restart checks.
 
 ## End-of-run recap
 
