@@ -170,9 +170,9 @@ Use `patch` for fixes, docs, and refactors, `minor` for additive features, and
 
 ## Syncing main
 
-Merge `origin/main` only when GitHub reports `CONFLICTING`, or a failing
-required check is already fixed on `main`. A behind count or pending checks
-are no reason to sync. Use a normal merge, never a rebase, with the tree clean
+Merge `origin/main` only when GitHub reports `CONFLICTING`. A behind count,
+pending checks, or a failing check whose fix exists only on `main` are no
+reason to sync: in the last case, stop and report blocked with what `main` has. Use a normal merge, never a rebase, with the tree clean
 and HEAD equal to the live PR head:
 
 ```bash
