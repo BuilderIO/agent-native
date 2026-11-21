@@ -166,6 +166,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
+import { BuilderArticleAutosavePanel } from "./database-sources/BuilderArticleAutosave";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -1445,10 +1446,28 @@ function PropertyRow({
       )}
     </div>
   );
-  if (!commentState.enabled || !commentState.inlineThreads) return row;
+  const builderAutosave =
+    property.definition.systemRole === "builder_status" ? (
+      <BuilderArticleAutosavePanel
+        documentId={documentId}
+        databaseId={property.definition.databaseId}
+        canEdit={canEditValues}
+      />
+    ) : null;
+  if (!commentState.enabled || !commentState.inlineThreads) {
+    return builderAutosave ? (
+      <>
+        {row}
+        {builderAutosave}
+      </>
+    ) : (
+      row
+    );
+  }
   return (
     <>
       {row}
+      {builderAutosave}
       <PropertyThreadsBox propertyId={property.definition.id}>
         {commentState.inlineThreads}
       </PropertyThreadsBox>

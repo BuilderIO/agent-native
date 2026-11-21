@@ -43,6 +43,8 @@ Die App öffnet sich unter `http://localhost:8082`. Wenn sie sich nicht automati
 
 Kalender speichert diese in seinem eigenen Secret-Speicher, nicht in einer `.env`-Datei, sodass dieser Schritt auf Windows und macOS identisch ist. Tokens werden nach dem Verbinden automatisch erneuert.
 
+Setzen Sie bei einem Deployment `GOOGLE_CLIENT_ID` und `GOOGLE_CLIENT_SECRET` in dessen Umgebung. Die Schaltfläche **Melden Sie sich mit Google an** fragt dann auf demselben Google-Bildschirm nach Kalenderzugriff, sodass die Anmeldung dieses Konto auch verbindet; weitere Konten laufen weiterhin über **Konto hinzufügen**. Die Anmeldung kehrt zur selben Adresse `/_agent-native/google/callback` zurück wie das Verbinden, sodass diese eine Weiterleitungs-URI beides abdeckt. Ohne diese Variablen fragt die Anmeldung nur, wer Sie sind, und Google wird danach verbunden.
+
 ### Zoom verbinden (optional)
 
 Anders als Google hat Zoom kein Formular in den Einstellungen. Erstellen Sie eine `.env`-Datei im Projektstammverzeichnis (oder ergänzen Sie die bestehende) mit:

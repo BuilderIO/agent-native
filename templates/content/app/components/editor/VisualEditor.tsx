@@ -270,6 +270,7 @@ import {
 } from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { useTurnTableIntoCollection } from "./use-turn-table-into-collection";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
@@ -1873,6 +1874,11 @@ interface VisualEditorProps {
     revision: string;
     updatedAt: string;
     sequence: number;
+  } | null;
+  mergedLocalSave?: {
+    sent: string;
+    value: string;
+    revision: string;
   } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{
@@ -3863,6 +3869,7 @@ export function VisualEditor({
   contentUpdatedAt,
   contentRevision,
   acknowledgedLocalSnapshot,
+  mergedLocalSave,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
@@ -4897,6 +4904,19 @@ export function VisualEditor({
     },
   });
   historyEditorRef.current = editor;
+  const turnTableIntoCollection = useTurnTableIntoCollection({
+    editor,
+    documentId,
+    bodyIsLiveCopy,
+    persist: (markdown) =>
+      Promise.resolve(
+        persistEditorContent(editor, {
+          markdown,
+          immediate: true,
+          userInitiated: true,
+        }),
+      ).then(isEditorDraftSaveAccepted),
+  });
   const appliedContentResetKeyRef = useRef(contentResetKey);
   useLayoutEffect(() => {
     if (!editor || appliedContentResetKeyRef.current === contentResetKey)
@@ -5463,6 +5483,7 @@ export function VisualEditor({
       : contentRevision,
     compareContentRevisions: compareDocumentBodyRevisions,
     acknowledgedLocalSnapshot,
+    mergedLocalSave,
     collabContentRevision: propsPredateAcknowledgedRestore
       ? null
       : collabContentRevision,
@@ -6235,6 +6256,11 @@ export function VisualEditor({
           documentId={documentId}
           editor={editor}
           onComment={onComment}
+          onTurnTableIntoCollection={
+            documentId && !directoryWidgetEditing
+              ? turnTableIntoCollection
+              : undefined
+          }
           suggesting={suggesting}
         />
       ) : null}
