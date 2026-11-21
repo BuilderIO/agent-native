@@ -450,16 +450,41 @@ describe("runScheduledDataProgram", () => {
     );
   });
 
-  it.each(["owner_unverifiable", "config_invalid"])(
-    "skips this pass without a record when the owner check fails with %s",
-    async (code) => {
+  it("skips this pass without a record when the owner lookup hit a passing database error", async () => {
+    identityMocks.validateAutomationRunIdentity.mockResolvedValue({
+      ok: false,
+      code: "owner_unverifiable",
+      reason: "lookup failed",
+    });
+    const sandbox = readsOrgToken();
+    const { runScheduledDataProgram } = await loadExecute();
+
+    const outcome = await runScheduledDataProgram(makeProgram(), {
+      deadline: farDeadline(),
+    });
+
+    expect(outcome).toBe("owner_unverified");
+    expect(sandbox).not.toHaveBeenCalled();
+    expect(storeMocks.recordDataProgramRun).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a database error that isn't transient", { code: "config_invalid" }],
+    [
+      "a deployment with no built-in user accounts",
+      { code: "owner_unverifiable", accountStatus: "untracked" },
+    ],
+  ])(
+    "records a failed run for an owner check that won't pass: %s",
+    async (_label, failure) => {
       identityMocks.validateAutomationRunIdentity.mockResolvedValue({
         ok: false,
-        code,
-        reason: "lookup failed",
+        reason: 'could not verify user "owner@example.com"',
+        ...failure,
       });
       const sandbox = readsOrgToken();
-      const { runScheduledDataProgram } = await loadExecute();
+      const { runScheduledDataProgram, SCHEDULE_OWNER_UNVERIFIED } =
+        await loadExecute();
 
       const outcome = await runScheduledDataProgram(makeProgram(), {
         deadline: farDeadline(),
@@ -467,9 +492,37 @@ describe("runScheduledDataProgram", () => {
 
       expect(outcome).toBe("owner_unverified");
       expect(sandbox).not.toHaveBeenCalled();
-      expect(storeMocks.recordDataProgramRun).not.toHaveBeenCalled();
+      expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+        "dpr_new",
+        expect.objectContaining({
+          status: "failed",
+          errorCode: SCHEDULE_OWNER_UNVERIFIED,
+        }),
+      );
+      for (const [, update] of storeMocks.updateDataProgramRun.mock.calls) {
+        expect(JSON.stringify(update)).not.toContain("owner@example.com");
+      }
     },
   );
+
+  it("starts nothing when reading the program again leaves too little time", async () => {
+    const controller = new AbortController();
+    storeMocks.listScheduledDataPrograms.mockImplementation(async () => {
+      controller.abort();
+      return [makeProgram()];
+    });
+    const sandbox = readsOrgToken();
+    const { runScheduledDataProgram } = await loadExecute();
+
+    const outcome = await runScheduledDataProgram(makeProgram(), {
+      deadline: farDeadline(),
+      signal: controller.signal,
+    });
+
+    expect(outcome).toBe("no_time");
+    expect(sandbox).not.toHaveBeenCalled();
+    expect(storeMocks.recordDataProgramRun).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["saved", [makeProgram({ updatedAt: new Date(60_000).toISOString() })]],
@@ -615,6 +668,11 @@ describe("scheduledDataProgramDueAt", () => {
       "refreshTtlMs after the owner was found gone",
       { status: "failed" as const, errorCode: "schedule_owner_invalid" },
       HOUR_MS,
+    ],
+    [
+      "five minutes after an owner check that won't pass",
+      { status: "failed" as const, errorCode: "schedule_owner_unverified" },
+      5 * 60_000,
     ],
   ])("is due %s", async (_label, overrides, waitMs) => {
     storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(

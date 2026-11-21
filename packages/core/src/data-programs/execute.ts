@@ -824,7 +824,10 @@ async function runSharedProgram(
  * `running` found one still going; `not_shareable` and `failed` come from this
  * run or from one whose retry wait isn't over; `owner_invalid` means the owner
  * left the org or no longer exists, which is checked again after
- * `refreshTtlMs`, and `owner_unverified` that checking them failed this time;
+ * `refreshTtlMs`, and `owner_unverified` that checking them failed: a lookup
+ * error that may pass records nothing, while one that won't (a deployment with
+ * no built-in user accounts, or a database error that isn't transient) is
+ * recorded as `schedule_owner_unverified` and checked again after five minutes;
  * `no_time` that the sweep had too little time left to start a run; `skipped`
  * that the program can't have a scheduled refresh, or was saved, archived or
  * switched off while this sweep checked it.
@@ -841,6 +844,7 @@ export type ScheduledRefreshOutcome =
   | "skipped";
 
 export const SCHEDULE_OWNER_INVALID = "schedule_owner_invalid";
+export const SCHEDULE_OWNER_UNVERIFIED = "schedule_owner_unverified";
 
 const SCHEDULED_REFRESH_LEAD_MS = DEFAULT_TIMEOUT_MS + 60_000;
 const SCHEDULED_FAILURE_RETRY_MS = 5 * 60_000;
@@ -854,8 +858,9 @@ const MIN_SCHEDULED_RUN_MS = PANEL_VIEW_TIMEOUT_MS;
  * last one goes stale, so viewers keep reading the shared run; a failed one is
  * retried after five minutes. A run starts only with at least a panel view's
  * time limit left, so one the sweep cuts short doesn't count against the
- * program. Only an owner confirmed gone pauses the schedule; an owner check
- * that fails any other way is tried again on the next pass. A run recorded
+ * program. Only an owner confirmed gone pauses the schedule for
+ * `refreshTtlMs`; an owner check that fails any other way waits at most five
+ * minutes. A run recorded
  * after a save counts as the saved version's, so a program saved, archived or
  * switched off during the owner check is left to the next pass, which reads it
  * as it is then. Only the server's sweep calls this.
@@ -891,13 +896,20 @@ export async function runScheduledDataProgram(
     program.ownerEmail,
     sharing.viewer.orgId,
   );
-  if (outOfTime()) return "no_time";
   const current = (
     await listScheduledDataPrograms(program.appId, program.id)
   ).find((p) => p.id === program.id);
+  if (outOfTime()) return "no_time";
   if (current?.updatedAt !== program.updatedAt) return "skipped";
   if (!owner.ok) {
-    if (owner.code !== OWNER_MISSING_ERROR_CODE) return "owner_unverified";
+    const missing = owner.code === OWNER_MISSING_ERROR_CODE;
+    if (
+      !missing &&
+      owner.code === "owner_unverifiable" &&
+      owner.accountStatus !== "untracked"
+    ) {
+      return "owner_unverified";
+    }
     const refused = await recordDataProgramRun({
       programId: program.id,
       paramsHash: sharing.paramsHash,
@@ -907,13 +919,14 @@ export async function runScheduledDataProgram(
     });
     await updateDataProgramRun(refused.id, {
       status: "failed",
-      errorCode: SCHEDULE_OWNER_INVALID,
-      errorMessage:
-        "The program's owner is no longer in the organization, so its scheduled refresh didn't run.",
+      errorCode: missing ? SCHEDULE_OWNER_INVALID : SCHEDULE_OWNER_UNVERIFIED,
+      errorMessage: missing
+        ? "The program's owner is no longer in the organization, so its scheduled refresh didn't run."
+        : "The program's owner couldn't be checked, so its scheduled refresh didn't run. It's tried again in five minutes.",
       finishedAt: Date.now(),
       durationMs: 0,
     });
-    return "owner_invalid";
+    return missing ? "owner_invalid" : "owner_unverified";
   }
 
   const run = await executeSharedRun(
@@ -979,7 +992,13 @@ function scheduledRefreshTarget(
 }
 
 interface ScheduledRefreshWait {
-  outcome: "running" | "fresh" | "not_shareable" | "owner_invalid" | "failed";
+  outcome:
+    | "running"
+    | "fresh"
+    | "not_shareable"
+    | "owner_invalid"
+    | "owner_unverified"
+    | "failed";
   until: number;
 }
 
@@ -1013,6 +1032,9 @@ async function scheduledRefreshWait(
   }
   if (latest.errorCode === SCHEDULE_OWNER_INVALID) {
     return waitFor("owner_invalid", program.refreshTtlMs);
+  }
+  if (latest.errorCode === SCHEDULE_OWNER_UNVERIFIED) {
+    return waitFor("owner_unverified", SCHEDULED_FAILURE_RETRY_MS);
   }
   return waitFor("failed", SCHEDULED_FAILURE_RETRY_MS);
 }

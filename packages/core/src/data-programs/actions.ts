@@ -300,12 +300,16 @@ export function createDataProgramActions(
         lastRun && lastRun.status !== "succeeded"
           ? await getLatestSuccessfulRun(program.id, hash)
           : null;
-      const orgSharedRun = program.orgId
+      const latestShared = program.orgId
         ? await getLatestFinishedRunOutcome(
             program.id,
             hashOrgSharedDataProgramParams(defaultParams, program.orgId),
           )
         : null;
+      const orgSharedRun =
+        latestShared && latestShared.startedAt >= Date.parse(program.updatedAt)
+          ? latestShared
+          : null;
 
       return {
         id: program.id,

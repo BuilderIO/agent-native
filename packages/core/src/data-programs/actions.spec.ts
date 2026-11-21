@@ -229,7 +229,7 @@ describe("data-programs/actions", () => {
     );
   });
 
-  it("returns get-data-program's org-shared run status without its rows or row count", async () => {
+  it("returns get-data-program's org-shared run status without its rows or row count, for runs since the last save", async () => {
     mocks.getDataProgram.mockResolvedValue({
       id: "dp_1",
       name: "collector",
@@ -245,6 +245,7 @@ describe("data-programs/actions", () => {
       archivedAt: null,
       outputColumns: null,
       orgId: "org_1",
+      updatedAt: new Date(600).toISOString(),
     });
     mocks.getLatestFinishedRun.mockResolvedValue(null);
     mocks.getLatestFinishedRunOutcome.mockResolvedValue({
@@ -271,6 +272,19 @@ describe("data-programs/actions", () => {
       errorMessage: null,
       finishedAt: 700,
     });
+
+    mocks.getLatestFinishedRunOutcome.mockResolvedValue({
+      status: "succeeded",
+      errorCode: null,
+      errorMessage: null,
+      startedAt: 550,
+      finishedAt: 580,
+    });
+    const afterSave = await makeActions()["get-data-program"].run(
+      { programId: "dp_1" },
+      { userEmail: "viewer@example.com", orgId: "org_1", caller: "tool" },
+    );
+    expect(afterSave.orgSharedRun).toBeNull();
   });
 
   it("scopes delete-data-program archives to the current app", async () => {
