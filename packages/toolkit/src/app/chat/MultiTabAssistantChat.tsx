@@ -2138,7 +2138,9 @@ export function MultiTabAssistantChat({
     // Hide tabs that have had no activity for more than 12 hours. Stale tabs
     // are removed from the sidebar on load but remain accessible via history.
     const now = Date.now();
+    // A thread the user opened by URL is never stale, however old it is.
     const isStale = (id: string) => {
+      if (id === urlThreadIdRef.current) return false;
       const thread = threadMap.get(id);
       return thread
         ? now - thread.updatedAt > STALE_THREAD_THRESHOLD_MS
@@ -2201,6 +2203,7 @@ export function MultiTabAssistantChat({
     const activeThread = threads.find((thread) => thread.id === activeThreadId);
     if (
       activeThread &&
+      activeThreadId !== urlThreadIdRef.current &&
       Date.now() - activeThread.updatedAt > STALE_THREAD_THRESHOLD_MS
     ) {
       return;
