@@ -760,6 +760,8 @@ const editor = {
     lockedSuggesting: "提案ではこの種類のブロックを追加・削除できません。",
     lockedPage: "このページではその変更はできません。",
     lockedCollection: "コレクションは、それが属するページに残ります。",
+    lockedUploadedClip:
+      "このページにアップロードした Clip は、視聴できる人がページで決まるため、このページに残ります。",
     moveTo: "移動先",
     moveToTitle: "ブロックの移動先",
     movingTo: "{{title}} に移動しています…",

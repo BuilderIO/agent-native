@@ -776,6 +776,8 @@ const editor = {
       "Vorschläge können diese Art von Block nicht hinzufügen oder entfernen.",
     lockedPage: "Diese Seite lässt diese Änderung nicht zu.",
     lockedCollection: "Eine Sammlung bleibt auf der Seite, zu der sie gehört.",
+    lockedUploadedClip:
+      "Ein auf diese Seite hochgeladener Clip bleibt hier, weil die Seite bestimmt, wer ihn ansehen kann.",
     moveTo: "Verschieben nach",
     moveToTitle: "Block verschieben nach",
     movingTo: "Wird nach {{title}} verschoben…",

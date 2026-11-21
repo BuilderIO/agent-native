@@ -753,6 +753,8 @@ const editor = {
       "제안으로는 이 유형의 블록을 추가하거나 제거할 수 없습니다.",
     lockedPage: "이 페이지에서는 해당 변경을 할 수 없습니다.",
     lockedCollection: "컬렉션은 속한 페이지에 남습니다.",
+    lockedUploadedClip:
+      "이 페이지에 업로드한 Clip은 볼 수 있는 사람이 페이지에 따라 정해지므로 이 페이지에 남습니다.",
     moveTo: "이동",
     moveToTitle: "블록 이동 위치",
     movingTo: "{{title}}(으)로 이동하는 중…",

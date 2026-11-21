@@ -100,6 +100,7 @@ const LOCK_REASON_KEYS: Record<BlockLock, string> = {
   suggesting: "editor.blockMenu.lockedSuggesting",
   page: "editor.blockMenu.lockedPage",
   collection: "editor.blockMenu.lockedCollection",
+  uploadedClip: "editor.blockMenu.lockedUploadedClip",
 };
 
 const SHEET_ITEM = "data-block-sheet-item";

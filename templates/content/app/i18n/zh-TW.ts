@@ -460,6 +460,8 @@ const overrides = {
       lockedSuggesting: "建議無法新增或移除此類區塊。",
       lockedPage: "此頁面不允許該變更。",
       lockedCollection: "集合會留在它所屬的頁面上。",
+      lockedUploadedClip:
+        "上傳到此頁面的 Clip 會留在此頁面，因為誰能觀看它由頁面決定。",
       moveTo: "移動到",
       moveToTitle: "將區塊移動到",
       movingTo: "正在移動到 {{title}}…",

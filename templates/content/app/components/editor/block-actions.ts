@@ -3,6 +3,10 @@ import {
   duplicateBlockTransaction,
 } from "@agent-native/toolkit/editor";
 import {
+  CLIP_EMBED_BLOCK_TYPE,
+  clipEmbedOriginFromRaw,
+} from "@shared/clip-embed-block";
+import {
   Fragment,
   type Node as ProseMirrorNode,
   type NodeType,
@@ -245,7 +249,12 @@ export function blockCommentRange(node: ProseMirrorNode, pos: number) {
 }
 
 /** Why the page refuses an action on a block, when it does. */
-export type BlockLock = "source" | "suggesting" | "page" | "collection";
+export type BlockLock =
+  | "source"
+  | "suggesting"
+  | "page"
+  | "collection"
+  | "uploadedClip";
 
 function refuses(state: EditorState, tr: Transaction) {
   return state.plugins.some(
@@ -279,6 +288,20 @@ function isInlineCollection(node: ProseMirrorNode) {
   );
 }
 
+function isUploadedClip(node: ProseMirrorNode) {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === CLIP_EMBED_BLOCK_TYPE &&
+    clipEmbedOriginFromRaw(node.attrs.__raw) === "upload"
+  );
+}
+
+function moveLock(node: ProseMirrorNode): BlockLock | null {
+  if (contains(node, isInlineCollection)) return "collection";
+  if (contains(node, isUploadedClip)) return "uploadedClip";
+  return null;
+}
+
 /**
  * Whether the page would let the menu duplicate or delete the block at `pos`.
  * Asks the page's filters about the drag handle's own edits, so the menu can
@@ -304,7 +327,6 @@ export function blockActionLocks(
   return {
     duplicate: !duplicate || refuses(state, duplicate) ? lock : null,
     remove: removeLock,
-    move:
-      removeLock ?? (contains(node, isInlineCollection) ? "collection" : null),
+    move: removeLock ?? moveLock(node),
   };
 }

@@ -769,6 +769,8 @@ const editor = {
       "Las sugerencias no pueden añadir ni quitar este tipo de bloque.",
     lockedPage: "Esta página no permite ese cambio.",
     lockedCollection: "Una colección se queda en la página a la que pertenece.",
+    lockedUploadedClip:
+      "Un Clip subido a esta página se queda en ella, porque la página decide quién puede verlo.",
     moveTo: "Mover a",
     moveToTitle: "Mover bloque a",
     movingTo: "Moviendo a {{title}}…",

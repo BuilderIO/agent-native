@@ -778,6 +778,8 @@ const editor = {
     lockedPage: "Cette page n’autorise pas cette modification.",
     lockedCollection:
       "Une collection reste sur la page à laquelle elle appartient.",
+    lockedUploadedClip:
+      "Un Clip importé sur cette page y reste, car c’est la page qui détermine qui peut le regarder.",
     moveTo: "Déplacer vers",
     moveToTitle: "Déplacer le bloc vers",
     movingTo: "Déplacement vers {{title}}…",

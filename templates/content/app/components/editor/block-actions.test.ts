@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ClipEmbedOrigin } from "@shared/clip-embed-block";
 import { Editor, type JSONContent } from "@tiptap/core";
 import { Plugin, type Transaction } from "@tiptap/pm/state";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +13,7 @@ import {
   turnBlockInto,
   type TurnIntoTarget,
 } from "./block-actions";
+import { clipEmbedBlockContent } from "./clip-embed/clip-embed-content";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 const text = (value: string) => ({ type: "text", text: value });
@@ -167,6 +169,37 @@ describe("block actions", () => {
     expect(blockActionLocks(page.state, togglePos, doc.child(2)).move).toBe(
       "collection",
     );
+  });
+
+  it("keeps a Clip uploaded to the page on it, in a Toggle too, and lets a linked Clip move", () => {
+    const clip = (origin: ClipEmbedOrigin) =>
+      clipEmbedBlockContent("rec_1", origin, `clip-${origin}`);
+    const page = mount([
+      paragraph("Hello"),
+      clip("upload"),
+      {
+        type: "notionToggle",
+        content: [
+          { type: "notionToggleSummary", content: [text("Demo")] },
+          clip("upload"),
+        ],
+      },
+      clip("link"),
+    ]);
+    const { doc } = page.state;
+    const at = (index: number) => {
+      let pos = 0;
+      for (let i = 0; i < index; i++) pos += doc.child(i).nodeSize;
+      return blockActionLocks(page.state, pos, doc.child(index));
+    };
+
+    expect(at(1)).toEqual({
+      duplicate: null,
+      remove: null,
+      move: "uploadedClip",
+    });
+    expect(at(2).move).toBe("uploadedClip");
+    expect(at(3).move).toBeNull();
   });
 
   it("locks a block suggestions can't add or remove, only while suggesting", () => {

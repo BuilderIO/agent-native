@@ -1664,6 +1664,8 @@ const enUS = {
       lockedSuggesting: "Suggestions can’t add or remove this kind of block.",
       lockedPage: "This page doesn’t allow that change.",
       lockedCollection: "A collection stays on the page it belongs to.",
+      lockedUploadedClip:
+        "A Clip uploaded to this page stays on it, since the page decides who can watch it.",
       moveTo: "Move to",
       moveToTitle: "Move block to",
       movingTo: "Moving to {{title}}…",

@@ -713,6 +713,8 @@ const editor = {
     lockedSuggesting: "建议无法添加或移除此类块。",
     lockedPage: "此页面不允许该更改。",
     lockedCollection: "集合会留在它所属的页面上。",
+    lockedUploadedClip:
+      "上传到此页面的 Clip 会留在此页面，因为谁能观看它由页面决定。",
     moveTo: "移动到",
     moveToTitle: "将块移动到",
     movingTo: "正在移动到 {{title}}…",
