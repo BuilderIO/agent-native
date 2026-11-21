@@ -175,7 +175,12 @@ describe("update-calendar-description", () => {
 
     await updateExternalCalendars.run({
       calendars: [
-        { id: "talks", name: "Talks", url: "https://a.test/t.ics", color: "red" },
+        {
+          id: "talks",
+          name: "Talks",
+          url: "https://a.test/t.ics",
+          color: "red",
+        },
         {
           id: "holidays",
           name: "Holidays",
@@ -194,7 +199,12 @@ describe("update-calendar-description", () => {
         color: "red",
         description: "Talks",
       },
-      { id: "holidays", name: "Holidays", url: "https://a.test/h.ics", color: "green" },
+      {
+        id: "holidays",
+        name: "Holidays",
+        url: "https://a.test/h.ics",
+        color: "green",
+      },
     ]);
   });
 
