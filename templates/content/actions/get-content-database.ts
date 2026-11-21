@@ -8,6 +8,10 @@ import type {
   ContentSidebarViewOrder,
 } from "../shared/api.js";
 import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import {
+  contentOutputContract,
+  getContentDatabaseOutputSchema,
+} from "./_content-output-contracts.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
@@ -70,6 +74,10 @@ export default defineAction({
       .default(100)
       .describe("Page size; defaults to 100. Paginate with offset."),
   }),
+  outputSchema: contentOutputContract<
+    ContentDatabaseResponsePayload | ContentDatabaseUnavailableResponse
+  >(getContentDatabaseOutputSchema),
+  mcpOutputSchema: true,
   http: { method: "GET" },
   readOnly: true,
   mcpAnnotations: {

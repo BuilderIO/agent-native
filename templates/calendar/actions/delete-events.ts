@@ -53,6 +53,12 @@ async function resolveFilterTimezone(
 }
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   searchHints: [
     "cancel meetings",
     "remove several meetings",
