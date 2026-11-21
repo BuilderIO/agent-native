@@ -45,6 +45,7 @@ import {
   getLatestRun,
   getLatestSharedRunRefusal,
   getLatestSuccessfulRun,
+  listScheduledDataPrograms,
   recordDataProgramRun,
   updateDataProgramRun,
   MAX_PROGRAM_ROWS,
@@ -825,7 +826,8 @@ async function runSharedProgram(
  * left the org or no longer exists, which is checked again after
  * `refreshTtlMs`, and `owner_unverified` that checking them failed this time;
  * `no_time` that the sweep had too little time left to start a run; `skipped`
- * that the program can't have a scheduled refresh.
+ * that the program can't have a scheduled refresh, or was saved, archived or
+ * switched off while this sweep checked it.
  */
 export type ScheduledRefreshOutcome =
   | "refreshed"
@@ -852,7 +854,11 @@ const MIN_SCHEDULED_RUN_MS = PANEL_VIEW_TIMEOUT_MS;
  * last one goes stale, so viewers keep reading the shared run; a failed one is
  * retried after five minutes. A run starts only with at least a panel view's
  * time limit left, so one the sweep cuts short doesn't count against the
- * program. Only the server's sweep calls this.
+ * program. Only an owner confirmed gone pauses the schedule; an owner check
+ * that fails any other way is tried again on the next pass. A run recorded
+ * after a save counts as the saved version's, so a program saved, archived or
+ * switched off during the owner check is left to the next pass, which reads it
+ * as it is then. Only the server's sweep calls this.
  */
 export async function runScheduledDataProgram(
   program: DataProgramRow,
@@ -862,63 +868,36 @@ export async function runScheduledDataProgram(
     evaluator?: SandboxCodeEvaluator;
   },
 ): Promise<ScheduledRefreshOutcome> {
-  const orgId = program.orgId;
-  if (
-    !program.scheduledRefresh ||
-    program.archivedAt ||
-    program.background ||
-    !orgId ||
-    program.refreshMode !== "ttl" ||
-    program.refreshTtlMs < MIN_SCHEDULED_REFRESH_MS
-  ) {
-    return "skipped";
-  }
-  const params = program.defaultParams
-    ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
-    : {};
-  const sharing: OrgSharing = {
-    viewer: { userEmail: program.ownerEmail, orgId },
-    paramsHash: hashOrgSharedDataProgramParams(params, orgId),
-  };
-  const savedAt = Date.parse(program.updatedAt);
-
-  const active = await getActiveRun(program.id, sharing.paramsHash);
-  if (
-    active &&
-    active.startedAt >= savedAt &&
-    Date.now() - active.startedAt < DEFAULT_TIMEOUT_MS
-  ) {
-    return "running";
-  }
-  const latest = await getLatestFinishedRunOutcome(
-    program.id,
+  const target = scheduledRefreshTarget(program);
+  if (!target) return "skipped";
+  const { params, sharing } = target;
+  const wait = await scheduledRefreshWait(
+    program,
     sharing.paramsHash,
+    Date.now(),
   );
-  if (latest && latest.startedAt >= savedAt) {
-    const age = Date.now() - (latest.finishedAt ?? latest.startedAt);
-    if (latest.status === "succeeded") {
-      if (age < program.refreshTtlMs - SCHEDULED_REFRESH_LEAD_MS) {
-        return "fresh";
-      }
-    } else if (latest.errorCode === SHARED_RUN_NOT_SHAREABLE) {
-      if (age < NOT_SHAREABLE_RETRY_MS) return "not_shareable";
-    } else if (latest.errorCode === SCHEDULE_OWNER_INVALID) {
-      if (age < program.refreshTtlMs) return "owner_invalid";
-    } else if (age < SCHEDULED_FAILURE_RETRY_MS) {
-      return "failed";
-    }
-  }
+  if (wait) return wait.outcome;
 
   const outOfTime = () =>
     Boolean(options.signal?.aborted) ||
     options.deadline - Date.now() < MIN_SCHEDULED_RUN_MS;
   if (outOfTime()) return "no_time";
-  const { validateAutomationRunIdentity } =
-    await import("../jobs/background-automation-runner.js");
-  const owner = await validateAutomationRunIdentity(program.ownerEmail, orgId);
+  const [{ validateAutomationRunIdentity }, { OWNER_MISSING_ERROR_CODE }] =
+    await Promise.all([
+      import("../jobs/background-automation-runner.js"),
+      import("../jobs/automation-outcome.js"),
+    ]);
+  const owner = await validateAutomationRunIdentity(
+    program.ownerEmail,
+    sharing.viewer.orgId,
+  );
   if (outOfTime()) return "no_time";
+  const current = (
+    await listScheduledDataPrograms(program.appId, program.id)
+  ).find((p) => p.id === program.id);
+  if (current?.updatedAt !== program.updatedAt) return "skipped";
   if (!owner.ok) {
-    if (owner.code === "owner_unverifiable") return "owner_unverified";
+    if (owner.code !== OWNER_MISSING_ERROR_CODE) return "owner_unverified";
     const refused = await recordDataProgramRun({
       programId: program.id,
       paramsHash: sharing.paramsHash,
@@ -943,7 +922,7 @@ export async function runScheduledDataProgram(
       programId: program.id,
       appId: program.appId,
       params,
-      ctx: { userEmail: program.ownerEmail, orgId },
+      ctx: { userEmail: program.ownerEmail, orgId: sharing.viewer.orgId },
       triggeredBy: "schedule",
       ...(options.evaluator ? { evaluator: options.evaluator } : {}),
     },
@@ -952,6 +931,90 @@ export async function runScheduledDataProgram(
     0,
   );
   return run.kind === "saved" ? "refreshed" : run.kind;
+}
+
+/**
+ * When a program with a scheduled refresh is next due, by the rules
+ * `runScheduledDataProgram` follows, as epoch ms: `now` when it's due already,
+ * or `null` when it can't have a scheduled refresh.
+ */
+export async function scheduledDataProgramDueAt(
+  program: DataProgramRow,
+  now: number = Date.now(),
+): Promise<number | null> {
+  const target = scheduledRefreshTarget(program);
+  if (!target) return null;
+  const wait = await scheduledRefreshWait(
+    program,
+    target.sharing.paramsHash,
+    now,
+  );
+  return wait?.until ?? now;
+}
+
+function scheduledRefreshTarget(
+  program: DataProgramRow,
+): { params: Record<string, unknown>; sharing: OrgSharing } | null {
+  const orgId = program.orgId;
+  if (
+    !program.scheduledRefresh ||
+    program.archivedAt ||
+    program.background ||
+    !orgId ||
+    program.refreshMode !== "ttl" ||
+    program.refreshTtlMs < MIN_SCHEDULED_REFRESH_MS
+  ) {
+    return null;
+  }
+  const params = program.defaultParams
+    ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
+    : {};
+  return {
+    params,
+    sharing: {
+      viewer: { userEmail: program.ownerEmail, orgId },
+      paramsHash: hashOrgSharedDataProgramParams(params, orgId),
+    },
+  };
+}
+
+interface ScheduledRefreshWait {
+  outcome: "running" | "fresh" | "not_shareable" | "owner_invalid" | "failed";
+  until: number;
+}
+
+async function scheduledRefreshWait(
+  program: DataProgramRow,
+  paramsHash: string,
+  now: number,
+): Promise<ScheduledRefreshWait | null> {
+  const savedAt = Date.parse(program.updatedAt);
+  const active = await getActiveRun(program.id, paramsHash);
+  if (
+    active &&
+    active.startedAt >= savedAt &&
+    now - active.startedAt < DEFAULT_TIMEOUT_MS
+  ) {
+    return { outcome: "running", until: active.startedAt + DEFAULT_TIMEOUT_MS };
+  }
+  const latest = await getLatestFinishedRunOutcome(program.id, paramsHash);
+  if (!latest || latest.startedAt < savedAt) return null;
+  const endedAt = latest.finishedAt ?? latest.startedAt;
+  const waitFor = (
+    outcome: ScheduledRefreshWait["outcome"],
+    ms: number,
+  ): ScheduledRefreshWait | null =>
+    endedAt + ms > now ? { outcome, until: endedAt + ms } : null;
+  if (latest.status === "succeeded") {
+    return waitFor("fresh", program.refreshTtlMs - SCHEDULED_REFRESH_LEAD_MS);
+  }
+  if (latest.errorCode === SHARED_RUN_NOT_SHAREABLE) {
+    return waitFor("not_shareable", NOT_SHAREABLE_RETRY_MS);
+  }
+  if (latest.errorCode === SCHEDULE_OWNER_INVALID) {
+    return waitFor("owner_invalid", program.refreshTtlMs);
+  }
+  return waitFor("failed", SCHEDULED_FAILURE_RETRY_MS);
 }
 
 async function resolveCacheHit(

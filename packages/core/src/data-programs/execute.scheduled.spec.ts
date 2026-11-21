@@ -75,6 +75,7 @@ const storeMocks = vi.hoisted(() => ({
   getLatestRun: vi.fn(),
   getLatestSharedRunRefusal: vi.fn(),
   getActiveRun: vi.fn(),
+  listScheduledDataPrograms: vi.fn(),
   recordDataProgramRun: vi.fn(),
   updateDataProgramRun: vi.fn(),
   MAX_PROGRAM_ROWS: 10_000,
@@ -154,6 +155,7 @@ beforeEach(() => {
   for (const mock of [
     storeMocks.getActiveRun,
     storeMocks.getLatestFinishedRunOutcome,
+    storeMocks.listScheduledDataPrograms,
     storeMocks.recordDataProgramRun,
     storeMocks.updateDataProgramRun,
     identityMocks.validateAutomationRunIdentity,
@@ -162,6 +164,7 @@ beforeEach(() => {
   }
   storeMocks.getActiveRun.mockResolvedValue(null);
   storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(null);
+  storeMocks.listScheduledDataPrograms.mockResolvedValue([makeProgram()]);
   storeMocks.recordDataProgramRun.mockResolvedValue(
     makeRun({ id: "dpr_new", status: "running" }),
   );
@@ -407,10 +410,13 @@ describe("runScheduledDataProgram", () => {
       finishedAgo(59_000, { status: "failed", errorCode: "not_shareable" }),
     );
 
-    const outcome = await runScheduledDataProgram(
-      makeProgram({ updatedAt: new Date(Date.now() - 1_000).toISOString() }),
-      { deadline: farDeadline() },
-    );
+    const program = makeProgram({
+      updatedAt: new Date(Date.now() - 1_000).toISOString(),
+    });
+    storeMocks.listScheduledDataPrograms.mockResolvedValue([program]);
+    const outcome = await runScheduledDataProgram(program, {
+      deadline: farDeadline(),
+    });
 
     expect(outcome).toBe("refreshed");
     expect(sandbox).toHaveBeenCalledTimes(1);
@@ -444,12 +450,58 @@ describe("runScheduledDataProgram", () => {
     );
   });
 
-  it("skips this pass without a record when the owner couldn't be checked", async () => {
+  it.each(["owner_unverifiable", "config_invalid"])(
+    "skips this pass without a record when the owner check fails with %s",
+    async (code) => {
+      identityMocks.validateAutomationRunIdentity.mockResolvedValue({
+        ok: false,
+        code,
+        reason: "lookup failed",
+      });
+      const sandbox = readsOrgToken();
+      const { runScheduledDataProgram } = await loadExecute();
+
+      const outcome = await runScheduledDataProgram(makeProgram(), {
+        deadline: farDeadline(),
+      });
+
+      expect(outcome).toBe("owner_unverified");
+      expect(sandbox).not.toHaveBeenCalled();
+      expect(storeMocks.recordDataProgramRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["saved", [makeProgram({ updatedAt: new Date(60_000).toISOString() })]],
+    ["archived or switched off", []],
+  ])(
+    "leaves a program %s during the owner check to the next pass",
+    async (_label, current) => {
+      storeMocks.listScheduledDataPrograms.mockResolvedValue(current);
+      const sandbox = readsOrgToken();
+      const { runScheduledDataProgram } = await loadExecute();
+
+      const outcome = await runScheduledDataProgram(makeProgram(), {
+        deadline: farDeadline(),
+      });
+
+      expect(outcome).toBe("skipped");
+      expect(storeMocks.listScheduledDataPrograms).toHaveBeenCalledWith(
+        "analytics",
+        PROGRAM_ID,
+      );
+      expect(sandbox).not.toHaveBeenCalled();
+      expect(storeMocks.recordDataProgramRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it("records no refusal for a program switched off while its owner was found gone", async () => {
     identityMocks.validateAutomationRunIdentity.mockResolvedValue({
       ok: false,
-      code: "owner_unverifiable",
-      reason: "lookup failed",
+      code: "owner_missing",
+      reason: "gone",
     });
+    storeMocks.listScheduledDataPrograms.mockResolvedValue([]);
     const sandbox = readsOrgToken();
     const { runScheduledDataProgram } = await loadExecute();
 
@@ -457,7 +509,7 @@ describe("runScheduledDataProgram", () => {
       deadline: farDeadline(),
     });
 
-    expect(outcome).toBe("owner_unverified");
+    expect(outcome).toBe("skipped");
     expect(sandbox).not.toHaveBeenCalled();
     expect(storeMocks.recordDataProgramRun).not.toHaveBeenCalled();
   });
@@ -524,5 +576,88 @@ describe("runScheduledDataProgram", () => {
     });
 
     expect(sandbox.mock.calls[0]?.[0].timeoutMs).toBeLessThanOrEqual(120_000);
+  });
+});
+
+describe("scheduledDataProgramDueAt", () => {
+  const now = Date.parse("2026-11-21T12:00:00Z");
+  const endedAgo = (ms: number, overrides: Partial<DataProgramRunRow> = {}) =>
+    makeRun({ startedAt: now - ms - 5, finishedAt: now - ms, ...overrides });
+
+  it("is due now when it hasn't run since its last save", async () => {
+    const { scheduledDataProgramDueAt } = await loadExecute();
+    await expect(scheduledDataProgramDueAt(makeProgram(), now)).resolves.toBe(
+      now,
+    );
+
+    storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
+      endedAgo(10 * 60_000),
+    );
+    const savedSince = makeProgram({
+      updatedAt: new Date(now - 60_000).toISOString(),
+    });
+    await expect(scheduledDataProgramDueAt(savedSince, now)).resolves.toBe(now);
+  });
+
+  it.each([
+    ["three minutes before a good run goes stale", {}, HOUR_MS - 3 * 60_000],
+    [
+      "five minutes after a failed run",
+      { status: "failed" as const, errorCode: "shared_run_failed" },
+      5 * 60_000,
+    ],
+    [
+      "a day after a run that wasn't shareable",
+      { status: "failed" as const, errorCode: "not_shareable" },
+      24 * HOUR_MS,
+    ],
+    [
+      "refreshTtlMs after the owner was found gone",
+      { status: "failed" as const, errorCode: "schedule_owner_invalid" },
+      HOUR_MS,
+    ],
+  ])("is due %s", async (_label, overrides, waitMs) => {
+    storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
+      endedAgo(60_000, overrides),
+    );
+    const { scheduledDataProgramDueAt } = await loadExecute();
+
+    await expect(scheduledDataProgramDueAt(makeProgram(), now)).resolves.toBe(
+      now - 60_000 + waitMs,
+    );
+  });
+
+  it("is due when a run in progress passes the time limit", async () => {
+    storeMocks.getActiveRun.mockResolvedValue(
+      makeRun({ status: "running", startedAt: now - 30_000, finishedAt: null }),
+    );
+    const { scheduledDataProgramDueAt } = await loadExecute();
+
+    await expect(scheduledDataProgramDueAt(makeProgram(), now)).resolves.toBe(
+      now - 30_000 + 120_000,
+    );
+  });
+
+  it("is due now once its wait is over", async () => {
+    storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
+      endedAgo(6 * 60_000, {
+        status: "failed",
+        errorCode: "shared_run_failed",
+      }),
+    );
+    const { scheduledDataProgramDueAt } = await loadExecute();
+
+    await expect(scheduledDataProgramDueAt(makeProgram(), now)).resolves.toBe(
+      now,
+    );
+  });
+
+  it("has no due time when it can't have a scheduled refresh", async () => {
+    const { scheduledDataProgramDueAt } = await loadExecute();
+
+    await expect(
+      scheduledDataProgramDueAt(makeProgram({ scheduledRefresh: false }), now),
+    ).resolves.toBeNull();
+    expect(storeMocks.getActiveRun).not.toHaveBeenCalled();
   });
 });

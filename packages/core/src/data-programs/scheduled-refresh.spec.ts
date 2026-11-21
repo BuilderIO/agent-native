@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { RecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import type {
+  RecurringSweepHandler,
+  RecurringSweepHandlerOptions,
+} from "../jobs/sweep-hooks.js";
 import type { DataProgramRow } from "./store.js";
 
 const storeMocks = vi.hoisted(() => ({
@@ -8,6 +11,7 @@ const storeMocks = vi.hoisted(() => ({
 }));
 const executeMocks = vi.hoisted(() => ({
   runScheduledDataProgram: vi.fn(),
+  scheduledDataProgramDueAt: vi.fn(),
 }));
 const sweepMocks = vi.hoisted(() => ({
   registerRecurringSweepHandler: vi.fn(),
@@ -35,6 +39,7 @@ beforeEach(() => {
   vi.resetModules();
   storeMocks.listScheduledDataPrograms.mockReset();
   executeMocks.runScheduledDataProgram.mockReset();
+  executeMocks.scheduledDataProgramDueAt.mockReset();
   sweepMocks.registerRecurringSweepHandler.mockReset();
   scheduled([program("dp_a"), program("dp_b"), program("dp_c")]);
   executeMocks.runScheduledDataProgram.mockResolvedValue("refreshed");
@@ -91,23 +96,23 @@ describe("scheduled data program refreshes", () => {
     });
   });
 
-  it("counts a program whose refresh threw as failed and goes on to the next", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+  it("goes on past a program whose refresh threw, then throws so the sweep reports it", async () => {
+    const thrown = new Error("database went away");
     executeMocks.runScheduledDataProgram
-      .mockRejectedValueOnce(new Error("bad defaultParams"))
+      .mockRejectedValueOnce(thrown)
       .mockResolvedValue("fresh");
     const { runScheduledDataProgramRefreshes } =
       await import("./scheduled-refresh.js");
 
-    const outcomes = await runScheduledDataProgramRefreshes("analytics", {
+    const pass = runScheduledDataProgramRefreshes("analytics", {
       deadlineAt: Date.now() + 90_000,
     });
 
-    expect(outcomes).toEqual({ dp_a: "failed", dp_b: "fresh", dp_c: "fresh" });
-    expect(consoleError).toHaveBeenCalledTimes(1);
-    consoleError.mockRestore();
+    await expect(pass).rejects.toMatchObject({
+      message: "Scheduled refresh of dp_a in analytics threw.",
+      errors: [thrown],
+    });
+    expect(ranIds()).toEqual(["dp_a", "dp_b", "dp_c"]);
   });
 
   it("stops once the sweep is out of time or aborted", async () => {
@@ -157,10 +162,47 @@ describe("scheduled data program refreshes", () => {
     expect(sweepMocks.registerRecurringSweepHandler).toHaveBeenCalledWith(
       `${SCHEDULED_REFRESH_SWEEP_ID}:analytics`,
       expect.any(Function),
+      { nextDueAt: expect.any(Function) },
     );
-    const handler = sweepMocks.registerRecurringSweepHandler.mock
-      .calls[0]?.[1] as RecurringSweepHandler | undefined;
-    await handler?.({ deadlineAt: Date.now() + 90_000 });
+    const [, handler, options] = sweepMocks.registerRecurringSweepHandler.mock
+      .calls[0] as [
+      string,
+      RecurringSweepHandler,
+      RecurringSweepHandlerOptions,
+    ];
+    await handler({ deadlineAt: Date.now() + 90_000 });
     expect(executeMocks.runScheduledDataProgram).toHaveBeenCalledTimes(3);
+
+    executeMocks.scheduledDataProgramDueAt.mockResolvedValue(12_345);
+    await expect(options.nextDueAt?.()).resolves.toBe(12_345);
+  });
+
+  it("answers when the app's next refresh is due, so an idle sweep wakes for it", async () => {
+    const { nextScheduledDataProgramDueAt } =
+      await import("./scheduled-refresh.js");
+    const dueAt: Record<string, number | null> = {
+      dp_a: 5_000,
+      dp_b: null,
+      dp_c: 3_000,
+    };
+    executeMocks.scheduledDataProgramDueAt.mockImplementation(
+      async (p: DataProgramRow) => dueAt[p.id],
+    );
+
+    await expect(
+      nextScheduledDataProgramDueAt("analytics", 1_000),
+    ).resolves.toBe(3_000);
+
+    dueAt.dp_a = 1_000;
+    executeMocks.scheduledDataProgramDueAt.mockClear();
+    await expect(
+      nextScheduledDataProgramDueAt("analytics", 1_000),
+    ).resolves.toBe(1_000);
+    expect(executeMocks.scheduledDataProgramDueAt).toHaveBeenCalledTimes(1);
+
+    scheduled([]);
+    await expect(
+      nextScheduledDataProgramDueAt("analytics", 1_000),
+    ).resolves.toBeNull();
   });
 });
