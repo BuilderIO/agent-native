@@ -33,8 +33,6 @@ export default function LibraryFolderRoute() {
     [folders, folderId],
   );
   const folder = folderPath[folderPath.length - 1];
-  // A step capture lands here as numbered screenshots; any folder holding
-  // screenshots can be read as one guide.
   const { data: screenshotCount } = useRecordingsCount(
     { view: "library", kind: "image", folderId: folderId ?? null },
     { enabled: Boolean(folderId) },

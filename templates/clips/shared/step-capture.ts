@@ -1,25 +1,9 @@
-/**
- * The steps JSON the desktop tray writes during a step capture session.
- *
- * A step capture records one still screenshot per click while the user walks
- * through a task, plus what was under the pointer: the window and the
- * Accessibility element. The tray writes `manifest.json` next to the
- * `step-NNN.png` files and rewrites it after every step, so a crashed session
- * still leaves a readable manifest. The Rust mirror lives in
- * `desktop/src-tauri/src/step_capture.rs`; both sides must change together.
- *
- * Every optional fact is a tagged value rather than a bare `null`, because a
- * missing label means different things: the element had no label, the label
- * was withheld as sensitive, or Accessibility could not be asked at all.
- */
-
 export const STEP_CAPTURE_SCHEMA_VERSION = 1;
 
 export const STEP_CLICK_TYPES = ["left", "right", "double", "drag"] as const;
 
 export type StepClickType = (typeof STEP_CLICK_TYPES)[number];
 
-/** Global screen coordinates in points, origin at the primary display's top-left. */
 export interface StepPoint {
   x: number;
   y: number;
@@ -35,7 +19,6 @@ export interface StepRect {
 export interface StepDisplay {
   id: number;
   frame: StepRect;
-  /** Backing pixels per point; the screenshot is `frame` times this. */
   scale: number;
 }
 
@@ -52,7 +35,6 @@ export type StepWindow =
       ownerPid?: number;
       title?: string;
     }
-  /** The click landed on the desktop or a window that is not a normal layer-0 window. */
   | { status: "none" };
 
 export const STEP_TARGET_UNAVAILABLE_REASONS = [
@@ -67,9 +49,7 @@ export type StepTargetUnavailableReason =
 
 export type StepTarget =
   | { status: "labeled"; role: string; label: string }
-  /** The element exists but exposes no title, description or static value. */
   | { status: "unlabeled"; role: string }
-  /** A secure field, or a label that looked like a credential, was withheld. */
   | { status: "redacted"; role: string }
   | {
       status: "unavailable";
@@ -78,12 +58,10 @@ export type StepTarget =
     };
 
 export interface StepCaptureStep {
-  /** 1-based and contiguous within a session. */
   step: number;
   capturedAt: string;
   clickType: StepClickType;
   location: StepPoint;
-  /** Where a drag was released; only present when `clickType` is `drag`. */
   dragTo?: StepPoint;
   display: StepDisplay | null;
   image: StepImage;
@@ -95,7 +73,6 @@ export interface StepCaptureSession {
   schemaVersion: typeof STEP_CAPTURE_SCHEMA_VERSION;
   sessionId: string;
   startedAt: string;
-  /** Null while the session is still recording, or when it ended by crash. */
   endedAt: string | null;
   steps: StepCaptureStep[];
 }
@@ -213,7 +190,6 @@ function stepError(index: number, value: unknown): string | null {
   return null;
 }
 
-/** Validate a manifest read from disk or received from the tray. */
 export function parseStepCaptureSession(
   value: unknown,
 ): StepCaptureParseResult {
@@ -268,10 +244,6 @@ const CLICK_VERBS: Record<StepClickType, string> = {
   drag: "Drag",
 };
 
-/**
- * A default step title from the click and its target, such as
- * `Click "Save" button`. The user edits it later; this is only the seed.
- */
 export function defaultStepTitle(step: StepCaptureStep): string {
   const verb = CLICK_VERBS[step.clickType];
   const target = step.target;

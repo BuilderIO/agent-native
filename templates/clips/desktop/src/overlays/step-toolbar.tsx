@@ -14,7 +14,6 @@ interface StepCaptureStatus {
   paused: boolean;
 }
 
-/** The floating bar shown while step capture records clicks. */
 export function StepToolbar() {
   const [status, setStatus] = useState<StepCaptureStatus | null>(null);
   const [finishing, setFinishing] = useState(false);

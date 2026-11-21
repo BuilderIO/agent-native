@@ -1,23 +1,10 @@
-/**
- * A folder of screenshots read as one numbered how-to guide.
- *
- * A step capture uploads each step as a screenshot titled `N. <title>` into a
- * fresh folder (`desktop/src-tauri/src/step_capture/upload.rs`). The guide
- * view orders by that number, renumbers from 1 so a deleted step leaves no
- * gap, and shows the title without the prefix. Screenshots without a number,
- * such as ones the user filed into the folder by hand, keep their upload
- * order after the numbered ones.
- */
-
 export interface StepGuideSource {
   id: string;
   title: string;
 }
 
 export interface StepGuideStep<T extends StepGuideSource = StepGuideSource> {
-  /** 1-based position in the guide. */
   number: number;
-  /** The title without its `N. ` prefix. */
   title: string;
   recording: T;
 }
@@ -34,7 +21,6 @@ export function parseStepTitle(title: string): {
   return { stepNumber: Number(stepNumber), title: rest };
 }
 
-/** Order `recordings`, given oldest first, into guide steps. */
 export function buildStepGuide<T extends StepGuideSource>(
   recordings: readonly T[],
 ): StepGuideStep<T>[] {
@@ -62,9 +48,7 @@ export function buildStepGuide<T extends StepGuideSource>(
 export interface StepGuideMarkdownStep {
   number: number;
   title: string;
-  /** Absolute URL of the step's screenshot. */
   imageUrl: string | null;
-  /** Absolute URL of the step's page in Clips. */
   linkUrl: string;
 }
 
@@ -76,10 +60,6 @@ function escapeAlt(text: string): string {
   return text.replace(/\s+/g, " ").replace(/[\\[\]]/g, "\\$&");
 }
 
-/**
- * The guide as Markdown. Images point at Clips itself, so they show only for
- * readers who can open those screenshots.
- */
 export function stepGuideMarkdown(params: {
   title: string;
   steps: readonly StepGuideMarkdownStep[];

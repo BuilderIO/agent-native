@@ -214,8 +214,6 @@ export default defineAction({
         mediaUpdatedAt: now,
       }),
       status: "ready" as const,
-      // What `save-screenshot-edits` wants as `mediaRevision`, so a caller
-      // can mark up the screenshot it just made without reading it back.
       mediaUpdatedAt: now,
     };
   },

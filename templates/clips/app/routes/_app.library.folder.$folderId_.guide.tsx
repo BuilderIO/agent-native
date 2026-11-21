@@ -26,7 +26,6 @@ export function meta() {
   return [{ title: enMessages.stepGuide.pageTitle }];
 }
 
-/** Screenshots fetched per page; the guide reads every page. */
 const GUIDE_PAGE_SIZE = 500;
 
 function lastEntry<T>(items: readonly T[]): T | undefined {
@@ -66,7 +65,6 @@ export default function LibraryFolderGuideRoute() {
     sort: "oldest",
     limit: GUIDE_PAGE_SIZE,
   });
-  // A guide is only right with every step, so later pages load on their own.
   useEffect(() => {
     if (hasNextPage && !isFetchingNextPage && !isError) void fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, isError, fetchNextPage]);

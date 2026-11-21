@@ -1,7 +1,3 @@
-// The step guide as `step_capture/guide.rs` stores it in `guide.json`, plus
-// the frame math the PDF uses, so the editor shows each step exactly as it
-// will be exported.
-
 export interface PxPoint {
   x: number;
   y: number;
@@ -51,7 +47,6 @@ export interface LoadedGuide {
   guide: StepGuide;
 }
 
-/** The step frame on the PDF page, in points. */
 export const FRAME_WIDTH = 500.4;
 export const FRAME_HEIGHT = 278.0;
 export const MIN_ZOOM = 1;
@@ -62,7 +57,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/** The part of the crop a step's frame shows: mirrors `guide::visible_rect`. */
 export function visibleRect(image: GuideImage): PxRect {
   const { crop } = image;
   const aspect = FRAME_WIDTH / FRAME_HEIGHT;
@@ -82,7 +76,6 @@ export function visibleRect(image: GuideImage): PxRect {
   };
 }
 
-/** Step numbers skip notes, as in the PDF. */
 export function stepNumbers(items: GuideItem[]): Map<string, number> {
   const numbers = new Map<string, number>();
   let next = 1;

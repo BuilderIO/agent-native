@@ -215,7 +215,6 @@ async function fetchBugReportSummary(recordingId: string) {
   };
 }
 
-/** Guide steps the agent sees; `truncated` says when a folder has more. */
 const GUIDE_CONTEXT_LIMIT = 500;
 
 async function fetchLibrary({
@@ -673,8 +672,6 @@ export default defineAction({
       }
       case "guide": {
         if (nav.folderId) {
-          // The same steps as the guide page: the folder's screenshots,
-          // oldest first, numbered by shared/step-guide.ts.
           const recordings = await fetchLibrary({
             folderId: nav.folderId,
             organizationId,

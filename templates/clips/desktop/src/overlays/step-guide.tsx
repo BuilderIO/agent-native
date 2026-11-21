@@ -28,13 +28,10 @@ import {
   type StepGuide,
 } from "./step-guide-model";
 
-// One PDF point in CSS pixels, so the page reads at a comfortable size.
 const SCALE = 1.2;
 const pt = (value: number) => `${value * SCALE}px`;
 const ZOOM_STEP = 0.5;
 const SAVE_DELAY_MS = 400;
-// The page preview mirrors the exported PDF, so it keeps the PDF palette in
-// every theme.
 const TEXT_COLOR = "#515151"; // guard:allow-raw-color — PDF body text colour.
 const BADGE_COLOR = "#E10992"; // guard:allow-raw-color — PDF step badge colour.
 
@@ -57,7 +54,6 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A step's screenshot inside its frame, as the PDF draws it. */
 function StepFrame({
   directory,
   image,
@@ -179,7 +175,6 @@ function ToolButton({
   );
 }
 
-/** A textarea that grows with its text, styled like the PDF line. */
 function GrowingText({
   value,
   onChange,
@@ -213,7 +208,6 @@ function GrowingText({
   );
 }
 
-/** What `step_guide_share` reports, so a partial upload never reads as done. */
 interface ShareSummary {
   folderUrl: string;
   uploaded: number;
@@ -248,9 +242,6 @@ export function StepGuideEditor({
       .catch((error) => setStatus({ kind: "error", text: errorText(error) }));
   }, [sessionId]);
 
-  // One save at a time, since each writes the same temporary file: a flush
-  // waits for the save before it, then saves until no edit is pending, so an
-  // edit made during a save is written before the flush resolves.
   const flush = useCallback(() => {
     window.clearTimeout(saveTimer.current);
     const save = saving.current
@@ -259,8 +250,6 @@ export function StepGuideEditor({
         while (pending.current && sessionId) {
           const guide = pending.current;
           await invoke("step_guide_save", { sessionId, guide });
-          // Kept until it is saved, so a failed save is retried by the next
-          // flush.
           if (pending.current === guide) pending.current = null;
         }
       });
@@ -268,9 +257,6 @@ export function StepGuideEditor({
     return save;
   }, [sessionId]);
 
-  // Tauri waits for this handler before it closes the window, so the last
-  // edit is saved. If that save fails the window stays open to say so, and
-  // only a second close with no new edit in between discards it.
   useEffect(() => {
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
       if (discardOnClose.current) return;
