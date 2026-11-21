@@ -261,9 +261,9 @@ export async function upsertDataProgram(
         'A scheduled refresh reruns the program every refreshTtlMs, so it needs refreshMode "ttl".',
       );
     }
-    if (input.background) {
+    if (input.background ?? existing?.background) {
       throw new Error(
-        "Background programs can't have a scheduled refresh yet: they don't share runs with the org.",
+        "Background programs can't have a scheduled refresh yet: they don't share runs with the org. Save this one with background: false to schedule it as a foreground program.",
       );
     }
     if (refreshTtlMs < MIN_SCHEDULED_REFRESH_MS) {

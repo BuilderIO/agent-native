@@ -370,6 +370,29 @@ describe("data-programs/store", () => {
         }),
       ).rejects.toThrow(/refreshMode "ttl"/);
       expect(existing.scheduledRefresh).toBe(true);
+
+      const collector = {
+        appId,
+        name: "collector",
+        title: "Collector",
+        code: "emit([])",
+        ownerEmail: owner,
+        orgId: "org_1",
+        refreshTtlMs: 3_600_000,
+      };
+      await upsertDataProgram({ ...collector, background: true });
+      await expect(
+        upsertDataProgram({ ...collector, scheduledRefresh: true }),
+      ).rejects.toThrow(/background: false/);
+      const foreground = await upsertDataProgram({
+        ...collector,
+        background: false,
+        scheduledRefresh: true,
+      });
+      expect(foreground).toMatchObject({
+        background: false,
+        scheduledRefresh: true,
+      });
     });
 
     it("keeps updatedAt when a save changes nothing", async () => {
