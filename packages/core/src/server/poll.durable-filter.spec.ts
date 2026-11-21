@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { recordUnreadableSyncEvent } from "../observability/metrics.js";
 import { AppSyncState } from "./poll.js";
+
+vi.mock("../observability/metrics.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../observability/metrics.js")>()),
+  recordUnreadableSyncEvent: vi.fn(),
+}));
 
 beforeEach(() => {
   process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
@@ -151,5 +157,24 @@ describe("events for resource types this app never registered", () => {
         "unreadable",
       ),
     );
+  });
+
+  it("counts each unreadable event in the metric by cause", async () => {
+    vi.mocked(recordUnreadableSyncEvent).mockClear();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const state = new AppSyncState({
+        resolveAccess: async () => {
+          throw new Error("db down");
+        },
+      });
+      const event = { resourceType: "doc", resourceId: "d1" };
+      state.getChangeVisibilityForUser(event, "a@x.test", "o");
+      await vi.waitFor(() =>
+        expect(recordUnreadableSyncEvent).toHaveBeenCalledWith("threw"),
+      );
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
