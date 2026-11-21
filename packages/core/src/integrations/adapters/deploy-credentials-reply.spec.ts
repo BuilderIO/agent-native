@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Only saved-key storage and the database kind are replaced. The adapters,
-// the credential rules and the request context are the real ones.
 vi.mock("../../secrets/storage.js", () => ({
   readAppSecret: vi.fn(async () => null),
   readAppSecretMeta: vi.fn(async () => null),
@@ -33,7 +31,6 @@ const KEYS = [
   "MICROSOFT_TEAMS_APP_ID",
   "MICROSOFT_TEAMS_APP_PASSWORD",
 ];
-// Read only by webhook checks, which run before any user is known.
 const WEBHOOK_CHECK_KEYS = [
   "WHATSAPP_APP_SECRET",
   "WHATSAPP_VERIFY_TOKEN",
@@ -86,7 +83,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// The webhook handler sends every reply as the integration owner.
 function asIntegrationRun<T>(platform: string, fn: () => Promise<T>) {
   return runWithRequestContext(
     { userEmail: `integration@${platform}`, isIntegrationCaller: true },
