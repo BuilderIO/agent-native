@@ -10,6 +10,8 @@ import {
   agentNativeSignupsSettingsUpdateSchema,
   contentCollectionConfigSchema,
   ga4PropertyIdSchema,
+  searchConsoleHistoryMonthsSchema,
+  searchConsoleQueriesPerPageSchema,
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
@@ -49,7 +51,26 @@ export default defineAction({
     searchConsole: cliBoolean
       .optional()
       .describe(
-        "Collect daily Search Console clicks and impressions. Turn on only after a property owner has given the service account access.",
+        "Collect daily Search Console clicks, impressions and average position. Turn on only after a property owner has given the service account access.",
+      ),
+    searchConsoleHistoryMonths: z.coerce
+      .number<string | number>()
+      .pipe(searchConsoleHistoryMonthsSchema)
+      .optional()
+      .describe(
+        "How many months back to fill Search Console history, 1 to 16 (default 16, all Search Console keeps). The first run reads the last 90 days; later runs fill older days 90 at a time, and query weeks a few at a time.",
+      ),
+    searchConsoleQueries: cliBoolean
+      .optional()
+      .describe(
+        "Collect each page's top Search Console queries per week (on by default whenever Search Console is). The API is free.",
+      ),
+    searchConsoleQueriesPerPage: z.coerce
+      .number<string | number>()
+      .pipe(searchConsoleQueriesPerPageSchema)
+      .optional()
+      .describe(
+        "Most queries kept per page per week, by impressions, 1 to 100 (default 25). Changing it reads the query history again.",
       ),
     searchConsoleSites: z
       .array(storedSearchConsoleSiteSchema)
@@ -77,6 +98,9 @@ export default defineAction({
       ga4PropertyId,
       searchConsole,
       searchConsoleSites,
+      searchConsoleHistoryMonths,
+      searchConsoleQueries,
+      searchConsoleQueriesPerPage,
       signups,
       agentNativeSignups,
     },
@@ -102,6 +126,13 @@ export default defineAction({
       searchConsole: {
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,
+        historyMonths:
+          searchConsoleHistoryMonths ?? saved.searchConsole.historyMonths,
+      },
+      searchConsoleQueries: {
+        enabled: searchConsoleQueries ?? saved.searchConsoleQueries.enabled,
+        perPage:
+          searchConsoleQueriesPerPage ?? saved.searchConsoleQueries.perPage,
       },
       signups: { ...saved.signups, ...signups },
       agentNativeSignups: {
