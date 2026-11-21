@@ -256,10 +256,9 @@ const mocks = vi.hoisted(() => {
       if (sql.includes("FROM resources WHERE owner = ? AND path = ?")) {
         const [, path] = args as string[];
         if (sql.startsWith("SELECT content")) {
-          const matching = resourceWrites.filter(
-            (write) => write.path === path,
-          );
-          const latest = matching[matching.length - 1];
+          const latest = resourceWrites
+            .filter((write) => write.path === path)
+            .pop();
           return {
             rows:
               latest && !latest.deleted ? [{ content: latest.content }] : [],
