@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { filterBuiltInApps, filterOtherApps } from "./other-apps.js";
+import {
+  chatFirstExternalApps,
+  filterBuiltInApps,
+  filterOtherApps,
+} from "./other-apps.js";
 
 describe("filterBuiltInApps", () => {
   it("keeps configured first-party apps not mounted in the workspace", () => {
@@ -293,5 +297,55 @@ describe("filterOtherApps", () => {
         source: "custom",
       },
     ]);
+  });
+});
+
+describe("connected apps in the chat-first pane", () => {
+  it("opens an app connected from another workspace at its own origin", async () => {
+    const { resolveChatFirstAppTarget } =
+      await import("@agent-native/core/client/agent-chat");
+    const { mergeChatFirstWorkspaceApps } = await import("./workspace-apps.js");
+    const mounted = [{ id: "mail-2", name: "Mail", path: "/mail-2" }];
+    const apps = mergeChatFirstWorkspaceApps(
+      mounted,
+      [],
+      chatFirstExternalApps(
+        [
+          {
+            id: "fleet",
+            name: "Fleet",
+            url: "https://agent-workspace.example.com/fleet",
+            source: "custom",
+          },
+        ],
+        mounted,
+      ),
+    );
+    const registrations = apps.map((app) => ({
+      id: app.id,
+      name: app.name,
+      source: app.source,
+      path: app.path,
+      url: app.url,
+      enabled: true,
+    }));
+
+    expect(
+      resolveChatFirstAppTarget(
+        {
+          app: "fleet",
+          url: "https://agent-workspace.example.com/fleet/home",
+        },
+        registrations,
+        { currentOrigin: "https://labs.example.com" },
+      ),
+    ).toEqual({ status: "ready", target: { appId: "fleet", path: "/home" } });
+    expect(
+      resolveChatFirstAppTarget(
+        { url: "https://agent-workspace.example.com/other/home" },
+        registrations,
+        { currentOrigin: "https://labs.example.com" },
+      ),
+    ).toEqual({ status: "unresolved", reason: "unknown-app" });
   });
 });

@@ -101,3 +101,39 @@ export function filterBuiltInApps(
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Apps outside this workspace that the chat-first pane can open: first-party
+ * hosted apps and apps connected from another workspace.
+ */
+export function chatFirstExternalApps(
+  connectedApps: ConnectedAppSummary[],
+  workspaceApps: WorkspaceAppId[],
+): {
+  id: string;
+  name: string;
+  description?: string;
+  url: string;
+  source: "builtin" | "connected";
+  hiddenFromLaunchers?: boolean;
+}[] {
+  const summary = (app: ConnectedAppSummary, url: string) => ({
+    id: app.id,
+    name: app.name,
+    ...(app.description === undefined ? {} : { description: app.description }),
+    url,
+  });
+  return [
+    ...filterBuiltInApps(connectedApps, workspaceApps, {
+      includeHiddenFromLaunchers: true,
+    }).map((app) => ({
+      ...summary(app, app.homeUrl?.trim() || app.url),
+      source: "builtin" as const,
+      ...(app.hiddenFromLaunchers ? { hiddenFromLaunchers: true } : {}),
+    })),
+    ...filterOtherApps(connectedApps, workspaceApps).map((app) => ({
+      ...summary(app, app.url),
+      source: "connected" as const,
+    })),
+  ];
+}

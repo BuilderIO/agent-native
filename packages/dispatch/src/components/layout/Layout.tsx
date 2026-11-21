@@ -114,6 +114,7 @@ import {
 } from "../../lib/chat-first-pane";
 import { getDispatchRunThreadContext } from "../../lib/dispatch-run-thread.js";
 import {
+  chatFirstExternalApps,
   filterBuiltInApps,
   type ConnectedAppSummary,
 } from "../../lib/other-apps";
@@ -1547,18 +1548,14 @@ function DispatchLayout({
       mergeChatFirstWorkspaceApps(
         chatFirstAppsQuery.data,
         chatFirstEnabledBuiltinAppIds,
-        chatFirstBuiltinApps.map((app) => ({
-          id: app.id,
-          name: app.name,
-          description: app.description,
-          url: app.homeUrl?.trim() || app.url,
-          source: "builtin" as const,
-          hiddenFromLaunchers: app.hiddenFromLaunchers,
-        })),
+        chatFirstExternalApps(
+          chatFirstConnectedAppsQuery.data ?? [],
+          chatFirstAppsQuery.data ?? [],
+        ),
       ).filter((app) => app.status !== "pending" && app.archived !== true),
     [
       chatFirstAppsQuery.data,
-      chatFirstBuiltinApps,
+      chatFirstConnectedAppsQuery.data,
       chatFirstEnabledBuiltinAppIds,
     ],
   );
