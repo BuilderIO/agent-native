@@ -733,6 +733,7 @@ const editor = {
     insertBelow: "아래에 블록 삽입",
     insertAbove: "위에 블록 삽입",
     turnIntoCollection: "컬렉션으로 전환",
+    turnIntoTable: "표로 전환",
     askAgent: "에이전트에게 묻기",
     columns: "열",
     syncedBlock: "동기화된 블록",
@@ -817,6 +818,15 @@ const editor = {
     "컬렉션에는 최대 500행, 50열의 표를 넣을 수 있습니다.",
   tableTextTooLongForCollection:
     "컬렉션에서 행 이름(표의 첫 번째 열)은 최대 500자, 다른 셀은 최대 20,000자까지 가능합니다. 긴 셀을 줄인 후 다시 시도하세요.",
+  turningIntoTable: "컬렉션을 표로 전환하는 중...",
+  turnedIntoTable: "컬렉션을 표로 전환했습니다",
+  failedToTurnIntoTable: "컬렉션을 표로 전환하지 못했습니다",
+  collectionChangedWhileTurning:
+    "전환하는 동안 컬렉션이 변경되어 그대로 두었습니다. 다시 시도하세요.",
+  collectionTooBigForTable:
+    "표에는 최대 500행, 50열의 보기를 넣을 수 있습니다. 보기를 필터링하거나 일부 속성을 숨긴 후 다시 시도하세요.",
+  collectionStillLoading:
+    "컬렉션을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요.",
   generateWithAi: "AI로 생성",
   untitledDatabase: "제목 없는 컬렉션",
   media: {

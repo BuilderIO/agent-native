@@ -695,6 +695,7 @@ const editor = {
     insertBelow: "在下方插入块",
     insertAbove: "在上方插入块",
     turnIntoCollection: "转换为集合",
+    turnIntoTable: "转换为表格",
     askAgent: "询问智能体",
     columns: "分栏",
     syncedBlock: "同步块",
@@ -769,6 +770,14 @@ const editor = {
   tableTooBigForCollection: "集合最多可容纳 500 行、50 列的表格。",
   tableTextTooLongForCollection:
     "在集合中，行名称（表格的第一列）最多 500 个字符，其他单元格最多 20,000 个字符。请缩短过长的单元格后重试。",
+  turningIntoTable: "正在将集合转换为表格...",
+  turnedIntoTable: "已将集合转换为表格",
+  failedToTurnIntoTable: "无法将集合转换为表格",
+  collectionChangedWhileTurning:
+    "转换过程中集合发生了变化，因此保持原样。请重试。",
+  collectionTooBigForTable:
+    "表格最多可容纳 500 行、50 列的视图。请筛选视图或隐藏部分属性后重试。",
+  collectionStillLoading: "集合仍在加载中。请稍后重试。",
   generateWithAi: "用人工智能生成",
   untitledDatabase: "无标题集合",
   media: {
