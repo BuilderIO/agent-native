@@ -308,9 +308,9 @@ export async function renderScreenPng(
         statusCode: 503,
       });
     }
-    let timedOut = false;
+    const stopped = new AbortController();
     const stop = () => {
-      timedOut = true;
+      stopped.abort();
       void browser.close().catch(() => {});
     };
     const deadline = setTimeout(stop, RENDER_DEADLINE_MS);
@@ -364,7 +364,7 @@ export async function renderScreenPng(
         }
       }
     } catch (error) {
-      if (timedOut) {
+      if (stopped.signal.aborted) {
         fail(
           "Design took too long to render this screen. Try again, or split it into shorter screens.",
           { errorCode: "design_screen_render_timeout", statusCode: 504 },
