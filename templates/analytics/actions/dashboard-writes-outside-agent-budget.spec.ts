@@ -17,6 +17,11 @@ const { PGlite } = createRequire(
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
 
 const harness = vi.hoisted(() => ({ db: null as unknown as PgliteDatabase }));
+const scope = vi.hoisted(() => ({
+  orgId: null as string | null,
+  sink: "postgres",
+  sinkUnreadable: false,
+}));
 const budget = vi.hoisted(() => ({
   admit: vi.fn(),
   settle: vi.fn(async () => true),
@@ -63,7 +68,7 @@ vi.mock("@agent-native/core/settings", async (importOriginal) => ({
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   getRequestUserEmail: () => "alice@example.com",
-  getRequestOrgId: () => null,
+  getRequestOrgId: () => scope.orgId,
   getRequestRunContext: () => undefined,
   recordChange: () => undefined,
 }));
@@ -75,7 +80,7 @@ vi.mock(
     >()),
     getCredentialContext: () => ({
       userEmail: "alice@example.com",
-      orgId: null,
+      orgId: scope.orgId,
     }),
   }),
 );
@@ -106,6 +111,15 @@ vi.mock("../server/lib/bigquery-agent-budget", async (importOriginal) => ({
   admitBigQueryAgentJob: budget.admit,
   settleBigQueryAgentJob: budget.settle,
   readBigQueryAgentBudget: budget.read,
+}));
+vi.mock("../server/lib/bigquery-agent-approval", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/bigquery-agent-approval")
+  >()),
+  firstPartyQueriesRunOnBigQuery: async () => {
+    if (scope.sinkUnreadable) throw new Error("settings read failed");
+    return scope.sink === "bigquery";
+  },
 }));
 vi.mock("../server/lib/dashboard-panel-source-resolver", () => ({
   resolveAnalyticsPanelSource: async () => {
@@ -150,6 +164,8 @@ const {
   OUTSIDE_AGENT_PERSON_BASE_BYTES,
   OUTSIDE_AGENT_PERSON_CEILING_BYTES,
 } = await import("../server/lib/bigquery-agent-budget");
+const { default: getHealth } =
+  await import("./get-first-party-analytics-health");
 const actions = {
   compose: (await import("./compose-dashboard")).default,
   inspect: (await import("./inspect-dashboard-panel")).default,
@@ -300,6 +316,9 @@ beforeEach(async () => {
   budget.settle.mockClear();
   budget.read.mockReset();
   budget.read.mockResolvedValue(today());
+  scope.orgId = null;
+  scope.sink = "postgres";
+  scope.sinkUnreadable = false;
 });
 
 interface ReportedCost {
@@ -603,14 +622,36 @@ describe("in-app dashboard writes are unchanged", () => {
 });
 
 describe("an MCP dashboard edit past the no-ask allowance", () => {
-  it("is saved, and points at the reads that can ask rather than an inspect that stops the same way", async () => {
+  const SAVED =
+    "Saved, but not run: b, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point.";
+  const ASKING_READS =
+    "a get-onboarding-journey or get-first-party-analytics-health call over MCP asks the person once, on Analytics' review page, when it needs more.";
+  const ADMIN =
+    "An Analytics organization admin can raise the daily allowance.";
+  const UNTIL = "Until then, do not claim those panels render.";
+
+  function nearlySpent() {
+    const snapshot = today();
+    const settledBytes = OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * 1024 ** 2;
+    return {
+      ...snapshot,
+      person: {
+        ...snapshot.person,
+        settledBytes,
+        remainingBytes: OUTSIDE_AGENT_PERSON_BASE_BYTES - settledBytes,
+      },
+    };
+  }
+
+  async function editPastTheAllowance() {
     await seedDashboard("d1", ["a"]);
+    budget.read.mockResolvedValue(nearlySpent());
     budget.admit.mockImplementation(async (_identity, request) => ({
       status: "refused",
       code: "approval_required",
       scope: "person",
       reservedBytes: request.reservedBytes,
-      budget: today(),
+      budget: nearlySpent(),
     }));
     const result = (await actions.mutate.run(
       {
@@ -625,7 +666,6 @@ describe("an MCP dashboard edit past the no-ask allowance", () => {
       nextStep: string;
       unverified: Array<{ panelId: string; note?: string; reason: string }>;
     };
-
     const [saved] = await harness.db
       .select({ config: schema.dashboards.config })
       .from(schema.dashboards);
@@ -638,11 +678,51 @@ describe("an MCP dashboard edit past the no-ask allowance", () => {
         status: "unverified",
         note: "outside_agent_approval_required",
         reason:
-          "its query would take the outside agent past today's no-ask BigQuery allowance, which only the person can raise, on Analytics' review page, so it was not run",
+          "its query would take the outside agent past today's no-ask BigQuery allowance, so it was not run",
       },
     ]);
-    expect(result.nextStep).toBe(
-      "Saved, but not run: b, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point. Raising the allowance needs the person's approval on Analytics' review page, which a dashboard edit can't ask for: a get-onboarding-journey or get-first-party-analytics-health call over MCP asks once when it needs more, or an Analytics organization admin can raise the daily allowance. Until then, do not claim those panels render.",
+    return result.nextStep;
+  }
+
+  it.each([
+    {
+      sink: "bigquery",
+      orgId: "org-1",
+      readsAsk: true,
+      help: `A dashboard edit can't ask for more, but ${ASKING_READS} ${ADMIN}`,
+    },
+    {
+      sink: "bigquery",
+      orgId: null,
+      readsAsk: true,
+      help: `A dashboard edit can't ask for more, but ${ASKING_READS}`,
+    },
+    { sink: "dual", orgId: "org-1", readsAsk: false, help: ADMIN },
+    {
+      sink: "postgres",
+      orgId: null,
+      readsAsk: false,
+      help: "Nothing can raise today's no-ask allowance, which resets at 00:00 UTC.",
+    },
+  ])(
+    "is saved, and names only what can raise the allowance (sink $sink, org $orgId)",
+    async ({ sink, orgId, readsAsk, help }) => {
+      scope.sink = sink;
+      scope.orgId = orgId;
+      expect(await editPastTheAllowance()).toBe(`${SAVED} ${help} ${UNTIL}`);
+      expect(
+        await must(getHealth.mcpNeedsApproval)(
+          {},
+          { userEmail: ALICE, orgId, caller: "mcp" },
+        ),
+      ).toBe(readsAsk);
+    },
+  );
+
+  it("says the reads ask only on BigQuery when where its queries run can't be read", async () => {
+    scope.sinkUnreadable = true;
+    expect(await editPastTheAllowance()).toBe(
+      `${SAVED} A dashboard edit can't ask for more; if Analytics' first-party queries run on BigQuery, ${ASKING_READS} ${UNTIL}`,
     );
   });
 });

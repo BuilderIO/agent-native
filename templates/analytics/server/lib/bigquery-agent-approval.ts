@@ -1,6 +1,8 @@
 import {
   currentActionApproval,
   currentActionApprovalAskedAt,
+  fail,
+  type ActionApprovalNoticeContext,
   type ActionRunContext,
 } from "@agent-native/core/action";
 
@@ -15,7 +17,9 @@ import {
   type BigQueryAgentBudgetSnapshot,
   type OutsideAgentIdentity,
 } from "./bigquery-agent-budget.js";
+import { failForOutsideAgentRefusal } from "./bigquery-agent-calls.js";
 import { OutsideAgentBigQueryRefusalError } from "./bigquery-agent-context.js";
+import { usdForBilledBytes } from "./bigquery-pricing.js";
 import { getFirstPartyAnalyticsBackend } from "./first-party-analytics-backend.js";
 
 export const ALLOWANCE_APPROVED_VIA = "mcp-review-page";
@@ -37,16 +41,21 @@ export async function firstPartyQueriesRunOnBigQuery(
   return backend.sink === "bigquery";
 }
 
+function formatUsdUpTo(bytes: number): string {
+  const cents = Math.ceil(Number((usdForBilledBytes(bytes) * 100).toFixed(6)));
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 export function allowanceApprovalNotice(
   budget: BigQueryAgentBudgetSnapshot,
   callBytes: number,
 ): string {
   const { person, org } = budget;
-  const ceiling = formatUsd(person.ceilingBytes);
+  const ceiling = formatUsdUpTo(person.ceilingBytes);
   return [
     `Allow up to ${ceiling} of BigQuery today?`,
-    `This call can bill up to ${formatUsd(callBytes)}. Today you have spent ${formatUsd(person.settledBytes)} and reserved ${formatUsd(person.reservedBytes)} of your ${formatUsd(person.baseAllowanceBytes)} no-ask allowance.`,
-    `Approving lets your outside agents spend up to ${ceiling} in total today, a hard stop. Your organization's ${formatUsd(org.limitBytes)} daily limit for outside agents still applies; it has spent ${formatUsd(org.settledBytes)} and reserved ${formatUsd(org.reservedBytes)}.`,
+    `At today's limits, this call can bill up to ${formatUsdUpTo(callBytes)}. Today you have spent ${formatUsd(person.settledBytes)} and reserved ${formatUsd(person.reservedBytes)} of your ${formatUsd(person.baseAllowanceBytes)} no-ask allowance.`,
+    `Approving lets your outside agents spend up to ${ceiling} in total today (UTC), a hard stop. Your organization's ${formatUsd(org.limitBytes)} daily limit for outside agents is also a hard stop; it has spent ${formatUsd(org.settledBytes)} and reserved ${formatUsd(org.reservedBytes)}.`,
     `The approval expires at 00:00 UTC (${budget.resetsAt}).`,
   ].join("\n");
 }
@@ -68,6 +77,32 @@ export async function allowanceBudget(
     if (error instanceof BigQueryAgentBudgetUnavailableError) return null;
     throw error;
   }
+}
+
+export async function allowanceToAskAbout(
+  ctx: ActionApprovalNoticeContext,
+  askBytes: number,
+): Promise<BigQueryAgentBudgetSnapshot> {
+  const read = await allowanceBudget(ctx, new Date(ctx.askedAt));
+  if (read === null) {
+    failForOutsideAgentRefusal(
+      new OutsideAgentBigQueryRefusalError({ code: "budget_unavailable" }),
+    );
+  }
+  const onBigQuery = await firstPartyQueriesRunOnBigQuery(read.identity).catch(
+    () =>
+      fail(
+        "Analytics could not read where its first-party queries run, so it asked nothing about BigQuery spend and nothing ran. Try again in a few minutes.",
+        { errorCode: "first_party_backend_unavailable", statusCode: 503 },
+      ),
+  );
+  if (!onBigQuery || !needsAllowanceApproval(read.budget, askBytes)) {
+    fail(
+      `This call doesn't need your approval for BigQuery spend now, so Analytics asked nothing and nothing ran. Call ${ctx.actionName ?? "it"} again with the same arguments.`,
+      { errorCode: "approval_not_needed", statusCode: 409 },
+    );
+  }
+  return read.budget;
 }
 
 export async function recordReviewedAllowance(

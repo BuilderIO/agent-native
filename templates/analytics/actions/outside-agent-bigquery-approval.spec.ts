@@ -37,7 +37,8 @@ const database = vi.hoisted(() => {
 });
 const orgSettings = vi.hoisted(() => new Map<string, unknown>());
 const jobs = vi.hoisted(() => ({ count: 0, cap: [] as number[] }));
-const backend = vi.hoisted(() => ({ sink: "bigquery" }));
+const backend = vi.hoisted(() => ({ sink: "bigquery", unreadable: false }));
+const ledger = vi.hoisted(() => ({ usageReads: 0, failingRead: 0 }));
 
 interface GrantCall {
   nonce: string;
@@ -161,9 +162,18 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
     ...(await importOriginal<typeof import("@agent-native/core/db")>()),
     getDbExec: () => ({
       execute: (input: { sql: string; args?: unknown[] }) =>
-        database.runExclusive(() =>
-          query((sql, args) => must(database.client).query(sql, args), input),
-        ),
+        database.runExclusive(async () => {
+          if (
+            input.sql.includes("AS person_settled") &&
+            ++ledger.usageReads === ledger.failingRead
+          ) {
+            throw new Error("connection reset");
+          }
+          return query(
+            (sql, args) => must(database.client).query(sql, args),
+            input,
+          );
+        }),
       transaction: <T>(callback: (tx: unknown) => Promise<T>) =>
         database.runExclusive(() =>
           must(database.client).transaction((tx: PGliteClient) =>
@@ -193,7 +203,10 @@ vi.mock(
     ...(await importOriginal<
       typeof import("../server/lib/first-party-analytics-backend")
     >()),
-    getFirstPartyAnalyticsBackend: async () => ({ sink: backend.sink }),
+    getFirstPartyAnalyticsBackend: async () => {
+      if (backend.unreadable) throw new Error("settings read failed");
+      return { sink: backend.sink };
+    },
   }),
 );
 
@@ -222,7 +235,9 @@ vi.mock(
     return {
       ...actual,
       getFirstPartyAnalyticsHealth: async () => {
-        await admitJob(actual.FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED);
+        if (backend.sink === "bigquery") {
+          await admitJob(actual.FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED);
+        }
         return actual.unavailableFirstPartyAnalyticsHealth(
           "health_read_failed",
         );
@@ -258,22 +273,25 @@ const {
   BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
   BIGQUERY_AGENT_BUDGET_SETTING_KEY,
   BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
-  formatUsd,
   OUTSIDE_AGENT_ORG_LIMIT_BYTES,
   OUTSIDE_AGENT_PERSON_BASE_BYTES,
   OUTSIDE_AGENT_PERSON_CEILING_BYTES,
 } = await import("../server/lib/bigquery-agent-budget");
 const { onboardingFollowUpBytes } =
   await import("../server/lib/onboarding-journey-agent-budget");
-const { billedBytesForUsd } = await import("../server/lib/bigquery-pricing");
+const { billedBytesForUsd, BYTES_PER_TIB, ON_DEMAND_USD_PER_TIB } =
+  await import("../server/lib/bigquery-pricing");
 const { default: getHealth } =
   await import("./get-first-party-analytics-health");
 const { default: getOnboardingJourney } =
   await import("./get-onboarding-journey");
+const { default: estimateOnboardingJourneyCost } =
+  await import("./estimate-onboarding-journey-cost");
 
 const actions = {
   "get-first-party-analytics-health": getHealth,
   "get-onboarding-journey": getOnboardingJourney,
+  "estimate-onboarding-journey-cost": estimateOnboardingJourneyCost,
 };
 const NOON = new Date("2026-11-17T12:00:00.000Z");
 const MB = 1_000_000;
@@ -283,7 +301,10 @@ const elicit = vi.fn(async () => ({
   content: { decision: "approve" },
 }));
 
-async function connect() {
+async function connect(
+  modes: { form?: object; url?: object } = { form: {} },
+  answer: typeof elicit | (() => Promise<{ action: "decline" }>) = elicit,
+) {
   const server = await createMCPServerForRequest(
     {
       name: "Analytics",
@@ -306,8 +327,8 @@ async function connect() {
     { name: "analytics-approval-test", version: "1.0.0" },
     { versionNegotiation: { mode: "auto" } },
   );
-  client.registerCapabilities({ elicitation: { form: {} } });
-  client.setRequestHandler("elicitation/create", elicit);
+  client.registerCapabilities({ elicitation: modes });
+  client.setRequestHandler("elicitation/create", answer);
   closeClients.push(async () => {
     await client.close();
     await server.close();
@@ -405,6 +426,9 @@ beforeEach(async () => {
   approvalStore.grants.clear();
   approvalStore.hooks.beforeInsert = () => {};
   backend.sink = "bigquery";
+  backend.unreadable = false;
+  ledger.usageReads = 0;
+  ledger.failingRead = 0;
   jobs.count = 0;
   jobs.cap.length = 0;
   elicit.mockClear();
@@ -446,8 +470,8 @@ describe("asking an MCP agent's person once past the no-ask allowance", () => {
     const notice = must(grant.approvalNotice);
     expect(notice.split("\n")).toEqual([
       "Allow up to $5.00 of BigQuery today?",
-      "This call can bill up to <$0.01. Today you have spent $1.00 and reserved $0.00 of your $1.00 no-ask allowance.",
-      "Approving lets your outside agents spend up to $5.00 in total today, a hard stop. Your organization's $50.00 daily limit for outside agents still applies; it has spent $1.00 and reserved $0.00.",
+      "At today's limits, this call can bill up to $0.01. Today you have spent $1.00 and reserved $0.00 of your $1.00 no-ask allowance.",
+      "Approving lets your outside agents spend up to $5.00 in total today (UTC), a hard stop. Your organization's $50.00 daily limit for outside agents is also a hard stop; it has spent $1.00 and reserved $0.00.",
       "The approval expires at 00:00 UTC (2026-11-18T00:00:00.000Z).",
     ]);
     expect(text(asked)).toContain(notice);
@@ -493,8 +517,12 @@ describe("asking an MCP agent's person once past the no-ask allowance", () => {
     expect(asked.isError).toBe(true);
     const grant = onlyGrant();
     expect(grant.actionName).toBe("get-onboarding-journey");
-    expect(grant.approvalNotice).toMatch(
-      /^Allow up to \$5\.00 of BigQuery today\?\nThis call can bill up to \$\d+\.\d\d\. /,
+    const stated = Number(
+      must(
+        must(grant.approvalNotice).match(
+          /^Allow up to \$5\.00 of BigQuery today\?\nAt today's limits, this call can bill up to \$(\d+\.\d\d)\. /,
+        )?.[1],
+      ),
     );
     expect(grant.approvalNotice).toContain(
       "The approval expires at 00:00 UTC (2026-11-18T00:00:00.000Z).",
@@ -508,9 +536,12 @@ describe("asking an MCP agent's person once past the no-ask allowance", () => {
     expect(await allowanceRows()).toHaveLength(1);
     expect(jobs.count).toBe(1);
     const { applied } = must(budgetOf(ran).maxTotalBytesBilled);
-    expect(grant.approvalNotice).toContain(
-      `This call can bill up to ${formatUsd(applied + onboardingFollowUpBytes({ followUpMode: "session" }))}.`,
-    );
+    const runCostUsd =
+      ((applied + onboardingFollowUpBytes({ followUpMode: "session" })) /
+        BYTES_PER_TIB) *
+      ON_DEMAND_USD_PER_TIB;
+    expect(stated).toBeGreaterThanOrEqual(runCostUsd);
+    expect(stated - runCostUsd).toBeLessThan(0.01);
   });
 
   it("asks nothing and records nothing for an onboarding journey whose queries run on Postgres", async () => {
@@ -616,6 +647,126 @@ describe("asking an MCP agent's person once past the no-ask allowance", () => {
     expect(again.isError).toBe(true);
     expect(approvalStore.grants.size).toBe(2);
     expect(jobs.count).toBe(1);
+  });
+});
+
+describe("never asking without the notice, or about a read that won't run on BigQuery", () => {
+  const window = { dateFrom: "2026-11-01", dateTo: "2026-11-02" };
+  const askingReads = [
+    ["get-first-party-analytics-health", {}],
+    ["get-onboarding-journey", window],
+  ] as const;
+
+  it.each(askingReads)(
+    "fails %s, with no grant, when the notice's ledger read fails, then asks with the notice once it reads",
+    async (name, args) => {
+      await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB, "settled");
+      const call = await connect();
+      const noticeRead = 2;
+      ledger.failingRead = noticeRead;
+
+      const failed = await call(name, args);
+      expect(failed.isError).toBe(true);
+      expect(text(failed)).toContain(
+        "The outside-agent BigQuery budget could not be read, so no job was started and nothing was charged. Try again in a few minutes.",
+      );
+      expect(approvalStore.grants.size).toBe(0);
+      expect(jobs.count).toBe(0);
+
+      expect((await call(name, args)).isError).toBe(true);
+      expect(onlyGrant().approvalNotice).toContain(
+        "Allow up to $5.00 of BigQuery today?",
+      );
+      expect(await allowanceRows()).toEqual([]);
+    },
+  );
+
+  it("makes no replacement grant without the notice after a client declines the prompt", async () => {
+    await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB, "settled");
+    const decline = vi.fn(async () => ({ action: "decline" as const }));
+    const call = await connect({ url: {} }, decline);
+    const replacementNoticeRead = 3;
+    ledger.failingRead = replacementNoticeRead;
+
+    const result = await call("get-first-party-analytics-health");
+    expect(decline).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain(
+      "The outside-agent BigQuery budget could not be read, so no job was started and nothing was charged. Try again in a few minutes.",
+    );
+    expect([...approvalStore.grants.values()]).toEqual([
+      expect.objectContaining({
+        answer: "declined",
+        approvalNotice: expect.stringContaining(
+          "Allow up to $5.00 of BigQuery today?",
+        ),
+      }),
+    ]);
+    expect(jobs.count).toBe(0);
+  });
+
+  it.each(askingReads)(
+    "fails %s, with no grant, when where its queries run can't be read",
+    async (name, args) => {
+      await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB, "settled");
+      backend.unreadable = true;
+      const call = await connect();
+
+      const result = await call(name, args);
+      expect(result.isError).toBe(true);
+      expect(text(result)).toContain(
+        "Analytics could not read where its first-party queries run, so it asked nothing about BigQuery spend and nothing ran. Try again in a few minutes.",
+      );
+      expect(approvalStore.grants.size).toBe(0);
+      expect(jobs.count).toBe(0);
+      expect(await allowanceRows()).toEqual([]);
+    },
+  );
+
+  it.each(["postgres", "dual"])(
+    "records nothing for a health approval used after the sink moved to %s",
+    async (sink) => {
+      await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB, "settled");
+      const call = await connect();
+      expect((await call("get-first-party-analytics-health")).isError).toBe(
+        true,
+      );
+      const grant = onlyGrant();
+
+      backend.sink = sink;
+      approveOnReviewPage(grant);
+      const ran = await call("get-first-party-analytics-health");
+      expect(ran.isError).not.toBe(true);
+      expect(grant.consumed).toBe(true);
+      expect(await allowanceRows()).toEqual([]);
+      expect(jobs.count).toBe(0);
+    },
+  );
+
+  it("estimates past $1 by naming the journey that asks, only where the journey asks", async () => {
+    await seedJob(OUTSIDE_AGENT_PERSON_BASE_BYTES - 10 * MB, "settled");
+    const call = await connect();
+
+    backend.sink = "postgres";
+    const unsupported = await call("estimate-onboarding-journey-cost", window);
+    expect(unsupported.isError).toBe(true);
+    expect(text(unsupported)).toContain(
+      "A BigQuery event-page estimate is unavailable for this Analytics backend.",
+    );
+    expect(text(unsupported)).not.toContain("get-onboarding-journey");
+    expect((await call("get-onboarding-journey", window)).isError).not.toBe(
+      true,
+    );
+    expect(approvalStore.grants.size).toBe(0);
+
+    backend.sink = "bigquery";
+    const refused = await call("estimate-onboarding-journey-cost", window);
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toContain(
+      "Calling get-onboarding-journey with the same arguments asks you once to allow up to $5.00 of BigQuery today, until 00:00 UTC.",
+    );
+    expect((await call("get-onboarding-journey", window)).isError).toBe(true);
+    expect(onlyGrant().actionName).toBe("get-onboarding-journey");
   });
 });
 

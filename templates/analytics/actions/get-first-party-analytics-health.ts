@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   allowanceApprovalNotice,
   allowanceBudget,
+  allowanceToAskAbout,
   firstPartyQueriesRunOnBigQuery,
   needsAllowanceApproval,
   recordReviewedAllowance,
@@ -136,22 +137,23 @@ export default defineAction({
       )
     );
   },
-  approvalNotice: async (_args, ctx) => {
-    const read = await allowanceBudget(ctx, new Date(ctx.askedAt));
-    return read
-      ? allowanceApprovalNotice(
-          read.budget,
-          FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
-        )
-      : undefined;
-  },
+  approvalNotice: async (_args, ctx) =>
+    allowanceApprovalNotice(
+      await allowanceToAskAbout(
+        ctx,
+        FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+      ),
+      FIRST_PARTY_ANALYTICS_HEALTH_MAX_BYTES_BILLED,
+    ),
   approvalProof: "review-page",
   run: async (_args, context?: ActionRunContext) => {
     const scope = resolveScope();
     try {
       if (isOutsideAgentCaller(context?.caller)) {
         const identity = outsideAgentIdentity(scope.userEmail, scope.orgId);
-        await recordReviewedAllowance(identity);
+        if (await firstPartyQueriesRunOnBigQuery(identity)) {
+          await recordReviewedAllowance(identity);
+        }
         const { value, report } = await runOutsideAgentBigQueryCall(
           {
             identity,

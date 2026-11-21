@@ -99,7 +99,8 @@ const {
 } = await import("./bigquery-agent-approval");
 const { OutsideAgentBigQueryRefusalError } =
   await import("./bigquery-agent-context");
-const { billedBytesForUsd } = await import("./bigquery-pricing");
+const { billedBytesForUsd, BYTES_PER_TIB, ON_DEMAND_USD_PER_TIB } =
+  await import("./bigquery-pricing");
 
 const alice = { ownerEmail: "alice@example.com", orgId: "org-1" };
 const aliceOverMcp = {
@@ -229,11 +230,29 @@ describe("asking past the no-ask allowance", () => {
 
     expect(allowanceApprovalNotice(budget, JOB).split("\n")).toEqual([
       "Allow up to $5.00 of BigQuery today?",
-      "This call can bill up to $0.28. Today you have spent $0.80 and reserved $0.10 of your $1.00 no-ask allowance.",
-      "Approving lets your outside agents spend up to $5.00 in total today, a hard stop. Your organization's $50.00 daily limit for outside agents still applies; it has spent $0.80 and reserved $0.10.",
+      "At today's limits, this call can bill up to $0.29. Today you have spent $0.80 and reserved $0.10 of your $1.00 no-ask allowance.",
+      "Approving lets your outside agents spend up to $5.00 in total today (UTC), a hard stop. Your organization's $50.00 daily limit for outside agents is also a hard stop; it has spent $0.80 and reserved $0.10.",
       "The approval expires at 00:00 UTC (2026-11-18T00:00:00.000Z).",
     ]);
   });
+
+  it.each([
+    [150_000_000_000, "$0.86"],
+    [billedBytesForUsd(0.85), "$0.85"],
+    [100_000_000, "$0.01"],
+    [0, "$0.00"],
+  ])(
+    "states a call of %d bytes as up to %s, never less than it can bill",
+    async (bytes, stated) => {
+      const { budget } = must(await allowanceBudget(aliceOverMcp));
+      expect(allowanceApprovalNotice(budget, bytes)).toContain(
+        `At today's limits, this call can bill up to ${stated}.`,
+      );
+      expect(Number(stated.slice(1))).toBeGreaterThanOrEqual(
+        (bytes / BYTES_PER_TIB) * ON_DEMAND_USD_PER_TIB,
+      );
+    },
+  );
 });
 
 describe("recording a review-page approval", () => {

@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   allowanceApprovalNotice,
   allowanceBudget,
+  allowanceToAskAbout,
   firstPartyQueriesRunOnBigQuery,
   needsAllowanceApproval,
   recordReviewedAllowance,
@@ -303,17 +304,18 @@ export default defineAction({
     );
   },
   approvalNotice: async (args, ctx) => {
-    const read = await allowanceBudget(ctx, new Date(ctx.askedAt));
-    return read
-      ? allowanceApprovalNotice(
-          read.budget,
-          approvedOutsideAgentOnboardingBound(
-            read.budget,
-            args.maxTotalBytesBilled,
-            args,
-          ),
-        )
-      : undefined;
+    const budget = await allowanceToAskAbout(
+      ctx,
+      smallestOutsideAgentOnboardingCall(args),
+    );
+    return allowanceApprovalNotice(
+      budget,
+      approvedOutsideAgentOnboardingBound(
+        budget,
+        args.maxTotalBytesBilled,
+        args,
+      ),
+    );
   },
   approvalProof: "review-page",
   run: async (args, context?: ActionRunContext) => {

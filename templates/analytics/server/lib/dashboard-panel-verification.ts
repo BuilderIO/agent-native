@@ -36,7 +36,11 @@ import {
   type TrafficEnvironment,
 } from "../../shared/traffic-environment";
 import { dryRunQuerySchema, type DryRunQueryResult } from "./bigquery";
-import { outsideAgentIdentity } from "./bigquery-agent-budget";
+import { firstPartyQueriesRunOnBigQuery } from "./bigquery-agent-approval";
+import {
+  outsideAgentIdentity,
+  type OutsideAgentIdentity,
+} from "./bigquery-agent-budget";
 import {
   createOutsideAgentBigQueryCall,
   reportOutsideAgentBigQueryCall,
@@ -191,7 +195,7 @@ const NOTE_REASONS: Record<PanelUnverifiedNote, string> = {
   outside_agent_budget:
     "the outside agent's daily BigQuery budget did not allow its query, so it was not run",
   outside_agent_approval_required:
-    "its query would take the outside agent past today's no-ask BigQuery allowance, which only the person can raise, on Analytics' review page, so it was not run",
+    "its query would take the outside agent past today's no-ask BigQuery allowance, so it was not run",
   outside_agent_estimate_unavailable:
     "BigQuery's dry run gave no usable cost estimate, so the outside agent's query was not run",
 };
@@ -1385,6 +1389,30 @@ export interface PanelWriteGateOptions {
   budget?: OutsideAgentBigQueryCall | null;
 }
 
+const ASKING_READS =
+  "a get-onboarding-journey or get-first-party-analytics-health call over MCP asks the person once, on Analytics' review page, when it needs more.";
+
+async function allowanceRaisers(
+  identity: OutsideAgentIdentity | undefined,
+): Promise<string> {
+  const sinkRead = identity ? firstPartyQueriesRunOnBigQuery(identity) : null;
+  // coercion-ok: an unread sink is null, so the reads are named only as asking on BigQuery.
+  const readsAsk = await sinkRead?.catch(() => null);
+  const raisers = [
+    readsAsk === true
+      ? `A dashboard edit can't ask for more, but ${ASKING_READS}`
+      : readsAsk === false
+        ? null
+        : `A dashboard edit can't ask for more; if Analytics' first-party queries run on BigQuery, ${ASKING_READS}`,
+    identity?.orgId
+      ? "An Analytics organization admin can raise the daily allowance."
+      : null,
+  ].filter((raiser) => raiser !== null);
+  return raisers.length > 0
+    ? raisers.join(" ")
+    : "Nothing can raise today's no-ask allowance, which resets at 00:00 UTC.";
+}
+
 /**
  * Pre-commit gate shared by every agent write path. Verifies the panels the
  * edit touched; in `block` mode a directly edited panel that would not render
@@ -1532,7 +1560,10 @@ export async function verifyPanelWrite(
               : []),
             ...(needAllowance.length > 0
               ? [
-                  `Saved, but not run: ${idList(needAllowance)}, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point. Raising the allowance needs the person's approval on Analytics' review page, which a dashboard edit can't ask for: a get-onboarding-journey or get-first-party-analytics-health call over MCP asks once when it needs more, or an Analytics organization admin can raise the daily allowance. Until then, do not claim those panels render.`,
+                  `Saved, but not run: ${idList(needAllowance)}, whose BigQuery queries would take you past today's no-ask allowance; inspect-dashboard-panel would stop at the same point. ${await allowanceRaisers(
+                    (budget?.gate ?? currentOutsideAgentBigQueryGate())
+                      ?.identity,
+                  )} Until then, do not claim those panels render.`,
                 ]
               : []),
           ].join(" "),
