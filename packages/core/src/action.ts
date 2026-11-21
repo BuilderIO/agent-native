@@ -1354,9 +1354,9 @@ interface DefineActionWithSchema<
    * page load, on mount, on a timer, or experiment and usage bookkeeping. Its
    * `action_started`, `action_completed`, and `action_failed` events carry
    * `action_kind: "automatic"` instead of `"write"`, so product-use counts
-   * leave it out. Only a call from the app's own UI can be automatic; a call
-   * from an agent, an MCP client, the CLI, or another app is a person asking
-   * and stays a write. Pass a predicate when only some UI calls are
+   * leave it out. Only a call the action route proves came from the app's
+   * own UI can be automatic; a call from an agent, an MCP client, the CLI, or
+   * another app is a person asking and stays a write. Pass a predicate when only some UI calls are
    * automatic, such as a background sync the poller calls without `force`;
    * it sees the validated arguments and the call's context. It labels
    * analytics only: a write stays a write everywhere else, so never set
@@ -1365,7 +1365,7 @@ interface DefineActionWithSchema<
   automatic?:
     | boolean
     | ((
-        input: StandardSchemaV1.InferInput<TSchema>,
+        input: StandardSchemaV1.InferOutput<TSchema>,
         ctx: ActionRunContext,
       ) => boolean);
   /**
@@ -2038,6 +2038,7 @@ export function defineAction(options: any) {
   const actionKind = async (
     args: unknown,
     ctx: ActionRunContext,
+    fromAppUi: boolean,
   ): Promise<AgentNativeActionKind> => {
     const prepared = preparedRunFor(ctx, args);
     const intent = prepared?.key === executionKey ? prepared.intent : undefined;
@@ -2052,7 +2053,7 @@ export function defineAction(options: any) {
         : options.planMode !== undefined &&
           actionCallReadOnly(classificationEntry, await callInput());
       if (callReadOnly === true) return "read";
-      if (ctx.caller !== "frontend") return "write";
+      if (!fromAppUi) return "write";
       return actionCallIsAutomatic(
         { automatic },
         typeof automatic === "function" ? await callInput() : args,

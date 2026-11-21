@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { defineAction, type ActionRunContext } from "../action.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { wrapRunWithActionTracking } from "./action-lifecycle.js";
 import {
   registerTrackingProvider,
@@ -187,6 +188,8 @@ describe("action lifecycle tracking", () => {
   describe("action_kind", () => {
     const kinds = (events: TrackingEvent[]) =>
       events.map((event) => event.properties?.action_kind);
+    const fromApp = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ provenUiRequest: true }, run);
 
     it("labels every event of a write the app makes on its own automatic", async () => {
       const events = captureEvents();
@@ -205,12 +208,16 @@ describe("action lifecycle tracking", () => {
         },
       });
 
-      await save.run(
-        { positionMs: 1_000 },
-        { ...context, actionName: "save-playback-position" },
+      await fromApp(() =>
+        save.run(
+          { positionMs: 1_000 },
+          { ...context, actionName: "save-playback-position" },
+        ),
       );
       await expect(
-        failing.run({}, { ...context, actionName: "record-exposure" }),
+        fromApp(() =>
+          failing.run({}, { ...context, actionName: "record-exposure" }),
+        ),
       ).rejects.toThrow("storage unavailable");
 
       expect(events.map((event) => event.name)).toEqual([
@@ -237,9 +244,11 @@ describe("action lifecycle tracking", () => {
       });
       const ctx = { ...context, actionName: "sync-inbox" };
 
-      await sync.run({}, ctx);
-      await sync.run({ force: true }, ctx);
-      await sync.run({}, { ...ctx, caller: "tool" });
+      await fromApp(async () => {
+        await sync.run({}, ctx);
+        await sync.run({ force: true }, ctx);
+        await sync.run({}, { ...ctx, caller: "tool" });
+      });
 
       expect(
         events
@@ -261,8 +270,10 @@ describe("action lifecycle tracking", () => {
       });
       const ctx = { ...context, actionName: "manage-provider-key-policy" };
 
-      await policy.run({}, ctx);
-      await policy.run({ set: true }, ctx);
+      await fromApp(async () => {
+        await policy.run({}, ctx);
+        await policy.run({ set: true }, ctx);
+      });
 
       expect(
         events
@@ -316,9 +327,11 @@ describe("action lifecycle tracking", () => {
         },
       });
 
-      await reschedule.run(
-        { at: new Date(1_000) },
-        { ...context, actionName: "reschedule-reminder" },
+      await fromApp(() =>
+        reschedule.run(
+          { at: new Date(1_000) },
+          { ...context, actionName: "reschedule-reminder" },
+        ),
       );
 
       expect(received).toEqual([1_000]);

@@ -61,6 +61,12 @@ function outputId(result: unknown): string | undefined {
   return undefined;
 }
 
+async function isProvenAppUiCall(ctx: ActionRunContext): Promise<boolean> {
+  if (ctx.caller !== "frontend") return false;
+  const { getRequestContext } = await import("../server/request-context.js");
+  return getRequestContext()?.provenUiRequest === true;
+}
+
 export function wrapRunWithActionTracking(
   run: (args: any, ctx?: ActionRunContext) => any,
   readOnly: boolean | undefined,
@@ -69,6 +75,7 @@ export function wrapRunWithActionTracking(
     actionKind?: (
       args: unknown,
       ctx: ActionRunContext,
+      fromAppUi: boolean,
     ) => AgentNativeActionKind | Promise<AgentNativeActionKind>;
   } = {},
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
@@ -77,7 +84,9 @@ export function wrapRunWithActionTracking(
   return async function trackedRun(args: any, ctx?: ActionRunContext) {
     if (!ctx || !shouldTrackAction(ctx)) return run(args, ctx);
 
-    const kind = (await options.actionKind?.(args, ctx)) ?? "write";
+    const kind =
+      (await options.actionKind?.(args, ctx, await isProvenAppUiCall(ctx))) ??
+      "write";
     const { track } = await import("./registry.js");
     const startedAt = Date.now();
     const operationId =

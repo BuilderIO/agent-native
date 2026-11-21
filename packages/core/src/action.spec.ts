@@ -4520,8 +4520,12 @@ describe("defineAction — action_kind", () => {
         }
       },
     });
+    const { runWithRequestContext } =
+      await import("./server/request-context.js");
     try {
-      await calls({ caller: "frontend", actionName: name });
+      await runWithRequestContext({ provenUiRequest: true }, () =>
+        calls({ caller: "frontend", actionName: name }),
+      );
     } finally {
       unregisterTrackingProvider(`action-kind-${name}`);
     }
@@ -4596,6 +4600,27 @@ describe("defineAction — action_kind", () => {
       "write",
     ]);
     expect(received).toEqual([1_000, 1_000, 1_000]);
+  });
+
+  it("counts a frontend call the action route did not prove as a write", async () => {
+    const refresh = defineAction({
+      description: "Refresh a sync status.",
+      schema: z.object({}),
+      automatic: true,
+      run: async () => ({ ok: true }),
+    });
+    const { runWithRequestContext } =
+      await import("./server/request-context.js");
+    const events = await capture("kind-unproven", async (ctx) => {
+      await runWithRequestContext({ provenUiRequest: false }, () =>
+        refresh.run({}, ctx),
+      );
+      await refresh.run({}, ctx);
+    });
+    expect(events.map((event) => event.action_kind)).toEqual([
+      "write",
+      "automatic",
+    ]);
   });
 
   it("counts a call from anything but the app's own UI as a write", async () => {
