@@ -15,7 +15,33 @@ export interface BlockIdentityIdsOptions {
 
 const ADDRESSABLE = new Set(BLOCK_IDENTITY_NODE_TYPES);
 
-export const linkedBlockKey = new PluginKey<DecorationSet>("linkedBlock");
+export interface LinkedBlock {
+  set: DecorationSet;
+  id: string | null;
+  moved: boolean;
+}
+
+const NOT_LINKED: LinkedBlock = {
+  set: DecorationSet.empty,
+  id: null,
+  moved: false,
+};
+
+export const linkedBlockKey = new PluginKey<LinkedBlock>("linkedBlock");
+
+function linkedAt(doc: PMNode, pos: number | null, id: string): LinkedBlock {
+  const node = pos === null ? null : doc.nodeAt(pos);
+  if (!node || pos === null) return { ...NOT_LINKED, id };
+  return {
+    set: DecorationSet.create(doc, [
+      Decoration.node(pos, pos + node.nodeSize, {
+        class: "content-linked-block",
+      }),
+    ]),
+    id,
+    moved: false,
+  };
+}
 
 interface Holder {
   id: string;
@@ -32,6 +58,11 @@ function holders(doc: PMNode): Holder[] {
     return true;
   });
   return found;
+}
+
+function soleHolderPos(doc: PMNode, id: string): number | null {
+  const found = holders(doc).filter((holder) => holder.id === id);
+  return found.length === 1 ? (found[0]?.pos ?? null) : null;
 }
 
 const hasContent = (node: PMNode) => !node.isTextblock || node.content.size > 0;
@@ -211,28 +242,44 @@ export const BlockIdentityIds = Extension.create<BlockIdentityIdsOptions>({
           return tr.docChanged ? tr : null;
         },
       }),
-      new Plugin<DecorationSet>({
+      new Plugin<LinkedBlock>({
         key: linkedBlockKey,
         state: {
-          init: () => DecorationSet.empty,
-          apply(tr, set) {
-            const linked = tr.getMeta(linkedBlockKey) as
-              | { pos: number }
+          init: () => NOT_LINKED,
+          apply(tr, linked) {
+            const meta = tr.getMeta(linkedBlockKey) as
+              | { pos: number; id: string }
               | null
               | undefined;
-            if (linked === undefined) return set.map(tr.mapping, tr.doc);
-            const node = linked ? tr.doc.nodeAt(linked.pos) : null;
-            return node && linked
-              ? DecorationSet.create(tr.doc, [
-                  Decoration.node(linked.pos, linked.pos + node.nodeSize, {
-                    class: "content-linked-block",
-                  }),
-                ])
-              : DecorationSet.empty;
+            if (meta !== undefined) {
+              return meta ? linkedAt(tr.doc, meta.pos, meta.id) : NOT_LINKED;
+            }
+            if (!tr.docChanged || linked.id === null) return linked;
+            const set = linked.set.map(tr.mapping, tr.doc);
+            if (set.find().length > 0) return { ...linked, set, moved: false };
+            const holder = soleHolderPos(tr.doc, linked.id);
+            return { ...linkedAt(tr.doc, holder, linked.id), moved: true };
           },
         },
+        view: () => ({
+          update(view, previous) {
+            const linked = linkedBlockKey.getState(view.state);
+            if (
+              !linked?.moved ||
+              linked === linkedBlockKey.getState(previous)
+            ) {
+              return;
+            }
+            for (const { from } of linked.set.find()) {
+              const dom = view.nodeDOM(from);
+              if (dom instanceof HTMLElement) {
+                dom.scrollIntoView({ block: "center" });
+              }
+            }
+          },
+        }),
         props: {
-          decorations: (state) => linkedBlockKey.getState(state),
+          decorations: (state) => linkedBlockKey.getState(state)?.set,
         },
       }),
     ];

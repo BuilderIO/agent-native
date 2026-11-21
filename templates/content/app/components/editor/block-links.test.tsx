@@ -411,7 +411,7 @@ describe("opening a block link", () => {
   function highlighted(target: Editor) {
     return linkedBlockKey
       .getState(target.state)
-      ?.find()
+      ?.set.find()
       .map(
         (decoration) => target.state.doc.nodeAt(decoration.from)?.textContent,
       );
@@ -427,6 +427,35 @@ describe("opening a block link", () => {
 
     expect(highlighted(target)).toEqual(["Pears"]);
     expect(hooks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("keeps the highlight on the linked block when the server's newer copy replaces the page", async () => {
+    const target = open("Apples\nPears");
+    stampBlockIdentityIds(target, {
+      shape: editorDocBlockIds(target.state.doc).shape,
+      idsByPath: { "1": "block_pears" },
+    });
+    await reveal(target, "block_pears");
+    const newer = nfmToDoc("Intro\nApples\nPears, rewritten");
+    const blocks = newer.content.map((node, index) =>
+      index === 2
+        ? {
+            ...node,
+            attrs: { ...node.attrs, [BLOCK_IDENTITY_ATTR]: "block_pears" },
+          }
+        : node,
+    );
+    target.view.dispatch(
+      target.state.tr
+        .replaceWith(
+          0,
+          target.state.doc.content.size,
+          target.schema.nodeFromJSON({ ...newer, content: blocks }).content,
+        )
+        .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+    );
+
+    expect(highlighted(target)).toEqual(["Pears, rewritten"]);
   });
 
   it("finds a block the editor holds no ID for where the server says it is", async () => {

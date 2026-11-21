@@ -321,10 +321,10 @@ export function linkedBlockPlace(
 
 const LINKED_HIGHLIGHT_MS = 2500;
 
-export function revealLinkedBlock(editor: Editor, pos: number) {
+export function revealLinkedBlock(editor: Editor, pos: number, id: string) {
   editor.view.dispatch(
     editor.state.tr
-      .setMeta(linkedBlockKey, { pos })
+      .setMeta(linkedBlockKey, { pos, id })
       .setMeta("addToHistory", false),
   );
   const dom = editor.view.nodeDOM(pos);
@@ -385,7 +385,7 @@ export function useLinkedBlockReveal(args: {
       requestAnimationFrame(() => {
         if (editor.isDestroyed) return;
         const place = find();
-        if (place) revealLinkedBlock(editor, place.pos);
+        if (place) revealLinkedBlock(editor, place.pos, blockId);
       });
       return true;
     };
