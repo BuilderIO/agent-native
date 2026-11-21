@@ -636,6 +636,16 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+// Retained private text is blanked, so the events that really held a reply are remembered here.
+const privateReplyTextEvents = new WeakSet<AgentChatEvent>();
+
+export function carriesAssistantText(event: AgentChatEvent): boolean {
+  return (
+    event.type === "text" &&
+    (event.text.trim().length > 0 || privateReplyTextEvents.has(event))
+  );
+}
+
 /**
  * A tool result with no later assistant text is an unfinished turn, not a
  * successful terminal response. Keep this predicate beside the run-manager's
@@ -662,7 +672,7 @@ export function endsAfterToolResultWithoutAssistantFinal(
       toolResultAfterLastAssistantText = false;
       continue;
     }
-    if (event.type === "text" && event.text.trim().length > 0) {
+    if (carriesAssistantText(event)) {
       toolResultAfterLastAssistantText = false;
       continue;
     }
@@ -701,7 +711,7 @@ export function endsDuringActionPreparation(run: ActiveRun): boolean {
       continue;
     }
     if (
-      (event.type === "text" && event.text.trim().length > 0) ||
+      carriesAssistantText(event) ||
       event.type === "tool_start" ||
       event.type === "tool_done" ||
       event.type === "approval_required" ||
@@ -1034,7 +1044,6 @@ export function startRun(
   threadToRun.set(threadId, runId);
 
   let privateTurn = false;
-  const privateAssistantTextSequences = new Set<number>();
   const privateCompletedUiTools = new Set<number>();
   const safeRunError = (error: unknown) =>
     privateTurn ? new Error("Private content omitted") : error;
@@ -2116,18 +2125,18 @@ export function startRun(
         : runEvent;
     if (
       runEvent.event.omitFromPersistedHistory === true &&
-      runEvent.event.type === "text" &&
-      runEvent.event.text.trim().length > 0
-    ) {
-      privateAssistantTextSequences.add(runEvent.seq);
-    }
-    if (
-      runEvent.event.omitFromPersistedHistory === true &&
       runEvent.event.type === "tool_done" &&
       (runEvent.event.chatUI !== undefined ||
         runEvent.event.mcpApp !== undefined)
     ) {
       privateCompletedUiTools.add(runEvent.seq);
+    }
+    if (
+      runEvent.event.omitFromPersistedHistory === true &&
+      runEvent.event.type === "text" &&
+      runEvent.event.text.trim().length > 0
+    ) {
+      privateReplyTextEvents.add(retainedEvent.event);
     }
     run.events.push(retainedEvent);
     for (const subscriber of run.subscribers) {
@@ -2562,17 +2571,6 @@ export function startRun(
               ? "truncated"
               : "completed";
       run.status = finalStatus;
-      const runForCompletionChecks: ActiveRun = privateTurn
-        ? {
-            ...run,
-            events: run.events.map((runEvent) =>
-              privateAssistantTextSequences.has(runEvent.seq) &&
-              runEvent.event.type === "text"
-                ? { ...runEvent, event: { ...runEvent.event, text: "..." } }
-                : runEvent,
-            ),
-          }
-        : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
         !checkpointStatusReadFailed &&
@@ -2582,10 +2580,10 @@ export function startRun(
           terminalEventForCompletion.event.reason === "action_settled"
         ) &&
         (endsAfterToolResultWithoutAssistantFinal(
-          runForCompletionChecks,
+          run,
           privateCompletedUiTools,
         ) ||
-          endsDuringActionPreparation(runForCompletionChecks)) &&
+          endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
             terminalEventForCompletion.event.reason !== "user"));

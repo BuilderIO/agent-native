@@ -9372,6 +9372,40 @@ describe("run manager soft timeout", () => {
     }
   });
 
+  it("does not auto-continue a private turn whose reply text was blanked in retained events", async () => {
+    const runId = "run-private-written-final";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_done",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          result: "private draft saved",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "text",
+          text: "Your draft is saved.",
+          omitFromPersistedHistory: true,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "truncated",
+      expect.anything(),
+    );
+  });
+
   it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {
     const runId = "run-private-empty-final";
     const run = startRun(
