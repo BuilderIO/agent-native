@@ -43,7 +43,9 @@ async function callRoute(
     orgId: "org-1",
   });
   const app = createApp();
-  mountActionRoutes(app as any, actions, { appId: "test-app" });
+  mountActionRoutes(app as Parameters<typeof mountActionRoutes>[0], actions, {
+    appId: "test-app",
+  });
   const req = new Request(`http://localhost${url}`, {
     ...init,
     headers: {

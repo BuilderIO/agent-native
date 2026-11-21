@@ -547,11 +547,6 @@ const LLM_CREDENTIAL_TERM_RE =
  * absent: the agent engine's broader `isLlmCredentialError` also matches "LLM
  * response missing required field", a real bug that must stay a captured 500.
  */
-/**
- * PostgreSQL rejects NUL (\u0000) in UTF-8 text (22021) and JSONB (22P05).
- * Defense-in-depth when a derived value reaches the database without passing
- * through action input validation directly.
- */
 function isPgInvalidNulByteError(error: unknown): boolean {
   if (
     isActionContractError(error) ||

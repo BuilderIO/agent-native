@@ -50,12 +50,9 @@ describe("action NUL-byte input validation", () => {
       secret: "top\u0000secret",
     });
     expect(privateIntent.valid).toBe(false);
-    if (!privateIntent.valid) {
-      expect(privateIntent.error).toBeInstanceOf(ActionInputValidationError);
-      expect((privateIntent.error as Error).message).toBe(
-        "Invalid action parameters",
-      );
-    }
+    const privateError = privateIntent.valid ? undefined : privateIntent.error;
+    expect(privateError).toBeInstanceOf(ActionInputValidationError);
+    expect((privateError as Error).message).toBe("Invalid action parameters");
   });
 
   it("preserves custom schema validation errors and permits normal Unicode, RTL, HTML, SQL, and literal \\u0000 text", async () => {

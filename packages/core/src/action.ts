@@ -3255,7 +3255,8 @@ function findNulBytePaths(root: unknown): Array<readonly (string | number)[]> {
     { value: root, path: [] },
   ];
   while (stack.length > 0 && paths.length < MAX_NUL_BYTE_PATHS) {
-    const current = stack.pop()!;
+    const current = stack.pop();
+    if (!current) break;
     const { value, path } = current;
     if (typeof value === "string") {
       if (value.includes("\u0000")) {
@@ -3282,9 +3283,7 @@ function findNulBytePaths(root: unknown): Array<readonly (string | number)[]> {
       }
       continue;
     }
-    const keys = Object.keys(value);
-    for (let i = keys.length - 1; i >= 0; i -= 1) {
-      const key = keys[i]!;
+    for (const key of Object.keys(value).reverse()) {
       const desc = Object.getOwnPropertyDescriptor(value, key);
       if (!desc || "get" in desc || "set" in desc) continue;
       const nextPath = [...path, key];
