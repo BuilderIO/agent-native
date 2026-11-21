@@ -1901,6 +1901,31 @@ describe("what the session status event says caused it", () => {
     );
   });
 
+  it("says expired for a mount's read after a return to the tab nothing was showing the session for", async () => {
+    const module = await mountFresh(signedInThenOut());
+    await act(async () => {
+      root.render(<></>);
+    });
+    vi.spyOn(Date, "now").mockReturnValue(now + 30_001);
+    await settle(() => window.dispatchEvent(new Event("focus")));
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(1);
+    function Late() {
+      module.useSession();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Late />);
+      await flushSessionRead();
+    });
+
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenLastCalledWith(
+      false,
+      "expired",
+    );
+    expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledTimes(2);
+  });
+
   it("says auth_change for a sign-in or sign-out in this tab", async () => {
     const module = await mountFresh(signedInThenOut());
 

@@ -454,7 +454,7 @@ function invalidateSessionCache(trigger: SessionStatusTrigger): Promise<void> {
 // for").
 function rereadSession(trigger: SessionStatusTrigger): void {
   if (sessionReadTriggerReported) {
-    sessionReadTrigger = trigger;
+    sessionReadTrigger = snapshotListeners.size > 0 ? trigger : "expired";
     sessionReadTriggerReported = false;
   }
   cachedSessionAt = 0;
