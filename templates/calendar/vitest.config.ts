@@ -13,6 +13,7 @@ export default mergeConfig(
       },
     },
     test: {
+      server: { deps: { inline: [/@agent-native\/core(?:\/|$)/] } },
       include: ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
       exclude: [
         "**/node_modules/**",

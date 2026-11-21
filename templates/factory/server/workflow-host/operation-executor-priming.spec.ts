@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // request it is sent, and everything between the two is the real guarded call.
 const providerMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../../../packages/core/dist/audit/store.js", async (original) => ({
+vi.mock("@factory-test/audit-store", async (original) => ({
   ...(await original<object>()),
   insertAuditEvent: async () => {},
 }));

@@ -4,6 +4,8 @@ import vitestConfig from "./vitest.config";
 
 describe("Chat Vitest config", () => {
   it("does not load the production Vite plugin stack", () => {
-    expect(vitestConfig.plugins).toBeUndefined();
+    expect(vitestConfig.plugins).toEqual([
+      expect.objectContaining({ name: "agent-native-bounded-task-source" }),
+    ]);
   });
 });

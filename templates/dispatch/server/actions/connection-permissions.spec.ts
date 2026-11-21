@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import type { WorkspaceConnection } from "@agent-native/core/workspace-connections";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,19 +11,25 @@ const state = vi.hoisted(() => ({
   execute: vi.fn(),
 }));
 
-vi.mock("../../../../packages/core/dist/db/client.js", () => ({
-  getDbExec: () => ({ execute: state.execute }),
-}));
+vi.doMock(
+  fileURLToPath(
+    new URL(
+      "../db/client.js",
+      import.meta.resolve("@agent-native/core/org/app-roles"),
+    ),
+  ),
+  () => ({ getDbExec: () => ({ execute: state.execute }) }),
+);
 vi.mock(
   "@agent-native/core/org",
   async () => import("@agent-native/core/org/app-roles"),
 );
 
-import {
+const {
   assertWorkspaceConnectionDeleteManager,
   assertWorkspaceConnectionGrantManager,
   assertWorkspaceConnectionManager,
-} from "../../actions/connection-permissions.js";
+} = await import("../../actions/connection-permissions.js");
 
 const ctx = {
   caller: "tool" as const,

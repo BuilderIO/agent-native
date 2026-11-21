@@ -47,6 +47,7 @@ const vitestBaseConfig: ViteUserConfig = {
   // App tests import server modules that load `?bounded-task` sources.
   plugins: [boundedTaskSourcePlugin()],
   test: {
+    server: { deps: { inline: [/@agent-native\//] } },
     maxWorkers: resolveMaxWorkers(),
     execArgv: process.allowedNodeEnvironmentFlags.has(WEBSTORAGE_OFF)
       ? [WEBSTORAGE_OFF]
