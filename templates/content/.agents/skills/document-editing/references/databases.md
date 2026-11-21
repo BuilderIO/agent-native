@@ -428,7 +428,8 @@ collection unlinked, so the page's next save moves it to Trash.
 
 An inline collection's block menu offers the reverse, "Turn into table". It
 reads the rows its current view shows, as text, with the view's filters,
-search and sort. Grouping doesn't carry over: rows in collapsed groups are
+search and sort. The view's layout doesn't narrow it: rows in collapsed
+groups, and a calendar's or timeline's rows outside the dates on screen, are
 included, in sort order. The table has a "Name" column with each row's title,
 then one column per property the view shows. It puts a plain table where the
 block was, in one undoable step, and the page's next save moves the collection
