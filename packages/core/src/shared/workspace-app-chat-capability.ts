@@ -25,6 +25,7 @@ export function workspaceAppChatAllowsRequest(
       "/threads",
       "/runs/active",
       "/runs/latest",
+      "/runs/list",
     ].includes(tail)
   )
     return true;

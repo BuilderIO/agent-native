@@ -36,6 +36,10 @@ import type { HostFunctions, RunError, Runner } from "run";
 import { runActionInvocation } from "../action-invocation.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  runWithCredentialUseLedger,
+  type CredentialUseLedger,
+} from "../credentials/use-ledger.js";
 import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
@@ -308,6 +312,7 @@ export interface ExecuteSandboxCodeOptions {
    * usual console cap. A data program's whole result is one stdout line.
    */
   maxStdoutChars?: number;
+  credentialLedger?: CredentialUseLedger;
 }
 
 export interface ExecuteSandboxCodeResult {
@@ -335,6 +340,7 @@ export async function executeSandboxCode(
       extraTools: options.extraBridgeTools ?? new Set(),
       mode,
       maxToolCalls: options.maxToolCalls,
+      credentialLedger: options.credentialLedger,
     });
     return executeRunSandboxCode({
       code: options.code,
@@ -366,6 +372,7 @@ export async function executeSandboxCode(
     options.extraBridgeTools ?? new Set(),
     mode,
     options.maxToolCalls,
+    options.credentialLedger,
   );
 
   try {
@@ -710,6 +717,7 @@ interface BridgeInvokerOptions {
   extraTools: Set<string>;
   mode: SandboxCodeMode;
   maxToolCalls: number | undefined;
+  credentialLedger?: CredentialUseLedger | undefined;
 }
 
 class BridgeInvocationError extends Error {
@@ -793,6 +801,15 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
       }
     }
 
+    const sharedRunTools = options.credentialLedger?.bridgeTools;
+    if (sharedRunTools && !sharedRunTools.has(toolName)) {
+      usedTools.add(toolName);
+      throw new BridgeInvocationError(
+        403,
+        `A run shared with the org only calls ${Array.from(sharedRunTools).join(", ")}, so "${toolName}" wasn't run. The viewer's own run calls it.`,
+      );
+    }
+
     if (callBudget) callBudget.count += 1;
     usedTools.add(toolName);
     let servicePrincipalRefusedError:
@@ -813,12 +830,16 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
       // Name the child, not `run-code`: a service principal's grant is checked
       // against the action actually being run. Its own frame, so a raw child
       // records none of the caller's approval.
-      const run = () =>
+      const invokeAction = () =>
         runActionInvocation(
           entry,
           childArgs,
           options.context && { ...options.context, actionName: toolName },
         );
+      const ledger = options.credentialLedger;
+      const run = ledger
+        ? () => runWithCredentialUseLedger(ledger, invokeAction)
+        : invokeAction;
       const result =
         options.context?.credentialScope === "org"
           ? await runWithRequestContext(
@@ -878,6 +899,7 @@ async function startBridgeServer(
   extraTools: Set<string>,
   mode: SandboxCodeMode,
   maxToolCalls: number | undefined,
+  credentialLedger: CredentialUseLedger | undefined,
 ): Promise<BridgeResult> {
   const bridge = createBridgeInvoker({
     actions,
@@ -886,6 +908,7 @@ async function startBridgeServer(
     extraTools,
     mode,
     maxToolCalls,
+    credentialLedger,
   });
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/tool") {

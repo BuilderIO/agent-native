@@ -15,6 +15,7 @@ import {
   logOAuthStateDecodeFailure,
   ensureGoogleAuthIdentity,
   hasGoogleAuthIdentity,
+  oauthCallbackOwner,
   resolveOAuthOwner,
   createOAuthSession,
   recordBuilderSignupBinding,
@@ -332,6 +333,7 @@ export const handleGoogleCallback = defineEventHandler(
       const { owner, hasProductionSession } = await resolveOAuthOwner(
         event,
         stateOwner,
+        state,
       );
 
       const email = await exchangeCode(code, undefined, redirectUri, owner);
@@ -589,9 +591,9 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         );
       }
 
-      const { redirectUri, owner: stateOwner } = state;
+      const { redirectUri } = state;
 
-      const ownerEmail = session?.email || stateOwner;
+      const ownerEmail = oauthCallbackOwner(session?.email, state);
       if (!ownerEmail) {
         return oauthErrorPage("Session expired. Please log in again.");
       }

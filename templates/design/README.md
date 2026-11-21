@@ -33,12 +33,16 @@ pnpm dev
 
 Full docs: [agent-native.com/docs/template-design](https://agent-native.com/docs/template-design?utm_source=github&utm_medium=referral&utm_content=design-readme).
 
-## First Design experiment
+## First Design intake and experiments
 
-New Design signups are assigned to the `design_no_questions` experiment when
-the app is enabled. To turn the experiment off for a deployment, set
-`AGENT_QUESTION_INTAKE_EXPERIMENT_DISABLED=true`. Users without a stored
-signup-time assignment continue on the control path.
+New Design requests skip pre-generation intake questions by default and generate
+a first coherent draft with sensible defaults (graduated from the
+`design_no_questions` experiment). Historical `design_no_questions` assignment
+rows remain untouched, and new signups or runs are no longer enrolled in or
+attributed to `design_no_questions`. To re-enable pre-generation intake
+questions for a deployment, set `DESIGN_SKIP_FIRST_PROMPT_QUESTIONS=false` (or
+configure `designFirstPrompt.skipIntakeQuestions: false` in
+`server/plugins/config.ts`).
 
 The first-output next-step experiment assigns eligible signed-in owners 50/50
 to `control` or `next_step` after a verified completed generation. The

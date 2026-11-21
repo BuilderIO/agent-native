@@ -1,0 +1,88 @@
+/*
+ * Part: scroll-area
+ *
+ *   <div class="scroll-area"                 Base UI ScrollArea.Root
+ *        data-scrollbars="vertical|horizontal|both" [data-radius]
+ *        [data-scrolling] [data-hovering]>
+ *     <div class="scroll-area-viewport">                       ScrollArea.Viewport
+ *     <div class="scroll-area-scrollbar" data-orientation>     ScrollArea.Scrollbar
+ *       <div class="scroll-area-thumb">                        ScrollArea.Thumb
+ *     <div class="scroll-area-corner">                         ScrollArea.Corner
+ *
+ * Radix Themes' scroll area with overlay scrollbars: 4, 8 or 12px thumbs,
+ * inset from the edge, that show while the area scrolls or is hovered.
+ * Round unless `radius` says otherwise.
+ */
+
+@layer components {
+  .scroll-area {
+    --_scroll-area-scrollbar-size: var(--space-1);
+    --_scroll-area-scrollbar-radius: var(--radius-full);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .scroll-area[data-radius]:not([data-radius="full"]) {
+    --_scroll-area-scrollbar-radius: var(--radius-1);
+  }
+
+  .scroll-area-viewport {
+    flex: 1;
+    min-height: 0;
+    overscroll-behavior: contain;
+    outline-style: none;
+  }
+
+  .scroll-area-viewport:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: calc(-1 * var(--focus-ring-width));
+  }
+
+  .scroll-area-scrollbar {
+    display: flex;
+    margin: var(--space-1);
+    border-radius: var(--_scroll-area-scrollbar-radius);
+    opacity: 0;
+    transition: opacity var(--duration-2) var(--ease-standard);
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .scroll-area-scrollbar[data-orientation="vertical"] {
+    flex-direction: column;
+    width: var(--_scroll-area-scrollbar-size);
+  }
+
+  .scroll-area-scrollbar[data-orientation="horizontal"] {
+    height: var(--_scroll-area-scrollbar-size);
+  }
+
+  .scroll-area-scrollbar[data-hovering],
+  .scroll-area-scrollbar[data-scrolling] {
+    opacity: 1;
+  }
+
+  .scroll-area-thumb {
+    flex: 1;
+    border-radius: inherit;
+    background-color: var(--gray-a8);
+    transition: background-color var(--duration-1) var(--ease-standard);
+  }
+
+  @media (hover: hover) {
+    .scroll-area-thumb:hover {
+      background-color: var(--gray-a9);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scroll-area-scrollbar,
+    .scroll-area-thumb {
+      transition: none;
+    }
+  }
+}

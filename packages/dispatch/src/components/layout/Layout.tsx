@@ -1424,7 +1424,18 @@ function DispatchLayout({
     location.pathname,
     useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
   );
-  const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
+  const [sentNewChat, setSentNewChat] = useState<{
+    locationKey: string;
+    threadId: string;
+    submitId: string;
+  } | null>(null);
+  const pathThreadId = threadIdFromPath(localPathname);
+  const chatFirstSurfaceScope =
+    pathThreadId ??
+    (isChatRoute && sentNewChat?.locationKey === location.key
+      ? sentNewChat.threadId
+      : null) ??
+    "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
   );
@@ -1445,6 +1456,35 @@ function DispatchLayout({
   const chatFirstMode =
     extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const chatFirstHasActiveChat = chatFirstSurfaceScope !== "new";
+  const newChatLocationKey =
+    chatFirstMode && isChatRoute && !pathThreadId ? location.key : null;
+  useEffect(() => {
+    if (newChatLocationKey === null) return;
+    return subscribeAgentChatComposerSubmit((detail) => {
+      if (detail.withdrawn) {
+        setSentNewChat((current) =>
+          current?.locationKey === newChatLocationKey &&
+          current.submitId === detail.id
+            ? null
+            : current,
+        );
+        return;
+      }
+      const threadId = detail.threadId;
+      if (!threadId) return;
+      setSentNewChat((current) =>
+        current?.locationKey === newChatLocationKey &&
+        current.threadId === threadId &&
+        current.submitId === detail.id
+          ? current
+          : { locationKey: newChatLocationKey, threadId, submitId: detail.id },
+      );
+    });
+  }, [newChatLocationKey]);
+  useEffect(() => {
+    if (!pathThreadId) return;
+    setSentNewChat((current) => (current ? null : current));
+  }, [pathThreadId]);
   useEffect(() => {
     if (!electronEmbedded || typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -2004,7 +2044,12 @@ function DispatchLayout({
   ]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || chatFirstPaneHydratedRef.current) {
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      chatFirstPaneHydratedRef.current
+    ) {
       return;
     }
     chatFirstPaneHydratedRef.current = true;
@@ -2028,7 +2073,14 @@ function DispatchLayout({
   }, [chatFirstMode, chatFirstPane, chatFirstSurfaceScope, isChatRoute]);
 
   useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || !pendingChatFirstPaneRestore) return;
+    if (
+      !chatFirstMode ||
+      !isChatRoute ||
+      chatFirstSurfaceScope === "new" ||
+      !pendingChatFirstPaneRestore
+    ) {
+      return;
+    }
     if (chatFirstPane) {
       setPendingChatFirstPaneRestore(null);
       return;
@@ -2247,9 +2299,16 @@ function DispatchLayout({
             chatFirstPaneSignature(now.tabsStore.getSnapshot()) !== sentPane;
           const plan = planChatFirstAppRoute({
             answer,
-            installedApp: (app) => {
+            installedApp: (app, object) => {
+              const objectPath = object?.objectId?.startsWith("/")
+                ? object.objectId
+                : undefined;
               const resolution = resolveChatFirstAppTarget(
-                { app },
+                {
+                  app,
+                  ...(object?.url ? { url: object.url } : {}),
+                  ...(!object?.url && objectPath ? { path: objectPath } : {}),
+                },
                 now.registrations,
                 { currentOrigin: window.location.origin },
               );

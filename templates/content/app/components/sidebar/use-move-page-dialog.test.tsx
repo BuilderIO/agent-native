@@ -10,13 +10,15 @@ import type {
   MovePageTarget,
 } from "./MovePageDialog";
 
-type MoveCallbacks = {
-  onSuccess: () => void;
-  onError: (error: unknown) => void;
+type MoveRequest = {
+  variables: Record<string, unknown>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
 };
 
 const mocks = vi.hoisted(() => ({
-  mutate: vi.fn(),
+  moves: [] as MoveRequest[],
+  mutateAsync: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   dialog: undefined as
@@ -41,7 +43,7 @@ vi.mock("sonner", () => ({
   toast: { success: mocks.toastSuccess, error: mocks.toastError },
 }));
 vi.mock("@/hooks/use-documents", () => ({
-  useMoveDocument: () => ({ mutate: mocks.mutate }),
+  useMoveDocument: () => ({ mutateAsync: mocks.mutateAsync }),
 }));
 vi.mock("@/hooks/use-content-spaces", () => ({
   useContentSpaces: () => ({
@@ -79,17 +81,19 @@ describe("useMovePageDialog", () => {
   let container: HTMLDivElement | undefined;
   let root: Root | undefined;
   let startMove: (page: MovePageTarget | null) => void = () => undefined;
-  const onMoved = vi.fn();
+  const settle = vi.fn();
+  const onMove = vi.fn(() => settle);
 
   afterEach(async () => {
     await act(async () => root?.unmount());
     container?.remove();
     mocks.dialog = undefined;
+    mocks.moves = [];
     vi.clearAllMocks();
   });
 
   function Harness() {
-    const move = useMovePageDialog({ onMoved });
+    const move = useMovePageDialog({ onMove });
     startMove = move.startMove;
     return move.dialog;
   }
@@ -101,14 +105,19 @@ describe("useMovePageDialog", () => {
     const harnessRoot = createRoot(host);
     container = host;
     root = harnessRoot;
+    mocks.mutateAsync.mockImplementation(
+      (variables: Record<string, unknown>) =>
+        new Promise<void>((resolve, reject) => {
+          mocks.moves.push({ variables, resolve, reject });
+        }),
+    );
     await act(async () => harnessRoot.render(<Harness />));
   }
 
   function lastMoveCall() {
-    const [variables, callbacks] = mocks.mutate.mock.calls[
-      mocks.mutate.mock.calls.length - 1
-    ] as [Record<string, unknown>, MoveCallbacks];
-    return { variables, callbacks };
+    const call = [...mocks.moves].pop();
+    if (!call) throw new Error("No move was asked for");
+    return call;
   }
 
   it("opens for the chosen page with only the spaces it can move into", async () => {
@@ -140,13 +149,16 @@ describe("useMovePageDialog", () => {
     act(() =>
       mocks.dialog?.onMove(roadmap, { spaceId: "personal", parentId: "p-1" }),
     );
-    let call = lastMoveCall();
-    expect(call.variables).toEqual({ id: "doc-1", parentId: "p-1" });
-    act(() => call.callbacks.onSuccess());
-    expect(onMoved).toHaveBeenLastCalledWith(roadmap, {
+    // The sidebar hears of the move as it starts, before the server answers.
+    expect(onMove).toHaveBeenLastCalledWith(roadmap, {
       spaceId: "personal",
       parentId: "p-1",
     });
+    expect(settle).not.toHaveBeenCalled();
+    let call = lastMoveCall();
+    expect(call.variables).toEqual({ id: "doc-1", parentId: "p-1" });
+    await act(async () => call.resolve());
+    expect(settle).toHaveBeenLastCalledWith(true);
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
 
     act(() =>
@@ -158,7 +170,7 @@ describe("useMovePageDialog", () => {
       parentId: null,
       spaceId: "team",
     });
-    act(() => call.callbacks.onSuccess());
+    await act(async () => call.resolve());
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       'sidebar.movedToSpace {"title":"Roadmap","space":"Team"}',
     );
@@ -170,10 +182,34 @@ describe("useMovePageDialog", () => {
     act(() =>
       mocks.dialog?.onMove(roadmap, { spaceId: "personal", parentId: null }),
     );
-    act(() => lastMoveCall().callbacks.onError(new Error("Page is locked")));
+    const call = lastMoveCall();
+    await act(async () => call.reject(new Error("Page is locked")));
     expect(mocks.toastError).toHaveBeenCalledWith("sidebar.failedMovePage", {
       description: "Page is locked",
     });
-    expect(onMoved).not.toHaveBeenCalled();
+    expect(settle).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it("settles each of two moves made before the first answered", async () => {
+    await render();
+    act(() => startMove(roadmap));
+    act(() =>
+      mocks.dialog?.onMove(roadmap, { spaceId: "personal", parentId: "p-1" }),
+    );
+    act(() =>
+      mocks.dialog?.onMove(roadmap, { spaceId: "personal", parentId: "p-2" }),
+    );
+    expect(mocks.moves).toHaveLength(2);
+    const [first, second] = mocks.moves as [MoveRequest, MoveRequest];
+
+    // The first move fails after the second one started.
+    await act(async () => first.reject(new Error("Page is locked")));
+    await act(async () => second.resolve());
+
+    expect(settle.mock.calls).toEqual([[false], [true]]);
+    expect(mocks.toastError).toHaveBeenCalledExactlyOnceWith(
+      "sidebar.failedMovePage",
+      { description: "Page is locked" },
+    );
   });
 });

@@ -1188,6 +1188,59 @@ describe("workspace connection store", () => {
     );
   });
 
+  it("report RECONNECT-DUP-CONNECTION-1119 reconnecting the same account updates one row", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceConnection, listWorkspaceConnections } =
+      await import("./store.js");
+
+    const connect = (
+      email: string,
+      orgId: string,
+      accountId: string,
+      extra: Record<string, unknown> = {},
+    ) =>
+      runWithRequestContext({ userEmail: email, orgId }, () =>
+        upsertWorkspaceConnection({
+          provider: "google",
+          label: `Google: ${accountId}`,
+          accountId,
+          ...extra,
+        }),
+      );
+
+    const first = await connect("alice@example.com", "org-1", "a@x.com", {
+      status: "needs_reauth",
+      scopes: ["openid"],
+      credentialRefs: [{ key: "GOOGLE_TOKEN_OLD", scope: "user" }],
+    });
+    const second = await connect("alice@example.com", "org-1", "a@x.com", {
+      status: "connected",
+      scopes: ["openid", "email"],
+      credentialRefs: [{ key: "GOOGLE_TOKEN_NEW", scope: "user" }],
+    });
+    const otherAccount = await connect("alice@example.com", "org-1", "b@x.com");
+    const otherOwner = await connect("bob@example.com", "org-1", "a@x.com");
+    const otherOrg = await connect("alice@example.com", "org-2", "a@x.com");
+
+    expect(second.id).toBe(first.id);
+    expect(second.status).toBe("connected");
+    expect(second.scopes).toEqual(["openid", "email"]);
+    expect(second.credentialRefs).toEqual([
+      { key: "GOOGLE_TOKEN_NEW", scope: "user" },
+    ]);
+    expect(
+      new Set([first.id, otherAccount.id, otherOwner.id, otherOrg.id]).size,
+    ).toBe(4);
+
+    const rows = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () => listWorkspaceConnections({ provider: "google" }),
+    );
+    expect(rows.filter((row) => row.accountId === "a@x.com")).toHaveLength(2);
+    expect(rows.filter((row) => row.id === first.id)).toHaveLength(1);
+  });
+
   it("fails closed on malformed persisted connection restrictions", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
@@ -2192,6 +2245,60 @@ describe("workspace connection store", () => {
       },
     });
     expect(resolved.reason).toMatch(/needs_reauth/);
+  });
+
+  it("keeps a Google Calendar connection made before the calendar list scope connected", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+    const requestContext = {
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    };
+    const connect = (id: string, scopes: string[]) =>
+      runWithRequestContext(requestContext, () =>
+        upsertWorkspaceConnection({
+          id,
+          provider: "google_calendar",
+          label: `Google Calendar ${id}`,
+          accountId: `account-${id}`,
+          status: "connected",
+          scopes,
+          config: { credentialMode: "oauth" },
+        }),
+      );
+    const resolve = (connectionId: string) =>
+      runWithRequestContext(requestContext, () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "calendar",
+          provider: "google_calendar",
+          connectionId,
+          requireConnected: true,
+        }),
+      );
+    const earlierScopes = [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+    ];
+    await connect("conn-calendar-before-list-scope", earlierScopes);
+    await connect("conn-calendar-readonly-only", earlierScopes.slice(0, 4));
+
+    await expect(
+      resolve("conn-calendar-before-list-scope"),
+    ).resolves.toMatchObject({
+      available: true,
+      connection: { status: "connected" },
+    });
+    await expect(resolve("conn-calendar-readonly-only")).resolves.toMatchObject(
+      {
+        available: false,
+        connection: { status: "needs_reauth" },
+      },
+    );
   });
 
   it("accepts a connected Gmail app grant without the provider-wide scope superset", async () => {

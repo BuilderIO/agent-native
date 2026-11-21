@@ -204,6 +204,115 @@ export async function isAllowedFigmaSvgRenderRequest(
   }
 }
 
+const MAX_RENDER_REDIRECTS = 5;
+
+function isTopLevelNavigation(
+  request: import("@playwright/test").Request,
+): boolean {
+  return (
+    request.isNavigationRequest() && request.frame().parentFrame() === null
+  );
+}
+
+export class RenderNavigatedAwayError extends Error {
+  readonly code = "render_navigated_away" as const;
+  constructor(readonly url: string) {
+    super(
+      "The screen navigates the page away from its own document, so it cannot be rendered. Remove the script that changes the page location.",
+    );
+    this.name = "RenderNavigatedAwayError";
+  }
+}
+
+function throwIfNavigatedAway(blockedNavigations: string[]): void {
+  const [url] = blockedNavigations;
+  if (url) throw new RenderNavigatedAwayError(url);
+}
+
+export async function routeAllowedRenderRequests(
+  context: import("@playwright/test").BrowserContext,
+  isAllowed: (url: string) => Promise<boolean> = (url) =>
+    isAllowedFigmaSvgRenderRequest(url),
+  safeFetch: SafeImageFetch = ssrfSafeFetch,
+): Promise<{ blockedNavigations: string[] }> {
+  const blockedNavigations: string[] = [];
+  await context.route("**/*", async (route) => {
+    const request = route.request();
+    if (isTopLevelNavigation(request)) {
+      blockedNavigations.push(request.url());
+      await route.abort("blockedbyclient");
+      return;
+    }
+    if (!(await isAllowed(request.url()))) {
+      await route.abort("blockedbyclient");
+      return;
+    }
+    if (!/^https?:/i.test(request.url())) {
+      await route.continue();
+      return;
+    }
+    const method = request.method();
+    const headers = new Headers(request.headers());
+    for (const name of [
+      "host",
+      "content-length",
+      "connection",
+      "accept-encoding",
+    ]) {
+      headers.delete(name);
+    }
+    const postData = request.postDataBuffer();
+    let response: Response;
+    try {
+      response = await safeFetch(
+        request.url(),
+        {
+          method,
+          headers,
+          ...(postData && method !== "GET" && method !== "HEAD"
+            ? { body: new Uint8Array(postData) }
+            : {}),
+          signal: AbortSignal.timeout(30_000),
+        },
+        {
+          maxRedirects: MAX_RENDER_REDIRECTS,
+          requireDispatcher: true,
+          assertUrlAllowed: async (hopUrl) => {
+            if (!(await isAllowed(hopUrl))) {
+              throw new Error(`Render request blocked (${hopUrl})`);
+            }
+          },
+        },
+      );
+    } catch {
+      await route.abort("blockedbyclient");
+      return;
+    }
+    try {
+      const body = Buffer.from(await response.arrayBuffer());
+      const responseHeaders: Record<string, string> = {};
+      response.headers.forEach((value, name) => {
+        if (
+          name === "content-encoding" ||
+          name === "content-length" ||
+          name === "transfer-encoding"
+        ) {
+          return;
+        }
+        responseHeaders[name] = value;
+      });
+      await route.fulfill({
+        status: response.status,
+        headers: responseHeaders,
+        body,
+      });
+    } catch {
+      await route.abort("failed");
+    }
+  });
+  return { blockedNavigations };
+}
+
 async function rasterizeUnsupportedNodes(
   page: import("@playwright/test").Page,
   node: RawFigmaSvgNode,
@@ -277,20 +386,18 @@ export async function renderDesignToFigmaSvg(
     const context = await browser.newContext({
       viewport: { width: options.width, height: options.height },
     });
+    await context.routeWebSocket("**/*", (ws) => {
+      void ws.close();
+    });
     await context.addInitScript(
       "globalThis.__name = globalThis.__name || function (value) { return value; };",
     );
-    await context.route("**/*", async (route) => {
-      if (await isAllowedFigmaSvgRenderRequest(route.request().url())) {
-        await route.continue();
-      } else {
-        await route.abort("blockedbyclient");
-      }
-    });
+    const requests = await routeAllowedRenderRequests(context);
     const page = await context.newPage();
     try {
       await page.setContent(options.html, { waitUntil: "networkidle" });
       await page.waitForTimeout(300);
+      throwIfNavigatedAway(requests.blockedNavigations);
 
       const scene = (await page.evaluate(
         collectRawFigmaSvgScene,

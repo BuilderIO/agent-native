@@ -247,6 +247,16 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
+import {
+  ContentFileRestoreError,
+  putClaimedContentFileBack,
+  waitForContentFileHandlesToClose,
+} from "./content-files/file-handles";
+import {
+  contentFilesIdKey,
+  legacyContentFilesGrantId,
+  persistentContentFilesGrantId,
+} from "./content-files/grant-ids";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
@@ -356,7 +366,10 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
-import { setMailWebviewBackgroundThrottling } from "./webview-background-throttling.js";
+import {
+  setMailWebviewBackgroundThrottling,
+  setWebviewBackgroundThrottling,
+} from "./webview-background-throttling.js";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
@@ -2175,6 +2188,14 @@ ipcMain.on(
       app: appId || undefined,
     });
     clearDesktopShortcutActivation(requestId);
+  },
+);
+
+ipcMain.on(
+  IPC.SET_WEBVIEW_BACKGROUND_THROTTLING,
+  (event: IpcMainEvent, request: unknown) => {
+    if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+    setWebviewBackgroundThrottling(request, (id) => webContents.fromId(id));
   },
 );
 
@@ -8540,7 +8561,13 @@ const localAppServers = new LocalAppServerManager({
     mainWindow.webContents.send(IPC.APP_STATUS, status);
   },
   baseEnv: () =>
-    withResolvedExecutablePaths({ ...process.env }, LOCAL_APP_EXECUTABLES),
+    withResolvedExecutablePaths(
+      {
+        ...process.env,
+        AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
+      },
+      LOCAL_APP_EXECUTABLES,
+    ),
   isQuitting: () => appIsQuitting,
   logDir: () => path.join(app.getPath("userData"), "local-app-logs"),
 });
@@ -9578,10 +9605,6 @@ function resolveUsableContentFolder(value: unknown): string | null {
   }
 }
 
-function contentFilesGrantId(folder: string): string {
-  return `folder-${Buffer.from(path.resolve(folder)).toString("base64url")}`;
-}
-
 function contentFilesSourcePrefixBase(name: string): string {
   const prefix = name
     .replace(/[\\/]/g, "-")
@@ -9618,7 +9641,8 @@ function normalizeContentFilesGrant(
   if (!storedPath || storedPath.includes("\0")) return null;
   const folder = path.resolve(expandPathCandidate(storedPath) ?? storedPath);
   if (isFilesystemRoot(folder)) return null;
-  const id = firstStringValue(value.id)?.trim() || contentFilesGrantId(folder);
+  const id =
+    firstStringValue(value.id)?.trim() || legacyContentFilesGrantId(folder);
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
     path.basename(folder) || folder,
@@ -9804,7 +9828,11 @@ function setContentFilesGrant(folder: string): {
 } {
   const store = loadContentFilesStore();
   const grants = { ...(store.grants ?? {}) };
-  const id = contentFilesGrantId(folder);
+  const id = persistentContentFilesGrantId(
+    folder,
+    grants,
+    contentFilesIdKey(app.getPath("userData")),
+  );
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
     path.basename(folder) || folder,
@@ -10233,27 +10261,31 @@ async function writeContentSourceFile(
     await fs.promises.chmod(temporary, existingStat.mode);
     await fs.promises.rename(target, backup);
     if (!(await waitForContentFileHandlesToClose(backup))) {
-      await fs.promises.rename(backup, target);
+      const keptPreviousAt = await putClaimedContentFileBack(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
         await contentSourceFileRevision(target),
+        keptPreviousAt,
       );
     }
     const claimedRevision = await contentSourceFileRevision(backup);
     if (claimedRevision !== expectedRevision) {
-      await fs.promises.rename(backup, target);
+      const keptPreviousAt = await putClaimedContentFileBack(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
         claimedRevision,
+        keptPreviousAt,
       );
     }
     try {
       await fs.promises.link(temporary, target);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        await fs.promises.rename(backup, target).catch(() => undefined);
+        if (await putClaimedContentFileBack(backup, target, error)) {
+          throw new ContentFileRestoreError(target, backup, error, undefined);
+        }
         throw error;
       }
       const competingRevision = await contentSourceFileRevision(target);
@@ -10271,26 +10303,18 @@ async function writeContentSourceFile(
   return normalized;
 }
 
-async function waitForContentFileHandlesToClose(filePath: string) {
-  if (process.platform !== "darwin") return false;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const handles = spawnSync("lsof", ["-t", "--", filePath], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    if (handles.status !== 0 || !handles.stdout.trim()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return false;
-}
-
 class ContentFilesRevisionConflict extends Error {
   constructor(
     readonly filePath: string,
     readonly expectedRevision: string | null,
     readonly actualRevision?: string,
+    readonly keptPreviousAt?: string,
   ) {
-    super("The local file changed before Content could save it.");
+    super(
+      keptPreviousAt
+        ? `The local file changed before Content could save it. Its previous version is at ${keptPreviousAt}.`
+        : "The local file changed before Content could save it.",
+    );
   }
 }
 
@@ -10314,20 +10338,22 @@ async function deleteContentSourceFile(
   const claimed = `${target}.${randomUUID()}.delete-claim`;
   await fs.promises.rename(target, claimed);
   if (!(await waitForContentFileHandlesToClose(claimed))) {
-    await fs.promises.rename(claimed, target);
+    const keptPreviousAt = await putClaimedContentFileBack(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
       await contentSourceFileRevision(target),
+      keptPreviousAt,
     );
   }
   const claimedRevision = await contentSourceFileRevision(claimed);
   if (claimedRevision !== expectedRevision) {
-    await fs.promises.rename(claimed, target);
+    const keptPreviousAt = await putClaimedContentFileBack(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
       claimedRevision,
+      keptPreviousAt,
     );
   }
   const competingRevision = await contentSourceFileRevision(target);
