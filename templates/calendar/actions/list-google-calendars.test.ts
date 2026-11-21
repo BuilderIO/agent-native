@@ -55,7 +55,7 @@ describe("list-google-calendars action", () => {
       errors: [],
     });
     getUserSettingMock.mockResolvedValue({
-      "work@example.com": "  Builder   work; meetings with Steve go here ",
+      "work@example.com": "  Work   meetings and team 1:1s go here ",
       "me@example.com": "   ",
     });
 
@@ -68,7 +68,7 @@ describe("list-google-calendars action", () => {
     expect(result.calendars).toEqual([
       expect.objectContaining({
         sourceKey: "s1",
-        accountDescription: "Builder work; meetings with Steve go here",
+        accountDescription: "Work meetings and team 1:1s go here",
       }),
       expect.not.objectContaining({ accountDescription: expect.anything() }),
     ]);

@@ -21,7 +21,12 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const FEEDS_KEY = ["action", "list-external-calendars", undefined];
 const FEEDS: ExternalCalendar[] = [
   { id: "talks", name: "Talks", url: "https://a.test/t.ics", color: "blue" },
-  { id: "holidays", name: "Holidays", url: "https://a.test/h.ics", color: "green" },
+  {
+    id: "holidays",
+    name: "Holidays",
+    url: "https://a.test/h.ics",
+    color: "green",
+  },
 ];
 
 let container: HTMLDivElement | null = null;

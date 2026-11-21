@@ -702,29 +702,33 @@ describe("list-events inventory contract", () => {
       "me@example.com",
     ]);
     listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
-    getUserSettingMock.mockImplementation(async (_owner: string, key: string) => {
-      if (key === "calendar-account-descriptions") {
-        return { "Work@Example.com": "Builder work; meetings with Steve go here" };
-      }
-      if (key === "external-calendars") {
-        return [
-          {
-            id: "talks",
-            name: "Talks",
-            url: "https://calendar.example.test/talks.ics",
-            color: "blue",
-            description: "Conference talks I might attend",
-          },
-          {
-            id: "holidays",
-            name: "Holidays",
-            url: "https://calendar.example.test/holidays.ics",
-            color: "green",
-          },
-        ];
-      }
-      return null;
-    });
+    getUserSettingMock.mockImplementation(
+      async (_owner: string, key: string) => {
+        if (key === "calendar-account-descriptions") {
+          return {
+            "Work@Example.com": "Work meetings and team 1:1s go here",
+          };
+        }
+        if (key === "external-calendars") {
+          return [
+            {
+              id: "talks",
+              name: "Talks",
+              url: "https://calendar.example.test/talks.ics",
+              color: "blue",
+              description: "Conference talks I might attend",
+            },
+            {
+              id: "holidays",
+              name: "Holidays",
+              url: "https://calendar.example.test/holidays.ics",
+              color: "green",
+            },
+          ];
+        }
+        return null;
+      },
+    );
     fetchICalEventsMock.mockResolvedValue([]);
 
     const result = await listEventsAction.run(
@@ -739,7 +743,7 @@ describe("list-events inventory contract", () => {
     expect(result).toHaveProperty("accounts", [
       expect.objectContaining({
         accountEmail: "work@example.com",
-        description: "Builder work; meetings with Steve go here",
+        description: "Work meetings and team 1:1s go here",
       }),
       expect.not.objectContaining({ description: expect.anything() }),
     ]);

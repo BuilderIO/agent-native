@@ -30,7 +30,9 @@ export default defineAction({
           descriptions,
           calendar.accountEmail,
         );
-        return accountDescription ? { ...calendar, accountDescription } : calendar;
+        return accountDescription
+          ? { ...calendar, accountDescription }
+          : calendar;
       }),
     };
   },

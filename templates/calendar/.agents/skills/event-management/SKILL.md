@@ -120,7 +120,7 @@ IDs.
 ### Account and feed descriptions
 
 The user can describe what each connected account and subscribed feed is for,
-such as "Builder work; meetings with Steve go here". Reads return it:
+such as "Work meetings and team 1:1s go here". Reads return it:
 `description` on `list-events` inventory `accounts` and `sourceCoverage`, on the
 Google status accounts, and on `list-external-calendars` feeds;
 `accountDescription` on each `list-google-calendars` calendar. Use it to choose
@@ -131,7 +131,7 @@ exactly one target:
 
 ```bash
 pnpm action update-calendar-description --accountEmail work@example.com \
-  --description "Builder work; meetings with Steve go here"
+  --description "Work meetings and team 1:1s go here"
 pnpm action update-calendar-description --feedId feed-id --description ""
 ```
 

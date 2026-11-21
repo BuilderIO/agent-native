@@ -162,7 +162,8 @@ export default {
     myCalendars: "Mis calendarios",
     calendarDescription: "Descripción",
     calendarDescriptionPlaceholder: "¿Para qué es este calendario?",
-    calendarDescriptionHint: "Los agentes lo leen para elegir el calendario correcto.",
+    calendarDescriptionHint:
+      "Los agentes lo leen para elegir el calendario correcto.",
     feedsGroup: "Suscripciones",
     managePeerAvailability: "Gestionar disponibilidad compartida",
     nextYear: "Año siguiente",

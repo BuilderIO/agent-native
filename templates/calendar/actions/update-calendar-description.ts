@@ -21,7 +21,7 @@ export default defineAction({
     openWorldHint: false,
   },
   description:
-    'Describe one of the user\'s connected Google accounts or subscribed calendar feeds, such as "Builder work; meetings with Steve go here", so agents know which one to use. list-events, list-google-calendars, list-external-calendars and the Google status return the description. An empty description clears it. Saves Agent-Native\'s own note only; Google Calendar is not changed.',
+    "Describe one of the user's connected Google accounts or subscribed calendar feeds, such as \"Work meetings and team 1:1s go here\", so agents know which one to use. list-events, list-google-calendars, list-external-calendars and the Google status return the description. An empty description clears it. Saves Agent-Native's own note only; Google Calendar is not changed.",
   schema: z
     .object({
       accountEmail: z
@@ -96,6 +96,10 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    return { feedId: feed.id, name: feed.name, description: description ?? null };
+    return {
+      feedId: feed.id,
+      name: feed.name,
+      description: description ?? null,
+    };
   },
 });

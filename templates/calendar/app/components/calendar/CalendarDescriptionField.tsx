@@ -1,11 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useId, useState } from "react";
-
-import { Textarea } from "@/components/ui/textarea";
 import {
   MAX_CALENDAR_DESCRIPTION_LENGTH,
   normalizeCalendarDescription,
 } from "@shared/calendar-descriptions";
+import { useEffect, useId, useState } from "react";
+
+import { Textarea } from "@/components/ui/textarea";
 
 export function CalendarDescriptionField({
   value,

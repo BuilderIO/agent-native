@@ -55,16 +55,16 @@ describe("update-calendar-description", () => {
     await expect(
       run({
         accountEmail: "Work@Example.com",
-        description: "  Builder work;\n meetings with Steve go here ",
+        description: "  Work meetings\n and team 1:1s go here ",
       }),
     ).resolves.toEqual({
       accountEmail: "work@example.com",
-      description: "Builder work; meetings with Steve go here",
+      description: "Work meetings and team 1:1s go here",
     });
     expect(
       mocks.settings.get(`${owner}:calendar-account-descriptions`),
     ).toEqual({
-      "work@example.com": "Builder work; meetings with Steve go here",
+      "work@example.com": "Work meetings and team 1:1s go here",
     });
   });
 
@@ -86,14 +86,19 @@ describe("update-calendar-description", () => {
     await expect(
       run({ accountEmail: "someone@example.com", description: "Theirs" }),
     ).rejects.toThrow("isn't one of your connected Google accounts");
-    expect(
-      mocks.settings.has(`${owner}:calendar-account-descriptions`),
-    ).toBe(false);
+    expect(mocks.settings.has(`${owner}:calendar-account-descriptions`)).toBe(
+      false,
+    );
   });
 
   it("describes a feed and keeps the rest of the feed list", async () => {
     mocks.settings.set(`${owner}:external-calendars`, [
-      { id: "talks", name: "Talks", url: "https://a.test/t.ics", color: "blue" },
+      {
+        id: "talks",
+        name: "Talks",
+        url: "https://a.test/t.ics",
+        color: "blue",
+      },
       {
         id: "holidays",
         name: "Holidays",

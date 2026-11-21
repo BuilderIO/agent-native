@@ -1,12 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { surfaceMutationError } from "@agent-native/core/client/write-failure";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-
 import type { ExternalCalendar } from "@shared/api";
 import {
   normalizeCalendarDescription,
   withFeedDescription,
 } from "@shared/calendar-descriptions";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 type CalendarDescriptionTarget =
   | { accountEmail: string; feedId?: never }
