@@ -392,6 +392,7 @@ import {
   useSuggestionDecisionView,
   type QueuedSuggestionDecision,
 } from "./suggestion-decision-queue";
+import { scrollSuggestionIntoPageView } from "./suggestion-page-view";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -3455,6 +3456,11 @@ function PageEditorSessionBody({
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<
     string | null
   >(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [steppedSuggestion, setSteppedSuggestion] = useState<{
+    threadId: string;
+    suggestionId: string;
+  } | null>(null);
   const [unplaceableSuggestionRevisions, setUnplaceableSuggestionRevisions] =
     useState<ReadonlyMap<string, number>>(() => new Map());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(
@@ -6960,7 +6966,13 @@ function PageEditorSessionBody({
     [documentId, savedSuggestions],
   );
   const activeSuggestionOnPage =
-    hoveredSuggestionId ?? editingSuggestionId ?? selectedSuggestionId;
+    hoveredSuggestionId ??
+    editingSuggestionId ??
+    selectedSuggestionId ??
+    (steppedSuggestion &&
+    (!selectedThreadId || selectedThreadId === steppedSuggestion.threadId)
+      ? steppedSuggestion.suggestionId
+      : null);
   // Whichever word of a unit is active, all of its words light up.
   const activeUnitIds = useMemo(
     () =>
@@ -8945,7 +8957,6 @@ function PageEditorSessionBody({
       !!pendingComment.text.trim() ||
       pendingComment.mentions.length > 0 ||
       !!pendingComment.aiDraft);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   // The Property whose threads, or new Comment, Info shows under its row.
   const [infoPropertyId, setInfoPropertyId] = useState<string | null>(null);
@@ -9730,6 +9741,7 @@ function PageEditorSessionBody({
     setHoveredThreadId(null);
     setSelectedSuggestionId(null);
     setHoveredSuggestionId(null);
+    setSteppedSuggestion(null);
   }, []);
 
   const dismissCommentFocus = useCallback(() => {
@@ -9750,6 +9762,12 @@ function PageEditorSessionBody({
     showCommentsHistoryDrawer,
   ]);
 
+  const revealSuggestionOnPage = useCallback((suggestionId: string) => {
+    requestAnimationFrame(() =>
+      scrollSuggestionIntoPageView(suggestionId, scrollContainerRef.current),
+    );
+  }, []);
+
   const holdsPropertyComment = !!heldPropertyCommentId;
   const activateSuggestion = useCallback(
     (suggestionId: string) => {
@@ -9761,26 +9779,18 @@ function PageEditorSessionBody({
       setCommentsBrowseOpen(false);
       setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
-      requestAnimationFrame(() => {
-        const targets = globalThis.document.querySelectorAll<HTMLElement>(
-          `[data-suggestion-id="${CSS.escape(suggestionId)}"]`,
-        );
-        const pageTarget = Array.from(targets).find((target) =>
-          target.closest(".content-editor"),
-        );
-        if (pageTarget) {
-          const rect = pageTarget.getBoundingClientRect();
-          const viewport = scrollContainerRef.current?.getBoundingClientRect();
-          if (
-            viewport &&
-            (rect.top < viewport.top || rect.bottom > viewport.bottom)
-          ) {
-            pageTarget.scrollIntoView({ behavior: "smooth", block: "nearest" });
-          }
-        }
-      });
+      revealSuggestionOnPage(suggestionId);
     },
-    [holdsPropertyComment, setPendingComment],
+    [holdsPropertyComment, revealSuggestionOnPage, setPendingComment],
+  );
+
+  const stepThreadSuggestion = useCallback(
+    (threadId: string, suggestionId: string) => {
+      setSteppedSuggestion({ threadId, suggestionId });
+      setSelectedSuggestionId((current) => (current ? suggestionId : current));
+      revealSuggestionOnPage(suggestionId);
+    },
+    [revealSuggestionOnPage],
   );
 
   // An AI suggestion asked for from a comment is reviewed inside that thread.
@@ -10259,6 +10269,7 @@ function PageEditorSessionBody({
     }
     const sourceThreadId = suggestionThreadOnPage(suggestion.id);
     if (sourceThreadId) {
+      replyDrafts.markLinkedThread(sourceThreadId);
       activateCommentThread(sourceThreadId);
       return;
     }
@@ -10279,6 +10290,7 @@ function PageEditorSessionBody({
     clearCommentFocus,
     holdsPropertyComment,
     replyDrafts.setOpenReply,
+    replyDrafts.markLinkedThread,
     activateCommentThread,
     suggestionThreadOnPage,
     commentsLoading,
@@ -10299,8 +10311,15 @@ function PageEditorSessionBody({
       return;
     }
     handledCommentDeepLinkRef.current = deepLinkKey;
+    replyDrafts.markLinkedThread(threadId);
     activateCommentThread(threadId, true);
-  }, [activateCommentThread, documentId, location.search, threads]);
+  }, [
+    activateCommentThread,
+    documentId,
+    location.search,
+    replyDrafts.markLinkedThread,
+    threads,
+  ]);
 
   // A Collection that opens rows as full pages links here to start a comment
   // on one Property, as the row's peek does on a touch screen.
@@ -11245,6 +11264,7 @@ function PageEditorSessionBody({
             decideSuggestionProposal.isPending ||
             queuedDecisions.length > 0)
       }
+      onStepThreadSuggestion={stepThreadSuggestion}
       onDecideSuggestionProposal={async (
         proposalId,
         decision,

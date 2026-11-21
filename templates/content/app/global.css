@@ -3109,6 +3109,13 @@ button.discussion-subject-quote:hover {
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
+.content-editor
+  .suggestion-insert.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget],
+.content-editor
+  .suggestion-add-block.suggestion-inline-widget.suggestion-highlight--active[data-suggestion-widget] {
+  background: hsl(var(--suggestion) / 0.16);
+  box-shadow: inset 0 -2px hsl(var(--suggestion));
+}
 
 .content-editor .suggestion-delete.suggestion-highlight--active,
 .content-editor .suggestion-delete-widget.suggestion-highlight--active {

@@ -472,8 +472,8 @@ describe("comment AI controls", () => {
     });
 
     const change = document.querySelector("[data-comment-ai-change]")!;
-    expect(change.querySelector("del")?.textContent).toBe("are soft.");
-    expect(change.querySelector("ins")?.textContent).toBe("blur.");
+    expect(change.querySelector("del")?.textContent).toBe("are soft");
+    expect(change.querySelector("ins")?.textContent).toBe("blur");
     expect(change.textContent).toContain("comments.aiMoreChanges");
     expect(
       document.querySelector('[data-comment-ai-status="resolved"]')
