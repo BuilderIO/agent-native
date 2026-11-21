@@ -1202,7 +1202,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       "ask_app",
       "ask_app_status",
       "create_embed_session",
-      "get_app_manifest",
       "list_apps",
       "open_app",
       "set-resource-visibility",
@@ -1219,16 +1218,10 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(
       await listNames(declaredActions, { connectorCatalog: ["declared-read"] }),
     ).toEqual(
-      after.filter(
-        (name: string) =>
-          name !== "set-resource-visibility" && name !== "get_app_manifest",
-      ),
+      after.filter((name: string) => name !== "set-resource-visibility"),
     );
     expect(await listNames(declaredActions, { connectorCatalog: [] })).toEqual(
-      after.filter(
-        (name: string) =>
-          name !== "set-resource-visibility" && name !== "get_app_manifest",
-      ),
+      after.filter((name: string) => name !== "set-resource-visibility"),
     );
     expect(
       await listNames(declaredActions, {
@@ -1271,7 +1264,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       "ask_app",
       "ask_app_status",
       "create_embed_session",
-      "get_app_manifest",
       "list_apps",
       "open_app",
     ]);
@@ -1626,7 +1618,6 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       expect(names).toEqual([
         "create-plan",
         "get-plan",
-        "get_app_manifest",
         "navigate",
         "public-read",
         "public-write",

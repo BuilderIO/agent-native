@@ -10,7 +10,6 @@ import {
   REALTIME_SSE_HANDSHAKE_EVENT,
   REALTIME_SSE_TOKEN_EVENT,
 } from "../realtime-protocol.js";
-import { postScreenSettled } from "./screen-settled.js";
 
 export { REALTIME_CAP_POLL_LIVE } from "../realtime-protocol.js";
 import {
@@ -44,7 +43,7 @@ interface QueryClient {
       queryKey?: string[];
       predicate?: (query: Query) => boolean;
     },
-    options?: { cancelRefetch?: boolean; throwOnError?: boolean },
+    options?: { cancelRefetch?: boolean },
   ): unknown;
   isFetching?(filters?: {
     queryKey?: string[];
@@ -58,8 +57,6 @@ type InvalidateFilters = {
   dedupeKey?: string;
 };
 
-const SERVERLESS_ACTIVE_INTERVAL_MS = 400;
-const SERVERLESS_IDLE_INTERVAL_MS = 15_000;
 const POLL_ABORT_MIN_MS = 10_000;
 const SSE_FALLBACK_INTERVAL_MS = 60_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
@@ -281,7 +278,6 @@ type PollResponse = {
   version: number;
   events?: SyncEvent[];
   cursor?: string;
-  serverless?: boolean;
   // The server stopped at its row limit: more changes wait past `cursor`.
   cursorLimited?: boolean;
   unreadable?: Array<{ type: "access-unavailable" | "unknown-scope" }>;
@@ -704,8 +700,6 @@ class SyncTransport {
   private localReconnectAttempts = 0;
   private localRefusalAttempts = 0;
   private localSseOpened = false;
-  private activeTurnUntil = 0;
-  private serverlessPoll = false;
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
@@ -995,16 +989,9 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    const pollLive =
-      this.mode === "local" && !this.sseConnected && this.serverlessPoll;
-    const active = this.isActive || this.activeTurnUntil > Date.now();
-    const normalBase = pollLive
-      ? active
-        ? SERVERLESS_ACTIVE_INTERVAL_MS
-        : SERVERLESS_IDLE_INTERVAL_MS
-      : active
-        ? this.effectiveInterval
-        : this.idlePollInterval;
+    const normalBase = this.isActive
+      ? this.effectiveInterval
+      : this.idlePollInterval;
     const visibleBase = Math.min(
       normalBase,
       this.collabBoostInterval() ?? normalBase,
@@ -1360,17 +1347,7 @@ class SyncTransport {
         for (const sub of this.subscribers.values()) sub.onResync?.();
         this.broadcast({ type: "unreadable" });
       }
-      this.serverlessPoll = data.serverless === true;
-      const events = (data.events ?? []).filter((event) => {
-        if (event.source !== "active_turn") return true;
-        if (typeof event.activeUntil === "number") {
-          this.activeTurnUntil = Math.max(
-            this.activeTurnUntil,
-            event.activeUntil,
-          );
-        }
-        return false;
-      });
+      const events = data.events ?? [];
       const responseCursor = decodeSyncCursor(data.cursor);
       this.applyVersion(events, responseCursor ? undefined : data.version);
       this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
@@ -1695,7 +1672,14 @@ export function useDbSync(
     suppressActionInvalidationFor?: string[];
   } = {},
 ): void {
-  const realtimeEnabled = options.realtime !== false;
+  const realtimeOption = options.realtime || undefined;
+  const realtimeReason =
+    typeof realtimeOption?.reason === "string"
+      ? realtimeOption.reason.trim()
+      : "";
+  if (realtimeOption && !realtimeReason) {
+    throw new Error("useDbSync realtime opt-in requires a short reason.");
+  }
   const resourceType = options.resourceType;
   const queryKeysRef = useRef(options.queryKeys);
   useEffect(() => {
@@ -1737,8 +1721,6 @@ export function useDbSync(
     let polled = false;
 
     let pendingInvalidateEvents: SyncEvent[] = [];
-    const pendingAcks = new Set<string>();
-    let transport: SyncTransport | undefined;
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     // Each entry names the in-flight queries one batch found busy. A batch built
@@ -1852,10 +1834,7 @@ export function useDbSync(
             pending.queries.has(query),
           );
 
-        const invalidateWithoutCancel = (
-          requested?: InvalidateFilters,
-          requireSuccess = false,
-        ) => {
+        const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
           asked.push(requested ?? {});
           const callerPredicate = requested?.predicate;
           const normalizedFilters: InvalidateFilters = {
@@ -1879,14 +1858,9 @@ export function useDbSync(
               return matches;
             },
           });
-          const refetchOptions = {
+          const completion = queryClient.invalidateQueries(normalizedFilters, {
             cancelRefetch: false,
-            ...(requireSuccess ? { throwOnError: true } : {}),
-          };
-          const completion = queryClient.invalidateQueries(
-            normalizedFilters,
-            refetchOptions,
-          );
+          });
           if (
             !disposed &&
             busyQueries.size > 0 &&
@@ -1894,46 +1868,31 @@ export function useDbSync(
           ) {
             const pending = { queries: busyQueries };
             pendingTrailingRefreshes.push(pending);
-            const release = () => {
-              const index = pendingTrailingRefreshes.indexOf(pending);
-              if (index >= 0) pendingTrailingRefreshes.splice(index, 1);
-              return index >= 0;
-            };
-            const trailing = completion.then(
+            void completion.then(
               () => {
-                if (!release() || disposed) return;
-                return queryClient.invalidateQueries(
-                  {
+                const index = pendingTrailingRefreshes.indexOf(pending);
+                if (index < 0) return;
+                pendingTrailingRefreshes.splice(index, 1);
+                if (!disposed)
+                  queryClient.invalidateQueries({
                     ...normalizedFilters,
                     predicate: (query: Query) =>
                       busyQueries.has(query) &&
                       (normalizedFilters.predicate?.(query) ?? true),
-                  },
-                  requireSuccess ? refetchOptions : undefined,
-                );
+                  });
               },
-              (error: unknown) => {
-                release();
-                throw error;
+              () => {
+                const index = pendingTrailingRefreshes.indexOf(pending);
+                if (index >= 0) pendingTrailingRefreshes.splice(index, 1);
               },
             );
-            if (!requireSuccess) void trailing.catch(() => {});
-            return trailing;
           }
-          return completion;
         };
         const actionEvents = invalidating.filter(
           (evt) => evt.source === "action" && !isSuppressedActionEvent(evt),
         );
         const hasActionEvent = actionEvents.length > 0;
         if (hasActionEvent) {
-          const writeIds = actionEvents.map(
-            (event) => event.writeId ?? event.cursorId,
-          );
-          const urlAtRefetch =
-            window.location.pathname +
-            window.location.search +
-            window.location.hash;
           const appPredicate = actionInvalidatePredicateRef.current;
           // Narrowing is only sound when nothing else in the batch changed data:
           // a db or collab change in the same batch has an unknown affected set.
@@ -1943,50 +1902,15 @@ export function useDbSync(
             ? changedActionResourceTypes(actionEvents)
             : undefined;
           const predicate =
-            appPredicate || changedResources || resourceType
+            appPredicate || changedResources
               ? (query: Query) =>
                   (!appPredicate || appPredicate(query, invalidating)) &&
-                  (changedResources
-                    ? actionQueryAffectedByResources(query, changedResources)
-                    : !resourceType ||
-                      actionQueryAffectedByResources(
-                        query,
-                        new Set([resourceType]),
-                      ))
+                  (changedResources === undefined ||
+                    actionQueryAffectedByResources(query, changedResources))
               : undefined;
-          const requireSuccess = writeIds.some((id) => typeof id === "string");
-          const completion = invalidateWithoutCancel(
+          invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
-            requireSuccess,
           );
-          if (requireSuccess && completion instanceof Promise)
-            void completion.catch(() => {});
-
-          for (const writeId of writeIds) {
-            if (
-              typeof writeId !== "string" ||
-              pendingAcks.has(writeId) ||
-              !(completion instanceof Promise)
-            )
-              continue;
-            pendingAcks.add(writeId);
-            void completion
-              .then(
-                () => {
-                  if (
-                    !disposed &&
-                    urlAtRefetch ===
-                      window.location.pathname +
-                        window.location.search +
-                        window.location.hash
-                  ) {
-                    postScreenSettled(writeId, urlAtRefetch);
-                  }
-                },
-                () => {},
-              )
-              .finally(() => pendingAcks.delete(writeId));
-          }
         }
 
         if (!suppressesWholeBatch) {
@@ -2153,11 +2077,10 @@ export function useDbSync(
       failed: boolean,
       browserTabId?: string,
       navigationKeys?: unknown,
-      writeId?: string,
     ) => {
       const events: SyncEvent[] = [];
       if (completedSideEffect) {
-        events.push({ source: "action", key: tool, version: 0, writeId });
+        events.push({ source: "action", key: tool, version: 0 });
       }
       const targetKey = browserTabId ? `navigate:${browserTabId}` : "navigate";
       const keys = Array.isArray(navigationKeys)
@@ -2244,7 +2167,6 @@ export function useDbSync(
           tool?: unknown;
           completedSideEffect?: unknown;
           navigationKeys?: unknown;
-          eventId?: unknown;
           isError?: unknown;
           tabId?: unknown;
           browserTabId?: unknown;
@@ -2288,7 +2210,6 @@ export function useDbSync(
         detail.isError === true,
         browserTabId,
         detail.navigationKeys,
-        typeof detail.eventId === "string" ? detail.eventId : undefined,
       );
       if (events.length === 0) return;
       if (completedSideEffect) {
@@ -2399,7 +2320,8 @@ export function useDbSync(
     };
     window.addEventListener("agentNative:refresh-data", handleExplicitRefresh);
 
-    if (realtimeEnabled) {
+    let transport: SyncTransport | undefined;
+    if (realtimeReason) {
       transport = getOrCreateTransport(
         pollUrl,
         sseUrl,
@@ -2411,15 +2333,10 @@ export function useDbSync(
           queryClient?.invalidateQueries({
             predicate: (query) => {
               if (query.queryKey[0] === "action") {
-                if (
-                  resourceType &&
-                  !actionQueryAffectedByResources(
-                    query,
-                    new Set([resourceType]),
-                  )
-                )
-                  return false;
-                return true;
+                return (
+                  !resourceType ||
+                  actionQueryAffectedByResources(query, new Set([resourceType]))
+                );
               }
               return [
                 ...(queryKeysRef.current ?? []),
@@ -2467,7 +2384,7 @@ export function useDbSync(
     idleInterval,
     fallbackInterval,
     pauseWhenHidden,
-    realtimeEnabled,
+    realtimeReason,
     resourceType,
   ]);
 }

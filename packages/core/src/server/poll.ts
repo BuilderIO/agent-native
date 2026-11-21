@@ -2790,9 +2790,6 @@ export function createPollHandler(
         setResponseStatus(event, 401);
         return { error: "Unauthenticated" };
       }
-      const serverless = isProductionServerlessFunctionRuntime();
-      const withRuntime = <T extends object>(data: T) =>
-        serverless ? { ...data, serverless: true } : data;
       const query = getQuery(event);
       const cursor = decodeSyncCursor(query.cursor);
       const since =
@@ -2800,14 +2797,12 @@ export function createPollHandler(
       if (syncEventsDisabled()) {
         await state.seedVersionFromDb();
         await state.checkExternalDbChanges({ durableEvents: false });
-        return withRuntime(
-          await state.getCombinedChangesSinceForUser(
-            since,
-            session.email,
-            session.orgId,
-            false,
-            cursor,
-          ),
+        return await state.getCombinedChangesSinceForUser(
+          since,
+          session.email,
+          session.orgId,
+          false,
+          cursor,
         );
       }
 
@@ -2819,28 +2814,24 @@ export function createPollHandler(
           await state.checkExternalDbChanges({ durableEvents: true });
         }
         // ponytail: release-owned serverless polling trusts sync_events; route direct SQL writes through recordChange instead of restoring marker scans.
-        return withRuntime(
-          await state.getCombinedChangesSinceForUser(
-            since,
-            session.email,
-            session.orgId,
-            true,
-            cursor,
-          ),
+        return await state.getCombinedChangesSinceForUser(
+          since,
+          session.email,
+          session.orgId,
+          true,
+          cursor,
         );
       } catch (error) {
         if (!(error instanceof SyncEventsTableUnavailableError)) throw error;
         if (releaseOwnedServerlessPoll) throw error;
         await state.seedVersionFromDb();
         await state.checkExternalDbChanges({ durableEvents: false });
-        return withRuntime(
-          await state.getCombinedChangesSinceForUser(
-            since,
-            session.email,
-            session.orgId,
-            false,
-            cursor,
-          ),
+        return await state.getCombinedChangesSinceForUser(
+          since,
+          session.email,
+          session.orgId,
+          false,
+          cursor,
         );
       }
     } catch (error) {

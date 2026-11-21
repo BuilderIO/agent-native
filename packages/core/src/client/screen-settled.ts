@@ -1,12 +1,22 @@
-import { getFramePostMessageTargetOrigin } from "./frame.js";
+import { resolveAppBasePath } from "./api-path.js";
+import { getFrameOrigin, isKnownFrameHostOrigin } from "./frame.js";
 
 export const SCREEN_SETTLED_EVENT = "agent-native:screen-settled";
 
 const recentlySettled = new Set<string>();
 
-export function postScreenSettled(writeId: string, url: string): void {
-  if (recentlySettled.has(writeId)) return;
-  recentlySettled.add(writeId);
+export function postScreenSettled({
+  writeId,
+  url,
+  tabId,
+}: {
+  writeId: string;
+  url: string;
+  tabId: string;
+}): void {
+  const key = `${tabId}:${writeId}`;
+  if (recentlySettled.has(key)) return;
+  recentlySettled.add(key);
   if (recentlySettled.size > 256) {
     const oldest = recentlySettled.values().next();
     if (!oldest.done) recentlySettled.delete(oldest.value);
@@ -17,14 +27,14 @@ export function postScreenSettled(writeId: string, url: string): void {
   const detail = {
     type: SCREEN_SETTLED_EVENT,
     writeId,
+    tabId,
+    appBasePath: resolveAppBasePath(),
     url: route,
     screenSummary: { title: document.title, route },
   };
   window.dispatchEvent(new CustomEvent(SCREEN_SETTLED_EVENT, { detail }));
-  if (window.parent !== window) {
-    window.parent.postMessage(
-      detail,
-      getFramePostMessageTargetOrigin() ?? window.location.origin,
-    );
+  const parentOrigin = getFrameOrigin() ?? window.location.origin;
+  if (window.parent !== window && isKnownFrameHostOrigin(parentOrigin)) {
+    window.parent.postMessage(detail, parentOrigin);
   }
 }

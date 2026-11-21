@@ -1,63 +1,78 @@
+// oracle-change(packages/core/src/manifest/server.spec.ts): Authorized discovery supersedes the standalone manifest and its inferred legacy metadata.
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 
+import fixtures from "./fixtures/discovery.json" with { type: "json" };
 import {
+  APP_CAPABILITIES_META_KEY,
   defineAppManifest,
-  deriveAppManifest,
-  resolveScreenPath,
-  appCapabilityManifestSchema,
+  resolveAppCapabilities,
 } from "./index.js";
 
-describe("app capability manifest", () => {
-  const fallback = deriveAppManifest(
-    { id: "tasks", name: "Tasks", homePath: "/tasks" },
-    ["list-tasks", "find_task"],
-  );
+describe("app capability discovery", () => {
+  const mount = new URL("https://workspace.example.test/apps/docs/");
 
-  it("derives a landing screen and canonical intents", () => {
-    expect(appCapabilityManifestSchema.parse(fallback)).toMatchObject({
-      id: "tasks",
-      routing: { canonicalIntents: ["find task", "list tasks"] },
-      screens: {
-        defaultLandingScreen: "home",
-        definitions: { home: { show: { route: "/tasks" } } },
-      },
-    });
+  it("keeps legacy and unknown versions on the existing tool catalog", () => {
+    expect(resolveAppCapabilities(fixtures.legacy, mount)).toBeUndefined();
+    expect(resolveAppCapabilities(fixtures.version2, mount)).toBeUndefined();
+    expect(fixtures.legacy.tools.map((tool) => tool.name)).toEqual([
+      "list-docs",
+    ]);
   });
 
-  it("publishes parameter schemas and validates screen references and UTF-8 guide size", () => {
-    const manifest = defineAppManifest({
-      ...fallback,
-      guide: "é".repeat(200),
+  it("resolves the same descriptor against each selected installation's mount", () => {
+    const expected = {
+      version: 1,
       screens: {
-        defaultLandingScreen: "home",
-        definitions: {
-          ...fallback.screens.definitions,
-          task: {
-            show: { route: "/tasks/:id", params: z.object({ id: z.string() }) },
-          },
+        library: {
+          url: "https://workspace.example.test/apps/docs/library",
+          action: "show-docs",
         },
       },
-      entities: { task: { show: "task" } },
+      suggestions: { "saved-view": "save-view" },
+    };
+    expect(resolveAppCapabilities(fixtures.version1, mount)).toEqual(expected);
+    expect(
+      resolveAppCapabilities(
+        fixtures.version1,
+        new URL("https://preview.example.test/custom/docs"),
+      ),
+    ).toEqual({
+      ...expected,
+      screens: {
+        library: {
+          url: "https://preview.example.test/custom/docs/library",
+          action: "show-docs",
+        },
+      },
     });
-    expect(resolveScreenPath(manifest, "task", { id: "group/one" })).toBe(
-      "/tasks/group%2Fone",
-    );
-    expect(() => resolveScreenPath(manifest, "task", { id: ".." })).toThrow();
-    expect(() => resolveScreenPath(manifest, "task")).toThrow();
-    expect(() => resolveScreenPath(manifest, "missing")).toThrow();
-    expect(manifest.screens.definitions.task.show.params).toMatchObject({
-      properties: { id: { type: "string" } },
-      required: ["id"],
-    });
-    expect(() =>
-      defineAppManifest({ ...manifest, guide: manifest.guide + "a" }),
-    ).toThrow();
-    expect(() =>
-      defineAppManifest({
-        ...manifest,
-        entities: { task: { show: "unknown" } },
-      }),
-    ).toThrow();
   });
+
+  it("ignores bindings absent from the current tool catalog", () => {
+    expect(
+      resolveAppCapabilities(
+        { ...fixtures.version1, tools: fixtures.legacy.tools },
+        mount,
+      ),
+    ).toBeUndefined();
+  });
+
+  it.each(["//other.example.test", "/docs/../private", "/%2e%2e", "/docs/:id"])(
+    "rejects route %s",
+    (route) => {
+      const descriptor = {
+        version: 1 as const,
+        screens: { library: { route, action: "show-docs" } },
+      };
+      expect(() => defineAppManifest(descriptor)).toThrow();
+      expect(
+        resolveAppCapabilities(
+          {
+            tools: [{ name: "show-docs" }],
+            _meta: { [APP_CAPABILITIES_META_KEY]: descriptor },
+          },
+          mount,
+        ),
+      ).toBeUndefined();
+    },
+  );
 });
