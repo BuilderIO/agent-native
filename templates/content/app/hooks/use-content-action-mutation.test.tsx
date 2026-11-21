@@ -19,7 +19,10 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 }));
 
 import { useDeleteComment } from "./use-comments";
-import { useContentActionMutation } from "./use-content-action-mutation";
+import {
+  invalidateContentQueries,
+  useContentActionMutation,
+} from "./use-content-action-mutation";
 import {
   useDuplicateDatabaseItem,
   useRemoveDatabaseItems,
@@ -289,6 +292,32 @@ describe("useContentActionMutation", () => {
     await act(() => hooks.current.mutateAsync({ id: "page" }));
     expect(await refetched()).toEqual(["comments"]);
     expect(order).toEqual(["onSuccess", "refetch"]);
+  });
+
+  it("reads again when a refresh lands during a read's first load, rather than keeping that load's answer", async () => {
+    const key: QueryKey = ["action", "query-content-database-items", {}];
+    let answerFirstLoad!: (value: string) => void;
+    const queryFn = vi
+      .fn<() => Promise<string>>()
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (answerFirstLoad = resolve)),
+      )
+      .mockResolvedValue("after the write");
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn,
+      retry: false,
+    });
+    unsubscribes.push(observer.subscribe(() => {}));
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+
+    invalidateContentQueries(queryClient, [key]);
+    answerFirstLoad("before the write");
+
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(key)).toBe("after the write"),
+    );
+    expect(queryFn).toHaveBeenCalledTimes(2);
   });
 });
 

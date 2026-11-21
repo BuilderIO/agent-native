@@ -48,7 +48,7 @@ export type ContentMutationInvalidation<TData, TVariables> =
  * already refetching cancels that request and starts it again.
  */
 export function invalidateContentQueries(
-  queryClient: Pick<QueryClient, "invalidateQueries">,
+  queryClient: Pick<QueryClient, "getQueryCache" | "invalidateQueries">,
   targets: readonly ContentQueryTarget[],
 ) {
   if (targets.length === 0) return;
@@ -57,9 +57,18 @@ export function invalidateContentQueries(
       ? { queryKey: target as QueryKey }
       : (target as QueryFilters),
   );
-  void queryClient.invalidateQueries({
-    predicate: (query) => filters.some((filter) => matchQuery(filter, query)),
-  });
+  const predicate = (query: Query) =>
+    filters.some((filter) => matchQuery(filter, query));
+  for (const query of queryClient.getQueryCache().findAll({ predicate })) {
+    if (
+      query.state.data === undefined &&
+      query.state.fetchStatus === "fetching" &&
+      query.isActive()
+    ) {
+      void query.cancel({ silent: true });
+    }
+  }
+  void queryClient.invalidateQueries({ predicate });
 }
 
 /**
