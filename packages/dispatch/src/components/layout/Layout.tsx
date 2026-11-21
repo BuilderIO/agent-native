@@ -7,7 +7,6 @@ import {
   navigateWithAgentChatViewTransition,
   readChatFirstMode,
   resolveChatFirstBrowserTarget,
-  resolveChatFirstAppTarget,
   subscribeChatFirstOpenBrowser,
   subscribeChatFirstOpenApp,
   useChatFirstSessionWatch,
@@ -111,6 +110,7 @@ import {
 } from "../../lib/chat-first-app-route";
 import {
   delegatedAppFromToolStart,
+  resolveDispatchChatFirstAppTarget,
   visibleChatFirstSurfaceTabId,
 } from "../../lib/chat-first-pane";
 import { getDispatchRunThreadContext } from "../../lib/dispatch-run-thread.js";
@@ -2013,7 +2013,7 @@ function DispatchLayout({
   );
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
-      const resolution = resolveChatFirstAppTarget(
+      const resolution = resolveDispatchChatFirstAppTarget(
         detail,
         chatFirstAppRegistrations,
         {
@@ -2137,7 +2137,7 @@ function DispatchLayout({
         .getSnapshot()
         .tabs.some((tab) => tab.kind === "app" && tab.appId === appId);
       if (alreadyOpen) return;
-      const resolution = resolveChatFirstAppTarget(
+      const resolution = resolveDispatchChatFirstAppTarget(
         { app: appId },
         chatFirstAppRegistrations,
         typeof window === "undefined"
@@ -2205,7 +2205,7 @@ function DispatchLayout({
       setPendingChatFirstPaneRestore(null);
       return;
     }
-    const resolution = resolveChatFirstAppTarget(
+    const resolution = resolveDispatchChatFirstAppTarget(
       {
         app: pendingChatFirstPaneRestore.appId,
         path: pendingChatFirstPaneRestore.path,
@@ -2460,7 +2460,7 @@ function DispatchLayout({
               const objectPath = object?.objectId?.startsWith("/")
                 ? object.objectId
                 : undefined;
-              const resolution = resolveChatFirstAppTarget(
+              const resolution = resolveDispatchChatFirstAppTarget(
                 {
                   app,
                   ...(object?.url ? { url: object.url } : {}),

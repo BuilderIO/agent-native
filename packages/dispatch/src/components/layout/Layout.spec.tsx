@@ -642,6 +642,42 @@ describe("Dispatch NavContent", () => {
     expect(wrapper?.className).not.toContain("hidden");
   });
 
+  it("opens the exact Fleet installation despite an earlier template with the same name", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "fleet-2",
+        name: "Fleet",
+        path: "/fleet-2",
+        url: "/fleet-2",
+        source: "builtin",
+        status: "ready",
+      },
+      {
+        id: "fleet",
+        name: "Fleet",
+        path: "/fleet",
+        url: "/fleet",
+        source: "workspace",
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/fleet-installation"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "fleet" });
+    });
+    expect(
+      getChatFirstSurfaceTabsStore("fleet-installation").getSnapshot().tabs,
+    ).toMatchObject([{ appId: "fleet" }]);
+  });
+
   it("opens the app Dispatch delegates to, once", async () => {
     clientState.workspaceApps = [
       {
