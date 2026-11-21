@@ -119,7 +119,7 @@ export default defineAction({
     }
 
     const hit = matchPointer(text, grantedPointers);
-    if (hit && (!openApp || hit.appId === openApp)) {
+    if (hit && !openApp) {
       return {
         status: "ok",
         app: hit.appId,

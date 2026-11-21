@@ -163,6 +163,39 @@ describe("route-app-intent", () => {
     },
   );
 
+  it("lets the request select another app despite a pointer in the current app", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      { id: "mail", name: "Mail", description: "Email inbox" },
+      { id: "tasks", name: "Tasks", description: "Pull requests" },
+    ]);
+    mocks.listPointerRows.mockResolvedValue([
+      {
+        id: "p1",
+        owner: "owner@example.com",
+        path: "pointers/github.json",
+        content: JSON.stringify({
+          alias: "GitHub",
+          appId: "mail",
+          url: "https://example.com/mail",
+        }),
+      },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "test",
+      model: "test",
+      cached: false,
+      answers: { app: { type: "choice", name: "app", choice: "tasks" } },
+    });
+    const result = await run({
+      text: "show my GitHub pull requests",
+      openApp: "mail",
+    });
+    expect(result).toMatchObject({ status: "ok", app: "tasks" });
+    expect(result).not.toHaveProperty("pointer");
+    expect(mocks.decide).toHaveBeenCalledOnce();
+  });
+
   it("is reachable by desktop MCP clients but hidden from the in-app agent", () => {
     expect(routeAppIntent.agentTool).toBe(false);
     expect(routeAppIntent.mcpTool).toBe(true);
