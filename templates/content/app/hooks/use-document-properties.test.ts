@@ -264,9 +264,9 @@ describe("useUpdateDatabaseItems", () => {
       const observer = new QueryObserver(queryClient, { queryKey, queryFn });
       return { queryKey, queryFn, observer };
     });
-    const subscriptions = [reads[0], reads[1], reads[3], reads[4]].map(
-      ({ observer }) => observer.subscribe(() => {}),
-    );
+    const subscriptions = reads
+      .filter((_, index) => index !== 2)
+      .map(({ observer }) => observer.subscribe(() => {}));
 
     try {
       useUpdateDatabaseItems("database-page");
@@ -927,7 +927,7 @@ describe("useSetDocumentProperty", () => {
     useQueryClient.mockReturnValue(queryClient);
     useActionMutation.mockImplementation((_name, options) => options);
     useSetDocumentProperty("row-1", "database-1", "database-page-1");
-    const options = useActionMutation.mock.calls[0][1];
+    const options = useActionMutation.mock.lastCall?.[1];
     const rereadsSidebar = (databaseId: string) =>
       queryClient.invalidateQueries.mock.calls.some(
         ([filters]) =>

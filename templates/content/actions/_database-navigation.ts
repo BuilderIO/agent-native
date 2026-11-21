@@ -671,7 +671,7 @@ async function navigationGrouping(
       ),
     )
     .limit(1);
-  const definition = definitions.at(0);
+  const definition: (typeof definitions)[number] | undefined = definitions[0];
   if (
     !definition ||
     definition.systemRole ||
@@ -1845,7 +1845,7 @@ export async function getContentDatabaseNavigationPage(args: {
               sql`true`,
             )
             .where(filesRows);
-          const counts = countRows.at(0);
+          const counts: (typeof countRows)[number] | undefined = countRows[0];
           const shown = grouping.groups.flatMap((candidate, index) => {
             const count = Number(counts?.[`group${index}`] ?? 0);
             return count > 0 || sharedView.hideEmptyGroups !== true
