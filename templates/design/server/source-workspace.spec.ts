@@ -49,6 +49,7 @@ vi.mock("./db/index.js", () => ({
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
   findSourceWorkspaceFile,
+  lockPreparedSourceCollaboration,
   prepareInlineSourceEdit,
   readPreparedSourceText,
   readLiveSourceFile,
@@ -77,6 +78,36 @@ const sourceFiles = [
     updatedAt: null,
   },
 ];
+
+describe("locking prepared collaboration state", () => {
+  it.each([
+    { yjs_state: null, text_snapshot: "text", version: 1 },
+    { yjs_state: "state", text_snapshot: null, version: 1 },
+    { yjs_state: "state", text_snapshot: "text", version: null },
+    { yjs_state: "state", text_snapshot: "text", version: "bad" },
+  ])(
+    "does not classify an unreadable row as a concurrent edit",
+    async (row) => {
+      const exec = {
+        execute: async () => ({ rows: [row] }),
+      } as unknown as Parameters<typeof lockPreparedSourceCollaboration>[0];
+      await expect(
+        lockPreparedSourceCollaboration(exec, "file-1", { baseVersion: 1 }),
+      ).rejects.toMatchObject({ errorCode: "source_version_unverifiable" });
+    },
+  );
+
+  it("classifies a valid changed version as a concurrent edit", async () => {
+    const exec = {
+      execute: async () => ({
+        rows: [{ yjs_state: "state", text_snapshot: "text", version: 2 }],
+      }),
+    } as unknown as Parameters<typeof lockPreparedSourceCollaboration>[0];
+    await expect(
+      lockPreparedSourceCollaboration(exec, "file-1", { baseVersion: 1 }),
+    ).rejects.toMatchObject({ errorCode: "source_version_conflict" });
+  });
+});
 
 describe("resolveSourceWorkspace", () => {
   beforeEach(() => {
