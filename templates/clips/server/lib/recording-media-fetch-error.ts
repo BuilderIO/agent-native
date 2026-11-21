@@ -8,6 +8,29 @@ export class RecordingMediaFetchError extends Error {
   }
 }
 
+export function logFrameMediaCleanupFailure(error: unknown) {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? error.code
+      : undefined;
+  const safeCodes = [
+    "EACCES",
+    "EPERM",
+    "ENOENT",
+    "ENOSPC",
+    "EBUSY",
+    "EIO",
+    "EMFILE",
+    "ENFILE",
+    "EROFS",
+    "ENOTEMPTY",
+  ];
+  console.error(
+    "[agent-frame] Media cleanup failed.",
+    typeof code === "string" && safeCodes.includes(code) ? code : "UNKNOWN",
+  );
+}
+
 export function sanitizeRecordingMediaError(
   error: unknown,
 ): RecordingMediaFetchError {

@@ -23,6 +23,8 @@ import {
   loadAgentFrame,
 } from "../../lib/agent-frame-load.js";
 import {
+  cleanupAfterFrameFailure,
+  cleanupAfterFrameSuccess,
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -218,11 +220,23 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const media = createAgentFrameMediaSource(recording);
   try {
-    const loaded = await loadAgentFrame(recording, atMs, {
-      media,
-      onFrame: (frame, mimeType) =>
-        persistDefaultThumbnailIfMissing(access, requestedMs, frame, mimeType),
-    });
+    let loaded: Awaited<ReturnType<typeof loadAgentFrame>>;
+    try {
+      loaded = await loadAgentFrame(recording, atMs, {
+        media,
+        onFrame: (frame, mimeType) =>
+          persistDefaultThumbnailIfMissing(
+            access,
+            requestedMs,
+            frame,
+            mimeType,
+          ),
+      });
+    } catch (error) {
+      await cleanupAfterFrameFailure(media.cleanup);
+      throw error;
+    }
+    await cleanupAfterFrameSuccess(media.cleanup);
     if (loaded.moved) {
       return redirectToResolvedFrame(
         event,
@@ -237,7 +251,5 @@ export default defineEventHandler(async (event: H3Event) => {
   } catch (err) {
     const status = frameFailureStatus(err);
     return sendFrameJson(event, status, describeFrameFailure(err, status));
-  } finally {
-    await media.cleanup();
   }
 });

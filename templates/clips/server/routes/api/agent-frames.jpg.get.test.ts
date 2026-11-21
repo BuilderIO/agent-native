@@ -159,6 +159,79 @@ describe("agent-frames.jpg route", () => {
     expect(mockCleanupMediaFile).toHaveBeenCalledTimes(1);
   });
 
+  it("reports a failed media cleanup without exposing its path", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        Object.assign(new Error("too large /private/temp/path"), {
+          code: "EACCES",
+        }),
+      );
+      const { event, body } = await run({
+        startMs: "1000",
+        endMs: "1200",
+        fps: "30",
+      });
+      expect(event.status).toBe(502);
+      expect(body).toMatchObject({
+        failureKind: "processing",
+        error: "Recording media cleanup failed.",
+      });
+      expect(JSON.stringify(body)).not.toContain("/private/temp/path");
+      expect(log.mock.calls).toEqual([
+        ["[agent-frame] Media cleanup failed.", "EACCES"],
+      ]);
+      expect(mockCleanupMediaFile).toHaveBeenCalledOnce();
+      expect(event.headers.get("x-clips-frame-sheet-fps")).toBeUndefined();
+      expect(event.headers.get("x-clips-frame-sheet-grid")).toBeUndefined();
+      expect(event.headers.get("x-clips-frame-sheet-times")).toBeUndefined();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
+    ["NO_VIDEO_TRACK", 422],
+    ["FFMPEG_UNAVAILABLE", 503],
+  ])("preserves %s when cleanup also fails", async (code, status) => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockExtractJpegFrameSheetFromFile.mockRejectedValueOnce(
+        new MockVideoFrameExtractionError(code, "sheet extraction failed"),
+      );
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        new Error("media cleanup failed"),
+      );
+      const { event, body } = await run({ startMs: "0", fps: "30" });
+      expect(event.status).toBe(status);
+      expect(body).toMatchObject({ error: "sheet extraction failed" });
+      expect(mockCleanupMediaFile).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalledOnce();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("preserves a planning failure when cleanup also fails", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockProbeFrameSheetFpsFromFile.mockResolvedValueOnce(60);
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        new Error("media cleanup failed"),
+      );
+      const { event, body } = await run({ startMs: "0", endMs: "1000" });
+      expect(event.status).toBe(400);
+      expect(body).toMatchObject({
+        failureKind: "request",
+        nextStep: expect.stringContaining("fps=36"),
+      });
+      expect(mockCleanupMediaFile).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalledOnce();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("uses the video's own frame rate when fps is left out", async () => {
     mockProbeFrameSheetFpsFromFile.mockResolvedValue(24);
     const { event } = await run({ startMs: "0", endMs: "1000" });

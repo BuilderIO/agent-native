@@ -13,6 +13,8 @@ import {
 } from "../server/lib/agent-frame-load.js";
 import {
   checkAgentFrameClip,
+  cleanupAfterFrameFailure,
+  cleanupAfterFrameSuccess,
   describeFrameFailure,
   frameFailureStatus,
 } from "../server/lib/agent-frame-request.js";
@@ -408,11 +410,26 @@ export default defineAction({
           failures.push(frameFailureOf(atMs, error));
         }
       }
-    } finally {
-      await media.cleanup();
+    } catch (error) {
+      await cleanupAfterFrameFailure(media.cleanup);
+      throw error;
     }
 
-    if (frames.length === 0) return failAllFrames(failures);
+    if (frames.length === 0) {
+      await cleanupAfterFrameFailure(media.cleanup);
+      return failAllFrames(failures);
+    }
+    try {
+      await cleanupAfterFrameSuccess(media.cleanup);
+    } catch {
+      return failWithNextStep(
+        "frame_extraction_failed",
+        502,
+        "Recording media cleanup failed.",
+        "Retry once; if it continues, report the cleanup error.",
+        "cleanup",
+      );
+    }
 
     return {
       ...summary,
