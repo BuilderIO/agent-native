@@ -39,6 +39,7 @@ const stale = { id: "cal-1", status: "needs-reauth" };
 const reconnected = { id: "cal-1", status: "connected" };
 const ACCOUNTS_KEY = ["action", "list-calendar-accounts"];
 const MEETINGS_KEY = ["action", "list-meetings"];
+const CALENDARS_KEY = ["action", "list-calendars"];
 
 let container: HTMLDivElement;
 let root: Root;
@@ -112,6 +113,7 @@ describe("useCalendarConnect", () => {
     );
     expect(invalidations(ACCOUNTS_KEY)).toBe(1);
     expect(invalidations(MEETINGS_KEY)).toBe(1);
+    expect(invalidations(CALENDARS_KEY)).toBe(1);
     expect(mocks.toast.success).toHaveBeenCalledWith(
       "meetingsRoute.calendarConnected",
     );

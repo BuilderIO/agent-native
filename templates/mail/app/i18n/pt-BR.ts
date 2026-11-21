@@ -161,8 +161,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Fixar barra lateral",
-      unpinSidebar: "Desafixar barra lateral",
       closeSidebar: "Fechar barra lateral",
       settings: "Configurações",
       aiSettings: "Gerenciar tags e regras",
