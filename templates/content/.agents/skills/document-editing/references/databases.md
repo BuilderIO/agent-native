@@ -427,15 +427,16 @@ the table was, in one step that one undo takes back; undoing it leaves the
 collection unlinked, so the page's next save moves it to Trash.
 
 An inline collection's block menu offers the reverse, "Turn into table". It
-reads the rows its current view shows, as text, with the view's filters,
-search and sort. The view's layout doesn't narrow it: rows in collapsed
+reads, as text, every row its current view's filters and search keep, in the
+view's sort order. The view's layout doesn't narrow them: rows in collapsed
 groups, and a calendar's or timeline's rows outside the dates on screen, are
-included, in sort order. The table has a "Name" column with each row's title,
-then one column per property the view shows. It puts a plain table where the
-block was, in one undoable step, and the page's next save moves the collection
-to Trash. A view with more than 500 rows or 49 properties stays a collection.
-An agent does the same with `export-document` (format `csv`) or
-`get-content-database`, then `edit-document`.
+included. The table has a "Name" column with each row's title, then one column
+per property the view shows, except `blocks` properties, whose rich content a
+cell can't hold. It puts a plain table where the block was, in one undoable
+step, and the page's next save moves the collection to Trash. A view with more
+than 500 rows or 49 properties stays a collection. An agent does the same
+with `export-document` (format `csv`) or `get-content-database`, then
+`edit-document`.
 
 A save whose body brings back a removed inline collection's block (one block
 with the same block ID, `databaseId` and `databaseDocumentId`) takes that
