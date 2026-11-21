@@ -215,6 +215,10 @@ beforeEach(() => {
   delete process.env.SLACK_SIGNING_SECRET;
   delete process.env.SLACK_BOT_TOKEN;
   delete process.env.GITHUB_TOKEN;
+  delete process.env.GITHUB_INTEGRATION_CLIENT_ID;
+  delete process.env.GITHUB_INTEGRATION_CLIENT_SECRET;
+  delete process.env.GITHUB_CLIENT_ID;
+  delete process.env.GITHUB_CLIENT_SECRET;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecretMeta.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
@@ -2358,6 +2362,26 @@ describe("resolveSecret (generic)", () => {
     expect(
       canUseDeployCredentialFallbackForRequest("NOTION_CLIENT_SECRET"),
     ).toBe(true);
+  });
+
+  it("uses app-provided GitHub integration OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.GITHUB_INTEGRATION_CLIENT_ID = "github-deploy-client-id";
+    process.env.GITHUB_INTEGRATION_CLIENT_SECRET = "github-deploy-secret";
+    process.env.GITHUB_CLIENT_ID = "github-sign-in-client-id";
+    process.env.GITHUB_CLIENT_SECRET = "github-sign-in-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("GITHUB_INTEGRATION_CLIENT_ID")).toBe(
+      "github-deploy-client-id",
+    );
+    expect(await resolveSecret("GITHUB_INTEGRATION_CLIENT_SECRET")).toBe(
+      "github-deploy-secret",
+    );
+    expect(await resolveSecret("GITHUB_CLIENT_ID")).toBeNull();
+    expect(await resolveSecret("GITHUB_CLIENT_SECRET")).toBeNull();
   });
 
   it("blocks deploy-level provider keys for signed-in hosted workspace users on a shared database", async () => {
