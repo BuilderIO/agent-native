@@ -3539,6 +3539,10 @@ export async function createMCPServerForRequest(
     !directoryCatalog &&
     explicitlyRequestsFullMcpCatalog(requestMeta);
   const flatCatalog = appCatalog || directoryCatalog || fullCatalogRequested;
+  const listsManifestTool =
+    flatCatalog ||
+    config.connectorCatalog === undefined ||
+    config.connectorCatalog.includes("get_app_manifest");
   const mergedActions = {
     ...(appCatalog || directoryCatalog
       ? baseActions
@@ -4272,7 +4276,9 @@ export async function createMCPServerForRequest(
         Object.entries(advertisedActions)
           .filter(
             ([name]) =>
-              isActionGranted(allowedActions, name) && isAdvertisable(name),
+              (name !== "get_app_manifest" || listsManifestTool) &&
+              isActionGranted(allowedActions, name) &&
+              isAdvertisable(name),
           )
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {

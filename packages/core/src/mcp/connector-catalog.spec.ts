@@ -408,7 +408,6 @@ describe("connector-catalog tier", () => {
 
       const expected = [
         ...CONNECTOR_CATALOG,
-        "get_app_manifest",
         "list_apps",
         "open_app",
         "ask_app",
@@ -432,7 +431,6 @@ describe("connector-catalog tier", () => {
       expect([...names].sort()).toEqual(
         [
           ...CONNECTOR_CATALOG,
-          "get_app_manifest",
           "list_apps",
           "open_app",
           "ask_app",
@@ -1114,7 +1112,6 @@ describe("connector-catalog tier — env flag not required", () => {
     expect(names).toEqual(
       [
         ...CONNECTOR_CATALOG,
-        "get_app_manifest",
         "list_apps",
         "open_app",
         "ask_app",
@@ -1222,10 +1219,16 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     expect(
       await listNames(declaredActions, { connectorCatalog: ["declared-read"] }),
     ).toEqual(
-      after.filter((name: string) => name !== "set-resource-visibility"),
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "get_app_manifest",
+      ),
     );
     expect(await listNames(declaredActions, { connectorCatalog: [] })).toEqual(
-      after.filter((name: string) => name !== "set-resource-visibility"),
+      after.filter(
+        (name: string) =>
+          name !== "set-resource-visibility" && name !== "get_app_manifest",
+      ),
     );
     expect(
       await listNames(declaredActions, {

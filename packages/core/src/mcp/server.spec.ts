@@ -6001,6 +6001,43 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.parse(tool.result.content[0].text)).toEqual(manifest);
   });
 
+  it("keeps curated tool listings while exposing manifest discovery", async () => {
+    const curated = { ...config, connectorCatalog: ["echo-thing"] };
+    const rpc = (
+      id: number,
+      method: string,
+      params: object,
+      selected = curated,
+    ) => callWeb({ jsonrpc: "2.0", id, method, params }, { config: selected });
+    const tools = await rpc(1, "tools/list", {});
+    expect(
+      tools.result.tools.map((tool: { name: string }) => tool.name),
+    ).not.toContain("get_app_manifest");
+    const resources = await rpc(2, "resources/list", {});
+    expect(resources.result.resources).toContainEqual(
+      expect.objectContaining({ uri: "app://manifest" }),
+    );
+    const tool = await rpc(3, "tools/call", {
+      name: "get_app_manifest",
+      arguments: {},
+    });
+    expect(
+      JSON.parse(tool.result.content[0].text).screens.defaultLandingScreen,
+    ).toBe("home");
+    const advertised = await rpc(
+      4,
+      "tools/list",
+      {},
+      {
+        ...curated,
+        connectorCatalog: [...curated.connectorCatalog, "get_app_manifest"],
+      },
+    );
+    expect(
+      advertised.result.tools.map((entry: { name: string }) => entry.name),
+    ).toContain("get_app_manifest");
+  });
+
   it("negotiates 2026-07-28 and emits modern result and cache metadata", async () => {
     const { client, wireResponses } = await createModernClient();
     try {

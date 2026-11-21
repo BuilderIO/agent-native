@@ -94,7 +94,9 @@ describe("MCP input and framework eligibility", () => {
             .map((tool) => tool.name)
             .sort();
           expect(names).toEqual([
-            ...(mode === "directory" ? [] : ["get_app_manifest"]),
+            ...(mode === "directory" || mode === "connector"
+              ? []
+              : ["get_app_manifest"]),
             "list-items",
             "query-items",
             ...(mode === "compact" || mode === "connector"
