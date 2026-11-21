@@ -346,6 +346,50 @@ describe("FilterDateEditor", () => {
     });
   });
 
+  function dayChoice(label: string) {
+    const button = document.querySelector(
+      `[role="group"][aria-label="${label}"] button`,
+    );
+    if (!button) throw new Error(`No day choice for ${label}`);
+    return button;
+  }
+
+  it("ends a range on a relative day", () => {
+    const onChange = vi.fn();
+    render(
+      <DateEditor
+        onChange={onChange}
+        rule={createFilterRule(createdField, [], "between")}
+      />,
+    );
+    typeInto(dateInput("Start date"), "2026-10-01");
+    openMenu(dayChoice("End date"));
+    click(menuItem("Today"));
+    expect(dayChoice("End date").textContent).toBe("Today");
+    expect(document.querySelector('input[aria-label="End date"]')).toBeNull();
+    click(buttonNamed("Apply"));
+    expect(onChange).toHaveBeenLastCalledWith({
+      operator: "between",
+      value: ["2026-10-01", "today"],
+    });
+  });
+
+  it("goes back from a relative day to a date box", () => {
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        rule={createFilterRule(createdField, ["yesterday"], "before")}
+      />,
+    );
+    expect(dayChoice("Exact date").textContent).toBe("Yesterday");
+    openMenu(dayChoice("Exact date"));
+    click(menuItem("Exact date"));
+    const input = dateInput("Exact date");
+    expect(input.type).toBe("date");
+    expect(input.value).toBe("");
+    expect(buttonNamed("Apply").hasAttribute("disabled")).toBe(true);
+  });
+
   it("edits a time an agent wrote as text", () => {
     const timed: FilterField = { ...createdField, times: true };
     render(

@@ -14,10 +14,12 @@ import { useState } from "react";
 import { FilterListbox, type FilterListboxItem } from "./FilterListbox.js";
 import {
   FILTER_NOBODY,
+  FILTER_RELATIVE_DAYS,
   filterOperatorsFor,
   filterOperatorTakesManyValues,
   filterOperatorTakesValue,
   isFilterOperator,
+  isFilterRelativeDay,
   resolveFilterDateBound,
   type FilterCounts,
   type FilterField,
@@ -227,6 +229,8 @@ const EXACT_DATE_OPERATORS: readonly FilterOperator[] = [
 
 const DAY_VALUE = /^\d{4}-\d{2}-\d{2}$/;
 
+const EXACT_DAY = "exact";
+
 function FilterDateInput({
   value,
   label,
@@ -240,18 +244,59 @@ function FilterDateInput({
   text: FilterText;
   onChange: (value: string) => void;
 }) {
+  const relative = isFilterRelativeDay(value);
   return (
-    <Input
-      type={asText ? "text" : "date"}
-      value={value}
+    <div
+      role="group"
       aria-label={label}
-      placeholder={
-        asText ? text.t("agentChat.filters.dateTimeFormat") : undefined
-      }
-      onChange={(event) => onChange(event.target.value)}
-      size="sm"
-      className="min-w-0 flex-1"
-    />
+      className="flex min-w-0 basis-full items-center gap-1"
+    >
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 min-w-0 shrink-0 gap-1 px-2 font-normal text-muted-foreground"
+          >
+            <span className="truncate">
+              {relative
+                ? text.dayLabel(value)
+                : text.t("agentChat.filters.exactDate")}
+            </span>
+            <IconChevronDown className="size-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" collisionPadding={8}>
+          <DropdownMenuRadioGroup
+            value={relative ? value : EXACT_DAY}
+            onValueChange={(next) => onChange(next === EXACT_DAY ? "" : next)}
+          >
+            <DropdownMenuRadioItem value={EXACT_DAY}>
+              {text.t("agentChat.filters.exactDate")}
+            </DropdownMenuRadioItem>
+            {FILTER_RELATIVE_DAYS.map((day) => (
+              <DropdownMenuRadioItem key={day} value={day}>
+                {text.dayLabel(day)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {relative ? null : (
+        <Input
+          type={asText ? "text" : "date"}
+          value={value}
+          aria-label={label}
+          placeholder={
+            asText ? text.t("agentChat.filters.dateTimeFormat") : undefined
+          }
+          onChange={(event) => onChange(event.target.value)}
+          size="sm"
+          className="min-w-0 flex-1"
+        />
+      )}
+    </div>
   );
 }
 
@@ -286,7 +331,10 @@ export function FilterDateEditor({
       : [readable(rule.value.at(0)), readable(rule.value.at(1))],
   );
   const [asText] = useState(() =>
-    exactDays.map((value) => value !== "" && !DAY_VALUE.test(value)),
+    exactDays.map(
+      (value) =>
+        value !== "" && !DAY_VALUE.test(value) && !isFilterRelativeDay(value),
+    ),
   );
   const between = exactOperator === "between";
   const exactValue = between ? exactDays : exactDays.slice(0, 1);
@@ -379,7 +427,12 @@ export function FilterDateEditor({
               onChange={(value) => setExactDay(1, value)}
             />
           ) : null}
-          <Button type="submit" size="sm" disabled={!exactValid}>
+          <Button
+            type="submit"
+            size="sm"
+            className="ms-auto"
+            disabled={!exactValid}
+          >
             {text.t("agentChat.filters.apply")}
           </Button>
         </form>
