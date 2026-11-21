@@ -49,6 +49,7 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
+import { resolvePrivateSafeError } from "./run-errors.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
   AGENT_CALL_APPROVAL_WIDGET_KIND,
@@ -407,7 +408,9 @@ export function buildAssistantMessage(
       event.omitFromPersistedHistory === true &&
       event.type !== "tool_start" &&
       event.type !== "tool_done" &&
-      event.type !== "approval_required"
+      event.type !== "approval_required" &&
+      event.type !== "auto_continue" &&
+      !(event.type === "error" && resolvePrivateSafeError(event.errorCode))
     ) {
       continue;
     }
@@ -658,29 +661,38 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
+      const isPrivateError = event.omitFromPersistedHistory === true;
+      const safePrivateError = isPrivateError
+        ? resolvePrivateSafeError(event.errorCode)
+        : null;
+      const effectiveErrorText = isPrivateError
+        ? (safePrivateError?.message ?? "Private content omitted")
+        : event.error;
+      const effectiveErrorCode = isPrivateError
+        ? safePrivateError?.errorCode
+        : event.errorCode;
+      const effectiveDetails = isPrivateError ? undefined : event.details;
       const normalized = normalizeChatError(
-        event.omitFromPersistedHistory === true
-          ? "Private content omitted"
-          : event.error,
-        event.errorCode,
+        effectiveErrorText,
+        effectiveErrorCode,
       );
       runError = {
         message: normalized.message,
-        ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-        ...((event.details ?? normalized.details)
-          ? { details: event.details ?? normalized.details }
+        ...(effectiveErrorCode ? { errorCode: effectiveErrorCode } : {}),
+        ...((effectiveDetails ?? normalized.details)
+          ? { details: effectiveDetails ?? normalized.details }
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
       const missingProvider =
-        event.errorCode === "missing_api_key" ||
-        event.errorCode === "missing_credentials" ||
+        effectiveErrorCode === "missing_api_key" ||
+        effectiveErrorCode === "missing_credentials" ||
         /no llm provider(?: key)? (?:is connected|was found)/i.test(
-          `${event.error}\n${normalized.message}`,
+          `${effectiveErrorText}\n${normalized.message}`,
         );
       if (!missingProvider) {
         appendText(
-          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(effectiveErrorText, isPrivateError ? undefined : event.upgradeUrl, effectiveErrorCode)}`,
         );
       }
       continue;

@@ -611,12 +611,13 @@ export const parityMatrix: ParityRow[] = [
     actions: [
       "export-document",
       "read-composer-source",
+      "read-document-file",
       "reveal-local-source-file",
       "set-document-discoverability",
       "share-local-file-document",
     ],
     exception:
-      "read-composer-source is MCP-only (agentTool: false, mcpTool: true): Design's and Slides' prompt boxes call it over A2A to attach a page as a reference, under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with list-documents, search-documents and get-document.",
+      "read-composer-source is MCP-only (agentTool: false, mcpTool: true): Design's and Slides' prompt boxes call it over A2A to attach a page as a reference, under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with list-documents, search-documents and get-document. read-document-file is MCP-only the same way: Mail's Attach from Content calls it over A2A to attach a page as a Markdown file or a collection as a CSV, under the caller's own access; Content's own agent and UI export with export-document.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -624,6 +625,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/_local-file-documents.test.ts",
       "actions/read-composer-source.db.test.ts",
+      "actions/read-document-file.db.test.ts",
     ],
     evalScenarioIds: ["local-file-source-truth"],
   },

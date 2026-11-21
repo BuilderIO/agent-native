@@ -65,6 +65,7 @@ import {
   type ExecutionFence,
   withFencedExecutionWrite,
 } from "./execution-fence.js";
+import { resolvePrivateSafeError } from "./run-errors.js";
 import {
   AGENT_RUN_MIGRATIONS,
   AGENT_RUN_MIGRATIONS_TABLE,
@@ -959,7 +960,9 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
-export function privateExecutionStepInputJson(input: {
+export const PRIVATE_REPLAY_IDENTITY_PATTERN = /^hmac-v1:[a-f0-9]{64}$/;
+
+export function privateExecutionStepIdentity(input: {
   threadId: string;
   turnId: string;
   toolName: string;
@@ -976,9 +979,18 @@ export function privateExecutionStepInputJson(input: {
       ]),
     )
     .digest("hex");
+  return `hmac-v1:${identity}`;
+}
+
+export function privateExecutionStepInputJson(input: {
+  threadId: string;
+  turnId: string;
+  toolName: string;
+  argumentsHash: string;
+}): string {
   return JSON.stringify({
     omitFromPersistedHistory: true,
-    identity: `hmac-v1:${identity}`,
+    identity: privateExecutionStepIdentity(input),
   });
 }
 
@@ -4669,6 +4681,10 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
         ...(event.approvalPause === true ? { approvalPause: true } : {}),
         ...(event.outcomeUnknown === true ? { outcomeUnknown: true } : {}),
         ...(event.replayed === true ? { replayed: true } : {}),
+        ...(typeof event.privateReplayIdentity === "string" &&
+        PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity)
+          ? { privateReplayIdentity: event.privateReplayIdentity }
+          : {}),
       };
     case "approval_required":
       return {
@@ -4766,15 +4782,18 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
           ? { durationMs: event.durationMs }
           : {}),
       };
-    case "error":
+    case "error": {
+      const safeError = resolvePrivateSafeError(event.errorCode);
       return {
         ...base,
-        error: "Private content omitted",
+        error: safeError ? safeError.message : "Private content omitted",
+        ...(safeError ? { errorCode: safeError.errorCode } : {}),
         ...(event.recoverable === true ? { recoverable: true } : {}),
         ...(event.providerRetryable === true
           ? { providerRetryable: true }
           : {}),
       };
+    }
     case "loop_limit":
       return {
         ...base,
@@ -5956,6 +5975,11 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
             (value.argumentsHash === undefined ||
               (typeof value.argumentsHash === "string" &&
                 /^[a-f0-9]{64}$/.test(value.argumentsHash))) &&
+            (value.privateReplayIdentity === undefined ||
+              (typeof value.privateReplayIdentity === "string" &&
+                PRIVATE_REPLAY_IDENTITY_PATTERN.test(
+                  value.privateReplayIdentity,
+                ))) &&
             (value.approvalPause === undefined ||
               typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||

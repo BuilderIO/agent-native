@@ -728,6 +728,7 @@ dependencies = [
  "core-foundation",
  "core-graphics",
  "dispatch2",
+ "flate2",
  "libc",
  "nnnoiseless",
  "objc2",

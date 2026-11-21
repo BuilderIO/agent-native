@@ -11,6 +11,10 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
+import {
+  MemoryTombstoneError,
+  readMirroredMemory,
+} from "@agent-native/core/resources/shared-memory";
 import { createPtyWebSocketServer } from "@agent-native/core/terminal/pty-server";
 import {
   getDesktopVisibleApps,
@@ -195,7 +199,7 @@ export interface DesktopTerminalMcpRegistration {
   bearerToken: string;
 }
 
-const PI_TERMINAL_EXTENSION_SOURCE = String.raw`
+export const PI_TERMINAL_EXTENSION_SOURCE = String.raw`
 export default function (pi) {
   const rawServers = process.env.AGENT_NATIVE_TERMINAL_MCP_SERVERS || "{}";
   const servers = JSON.parse(rawServers);
@@ -359,23 +363,12 @@ export default function (pi) {
   }
 
   function readSharedPersonalMemoryPrompt() {
-    const rootDir = process.env.AGENT_NATIVE_MEMORY_DIR;
-    if (!rootDir) return "";
+    const promptFile = process.env.AGENT_NATIVE_MEMORY_PROMPT_FILE;
+    if (!promptFile) return "";
     try {
-      const fs = require("node:fs");
-      const path = require("node:path");
-      if (!fs.existsSync(rootDir)) return "";
-      const ownerDirs = fs.readdirSync(rootDir, { withFileTypes: true }).filter((d) => d.isDirectory());
-      const sections = [];
-      for (const ownerDir of ownerDirs) {
-        const indexPath = path.join(rootDir, ownerDir.name, "MEMORY.md");
-        if (!fs.existsSync(indexPath)) continue;
-        const content = fs.readFileSync(indexPath, "utf8").trim();
-        if (!content || content === "# Memory Index") continue;
-        sections.push('<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n' + content + "\n</resource>");
-      }
-      return sections.length > 0 ? "\n\n" + sections.join("\n\n") : "";
+      return require("node:fs").readFileSync(promptFile, "utf8");
     } catch (error) {
+      if (error && error.code === "ENOENT") return "";
       console.error("[desktop-chat] Could not read shared memory:", error);
       return "";
     }
@@ -924,9 +917,11 @@ async function createDesktopTerminalSession(
   let piExtensionPath: string | undefined;
   let codexHome: string | undefined;
   let closed = false;
+  const memoryOwner = await bindDesktopSessionMemoryOwner();
   const close = async () => {
     if (closed) return;
     closed = true;
+    memoryOwner.release();
     removeDesktopTerminalConfig(claudeConfigPath);
     removeDesktopTerminalConfig(piExtensionPath);
     removeDesktopTerminalHome(codexHome);
@@ -1010,7 +1005,10 @@ async function createDesktopTerminalSession(
         piExtensionPath,
       ),
       environment: {
-        AGENT_NATIVE_MEMORY_DIR: path.join(app.getPath("userData"), "memory"),
+        ...desktopTerminalMemoryEnvironment(
+          memoryOwner.file,
+          memoryOwner.memoryDir,
+        ),
         MCP_SERVERS: JSON.stringify({ servers: mcpServers }),
         AGENT_NATIVE_TERMINAL_MCP_SERVERS: JSON.stringify(mcpServers),
         ...(appContext
@@ -1025,6 +1023,7 @@ async function createDesktopTerminalSession(
       },
       cwd: resolveDesktopTerminalCwd(appConfig?.localPath),
       onClose: close,
+      bindTerminate: memoryOwner.bindTerminate,
     };
   } catch (error) {
     await close();
@@ -1759,6 +1758,251 @@ async function compareDispatchSession(
 // Hands the current bearer to a session only when it is the session the bearer
 // already serves; any other session first rotates it, so earlier runners are
 // refused rather than carried over.
+const memoryOwnerFiles = new Map<string, string>();
+let currentMemoryAccount: string | null = null;
+
+const memorySessions = new Set<(account: string | null) => void>();
+const memorySessionTerminators = new Map<string, () => void>();
+
+function terminateMemorySession(file: string): void {
+  console.error(
+    "[desktop-chat] Ending a terminal whose memory access cannot be revoked",
+  );
+  const terminate = memorySessionTerminators.get(file);
+  memorySessionTerminators.delete(file);
+  terminate?.();
+}
+
+export function setDesktopMemoryAccount(rawAccount: string | null): void {
+  const account = rawAccount?.trim().toLowerCase() || null;
+  currentMemoryAccount = account;
+  const failures: unknown[] = [];
+  for (const [file, owner] of [...memoryOwnerFiles]) {
+    if (owner === account) continue;
+    try {
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+    } catch (error) {
+      failures.push(error);
+      try {
+        fs.writeFileSync(file, "");
+      } catch (blankError) {
+        failures.push(blankError);
+        terminateMemorySession(file);
+      }
+    }
+  }
+  for (const rebind of [...memorySessions]) {
+    try {
+      rebind(account);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) {
+    console.error(
+      "[desktop-chat] Could not fully switch the shared memory account:",
+      new AggregateError(failures),
+    );
+  }
+}
+
+export function sweepStaleMemoryOwnerFiles(): void {
+  for (const dir of ["memory-owners", "memory-roots"]) {
+    fs.rmSync(path.join(app.getPath("userData"), dir), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
+export function desktopTerminalMemoryEnvironment(
+  promptFile: string,
+  memoryDir?: string,
+): {
+  AGENT_NATIVE_MEMORY_PROMPT_FILE: string;
+  AGENT_NATIVE_MEMORY_DIR: string;
+} {
+  return {
+    AGENT_NATIVE_MEMORY_PROMPT_FILE: promptFile,
+    AGENT_NATIVE_MEMORY_DIR: memoryDir ?? "",
+  };
+}
+
+function desktopMemoryDir(): string {
+  return path.join(app.getPath("userData"), "memory");
+}
+
+async function renderMemoryPrompt(account: string): Promise<string> {
+  const index = await readMirroredMemory(
+    account,
+    "memory/MEMORY.md",
+    desktopMemoryDir(),
+  );
+  const content = index.state === "present" ? index.content.trim() : "";
+  if (!content || content === "# Memory Index") return "";
+  return `\n\n<resource name="memory/MEMORY.md" scope="personal" path="memory/MEMORY.md">\n${content}\n</resource>`;
+}
+
+export async function bindDesktopSessionMemoryOwner(): Promise<{
+  file: string;
+  memoryDir: string | undefined;
+  release: () => void;
+  bindTerminate: (terminate: () => void) => void;
+}> {
+  const file = path.join(
+    app.getPath("userData"),
+    "memory-owners",
+    randomUUID(),
+  );
+  let account = currentMemoryAccount;
+  let memoryDir: string | undefined;
+  try {
+    memoryDir = path.join(
+      app.getPath("userData"),
+      "memory-roots",
+      randomUUID(),
+    );
+    fs.mkdirSync(memoryDir, { recursive: true });
+  } catch (error) {
+    memoryDir = undefined;
+    console.error("[desktop-chat] Could not create the memory root:", error);
+  }
+  const grant = (owner: string) => {
+    if (!memoryDir) return;
+    try {
+      const target = path.join(desktopMemoryDir(), encodeURIComponent(owner));
+      fs.mkdirSync(target, { recursive: true });
+      fs.mkdirSync(memoryDir, { recursive: true });
+      fs.symlinkSync(
+        target,
+        path.join(memoryDir, encodeURIComponent(owner)),
+        "junction",
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return;
+      console.error("[desktop-chat] Could not link the memory root:", error);
+    }
+  };
+  let ended = false;
+  const end = () => {
+    ended = true;
+    terminateMemorySession(file);
+  };
+  const revoke = () => {
+    if (!memoryDir) return;
+    try {
+      for (const entry of fs.readdirSync(memoryDir)) {
+        fs.rmSync(path.join(memoryDir, entry), {
+          recursive: true,
+          force: true,
+        });
+      }
+    } catch (error) {
+      const failures = [error];
+      try {
+        fs.rmSync(memoryDir, { recursive: true, force: true });
+      } catch (rootError) {
+        failures.push(rootError);
+        end();
+      }
+      throw new AggregateError(failures, "Could not revoke the memory root");
+    }
+  };
+  if (account) grant(account);
+  let released = false;
+  const refresh = async () => {
+    if (!account) return;
+    const bound = account;
+    let prompt: string;
+    try {
+      prompt = await renderMemoryPrompt(bound);
+    } catch (error) {
+      if (error instanceof MemoryTombstoneError) {
+        fs.rmSync(file, { force: true });
+        memoryOwnerFiles.delete(file);
+        return;
+      }
+      console.error(
+        "[desktop-chat] Could not read shared memory; keeping the last prompt:",
+        error,
+      );
+      return;
+    }
+    if (released || currentMemoryAccount !== bound) return;
+    if (!prompt) {
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+      return;
+    }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, prompt, { mode: 0o600 });
+    memoryOwnerFiles.set(file, bound);
+  };
+  let refreshes: Promise<void> = Promise.resolve();
+  const scheduleRefresh = () => {
+    refreshes = refreshes.then(() =>
+      refresh().catch((error) =>
+        console.error("[desktop-chat] Could not refresh memory:", error),
+      ),
+    );
+    return refreshes;
+  };
+  let watcher: fs.FSWatcher | undefined;
+  const watch = () => {
+    try {
+      fs.mkdirSync(desktopMemoryDir(), { recursive: true });
+      watcher = fs.watch(desktopMemoryDir(), { recursive: true }, () => {
+        void scheduleRefresh();
+      });
+      watcher.on("error", () => watcher?.close());
+    } catch (error) {
+      console.error("[desktop-chat] Could not watch shared memory:", error);
+    }
+  };
+  const rebind = (next: string | null) => {
+    if (released || ended) return;
+    if (account && account !== next) {
+      end();
+      try {
+        revoke();
+      } finally {
+        account = null;
+        watcher?.close();
+        watcher = undefined;
+      }
+      return;
+    }
+    if (!next) return;
+    if (!account) {
+      account = next;
+      watch();
+    }
+    grant(next);
+    void scheduleRefresh();
+  };
+  if (account) watch();
+  memorySessions.add(rebind);
+  await scheduleRefresh();
+  return {
+    file,
+    memoryDir,
+    bindTerminate: (terminate) => {
+      memorySessionTerminators.set(file, terminate);
+      if (ended) terminate();
+    },
+    release: () => {
+      released = true;
+      memorySessionTerminators.delete(file);
+      if (memoryDir) fs.rmSync(memoryDir, { recursive: true, force: true });
+      memorySessions.delete(rebind);
+      watcher?.close();
+      fs.rmSync(file, { force: true });
+      memoryOwnerFiles.delete(file);
+    },
+  };
+}
+
 function bindBuilderRelaySession(next: BuilderRelaySession): void {
   const current = builderRelaySession;
   if (
@@ -1769,6 +2013,7 @@ function bindBuilderRelaySession(next: BuilderRelaySession): void {
     rotateDesktopBuilderRelayBearer();
   }
   builderRelaySession = next;
+  setDesktopMemoryAccount(next.account);
 }
 
 const SETUP_SESSION_REFUSALS: Record<
@@ -1883,6 +2128,7 @@ export async function getDesktopBuilderGatewayRunnerEnvironment(): Promise<{
 export function rotateDesktopBuilderRelayBearer(): void {
   builderRelayBearer = randomBytes(32).toString("base64url");
   builderRelaySession = null;
+  setDesktopMemoryAccount(null);
 }
 
 // Only a real account replacing a different real account rotates the bearer.
@@ -1890,11 +2136,17 @@ export function rotateDesktopBuilderRelayBearer(): void {
 // same account returning after them keeps its runners. The bound session, not
 // this note, is what decides whether a request is forwarded.
 export function noteDesktopBuilderRelayOwner(owner: string | null): void {
-  if (owner === null || owner === "no-account") return;
+  if (owner === null || owner === "no-account") {
+    setDesktopMemoryAccount(null);
+    return;
+  }
   const previous = lastBuilderRelayAccountKey;
   lastBuilderRelayAccountKey = owner;
   if (previous !== null && previous !== owner)
     rotateDesktopBuilderRelayBearer();
+  if (owner.startsWith("account:")) {
+    setDesktopMemoryAccount(owner.slice("account:".length));
+  }
 }
 
 export async function closeDesktopChatRelay(): Promise<void> {
@@ -2109,6 +2361,7 @@ export function registerDesktopChatIpc(
   } = {},
 ): void {
   if (ipcRegistered) return;
+  sweepStaleMemoryOwnerFiles();
   captureActiveBrowserScreenshot = options.captureActiveBrowserScreenshot;
   resolveBuilderDispatchApp = options.resolveBuilderDispatchApp;
   ipcRegistered = true;

@@ -143,6 +143,7 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 | `jira.listTransitions` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts) |     |     |     |     |     |     |     |     |     |     |
 | `jira.transitionIssue` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts) |     |     |     |     |     |     |     |     |     |     |
 | `notion.createPage`                                                                                    |     |     |     |     |     |     | ●   |     |     |     |
+| `content.upsertRow` (unused on purpose: no story wires it yet, run by content-row.scenario.spec.ts)    |     |     |     |     |     |     |     |     |     |     |
 | `sentry.issueStatus`                                                                                   |     |     |     |     |     |     | ●   |     |     |     |
 | `sentry.issueEvents`                                                                                   |     |     |     |     |     |     | ●   |     |     |     |
 | `sentry.resolveIssue` (unused on purpose: no story wires it yet, run by jira-sentry.scenario.spec.ts)  |     |     |     |     |     |     |     |     |     |     |
@@ -181,6 +182,7 @@ Stories: 1 bug-report-to-builder, 2 builder-to-merge, 3 morning-digest, 4 hot-le
 - `github.addLabels`: no story wires it yet, run by issue-writes.scenario.spec.ts
 - `github.removeLabel`: no story wires it yet, run by issue-writes.scenario.spec.ts
 - `slack.addReaction`: no story wires it yet, run by issue-writes.scenario.spec.ts
+- `content.upsertRow`: no story wires it yet, run by content-row.scenario.spec.ts
 - `wholeList`: no story judges a list as one since story 1 groups per report, run by engine/nodes/ai.spec.ts
 
 ## Follow-ups

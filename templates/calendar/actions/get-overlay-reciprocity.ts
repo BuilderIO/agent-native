@@ -7,6 +7,7 @@ import type { OverlayReciprocity } from "../server/lib/booking-host-availability
 import { normalizeBookingHostEmail } from "../server/lib/booking-link-utils.js";
 
 export default defineAction({
+  mcpTool: "search",
   description:
     "Check which of the caller's overlaid peers have added the caller back to their own calendar. A two-way relationship is what lets a peer's real working hours apply to the caller's booking links. Reports reciprocity only — use get-host-overlay-status when you also need to know whether the peer saved a working-hours schedule.",
   schema: z.object({
