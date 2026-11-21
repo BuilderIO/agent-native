@@ -1464,40 +1464,50 @@ describe("data-programs/execute", () => {
       );
     });
 
-    it("reports a cut-off background result as result_too_large", async () => {
-      queuedBackgroundRun();
-      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
-      vi.doMock("../coding-tools/sandbox/index.js", () => ({
-        discardSandboxExecutionOutput:
-          sandboxMocks.discardSandboxExecutionOutput,
-        enqueueSandboxExecution: vi.fn(),
-        getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
-          id: "exec_done",
-          status: "succeeded",
-          stdout: `${DATA_PROGRAM_SENTINEL}{"rows":[{"a":1},{"a`,
-          stderr: "",
-          stdoutTruncated: true,
-        }),
-      }));
-      const { runDataProgram } = await loadExecute();
+    it.each([
+      ["finished", "succeeded", ""],
+      [
+        "was stopped for printing too much",
+        "failed",
+        "[sandbox] output exceeded the 33554432-byte-per-stream safety limit; process was terminated.",
+      ],
+    ])(
+      "reports a cut-off background result as result_too_large when the program %s",
+      async (_label, status, stderr) => {
+        queuedBackgroundRun();
+        storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+        vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          discardSandboxExecutionOutput:
+            sandboxMocks.discardSandboxExecutionOutput,
+          enqueueSandboxExecution: vi.fn(),
+          getSandboxExecutionForOwner: vi.fn().mockResolvedValue({
+            id: "exec_done",
+            status,
+            stdout: `${DATA_PROGRAM_SENTINEL}{"rows":[{"a":1},{"a`,
+            stderr,
+            stdoutTruncated: true,
+          }),
+        }));
+        const { runDataProgram } = await loadExecute();
 
-      const result = await runDataProgram({
-        programId: PROGRAM_ID,
-        ctx: { userEmail: OWNER },
-        triggeredBy: "panel_view",
-      });
+        const result = await runDataProgram({
+          programId: PROGRAM_ID,
+          ctx: { userEmail: OWNER },
+          triggeredBy: "panel_view",
+        });
 
-      expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
-        "dpr_queued",
-        expect.objectContaining({
-          status: "failed",
-          errorCode: "result_too_large",
-        }),
-      );
-      expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.error.code).toBe("result_too_large");
-    });
+        expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+          "dpr_queued",
+          expect.objectContaining({
+            status: "failed",
+            errorCode: "result_too_large",
+          }),
+        );
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error.code).toBe("result_too_large");
+      },
+    );
 
     it.each([
       [

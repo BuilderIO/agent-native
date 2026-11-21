@@ -1130,7 +1130,10 @@ function backgroundRunOutcome(
   failure: BackgroundRunFailure | null;
   update: UpdateDataProgramRunInput;
 } {
-  if (execution.status === "succeeded") {
+  if (
+    execution.status === "succeeded" ||
+    (execution.status === "failed" && execution.stdoutTruncated === true)
+  ) {
     const parsed = parseDataProgramResult(execution.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
