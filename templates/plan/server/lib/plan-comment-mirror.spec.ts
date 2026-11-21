@@ -478,6 +478,83 @@ describe("Plan comments in the review kit", () => {
     expect((await stored("gone-reply"))?.status).toBe("deleted");
   });
 
+  it("gives a new comment a fresh ID when a deleted plan's copy in the kit still holds it", async () => {
+    const goneId = await newPlan([
+      { id: "reused-root", message: "First time" },
+      { id: "reused-reply", parentCommentId: "reused-root", message: "Reply" },
+    ]);
+    await call(deletePlan, {
+      planId: goneId,
+      mode: "hard",
+      confirmation: `DELETE ${goneId}`,
+    });
+
+    const planId = await newPlan([
+      { id: "reused-root", message: "Second time" },
+      { parentCommentId: "reused-root", message: "Reply again" },
+    ]);
+    await call(updatePlan, {
+      planId,
+      comments: [{ id: "reused-reply", message: "Added later" }],
+    });
+
+    const copies = await expectStoresAgree(planId);
+    const root = copies.find((copy) => copy.body === "Second time");
+    expect(root?.id).toEqual(expect.any(String));
+    expect(root?.id).not.toBe("reused-root");
+    expect(
+      copies.find((copy) => copy.body === "Reply again")?.parentCommentId,
+    ).toBe(root?.id);
+    const added = copies.find((copy) => copy.body === "Added later");
+    expect(added?.id).toEqual(expect.any(String));
+    expect(added?.id).not.toBe("reused-reply");
+    for (const id of ["reused-root", "reused-reply"]) {
+      expect(await stored(id)).toMatchObject({
+        status: "deleted",
+        resourceId: goneId,
+      });
+    }
+  });
+
+  it("gives a new comment a fresh ID when a comment written through the kit holds it", async () => {
+    const planId = await newPlan();
+    const at = "2026-11-21T12:00:00.000Z";
+    await mirrorReviewComments({ resourceType: "plan", resourceId: planId }, [
+      {
+        id: "kit-held-here",
+        threadId: "kit-held-here",
+        parentCommentId: null,
+        body: "Written through the kit",
+        authorEmail: "kit-author@example.test",
+        authorName: null,
+        createdBy: "human",
+        resolved: false,
+        createdAt: at,
+        updatedAt: at,
+      },
+    ]);
+
+    await call(updatePlan, {
+      planId,
+      comments: [{ id: "kit-held-here", message: "Written in Plan" }],
+    });
+
+    expect(await stored("kit-held-here")).toMatchObject({
+      status: "open",
+      body: "Written through the kit",
+      authorEmail: "kit-author@example.test",
+    });
+    const added = (await planCopies(planId)).find(
+      (copy) => copy.body === "Written in Plan",
+    );
+    expect(added?.id).toEqual(expect.any(String));
+    expect(added?.id).not.toBe("kit-held-here");
+    expect(await stored(added?.id ?? "")).toMatchObject({
+      status: "open",
+      body: "Written in Plan",
+    });
+  });
+
   it("hides a deleted plan's comments from the kit, even from people it was shared with", async () => {
     const viewer = { userEmail: "viewer@example.test", orgId: "viewer-org" };
     const planId = await newPlan([

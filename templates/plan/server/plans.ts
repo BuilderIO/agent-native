@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 
+import { getDbExec, sql } from "@agent-native/core/db";
 import { emit } from "@agent-native/core/event-bus";
 import { ensureReviewTables } from "@agent-native/core/review";
 import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
@@ -330,8 +331,8 @@ export function buildUpdatedPlanCommentRows(input: {
       "id" | "sectionId" | "kind" | "anchor" | "resolutionTarget"
     >
   >;
-  requestEmail?: string | null;
-  requestName?: string | null;
+  requestEmail?: string | null | undefined;
+  requestName?: string | null | undefined;
   now: string;
 }): NewPlanCommentRow[] {
   type NewCommentRow = NewPlanCommentRow;
@@ -446,6 +447,38 @@ export function buildUpdatedPlanCommentRows(input: {
 
 const PLAN_COMMENT_INSERT_CHUNK_SIZE = 200;
 
+export async function withFreshIdsForKitHeldComments(
+  rows: NewPlanCommentRow[],
+): Promise<NewPlanCommentRow[]> {
+  if (rows.length === 0) return rows;
+  await ensureReviewTables();
+  const ids = rows.map((row) => row.id);
+  const heldByKit = new Set<string>();
+  for (let i = 0; i < ids.length; i += PLAN_COMMENT_INSERT_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + PLAN_COMMENT_INSERT_CHUNK_SIZE);
+    const { rows: held } = await getDbExec().execute(
+      sql`SELECT id FROM agent_review_comments WHERE id IN ${sql.in(chunk)}`,
+    );
+    for (const row of held) heldByKit.add(String(row.id));
+  }
+  if (heldByKit.size === 0) return rows;
+  const heldByPlan = await getDb()
+    .select({ id: schema.planComments.id })
+    .from(schema.planComments)
+    .where(inArray(schema.planComments.id, [...heldByKit]));
+  for (const row of heldByPlan) heldByKit.delete(row.id);
+  if (heldByKit.size === 0) return rows;
+  const fresh = new Map([...heldByKit].map((id) => [id, newId("cmt")]));
+  return rows.map((row) => {
+    const parent = row.parentCommentId && fresh.get(row.parentCommentId);
+    return {
+      ...row,
+      id: fresh.get(row.id) ?? row.id,
+      ...(parent ? { parentCommentId: parent } : {}),
+    };
+  });
+}
+
 export async function insertInitialPlanComments(input: {
   planId: string;
   comments: PlanCommentInput[];
@@ -453,9 +486,9 @@ export async function insertInitialPlanComments(input: {
   requestName?: string | null;
   now: string;
 }) {
-  const rows = buildInitialPlanCommentRows(input);
-  if (rows.length === 0) return;
-  await ensureReviewTables();
+  const built = buildInitialPlanCommentRows(input);
+  if (built.length === 0) return;
+  const rows = await withFreshIdsForKitHeldComments(built);
   await getDb().transaction(async (tx) => {
     for (let i = 0; i < rows.length; i += PLAN_COMMENT_INSERT_CHUNK_SIZE) {
       const chunk = rows.slice(i, i + PLAN_COMMENT_INSERT_CHUNK_SIZE);

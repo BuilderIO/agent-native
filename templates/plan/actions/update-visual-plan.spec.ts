@@ -184,6 +184,7 @@ vi.mock("../server/plans.js", async () => {
     }),
     emitPlanCommented: vi.fn(),
     emitPlanStatusChanged: vi.fn(),
+    withFreshIdsForKitHeldComments: (rows: unknown) => Promise.resolve(rows),
     writeEvent: vi.fn(),
   };
 });

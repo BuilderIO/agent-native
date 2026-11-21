@@ -134,6 +134,7 @@ vi.mock("../server/plans.js", async () => {
     loadPlanBundle: (...args: unknown[]) => loadPlanBundleMock(...args),
     newId: vi.fn((prefix: string) => `${prefix}_test`),
     nowIso: vi.fn(() => "2026-06-05T00:00:00.000Z"),
+    withFreshIdsForKitHeldComments: (rows: unknown) => Promise.resolve(rows),
   };
 });
 

@@ -53,6 +53,7 @@ import {
   planPath,
   planStatusSchema,
   sectionInputSchema,
+  withFreshIdsForKitHeldComments,
 } from "../server/plans.js";
 import {
   agentPlanIncrementalContentPatchesSchema,
@@ -1033,7 +1034,7 @@ export default defineAction({
       }
     }
 
-    const commentRows = buildUpdatedPlanCommentRows({
+    const builtCommentRows = buildUpdatedPlanCommentRows({
       planId: args.planId,
       comments: pendingCommentInserts,
       existingComments: commentsBeforeInserts,
@@ -1041,6 +1042,7 @@ export default defineAction({
       requestName: requesterName,
       now,
     });
+    const commentRows = await withFreshIdsForKitHeldComments(builtCommentRows);
     const reviewEventPayload = {
       titleChanged: args.title !== undefined,
       briefChanged: args.brief !== undefined,
