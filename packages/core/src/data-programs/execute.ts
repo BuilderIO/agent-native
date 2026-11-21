@@ -393,8 +393,12 @@ async function executeProgramCode(
       // A run that fails before emit() never prints a result, so report what
       // the program threw, or else that the sandbox failed, rather than a
       // missing emit().
-      if (parsed.error.code === "emit_missing" && result.exitCode !== 0) {
-        const thrown = thrownProgramMessage(result.stderr);
+      const thrown =
+        result.exitCode !== 0 ? thrownProgramMessage(result.stderr) : undefined;
+      if (
+        (parsed.error.code === "emit_missing" && result.exitCode !== 0) ||
+        (parsed.error.code === "result_too_large" && thrown !== undefined)
+      ) {
         return {
           ok: false,
           code: thrown ? "program_error" : "sandbox_error",
@@ -1166,7 +1170,11 @@ function backgroundRunOutcome(
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
       outputTruncated: true,
     });
-    if (!parsed.ok && parsed.error.code === "result_too_large") {
+    if (
+      !parsed.ok &&
+      parsed.error.code === "result_too_large" &&
+      thrownProgramMessage(execution.stderr) === undefined
+    ) {
       return {
         failure: { code: parsed.error.code, message: parsed.error.message },
         update: {
