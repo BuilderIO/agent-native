@@ -2159,6 +2159,8 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     signal?: AbortSignal;
     /** Stopped by this or by `timeoutMs`, the job is left for a later call. */
     resumeAfter?: AbortSignal;
+    claimJob?: () => Promise<boolean>;
+    onUncachedResult?: () => void;
     trace?: BigQueryQueryTrace;
   } = {},
 ): Promise<AnalyticsQueryResult> {
@@ -2203,6 +2205,10 @@ export async function queryFirstPartyAnalyticsInBigQuery(
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),
         ...(resumeAfter ? { resumeAfter } : {}),
+        ...(options.claimJob ? { claimJob: options.claimJob } : {}),
+        ...(options.onUncachedResult
+          ? { onUncachedResult: options.onUncachedResult }
+          : {}),
         ...(options.trace ? { trace: options.trace } : {}),
         ...(eventsSource?.source === "model" && sourceGeneration
           ? { sourceGeneration }

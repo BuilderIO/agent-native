@@ -86,6 +86,7 @@ vi.mock("./gcloud", async (importOriginal) => ({
 const {
   BigQueryBackendError,
   BigQueryDryRunPreparationError,
+  BigQueryJobNotClaimedError,
   BigQueryMaximumBytesBilledError,
   BigQueryQueryTimeoutError,
   dryRunQuery,
@@ -2235,6 +2236,86 @@ describe("runQuery cancellation", () => {
     }
     // The second read was served by the app cache, not a second BigQuery job.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks claimJob only on a cache miss and starts no job when it declines", async () => {
+    const cache = useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "4096",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const declined = vi.fn(async () => false);
+    const granted = vi.fn(async () => true);
+
+    await expect(
+      runQuery("SELECT 1 AS declined_job_claim", { claimJob: declined }),
+    ).rejects.toBeInstanceOf(BigQueryJobNotClaimedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const entry of cache.values()) {
+      expect(entry.refreshInProgress).toBe(false);
+    }
+
+    const sql = "SELECT 1 AS granted_job_claim";
+    await runQuery(sql, { claimJob: granted });
+    const hit = await runQuery(sql, { claimJob: granted });
+
+    expect(hit).toMatchObject({ cached: true });
+    expect(declined).toHaveBeenCalledTimes(1);
+    expect(granted).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells onUncachedResult only about fresh results the cache did not keep", async () => {
+    useCacheDatabase();
+    const cacheDatabase = execute.getMockImplementation();
+    const complete = () =>
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalRows: "0",
+        totalBytesProcessed: "4096",
+      });
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalRows: "0",
+        totalBytesProcessed: "4096",
+        errors: [{ reason: "other", message: "A nonfatal query warning" }],
+      }),
+      complete(),
+      complete(),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const uncached = vi.fn();
+
+    await runQuery("SELECT 1 AS warned_result", { onUncachedResult: uncached });
+    expect(uncached).toHaveBeenCalledTimes(1);
+
+    const kept = "SELECT 1 AS kept_result";
+    await runQuery(kept, { onUncachedResult: uncached });
+    await expect(
+      runQuery(kept, { onUncachedResult: uncached }),
+    ).resolves.toMatchObject({ cached: true });
+    expect(uncached).toHaveBeenCalledTimes(1);
+
+    execute.mockImplementation(async (query) =>
+      String(query.sql).startsWith("UPDATE bigquery_cache SET sql")
+        ? { rows: [] }
+        : cacheDatabase?.(query),
+    );
+    await runQuery("SELECT 1 AS unsaved_result", {
+      onUncachedResult: uncached,
+    });
+    expect(uncached).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("falls back to the cache row's created_at for results cached before fetchedAt existed", async () => {
