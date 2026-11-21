@@ -83,35 +83,52 @@ describe("frame bridge", () => {
     const parent = parentWindow();
     setParent(parent);
     setEmbedToken("test-embed-ticket");
+    stubSessionResponse({
+      email: "member@example.test",
+      token: "test-embed-ticket",
+    });
     await loadFrame();
     dispatchFrameOrigin("https://builder.io", parent);
     const port = { postMessage: vi.fn(), close: vi.fn() };
-    const send = (
+    const send = async (
       operation: string,
       path?: string,
       origin = "https://builder.io",
     ) => {
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: { type: "agentNative.viewRequest", operation, path },
+          data: {
+            type: "agentNative.viewRequest",
+            operation,
+            path,
+            deadline: Date.now() + 1000,
+          },
           origin,
           source: parent,
           ports: [port as unknown as MessagePort],
         }),
       );
+      await vi.waitFor(() => {
+        if (origin === "https://builder.io")
+          expect(port.close).toHaveBeenCalled();
+      });
     };
     try {
-      send("read", undefined, "https://untrusted.example.test");
+      port.close.mockClear();
+      await send("read", undefined, "https://untrusted.example.test");
       expect(port.postMessage).not.toHaveBeenCalled();
-      send("navigate", "/tasks/one");
+      port.close.mockClear();
+      await send("navigate", "/tasks/one");
       expect(port.postMessage).toHaveBeenLastCalledWith({
         result: { path: "/tasks/one" },
       });
-      send("read");
+      port.close.mockClear();
+      await send("read");
       expect(port.postMessage).toHaveBeenLastCalledWith({
         result: expect.objectContaining({ path: "/tasks/one" }),
       });
-      send("navigate", "//untrusted.example.test/");
+      port.close.mockClear();
+      await send("navigate", "//untrusted.example.test/");
       expect(port.postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({ error: expect.any(String) }),
       );

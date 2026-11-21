@@ -4227,15 +4227,20 @@ export async function createMCPServerForRequest(
         );
   }
 
-  async function grantedResourceActions(
-    actionName: string,
-  ): Promise<typeof advertisedActions> {
-    // Only an action with a widget has a resource, so only those convert.
-    return Object.fromEntries(
-      Object.entries(await grantedServedActions(actionName)).filter(
-        ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
+  async function grantedResourceSurface(actionName: string) {
+    const served = await grantedServedActions(actionName);
+    return {
+      hasManifest:
+        !scriptCatalog &&
+        !directoryCatalog &&
+        Object.hasOwn(served, "get_app_manifest") &&
+        isAdvertisable("get_app_manifest"),
+      actions: Object.fromEntries(
+        Object.entries(served).filter(
+          ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
+        ),
       ),
-    );
+    };
   }
 
   server.setRequestHandler("tools/list", async (request: any, ctx: any) => {
@@ -4993,8 +4998,8 @@ export async function createMCPServerForRequest(
       "resources/list",
       async (request: any, ctx: any) => {
         const startedAt = Date.now();
-        const grantedActions =
-          await grantedResourceActions("mcp:resources/list");
+        const { actions: grantedActions, hasManifest } =
+          await grantedResourceSurface("mcp:resources/list");
         const result = await withCallerContext(async () => {
           const mcpAppResources = supportsMcpApps
             ? await getMcpAppResources(
@@ -5018,7 +5023,7 @@ export async function createMCPServerForRequest(
                   mimeType: resource.mimeType,
                   ...(resource._meta ? { _meta: resource._meta } : {}),
                 })),
-              ...(!directoryCatalog ? [APP_MANIFEST_RESOURCE] : []),
+              ...(hasManifest ? [APP_MANIFEST_RESOURCE] : []),
             ],
           };
         });
@@ -5031,7 +5036,7 @@ export async function createMCPServerForRequest(
     );
 
     server.setRequestHandler("resources/templates/list", async () => {
-      const grantedActions = await grantedResourceActions(
+      const { actions: grantedActions } = await grantedResourceSurface(
         "mcp:resources/templates/list",
       );
       if (config.catalogMode === "directory") {
@@ -5083,11 +5088,11 @@ export async function createMCPServerForRequest(
           });
         };
         try {
-          const grantedActions =
-            await grantedResourceActions("mcp:resources/read");
+          const { actions: grantedActions, hasManifest } =
+            await grantedResourceSurface("mcp:resources/read");
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
-            if (!directoryCatalog && uri === APP_MANIFEST_RESOURCE.uri) {
+            if (hasManifest && uri === APP_MANIFEST_RESOURCE.uri) {
               emitRead({ resourceName: APP_MANIFEST_RESOURCE.name });
               return {
                 contents: [

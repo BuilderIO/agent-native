@@ -2870,7 +2870,7 @@ export function embedApp(
           finish(event.data.error, event.data.result);
         };
         try {
-          target.postMessage({ type: "agentNative.viewRequest", operation, path }, origin, [channel.port2]);
+          target.postMessage({ type: "agentNative.viewRequest", operation, path, deadline: Date.now() + 1000 }, origin, [channel.port2]);
         } catch (error) {
           finish(error?.message || "The open app could not receive the request.");
         }

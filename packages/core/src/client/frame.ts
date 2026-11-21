@@ -206,25 +206,7 @@ function acceptFrameOrigin(origin: string): void {
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event: MessageEvent) => {
     if (event.data?.type === "agentNative.viewRequest") {
-      const port = event.ports[0];
-      if (
-        !port ||
-        event.source !== window.parent ||
-        !getFrameOrigin() ||
-        !isTrustedFrameMessage(event) ||
-        !getEmbedAuthToken()
-      )
-        return;
-      try {
-        port.postMessage({ result: runEmbeddedViewRequest(event.data) });
-      } catch (error) {
-        port.postMessage({
-          error:
-            error instanceof Error ? error.message : "View request failed.",
-        });
-      } finally {
-        port.close();
-      }
+      void handleEmbeddedViewRequest(event);
       return;
     }
     const eventOrigin = normalizeOrigin(event.origin);
@@ -250,6 +232,60 @@ if (typeof window !== "undefined") {
       else _pendingFrameOrigin = null;
     });
   });
+}
+
+let verifiedViewSession: { token: string; check: Promise<boolean> } | undefined;
+
+async function handleEmbeddedViewRequest(event: MessageEvent): Promise<void> {
+  const port = event.ports[0];
+  const token = getEmbedAuthToken();
+  if (
+    !port ||
+    !token ||
+    event.source !== window.parent ||
+    !getFrameOrigin() ||
+    !isTrustedFrameMessage(event)
+  )
+    return;
+  const request = event.data as {
+    operation?: unknown;
+    path?: unknown;
+    deadline?: unknown;
+  };
+  const deadline = request.deadline;
+  if (
+    typeof deadline !== "number" ||
+    deadline < Date.now() ||
+    deadline > Date.now() + 1000
+  ) {
+    port.close();
+    return;
+  }
+  try {
+    if (verifiedViewSession?.token !== token) {
+      verifiedViewSession = {
+        token,
+        check: embedSessionAllowsUnlistedParent(),
+      };
+    }
+    const session = verifiedViewSession;
+    if (!(await session.check)) {
+      if (verifiedViewSession === session) verifiedViewSession = undefined;
+      port.postMessage({
+        error: "The embedded app session could not be verified.",
+      });
+      return;
+    }
+    if (Date.now() <= deadline && getEmbedAuthToken() === token) {
+      port.postMessage({ result: runEmbeddedViewRequest(request) });
+    }
+  } catch (error) {
+    port.postMessage({
+      error: error instanceof Error ? error.message : "View request failed.",
+    });
+  } finally {
+    port.close();
+  }
 }
 
 function viewPath(url: URL): string {

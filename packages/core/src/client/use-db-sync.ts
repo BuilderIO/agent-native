@@ -996,10 +996,7 @@ class SyncTransport {
       return;
     }
     const pollLive =
-      this.mode === "local" &&
-      !this.sseConnected &&
-      (this.serverlessPoll ||
-        this.capabilities.includes(REALTIME_CAP_POLL_LIVE));
+      this.mode === "local" && !this.sseConnected && this.serverlessPoll;
     const active = this.isActive || this.activeTurnUntil > Date.now();
     const normalBase = pollLive
       ? active
@@ -1702,7 +1699,9 @@ export function useDbSync(
   const realtimeEnabled = options.realtime !== false;
   const resourceType = options.resourceType;
   const queryKeysRef = useRef(options.queryKeys);
-  queryKeysRef.current = options.queryKeys;
+  useEffect(() => {
+    queryKeysRef.current = options.queryKeys;
+  }, [options.queryKeys]);
   const {
     queryClient,
     pollUrl = agentNativePath(options.eventsUrl ?? "/_agent-native/poll"),

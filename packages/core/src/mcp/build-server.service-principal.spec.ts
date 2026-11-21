@@ -650,7 +650,9 @@ describe("MCP App resources for a service principal", () => {
     activeWithGrant(null);
     const client = await clientFor(serviceIdentity, widgetConfig());
 
-    expect((await client.listResources()).resources).toEqual([]);
+    expect((await client.listResources()).resources).toEqual([
+      expect.objectContaining({ uri: "app://manifest" }),
+    ]);
   });
 
   it("lists, templates, and reads only widgets inside the grant", async () => {

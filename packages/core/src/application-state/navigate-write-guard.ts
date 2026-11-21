@@ -304,6 +304,8 @@ export function evaluateAgentNavigationPolicy(
     options.intent ??
     navigation?.navigationMode ??
     currentActionNavigationIntent();
+  if (options.isSetUrl && isFrameworkUrlToolAuthorized() && mode !== "keep")
+    return null;
   if (isAgentCaller(originCaller) && insideReadOnlyAction())
     return READ_ONLY_REFUSAL;
   if (mode === "keep") {
@@ -313,7 +315,6 @@ export function evaluateAgentNavigationPolicy(
     };
   }
   if (!isAgentCaller(originCaller)) return null;
-  if (options.isSetUrl && isFrameworkUrlToolAuthorized()) return null;
 
   if (
     isAgentNavigationAuthorized() ||
