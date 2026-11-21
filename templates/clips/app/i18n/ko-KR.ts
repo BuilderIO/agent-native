@@ -1167,6 +1167,10 @@ const messages = {
     reconnect: "다시 연결",
     connectedAs: "{{account}}(으)로 연결됨",
     needsReconnect: "{{account}}을(를) 다시 연결해야 합니다.",
+    calendarsDescription: "Clips는 켜 둔 캘린더의 회의를 표시합니다.",
+    mainCalendar: "기본 캘린더",
+    showCalendar: "{{calendar}}의 회의 표시",
+    calendarsLoadFailed: "이 계정의 캘린더를 불러오지 못했습니다.",
     disconnectFailed: "캘린더 연결을 해제하지 못했습니다.",
     disconnectCalendarDescription:
       "Clips가 {{account}}의 예정된 회의 동기화를 중단합니다.",

@@ -1150,6 +1150,10 @@ const messages = {
     reconnect: "फिर से कनेक्ट करें",
     connectedAs: "{{account}} के रूप में कनेक्टेड",
     needsReconnect: "{{account}} को फिर से कनेक्ट करना होगा।",
+    calendarsDescription: "Clips उन कैलेंडर की मीटिंग दिखाता है जिन्हें आप चालू करते हैं।",
+    mainCalendar: "मुख्य कैलेंडर",
+    showCalendar: "{{calendar}} की मीटिंग दिखाएँ",
+    calendarsLoadFailed: "इस खाते के कैलेंडर लोड नहीं हो सके।",
     disconnectFailed: "कैलेंडर डिस्कनेक्ट नहीं हो सका।",
     disconnectCalendarDescription:
       "Clips {{account}} से आने वाली मीटिंग सिंक करना बंद कर देगा।",

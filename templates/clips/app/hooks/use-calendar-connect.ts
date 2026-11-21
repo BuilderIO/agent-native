@@ -24,6 +24,7 @@ const LATE_CONNECTION_RECHECKS_MS = [
 ];
 const CALENDAR_ACCOUNTS_QUERY_KEY = ["action", "list-calendar-accounts"];
 const MEETINGS_QUERY_KEY = ["action", "list-meetings"];
+const CALENDARS_QUERY_KEY = ["action", "list-calendars"];
 
 async function readCalendarAccounts(): Promise<
   CalendarConnectionAccount[] | null
@@ -193,6 +194,7 @@ export function useCalendarConnect(accounts: CalendarConnectionAccount[]) {
 
       const refresh = async (connected: boolean) => {
         void refreshWhileVisible(queryClient, MEETINGS_QUERY_KEY, signal);
+        void refreshWhileVisible(queryClient, CALENDARS_QUERY_KEY, signal);
         await refreshWhileVisible(
           queryClient,
           CALENDAR_ACCOUNTS_QUERY_KEY,

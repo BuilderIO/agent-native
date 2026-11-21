@@ -1103,6 +1103,10 @@ const messages = {
     reconnect: "重新連線",
     connectedAs: "已連線為 {{account}}",
     needsReconnect: "{{account}} 需要重新連線。",
+    calendarsDescription: "Clips 會顯示你開啟的日曆中的會議。",
+    mainCalendar: "主要日曆",
+    showCalendar: "顯示 {{calendar}} 中的會議",
+    calendarsLoadFailed: "無法載入此帳戶的日曆。",
     disconnectFailed: "無法中斷日曆連線。",
     disconnectCalendarDescription:
       "Clips 將停止同步 {{account}} 中即將到來的會議。",

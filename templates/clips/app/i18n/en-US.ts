@@ -1100,6 +1100,11 @@ const messages = {
     reconnect: "Reconnect",
     connectedAs: "Connected as {{account}}",
     needsReconnect: "{{account}} needs to be reconnected.",
+    calendarsDescription:
+      "Clips shows meetings from the calendars you turn on.",
+    mainCalendar: "Main calendar",
+    showCalendar: "Show meetings from {{calendar}}",
+    calendarsLoadFailed: "Couldn't load this account's calendars.",
     disconnectFailed: "Couldn't disconnect the calendar.",
     disconnectCalendarDescription:
       "Clips stops syncing upcoming meetings from {{account}}.",

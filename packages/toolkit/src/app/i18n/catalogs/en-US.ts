@@ -2325,9 +2325,6 @@ const messages = {
   "settingsShell.appGroup.labsUseDefault": "Use default",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
-  "settingsShell.appGroup.mcpAppCards": "App cards in chat apps",
-  "settingsShell.appGroup.mcpAppCardsDescription":
-    "Tools show interactive cards, such as an email draft you can edit and send, in chat apps that support MCP Apps, like Claude and ChatGPT. After you change this, reconnect this app in your chat app.",
   "settingsShell.appGroup.mcpFootnote":
     "For tools the agent itself uses, see {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "New automation",

@@ -1210,6 +1210,11 @@ const messages = {
     reconnect: "Reconnecter",
     connectedAs: "Connecté en tant que {{account}}",
     needsReconnect: "{{account}} doit être reconnecté.",
+    calendarsDescription:
+      "Clips affiche les réunions des calendriers que vous activez.",
+    mainCalendar: "Calendrier principal",
+    showCalendar: "Afficher les réunions de {{calendar}}",
+    calendarsLoadFailed: "Impossible de charger les calendriers de ce compte.",
     disconnectFailed: "Impossible de déconnecter le calendrier.",
     disconnectCalendarDescription:
       "Clips ne synchronise plus les réunions à venir de {{account}}.",

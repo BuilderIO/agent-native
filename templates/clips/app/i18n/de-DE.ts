@@ -1213,6 +1213,12 @@ const messages = {
     reconnect: "Neu verbinden",
     connectedAs: "Verbunden als {{account}}",
     needsReconnect: "{{account}} muss neu verbunden werden.",
+    calendarsDescription:
+      "Clips zeigt Meetings aus den Kalendern, die Sie einschalten.",
+    mainCalendar: "Hauptkalender",
+    showCalendar: "Meetings aus {{calendar}} anzeigen",
+    calendarsLoadFailed:
+      "Die Kalender dieses Kontos konnten nicht geladen werden.",
     disconnectFailed: "Der Kalender konnte nicht getrennt werden.",
     disconnectCalendarDescription:
       "Clips synchronisiert keine anstehenden Meetings mehr aus {{account}}.",

@@ -1203,6 +1203,11 @@ const messages = {
     reconnect: "Reconectar",
     connectedAs: "Conectado como {{account}}",
     needsReconnect: "É preciso reconectar {{account}}.",
+    calendarsDescription:
+      "O Clips mostra as reuniões das agendas que você ativar.",
+    mainCalendar: "Agenda principal",
+    showCalendar: "Mostrar reuniões de {{calendar}}",
+    calendarsLoadFailed: "Não foi possível carregar as agendas desta conta.",
     disconnectFailed: "Não foi possível desconectar a agenda.",
     disconnectCalendarDescription:
       "O Clips deixa de sincronizar as próximas reuniões de {{account}}.",

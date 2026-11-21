@@ -724,7 +724,17 @@ async function freeResourcePath(
   path: string,
   localFiles: boolean,
 ): Promise<string | null> {
-  if (localFiles && !path.startsWith("skills/")) return null;
+  return (await searchFreeResourcePath(owner, path, localFiles)).free;
+}
+
+async function searchFreeResourcePath(
+  owner: string,
+  path: string,
+  localFiles: boolean,
+): Promise<{ free: string | null; passed: string[] }> {
+  if (localFiles && !path.startsWith("skills/")) {
+    return { free: null, passed: [] };
+  }
   const skillName = /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
   const folder = path.slice(0, path.lastIndexOf("/") + 1);
   const base = skillName ?? path.slice(folder.length);
@@ -734,6 +744,7 @@ async function freeResourcePath(
   // before a file further on that can't be read.
   const batchSize = localFiles ? 1 : FREE_PATH_BATCH;
   const named = new Set([base]);
+  const passed: string[] = [];
   for (let checked = 0; checked < FREE_PATH_LIMIT; checked += batchSize) {
     const names: string[] = [];
     while (names.length < batchSize) {
@@ -746,10 +757,12 @@ async function freeResourcePath(
       names.map(pathFor),
       localFiles,
     );
-    const free = names.find((name) => !taken.has(pathFor(name)));
-    if (free) return pathFor(free);
+    for (const name of names) {
+      if (!taken.has(pathFor(name))) return { free: pathFor(name), passed };
+      passed.push(pathFor(name));
+    }
   }
-  return null;
+  return { free: null, passed };
 }
 
 /**
@@ -763,7 +776,13 @@ async function suggestionPathsTaken(
   localFiles: boolean,
 ): Promise<Set<string>> {
   try {
-    return await resourceStoredPathsTaken(owner, paths, { localFiles });
+    const taken = await resourceStoredPathsTaken(owner, paths, { localFiles });
+    const orgId = organizationIdFromResourceOwner(owner);
+    if (localFiles || !orgId) return taken;
+    const legacy = await resourceStoredPathsTaken(SHARED_OWNER, paths, {
+      orgId,
+    });
+    return new Set([...taken, ...legacy]);
   } catch (error) {
     if (!localFiles) throw error;
     return new Set(paths);
@@ -1322,9 +1341,14 @@ export async function handleUploadResource(event: any) {
       ? await runWithRequestContext({ userEmail: credentialEmail }, doUpload)
       : await doUpload();
     if (uploaded) {
-      const resource = await resourcePut(owner, path, uploaded.url, mimeType);
-      setResponseStatus(event, 201);
-      return { ...resource, url: uploaded.url, provider: uploaded.provider };
+      const put = await putUpload(owner, path, uploaded.url, mimeType);
+      if (!put) return resourcePathTaken(event, owner, path, false);
+      setResponseStatus(event, put.created ? 201 : 200);
+      return {
+        ...put.resource,
+        url: uploaded.url,
+        provider: uploaded.provider,
+      };
     }
     setResponseStatus(event, 503);
     return {
@@ -1336,10 +1360,77 @@ export async function handleUploadResource(event: any) {
 
   const content = Buffer.from(filePart.data).toString("utf-8");
 
-  const resource = await resourcePut(owner, path, content, mimeType);
+  const put = await putUpload(owner, path, content, mimeType);
+  if (!put) return resourcePathTaken(event, owner, path, false);
+  setResponseStatus(event, put.created ? 201 : 200);
+  return withContentRevision(put.resource);
+}
 
-  setResponseStatus(event, 201);
-  return resource;
+const UPLOAD_PATH_ATTEMPTS = 5;
+
+async function putUpload(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType: string,
+): Promise<{ resource: Resource; created: boolean } | null> {
+  const orgId = organizationIdFromResourceOwner(owner);
+  const lookup = orgId ? { orgId } : undefined;
+  let target = path;
+  for (let attempt = 0; attempt < UPLOAD_PATH_ATTEMPTS; attempt += 1) {
+    const legacy = orgId
+      ? await resourceGetByPath(SHARED_OWNER, target, lookup)
+      : null;
+    if (!legacy) {
+      const created = await resourcePutIfAbsent(
+        owner,
+        target,
+        content,
+        mimeType,
+      );
+      if (created) return { resource: created, created: true };
+    }
+    const existing = (await resourceGetByPath(owner, target, lookup)) ?? legacy;
+    if (!existing) continue;
+    if (existing.content === content && existing.mimeType === mimeType) {
+      return { resource: existing, created: false };
+    }
+    const { free, passed } = await searchFreeResourcePath(owner, path, false);
+    const resent = await uploadStoredAt(
+      owner,
+      passed,
+      content,
+      mimeType,
+      lookup,
+    );
+    if (resent) return { resource: resent, created: false };
+    if (!free) return null;
+    target = free;
+  }
+  return null;
+}
+
+async function uploadStoredAt(
+  owner: string,
+  paths: readonly string[],
+  content: string,
+  mimeType: string,
+  lookup: { orgId: string } | undefined,
+): Promise<Resource | null> {
+  for (let start = 0; start < paths.length; start += FREE_PATH_BATCH) {
+    const batch = paths.slice(start, start + FREE_PATH_BATCH);
+    const holding = await resourceStoredPathsTaken(owner, batch, {
+      holding: { content, mimeType },
+    });
+    for (const candidate of batch) {
+      if (!holding.has(candidate)) continue;
+      const earlier = await resourceGetByPath(owner, candidate, lookup);
+      if (earlier?.content === content && earlier.mimeType === mimeType) {
+        return earlier;
+      }
+    }
+  }
+  return null;
 }
 
 function contractErrorResponse(event: H3Event, err: unknown) {
