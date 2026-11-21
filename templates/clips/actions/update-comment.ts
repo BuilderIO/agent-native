@@ -37,6 +37,7 @@ export default defineAction({
       .optional()
       .describe("Organization members mentioned in the updated comment"),
   }),
+  mcpTool: "search",
   run: async (args, ctx) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) {

@@ -53,6 +53,7 @@ export default defineAction({
       ),
     visibility: z.enum(["private", "org", "public"]).optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const updatesSharing =
       args.shareTranscript !== undefined || args.visibility !== undefined;

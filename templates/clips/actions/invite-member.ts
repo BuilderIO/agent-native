@@ -97,6 +97,7 @@ export default defineAction({
   // the user's approval and "always allow" is not offered.
   needsApproval: true,
   allowPersistentApproval: false,
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
 

@@ -71,6 +71,7 @@ export default defineAction({
         "Required with chaptersJson: mediaUpdatedAt from the get-recording-player-data response used to create these times.",
       ),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const access = assertRecordingNotExpired(
       await assertAccess("recording", args.id, "editor"),

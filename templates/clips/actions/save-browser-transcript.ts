@@ -80,6 +80,7 @@ export default defineAction({
       .optional()
       .describe("Why native speech recognition could not save text"),
   }),
+  mcpTool: "search",
   run: async (args, context) => {
     assertRecordingNotExpired(
       await assertAccess("recording", args.recordingId, "editor"),

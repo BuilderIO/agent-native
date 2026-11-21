@@ -44,6 +44,7 @@ export default defineAction({
   description:
     "Update the current user's Clips recording defaults: the playback speed recordings open at and their own visibility for new recordings. Pass defaultRecordingVisibility: null to follow the organization default again. Other Clips preferences are kept. Returns the same shape as get-clips-recording-defaults.",
   schema: patchSchema,
+  mcpTool: false,
   run: async (args): Promise<ClipsRecordingDefaults> => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("Sign in required");

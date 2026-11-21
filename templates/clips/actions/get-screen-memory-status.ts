@@ -9,6 +9,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   dedupe: false,
+  mcpTool: "search",
   run: async () => {
     const status = await readScreenMemoryStatus();
     return {

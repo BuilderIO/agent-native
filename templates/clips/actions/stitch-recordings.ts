@@ -52,6 +52,7 @@ export default defineAction({
     height: z.coerce.number().int().optional(),
     folderId: z.string().nullish(),
   }),
+  mcpTool: "search",
   run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
