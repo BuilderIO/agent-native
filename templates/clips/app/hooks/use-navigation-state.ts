@@ -4,6 +4,7 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "@agent-native/core/shared";
+import { libraryFilterQuery } from "@shared/library-filters";
 
 import { parseTimeParam } from "@/lib/time-param";
 
@@ -44,6 +45,7 @@ export interface NavigationState {
   folderId?: string;
   shareId?: string;
   search?: string;
+  filters?: string;
   path?: string;
   meetingId?: string;
   meetingsTab?: "agenda" | "past";
@@ -70,7 +72,7 @@ function appendSearchQuery(path: string, search: string | undefined): string {
   const trimmed = search?.trim();
   if (!trimmed) return path;
   const params = new URLSearchParams({ q: trimmed });
-  return `${path}?${params.toString()}`;
+  return `${path}${path.includes("?") ? "&" : "?"}${params.toString()}`;
 }
 
 export function stateFromLocation(
@@ -153,6 +155,9 @@ export function stateFromLocation(
       view: "library",
       folderId,
       ...(searchTerm ? { search: searchTerm } : {}),
+      ...(libraryFilterQuery(search)
+        ? { filters: libraryFilterQuery(search) }
+        : {}),
     };
   }
 
@@ -185,7 +190,8 @@ export function stateFromLocation(
   if (p === "/screenshots") return { view: "screenshots", ...listSearch };
   if (p === "/spaces") return { view: "spaces" };
   if (p === "/shared") return { view: "shared", ...listSearch };
-  if (p === "/from-content") return { view: "from-content", ...listSearch };
+  if (p === "/from-content")
+    return { view: "library", filters: "source=content", ...listSearch };
   if (p === "/archive") return { view: "archive", ...listSearch };
   if (p === "/trash") return { view: "trash", ...listSearch };
   if (p === "/record") return { view: "record" };
@@ -199,9 +205,11 @@ export function stateFromLocation(
   if (p === "/notifications") return { view: "notifications" };
   if (p.startsWith("/settings")) return { view: "settings" };
   if (p === "/library" || p === "/home") {
+    const filters = libraryFilterQuery(search);
     return {
       view: "library",
       ...(searchTerm ? { search: searchTerm } : {}),
+      ...(filters ? { filters } : {}),
     };
   }
 
@@ -252,7 +260,7 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "shared":
       return appendSearchQuery("/shared", cmd.search);
     case "from-content":
-      return appendSearchQuery("/from-content", cmd.search);
+      return appendSearchQuery("/library?source=content", cmd.search);
     case "archive":
       return appendSearchQuery("/archive", cmd.search);
     case "trash":
@@ -284,7 +292,11 @@ export function pathFromCommand(cmd: NavigateCommand): string {
       const basePath = cmd.folderId
         ? `/library/folder/${encodeURIComponent(cmd.folderId)}`
         : "/library";
-      return appendSearchQuery(basePath, cmd.search);
+      const filters = cmd.filters ? libraryFilterQuery(cmd.filters) : "";
+      return appendSearchQuery(
+        filters ? `${basePath}?${filters}` : basePath,
+        cmd.search,
+      );
     }
   }
 }

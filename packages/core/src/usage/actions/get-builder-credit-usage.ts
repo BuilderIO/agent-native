@@ -11,6 +11,7 @@ export default defineAction({
     "Get the connected Builder workspace's available credits and active daily or monthly plan limit.",
   http: { method: "GET" },
   schema: z.object({}),
+  mcpTool: false,
   run: async (_input, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     if (commercialSurfacesHidden()) {

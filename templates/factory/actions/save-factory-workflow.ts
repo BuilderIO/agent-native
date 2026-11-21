@@ -335,7 +335,11 @@ export default defineAction({
               path: job.path,
               changed: job.changed,
             },
-            connections: await readGraphConnections(graph, scoped),
+            connections: await readGraphConnections(
+              graph,
+              scoped,
+              current.ownerEmail,
+            ),
           };
         }),
     ),

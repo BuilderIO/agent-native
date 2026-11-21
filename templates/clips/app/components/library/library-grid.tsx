@@ -6,8 +6,9 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { withLibrarySource } from "@shared/library-filters";
 import { sendRecordingBatches } from "@shared/recording-batch";
-import { IconAlertTriangle, IconPhoto } from "@tabler/icons-react";
+import { IconAlertTriangle, IconFilter, IconPhoto } from "@tabler/icons-react";
 import {
   type DragEvent,
   type ReactElement,
@@ -18,6 +19,7 @@ import {
   useState,
 } from "react";
 import { Link, useSearchParams } from "react-router";
+import { FilterChips, type FilterChip } from "./filter-chips";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -36,6 +38,7 @@ import {
   useFolders,
   useOrganizations,
   useInfiniteRecordings,
+  useLibraryFilterSummary,
   useRecordingsCount,
   useTrashRecording,
   useArchiveRecording,
@@ -61,9 +64,13 @@ import { resolveVideoMimeType } from "@/lib/video-metadata";
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { DroppedUploadCard } from "./dropped-upload-card";
 import { AppEmptyState, EmptyState } from "./empty-state";
-import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
 import { buildLibraryActionHrefs } from "./library-action-hrefs";
+import {
+  LibraryFilterBar,
+  LibraryFilterButton,
+  useLibraryFilter,
+} from "./library-filters";
 import {
   PageBreadcrumb,
   PageHeader,
@@ -74,30 +81,15 @@ import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
-  view:
-    | "library"
-    | "shared"
-    | "space"
-    | "archive"
-    | "trash"
-    | "all"
-    | "from-content";
+  view: "library" | "shared" | "space" | "archive" | "trash" | "all";
   /** "image" narrows the same list to screenshots; defaults to everything. */
   kind?: "video" | "image" | "all";
   folderId?: string | null;
   spaceId?: string | null;
-  emptyKind?:
-    | "library"
-    | "shared"
-    | "folder"
-    | "space"
-    | "archive"
-    | "trash"
-    | "fromContent";
+  emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   breadcrumbItems?: readonly PageBreadcrumbItem[];
-  tagFilter?: string | null;
-  onClearTag?: () => void;
+  filterable?: boolean;
   extraActions?: React.ReactNode;
 }
 
@@ -208,8 +200,7 @@ export function LibraryGrid({
   emptyKind,
   title,
   breadcrumbItems,
-  tagFilter,
-  onClearTag,
+  filterable = false,
   extraActions,
 }: LibraryGridProps) {
   const t = useT();
@@ -231,6 +222,8 @@ export function LibraryGrid({
   const nextPageInFlightRef = useRef<string | null>(null);
   const initialPreloadRequestRef = useRef<string | null>(null);
   const [isLargeViewport, setIsLargeViewport] = useState(false);
+  const libraryFilter = useLibraryFilter();
+  const filterQuery = filterable ? libraryFilter.query : undefined;
   const handleSortChange = useCallback(
     (nextSort: SortKey) => {
       setSort(nextSort);
@@ -264,7 +257,7 @@ export function LibraryGrid({
   useEffect(() => {
     setSelected(new Set());
     setLastSelectedId(null);
-  }, [view, kind, folderId, spaceId, tagFilter, searchQuery, sort]);
+  }, [view, kind, folderId, spaceId, filterQuery, searchQuery, sort]);
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -291,12 +284,20 @@ export function LibraryGrid({
       kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
-      tag: tagFilter ?? null,
+      ...(filterQuery === undefined ? {} : { filters: filterQuery }),
       ...(searchQuery ? { search: searchQuery } : {}),
     }),
-    [view, kind, folderId, spaceId, tagFilter, searchQuery],
+    [view, kind, folderId, spaceId, filterQuery, searchQuery],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
+  const { data: filterSummary } = useLibraryFilterSummary(countArgs, {
+    enabled: filterable,
+  });
+  const filterHidden = filterSummary?.counts.hiddenByPinned ?? 0;
+  const filtering = filterable && !libraryFilter.isDefault;
+  const filterInUse = filtering || (filterable && filterHidden > 0);
+  const showAllSources = () =>
+    libraryFilter.setState(withLibrarySource(libraryFilter.state, "all"));
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -304,12 +305,12 @@ export function LibraryGrid({
       kind,
       folderId: folderId ?? null,
       spaceId: spaceId ?? null,
-      tag: tagFilter ?? null,
+      ...(filterQuery === undefined ? {} : { filters: filterQuery }),
       ...(searchQuery ? { search: searchQuery } : {}),
       sort,
       limit: PAGE_SIZE,
     }),
-    [view, kind, folderId, spaceId, tagFilter, searchQuery, sort],
+    [view, kind, folderId, spaceId, filterQuery, searchQuery, sort],
   );
 
   const totalKnown = typeof totalCount === "number";
@@ -443,7 +444,7 @@ export function LibraryGrid({
   );
   const visibleFolders = useMemo(
     () =>
-      view === "library" || view === "space"
+      (view === "library" || view === "space") && !filtering
         ? ((scopedFolders?.folders ?? []) as FolderTargetRow[]).filter(
             (folder) =>
               (folder.parentId ?? null) === (folderId ?? null) &&
@@ -451,7 +452,7 @@ export function LibraryGrid({
                 folder.name.toLowerCase().includes(searchQuery.toLowerCase())),
           )
         : [],
-    [folderId, scopedFolders, searchQuery, view],
+    [filtering, folderId, scopedFolders, searchQuery, view],
   );
   const isEmptyState =
     !searchQuery &&
@@ -460,7 +461,8 @@ export function LibraryGrid({
     !isError &&
     recordings.length === 0 &&
     visibleFolders.length === 0 &&
-    uploads.length === 0;
+    uploads.length === 0 &&
+    !filterInUse;
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
   const moveTargets = useMemo(
     () =>
@@ -665,51 +667,24 @@ export function LibraryGrid({
     }
   };
 
-  const chips: FilterChip[] = [];
-  if (searchQuery) {
-    chips.push({
-      key: `search:${searchQuery}`,
-      label: `"${searchQuery}"`,
-      active: true,
-      onRemove: () => {
-        trackEvent("recording_filter_changed", {
-          app_name: "clips",
-          template_name: "clips",
-          surface: view,
-          filter_type: "search",
-          action: "removed",
-        });
-        setSearchParams(
-          (prev) => {
-            const next = new URLSearchParams(prev);
-            next.delete("q");
-            return next;
-          },
-          { replace: true },
-        );
-      },
-    });
-  }
-  if (tagFilter) {
-    chips.push({
-      key: `tag:${tagFilter}`,
-      label: `#${tagFilter}`,
-      active: true,
-      onRemove: onClearTag
-        ? () => {
-            trackEvent("recording_filter_changed", {
-              app_name: "clips",
-              template_name: "clips",
-              surface: view,
-              filter_type: "tag",
-              action: "removed",
-            });
-            onClearTag();
-          }
-        : undefined,
-    });
-  }
-
+  const chips: FilterChip[] = searchQuery
+    ? [
+        {
+          key: `search:${searchQuery}`,
+          label: `"${searchQuery}"`,
+          active: true,
+          onRemove: () =>
+            setSearchParams(
+              (prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete("q");
+                return next;
+              },
+              { replace: true },
+            ),
+        },
+      ]
+    : [];
   const resolvedEmptyKind = searchQuery
     ? "search"
     : (emptyKind ??
@@ -796,12 +771,27 @@ export function LibraryGrid({
             {!isEmptyState && (
               <SortMenu value={sort} onChange={handleSortChange} />
             )}
+            {filterable && !isEmptyState ? (
+              <LibraryFilterButton
+                filter={libraryFilter}
+                counts={filterSummary?.counts}
+                tags={filterSummary?.tags}
+              />
+            ) : null}
           </div>
         </div>
       </PageHeader>
 
+      {filterable && !isEmptyState ? (
+        <LibraryFilterBar
+          filter={libraryFilter}
+          counts={filterSummary?.counts}
+          tags={filterSummary?.tags}
+        />
+      ) : null}
+
       {chips.length > 0 && (
-        <div className="border-b border-border px-5 py-2">
+        <div className="px-4">
           <FilterChips chips={chips} />
         </div>
       )}
@@ -874,11 +864,44 @@ export function LibraryGrid({
                     icon={IconPhoto}
                     title={t("navigation.screenshots")}
                   />
+                ) : filtering ? (
+                  <AppEmptyState
+                    icon={IconFilter}
+                    title={t("libraryFilters.emptyTitle")}
+                    description={t("libraryFilters.emptyBody")}
+                    content={
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={libraryFilter.clear}
+                        >
+                          {t("libraryFilters.clear")}
+                        </Button>
+                        {filterHidden > 0 ? (
+                          <Button size="sm" onClick={showAllSources}>
+                            {t("libraryFilters.showAll")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    }
+                  />
                 ) : (
                   <EmptyState
                     kind={resolvedEmptyKind}
                     spaceId={spaceId}
                     folderId={folderId}
+                    extra={
+                      filterHidden > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={showAllSources}
+                        >
+                          {t("libraryFilters.showAll")}
+                        </Button>
+                      ) : undefined
+                    }
                   />
                 )
               ) : (

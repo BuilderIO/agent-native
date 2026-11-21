@@ -98,6 +98,7 @@ vi.mock("@/hooks/use-library", () => ({
   useInfiniteRecordings: (...args: unknown[]) =>
     mocks.useInfiniteRecordings(...args),
   useRecordingsCount: (...args: unknown[]) => mocks.useRecordingsCount(...args),
+  useLibraryFilterSummary: () => ({ data: undefined }),
   useTrashRecording: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
   useArchiveRecording: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
   useRestoreRecording: () => ({ mutate: vi.fn(), mutateAsync: vi.fn() }),
@@ -120,6 +121,18 @@ vi.mock("./empty-state", () => ({
   EmptyState: ({ kind }: { kind: string }) => (
     <div data-testid="empty-state" data-kind={kind} />
   ),
+}));
+
+vi.mock("./library-filters", () => ({
+  LibraryFilterBar: () => null,
+  LibraryFilterButton: () => null,
+  useLibraryFilter: () => ({
+    query: "",
+    isDefault: true,
+    state: {},
+    setState: vi.fn(),
+    clear: vi.fn(),
+  }),
 }));
 
 vi.mock("./filter-chips", () => ({

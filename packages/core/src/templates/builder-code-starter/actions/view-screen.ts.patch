@@ -22,4 +22,4 @@
    schema: z.object({}),
    http: false,
    readOnly: true,
-   run: async () => {
+   mcpTool: "search",

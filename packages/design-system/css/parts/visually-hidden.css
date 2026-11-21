@@ -1,0 +1,21 @@
+/*
+ * Part: visually-hidden
+ *
+ *   <span class="visually-hidden">
+ *
+ * Kept in the accessibility tree and out of view.
+ */
+
+@layer components {
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
+  }
+}

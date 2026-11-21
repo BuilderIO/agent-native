@@ -85,6 +85,7 @@ import {
 } from "./provider-api/interactive-scope.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
+export { isOutsideAgentCall } from "./action-caller.js";
 export {
   ACTION_RECEIPT_SCHEMA_VERSION,
   DOMAIN_EVENT_CONTENT_TYPE,
@@ -1247,7 +1248,9 @@ interface DefineActionWithSchema<
    *  - `"search"` — served to external agents but left out of `tools/list`, so
    *    the list stays short. `tool-search` finds it and the `call-tool` tool
    *    runs it, with the same checks as a listed tool; it does not activate
-   *    the connector tier. The full catalog lists it like any other.
+   *    the connector tier. A catalog that lists it on its own terms still
+   *    does: the full catalog, an app's `mcp.connectorCatalog` naming it, or
+   *    `mcpApp.compactCatalog` in an app with no `connectorCatalog`.
    *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
    *    whether it is advertised up front or found through `tool-search`.
    *
