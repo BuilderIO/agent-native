@@ -64,17 +64,28 @@ impl CameraFormat {
 }
 
 /// The camera the bubble shows among `names`, the cameras AVFoundation lists:
-/// the one whose name matches `label`, the web view's name for it, or the
-/// only camera there is.
+/// the one named `label`, the web view's name for it; else the one camera
+/// whose name is close to it; else the only camera there is.
 pub(super) fn pick_camera(names: &[String], label: Option<&str>) -> Option<usize> {
     let label = label.map(str::trim).filter(|label| !label.is_empty());
-    label
-        .and_then(|label| {
-            names
-                .iter()
-                .position(|name| super::names_match(name, label))
-        })
-        .or_else(|| (names.len() == 1).then_some(0))
+    if let Some(label) = label {
+        let wanted = super::normalize_audio_device_name(label);
+        if let Some(exact) = names
+            .iter()
+            .position(|name| super::normalize_audio_device_name(name) == wanted)
+        {
+            return Some(exact);
+        }
+        let mut close = names
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| super::names_match(name, label))
+            .map(|(index, _)| index);
+        if let (Some(only), None) = (close.next(), close.next()) {
+            return Some(only);
+        }
+    }
+    (names.len() == 1).then_some(0)
 }
 
 /// What the camera writer ended up with, read once it has closed.
@@ -141,6 +152,12 @@ mod tests {
         );
         // No match among several: not a guess.
         assert_eq!(pick_camera(&cameras, Some("Elgato Facecam")), None);
+        // The camera named exactly wins over one whose name contains it, and
+        // a name close to two cameras picks neither.
+        let usb = names(&["USB Camera", "USB Camera Pro"]);
+        assert_eq!(pick_camera(&usb, Some("USB Camera Pro")), Some(1));
+        assert_eq!(pick_camera(&usb, Some("usb camera")), Some(0));
+        assert_eq!(pick_camera(&usb, Some("USB Camera Pro (046d:0893)")), None);
         assert_eq!(pick_camera(&cameras, None), None);
         // The only camera there is must be the bubble's.
         let one = names(&["FaceTime HD Camera"]);

@@ -124,9 +124,12 @@ struct CameraSession {
     output: Retained<AVCaptureVideoDataOutput>,
     _delegate: Retained<FrameDelegate>,
     queue: DispatchRetained<DispatchQueue>,
+    /// The session's synchronization clock, retained here until the last
+    /// frame that may read it is handled; null until the session runs.
+    clock: *const c_void,
 }
 
-// SAFETY: the session, its output and the delegate are refcounted Objective-C
+// SAFETY: the session, its output, the delegate and the clock are refcounted
 // objects only moved through ownership; AVCaptureSession may be started and
 // stopped from any thread.
 unsafe impl Send for CameraSession {}
@@ -139,6 +142,10 @@ impl CameraSession {
         }));
         unsafe { self.output.setSampleBufferDelegate_queue(None, None) };
         self.queue.exec_sync(|| {});
+        if !self.clock.is_null() {
+            // SAFETY: retained in `run_session`; no frame reads it any more.
+            unsafe { CFRelease(self.clock) };
+        }
     }
 }
 
@@ -287,16 +294,6 @@ impl CameraCapture {
         let stopped_secs = self.shared.clock.position_ms().map(|ms| ms / 1000.0);
         Shared::close(&self.shared, stopped_secs);
     }
-
-    /// The bubble let go of the camera before Stop: the track ends here, so
-    /// the camera never stays on for the track alone.
-    pub(in crate::native_screen) fn release(&self) {
-        if self.shared.closing.load(Ordering::SeqCst) {
-            return;
-        }
-        let mut state = lock(&self.shared.state);
-        Shared::end_early(&self.shared, &mut state, "the camera was turned off".into());
-    }
 }
 
 impl Drop for CameraCapture {
@@ -406,11 +403,12 @@ impl Shared {
             session.startRunning();
             session.isRunning()
         }));
-        let camera = CameraSession {
+        let mut camera = CameraSession {
             session,
             output,
             _delegate: delegate,
             queue,
+            clock: std::ptr::null(),
         };
         match running {
             Ok(true) => {}
@@ -426,11 +424,13 @@ impl Shared {
                 ));
             }
         }
-        // The session holds its clock while it runs.
-        let sync_clock = unsafe { camera.session.synchronizationClock() }
-            .as_deref()
-            .map_or(0, |clock| clock as *const _ as usize);
-        this.sync_clock.store(sync_clock, Ordering::SeqCst);
+        if let Some(clock) = unsafe { camera.session.synchronizationClock() }.as_deref() {
+            let clock = clock as *const _ as *const c_void;
+            // SAFETY: a live clock, released in `CameraSession::stop`.
+            unsafe { CFRetain(clock) };
+            camera.clock = clock;
+        }
+        this.sync_clock.store(camera.clock as usize, Ordering::SeqCst);
         // Kept only if nothing closed the track while it started; checked
         // under the slot's lock, which `close` takes after setting `closing`,
         // so a session is either in the slot when it empties it or never kept.
@@ -451,8 +451,8 @@ impl Shared {
         let host = if sync_clock.is_null() {
             pts
         } else {
-            // SAFETY: the session holds its clock while it runs, and frames
-            // stop before it goes.
+            // SAFETY: the camera session keeps the clock retained until its
+            // last frame has been handled.
             unsafe { CMSyncConvertTime(pts, sync_clock, CMClockGetHostTimeClock()) }
         };
         (host.flags & 1 != 0 && host.timescale > 0)

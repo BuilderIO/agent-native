@@ -89,25 +89,19 @@ fn host_timebase() -> (u32, u32) {
 /// The recording's pauses on the host clock.
 #[derive(Debug, Default)]
 struct PauseLog {
-    /// The pause under way: the host time it began at, and the recording
-    /// position it holds.
-    current: Option<(u64, f64)>,
+    /// The pause under way.
+    current: Option<CurrentPause>,
     /// Pauses that have ended, `[began, ended)` in host time.
     ended: Vec<(u64, u64)>,
 }
 
-impl PauseLog {
-    /// Whether something captured at `host_nanos` belongs to no recording
-    /// time: anything while paused, and anything from inside a pause that has
-    /// ended, however late its callback runs. After the resume the pipeline's
-    /// offset has grown, and would give it a time in the stretch after.
-    fn covers(&self, host_nanos: u64) -> bool {
-        self.current.is_some()
-            || self
-                .ended
-                .iter()
-                .any(|&(began, ended)| (began..ended).contains(&host_nanos))
-    }
+#[derive(Clone, Copy, Debug)]
+struct CurrentPause {
+    began_nanos: u64,
+    /// The recording position it holds.
+    position_ms: f64,
+    /// The pipeline's pause offset when it began; a resume grows it.
+    offset_bits: u64,
 }
 
 /// Recording time, read from the capture pipeline's own clock state: the
@@ -156,30 +150,73 @@ impl RecordingClock {
     /// The capture pipeline paused at `host_nanos`. Returns the recording
     /// position the pause holds; a second call keeps the first one's.
     pub(super) fn pause_at(&self, host_nanos: u64) -> f64 {
-        let position = recording_ms(
+        let offset_bits = self.pause_offset_bits.load(Ordering::SeqCst);
+        let position_ms = recording_ms(
             host_nanos,
             self.session_start_secs(),
-            self.pause_offset_secs(),
+            f64::from_bits(offset_bits),
         )
         .unwrap_or(0.0);
         self.pause_log()
             .current
-            .get_or_insert((host_nanos, position))
-            .1
+            .get_or_insert(CurrentPause {
+                began_nanos: host_nanos,
+                position_ms,
+                offset_bits,
+            })
+            .position_ms
     }
 
     /// The capture pipeline resumed at `host_nanos`. Returns the position the
     /// pause held, or `None` when it wasn't paused.
     pub(super) fn resume_at(&self, host_nanos: u64) -> Option<f64> {
         let mut log = self.pause_log();
-        let (began, position) = log.current.take()?;
-        log.ended.push((began, host_nanos.max(began)));
-        Some(position)
+        let pause = log.current.take()?;
+        let ended = self
+            .resumed_at_nanos(&pause)
+            .unwrap_or(host_nanos)
+            .min(host_nanos)
+            .max(pause.began_nanos);
+        log.ended.push((pause.began_nanos, ended));
+        Some(pause.position_ms)
+    }
+
+    /// Where the resumed recording begins on the host clock: the host time
+    /// the pipeline's grown offset puts at the position the pause holds.
+    /// `None` until the pipeline has applied the resume's offset, which it
+    /// does before its new stream starts and so before the session ends the
+    /// pause here.
+    fn resumed_at_nanos(&self, pause: &CurrentPause) -> Option<u64> {
+        let offset_bits = self.pause_offset_bits.load(Ordering::SeqCst);
+        if offset_bits == pause.offset_bits {
+            return None;
+        }
+        let secs =
+            pause.position_ms / 1000.0 + self.session_start_secs() + f64::from_bits(offset_bits);
+        secs.is_finite().then(|| (secs.max(0.0) * 1e9) as u64)
+    }
+
+    /// Whether something captured at `host_nanos` belongs to no recording
+    /// time: anything from inside a pause, however late its callback runs.
+    /// After the resume the pipeline's offset has grown, and would give it a
+    /// time in the stretch after. What the resumed stream sends before the
+    /// session ends the pause is the recording's.
+    fn in_pause(&self, host_nanos: u64) -> bool {
+        let log = self.pause_log();
+        let in_current = log.current.is_some_and(|pause| {
+            self.resumed_at_nanos(&pause)
+                .is_none_or(|resumed| host_nanos < resumed)
+        });
+        in_current
+            || log
+                .ended
+                .iter()
+                .any(|&(began, ended)| (began..ended).contains(&host_nanos))
     }
 
     /// The position the pause under way holds; `None` while not paused.
     pub(super) fn paused_position_ms(&self) -> Option<f64> {
-        self.pause_log().current.map(|(_, position)| position)
+        self.pause_log().current.map(|pause| pause.position_ms)
     }
 
     fn session_start_secs(&self) -> f64 {
@@ -193,7 +230,7 @@ impl RecordingClock {
     /// Recording milliseconds of a host time; `None` before the first frame,
     /// while paused and for a time inside an earlier pause.
     pub(super) fn at_host_nanos(&self, nanos: u64) -> Option<f64> {
-        if self.pause_log().covers(nanos) {
+        if self.in_pause(nanos) {
             return None;
         }
         recording_ms(nanos, self.session_start_secs(), self.pause_offset_secs())
@@ -237,7 +274,7 @@ impl RecordingClock {
         if self.after_stop(host_nanos) {
             return FrameTime::AfterStop;
         }
-        if self.pause_log().covers(host_nanos) {
+        if self.in_pause(host_nanos) {
             return FrameTime::Paused;
         }
         let start = self.session_start_secs();
@@ -413,7 +450,9 @@ impl TrackSource for AudioCapture {
     }
 }
 
-/// The camera track, which also ends when the bubble lets go of the camera.
+/// The camera track, which also stops when the bubble lets go of the camera,
+/// at Stop or when the bubble closes before it, so the camera never stays on
+/// for the track alone. It then ends there, holding all the camera showed.
 struct CameraTrack {
     capture: Arc<CameraCapture>,
     app: AppHandle,
@@ -702,7 +741,7 @@ fn camera_track_start(
             let released = Arc::downgrade(&capture);
             let release_listener = app.listen(crate::clips::RELEASE_CAMERA_EVENT, move |_| {
                 if let Some(capture) = released.upgrade() {
-                    capture.release();
+                    capture.stop();
                 }
             });
             let track: Arc<dyn TrackSource> = Arc::new(CameraTrack {
@@ -1900,6 +1939,29 @@ mod tests {
         assert_eq!(clock.at_event_stamp(secs(106.0)), None);
         assert_eq!(clock.at_event_stamp(secs(111.0)), None);
         assert_eq!(clock.at_event_stamp(secs(113.0)), Some(6000.0));
+    }
+
+    #[test]
+    fn what_the_resumed_stream_sends_before_the_pause_ends_here_keeps_its_time() {
+        let start = Arc::new(AtomicU64::new(100.0_f64.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(start, Arc::clone(&offset), (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
+        assert_eq!(clock.pause_at(secs(103.0)), 3000.0);
+        assert_eq!(clock.frame_time(105.0), FrameTime::Paused);
+        // The pipeline applies the resume's 5 s and starts its new stream
+        // before the session ends the pause here at 108.5 s.
+        offset.store(5.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.frame_time(107.5), FrameTime::Paused);
+        assert_eq!(clock.at_host_nanos(secs(107.5)), None);
+        assert_eq!(clock.frame_time(108.25), FrameTime::At(3.25));
+        assert_eq!(clock.at_host_nanos(secs(108.25)), Some(3250.0));
+        assert_eq!(clock.paused_position_ms(), Some(3000.0));
+        assert_eq!(clock.resume_at(secs(108.5)), Some(3000.0));
+        // However late their callbacks run, the new stream's first buffers
+        // keep their times, and what came from inside the pause has none.
+        assert_eq!(clock.frame_time(108.25), FrameTime::At(3.25));
+        assert_eq!(clock.at_host_nanos(secs(107.5)), None);
     }
 
     #[test]
