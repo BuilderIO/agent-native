@@ -2,7 +2,10 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
-import { intelligenceDistillationInstructions } from "../../shared/intelligence-distillation.js";
+import {
+  intelligenceDistillationInstructions,
+  KNOWLEDGE_UPDATE_INSTRUCTIONS,
+} from "../../shared/intelligence-distillation.js";
 import { getDb, schema } from "../db/index.js";
 import {
   nanoid,
@@ -42,8 +45,9 @@ async function writeDistillationRequest(values: {
       `with exact evidence quotes. Keep launch plans distinct from confirmed ` +
       `launches. ` +
       intelligenceDistillationInstructions(values.captureId) +
-      `Call write-knowledge for other supported durable entries, then ` +
-      `mark-capture-distilled when finished. Ignore only when no company-relevant ` +
+      `Call write-knowledge for other supported durable entries. ` +
+      KNOWLEDGE_UPDATE_INSTRUCTIONS +
+      `Call mark-capture-distilled when finished. Ignore only when no company-relevant ` +
       `fact remains after privacy filtering.`,
   });
 }

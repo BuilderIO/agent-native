@@ -53,7 +53,9 @@ export default defineAction({
         ...payload,
         publishCanonical: publishCanonical ?? payload.publishCanonical,
       };
-      result = await writeKnowledgeRecord(nextPayload);
+      result = await writeKnowledgeRecord(nextPayload, {
+        allowUncheckedLegacyProposalUpdate: true,
+      });
       payloadJson = stableJson(nextPayload);
     }
 

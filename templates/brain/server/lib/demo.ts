@@ -7,6 +7,7 @@ import {
   createCapture,
   createSource,
   getAccessibleCapture,
+  knowledgeRevision,
   nowIso,
   parseJson,
   sanitizeEvidenceCitationUrls,
@@ -652,7 +653,7 @@ async function ensureDemoCapture(sourceId: string, spec: DemoCaptureSpec) {
 }
 
 async function findKnowledgeByTitle(title: string) {
-  const [knowledge] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.brainKnowledge)
     .where(
@@ -663,14 +664,19 @@ async function findKnowledgeByTitle(title: string) {
       ),
     )
     .limit(1);
-  return knowledge ?? null;
+  return rows.find((row) => row.title === title) ?? null;
 }
 
 async function upsertDemoKnowledge(input: WriteKnowledgeInput) {
   const existing = await findKnowledgeByTitle(input.title);
   const result = await writeKnowledgeRecord({
     ...input,
-    knowledgeId: existing?.id,
+    ...(existing
+      ? {
+          knowledgeId: existing.id,
+          expectedRevision: knowledgeRevision(existing),
+        }
+      : {}),
     publishTier: input.publishTier ?? "company",
   });
   return result.knowledge;

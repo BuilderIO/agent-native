@@ -103,6 +103,7 @@ const mocks = vi.hoisted(() => {
       "tagsJson",
       "entitiesJson",
       "evidenceJson",
+      "provenanceJson",
       "publishedResourcePath",
       "supersedesId",
       "supersededById",
@@ -2454,6 +2455,7 @@ describe("Brain knowledge quality gates", () => {
 
     const updated = await writeKnowledgeRecord({
       knowledgeId: created.knowledge!.id,
+      expectedRevision: created.knowledge.revision,
       title: "Updated beta date",
       body: "The updated beta plan still ships May 20.",
       evidence: [],
@@ -2494,6 +2496,7 @@ describe("Brain knowledge quality gates", () => {
 
     const updated = await writeKnowledgeRecord({
       knowledgeId: created.knowledge!.id,
+      expectedRevision: created.knowledge.revision,
       title: "Beta launch date",
       body: "The beta launch still ships May 20.",
       evidence: [],

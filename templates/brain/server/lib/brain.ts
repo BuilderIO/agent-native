@@ -12,6 +12,11 @@ import {
   resourcePutWithDb,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
+import {
+  isSameRecord,
+  saveIfCurrent,
+  saveRevisionOf,
+} from "@agent-native/core/save-conflict/server";
 import { encryptSecretValue } from "@agent-native/core/secrets";
 import {
   getRequestOrgId,
@@ -555,9 +560,62 @@ export async function latestDistillationQueuesForCaptures(
   return byCapture;
 }
 
-export function serializeKnowledge(
-  row: typeof schema.brainKnowledge.$inferSelect,
-) {
+type KnowledgeRow = typeof schema.brainKnowledge.$inferSelect;
+
+const KNOWLEDGE_COLUMNS: Record<keyof KnowledgeRow, boolean> = {
+  id: true,
+  sourceId: true,
+  captureId: true,
+  audienceId: true,
+  audienceAclHash: true,
+  kind: true,
+  title: true,
+  body: true,
+  summary: true,
+  topic: true,
+  tagsJson: true,
+  entitiesJson: true,
+  evidenceJson: true,
+  intelligenceKind: true,
+  provenanceJson: true,
+  publishedResourcePath: false,
+  supersedesId: true,
+  supersededById: true,
+  confidence: true,
+  status: true,
+  publishTier: true,
+  createdBy: true,
+  publishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  ownerEmail: true,
+  orgId: true,
+  visibility: true,
+};
+const knowledgeColumnKeys = (
+  Object.keys(KNOWLEDGE_COLUMNS) as Array<keyof KnowledgeRow>
+).filter((key) => KNOWLEDGE_COLUMNS[key]);
+
+export function knowledgeRevision(row: KnowledgeRow): string {
+  return saveRevisionOf(
+    Object.fromEntries(
+      knowledgeColumnKeys.map((key) => [key, row[key] ?? null]),
+    ),
+  );
+}
+
+function knowledgeRowUnchanged(row: KnowledgeRow) {
+  return and(
+    ...knowledgeColumnKeys.map((key) => {
+      const value = row[key] ?? null;
+      return value === null
+        ? isNull(schema.brainKnowledge[key])
+        : eq(schema.brainKnowledge[key], value);
+    }),
+  );
+}
+
+export function serializeKnowledge(row: KnowledgeRow) {
   return {
     id: row.id,
     sourceId: row.sourceId,
@@ -588,6 +646,7 @@ export function serializeKnowledge(
     publishedAt: row.publishedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    revision: knowledgeRevision(row),
   };
 }
 
@@ -2039,6 +2098,7 @@ function escapeRegExp(value: string): string {
 
 export interface WriteKnowledgeInput {
   knowledgeId?: string;
+  expectedRevision?: string;
   title: string;
   body: string;
   kind?: BrainKnowledgeKind;
@@ -2572,9 +2632,21 @@ const storedEvidenceInputSchema = z.array(
   z.object({ captureId: z.string().min(1), quote: z.string() }).passthrough(),
 );
 
+export interface WriteKnowledgeOptions {
+  allowUncheckedLegacyProposalUpdate?: boolean;
+}
+
+function laterIso(previous: string) {
+  const now = nowIso();
+  return now > previous
+    ? now
+    : new Date(Date.parse(previous) + 1).toISOString();
+}
+
 export async function writeKnowledgeRecordInTransaction(
   input: WriteKnowledgeInput,
   effects: AfterCommitEffects,
+  options: WriteKnowledgeOptions = {},
 ) {
   const userEmail = requireUserEmail();
   const settings = await readBrainSettings();
@@ -2664,7 +2736,7 @@ export async function writeKnowledgeRecordInTransaction(
     redactions: input.redactions,
     autoRedactEmails: settings.autoRedactEmails,
   });
-  const now = nowIso();
+  const now = existing ? laterIso(existing.updatedAt) : nowIso();
   if (input.supersedesId) {
     await assertAccess("brain-knowledge", input.supersedesId, "editor");
   }
@@ -2692,21 +2764,56 @@ export async function writeKnowledgeRecordInTransaction(
 
   const id = input.knowledgeId ?? nanoid();
   if (existing) {
-    await db
-      .update(schema.brainKnowledge)
-      .set({
-        ...material,
-        audienceAclHash: evidenceAudience?.aclHash ?? null,
-        provenanceJson,
-        supersedesId: input.supersedesId ?? null,
-        status,
-        publishTier: tier,
-        visibility,
-        publishedAt:
-          status === "published" ? (existing.publishedAt ?? now) : null,
-        updatedAt: now,
-      })
-      .where(eq(schema.brainKnowledge.id, id));
+    const next = {
+      ...material,
+      audienceAclHash: evidenceAudience?.aclHash ?? null,
+      provenanceJson,
+      supersedesId: input.supersedesId ?? null,
+      status,
+      publishTier: tier,
+      visibility,
+    };
+    const { outcome, current } = await saveIfCurrent({
+      record: "knowledge",
+      expectedRevision: input.expectedRevision,
+      requireRevision: !options.allowUncheckedLegacyProposalUpdate,
+      read: async () => {
+        const row = firstRow(
+          await db
+            .select()
+            .from(schema.brainKnowledge)
+            .where(eq(schema.brainKnowledge.id, id))
+            .limit(1),
+        );
+        if (!row)
+          fail(`Knowledge ${id} not found`, {
+            errorCode: "knowledge_not_found",
+            statusCode: 404,
+          });
+        return {
+          value: serializeKnowledge(row),
+          revision: knowledgeRevision(row),
+          row,
+        };
+      },
+      isSameSave: (stored) =>
+        isSameRecord(stored, serializeKnowledge({ ...existing, ...next })),
+      write: ({ row }) =>
+        db
+          .update(schema.brainKnowledge)
+          .set({
+            ...next,
+            publishedAt:
+              status === "published" ? (row.publishedAt ?? now) : null,
+            updatedAt: now,
+          })
+          .where(
+            and(eq(schema.brainKnowledge.id, id), knowledgeRowUnchanged(row)),
+          )
+          .returning({ id: schema.brainKnowledge.id }),
+    });
+    if (outcome === "already_applied")
+      return { mode: "knowledge" as const, knowledge: current.value };
   } else {
     await db.insert(schema.brainKnowledge).values({
       id,
@@ -2749,7 +2856,7 @@ export async function writeKnowledgeRecordInTransaction(
     );
     await db
       .update(schema.brainKnowledge)
-      .set({ publishedResourcePath: null, updatedAt: nowIso() })
+      .set({ publishedResourcePath: null, updatedAt: now })
       .where(eq(schema.brainKnowledge.id, id));
     returned = { ...knowledge, publishedResourcePath: null };
   } else if (
@@ -2780,7 +2887,7 @@ export async function writeKnowledgeRecordInTransaction(
     }
     await db
       .update(schema.brainKnowledge)
-      .set({ publishedResourcePath, updatedAt: nowIso() })
+      .set({ publishedResourcePath, updatedAt: now })
       .where(eq(schema.brainKnowledge.id, id));
     const [updated] = await db
       .select()
@@ -2832,7 +2939,10 @@ export async function writeKnowledgeRecordInTransaction(
   };
 }
 
-export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
+export async function writeKnowledgeRecord(
+  input: WriteKnowledgeInput,
+  options: WriteKnowledgeOptions = {},
+) {
   requireUserEmail();
   const peeked = input.knowledgeId
     ? await peekKnowledgeRow(input.knowledgeId)
@@ -2845,7 +2955,7 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
     mayTouchCanonicalResource(peeked, Boolean(input.publishCanonical)) ||
       Boolean(supersededPeek?.publishedResourcePath),
     async (_scoped, effects) =>
-      writeKnowledgeRecordInTransaction(input, effects),
+      writeKnowledgeRecordInTransaction(input, effects, options),
   );
   return {
     ...result,

@@ -296,8 +296,10 @@ const write = (
   input: Parameters<typeof import("./brain.js").writeKnowledgeRecord>[0],
 ) => asQa(() => brain.writeKnowledgeRecord(input));
 
-const publishInput = (id?: string) => ({
-  ...(id ? { knowledgeId: id } : {}),
+const publishInput = (existing?: { id: string; revision: string }) => ({
+  ...(existing
+    ? { knowledgeId: existing.id, expectedRevision: existing.revision }
+    : {}),
   title: "Atlas launch",
   body: "Morgan ships Atlas on Friday.",
   evidence: [{ captureId: "capture-a", quote: "Morgan will ship Atlas" }],
@@ -386,7 +388,7 @@ describe.skipIf(!POSTGRES_URL)(
       await failSupersessionWithTrigger();
       await expect(
         write({
-          ...publishInput(first.knowledge.id),
+          ...publishInput(first.knowledge),
           title: "Atlas launch renamed",
           supersedesId: older.knowledge.id,
         }),
@@ -405,7 +407,7 @@ describe.skipIf(!POSTGRES_URL)(
       const first = await write(publishInput());
       harness.notifications.length = 0;
       const redacted = await write({
-        ...publishInput(first.knowledge.id),
+        ...publishInput(first.knowledge),
         redactions: ["Friday"],
       });
       expect(redacted.knowledge.status).toBe("redacted");
@@ -435,7 +437,12 @@ describe.skipIf(!POSTGRES_URL)(
       const id = standalone.knowledge.id;
       const holder = await holdRows("brain_knowledge", [id]);
       const writer = track(
-        write({ knowledgeId: id, title: "Renamed", body: "Renamed body." }),
+        write({
+          knowledgeId: id,
+          expectedRevision: standalone.knowledge.revision,
+          title: "Renamed",
+          body: "Renamed body.",
+        }),
       );
       expect(await waitUntilBlocked(() => writer.state.settled)).toBe(true);
       holder.release(async (tx) => {

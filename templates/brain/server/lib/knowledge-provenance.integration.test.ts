@@ -29,6 +29,8 @@ vi.mock("@agent-native/core/settings", async (importOriginal) => ({
   }),
 }));
 
+import { isSaveConflict } from "@agent-native/core/save-conflict";
+import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import askBrainAction from "../../actions/ask-brain.js";
@@ -37,8 +39,9 @@ import getKnowledgeAction from "../../actions/get-knowledge.js";
 import listKnowledgeAction from "../../actions/list-knowledge.js";
 import searchEverythingAction from "../../actions/search-everything.js";
 import searchKnowledgeAction from "../../actions/search-knowledge.js";
+import writeKnowledgeAction from "../../actions/write-knowledge.js";
 import { schema } from "../db/index.js";
-import { writeKnowledgeRecord } from "./brain.js";
+import { knowledgeRevision, writeKnowledgeRecord } from "./brain.js";
 
 const qaEmail = "qa-fleet@builder.io";
 const client = new PGlite();
@@ -504,6 +507,7 @@ describe("provenance binds every stored field to the validated captures", () => 
     await expectStandaloneVisible(id);
     await saveKnowledge({
       knowledgeId: id,
+      expectedRevision: knowledgeRevision(row),
       title: "Atlas notes",
       body: "Edited standalone body about Atlas.",
       evidence: [],
@@ -626,9 +630,11 @@ describe("editing evidence-backed knowledge", () => {
 
   it("accepts fresh exact evidence for a redacted row and re-binds provenance", async () => {
     const id = await saveRedacted("explicit");
+    const expectedRevision = knowledgeRevision(await storedRow(id));
     await asQa(() =>
       writeKnowledgeRecord({
         knowledgeId: id,
+        expectedRevision,
         title: "Atlas contact",
         body: "Edited with fresh evidence.",
         evidence: [{ captureId: "capture", quote: captureContent }],
@@ -657,9 +663,11 @@ describe("editing evidence-backed knowledge", () => {
 
   it("lets an unredacted row be edited without re-supplying evidence", async () => {
     const id = await saveKnowledge();
+    const expectedRevision = knowledgeRevision(await storedRow(id));
     await asQa(() =>
       writeKnowledgeRecord({
         knowledgeId: id,
+        expectedRevision,
         title: "Atlas launch",
         body: "Edited body about Atlas.",
       }),
@@ -892,5 +900,119 @@ describe("redacted knowledge keeps its graph entities and its draft state", () =
     expect((await storedRow(id)).status).toBe("draft");
     expect(await universal(id)).toBe(false);
     expect(await searchKnowledge(id, false)).toBe(false);
+  });
+});
+
+describe("knowledge updates send the revision they read", () => {
+  const update = (id: string, body: string, expectedRevision?: string) =>
+    asQa(() =>
+      writeKnowledgeRecord({
+        knowledgeId: id,
+        ...(expectedRevision === undefined ? {} : { expectedRevision }),
+        title: "Atlas launch",
+        body,
+        publishTier: "company",
+      }),
+    );
+
+  async function conflictOf(write: Promise<unknown>) {
+    const error = await write.then(
+      () => {
+        throw new Error("Expected a save conflict");
+      },
+      (caught: unknown) => caught,
+    );
+    if (!isSaveConflict(error)) throw error;
+    return error;
+  }
+
+  it("returns the record's revision from every read", async () => {
+    const id = await saveKnowledge();
+    const revision = knowledgeRevision(await storedRow(id));
+    const { listed, fetched, searched } = await asQa(async () => ({
+      listed: await listKnowledgeAction.run({ limit: 25 }),
+      fetched: await getKnowledgeAction.run({ id }),
+      searched: await searchKnowledgeAction.run({
+        query: "Atlas",
+        includeDrafts: false,
+        limit: 25,
+      }),
+    }));
+    expect(fetched.knowledge?.revision).toBe(revision);
+    expect(listed.knowledge.find((item) => item.id === id)?.revision).toBe(
+      revision,
+    );
+    expect(searched.knowledge.find((item) => item.id === id)?.revision).toBe(
+      revision,
+    );
+    const parameters = writeKnowledgeAction.tool.parameters as {
+      properties?: Record<string, { description?: string } | undefined>;
+    };
+    expect(parameters.properties?.expectedRevision?.description).toContain(
+      EXPECTED_REVISION_DESCRIPTION,
+    );
+  });
+
+  it("writes an update made on the current revision and returns the new one", async () => {
+    const id = await saveKnowledge();
+    const read = knowledgeRevision(await storedRow(id));
+    const saved = await update(id, "Morgan will ship Atlas on Friday.", read);
+    const row = await storedRow(id);
+    expect(row.body).toBe("Morgan will ship Atlas on Friday.");
+    expect(saved.knowledge.revision).toBe(knowledgeRevision(row));
+    expect(saved.knowledge.revision).not.toBe(read);
+  });
+
+  it("refuses an update made on a stale read, writing nothing and returning the current record", async () => {
+    const id = await saveKnowledge();
+    const read = knowledgeRevision(await storedRow(id));
+    const other = await update(id, "Morgan will ship Atlas on Friday.", read);
+    const before = await storedRow(id);
+    const conflict = await conflictOf(
+      update(id, "Morgan will ship Atlas next month.", read),
+    );
+    expect(conflict).toMatchObject({ statusCode: 409 });
+    expect(conflict.details.currentRevision).toBe(other.knowledge.revision);
+    expect(conflict.details.current).toMatchObject({
+      id,
+      body: "Morgan will ship Atlas on Friday.",
+      revision: other.knowledge.revision,
+    });
+    expect(await storedRow(id)).toEqual(before);
+
+    const redone = await update(
+      id,
+      "Morgan will ship Atlas on Friday, after review.",
+      conflict.details.currentRevision ?? undefined,
+    );
+    expect((await storedRow(id)).body).toBe(
+      "Morgan will ship Atlas on Friday, after review.",
+    );
+    expect(redone.knowledge.revision).not.toBe(other.knowledge.revision);
+  });
+
+  it("refuses an update that sends no revision", async () => {
+    const id = await saveKnowledge();
+    const before = await storedRow(id);
+    const conflict = await conflictOf(update(id, "Unread edit about Atlas."));
+    expect(conflict.details.currentRevision).toBe(knowledgeRevision(before));
+    expect(await storedRow(id)).toEqual(before);
+  });
+
+  it("counts a resent update that already applied as done, without writing again", async () => {
+    const id = await saveKnowledge();
+    const read = knowledgeRevision(await storedRow(id));
+    const first = await update(id, "Morgan will ship Atlas on Friday.", read);
+    const applied = await storedRow(id);
+    const resent = await update(id, "Morgan will ship Atlas on Friday.", read);
+    expect(resent.knowledge).toEqual(first.knowledge);
+    expect(await storedRow(id)).toEqual(applied);
+  });
+
+  it("creates without a revision", async () => {
+    const first = await saveKnowledge();
+    const second = await saveKnowledge();
+    expect(second).not.toBe(first);
+    expect((await storedRow(second)).body).toBe("Morgan will ship Atlas.");
   });
 });

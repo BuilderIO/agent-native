@@ -4,6 +4,7 @@ import {
   normalizeLocalizationPreference,
   normalizeTimezonePreference,
 } from "@agent-native/core/localization";
+import { saveConflict } from "@agent-native/core/save-conflict/server";
 import { formatDateInTimezone } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -42,6 +43,7 @@ import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   assertDerivedAudienceAccess,
   getAccessibleCapture,
+  knowledgeRevision,
   lockKnowledgeWriteSet,
   runAfterCommitEffects,
   transactWithResourceStore,
@@ -211,7 +213,10 @@ async function intelligenceRevision(row: KnowledgeRow, detail: DetailRow) {
   );
 }
 
-function verificationFor(row: VerificationRow | null, revision: string) {
+function verificationFor(
+  row: VerificationRow | null | undefined,
+  revision: string,
+) {
   if (!row || row.knowledgeRevision !== revision) {
     return {
       state: "unverified" as const,
@@ -234,7 +239,7 @@ function verificationFor(row: VerificationRow | null, revision: string) {
 async function itemFromRows(
   row: KnowledgeRow,
   detail: DetailRow,
-  verification: VerificationRow | null,
+  verification: VerificationRow | null | undefined,
   loaded?: Awaited<ReturnType<typeof loadCurrentEvidence>>,
 ): Promise<IntelligenceItem | null> {
   const revision = await knowledgeContentRevision(row);
@@ -261,7 +266,7 @@ async function itemFromRows(
     evidence: knowledge.evidence,
     audienceId: row.audienceId,
     updatedAt: detail.updatedAt,
-    revision: await intelligenceRevision(row, detail),
+    revision: knowledgeRevision(row),
     verification: verificationFor(
       verification,
       await intelligenceRevision(row, detail),
@@ -493,11 +498,7 @@ async function writeIntelligenceLocked(
         statusCode: 403,
       });
     if (input.expectedRevision !== current.revision)
-      fail("The intelligence record changed. Read it again before saving.", {
-        errorCode: "save_conflict",
-        statusCode: 409,
-        details: { current, currentRevision: current.revision },
-      });
+      throw saveConflict("intelligence_record", current, current.revision);
   }
   const evidence = await validateEvidence(input.evidence);
   if (!evidence.length)
@@ -535,7 +536,9 @@ async function writeIntelligenceLocked(
   const publishTier = input.publishTier ?? (input.id ? undefined : "private");
   const result = await writeKnowledgeRecordInTransaction(
     {
-      ...(input.id ? { knowledgeId: input.id } : {}),
+      ...(input.id
+        ? { knowledgeId: input.id, expectedRevision: input.expectedRevision }
+        : {}),
       kind: input.kind === "decision" ? "decision" : "open-question",
       title: input.title,
       body: input.body,
@@ -760,12 +763,6 @@ async function verifyKnowledgeLocked(input: {
       errorCode: "evidence_unavailable",
       statusCode: 403,
     });
-  const revision = await intelligenceRevision(row, detail);
-  if (input.expectedRevision !== revision)
-    fail(
-      "The knowledge changed. Review its current content before verifying.",
-      { errorCode: "save_conflict", statusCode: 409 },
-    );
   const existingVerifications = await getDb()
     .select()
     .from(schema.brainKnowledgeVerifications)
@@ -774,6 +771,13 @@ async function verifyKnowledgeLocked(input: {
   const existingVerification = existingVerifications.find(
     (entry) => entry.knowledgeId === row.id,
   );
+  if (input.expectedRevision !== knowledgeRevision(row))
+    throw saveConflict(
+      "intelligence_record",
+      await itemFromRows(row, detail, existingVerification),
+      knowledgeRevision(row),
+    );
+  const revision = await intelligenceRevision(row, detail);
   const actedAt = nowIso();
   const actedAtMs = Date.parse(actedAt);
   const existingRemindAt =

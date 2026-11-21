@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { z } from "zod";
 
 import { writeKnowledgeRecord } from "../server/lib/brain.js";
@@ -12,12 +13,18 @@ import {
 
 export default defineAction({
   description:
-    "Write durable Brain knowledge. Evidence quotes must be exact substrings of captures.",
+    "Write durable Brain knowledge. Evidence quotes must be exact substrings of captures. An update replaces the whole record, so start it from the current record and send its revision.",
   schema: z.object({
     knowledgeId: z
       .string()
       .optional()
-      .describe("Existing knowledge ID to update"),
+      .describe("Existing knowledge ID to update; omit to create."),
+    expectedRevision: z
+      .string()
+      .optional()
+      .describe(
+        `${EXPECTED_REVISION_DESCRIPTION} Required with knowledgeId: read it as knowledge.revision from get-knowledge, list-knowledge or search-knowledge.`,
+      ),
     kind: knowledgeKindSchema.default("fact"),
     title: z.string().min(1),
     body: z.string().min(1),

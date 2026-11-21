@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { z } from "zod";
 
 import { verifyKnowledge } from "../server/lib/intelligence.js";
@@ -21,7 +22,7 @@ export default defineAction({
       .string()
       .min(1)
       .describe(
-        "The current knowledge revision from list-intelligence; changes require renewed review.",
+        `${EXPECTED_REVISION_DESCRIPTION} Read it from list-intelligence; changes require renewed review.`,
       ),
     knowledgeId: z
       .string()

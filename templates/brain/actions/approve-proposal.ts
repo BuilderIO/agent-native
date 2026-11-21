@@ -44,7 +44,9 @@ export default defineAction({
       ...payload,
       publishCanonical: publishCanonical ?? payload.publishCanonical,
     };
-    const result = await writeKnowledgeRecord(nextPayload);
+    const result = await writeKnowledgeRecord(nextPayload, {
+      allowUncheckedLegacyProposalUpdate: true,
+    });
     await getDb()
       .update(schema.brainProposals)
       .set({
