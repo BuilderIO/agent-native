@@ -21,6 +21,7 @@ import { externalPreviewUrlForContent } from "../../app/pages/design-editor/prev
 import { parseCanvasFrameGeometryById } from "../../shared/canvas-frames.js";
 import { degradeWideColorsInHtml } from "../../shared/export-color-fallback.js";
 import { parseEffectsFromHtml } from "../../shared/native-effects.js";
+import { deviceViewportFloorForWidth } from "../../shared/responsive-frame-layout.js";
 import { getDb, schema } from "../db/index.js";
 import { readLiveSourceFile } from "../source-workspace.js";
 import { routeAllowedRenderRequests } from "./design-to-figma-svg.js";
@@ -30,6 +31,7 @@ import { prepareScreenshotPage } from "./screenshot-readiness.js";
 const DEFAULT_WIDTH_PX = 1440;
 const MAX_CAPTURE_PIXELS = 40_000_000;
 const MAX_CONCURRENT_CAPTURES = 2;
+const RENDER_DEADLINE_MS = 50_000;
 
 let activeCaptures = 0;
 
@@ -306,11 +308,21 @@ export async function renderScreenPng(
         statusCode: 503,
       });
     }
+    let timedOut = false;
+    const stop = () => {
+      timedOut = true;
+      void browser.close().catch(() => {});
+    };
+    const deadline = setTimeout(stop, RENDER_DEADLINE_MS);
+    signal?.addEventListener("abort", stop, { once: true });
     try {
       for (const deviceScaleFactor of [2, 1]) {
         signal?.throwIfAborted();
         const context = await browser.newContext({
-          viewport: { width: widthPx, height: Math.round(widthPx * 0.625) },
+          viewport: {
+            width: widthPx,
+            height: deviceViewportFloorForWidth(widthPx),
+          },
           deviceScaleFactor,
         });
         try {
@@ -351,7 +363,17 @@ export async function renderScreenPng(
           await context.close().catch(() => {});
         }
       }
+    } catch (error) {
+      if (timedOut) {
+        fail(
+          "Design took too long to render this screen. Try again, or split it into shorter screens.",
+          { errorCode: "design_screen_render_timeout", statusCode: 504 },
+        );
+      }
+      throw error;
     } finally {
+      clearTimeout(deadline);
+      signal?.removeEventListener("abort", stop);
       await browser.close().catch(() => {});
     }
     fail(

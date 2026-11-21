@@ -251,29 +251,50 @@ describe("renderScreenPng", () => {
     expect(importPlaywright).not.toHaveBeenCalled();
   });
 
-  function fakeBrowser(pageArea: number) {
+  function fakeBrowser(pageArea: number, { hang = false } = {}) {
     const scales: number[] = [];
+    const viewports: { width: number; height: number }[] = [];
     const screenshot = vi.fn(async () => Buffer.alloc(100));
-    const browser = {
-      newContext: vi.fn(
-        async ({ deviceScaleFactor }: { deviceScaleFactor: number }) => {
-          scales.push(deviceScaleFactor);
-          return {
-            addInitScript: vi.fn(async () => {}),
-            routeWebSocket: vi.fn(async () => {}),
-            newPage: vi.fn(async () => ({
-              evaluate: vi.fn(async () => pageArea),
-              screenshot,
-            })),
-            close: vi.fn(async () => {}),
-          };
-        },
-      ),
-      close: vi.fn(async () => {}),
-    };
+    const evaluate = vi.fn();
     vi.mocked(importPlaywright).mockResolvedValue({ chromium: {} } as never);
-    vi.mocked(launchChromium).mockResolvedValue(browser as never);
-    return { scales, screenshot };
+    vi.mocked(launchChromium).mockImplementation(async () => {
+      let markClosed: () => void = () => {};
+      const closed = new Promise<void>((resolve) => {
+        markClosed = resolve;
+      });
+      return {
+        newContext: vi.fn(
+          async ({
+            viewport,
+            deviceScaleFactor,
+          }: {
+            viewport: { width: number; height: number };
+            deviceScaleFactor: number;
+          }) => {
+            scales.push(deviceScaleFactor);
+            viewports.push(viewport);
+            return {
+              addInitScript: vi.fn(async () => {}),
+              routeWebSocket: vi.fn(async () => {}),
+              newPage: vi.fn(async () => ({
+                evaluate: async () => {
+                  evaluate();
+                  if (!hang) return pageArea;
+                  await closed;
+                  throw new Error(
+                    "Target page, context or browser has been closed",
+                  );
+                },
+                screenshot,
+              })),
+              close: vi.fn(async () => {}),
+            };
+          },
+        ),
+        close: vi.fn(async () => markClosed()),
+      } as never;
+    });
+    return { scales, viewports, screenshot, evaluate };
   }
 
   const tallScreen = {
@@ -304,6 +325,58 @@ describe("renderScreenPng", () => {
     expect(scales).toEqual([2, 1]);
     expect(screenshot).not.toHaveBeenCalled();
   });
+  it("opens each screen at the window height Design's canvas gives its width", async () => {
+    const { viewports } = fakeBrowser(390 * 2000);
+    await renderScreenPng(tallScreen, 390);
+    await renderScreenPng(tallScreen, 768);
+    await renderScreenPng(tallScreen, 1440);
+    expect(viewports).toEqual([
+      { width: 390, height: 844 },
+      { width: 768, height: 1024 },
+      { width: 1440, height: 900 },
+    ]);
+  });
+
+  it("gives up on screens whose page work never settles and frees their slots", async () => {
+    vi.useFakeTimers();
+    try {
+      const page = fakeBrowser(1440 * 6000, { hang: true });
+      const stuck = [
+        renderScreenPng(tallScreen, 1440),
+        renderScreenPng(tallScreen, 1440),
+      ].map((render) =>
+        expect(render).rejects.toMatchObject({
+          errorCode: "design_screen_render_timeout",
+        }),
+      );
+      await vi.waitFor(() => expect(page.evaluate).toHaveBeenCalledTimes(2));
+      await vi.advanceTimersByTimeAsync(50_000);
+      await Promise.all(stuck);
+    } finally {
+      vi.useRealTimers();
+    }
+    fakeBrowser(1440 * 6000);
+    await expect(renderScreenPng(tallScreen, 1440)).resolves.toHaveLength(100);
+  });
+
+  it("stops a render the caller called off and frees its slot", async () => {
+    const page = fakeBrowser(1440 * 6000, { hang: true });
+    const controller = new AbortController();
+    const stuck = [
+      renderScreenPng(tallScreen, 1440, controller.signal),
+      renderScreenPng(tallScreen, 1440, controller.signal),
+    ].map((render) =>
+      expect(render).rejects.toMatchObject({
+        errorCode: "design_screen_render_timeout",
+      }),
+    );
+    await vi.waitFor(() => expect(page.evaluate).toHaveBeenCalledTimes(2));
+    controller.abort();
+    await Promise.all(stuck);
+    fakeBrowser(1440 * 6000);
+    await expect(renderScreenPng(tallScreen, 1440)).resolves.toHaveLength(100);
+  });
+
   it("takes two screens at a time and asks a third to try again", async () => {
     const { screenshot } = fakeBrowser(1440 * 6000);
     let finish: () => void = () => {};

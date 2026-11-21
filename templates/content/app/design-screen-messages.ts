@@ -58,6 +58,8 @@ const en = {
     "This screen is too long to pin as one picture. Split it into shorter screens in Design.",
   errorRenderUnavailable:
     "Design can't take pictures of screens right now. Try again in a minute.",
+  errorRenderTimeout:
+    "Design took too long to take a picture of this screen. Try again, or split it into shorter screens in Design.",
   pictureAlt:
     "The {{screen}} screen from the {{design}} design in Design, at {{width}} pixels wide.",
   errorStorageUnavailable:
@@ -131,6 +133,8 @@ const translations: Record<
       "Esta pantalla es demasiado larga para fijarla como una sola imagen. Divídela en pantallas más cortas en Design.",
     errorRenderUnavailable:
       "Design no puede tomar imágenes de pantallas en este momento. Inténtalo de nuevo en un minuto.",
+    errorRenderTimeout:
+      "Design tardó demasiado en tomar una imagen de esta pantalla. Inténtalo de nuevo o divídela en pantallas más cortas en Design.",
     pictureAlt:
       "La pantalla {{screen}} del diseño {{design}} en Design, de {{width}} píxeles de ancho.",
     errorStorageUnavailable:
@@ -197,6 +201,8 @@ const translations: Record<
       "Cet écran est trop long pour être épinglé en une seule image. Divisez-le en écrans plus courts dans Design.",
     errorRenderUnavailable:
       "Design ne peut pas prendre d'images d'écrans pour le moment. Réessayez dans une minute.",
+    errorRenderTimeout:
+      "Design a mis trop de temps à prendre une image de cet écran. Réessayez, ou divisez-le en écrans plus courts dans Design.",
     pictureAlt:
       "L'écran {{screen}} du design {{design}} dans Design, de {{width}} pixels de large.",
     errorStorageUnavailable:
@@ -265,6 +271,8 @@ const translations: Record<
       "Dieser Screen ist zu lang, um ihn als ein Bild anzuheften. Teile ihn in Design in kürzere Screens auf.",
     errorRenderUnavailable:
       "Design kann gerade keine Bilder von Screens aufnehmen. Versuche es in einer Minute erneut.",
+    errorRenderTimeout:
+      "Design hat zu lange gebraucht, um ein Bild dieses Screens aufzunehmen. Versuche es erneut oder teile ihn in Design in kürzere Screens auf.",
     pictureAlt:
       "Der Screen {{screen}} aus dem Design {{design}} in Design, {{width}} Pixel breit.",
     errorStorageUnavailable:
@@ -331,6 +339,8 @@ const translations: Record<
       "Esta tela é longa demais para ser fixada como uma única imagem. Divida-a em telas mais curtas no Design.",
     errorRenderUnavailable:
       "O Design não consegue tirar imagens de telas agora. Tente novamente em um minuto.",
+    errorRenderTimeout:
+      "O Design demorou demais para tirar uma imagem desta tela. Tente novamente ou divida-a em telas mais curtas no Design.",
     pictureAlt:
       "A tela {{screen}} do design {{design}} no Design, com {{width}} pixels de largura.",
     errorStorageUnavailable:
@@ -391,6 +401,8 @@ const translations: Record<
     errorTooLarge:
       "此画面太长，无法固定为一张图片。请在 Design 中将它拆分成更短的画面。",
     errorRenderUnavailable: "Design 现在无法为画面拍摄图片。请过一分钟再试。",
+    errorRenderTimeout:
+      "Design 为此画面拍摄图片的时间太长。请重试，或在 Design 中将它拆分成更短的画面。",
     pictureAlt:
       "Design 中 {{design}} 设计的 {{screen}} 画面，宽 {{width}} 像素。",
     errorStorageUnavailable: "Content 现在无法保存图片。请过一分钟再试。",
@@ -450,6 +462,8 @@ const translations: Record<
     errorTooLarge:
       "此畫面太長，無法固定為一張圖片。請在 Design 中將它拆分成較短的畫面。",
     errorRenderUnavailable: "Design 目前無法為畫面拍攝圖片。請過一分鐘再試。",
+    errorRenderTimeout:
+      "Design 為此畫面拍攝圖片的時間太長。請重試，或在 Design 中將它拆分成較短的畫面。",
     pictureAlt:
       "Design 中 {{design}} 設計的 {{screen}} 畫面，寬 {{width}} 像素。",
     errorStorageUnavailable: "Content 目前無法儲存圖片。請過一分鐘再試。",
@@ -515,6 +529,8 @@ const translations: Record<
       "この画面は長すぎて 1 枚の画像としてピン留めできません。Design で短い画面に分けてください。",
     errorRenderUnavailable:
       "Design は現在、画面の画像を撮影できません。1 分ほどしてからもう一度お試しください。",
+    errorRenderTimeout:
+      "Design がこの画面の画像の撮影に時間がかかりすぎました。もう一度お試しいただくか、Design で短い画面に分けてください。",
     pictureAlt:
       "Design の {{design}} デザインにある {{screen}} 画面（幅 {{width}} px）。",
     errorStorageUnavailable:
@@ -580,6 +596,8 @@ const translations: Record<
       "이 화면은 너무 길어서 하나의 이미지로 고정할 수 없습니다. Design에서 더 짧은 화면으로 나누세요.",
     errorRenderUnavailable:
       "Design에서 지금은 화면 이미지를 찍을 수 없습니다. 1분 후에 다시 시도하세요.",
+    errorRenderTimeout:
+      "Design에서 이 화면의 이미지를 찍는 데 시간이 너무 오래 걸렸습니다. 다시 시도하거나 Design에서 더 짧은 화면으로 나누세요.",
     pictureAlt:
       "Design의 {{design}} 디자인에 있는 {{screen}} 화면, 너비 {{width}}px.",
     errorStorageUnavailable:
@@ -646,6 +664,8 @@ const translations: Record<
       "यह स्क्रीन एक तस्वीर के रूप में पिन करने के लिए बहुत लंबी है। इसे Design में छोटी स्क्रीन में बाँटें।",
     errorRenderUnavailable:
       "Design अभी स्क्रीन की तस्वीरें नहीं ले सकता। एक मिनट बाद फिर कोशिश करें।",
+    errorRenderTimeout:
+      "Design को इस स्क्रीन की तस्वीर लेने में बहुत समय लगा। फिर कोशिश करें, या इसे Design में छोटी स्क्रीन में बाँटें।",
     pictureAlt:
       "Design में {{design}} डिज़ाइन की {{screen}} स्क्रीन, {{width}} px चौड़ी।",
     errorStorageUnavailable:
@@ -711,6 +731,8 @@ const translations: Record<
       "هذه الشاشة أطول من أن تُثبَّت كصورة واحدة. قسّمها إلى شاشات أقصر في Design.",
     errorRenderUnavailable:
       "لا يستطيع Design التقاط صور للشاشات الآن. حاول مرة أخرى بعد دقيقة.",
+    errorRenderTimeout:
+      "استغرق Design وقتًا طويلًا جدًا لالتقاط صورة لهذه الشاشة. حاول مرة أخرى، أو قسّمها إلى شاشات أقصر في Design.",
     pictureAlt:
       "شاشة {{screen}} من تصميم {{design}} في Design، بعرض {{width}} بكسل.",
     errorStorageUnavailable:

@@ -18,6 +18,7 @@ const MESSAGE_FOR_DESIGN_CODE = new Map([
   ["design_screen_too_large", "designScreen.errorTooLarge"],
   ["design_screen_render_unavailable", "designScreen.errorRenderUnavailable"],
   ["design_screen_render_busy", "designScreen.errorRenderUnavailable"],
+  ["design_screen_render_timeout", "designScreen.errorRenderTimeout"],
 ]);
 
 export function designScreenErrorMessage(

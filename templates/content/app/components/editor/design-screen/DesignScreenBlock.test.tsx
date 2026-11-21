@@ -406,19 +406,25 @@ describe("DesignScreen for editors", () => {
     });
   });
 
-  it("gives Design's own reason in the page's words when Design names it", async () => {
-    hooks.callAction.mockRejectedValue(
-      Object.assign(new Error("Something went wrong. Try again."), {
-        errorCode: "design_refused",
-        details: { designCode: "design_screen_too_large" },
-      }),
-    );
-    renderEdit(screen());
-    await act(async () => defined(refreshButton()).click());
-    expect(toasts.error).toHaveBeenCalledWith("designScreen.refreshFailed", {
-      description: "designScreen.errorTooLarge",
-    });
-  });
+  it.each([
+    ["design_screen_too_large", "designScreen.errorTooLarge"],
+    ["design_screen_render_timeout", "designScreen.errorRenderTimeout"],
+  ])(
+    "gives Design's own reason in the page's words when Design names it (%s)",
+    async (designCode, message) => {
+      hooks.callAction.mockRejectedValue(
+        Object.assign(new Error("Something went wrong. Try again."), {
+          errorCode: "design_refused",
+          details: { designCode },
+        }),
+      );
+      renderEdit(screen());
+      await act(async () => defined(refreshButton()).click());
+      expect(toasts.error).toHaveBeenCalledWith("designScreen.refreshFailed", {
+        description: message,
+      });
+    },
+  );
 
   it.each([
     [
