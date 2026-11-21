@@ -224,6 +224,10 @@ const messages = {
       contentPagesRetry: "Réessayer",
       contentPagesEmpty: "Aucune page trouvée",
       contentFileMarkdown: "Fichier Markdown",
+      contentFilePdf: "Fichier PDF",
+      contentPageFormat: "Joindre les pages en",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "Fichier CSV",
       bold: "Gras",
       cancel: "Annuler",
@@ -490,6 +494,12 @@ const messages = {
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Impossible de joindre la page Content",
+      contentPagePdfTextUnsupported:
+        "Cette page contient du texte qu’un PDF ne peut pas encore afficher, comme le chinois, le japonais, le coréen, l’arabe, l’hébreu ou l’hindi. Joignez-la plutôt en Markdown.",
+      contentPagePdfTooLong:
+        "Cette page est trop longue ou trop large pour être jointe en PDF. Joignez-la plutôt en Markdown.",
+      contentPagePdfUnavailable:
+        "Content n’a pas pu créer de PDF pour cette page. Joignez-la plutôt en Markdown.",
       waitForAttachments:
         "Attendez la fin de l’ajout des pièces jointes, puis envoyez.",
       failedToUploadImage: "Échec du téléversement de l’image",

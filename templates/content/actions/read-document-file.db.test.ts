@@ -5,7 +5,26 @@ import { join } from "node:path";
 import { isActionExposedToExternalAgents } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("../server/lib/document-pdf.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/lib/document-pdf.js")>();
+  return {
+    ...actual,
+    renderDocumentPdf: (
+      input: Parameters<typeof actual.renderDocumentPdf>[0],
+    ) => {
+      if (input.content.includes("The render breaks here.")) {
+        throw new Error("font files missing");
+      }
+      if (input.content.includes("The PDF comes out too large.")) {
+        return Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(2_200_000)]);
+      }
+      return actual.renderDocumentPdf(input);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -180,7 +199,7 @@ function readAs<T>(context: { userEmail?: string }, fn: () => Promise<T>) {
 
 const owner = { userEmail: OWNER };
 
-function read(id: string, format?: "markdown" | "csv") {
+function read(id: string, format?: "markdown" | "csv" | "pdf") {
   return readAs(owner, () =>
     action.run({ operation: "read", id, page: 1, format }),
   );
@@ -237,6 +256,23 @@ describe("Content read-document-file", () => {
     );
   });
 
+  it("reads a page as a PDF file, base64-encoded", async () => {
+    const result = await read("plan-page", "pdf");
+    expect(result).toMatchObject({
+      kind: "page",
+      format: "pdf",
+      filename: "Q3 plan draft.pdf",
+      mimeType: "application/pdf",
+      encoding: "base64",
+    });
+    const pdf = Buffer.from(
+      "content" in result ? result.content : "",
+      "base64",
+    );
+    expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    expect("size" in result && result.size).toBe(pdf.byteLength);
+  });
+
   it("reads a collection as a CSV of its columns, leaving out always-hidden and Blocks fields", async () => {
     const result = await read("tracker-page");
     expect(result).toMatchObject({
@@ -255,11 +291,83 @@ describe("Content read-document-file", () => {
     await expect(read("tracker-page", "markdown")).rejects.toMatchObject({
       errorCode: "document_file_format_unsupported",
     });
+    await expect(read("tracker-page", "pdf")).rejects.toMatchObject({
+      errorCode: "document_file_format_unsupported",
+    });
+  });
+
+  it("refuses a PDF of a page in a script the PDF font can't show", async () => {
+    await addDocument({ id: "tokyo-page", content: "東京の計画" });
+    await expect(read("tokyo-page", "pdf")).rejects.toMatchObject({
+      statusCode: 422,
+      errorCode: "document_file_pdf_text_unsupported",
+    });
+    await expect(read("tokyo-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
+  });
+
+  it("refuses a PDF of a page longer than the PDF page limit", async () => {
+    await addDocument({
+      id: "long-page",
+      content: Array.from(
+        { length: 12_000 },
+        (_, index) => `Paragraph ${index}`,
+      ).join("\n\n"),
+    });
+    await expect(read("long-page", "pdf")).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_pdf_too_long",
+      message: expect.stringContaining("over 200 pages"),
+    });
+    await expect(read("long-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
+  });
+
+  it("refuses a PDF the renderer fails on, and logs why", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    await addDocument({
+      id: "broken-page",
+      content: "The render breaks here.",
+    });
+    await expect(read("broken-page", "pdf")).rejects.toMatchObject({
+      statusCode: 500,
+      errorCode: "document_file_pdf_failed",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+    expect(logged).toHaveBeenCalledWith(
+      "[read-document-file] PDF render failed",
+      expect.any(Error),
+    );
+    logged.mockRestore();
+    await expect(read("broken-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
+  });
+
+  it("refuses a PDF over 2 MB of a page whose Markdown fits, and says to attach Markdown", async () => {
+    await addDocument({
+      id: "heavy-pdf-page",
+      content: "The PDF comes out too large.",
+    });
+    await expect(read("heavy-pdf-page", "pdf")).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_pdf_too_long",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+    await expect(read("heavy-pdf-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
   });
 
   it("refuses a page too large to send back in one response", async () => {
     await addDocument({ id: "huge-page", content: "x".repeat(2_200_000) });
     await expect(read("huge-page")).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_too_large",
+    });
+    await expect(read("huge-page", "pdf")).rejects.toMatchObject({
       statusCode: 413,
       errorCode: "document_file_too_large",
     });

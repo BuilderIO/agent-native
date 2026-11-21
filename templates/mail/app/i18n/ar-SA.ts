@@ -213,6 +213,10 @@ const messages = {
       contentPagesRetry: "إعادة المحاولة",
       contentPagesEmpty: "لم يتم العثور على صفحات",
       contentFileMarkdown: "ملف Markdown",
+      contentFilePdf: "ملف PDF",
+      contentPageFormat: "إرفاق الصفحات بصيغة",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "ملف CSV",
       bold: "غامق",
       cancel: "إلغاء",
@@ -472,6 +476,12 @@ const messages = {
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "تعذّر إرفاق صفحة Content",
+      contentPagePdfTextUnsupported:
+        "تحتوي هذه الصفحة على نص لا يمكن لملف PDF عرضه بعد، مثل الصينية أو اليابانية أو الكورية أو العربية أو العبرية أو الهندية. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfTooLong:
+        "هذه الصفحة أطول أو أعرض من أن تُرفق كملف PDF. أرفقها بتنسيق Markdown بدلاً من ذلك.",
+      contentPagePdfUnavailable:
+        "تعذّر على Content إنشاء ملف PDF لهذه الصفحة. أرفقها بتنسيق Markdown بدلاً من ذلك.",
       waitForAttachments: "انتظر حتى تكتمل إضافة المرفقات، ثم أرسل.",
       failedToUploadImage: "فشل تحميل الصورة",
       storageBuilderRefused:

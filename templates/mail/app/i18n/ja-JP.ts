@@ -213,6 +213,10 @@ const messages = {
       contentPagesRetry: "再試行",
       contentPagesEmpty: "ページが見つかりません",
       contentFileMarkdown: "Markdown ファイル",
+      contentFilePdf: "PDF ファイル",
+      contentPageFormat: "ページの添付形式",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
       contentFileCsv: "CSV ファイル",
       bold: "太字",
       cancel: "キャンセル",
@@ -477,6 +481,12 @@ const messages = {
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToAttachContentPage: "Content のページを添付できませんでした",
+      contentPagePdfTextUnsupported:
+        "このページには、中国語、日本語、韓国語、アラビア語、ヘブライ語、ヒンディー語など、PDF でまだ表示できない文字が含まれています。代わりに Markdown として添付してください。",
+      contentPagePdfTooLong:
+        "このページは長すぎるか幅が広すぎるため、PDF として添付できません。代わりに Markdown として添付してください。",
+      contentPagePdfUnavailable:
+        "Content でこのページの PDF を作成できませんでした。代わりに Markdown として添付してください。",
       waitForAttachments: "添付ファイルの追加が終わってから送信してください。",
       failedToUploadImage: "画像のアップロードに失敗しました",
       storageBuilderRefused:
