@@ -638,6 +638,115 @@ describe("WorkspaceAppKeepAlive", () => {
     );
   });
 
+  it("navigates a qualified app's loaded frame in place after a guest receipt", async () => {
+    const origin = "https://mail.example.test";
+    const startUrl = `${origin}/mail/inbox`;
+    clientState.legacyMutateAsync.mockResolvedValue({ startUrl });
+    clientState.suppressFrameLoad = true;
+    const app = {
+      id: "workspace/mail",
+      name: "Mail",
+      path: "/mail",
+      url: `${origin}/mail`,
+    };
+
+    await act(async () => {
+      root.render(<WorkspaceAppFrame app={app} embedPath="/inbox" />);
+    });
+    const iframe = container.querySelector("iframe");
+    if (!iframe || !iframe.contentWindow) throw new Error("Missing app frame");
+    const postMessage = vi.spyOn(iframe.contentWindow, "postMessage");
+    const target = "/mail/threads/42?mode=all#message";
+    postMessage.mockImplementation((message, _origin, transfer) => {
+      if (message?.type !== "agentNative.viewRequest") return;
+      const [port] = transfer as MessagePort[];
+      port.postMessage({ result: { path: target } });
+      port.close();
+    });
+
+    await act(async () => clientState.frameLoadHandler?.());
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={app}
+          embedPath="/threads/42?mode=all#message"
+        />,
+      );
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "agentNative.viewRequest",
+        operation: "navigate",
+        path: target,
+        deadline: expect.any(Number),
+      },
+      origin,
+      [expect.objectContaining({ postMessage: expect.any(Function) })],
+    );
+    expect(container.querySelector("iframe")).toBe(iframe);
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledTimes(1);
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe(startUrl);
+    await act(async () => {
+      // Yield to the channel callback so the correlated receipt is processed.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.querySelector("iframe")).toBe(iframe);
+  });
+
+  it("opens the requested deep link if the mounted guest rejects in-place navigation", async () => {
+    const origin = "https://mail.example.test";
+    const startUrl = `${origin}/mail/inbox`;
+    const fallbackUrl = `${origin}/mail/threads/42`;
+    clientState.legacyMutateAsync
+      .mockResolvedValueOnce({ startUrl })
+      .mockResolvedValueOnce({ startUrl: fallbackUrl });
+    clientState.suppressFrameLoad = true;
+    const app = {
+      id: "workspace/mail",
+      name: "Mail",
+      path: "/mail",
+      url: `${origin}/mail`,
+    };
+
+    await act(async () => {
+      root.render(<WorkspaceAppFrame app={app} embedPath="/inbox" />);
+    });
+    const iframe = container.querySelector("iframe");
+    if (!iframe || !iframe.contentWindow) throw new Error("Missing app frame");
+    vi.spyOn(iframe.contentWindow, "postMessage").mockImplementation(
+      (message, _origin, transfer) => {
+        if (message?.type !== "agentNative.viewRequest") return;
+        const [port] = transfer as MessagePort[];
+        port.postMessage({ error: "View unavailable" });
+        port.close();
+      },
+    );
+    await act(async () => clientState.frameLoadHandler?.());
+    await act(async () => {
+      root.render(<WorkspaceAppFrame app={app} embedPath="/threads/42" />);
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+          app: "workspace/mail",
+          path: "/threads/42",
+          chrome: "minimal",
+        }),
+      );
+    });
+    expect(container.querySelector("iframe")).not.toBe(iframe);
+    expect(
+      container
+        .querySelector("[data-chat-first-app-embed-url]")
+        ?.getAttribute("data-chat-first-app-embed-url"),
+    ).toBe(fallbackUrl);
+  });
+
   it("reports trusted child routes to the standalone Dispatch host", async () => {
     clientState.legacyMutateAsync.mockResolvedValue({
       startUrl: "https://design.example.test/_agent-native/embed",

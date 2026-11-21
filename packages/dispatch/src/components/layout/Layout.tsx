@@ -168,6 +168,7 @@ import {
 } from "../ui/tooltip";
 import {
   usePrefetchChatFirstEmbedSession,
+  useWarmWorkspaceAppIds,
   WorkspaceAppChatRail,
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
@@ -1705,6 +1706,15 @@ function DispatchLayout({
       ) ?? null,
     [chatFirstSurfaceTabs.tabs, visibleChatFirstSurfaceTabIdValue],
   );
+  const warmWorkspaceAppIds = useWarmWorkspaceAppIds(
+    chatFirstSurfaceScope,
+    visibleChatFirstSurfaceTab?.kind === "app"
+      ? (visibleChatFirstSurfaceTab.appId ?? null)
+      : null,
+    chatFirstSurfaceTabs.tabs.flatMap((tab) =>
+      tab.kind === "app" && tab.appId ? [tab.appId] : [],
+    ),
+  );
   const chatFirstAppTakesMain =
     chatFirstMode &&
     isChatRoute &&
@@ -1783,22 +1793,20 @@ function DispatchLayout({
       const app = chatFirstAppRegistrations.find(
         (candidate) => candidate.id === pane.appId,
       );
-      let tabId = chatFirstSurfaceTabId(
-        "app",
-        `${pane.appId}:${pane.path ?? pane.view ?? "/"}`,
+      const snapshot = chatFirstSurfaceTabsStore.getSnapshot();
+      const existing = snapshot.tabs.find(
+        (tab) => tab.kind === "app" && tab.appId === pane.appId,
       );
+      const tabId = existing?.id ?? chatFirstSurfaceTabId("app", pane.appId);
       const earlier = provisionalChatFirstTabRef.current;
       provisionalChatFirstTabRef.current = null;
       if (
         earlier &&
         earlier.scope === chatFirstSurfaceScope &&
         earlier.tabId !== tabId &&
-        chatFirstSurfaceTabsStore
-          .getSnapshot()
-          .tabs.some((tab) => tab.id === earlier.tabId)
+        snapshot.tabs.some((tab) => tab.id === earlier.tabId)
       ) {
-        if (!provisional && earlier.appId === pane.appId) tabId = earlier.tabId;
-        else chatFirstSurfaceTabsStore.close(earlier.tabId);
+        chatFirstSurfaceTabsStore.close(earlier.tabId);
       }
       if (provisional) {
         provisionalChatFirstTabRef.current = {
@@ -2668,7 +2676,12 @@ function DispatchLayout({
   const chatFirstSurfaceContent =
     chatFirstSurfaceTabs.tabs.length > 0 ? (
       <ChatFirstSurfaceContent
-        tabs={chatFirstSurfaceTabs.tabs}
+        tabs={chatFirstSurfaceTabs.tabs.filter(
+          (tab) =>
+            tab.kind !== "app" ||
+            (tab.appId !== undefined &&
+              warmWorkspaceAppIds.includes(tab.appId)),
+        )}
         activeTabId={visibleChatFirstSurfaceTabIdValue}
         renderTab={renderChatFirstSurfaceTab}
       />

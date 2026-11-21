@@ -86,11 +86,11 @@ export type ChatFirstAppRouteRecord = {
  * closed or switched since the send, by the agent or the person, changes it.
  */
 export function chatFirstPaneSignature(snapshot: {
-  tabs: ReadonlyArray<{ id: string }>;
+  tabs: ReadonlyArray<{ id: string; path?: string; view?: string }>;
   activeTabId: string | null;
 }): string {
   return JSON.stringify([
     snapshot.activeTabId,
-    snapshot.tabs.map((tab) => tab.id),
+    snapshot.tabs.map((tab) => [tab.id, tab.path, tab.view]),
   ]);
 }

@@ -20,6 +20,7 @@ import { useTheme } from "next-themes";
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -28,6 +29,12 @@ import {
 import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
+import {
+  requestWorkspaceAppFrameView,
+  workspaceAppFramePath,
+  workspaceAppFramePathAtMount,
+  type WorkspaceAppFrameView,
+} from "../lib/workspace-app-frame-view";
 import {
   isWorkspaceAppHostPageUrl,
   isWorkspaceSsoApp,
@@ -305,6 +312,61 @@ export function WorkspaceAppChatRail({
   );
 }
 
+function navigateSameOriginWorkspaceApp(
+  frame: Window,
+  mountPath: string | null | undefined,
+  url: URL,
+): boolean {
+  const base = mountPath?.replace(/\/+$/, "");
+  if (!base || url.origin !== window.location.origin) return false;
+  try {
+    const current = new URL(frame.location.href);
+    if (
+      current.origin !== url.origin ||
+      (current.pathname !== base && !current.pathname.startsWith(`${base}/`))
+    ) {
+      return false;
+    }
+    const nextPath = workspaceAppFramePath(url);
+    if (workspaceAppFramePath(current) === nextPath) return true;
+    const index = frame.history.state?.idx;
+    const state = {
+      usr: null,
+      key: crypto.randomUUID(),
+      idx: typeof index === "number" ? index + 1 : 0,
+    };
+    frame.history.pushState(state, "", nextPath);
+    const FramePopStateEvent = (frame as Window & typeof globalThis)
+      .PopStateEvent;
+    frame.dispatchEvent(new FramePopStateEvent("popstate", { state }));
+    return true;
+  } catch {
+    // The iframe may have redirected away from the same-origin installation.
+    return false;
+  }
+}
+
+function readSameOriginWorkspaceAppView(
+  frame: Window,
+  mount: URL,
+): WorkspaceAppFrameView | null {
+  try {
+    const path = workspaceAppFramePathAtMount(
+      new URL(frame.location.href),
+      mount,
+    );
+    if (!path) return null;
+    return {
+      path,
+      title: frame.document.title,
+      selectedText: frame.getSelection()?.toString().trim(),
+    };
+  } catch {
+    // Access is denied after a cross-origin redirect.
+    return null;
+  }
+}
+
 export interface WorkspaceAppFrameApp {
   id: string;
   name: string;
@@ -314,12 +376,17 @@ export interface WorkspaceAppFrameApp {
   isDispatch?: boolean;
 }
 
+export type WorkspaceAppViewReader = (
+  signal: AbortSignal,
+) => Promise<WorkspaceAppFrameView | null>;
+
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
   navigateToTopWindow?: (href: string) => boolean | void;
   embedPath?: string;
   initialPath?: string;
   onChildRouteChange?: (path: string) => void;
+  onViewReaderChange?: (read: WorkspaceAppViewReader) => () => void;
   chatSidebar?: boolean;
   copy?: ChatFirstCopy;
 }
@@ -330,6 +397,7 @@ export function WorkspaceAppFrame({
   embedPath,
   initialPath,
   onChildRouteChange,
+  onViewReaderChange,
   chatSidebar = false,
   copy = defaultChatFirstCopy,
 }: WorkspaceAppFrameProps) {
@@ -341,6 +409,21 @@ export function WorkspaceAppFrame({
           document.documentElement.classList.contains("dark")
         ? "dark"
         : "light";
+  const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
+  const requestedPath = embedPath ?? initialPath;
+  const [launchPath, setLaunchPath] = useState(requestedPath);
+  const [appliedPath, setAppliedPath] = useState(requestedPath);
+  // A load can replace the document while leaving the public iframe URL and
+  // contentWindow proxy unchanged.
+  const [loadedDocument, setLoadedDocument] = useState<{ url: string } | null>(
+    null,
+  );
+  const pendingNavigation = useRef<{
+    controller: AbortController;
+    path: string;
+  } | null>(null);
+  const observedPath = useRef<string | null>(null);
+  const framePath = openInTopWindow ? requestedPath : launchPath;
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [isDirectFallback, setIsDirectFallback] = useState(false);
@@ -360,8 +443,12 @@ export function WorkspaceAppFrame({
       "*",
     );
     postThemeToFrame();
+    pendingNavigation.current?.controller.abort();
+    pendingNavigation.current = null;
+    observedPath.current = null;
+    setLoadedDocument(embedUrl ? { url: embedUrl } : null);
     if (isDirectFallback) setEmbedError(null);
-  }, [isDirectFallback, postThemeToFrame]);
+  }, [embedUrl, isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
   const useWorkspaceSso = workspaceSsoEnabled && isWorkspaceSsoApp(app);
   const createEmbedSession = useActionMutation<
@@ -391,24 +478,23 @@ export function WorkspaceAppFrame({
     url: appUrl,
     isDispatch: app.isDispatch ?? isDispatchWorkspaceAppId(app.id),
   });
-  const topWindowHref = useMemo(() => {
-    if (embedPath !== undefined) {
-      return workspaceAppDirectHref(
-        { path: app.path ?? null, url: appUrl },
-        embedPath,
-      );
-    }
-    if (initialPath !== undefined) {
-      return workspaceAppDirectHref(
-        { path: app.path ?? null, url: appUrl },
-        initialPath,
-      );
-    }
-
-    return appHref;
-  }, [app.path, appHref, appUrl, embedPath, initialPath]);
-  const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
-  const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${initialPath ?? ""}\u0000${embedAttempt}`;
+  const topWindowHref = useMemo(
+    () =>
+      requestedPath === undefined
+        ? appHref
+        : workspaceAppDirectHref(
+            { path: app.path ?? null, url: appUrl },
+            requestedPath,
+          ),
+    [app.path, appHref, appUrl, requestedPath],
+  );
+  const topWindowSsoAttemptKey = JSON.stringify([
+    app.id,
+    app.path,
+    app.url,
+    framePath,
+    embedAttempt,
+  ]);
   const topWindowSsoAttemptedRef = useRef<string | null>(null);
   // A same-origin workspace app already shares the workspace session cookie, so
   // framing it through an embed session makes it worse: an ordinary embed
@@ -421,7 +507,7 @@ export function WorkspaceAppFrame({
   // Keep the embedded presentation without the credential.
   const hostPageDirectUrl = useMemo(() => {
     if (!isHostPageUrl) return null;
-    const targetPath = embedPath ?? initialPath;
+    const targetPath = framePath;
     const href =
       targetPath !== undefined
         ? workspaceAppDirectHref(
@@ -433,14 +519,11 @@ export function WorkspaceAppFrame({
     // batching, and the plain app URL is what the existing direct fallback
     // already loads when a mint fails.
     return href || null;
-  }, [app.path, appHref, appUrl, embedPath, initialPath, isHostPageUrl]);
+  }, [app.path, appHref, appUrl, framePath, isHostPageUrl]);
 
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
-    if (embedPath !== undefined) {
-      return buildChatFirstEmbedSessionInput(app.id, embedPath);
-    }
-    if (initialPath !== undefined) {
-      return buildChatFirstEmbedSessionInput(app.id, initialPath);
+    if (framePath !== undefined) {
+      return buildChatFirstEmbedSessionInput(app.id, framePath);
     }
     if (!appHref) return null;
     if (isHostPageUrl) {
@@ -454,15 +537,7 @@ export function WorkspaceAppFrame({
       ...(appUrl?.trim() ? { url: appHref } : { path: appHref }),
       chrome: "minimal",
     };
-  }, [
-    app.homePath,
-    app.id,
-    appHref,
-    appUrl,
-    embedPath,
-    initialPath,
-    isHostPageUrl,
-  ]);
+  }, [app.homePath, app.id, appHref, appUrl, framePath, isHostPageUrl]);
 
   useEffect(() => {
     if (hostPageDirectUrl) return;
@@ -495,6 +570,8 @@ export function WorkspaceAppFrame({
   ]);
 
   useEffect(() => {
+    setLoadedDocument(null);
+    observedPath.current = null;
     if (hostPageDirectUrl) {
       setEmbedUrl(hostPageDirectUrl);
       setEmbedError(null);
@@ -555,10 +632,10 @@ export function WorkspaceAppFrame({
         }
         setIsDirectFallback(true);
         const fallbackHref =
-          initialPath !== undefined || embedPath !== undefined
+          framePath !== undefined
             ? workspaceAppDirectHref(
                 { path: app.path ?? "", url: appUrl },
-                initialPath ?? embedPath ?? "/",
+                framePath,
               )
             : appHref;
         setEmbedUrl(fallbackHref);
@@ -575,15 +652,108 @@ export function WorkspaceAppFrame({
     createEmbedSession.mutateAsync,
     createWorkspaceSsoEmbedSession.mutateAsync,
     embedInput,
-    embedPath,
+    framePath,
     hostPageDirectUrl,
-    initialPath,
     embedAttempt,
     openInTopWindow,
     navigateToTopWindow,
     topWindowSsoAttemptKey,
     topWindowNavigationFailed,
     useWorkspaceSso,
+  ]);
+
+  const reloadFrame = useCallback(() => {
+    pendingNavigation.current?.controller.abort();
+    pendingNavigation.current = null;
+    setLoadedDocument(null);
+    setLaunchPath(requestedPath);
+    setAppliedPath(requestedPath);
+    setEmbedAttempt((attempt) => attempt + 1);
+  }, [requestedPath]);
+
+  useEffect(
+    () => () => {
+      pendingNavigation.current?.controller.abort();
+      pendingNavigation.current = null;
+    },
+    [embedUrl],
+  );
+
+  const finishNavigation = useEffectEvent(
+    (route: string | undefined, accepted: boolean) => {
+      if (accepted) setAppliedPath(route);
+      else reloadFrame();
+    },
+  );
+
+  useEffect(() => {
+    const frame = embedFrameRef.current;
+    const target = frame?.contentWindow;
+    if (
+      openInTopWindow ||
+      !embedUrl ||
+      loadedDocument?.url !== embedUrl ||
+      !target ||
+      requestedPath === appliedPath ||
+      pendingNavigation.current
+    ) {
+      return;
+    }
+
+    const href =
+      requestedPath === undefined
+        ? appHref
+        : workspaceAppDirectHref(
+            { path: app.path, url: appUrl },
+            requestedPath,
+          );
+    if (!href) {
+      finishNavigation(requestedPath, false);
+      return;
+    }
+    const url = new URL(href, window.location.href);
+    const origin = new URL(embedUrl, window.location.href).origin;
+    if (url.origin !== origin) {
+      finishNavigation(requestedPath, false);
+      return;
+    }
+
+    const path = workspaceAppFramePath(url);
+    if (observedPath.current === path) {
+      finishNavigation(requestedPath, true);
+      return;
+    }
+    if (
+      hostPageDirectUrl &&
+      navigateSameOriginWorkspaceApp(target, app.path, url)
+    ) {
+      finishNavigation(requestedPath, true);
+      return;
+    }
+
+    const controller = new AbortController();
+    pendingNavigation.current = { controller, path };
+    void requestWorkspaceAppFrameView(
+      target,
+      origin,
+      { operation: "navigate", path },
+      controller.signal,
+    ).then((receipt) => {
+      if (pendingNavigation.current?.controller !== controller) return;
+      pendingNavigation.current = null;
+      if (frame !== embedFrameRef.current) return;
+      finishNavigation(requestedPath, receipt?.path === path);
+    });
+  }, [
+    app.path,
+    appHref,
+    appUrl,
+    appliedPath,
+    embedUrl,
+    hostPageDirectUrl,
+    loadedDocument,
+    openInTopWindow,
+    requestedPath,
   ]);
 
   useEffect(() => {
@@ -593,16 +763,16 @@ export function WorkspaceAppFrame({
       ) {
         return;
       }
-      setEmbedAttempt((attempt) => attempt + 1);
+      reloadFrame();
     };
 
     window.addEventListener("message", handleEmbedSessionExpired);
     return () =>
       window.removeEventListener("message", handleEmbedSessionExpired);
-  }, [embedUrl]);
+  }, [embedUrl, reloadFrame]);
 
   useEffect(() => {
-    if (!onChildRouteChange || !embedUrl) return;
+    if (!embedUrl) return;
 
     const frame = embedFrameRef.current;
     if (!frame) return;
@@ -627,21 +797,95 @@ export function WorkspaceAppFrame({
       } | null;
       if (
         message?.type !== AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE ||
-        typeof message.path !== "string"
+        typeof message.path !== "string" ||
+        !message.path.startsWith("/") ||
+        message.path.startsWith("//") ||
+        /[\u0000-\u001f\u007f]/.test(message.path)
       ) {
         return;
       }
 
+      const childUrl = new URL(message.path, expectedOrigin);
+      if (childUrl.origin !== expectedOrigin) return;
+      const childPath = workspaceAppFramePath(childUrl);
       const route = workspaceAppRouteForChildPath(
         { id: app.id, path: app.path ?? "", url: appUrl },
-        message.path,
+        childPath,
       );
-      if (route) onChildRouteChange(route);
+      if (!route) return;
+      observedPath.current = childPath;
+      if (
+        !pendingNavigation.current ||
+        pendingNavigation.current.path === childPath
+      ) {
+        onChildRouteChange?.(route);
+      }
     };
 
     window.addEventListener("message", handleWorkspaceAppRoute);
     return () => window.removeEventListener("message", handleWorkspaceAppRoute);
   }, [app.id, app.path, appUrl, embedUrl, onChildRouteChange]);
+
+  useEffect(() => {
+    if (!onViewReaderChange || !embedUrl || loadedDocument?.url !== embedUrl) {
+      return;
+    }
+    const frame = embedFrameRef.current;
+    const target = frame?.contentWindow;
+    const mountHref = workspaceAppDirectHref(
+      { path: app.path, url: appUrl },
+      "/",
+    );
+    if (!target || !mountHref) return;
+
+    const origin = new URL(embedUrl, window.location.href).origin;
+    const mount = new URL(mountHref, window.location.href);
+    if (mount.origin !== origin) return;
+
+    let current = true;
+    const unregister = onViewReaderChange(async (signal) => {
+      if (!current || signal.aborted || pendingNavigation.current) return null;
+      const read =
+        origin === window.location.origin
+          ? readSameOriginWorkspaceAppView(target, mount)
+          : await requestWorkspaceAppFrameView(
+              target,
+              origin,
+              { operation: "read" },
+              signal,
+            );
+      if (
+        !read ||
+        !current ||
+        signal.aborted ||
+        frame !== embedFrameRef.current ||
+        pendingNavigation.current
+      ) {
+        return null;
+      }
+      if (/[\u0000-\u001f\u007f]/.test(read.path)) return null;
+      const path = workspaceAppFramePathAtMount(
+        new URL(read.path, origin),
+        mount,
+      );
+      if (
+        !path ||
+        path.length > 2_000 ||
+        (observedPath.current && observedPath.current !== path)
+      ) {
+        return null;
+      }
+      return {
+        path,
+        title: read.title?.slice(0, 256),
+        selectedText: read.selectedText?.slice(0, 4_000),
+      };
+    });
+    return () => {
+      current = false;
+      unregister();
+    };
+  }, [app.path, appUrl, embedUrl, loadedDocument, onViewReaderChange]);
 
   useEffect(() => {
     if (!embedUrl) return;
@@ -748,12 +992,10 @@ export function WorkspaceAppFrame({
       }
       embedUrl={embedUrl}
       errorMessage={embedError?.message}
-      onRetry={
-        embedInput ? () => setEmbedAttempt((attempt) => attempt + 1) : undefined
-      }
+      onRetry={embedInput ? reloadFrame : undefined}
       renderEmbed={({ url, title }) => (
         <iframe
-          key={url + ":" + embedAttempt}
+          key={embedAttempt}
           data-dispatch-workspace-app-frame
           src={url}
           title={title ?? app.name}
@@ -914,6 +1156,7 @@ export function WorkspaceAppHost({
     >
       <div className="min-h-0 flex-1 bg-muted/20">
         <WorkspaceAppFrame
+          key={app.id}
           app={app}
           navigateToTopWindow={navigateToTopWindow}
           initialPath={initialPath}
@@ -925,6 +1168,36 @@ export function WorkspaceAppHost({
 }
 
 const MAX_KEEP_ALIVE_APPS = 3;
+
+export function useWarmWorkspaceAppIds(
+  scope: string,
+  activeQualifiedAppId: string | null,
+  availableQualifiedAppIds?: readonly string[],
+): readonly string[] {
+  const [pool, setPool] = useState<{ scope: string; ids: readonly string[] }>(
+    () => ({ scope, ids: [] }),
+  );
+  const retained = pool.scope === scope ? pool.ids : [];
+  const available = availableQualifiedAppIds
+    ? retained.filter((id) => availableQualifiedAppIds.includes(id))
+    : retained;
+  const next = activeQualifiedAppId
+    ? [
+        activeQualifiedAppId,
+        ...available.filter((id) => id !== activeQualifiedAppId),
+      ].slice(0, MAX_KEEP_ALIVE_APPS)
+    : available;
+
+  if (
+    pool.scope === scope &&
+    next.length === pool.ids.length &&
+    next.every((id, index) => id === pool.ids[index])
+  ) {
+    return pool.ids;
+  }
+  setPool({ scope, ids: next });
+  return next;
+}
 
 export function WorkspaceAppKeepAlive({
   activeAppId,
@@ -940,41 +1213,25 @@ export function WorkspaceAppKeepAlive({
   initialPath?: string;
   onChildRouteChange?: (path: string) => void;
 }) {
-  const [visitedAppIds, setVisitedAppIds] = useState<string[]>(() =>
-    activeAppId ? [activeAppId] : [],
-  );
-  // Remember the route each app was last shown at. Handing the deep path only to
-  // the active app would reset a neighbour to its home the moment another app
-  // becomes active, which is exactly what keep-alive exists to prevent.
-  const [pathByAppId, setPathByAppId] = useState<Record<string, string>>(() =>
-    activeAppId && initialPath !== undefined
-      ? { [activeAppId]: initialPath }
-      : {},
-  );
+  const warmAppIds = useWarmWorkspaceAppIds("standalone", activeAppId);
+  // Keep DOM order stable when recency changes. Moving a mounted iframe to
+  // another position can reload its browsing context even with a stable key.
+  const renderedAppIds = useMemo(() => [...warmAppIds].sort(), [warmAppIds]);
+  const [pathByAppId, setPathByAppId] = useState<
+    Record<string, string | undefined>
+  >({});
 
   useEffect(() => {
     if (!activeAppId) return;
-    setVisitedAppIds((current) =>
-      [activeAppId, ...current.filter((appId) => appId !== activeAppId)].slice(
-        0,
-        MAX_KEEP_ALIVE_APPS,
+    setPathByAppId((current) =>
+      Object.fromEntries(
+        warmAppIds.map((id) => [
+          id,
+          id === activeAppId ? initialPath : current[id],
+        ]),
       ),
     );
-  }, [activeAppId]);
-
-  useEffect(() => {
-    if (!activeAppId || initialPath === undefined) return;
-    setPathByAppId((current) =>
-      current[activeAppId] === initialPath
-        ? current
-        : { ...current, [activeAppId]: initialPath },
-    );
-  }, [activeAppId, initialPath]);
-
-  const renderedAppIds =
-    activeAppId && !visitedAppIds.includes(activeAppId)
-      ? [activeAppId, ...visitedAppIds]
-      : visitedAppIds;
+  }, [activeAppId, initialPath, warmAppIds]);
 
   return (
     <div
@@ -992,9 +1249,7 @@ export function WorkspaceAppKeepAlive({
           >
             <WorkspaceAppHost
               appId={appId}
-              {...(Object.hasOwn(pathByAppId, appId)
-                ? { initialPath: pathByAppId[appId] }
-                : {})}
+              initialPath={active ? initialPath : pathByAppId[appId]}
               {...(active && onChildRouteChange ? { onChildRouteChange } : {})}
             />
           </div>
