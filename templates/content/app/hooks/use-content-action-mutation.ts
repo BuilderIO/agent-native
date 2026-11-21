@@ -368,14 +368,20 @@ export function contentRowTargets(
 ): ContentQueryTarget[] {
   const branches = branchesListing(queryClient, documentIds);
   const parents = cachedParents(queryClient, documentIds, branches);
-  const folderParents = parents.filter(isLocalSourceDirectoryId);
+  const folders = withFolderAncestors(parents.filter(isLocalSourceDirectoryId));
+  const unplaced = branches.length === 0 && parents.length === 0;
   return [
     contentNavigationBranchFilter({
-      documentIds: [...documentIds, ...withFolderAncestors(folderParents)],
-      parentIds: folderParents,
+      documentIds: [...documentIds, ...folders],
+      parentIds: folders.length > 0 ? [...folders, null] : [],
+      databaseId:
+        branches
+          .map((branch) => branch.databaseId)
+          .find((id): id is string => typeof id === "string") ?? null,
       branches,
     }),
     contentNavigationContextFilter([...documentIds, ...parents]),
+    ...(unplaced ? [contentTopAndLocalFolderBranchesFilter(null)] : []),
   ];
 }
 

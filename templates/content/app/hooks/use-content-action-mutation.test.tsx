@@ -194,6 +194,24 @@ async function refetched() {
     .sort();
 }
 
+function mountFolderReads(folderReads: Array<[string, QueryKey, unknown]>) {
+  const fetched: string[] = [];
+  for (const [name, key, data] of folderReads) {
+    queryClient.setQueryData(key, data);
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn: async () => {
+        fetched.push(name);
+        return data;
+      },
+      staleTime: Infinity,
+      retry: false,
+    });
+    unsubscribes.push(observer.subscribe(() => {}));
+  }
+  return fetched;
+}
+
 async function renderHook<T>(hook: () => T) {
   const result: { current: T | null } = { current: null };
   function Harness() {
@@ -436,6 +454,65 @@ describe("sidebar writes refresh only the affected branch", () => {
     await refetched();
 
     expect(fetched.sort()).toEqual(["a", "ab", "top"]);
+  });
+
+  it("rename of a file whose folders no read lists rereads the top level, where a folder can appear", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const c = localSourceDirectoryId({ rootPath: "vault", path: "c" });
+    const fetched = mountFolderReads([
+      ["top", navigation(FILES, null), branch(c, "other")],
+      ["c", navigation(FILES, c), branch("c-file")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "hidden" }],
+      {
+        document: { id: "hidden" },
+        path: [
+          { id: a, parentId: null },
+          { id: ab, parentId: a },
+          { id: "hidden", parentId: ab },
+        ],
+      },
+    );
+    actionResponses["update-document"] = {
+      id: "hidden",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "hidden", title: "Renamed" }),
+    );
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["top"]);
+  });
+
+  it("rename of a page no cached read or path places rereads the top level and open linked folders", async () => {
+    const c = localSourceDirectoryId({ rootPath: "vault", path: "c" });
+    const fetched = mountFolderReads([
+      ["top", navigation(FILES, null), branch(c, "other")],
+      ["c", navigation(FILES, c), branch("c-file")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ]);
+    actionResponses["update-document"] = {
+      id: "nowhere",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "nowhere", title: "Renamed" }),
+    );
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["c", "top"]);
   });
 
   it("rename refreshes the path through the renamed page's parent, whose arrow can follow a name filter", async () => {
