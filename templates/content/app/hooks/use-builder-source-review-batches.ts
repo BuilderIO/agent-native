@@ -66,6 +66,15 @@ function reviewRowCount(work: ReviewBatchWork) {
   return work.response?.review?.rows.length ?? 0;
 }
 
+function shownBlocksPages(work: ReviewBatchWork) {
+  const rows = work.response?.review?.rows ?? [];
+  if (rows.length <= BUILDER_REVIEW_ROW_LIMIT) return work.blocksPages;
+  const shown = new Set(
+    rows.slice(0, BUILDER_REVIEW_ROW_LIMIT).map((row) => row.documentId),
+  );
+  return work.blocksPages.filter((page) => shown.has(page));
+}
+
 function limitedResponse(
   response: PreviewBuilderSourceReviewResponse | null,
 ): PreviewBuilderSourceReviewResponse | null {
@@ -86,9 +95,8 @@ function progressOf(
   if (!work.firstBatchLoaded) return null;
   if (!work.pagesListed) return { kind: "listing", pageCount: 0 };
   if (textPageCount > 0) return { kind: "loading", pageCount: textPageCount };
-  if (work.blocksPages.length > 0) {
-    return { kind: "confirming", pageCount: work.blocksPages.length };
-  }
+  const confirming = shownBlocksPages(work).length;
+  if (confirming > 0) return { kind: "confirming", pageCount: confirming };
   return null;
 }
 
@@ -312,7 +320,7 @@ export function useBuilderSourceReviewBatches(args: {
               : [
                   BUILDER_REVIEW_CONCURRENT_BLOCKS_BATCHES,
                   BUILDER_REVIEW_BLOCKS_BATCH_SIZE,
-                  work.blocksPages,
+                  shownBlocksPages(work),
                 ];
             if (landed.length - applied >= limit) return null;
             const pages = queue

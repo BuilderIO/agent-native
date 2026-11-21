@@ -443,6 +443,48 @@ describe("useBuilderSourceReviewBatches", () => {
     expect([...release.keys()]).toEqual(["doc-25", "doc-45"]);
   });
 
+  it("confirms only the pages of rows within the row limit", async () => {
+    const needsBlocks = new Set(pages(90, 130));
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      const ids = params.documentIds ?? [];
+      const reviewed = params.batchSize ? ids.slice(0, params.batchSize) : ids;
+      return response(
+        reviewed.map((id) => row(`c-${id}`, id)),
+        params.bodyComparison === "blocks"
+          ? {}
+          : {
+              blocksCheckDocumentIds: reviewed.filter((id) =>
+                needsBlocks.has(id),
+              ),
+              ...(params.batchSize
+                ? { remainingDocumentIds: ids.slice(params.batchSize) }
+                : {}),
+            },
+      );
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="selected"
+          documentIds={pages(0, 130)}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+
+    const confirmed = requests()
+      .filter((entry) => entry.bodyComparison === "blocks")
+      .flatMap((entry) => entry.documentIds ?? []);
+    expect(confirmed).toEqual(pages(90, BUILDER_REVIEW_ROW_LIMIT));
+    expect(latest.data?.review?.rows).toHaveLength(BUILDER_REVIEW_ROW_LIMIT);
+    expect(latest.moreRowsBeyondLimit).toBe(true);
+    expect(latest.progress).toBeNull();
+  });
+
   it("confirms blocks one batch of five at a time, after the text batches", async () => {
     let blocksInFlight = 0;
     let mostBlocksInFlight = 0;
