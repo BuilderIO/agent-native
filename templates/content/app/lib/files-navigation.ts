@@ -557,12 +557,18 @@ export function cachedFilesRootDocumentIds(
 export function cachedFilesSiblingDocumentIds(
   queryClient: Pick<QueryClient, "getQueriesData">,
   documentId: string,
-  activePath: readonly { id: string; parentId: string | null }[],
+  activePath: readonly {
+    id: string;
+    parentId: string | null;
+    databaseId: string | null;
+  }[],
 ): string[] {
-  const parentId = activePath.find(
-    (entry) => entry.id === documentId,
-  )?.parentId;
-  if (!parentId || !isLocalSourceDirectoryId(parentId)) return [];
+  const entry = activePath.find((candidate) => candidate.id === documentId);
+  const parentId = entry?.parentId;
+  const databaseId = entry?.databaseId;
+  if (!databaseId || !parentId || !isLocalSourceDirectoryId(parentId)) {
+    return [];
+  }
   const siblings = queryClient
     .getQueriesData<FilesNavigationRead>({
       queryKey: ["action", "query-content-database-items"],
@@ -571,7 +577,8 @@ export function cachedFilesSiblingDocumentIds(
           | Partial<FilesNavigationPageParams>
           | undefined;
         return (
-          params?.navigation?.parentId === parentId &&
+          params?.databaseId === databaseId &&
+          params.navigation?.parentId === parentId &&
           params.navigation.pagesOnly !== true
         );
       },

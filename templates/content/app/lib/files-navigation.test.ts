@@ -463,8 +463,10 @@ describe("cachedFilesSiblingDocumentIds", () => {
       page([row("today"), row("left-behind")]),
     );
     const pathTo = (documentId: string, parentId: string | null) => [
-      ...(parentId ? [{ id: parentId, parentId: null }] : []),
-      { id: documentId, parentId },
+      ...(parentId
+        ? [{ id: parentId, parentId: null, databaseId: FILES }]
+        : []),
+      { id: documentId, parentId, databaseId: FILES },
     ];
 
     expect(
@@ -487,6 +489,34 @@ describe("cachedFilesSiblingDocumentIds", () => {
         "inbox",
         pathTo("inbox", null),
       ),
+    ).toEqual([]);
+  });
+
+  it("leaves out the same folder's pages cached for another space's Files", () => {
+    const queryClient = new QueryClient();
+    const notes = "local-source-directory:vault:notes";
+    for (const [databaseId, rows] of [
+      [FILES, ["today", "yesterday"]],
+      ["other-files", ["elsewhere"]],
+    ] as const) {
+      queryClient.setQueryData(
+        filesNavigationQueryKey(
+          filesNavigationPageParams({ databaseId, parentId: notes }),
+        ),
+        page(rows.map((id) => row(id))),
+      );
+    }
+
+    expect(
+      cachedFilesSiblingDocumentIds(queryClient, "today", [
+        { id: notes, parentId: null, databaseId: FILES },
+        { id: "today", parentId: notes, databaseId: FILES },
+      ]),
+    ).toEqual(["yesterday"]);
+    expect(
+      cachedFilesSiblingDocumentIds(queryClient, "today", [
+        { id: "today", parentId: notes, databaseId: null },
+      ]),
     ).toEqual([]);
   });
 });
