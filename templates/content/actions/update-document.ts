@@ -66,6 +66,7 @@ import type {
   DocumentUpdateResponse,
   LiveCopyBodySave,
 } from "../shared/api.js";
+import { editorBlockIdsForSavedText } from "../shared/block-identity-ids.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
@@ -661,6 +662,15 @@ const updateDocumentAction = defineAction({
         "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
       ),
     editorSnapshotContent: z.string().optional(),
+    editorBlockIds: z
+      .object({
+        shape: z.string().min(1).max(100),
+        idsByPath: z.record(z.string().max(200), z.string().min(1).max(200)),
+      })
+      .optional()
+      .describe(
+        "The browser editor's block IDs by path, so links to its blocks survive the save",
+      ),
     browserSaveAttemptId: z
       .string()
       .min(1)
@@ -1042,6 +1052,7 @@ const updateDocumentAction = defineAction({
         args.content === undefined
           ? undefined
           : normalizeAuthoredContent(args.content);
+      const editorContent = content;
       const authoredCandidateContent =
         args.authoredCandidateContent === undefined
           ? undefined
@@ -1722,6 +1733,14 @@ const updateDocumentAction = defineAction({
             },
             afterWrite: async () => {
               if (lockedContentChanged && content !== undefined) {
+                const editorIds =
+                  args.editorBlockIds && editorContent !== undefined
+                    ? editorBlockIdsForSavedText({
+                        editorMarkdown: editorContent,
+                        savedMarkdown: content,
+                        ids: args.editorBlockIds,
+                      })
+                    : undefined;
                 for (const field of primaryBlocksFields) {
                   await persistBlocksFieldIdentity({
                     db: tx as unknown as ReturnType<typeof getDb>,
@@ -1730,6 +1749,7 @@ const updateDocumentAction = defineAction({
                     propertyId: field.propertyId,
                     previousMarkdown: historyBefore.content,
                     markdown: content,
+                    ...(editorIds ? { editorIds } : {}),
                     now: updatedAt,
                   });
                 }

@@ -15,6 +15,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@agent-native/toolkit/editor";
 import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import type { EditorBlockIds } from "@shared/block-identity-ids";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
 import { bodyHoldsChanges } from "@shared/document-intent-merge";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
@@ -127,6 +129,15 @@ import {
   AnalyticsChartPaste,
   type AnalyticsChartPasteOptions,
 } from "./analytics-chart/analytics-chart-paste";
+import {
+  blockLinkId,
+  blockLinkUrl,
+  editorDocBlockIds,
+  heldBlockLinkId,
+  useBlockIdentityStamps,
+  useLinkedBlockReveal,
+} from "./block-links";
+import type { BlockAt } from "./block-menu-registry";
 import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import { announceClipCancel } from "./clip-embed/clip-upload-notices";
@@ -166,6 +177,7 @@ import {
   runPersistableHistoryCommand,
 } from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
+import { BlockIdentityIds } from "./extensions/BlockIdentityIds";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock, DrawingCodeBlock } from "./extensions/CodeBlockNode";
 import {
@@ -1994,6 +2006,9 @@ interface VisualEditorProps {
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  blockLinks?: boolean;
+  linkedBlockId?: string | null;
+  onBlockIdentityIds?: (markdown: string, ids: EditorBlockIds) => void;
   /** Receives a reader for where the editor shows suggestions' words. */
   onSuggestionPlacementsChange?: (
     read: VisualEditorSuggestionPlacements | null,
@@ -3497,6 +3512,7 @@ export function createVisualEditorExtensions({
         isEdit: isLocalEditorEdit,
         canAssign: canMutateMedia,
       }),
+      BlockIdentityIds.configure({ isEdit: isLocalEditorEdit }),
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
         documentId,
@@ -3929,6 +3945,9 @@ export function VisualEditor({
   onSelectionControllerChange,
   onPersistenceControllerChange,
   onSuggestionPlacementsChange,
+  blockLinks = false,
+  linkedBlockId = null,
+  onBlockIdentityIds,
 }: VisualEditorProps) {
   const t = useT();
   const tRef = useRef(t);
@@ -4069,6 +4088,8 @@ export function VisualEditor({
   useEffect(() => () => clearTimeout(liveBodyParityTimerRef.current), []);
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
+  const onBlockIdentityIdsRef = useRef(onBlockIdentityIds);
+  onBlockIdentityIdsRef.current = onBlockIdentityIds;
   const onActivateThreadRef = useRef(onActivateThread);
   onActivateThreadRef.current = onActivateThread;
   const activeThreadIdRef = useRef(activeThreadId);
@@ -4520,6 +4541,10 @@ export function VisualEditor({
         scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
         sentContentRef.current.set(editorToPersist.state.doc, normalized);
+        onBlockIdentityIdsRef.current?.(
+          normalized,
+          editorDocBlockIds(editorToPersist.state.doc),
+        );
         if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
         if (
@@ -5044,6 +5069,70 @@ export function VisualEditor({
     });
     return () => onPersistenceControllerChange?.(null);
   }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
+
+  useBlockIdentityStamps({
+    editor,
+    documentId,
+    enabled: blockLinks && editable && !suggesting,
+  });
+  useLinkedBlockReveal({
+    editor,
+    documentId,
+    blockId: blockLinks ? linkedBlockId : null,
+    ready: collabSynced,
+    onDeleted: () => toast(tRef.current("editor.blockMenu.linkedBlockDeleted")),
+    onMissing: () =>
+      toast.error(tRef.current("editor.blockMenu.linkedBlockMissing")),
+  });
+  const copyBlockLink = useCallback(
+    (block: BlockAt) => {
+      if (!documentId) return;
+      const copy = async (id: string | null) => {
+        if (!id) {
+          toast.error(tRef.current("editor.blockMenu.linkNotReady"));
+          return;
+        }
+        if (await writeClipboardText(blockLinkUrl(documentId, id))) {
+          toast.success(tRef.current("editor.blockMenu.linkCopied"));
+        } else {
+          toast.error(tRef.current("editor.blockMenu.copyLinkFailed"));
+        }
+      };
+      const held = heldBlockLinkId(editor.state.doc, block);
+      if (held) {
+        void copy(held);
+        return;
+      }
+      const canWrite = editable && !suggestingRef.current;
+      void blockLinkId({
+        editor,
+        block,
+        documentId,
+        stamp: canWrite,
+        save: canWrite
+          ? async () => {
+              if (bodyIsLiveCopy) await requestCollabSync?.();
+              else {
+                await persistEditorContent(editor, {
+                  immediate: true,
+                  userInitiated: true,
+                });
+              }
+            }
+          : undefined,
+      }).then(copy, () =>
+        toast.error(tRef.current("editor.blockMenu.linkNotReady")),
+      );
+    },
+    [
+      bodyIsLiveCopy,
+      documentId,
+      editable,
+      editor,
+      persistEditorContent,
+      requestCollabSync,
+    ],
+  );
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
@@ -6256,6 +6345,7 @@ export function VisualEditor({
           documentId={documentId}
           editor={editor}
           onComment={onComment}
+          onCopyLink={blockLinks && documentId ? copyBlockLink : undefined}
           onTurnTableIntoCollection={
             documentId && !directoryWidgetEditing
               ? turnTableIntoCollection
