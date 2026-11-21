@@ -9829,6 +9829,51 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.textContent).not.toContain("private provider details");
   });
 
+  it("keeps a verification-failed prompt through reconnect and permits retry", async () => {
+    const startRun = vi
+      .fn<AgentTransport["startRun"]>()
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error("Thread history cannot be verified. Retry shortly."),
+          { status: 409, code: "thread_history_unavailable", retryable: true },
+        ),
+      )
+      .mockResolvedValueOnce({ runId: "retried-run" });
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun);
+    const loadThread = vi.spyOn(client, "loadThread");
+    await mount(baseProps({ showModelSelector: false }));
+    const composer = chatMocks.composerProps.composerRef.current;
+    const prompt = "do I have any GitHub notifications from humans?";
+    await act(async () => composer.setText(prompt));
+    const send = () =>
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+    await act(async () => send().click());
+    await flush();
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe(prompt);
+    const reconnect = container.querySelector<HTMLButtonElement>(
+      '[data-error-code="thread_history_unavailable"] button',
+    );
+    expect(reconnect).not.toBeNull();
+    loadThread.mockClear();
+    await act(async () => {
+      reconnect?.click();
+      await vi.waitFor(() => expect(loadThread).toHaveBeenCalled());
+    });
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe(prompt);
+    await act(async () => send().click());
+    await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+    await client.shutdown();
+  });
+
   it("handles a retryable Implement Plan start failure without an unhandled rejection", async () => {
     const unhandledRejections: unknown[] = [];
     const onUnhandledRejection = (error: unknown) => {
