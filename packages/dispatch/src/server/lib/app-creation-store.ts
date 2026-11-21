@@ -38,6 +38,7 @@ import {
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
   normalizeBuilderAgentAttachments,
+  resolveBuilderRequestAuthorization,
   runBuilderAgent,
   type BuilderAgentAttachment,
 } from "@agent-native/core/server";
@@ -110,7 +111,7 @@ const AUTONOMOUS_WORKSPACE_APP_CREATION_CONTRACT = [
   "- This is a background implementation run launched by the turn-into-app workflow. Treat the source brief and latest user request as authorization to build the app now; do not return a proposal or wait for another turn.",
   "- Do not ask the user questions during the initial build and do not invoke a clarification, guided-question, or choice flow for a non-blocking decision.",
   "- If the confirmed source brief describes a spreadsheet source-review or input/output confirmation surface, implement that review UI as part of the first-run app experience and seed it with the bounded candidates and mapping; keep the background build autonomous and do not send a question back from the Builder run.",
-  "- When the source or a tool presents a recommended option, choose it and continue. When no recommendation is present, choose the most direct, conservative default supported by the source and normal Agent-Native conventions.",
+  "- Use the source recommendation as evidence. Compare two or three concrete UX options and record the choice and rejected options in DESIGN.md.",
   "- Resolve product, visual, copy, layout, route, data-model, dependency, and integration choices yourself. If an input is missing, use an empty state or clearly labeled representative sample so the workflow is demonstrable; never invent private facts or credentials.",
   "- Treat the source brief's unknowns and follow-up items as assumptions to record in the app README or a visible Assumptions / Review section, not as questions to send back to the user.",
   "- If a nonessential integration or provider is unavailable, build the supported boundary and leave a precise setup note; do not stop to ask which equivalent to use.",
@@ -3354,15 +3355,15 @@ function buildWorkspaceAppPrompt(input: {
       `App description: ${appDescription}`,
       `Template to start from: ${input.template || "chat"}`,
       `User prompt: ${input.prompt.trim()}`,
-      "If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.",
+      "Treat named products as workflow inspiration unless the user explicitly asks to connect to them. Use product-neutral design patterns and require third-party credentials only for a requested integration.",
       selectedKeys.length
         ? `Dispatch vault keys selected for this app: ${selectedKeys.join(", ")}`
         : "Dispatch vault keys selected for this app: none",
       `Dispatch workspace resources selected for this app:\n${resourceList}`,
       `Dispatch workspace resources with scope=all are global. After the app exists, sync workspace resources to appId "${appId}" so global skills, guardrail instructions, and reference resources reach the new app even when no per-app resources were selected.`,
       "",
-      `Use the workspace app layout: create it under apps/${appId}; Dispatch mounts it at /apps/${appId}. Keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
-      `Important routing rule: from outside the app, link to /apps/${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/apps/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs.`,
+      `Use the workspace app layout: create it under apps/${appId}; Dispatch mounts it at /${appId}. Keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
+      `Important routing rule: from outside the app, link to /${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs.`,
       `Home route contract: Dispatch opens the registered app.homePath. If the main screen is app/routes/_index.tsx and there is no app/routes/home.tsx or app/routes/_app.home.tsx, set app.homePath to "/" in server/plugins/config.ts. If the app uses a /home route, keep the default "/home". Never leave the registry pointing at /home when that route does not exist.`,
       "Existing first-party apps are neighbors, not implementation details for this app. If the user prompt mentions Mail, Calendar, Analytics, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, and Analytics already exist at https://mail.agent-native.com, https://calendar.agent-native.com, and https://analytics.agent-native.com.",
       `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
@@ -3383,9 +3384,15 @@ function buildWorkspaceAppPrompt(input: {
       "- Optimistic UI for every mutation: update the React Query cache immediately, navigate immediately, run the mutation in the background, roll back on error. Don't await a server round-trip before re-rendering.",
       `- Commit an agent-native.json at apps/${appId}/agent-native.json with { "version": 1, "onboarding": { "firstRun": { "development": "off", "production": "connect-and-integrations" } } }, as the first-party templates do, so local runs open straight into the app. Keep the shared Use Builder.io / Add your own keys onboarding for production; never build a second, custom credential form or hardcode a provider key.`,
       "- Every AI-labeled button must call sendToAgentChat with openSidebar: true — plus submit: true for one-click work, or submit: false when the user should review/edit the proposed prompt first. Keep follow-ups in that same sidebar thread; don't add a second freeform input beside the result. Never use sparkle, wand, magic, robot, or other decorative AI icons on those buttons — a message or neutral action icon, or no icon, instead.",
-      "- Choose a named visual direction in DESIGN.md before styling the first screen and build to it. Don't inherit a sibling app's palette unbuilt.",
       '- Left navigation must name real domain destinations, not "Chat" as the only or default entry.',
       "- Anything irreversible — approving, publishing, sending, deleting — must show an explicit confirmation step before it executes. Never default to auto-approve or auto-send just because the workflow could run unattended.",
+      "",
+      "Run the five stages in .agents/skills/app-quality-bar/SKILL.md:",
+      "1. Choose 1–2 patterns from app-quality-bar/patterns/ that fit the user's primary task.",
+      `2. Write apps/${appId}/DESIGN.md before styling. It is the required design contract. Record direction, tokens, density, type scale, keyboard map, routes, state behavior, and the chosen and rejected UX options.`,
+      `3. Register apps/${appId}/app.manifest.ts with actual screens, entities, viewPolicy, and suggestableCapabilities. Implement view-screen, truthful navigate, and realtime useDbSync when other actors can change visible work.`,
+      "4. Apply the 12-row rubric and automatic fails linked from .agents/skills/turn-into-app/references/review-loop.md to signed-in screenshots. Give a blind reviewer only the screenshots, rubric, and brief. Keep the lower score in each row, fix findings, and recapture. Require mean 4.0 or higher, each row at least 3, and zero automatic fails.",
+      "5. Run the 60-second automated Playwright walkthrough in app-quality-bar: empty, populated, narrow split pane at 520 px or less, and error with retry. Click every nav item, create and edit a fixture, reload and read it back, and exercise three manifest-driven chat prompts. Fail on visible Loading..., native alert/confirm/prompt, or unexpected full-page reloads. Keep readiness pending if verification or blind review is unavailable.",
       "",
       "Branch readiness requirements before handing off:",
       "- The CLI auto-fills package.json name and displayName from the app id; only edit the description / scripts / dependencies if the app actually needs more than the template provides.",
@@ -3596,6 +3603,37 @@ export type StartWorkspaceAppCreationResult =
   | AppCreationLocalAgentResult
   | AppCreationComingSoonResult
   | AppCreationBuilderResult;
+
+function isBuilderEmailLookupFailure(
+  error: unknown,
+): error is Error & { builderStatus: number } {
+  return (
+    error instanceof Error &&
+    "builderStatus" in error &&
+    [400, 403, 404, 422].some((status) => status === error.builderStatus) &&
+    error.message.trim().replace(/\.$/, "").toLowerCase() ===
+      "user not found for the provided email"
+  );
+}
+
+async function startWorkspaceBuilderBranch(
+  args: Parameters<typeof runBuilderAgent>[0],
+) {
+  try {
+    return await runBuilderAgent(args);
+  } catch (error) {
+    if (!isBuilderEmailLookupFailure(error)) throw error;
+    if (error.builderStatus === 403 || error.builderStatus === 404) throw error;
+
+    const workspaceAuthorization = await resolveBuilderRequestAuthorization({
+      requiredScope: "builder:agents:run",
+    });
+    const userId = workspaceAuthorization?.userId;
+    if (!userId) throw error;
+    const { userEmail: _requesterEmail, ...run } = args;
+    return runBuilderAgent({ ...run, userId });
+  }
+}
 
 export async function startWorkspaceAppCreation(input: {
   prompt: string;
@@ -3811,9 +3849,9 @@ export async function startWorkspaceAppCreation(input: {
   };
   try {
     result = normalizeBuilderRunResult(
-      await runBuilderAgent({
+      await startWorkspaceBuilderBranch({
         prompt,
-        attachments: input.attachments,
+        ...(input.attachments ? { attachments: input.attachments } : {}),
         projectId: builderProjectId,
         userEmail: currentOwnerEmail(),
       }),
@@ -3832,8 +3870,9 @@ export async function startWorkspaceAppCreation(input: {
       projectId: builderProjectId,
       err,
       fallbackDetail: "Builder could not start the app branch",
-      builderErrorMessage:
-        "Builder could not start the app branch. This is usually temporary — try again.",
+      builderErrorMessage: isBuilderEmailLookupFailure(err)
+        ? "Builder could not match your email to an account in the connected space. Ask a workspace admin to check the connected account and space membership."
+        : "Builder could not start the app branch. This is usually temporary — try again.",
     });
   }
 

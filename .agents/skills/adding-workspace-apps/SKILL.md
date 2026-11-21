@@ -106,6 +106,10 @@ report the app as created while the preview still shows something else.
 
 ## Finishing A Chat-Template App
 
+Run the five stages in `app-quality-bar`. Refine the scaffold's `DESIGN.md`
+and `app.manifest.ts` around the actual workflow, and exercise both review
+gates against the mounted preview before reporting readiness.
+
 When using the chat template, treat it as scaffolding only. The finished app
 must be branded as the requested app, with its own home screen, navigation,
 package metadata, manifest, and domain workflow. Do not leave visible
