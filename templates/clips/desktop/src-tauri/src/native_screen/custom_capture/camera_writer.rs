@@ -430,7 +430,8 @@ impl Shared {
             unsafe { CFRetain(clock) };
             camera.clock = clock;
         }
-        this.sync_clock.store(camera.clock as usize, Ordering::SeqCst);
+        this.sync_clock
+            .store(camera.clock as usize, Ordering::SeqCst);
         // Kept only if nothing closed the track while it started; checked
         // under the slot's lock, which `close` takes after setting `closing`,
         // so a session is either in the slot when it empties it or never kept.
