@@ -469,17 +469,38 @@ function builderPreviewReturnOrigin(): string {
   return "";
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      hostname === "127.0.0.1" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    // coercion-ok: an unreadable origin is treated as hosted.
+    return false;
+  }
+}
+
 export function resolveOAuthReturnOrigin(input: {
   previewOrigin: string;
   workspaceGatewayReturnOrigin: string;
   userAgent: string;
+  currentOrigin: string;
 }): string {
+  // Every Electron browser (T3 Code's, an editor's) reports Electron in its
+  // user agent, so the desktop gateway return only applies to a page the local
+  // gateway serves. A hosted page signs in back to itself.
+  const desktopGatewayReturn =
+    (isAgentNativeDesktop(input.userAgent) ||
+      isBuilderDesktop(input.userAgent)) &&
+    isLoopbackOrigin(input.currentOrigin);
   return (
     input.previewOrigin ||
     input.workspaceGatewayReturnOrigin ||
-    (isAgentNativeDesktop(input.userAgent) || isBuilderDesktop(input.userAgent)
-      ? BUILDER_DESKTOP_RETURN_ORIGIN
-      : "")
+    (desktopGatewayReturn ? BUILDER_DESKTOP_RETURN_ORIGIN : "")
   );
 }
 
@@ -487,12 +508,14 @@ export function oauthReturnTarget(
   target: string,
   workspaceGatewayReturnOrigin: string,
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  currentOrigin = typeof window === "undefined" ? "" : window.location.origin,
 ): string {
   const path = normalizeOAuthReturnPath(target);
   const origin = resolveOAuthReturnOrigin({
     previewOrigin: builderPreviewReturnOrigin(),
     workspaceGatewayReturnOrigin,
     userAgent,
+    currentOrigin,
   });
   return origin ? origin + path : path;
 }
