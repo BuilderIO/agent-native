@@ -292,6 +292,8 @@ export function LibraryGrid({
   const filterHidden = filterSummary?.counts.hiddenByPinned ?? 0;
   const filtering = filterable && !libraryFilter.isDefault;
   const filterInUse = filtering || (filterable && filterHidden > 0);
+  const showAllSources = () =>
+    libraryFilter.setState(withLibrarySource(libraryFilter.state, "all"));
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -828,31 +830,22 @@ export function LibraryGrid({
                     icon={IconPhoto}
                     title={t("navigation.screenshots")}
                   />
-                ) : filterInUse ? (
+                ) : filtering ? (
                   <AppEmptyState
                     icon={IconFilter}
                     title={t("libraryFilters.emptyTitle")}
                     description={t("libraryFilters.emptyBody")}
                     content={
                       <div className="flex flex-wrap justify-center gap-2">
-                        {filtering ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={libraryFilter.clear}
-                          >
-                            {t("libraryFilters.clear")}
-                          </Button>
-                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={libraryFilter.clear}
+                        >
+                          {t("libraryFilters.clear")}
+                        </Button>
                         {filterHidden > 0 ? (
-                          <Button
-                            size="sm"
-                            onClick={() =>
-                              libraryFilter.setState(
-                                withLibrarySource(libraryFilter.state, "all"),
-                              )
-                            }
-                          >
+                          <Button size="sm" onClick={showAllSources}>
                             {t("libraryFilters.showAll")}
                           </Button>
                         ) : null}
@@ -860,10 +853,23 @@ export function LibraryGrid({
                     }
                   />
                 ) : (
+                  // Library's own view with nothing recorded in Clips: its usual
+                  // empty state, plus a way to the Content uploads it hides.
                   <EmptyState
                     kind={resolvedEmptyKind}
                     spaceId={spaceId}
                     folderId={folderId}
+                    extra={
+                      filterHidden > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={showAllSources}
+                        >
+                          {t("libraryFilters.showAll")}
+                        </Button>
+                      ) : undefined
+                    }
                   />
                 )
               ) : (

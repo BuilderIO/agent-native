@@ -85,6 +85,8 @@ interface EmptyStateProps {
   spaceId?: string | null;
   folderId?: string | null;
   onCtaClick?: () => void;
+  /** Shown under the empty state's own actions. */
+  extra?: ReactNode;
 }
 
 export function EmptyState({
@@ -92,6 +94,7 @@ export function EmptyState({
   spaceId,
   folderId,
   onCtaClick,
+  extra,
 }: EmptyStateProps) {
   const navigate = useNavigate();
   const t = useT();
@@ -147,7 +150,16 @@ export function EmptyState({
       icon={Icon}
       title={t(`empty.${kind}.title`)}
       description={t(`empty.${kind}.body`)}
-      content={content}
+      content={
+        extra ? (
+          <div className="flex flex-col items-center gap-2">
+            {content}
+            {extra}
+          </div>
+        ) : (
+          content
+        )
+      }
     />
   );
 }
