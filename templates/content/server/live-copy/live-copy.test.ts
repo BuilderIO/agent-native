@@ -26,6 +26,7 @@ import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import * as nfm from "../../shared/nfm.js";
+import { firstRow } from "../lib/first-row.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -2548,6 +2549,80 @@ describe("a server rewrite of a switched page's body", () => {
   });
 });
 
+describe("the block menu's Move to, on a switched page", () => {
+  async function append(id: string, blocks: string) {
+    return asOwner(() =>
+      writer.appendContentLiveCopyBlocks(id, {
+        cause: { operation: "append-to-document" },
+        blocks,
+      }),
+    );
+  }
+
+  it("adds the blocks after the page's last block, so the page stays switched", async () => {
+    await switchedPage("append", "Keep");
+
+    await expect(append("append", "Moved")).resolves.toBe(true);
+
+    await expect(page("append")).resolves.toMatchObject({
+      content: "Keep\nMoved",
+    });
+    expect(await gateFor("append")).toEqual({ writePath: "live_copy" });
+  });
+
+  it("adds a block again after another move of the same block commits first", async () => {
+    await switchedPage("append-twice", "Keep");
+    const spy = peerCommitsAfterBuild("append-twice", "Keep\nMoved");
+    try {
+      await expect(append("append-twice", "Moved")).resolves.toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+
+    await expect(page("append-twice")).resolves.toMatchObject({
+      content: "Keep\nMoved\nMoved",
+    });
+  });
+
+  it("fills an empty page with the blocks, rather than adding them after its empty paragraph", async () => {
+    await switchedPage("append-empty", "");
+
+    await expect(append("append-empty", "Moved")).resolves.toBe(true);
+
+    await expect(page("append-empty")).resolves.toMatchObject({
+      content: "Moved",
+    });
+  });
+
+  it("refuses a video whose id a commit gave the page after the move read it", async () => {
+    const video = `<video src="https://example.com/a.mp4" id="video-shared01"></video>`;
+    await switchedPage("append-video", "Keep");
+    const spy = peerCommitsAfterBuild("append-video", `Keep\n${video}`);
+    try {
+      await expect(append("append-video", video)).rejects.toMatchObject({
+        errorCode: "DOCUMENT_VIDEO_ID_SHARED",
+        statusCode: 422,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    await expect(page("append-video")).resolves.toMatchObject({
+      content: `Keep\n${video}`,
+    });
+  });
+
+  it("answers false for a page that isn't switched, which takes the legacy path", async () => {
+    await insertPage("append-unswitched", "Keep");
+
+    await expect(append("append-unswitched", "Moved")).resolves.toBe(false);
+
+    await expect(page("append-unswitched")).resolves.toMatchObject({
+      content: "Keep",
+    });
+  });
+});
+
 describe("a version restore on a switched page", () => {
   async function restore(
     id: string,
@@ -4224,9 +4299,25 @@ describe("a SQL body write to a switched page", () => {
 
   async function cliUpdate(id: string, content: string) {
     const action = (await import("../../actions/update-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    const base = firstRow(
+      await getDb()
+        .select({
+          content: schema.documents.content,
+          bodyRevision: schema.documents.bodyRevision,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id)),
+    );
+    if (!base) throw new Error(`Page ${id} must exist before a CLI update.`);
     return asOwner(async () =>
       action.run(
-        { id, content } as never,
+        {
+          id,
+          content,
+          baseRevision: documentRevisionToken(base.bodyRevision, base.content),
+        } as never,
         { caller: "cli", userEmail: OWNER } as never,
       ),
     );

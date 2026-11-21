@@ -52,8 +52,8 @@ export function useNavigationState() {
           : pathname === "/sign-in"
             ? "sign-in"
             : pathname.replace(/^\/+/, ""),
-      // Optional semantic alias. Raw query params are already exposed in
-      // <current-url> and controllable with set-search-params.
+      // Optional semantic alias. Query keys the app declares in
+      // `urlQueryKeys` are already in <current-url>; set-search-params edits them.
       label: searchParams.get("label"),
     }),
     getCommandPath: (command: any) =>
@@ -88,7 +88,7 @@ const navigation = await readAppState("navigation");
 Keep text-selection ranges and excerpts in the tab-scoped `selection` key, not
 in `navigation`.
 
-Raw URL query params are already synced by the framework to `__url__` and shown to the built-in agent as `<current-url>`. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
+The framework syncs the URL to `__url__` and shows it to the built-in agent as `<current-url>`, but a query value reaches the agent only when the app declares its key: pass `urlQueryKeys` to `AgentSidebar` (exact names and `prefix*` patterns, for example `["range", "f_*"]`) for every key `view-screen` reads. The agent still sees the name of any other key, with its value redacted. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
 
 Keep `application_state` values small. Do not store pasted files, base64 images,
 recording chunks, screenshots, or other large blobs in navigation or app-state
@@ -162,7 +162,7 @@ mode must skip with `data-agent-select-ignore`.
 
 ### 2. Current URL (`__url__` key)
 
-`AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn.
+`AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn. Query values are redacted unless the app declares their keys with `urlQueryKeys`, and the hash is scrubbed.
 
 Use this for URL-reachable filters and search state. The agent can update it with the built-in `set-search-params` and `set-url-path` tools; do not duplicate the whole query string into `navigation`.
 
@@ -228,6 +228,28 @@ await writeAppStateForCurrentTab("navigate", {
   threadId: "abc123",
 });
 ```
+
+**Agents keep the user's view.** Every agent caller counts — built-in chat,
+MCP, WebMCP, A2A (`isAgentCaller(ctx)`), not just `caller === "tool"`:
+
+- Reads never navigate: any read-only action writing `navigate` during an agent
+  call is refused at the app-state store.
+- Writes stay put by default: an agent write that tries to write `navigate`
+  without `intent: "open"` is refused. Use
+  `navigateAfterWrite(navigation, { ctx, intent })` when a write should open
+  its result for a person while skipping the move for an agent unless
+  `intent: "open"` is set (or set `allowsAgentNavigation: true` on an action
+  whose job is opening a UI).
+- Opening one item needs `intent: "open"`, set only when the user asked to see
+  it. `createNavigateAction()`, `defineAction()`, and the app-state store
+  enforce this by default for item ID fields (`id`, `*Id`) and detail paths
+  without per-app code; pass `isDetailView` to `createNavigateAction()` only
+  when an app needs custom matching. When a dispatched `navigate` action
+  (`actionName: "navigate"`) or `createNavigateAction()` is called by an agent
+  without `intent: "open"` and would move the user's view (for a detail item or
+  during/after agent writes), it keeps the current view and returns a
+  successful typed result (`{ kept: true, navigated: false, reason, currentView, message }`)
+  instead of throwing an error.
 
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
 dedupes `_writeId`, deletes consumed commands, and applies app-local routing.
@@ -327,6 +349,7 @@ The mail template demonstrates these patterns working together:
   navigation state when context is missing or stale
 - Don't hardcode navigation paths in scripts — read the current state and branch
 - Don't write to the `navigation` key from the agent — it belongs to the UI. Use `navigate` instead.
+- Don't move the user's view from a read or a write; open an item only when the user asked to see it.
 - Don't write both `navigate` and `__set_url__` for one app navigation; competing consumers can make the browser URL change before React Router commits the page.
 - Don't ignore the `<current-screen>` block — it tells you where the user is
 - Don't duplicate whole URL query strings into `navigation` when `<current-url>` already exposes them

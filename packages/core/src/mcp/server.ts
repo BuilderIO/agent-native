@@ -4,10 +4,13 @@ import {
   setResponseStatus,
   setResponseHeader,
   getMethod,
+  getQuery,
   getRequestHeader,
 } from "h3";
 
 import { getAppConfig } from "../app-config/store.js";
+import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   describeBearerCredentialRefusal,
@@ -19,7 +22,7 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isDirectLoopbackRequest } from "../server/loopback.js";
-import { registerMcpAppCardsLab } from "./app-cards-lab.js";
+import { warnIfRetiredInlineEnvSet } from "./app-cards.js";
 import { mcpApprovalRoute, mountMcpApprovalRoute } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
 import {
@@ -54,6 +57,12 @@ import {
   MCP_ROUTE_PREFIXES,
   joinMcpRoute,
 } from "./route-paths.js";
+import { recoverScriptWrites } from "./script-writes.js";
+import {
+  hasUserTurnActions,
+  isAgentTurnGrantContext,
+  MCP_TURN_GRANT_HEADER,
+} from "./turn-grant-scope.js";
 
 export { createMCPServerForRequest } from "./build-server.js";
 export {
@@ -65,6 +74,19 @@ export {
   selectMcpDirectoryWidgetWriteActions,
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
+
+// The URL parameter is for clients that can only be given a URL.
+function requestsScriptCatalogByQuery(event: H3Event): boolean {
+  try {
+    const catalog = getQuery(event).catalog;
+    return (
+      typeof catalog === "string" && catalog.trim().toLowerCase() === "script"
+    );
+  } catch {
+    // coercion-ok: an event without a readable URL asks for no catalog by query.
+    return false;
+  }
+}
 
 function deriveRequestMeta(event: H3Event): MCPRequestMeta {
   const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
@@ -107,9 +129,18 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     inlineAppsHeader === "1" ||
     inlineAppsHeader === "true" ||
     inlineAppsHeader === "yes";
+  const scriptCatalog =
+    getRequestHeader(event, "x-agent-native-mcp-catalog")
+      ?.trim()
+      .toLowerCase() === "script" || requestsScriptCatalogByQuery(event);
   const basePath = getConfiguredAppBasePath();
+  const turnGrant = getRequestHeader(event, MCP_TURN_GRANT_HEADER);
+  const browserTabId = readBrowserTabIdHeader(event);
   return {
     origin,
+    ...(turnGrant !== undefined ? { turnGrant } : {}),
+    ...(browserTabId ? { browserTabId } : {}),
+    ...(isAgentTurnGrantContext() ? { turnGrantExcluded: true } : {}),
     ...(basePath ? { basePath } : {}),
     target,
     transport: "http",
@@ -118,6 +149,7 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     ...(mcpRetryToken ? { mcpRetryToken } : {}),
     ...(fullCatalog ? { fullCatalog } : {}),
     ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
+    ...(scriptCatalog ? { scriptCatalog: true } : {}),
   };
 }
 
@@ -358,7 +390,7 @@ async function handleMcpRequestInternal(
   const requestMeta = deriveRequestMeta(event);
   const requestOrigin = getRequestHeader(event, "origin");
   const directLocalRequest =
-    isDirectLoopbackRequest(event) &&
+    isDirectLoopbackRequest(event, { behindDevProxy: true }) &&
     (requestOrigin === undefined || requestOrigin === requestMeta.origin);
   const localOwnerHint = directLocalRequest ? ownerEmailHeader : undefined;
   const hasLocalOwnerHint = Boolean(localOwnerHint?.trim());
@@ -454,7 +486,13 @@ async function handleMcpRequestInternal(
   const serverRequestMeta: MCPRequestMeta = {
     ...requestMeta,
     resolveEmbedRequestOrigin: () => resolveEmbedRequestOrigin(event),
-    approvalRoute,
+    // A turn-grant call's review opens on the app's own page, which reads the
+    // browser session the grant was minted from.
+    approvalRoute:
+      requestMeta.turnGrant !== undefined &&
+      hasUserTurnActions(config.productionActions ?? config.actions)
+        ? mcpApprovalRoute("")
+        : approvalRoute,
     ...(requestConfig.createLocalAgentTaskClient
       ? {
           localAgentTaskClient: requestConfig.createLocalAgentTaskClient(event),
@@ -538,7 +576,7 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
-  registerMcpAppCardsLab();
+  warnIfRetiredInlineEnvSet();
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
@@ -564,6 +602,29 @@ export function mountMCP(
       appPage: config.appApprovalPage === true,
     },
     routePrefix,
+  );
+  const approvalActions = config.productionActions ?? config.actions;
+  if (routePrefix === "/_agent-native" && hasUserTurnActions(approvalActions)) {
+    mountMcpApprovalRoute(
+      nitroApp,
+      {
+        appId: mcpApprovalAppId(config),
+        actions: approvalActions,
+        appPage: config.appApprovalPage === true,
+      },
+      "",
+    );
+  }
+  const scriptLedgerAppId = mcpApprovalAppId(config);
+  registerRecurringSweepHandler(
+    `mcp-script-ledger:${scriptLedgerAppId}`,
+    async ({ deadlineAt }) => {
+      await recoverScriptWrites({
+        appId: scriptLedgerAppId,
+        actions: config.productionActions ?? config.actions,
+        deadlineAt,
+      });
+    },
   );
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(

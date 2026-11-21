@@ -3,11 +3,174 @@ import { IconX } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../utils.js";
+import {
+  useFocusReturn,
+  FocusReturnScope,
+  useNativeTriggerRef,
+  rememberFocusReturn,
+  restoreFocusReturn,
+} from "./focus-return.js";
 import { ModalLayerProvider } from "./modal-layer.js";
 
-const Dialog = DialogPrimitive.Root;
+/**
+ * A dialog opened from a dropdown can leave the page dead.
+ *
+ * Radix applies a body scroll lock for a modal dialog and for an open menu. When
+ * a menu item opens a dialog and the menu's exit animation finishes after the
+ * dialog has closed, the menu's cleanup writes `pointer-events: none` back onto
+ * the body and nothing ever clears it: the page looks normal and every click on
+ * it does nothing. Measured in the automations data-table delete confirm (body
+ * `pointer-events: none` after Cancel, autos only if the dialog was deferred).
+ *
+ * Every dialog we render restores an unlocked body once it is closed and no other
+ * layer is open, so the order the locks unwind in stops mattering and callers can
+ * open a dialog straight from a menu item.
+ */
+export const DIALOG_POINTER_LOCK_RESTORE = "dialog-pointer-lock-restore";
 
-const DialogTrigger = DialogPrimitive.Trigger;
+function layerSelector(state: "open" | "closed"): string {
+  return [
+    '[role="dialog"]',
+    '[role="alertdialog"]',
+    '[role="menu"]',
+    '[role="listbox"]',
+    "[data-radix-popper-content-wrapper] ",
+  ]
+    .map((layer) => `${layer}[data-state="${state}"]`)
+    .join(",");
+}
+
+function openLayers(): number {
+  if (typeof document === "undefined") return 0;
+  // Only layers that are still open hold a lock. A menu that is animating out is
+  // not one: it has already released its lock and is exactly what writes the stale
+  // `pointer-events: none` this clears.
+  return document.querySelectorAll(layerSelector("open")).length;
+}
+
+/**
+ * The same unwinding leaves a second, quieter trap behind: focus.
+ *
+ * Radix returns focus to the trigger when a dialog closes. When the dialog was
+ * opened from a menu item, the trigger it returns to is a menu item inside a menu
+ * that is already closed, so the focused element ends up inside a subtree with
+ * `data-state="closed"`. The menu trigger then never sees the next press: measured
+ * on the served build, `document.activeElement` was the closed dialog's own input
+ * and the folder actions menu would not reopen until a reload, in two different
+ * apps. The body lock was already clean, so this is a separate leak.
+ *
+ * Only release it when nothing is open: a focused element inside a closed layer is
+ * always stale, but focus inside an open one belongs to the user.
+ */
+export function releaseStaleFocus() {
+  if (typeof document === "undefined") return;
+  if (openLayers() > 0) return;
+  const active = document.activeElement;
+  if (
+    !active ||
+    active === document.body ||
+    active === document.documentElement
+  )
+    return;
+  if (typeof (active as HTMLElement).closest !== "function") return;
+  // A closed layer, not any closed state: a popover or collapsible trigger is
+  // itself `data-state="closed"` exactly when focus has been rightly returned to it.
+  const stale = (active as HTMLElement).closest(layerSelector("closed"));
+  if (!stale) return;
+  if (restoreFocusReturn(rememberFocusReturn(stale))) return;
+
+  (active as HTMLElement).blur();
+  if (document.activeElement === active) {
+    (active as HTMLElement).blur();
+  }
+}
+
+export function releaseStaleBodyLock() {
+  if (typeof document === "undefined") return;
+  const body = document.body;
+  if (openLayers() > 0) return;
+  if (body.style.pointerEvents === "none") body.style.pointerEvents = "";
+  if (body.hasAttribute("data-scroll-locked")) {
+    body.removeAttribute("data-scroll-locked");
+    body.style.removeProperty("overflow");
+    body.style.removeProperty("padding-right");
+  }
+  // the focus leak is the same unwinding, one step behind the lock
+  releaseStaleFocus();
+}
+
+/**
+ * Clears what a closing layer can leave behind (body lock, stale focus). Shared
+ * by Dialog and AlertDialog.
+ */
+export function useDialogCloseCleanup(isOpen: boolean) {
+  React.useEffect(() => {
+    if (isOpen) {
+      // Most callers close a dialog by unmounting it (`{open ? <Dialog .../> :
+      // null}`), so the guard has to be the unmount itself, not a later render
+      // with open=false. Neither path may cancel these: the menu's cleanup is
+      // what writes the stale lock, and it can land after either one.
+      return () => {
+        for (const delay of [0, 150, 600]) {
+          window.setTimeout(() => {
+            releaseStaleBodyLock();
+            releaseStaleFocus();
+          }, delay);
+        }
+      };
+    }
+    // The unlock order depends on exit animations, so check again after them
+    // rather than once: the dialog's own cleanup, then the menu's.
+    for (const delay of [0, 150, 600]) {
+      window.setTimeout(releaseStaleBodyLock, delay);
+    }
+    return undefined;
+  }, [isOpen]);
+}
+
+const DialogModalContext = React.createContext(true);
+
+function Dialog({
+  open,
+  defaultOpen,
+  onOpenChange,
+  children,
+  modal = true,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(
+    defaultOpen ?? false,
+  );
+  const isOpen = open ?? uncontrolledOpen;
+  useDialogCloseCleanup(isOpen);
+  return (
+    <DialogPrimitive.Root
+      {...props}
+      modal={modal}
+      open={isOpen}
+      onOpenChange={(next) => {
+        if (open === undefined) setUncontrolledOpen(next);
+        onOpenChange?.(next);
+      }}
+    >
+      <FocusReturnScope>
+        <DialogModalContext.Provider value={modal}>
+          {children}
+        </DialogModalContext.Provider>
+      </FocusReturnScope>
+    </DialogPrimitive.Root>
+  );
+}
+Dialog.displayName = "Dialog";
+
+const DialogTrigger = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Trigger>
+>((props, ref) => {
+  const triggerRef = useNativeTriggerRef(ref);
+  return <DialogPrimitive.Trigger {...props} ref={triggerRef} />;
+});
+DialogTrigger.displayName = DialogPrimitive.Trigger.displayName;
 
 const DialogPortal = DialogPrimitive.Portal;
 
@@ -49,6 +212,7 @@ interface DialogContentProps extends React.ComponentPropsWithoutRef<
     typeof DialogPrimitive.Portal
   >["container"];
   closeLabel?: string;
+  closeDisabled?: boolean;
   overlayClassName?: string;
   overlayStyle?: React.CSSProperties;
 }
@@ -65,38 +229,59 @@ const DialogContent = React.forwardRef<
       motion = "default",
       container,
       closeLabel = "Close",
+      closeDisabled,
       overlayClassName,
       overlayStyle,
+      onCloseAutoFocus,
+      onFocusOutside,
       ...props
     },
     ref,
-  ) => (
-    <DialogPortal container={container}>
-      <DialogOverlay
-        motion={motion}
-        className={overlayClassName}
-        style={overlayStyle}
-      />
-      <DialogPrimitive.Content
-        ref={ref}
-        className={cn(
-          "fixed left-1/2 top-1/2 z-[280] grid max-h-[min(760px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-background p-6 text-foreground shadow-lg outline-none",
-          motion === "default" &&
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-          className,
-        )}
-        {...props}
-      >
-        <ModalLayerProvider value>{children}</ModalLayerProvider>
-        {!hideClose && (
-          <DialogPrimitive.Close className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-            <IconX className="h-4 w-4" />
-            <span className="sr-only">{closeLabel}</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
-    </DialogPortal>
-  ),
+  ) => {
+    const focusReturn = useFocusReturn(ref);
+    const modal = React.useContext(DialogModalContext);
+    return (
+      <DialogPortal container={container}>
+        <DialogOverlay
+          motion={motion}
+          className={overlayClassName}
+          style={overlayStyle}
+        />
+        <DialogPrimitive.Content
+          ref={focusReturn.ref}
+          onFocusOutside={(event) => {
+            onFocusOutside?.(event);
+            focusReturn.focusOutside(event, modal);
+          }}
+          onCloseAutoFocus={(event) => {
+            onCloseAutoFocus?.(event);
+            focusReturn.close(event);
+          }}
+          className={cn(
+            "fixed left-1/2 top-1/2 z-[280] grid max-h-[min(760px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overflow-x-hidden rounded-lg border border-border bg-background p-6 text-foreground shadow-lg outline-none",
+            motion === "default" &&
+              "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+            className,
+          )}
+          {...props}
+        >
+          <ModalLayerProvider value>{children}</ModalLayerProvider>
+          {!hideClose && (
+            <DialogPrimitive.Close
+              disabled={closeDisabled}
+              className={cn(
+                "absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                closeDisabled && "pointer-events-none opacity-50",
+              )}
+            >
+              <IconX className="h-4 w-4" />
+              <span className="sr-only">{closeLabel}</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    );
+  },
 );
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
@@ -167,3 +352,5 @@ export {
   DialogTitle,
   DialogDescription,
 };
+
+export { useFocusReturn } from "./focus-return.js";

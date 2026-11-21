@@ -2,6 +2,10 @@ mod accessibility;
 mod adhoc_meetings_watcher;
 mod call_activity;
 mod capture_audio_bus;
+#[cfg(target_os = "macos")]
+mod capture_pcm;
+#[cfg(target_os = "macos")]
+mod capture_stop;
 mod capture_graph;
 mod clips;
 mod config;
@@ -446,6 +450,8 @@ pub fn run() {
             if let Err(err) = rewind_clip::clear_preview_artifacts(app.handle()) {
                 eprintln!("[clips-tray] launch preview cleanup failed: {err}");
             }
+            #[cfg(target_os = "macos")]
+            native_screen::remove_leftover_rich_tracks(app.handle());
 
             #[cfg(target_os = "macos")]
             {
@@ -629,6 +635,8 @@ pub fn run() {
                 let models_freed = transcribe_engine::LOCAL_MODEL.shut_down(MODEL_QUIT_WAIT);
                 native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
+                #[cfg(target_os = "macos")]
+                native_screen::stop_rich_recording_on_exit(&state);
                 native_screen::kill_active_screencapture_child(&state);
                 mic_attribution::shutdown();
                 // ggml's Metal device is a C++ static whose destructor asserts

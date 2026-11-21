@@ -6,15 +6,22 @@ import {
   resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
 import {
+  injectedAgentNativeAppId,
+  injectedAgentNativeConfig,
+} from "@agent-native/core/client/app-config";
+import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
 } from "@agent-native/core/client/i18n";
+import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding/first-run-enabled";
 import { AgentNativeRouteWarmup } from "@agent-native/core/client/route-warmup";
 import {
   EMBEDDED_THEME_CHANGE_EVENT,
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
+  themeStorageKeyForApp,
 } from "@agent-native/core/client/theme";
+import { useThemeFamily } from "@agent-native/core/client/ui";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
 import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
@@ -31,7 +38,7 @@ import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute, useTheme } from "next-themes";
-import React, { useContext, useEffect, useRef } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
@@ -39,6 +46,7 @@ import {
   McpApprovalReviewGate,
   McpApprovalReviewSkeleton,
 } from "../mcp-approval/McpApprovalReview.js";
+import { getFirstRunFirstPaintScriptBody } from "../onboarding/first-run-first-paint.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 import {
   AppShellSkeleton,
@@ -56,10 +64,22 @@ import {
 import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
 import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 
+declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
+  typeof isFirstRunOnboardingEnabled
+>[1];
+import {
+  THEME_FAMILY_PENDING_ATTRIBUTE,
+  THEME_FAMILY_PREPAINT_STYLE,
+  themeFamilyPrepaintScript,
+} from "./theme-family-prepaint.js";
+
 export interface AppProvidersProps {
   queryClient: QueryClient;
 
   defaultTheme?: string;
+
+  /** localStorage key for the theme preference; defaults to the app's own key. */
+  themeStorageKey?: string;
 
   themeAttribute?: Attribute | Attribute[];
 
@@ -79,6 +99,8 @@ export interface AppProvidersProps {
 
   isPublicPath?: boolean;
 
+  automaticConsentPrompt?: boolean;
+
   clientOnlyFallback?: React.ReactNode;
 
   skeletonLayout?: AppShellSkeletonLayout;
@@ -92,6 +114,13 @@ export interface AppProvidersProps {
 
   /** Opt in to the app-specific, consented Builder signup experiment. */
   builderSignupExperiment?: string;
+  /**
+   * Exact hostnames where that experiment runs; elsewhere the startup gate
+   * makes no request. Omit to run it on every host.
+   */
+  builderSignupHostedHosts?: readonly string[];
+  /** App-owned first-run surface, rendered only after positive eligibility. */
+  firstRunOnboarding?: React.ReactNode;
 
   /**
    * Replaces the app with a hand-off notice on touch screens smaller than an
@@ -111,6 +140,8 @@ export interface AppProvidersProps {
   ownsDocument?: boolean;
 
   enableThemeFamily?: boolean;
+
+  holdThemeFamilyUntilResolved?: boolean;
 
   documentTitleFallback?: string;
 
@@ -158,6 +189,17 @@ function McpAppWidgetBootScript() {
   );
 }
 
+// Before the server-rendered skeleton paints, so a first-paint home never
+// shows to someone about to see the role question.
+function FirstRunFirstPaintScript() {
+  return (
+    <script
+      data-agent-native-first-run-first-paint="1"
+      dangerouslySetInnerHTML={{ __html: getFirstRunFirstPaintScriptBody() }}
+    />
+  );
+}
+
 function EarlySessionBootstrapScript() {
   const sessionPath = agentNativePath("/_agent-native/auth/session");
   // The document handler starts this read again from the top of <head>, where
@@ -172,6 +214,36 @@ function EarlySessionBootstrapScript() {
       }}
     />
   );
+}
+
+function AccountThemeFamilyPrepaintHold() {
+  return (
+    <>
+      <script
+        data-agent-native-theme-family-hold="1"
+        dangerouslySetInnerHTML={{ __html: themeFamilyPrepaintScript() }}
+      />
+      <style>{THEME_FAMILY_PREPAINT_STYLE}</style>
+    </>
+  );
+}
+
+function ReleaseThemeFamilyHoldForSessionState() {
+  const { status: sessionStatus } = useSession();
+  const { status: themeFamilyStatus } = useThemeFamily();
+
+  useLayoutEffect(() => {
+    if (
+      themeFamilyStatus !== "loading" ||
+      sessionStatus === "unauthenticated" ||
+      sessionStatus === "unavailable" ||
+      sessionStatus === "signing-out"
+    ) {
+      document.documentElement.removeAttribute(THEME_FAMILY_PENDING_ATTRIBUTE);
+    }
+  }, [sessionStatus, themeFamilyStatus]);
+
+  return null;
 }
 
 function RoutedAppEnhancements({
@@ -478,6 +550,7 @@ const CLIENT_ONLY_THEME_SCRIPT_PROPS = { type: "application/json" } as const;
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
+  themeStorageKey,
   themeAttribute = "class",
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
@@ -485,19 +558,23 @@ function ProvidersInner({
   disableWebMcp,
   webMcpExcludeActionNames,
   sessionBypass,
+  holdThemeFamilyUntilResolved = false,
   i18n,
   documentTitleFallback,
   showProductionEnvironmentBadge,
   showEnvironmentBadge,
   settingsShortcut,
   ownsDocument = true,
+  automaticConsentPrompt = true,
   clientOnly = false,
   children,
 }: {
   ownsDocument?: boolean;
+  automaticConsentPrompt?: boolean;
   clientOnly?: boolean;
   queryClient: QueryClient;
   defaultTheme?: string;
+  themeStorageKey?: string;
   themeAttribute?: Attribute | Attribute[];
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
@@ -505,6 +582,7 @@ function ProvidersInner({
   disableWebMcp: boolean;
   webMcpExcludeActionNames?: readonly string[];
   sessionBypass: boolean;
+  holdThemeFamilyUntilResolved?: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
@@ -512,25 +590,34 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner and the failure toasts read the app's locale, so they sit
-  // inside the same provider.
+  // The toaster shares the app's locale but must remain outside session gates.
+  const appContent = (
+    <>
+      {children}
+      {ownsDocument ? (
+        <ConsentBanner automaticPrompt={automaticConsentPrompt} />
+      ) : null}
+      <WriteFailureToaster />
+      {toaster}
+    </>
+  );
   const localizedChildren =
     i18n === false ? (
-      <>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
-      </>
+      appContent
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
-        {children}
-        {ownsDocument ? <ConsentBanner /> : null}
-        <WriteFailureToaster />
+        {appContent}
       </AgentNativeI18nProvider>
     );
 
+  const resolvedThemeStorageKey =
+    themeStorageKey ?? themeStorageKeyForApp(injectedAgentNativeAppId());
+
   const content = (
     <TooltipProvider delayDuration={tooltipDelayDuration}>
+      {holdThemeFamilyUntilResolved ? (
+        <ReleaseThemeFamilyHoldForSessionState />
+      ) : null}
       {!disableWebMcp && (
         <AgentNativeWebMcpActionRegistration
           requireSession={!sessionBypass}
@@ -546,7 +633,6 @@ function ProvidersInner({
       {showEnvironmentBadge ? (
         <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
       ) : null}
-      {toaster}
     </TooltipProvider>
   );
 
@@ -556,6 +642,7 @@ function ProvidersInner({
         <ThemeProvider
           attribute={themeAttribute}
           defaultTheme={defaultTheme}
+          storageKey={resolvedThemeStorageKey}
           enableSystem
           disableTransitionOnChange={disableThemeTransitions}
           scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
@@ -580,17 +667,21 @@ function publicPathI18n(
 export function AppProviders({
   queryClient,
   isPublicPath = false,
+  automaticConsentPrompt,
   clientOnlyFallback,
   skeletonLayout,
   sessionBypass = false,
   signedOutHref,
   skipFirstRunOnboarding = false,
   builderSignupExperiment,
+  builderSignupHostedHosts,
+  firstRunOnboarding,
   unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
   showEnvironmentBadge = false,
   defaultTheme,
+  themeStorageKey,
   themeAttribute,
   tooltipDelayDuration,
   toaster,
@@ -599,6 +690,7 @@ export function AppProviders({
   documentTitleFallback,
   ownsDocument = true,
   enableThemeFamily = true,
+  holdThemeFamilyUntilResolved: holdThemeFamilyUntilResolvedOverride,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? (
@@ -610,6 +702,7 @@ export function AppProviders({
       <ProvidersInner
         queryClient={queryClient}
         defaultTheme={defaultTheme}
+        themeStorageKey={themeStorageKey}
         themeAttribute={themeAttribute}
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
@@ -623,11 +716,25 @@ export function AppProviders({
         showEnvironmentBadge={showEnvironmentBadge}
         settingsShortcut={false}
         ownsDocument={ownsDocument}
+        holdThemeFamilyUntilResolved={false}
       >
         {children}
       </ProvidersInner>
     );
   }
+
+  const accountThemeFamilyDefaults =
+    holdThemeFamilyUntilResolvedOverride ??
+    Object.keys(
+      injectedAgentNativeConfig().themeFamily?.accountDefaultsByEmailDomain ??
+        {},
+    ).length > 0;
+  const holdThemeFamilyUntilResolved =
+    accountThemeFamilyDefaults &&
+    ownsDocument &&
+    enableThemeFamily &&
+    !sessionBypass &&
+    !unsupportedDevice;
 
   const sessionGated = (
     <RequireSession
@@ -652,13 +759,18 @@ export function AppProviders({
           {builderSignupExperiment ? (
             <BuilderSignupStartupGate
               experimentId={builderSignupExperiment}
+              hostedHosts={builderSignupHostedHosts}
               suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
+              appSurface={firstRunOnboarding}
             >
               {children}
             </BuilderSignupStartupGate>
           ) : (
             <FirstRunOnboardingStartupGate
               suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
+              appSurface={firstRunOnboarding}
             >
               {children}
             </FirstRunOnboardingStartupGate>
@@ -693,16 +805,28 @@ export function AppProviders({
   return (
     <>
       {ownsDocument ? <McpAppWidgetBootScript /> : null}
+      {holdThemeFamilyUntilResolved ? <AccountThemeFamilyPrepaintHold /> : null}
       {ownsDocument && !sessionBypass && (
         <>
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
+          {isFirstRunOnboardingEnabled(
+            (import.meta.env as
+              | Record<string, string | boolean | undefined>
+              | undefined) ?? {},
+            typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
+              ? {}
+              : __AGENT_NATIVE_APP_CONFIG__,
+          ) && !skipFirstRunOnboarding ? (
+            <FirstRunFirstPaintScript />
+          ) : null}
         </>
       )}
       <ClientOnly fallback={fallback}>
         <ProvidersInner
           queryClient={queryClient}
           defaultTheme={defaultTheme}
+          themeStorageKey={themeStorageKey}
           themeAttribute={themeAttribute}
           tooltipDelayDuration={tooltipDelayDuration}
           toaster={toaster}
@@ -716,7 +840,9 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
+          automaticConsentPrompt={automaticConsentPrompt}
           clientOnly
+          holdThemeFamilyUntilResolved={holdThemeFamilyUntilResolved}
         >
           {sessionBypass ? (
             gated

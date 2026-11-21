@@ -12,6 +12,7 @@ import type {
   AgentNativeHostContextGetter,
   AgentNativeHostSession,
 } from "./host-bridge.js";
+import { scrubUrl } from "./url-scrub.js";
 
 export interface AgentNativeWebMcpToolAnnotations {
   readOnlyHint?: boolean;
@@ -1320,15 +1321,16 @@ function createSession(
       : session && typeof session === "object"
         ? session
         : {};
+  const url =
+    base.url ||
+    (typeof window !== "undefined" ? window.location.href : undefined);
   return {
     id:
       base.id ||
       `webmcp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     connectedAt: base.connectedAt ?? new Date().toISOString(),
-    url:
-      base.url ||
-      (typeof window !== "undefined" ? window.location.href : undefined),
     ...base,
+    url: url ? scrubUrl(url) : undefined,
   };
 }
 

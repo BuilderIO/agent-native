@@ -1,6 +1,7 @@
 import type {
   AgentRequestContext,
   AgentTransport,
+  AgentToolCall,
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
@@ -18,9 +19,11 @@ import type {
   AgentSuggestionInput,
   ComposerContextMenuItem,
   ComposerContextSnapshot,
+  Reference,
 } from "@agent-native/toolkit/composer";
 import type {
   ComposerAgentOption,
+  ComposerEnterSubmitMode,
   ComposerImageModelMenu,
 } from "@agent-native/toolkit/composer/TiptapComposer";
 import type { ExportedMessageRepository } from "@assistant-ui/react";
@@ -212,6 +215,14 @@ export interface AssistantChatProps {
   isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
   contextNamespace?: string;
+  /**
+   * Composer context item keys this surface owns but does not render as chips.
+   * Hidden items stay in the submitted prompt with the same readiness, staging,
+   * namespace, and size validation as visible context. User context and
+   * attachments are never hidden unless the host names their key here.
+   * Default: undefined (render and submit every registered item).
+   */
+  hiddenComposerContextItemKeys?: readonly string[];
   /** Whether this chat owns the active visible composer context snapshot. */
   isActiveComposer?: boolean;
   /**
@@ -241,6 +252,19 @@ export interface AssistantChatProps {
     | "hidden";
   /** When suggestions become visible. Full-page chat can defer them until the agent has replied. */
   suggestionVisibility?: AssistantChatSuggestionVisibility;
+  /**
+   * How the row of suggestions above the composer lays out: one line that
+   * scrolls sideways, or wrapped onto as many lines as it needs. Default:
+   * "single-line".
+   */
+  suggestionLayout?: "wrap" | "single-line";
+  /**
+   * Called with true once the chat in view shows everything it opens with:
+   * its restored messages, whether it can chat, and its first suggestions.
+   * False while it still waits on one, so a host can hold one placeholder
+   * instead of showing each part as it lands.
+   */
+  onSettledChange?: (settled: boolean) => void;
   /** Optional content rendered as part of the conversation before persisted messages. */
   threadContentSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered at the bottom of the scrollable thread, after messages. */
@@ -249,6 +273,12 @@ export interface AssistantChatProps {
   emptyStateAddon?: React.ReactNode;
   /** Visual size for initial suggestion buttons in the empty state. Defaults to compact. */
   emptyStateSuggestionSize?: "compact" | "comfortable";
+  /** Optional initial-starter arrangement; follow-up suggestion controls keep their defaults. */
+  emptyStateSuggestionsLayout?: "wrap" | "single-line" | "stacked";
+  /** Host-owned decorative content inside an initial starter's existing submit button. */
+  renderEmptyStateSuggestion?: (
+    suggestion: Exclude<AgentSuggestionInput, string>,
+  ) => React.ReactNode;
   /** Optional content rendered in the empty state, below the suggestion
    *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;
@@ -260,6 +290,7 @@ export interface AssistantChatProps {
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   /** Optional duration text for the shared completed-work row. */
   formatWorkedForDuration?: (durationMs: number) => string;
+  composerDefaultModelLabel?: string | undefined;
   /** Whether to show the header bar. Default: true */
   showHeader?: boolean;
   /** CSS class for the outer container */
@@ -291,6 +322,21 @@ export interface AssistantChatProps {
   ) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  composerProviderSetupSlot?: React.ReactNode;
+  admitComposerMessage?: (input: {
+    text: string;
+    files: readonly File[];
+    references: readonly Reference[];
+    model?: string | undefined;
+    engine?: string | undefined;
+    validateScope: () => void;
+  }) => Promise<{ threadId: string }>;
+  onComposerAttachmentsChange?: (files: File[]) => void;
+  queuedComposerPlaceholder?: string;
+  stopButtonLabel?: string;
+  workingLabel?: string;
+  resolveToolStepLabel?: (tool: AgentToolCall) => string | undefined;
+  renderToolStepDetails?: (tool: AgentToolCall) => React.ReactNode;
   /** Optional shared context banner rendered above the composer input. */
   composerContextBannerSlot?: React.ReactNode;
   /** Optional renderer for the shared work-summary disclosure row. */
@@ -305,6 +351,13 @@ export interface AssistantChatProps {
   homeIntroSlot?: React.ReactNode;
   /** Optional content rendered below the composer on an empty chat. */
   afterComposerSlot?: React.ReactNode;
+  /**
+   * Chip skin for the built-in after-composer suggestions. The source renders
+   * those cards as 28px filled rows at ~6px radius, stacked one per row, so a
+   * host asking for "after-composer" placement passes "filled" to match it.
+   * Defaults to "pill" so every existing host keeps the same look.
+   */
+  afterComposerSuggestionsVariant?: "pill" | "filled";
   /**
    * Called with the active composer's current plain text when it initializes
    * and as it changes.
@@ -324,6 +377,10 @@ export interface AssistantChatProps {
   setupCardOwner?: "chat" | "host" | undefined;
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
+  /** Enable inline rich-text marks and links in the shared composer. Defaults to false. */
+  richTextEnabled?: boolean;
+  /** Text inserted between blocks and hard breaks when submitting. Defaults to a newline. */
+  textBlockSeparator?: string;
   /** Center the composer on a fresh empty chat instead of pinning it low. */
   centerComposerWhenEmpty?: boolean;
   /** Hide the default empty-state icon/text/suggestions for custom start screens. */
@@ -332,12 +389,20 @@ export interface AssistantChatProps {
   composerToolbarSlot?: React.ReactNode;
   /** Optional action rendered beside the voice/send controls. */
   composerExtraActionButton?: React.ReactNode;
+  /** Allow file input when storage is ready. Defaults to true. */
+  composerAttachmentsEnabled?: boolean;
+  /** Show app context menu and selection entries; staged context remains available. */
+  showContextPicker?: boolean;
   /** Show the framework model picker in the shared composer. Defaults to true. */
   showModelSelector?: boolean | undefined;
+  /** How Enter submits in the shared composer; defaults to generic chat behavior. */
+  enterSubmitMode?: ComposerEnterSubmitMode;
   /** Disable the composer for capability-gated surfaces while still showing history. */
   composerDisabled?: boolean;
   /** Block sending while keeping the composer editable. */
   composerSubmissionDisabled?: boolean;
+  /** The model choice is still loading: Enter is held and sent once it resolves. */
+  composerModelSelectionPending?: boolean;
   /** Placeholder to show while the composer is disabled by the host surface. */
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */

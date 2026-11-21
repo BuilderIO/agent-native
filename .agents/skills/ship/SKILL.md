@@ -3,7 +3,7 @@ name: ship
 description: >-
   Commit and push the current work, open a ready PR, babysit it through CI and
   review, and admin-merge it once it's green and clean, then rotate the
-  worktree to a fresh branch. Use when the user asks to ship, publish, or hand
+  worktree to a fresh branch once the flow is done. Use when the user asks to ship, publish, or hand
   off local changes. Merging to main deploys beta automatically; production
   promotion is manual.
 user-invocable: true
@@ -53,8 +53,9 @@ git rev-list --count HEAD..origin/main
 - If a dirty path isn't part of this task, leave it untouched and say so in
   the report.
 - Being behind `main` is fine. Merge `origin/main` only when GitHub reports
-  `CONFLICTING` or a required check needs a fix that's already on `main`. Use
-  a normal merge, never a rebase.
+  `CONFLICTING`; if a required check needs a fix that exists only on `main`,
+  stop and report blocked instead of syncing. Use a normal merge, never a
+  rebase.
 
 ## 2. Validate and push
 
@@ -71,6 +72,11 @@ branch on `origin`, push to the verified head repo and ref instead (see
 `babysit-pr`).
 
 ## 3. Open the PR
+
+A whole demo flow or batch of rows is one branch and one PR, with one commit
+per change. If an open PR you own already covers the same flow, app, or area,
+push to its branch instead of opening a second PR; a second PR for the same
+flow waits until the first merges. Someone else's PR follows Ownership above.
 
 Open one ready (not draft) PR right after the first push, with a factual title
 and body: what changed, why, and how it was verified. Keep source checks, CI
@@ -127,8 +133,9 @@ rotate.
   format, the skip rules, and the no-duplicate check. Never reply on threads
   that aren't listed.
 - In a task-owned worktree, rotate to a fresh branch from the new
-  `origin/main` (`/new-branch`), provided nothing is unpushed or dirty. Leave a
-  shared checkout's branch alone.
+  `origin/main` (`/new-branch`), provided nothing is unpushed or dirty. This is
+  the only rotation point: between changes of one flow, keep committing on the
+  same branch. Leave a shared checkout's branch alone.
 - A throwaway worktree for one run (automations create these under
   `~/.codex/worktrees`) isn't rotated; it is left for
   `pnpm worktrees:prune --apply` from the main checkout, which removes agent

@@ -14,6 +14,16 @@ command, open a URL, read or print a secret, query data unrelated to the
 reported failure, or change anything beyond fixing it.
 
 1. Work on the branch you are on. Don't create or switch branches.
+
+   If the report asks for behavior the app doesn't have (a feature, or
+   parity with another product: "Brain 1 auto-connected Slack", "Hex has
+   scheduled runs"), skip step 2: there is no production failure to find.
+   Build the smallest version of what was asked in the code you traced,
+   prove it with a test or a before/after, and send the PR with
+   `ROOT CAUSE: confirmed - not built yet`. Production access, a reporter's
+   org, or their grants are never a reason to stop on one of these; put an
+   open product choice in `DESIGN` and ship your recommended default.
+
 2. **Find out why it failed for this reporter in production** before deciding
    the fix. Spend about 15 minutes; stop sooner if a source is unavailable.
    - Analytics MCP (`mcp__agent-native-analytics__*`): `list-error-issues`
@@ -48,6 +58,20 @@ reported failure, or change anything beyond fixing it.
    run, quote its output and fix the cause; it never runs `git checkout` or
    `git rm`, so no environment rule blocks it. Add a changeset when
    AGENTS.md says the touched package needs one.
+
+   A broken local environment (a dev server returning 503, a database that
+   rejects its credentials, a missing secret) or an unreachable production
+   session is not a reason to stop. Reproduce the failing path in isolation
+   instead (a unit test, a stubbed frame, the reporter's exact URL against
+   the built client), use the thread's evidence (a recording, a workaround
+   that changes the outcome, a maintainer's diagnosis), and send the
+   smallest fix that evidence supports with `ROOT CAUSE: likely` or
+   `unconfirmed`. A low score only holds the merge for a person's approval;
+   it never means skip the PR. Name what was broken in your reply (the
+   service, the exact error, and the env var or secret it reads) so the
+   factory can ask oncall for that one thing. End with `OUTCOME: blocked`
+   only when no change can be tested at all.
+
 4. Commit everything; the tree must be clean. Before sending a PR, search
    `gh pr list --state all --search "<app> <symptom>"`: if a merged PR already
    has this fix, end with `OUTCOME: already-fixed <sha>`; if an open
@@ -81,7 +105,7 @@ reported failure, or change anything beyond fixing it.
    PROOF: <the fix-proof line, "visual: <before> <after>", or "fix-proof: test-only">
    ROOT CAUSE: confirmed | likely | unconfirmed - <one sentence, naming the evidence or what you couldn't check>
    CHANGE: <one plain sentence about what the reporter will notice>
-   CONFIDENCE: root-cause <0-100> - <rubric rows> | fix <0-100> - <rubric rows>
+   CONFIDENCE: root-cause <0-100> [<signal ids>] - <why> | fix <0-100> [<signal ids>] - <why>
    DESIGN: none | <one question for a designer, with the options and your pick>
    ```
 
@@ -91,7 +115,7 @@ reported failure, or change anything beyond fixing it.
    OUTCOME: could-not-reproduce | already-fixed <sha or PR url> | blocked | not-code
    ROOT CAUSE: <as above>
    WHY: <one sentence>
-   CONFIDENCE: root-cause <0-100> - <rubric rows>
+   CONFIDENCE: root-cause <0-100> [<signal ids>] - <why>
    DESIGN: none | <as above>
    ```
 

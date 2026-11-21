@@ -48,6 +48,9 @@ const sheetInteractOutsideHandlers = vi.hoisted(
 const popoverOpenChangeHandlers = vi.hoisted(
   () => [] as Array<(open: boolean) => void>,
 );
+const openAutoFocusHandlers = vi.hoisted(
+  () => [] as Array<(event: Event) => void>,
+);
 const popoverTestState = vi.hoisted(() => ({
   simulateMounting: false,
 }));
@@ -159,7 +162,7 @@ vi.mock("@agent-native/toolkit/ui/popover", () => {
     PopoverContent: ({
       children,
       onInteractOutside,
-      onOpenAutoFocus: _onOpenAutoFocus,
+      onOpenAutoFocus,
       align: _align,
       sideOffset: _sideOffset,
       ...props
@@ -169,7 +172,7 @@ vi.mock("@agent-native/toolkit/ui/popover", () => {
         detail: { originalEvent: { target: EventTarget | null } };
         preventDefault: () => void;
       }) => void;
-      onOpenAutoFocus?: unknown;
+      onOpenAutoFocus?: (event: Event) => void;
       align?: unknown;
       sideOffset?: unknown;
       [key: string]: unknown;
@@ -177,6 +180,7 @@ vi.mock("@agent-native/toolkit/ui/popover", () => {
       if (onInteractOutside) {
         popoverInteractOutsideHandlers.push(onInteractOutside);
       }
+      if (onOpenAutoFocus) openAutoFocusHandlers.push(onOpenAutoFocus);
       if (!React.useContext(PopoverOpenContext)) return null;
       return <div {...props}>{children}</div>;
     },
@@ -304,6 +308,7 @@ describe("ShareButton", () => {
     popoverInteractOutsideHandlers.length = 0;
     sheetInteractOutsideHandlers.length = 0;
     popoverOpenChangeHandlers.length = 0;
+    openAutoFocusHandlers.length = 0;
     popoverTestState.simulateMounting = false;
     sharesError.current = false;
     sharesData.current = {
@@ -330,6 +335,96 @@ describe("ShareButton", () => {
     container.remove();
     vi.unstubAllGlobals();
   });
+
+  it.each(["owner", "viewer"])(
+    "report COV-KB-18 focuses the share surface for %s",
+    async (role) => {
+      sharesData.current.role = role;
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              autoFocusInvite
+            />
+          </QueryClientProvider>,
+        ),
+      );
+      const content = container.querySelector<HTMLElement>(
+        "[data-agent-native-share-overlay]",
+      );
+      expect(content).not.toBeNull();
+      if (!content) throw new Error("Share surface was not rendered");
+      const input = content.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      if (role === "owner" && !input)
+        throw new Error("Invite field was not rendered");
+      if (role === "viewer") expect(input).toBeNull();
+      content.tabIndex = -1;
+      const handler = openAutoFocusHandlers[0];
+      expect(handler).toBeDefined();
+      const event = new Event("openAutoFocus", { cancelable: true });
+      Object.defineProperty(event, "currentTarget", { value: content });
+      if (!handler)
+        throw new Error("Share autofocus handler was not registered");
+      act(() => handler(event));
+      expect(document.activeElement).toBe(input ?? content);
+    },
+  );
+
+  it.each([
+    { interacted: false, optedOut: false },
+    { interacted: true, optedOut: false },
+    { interacted: false, optedOut: true },
+  ])(
+    "focuses a late invite field only while still opted in and untouched ($interacted, $optedOut)",
+    async ({ interacted, optedOut }) => {
+      sharesData.current.role = "viewer";
+      let focusInvite = true;
+      const render = () =>
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              defaultOpen
+              autoFocusInvite={focusInvite}
+            />
+          </QueryClientProvider>,
+        );
+      await act(async () => render());
+      const content = container.querySelector<HTMLElement>(
+        "[data-agent-native-share-overlay]",
+      );
+      if (!content) throw new Error("Share surface was not rendered");
+      content.tabIndex = -1;
+      const handler = openAutoFocusHandlers[0];
+      if (!handler)
+        throw new Error("Share autofocus handler was not registered");
+      const event = new Event("openAutoFocus", { cancelable: true });
+      Object.defineProperty(event, "currentTarget", { value: content });
+      act(() => handler(event));
+      expect(document.activeElement).toBe(content);
+      if (interacted)
+        act(() =>
+          content.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Tab", bubbles: true }),
+          ),
+        );
+      sharesData.current.role = "owner";
+      focusInvite = !optedOut;
+      await act(async () => render());
+      const input = content.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      if (!input) throw new Error("Invite field was not rendered");
+      expect(document.activeElement).toBe(
+        interacted || optedOut ? content : input,
+      );
+    },
+  );
 
   it("submits one typed email with Invite while keeping the share popover open", async () => {
     await act(async () => {
@@ -368,6 +463,115 @@ describe("ShareButton", () => {
     expect(
       container.querySelector('input[placeholder="Add people by email"]'),
     ).toBeTruthy();
+  });
+
+  it("with staged invites, Enter makes a chip and Share invites every chip", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            stagedInvites
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[role="combobox"]',
+    ) as HTMLInputElement;
+    for (const email of ["First@example.com", "second@example.com"]) {
+      setInputValue(input, email);
+      act(() => {
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+      });
+    }
+
+    expect(shareMutate).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+    expect(
+      container.querySelector('button[aria-label="Remove first@example.com"]'),
+    ).toBeTruthy();
+    expect(buttonWithText(container, "Invite")).toBeUndefined();
+
+    const share = Array.from(container.querySelectorAll("button"))
+      .filter((button) => button.textContent?.trim() === "Share")
+      .at(-1);
+    act(() => share?.click());
+
+    expect(
+      shareMutate.mock.calls.map(
+        ([variables]) => (variables as { principalId: string }).principalId,
+      ),
+    ).toEqual(["first@example.com", "second@example.com"]);
+    expect(
+      container.querySelector('button[aria-label="Remove first@example.com"]'),
+    ).toBeNull();
+  });
+
+  it("with a role menu, a person's role offers the other role by its action and saves it", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "user",
+          principalId: "dana@example.com",
+          role: "viewer",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            roleMenu
+            allowedRoles={["viewer", "editor"]}
+            roleCopy={{
+              viewer: { label: "Viewer", action: "Make viewer" },
+              editor: { label: "Collaborator", action: "Make collaborator" },
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const role = container.querySelector<HTMLButtonElement>(
+      'button[data-testid="member-role"]',
+    );
+    expect(role?.textContent).toBe("Viewer");
+    await act(async () => {
+      role?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(menuItems().map((item) => item.textContent?.trim())).toEqual([
+      "Make collaborator",
+      "Remove",
+    ]);
+    act(() => menuItem("Make collaborator").click());
+
+    expect(shareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "dana@example.com",
+        role: "editor",
+      }),
+      expect.any(Object),
+    );
   });
 
   it("uses commenter role copy overrides and persists the commenter role", async () => {
@@ -1257,6 +1461,77 @@ describe("ShareButton", () => {
     expect(openInAgent).toHaveBeenCalledWith("codex");
   });
 
+  describe("agent share handoff", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    const renderHandoff = async (
+      props: Partial<React.ComponentProps<typeof ShareButton>>,
+    ) => {
+      sharesData.current = {
+        ...sharesData.current,
+        agentRead: { actions: ["get-thread"], idParam: "id", label: "chat" },
+      };
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="chat_thread"
+              resourceId="thread-2"
+              resourceTitle="Second"
+              shareUrl="https://app.example.test/chat/thread-2"
+              {...props}
+            />
+          </QueryClientProvider>,
+        );
+      });
+      await openSendTo(container);
+    };
+
+    it("hands the localized prompt to the app instead of launching a native app", async () => {
+      const onAgentShareHandoff = vi.fn();
+      const assign = vi.fn();
+      vi.spyOn(window.location, "assign").mockImplementation(assign);
+      await renderHandoff({ onAgentShareHandoff });
+      act(() => menuItem("Open in Claude Code").click());
+      expect(onAgentShareHandoff).toHaveBeenCalledTimes(1);
+      const request = onAgentShareHandoff.mock.calls[0][0];
+      expect(request).toMatchObject({
+        destination: "claude-code",
+        shareUrl: "https://app.example.test/chat/thread-2",
+        resourceType: "chat_thread",
+        resourceId: "thread-2",
+        resourceTitle: "Second",
+      });
+      expect(request.prompt).toContain(
+        "Read this chat: https://app.example.test/chat/thread-2",
+      );
+      expect(request.prompt).toContain('with id "thread-2"');
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("lets an explicit sendTo.openInAgent take precedence", async () => {
+      const onAgentShareHandoff = vi.fn();
+      const openInAgent = vi.fn();
+      await renderHandoff({ onAgentShareHandoff, sendTo: { openInAgent } });
+      act(() => menuItem("Open in Codex").click());
+      expect(openInAgent).toHaveBeenCalledWith("codex");
+      expect(onAgentShareHandoff).not.toHaveBeenCalled();
+    });
+
+    it("keeps the native deep link without the callback", async () => {
+      const assign = vi.fn();
+      vi.spyOn(window.location, "assign").mockImplementation(assign);
+      await renderHandoff({});
+      act(() => menuItem("Open in Claude").click());
+      expect(assign).toHaveBeenCalledTimes(1);
+      const url = new URL(assign.mock.calls[0][0]);
+      expect(url.protocol).toBe("claude:");
+      expect(url.searchParams.get("q")).toContain(
+        "Read this chat: https://app.example.test/chat/thread-2",
+      );
+    });
+  });
+
   it("offers no agent prompt to a session limited to the basic share actions", async () => {
     const withAgentRead = {
       ...sharesData.current,
@@ -1667,6 +1942,124 @@ describe("ShareButton", () => {
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   });
 
+  it.each([
+    {
+      policyAsks: true,
+      callerAsks: false,
+      confirmOrganization: undefined,
+      asks: true,
+    },
+    {
+      policyAsks: true,
+      callerAsks: false,
+      confirmOrganization: false,
+      asks: false,
+    },
+    {
+      policyAsks: false,
+      callerAsks: true,
+      confirmOrganization: undefined,
+      asks: true,
+    },
+    {
+      policyAsks: false,
+      callerAsks: true,
+      confirmOrganization: false,
+      asks: true,
+    },
+    {
+      policyAsks: true,
+      callerAsks: true,
+      confirmOrganization: false,
+      asks: true,
+    },
+  ])(
+    "confirmOrganization=$confirmOrganization skips only the organization prompt (policy $policyAsks, caller $callerAsks)",
+    async ({ policyAsks, callerAsks, confirmOrganization, asks }) => {
+      sharesData.current = {
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        visibility: "private",
+        role: "owner",
+        shares: [],
+        policy: {
+          allowPublic: true,
+          requireOrgMemberForUserShares: false,
+          confirmOrgVisibility: policyAsks,
+        },
+      };
+      otherMutate.mockResolvedValue({ ok: true, visibility: "org" });
+
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              defaultOpen
+              confirmVisibility={() => callerAsks}
+              confirmOrganization={confirmOrganization}
+            />
+          </QueryClientProvider>,
+        );
+      });
+
+      const access = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="General access"]',
+      );
+      await act(async () => access?.click());
+      const org = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((option) => option.textContent?.includes("organization"));
+      await act(async () => org?.click());
+
+      if (asks) {
+        expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+        expect(otherMutate).not.toHaveBeenCalledWith(
+          expect.objectContaining({ visibility: "org" }),
+        );
+      } else {
+        expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+        expect(otherMutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            resourceType: "document",
+            resourceId: "doc-1",
+            visibility: "org",
+          }),
+        );
+      }
+    },
+  );
+
+  it("runs onLinkCopied after the panel's Copy link copies", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const onLinkCopied = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://example.test/deck-1"
+            onLinkCopied={onLinkCopied}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    const copy = buttonWithText(container, "Copy link");
+    if (!copy) throw new Error("Copy link button not found");
+    await act(async () => {
+      copy.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledWith("https://example.test/deck-1");
+    expect(onLinkCopied).toHaveBeenCalledTimes(1);
+  });
+
   it("offers no organization role for a resource with no organization", async () => {
     sharesData.current = {
       ownerEmail: "owner@example.com",
@@ -2016,6 +2409,60 @@ describe("ShareButton", () => {
     });
 
     expect(onCheckedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("says how many sub-pages are public with a public resource", async () => {
+    const renderPanel = async () => {
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              publicFollowersLabel={(count, more) =>
+                more
+                  ? `This page and more than ${count} sub-pages`
+                  : `This page and its ${count} sub-pages`
+              }
+            />
+          </QueryClientProvider>,
+        );
+      });
+      return container.textContent ?? "";
+    };
+    const shared = {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      role: "owner",
+      shares: [],
+    };
+
+    sharesData.current = {
+      ...shared,
+      visibility: "public",
+      publicFollowers: 3,
+    };
+    expect(await renderPanel()).toContain("This page and its 3 sub-pages");
+
+    sharesData.current = {
+      ...shared,
+      visibility: "public",
+      publicFollowers: 500,
+      publicFollowersMore: true,
+    };
+    expect(await renderPanel()).toContain(
+      "This page and more than 500 sub-pages",
+    );
+
+    sharesData.current = {
+      ...shared,
+      visibility: "public",
+      publicFollowers: 0,
+    };
+    expect(await renderPanel()).not.toContain("sub-pages");
+
+    sharesData.current = { ...shared, visibility: "private" };
+    expect(await renderPanel()).not.toContain("sub-pages");
   });
 
   it("searches org members on the server and selects a suggestion with the keyboard", async () => {

@@ -20,6 +20,8 @@ const mockGetRequestContext = vi.fn<
       isSyntheticTraffic?: boolean;
       isIntegrationCaller?: boolean;
       agentRunAnonymous?: boolean;
+      orgScope?: "personal";
+      providerKeyOrg?: { orgId: string; userEmail: string };
     }
   | undefined
 >();
@@ -208,6 +210,8 @@ beforeEach(() => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.NOTION_CLIENT_ID;
   delete process.env.NOTION_CLIENT_SECRET;
+  delete process.env.ZOOM_CLIENT_ID;
+  delete process.env.ZOOM_CLIENT_SECRET;
   delete process.env.SLACK_SIGNING_SECRET;
   delete process.env.SLACK_BOT_TOKEN;
   delete process.env.TELEGRAM_BOT_TOKEN;
@@ -624,9 +628,11 @@ describe("Builder credential auth failure markers", () => {
     expect(key).not.toContain("bpk-secret");
     expect(key).not.toContain("pub-secret");
     expect(value).toMatchObject({
-      message: "Invalid key",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+      provider: "builder",
       status: 401,
-      code: "unauthorized",
+      code: "builder_auth_error",
       ownerEmail: null,
       orgId: null,
     });
@@ -648,9 +654,11 @@ describe("Builder credential auth failure markers", () => {
 
     expect(failure).toMatchObject({
       fingerprint: builderCredentialFingerprint("bpk-secret", "pub-secret"),
-      message: "Invalid key",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+      provider: "builder",
       status: 401,
-      code: "unauthorized",
+      code: "builder_auth_error",
       at,
     });
     expect(mockGetSetting).toHaveBeenCalledWith(
@@ -776,7 +784,9 @@ describe("provider credential auth failure markers", () => {
     expect(key).not.toContain("sk-example-invalid");
     expect(value).toMatchObject({
       key: "OPENAI_API_KEY",
-      message: "401 status code (no body)",
+      message:
+        "The model provider rejected the saved API key. Update it in Settings.",
+      provider: "openai",
       status: 401,
       code: "http_401",
       ownerEmail: null,
@@ -807,7 +817,9 @@ describe("provider credential auth failure markers", () => {
     expect(failure).toMatchObject({
       fingerprint,
       key: "OPENAI_API_KEY",
-      message: "Invalid key",
+      message:
+        "The model provider rejected the saved API key. Update it in Settings.",
+      provider: "openai",
       status: 401,
       code: "http_401",
       at,
@@ -2142,11 +2154,17 @@ describe("resolveSecret (generic)", () => {
     await expect(resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).resolves.toBe(
       "granted-secret",
     );
-    expect(mockGetDbExec().execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        args: ["dispatch-vault", "factory", "HUBSPOT_MCP_CLIENT_SECRET"],
-      }),
-    );
+    const [query] = vi.mocked(mockGetDbExec().execute).mock.calls[0] as [
+      { sql: string; args: string[] },
+    ];
+    expect(query.args).toEqual([
+      "dispatch-vault",
+      "factory",
+      "HUBSPOT_MCP_CLIENT_SECRET",
+    ]);
+    // The grant names its key itself, so no other table is read for it.
+    expect(query.sql).toMatch(/credential_key = \?/);
+    expect(query.sql).not.toMatch(/JOIN/i);
   });
 
   it("recovers the org-scoped row when request org context is transiently missing", async () => {
@@ -2354,6 +2372,31 @@ describe("resolveSecret (generic)", () => {
 
     expect(await resolveSecret("TELEGRAM_BOT_TOKEN")).toBe(
       "fake-saved-telegram-token",
+    );
+  });
+
+  it("uses app-provided meeting-recorder OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.ZOOM_CLIENT_ID = "recorder-deploy-client-id";
+    process.env.ZOOM_CLIENT_SECRET = "recorder-deploy-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    // The connect flow asks for these two through resolveSecret; without them in
+    // the app-provided deploy list a hosted workspace answers "not configured"
+    // even though the pair is set on the deployment.
+    expect(await resolveSecret("ZOOM_CLIENT_ID")).toBe(
+      "recorder-deploy-client-id",
+    );
+    expect(await resolveSecret("ZOOM_CLIENT_SECRET")).toBe(
+      "recorder-deploy-secret",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("ZOOM_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(canUseDeployCredentialFallbackForRequest("ZOOM_CLIENT_SECRET")).toBe(
+      true,
     );
   });
 
@@ -3652,6 +3695,47 @@ describe("resolveSecretDetailed source/scopeId reporting", () => {
   });
 });
 
+describe("a request that must not read user-scope secrets", () => {
+  it("answers from the workspace even when the caller saved their own copy", async () => {
+    mockGetRequestContext.mockReturnValue({ skipUserScopeSecrets: true });
+    mockGetRequestUserEmail.mockReturnValue("owner@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-owner");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "user"
+        ? { value: "planted-secret", last4: "cret", updatedAt: 1 }
+        : scope === "org" && scopeId === "org-owner"
+          ? { value: "workspace-secret", last4: "cret", updatedAt: 1 }
+          : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("SLACK_SIGNING_SECRET"),
+    ).resolves.toMatchObject({ value: "workspace-secret", source: "org" });
+    expect(
+      mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
+    ).toBe(false);
+  });
+  it("does not fall back to the caller's pre-org workspace copy", async () => {
+    mockGetRequestContext.mockReturnValue({ skipUserScopeSecrets: true });
+    mockGetRequestUserEmail.mockReturnValue("owner@b.com");
+    mockGetRequestOrgId.mockReturnValue("org-owner");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:owner@b.com"
+        ? { value: "solo-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    const resolved = await resolveSecretDetailed("SLACK_SIGNING_SECRET");
+
+    expect(resolved.value).not.toBe("solo-secret");
+    expect(
+      mockReadAppSecret.mock.calls.some(
+        (call) => call[0].scopeId === "solo:owner@b.com",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("Restrict personal API keys", () => {
   const ORG = "org-restricted";
   const POLICY_SETTING = `o:${ORG}:restrict-personal-provider-keys`;
@@ -4230,5 +4314,163 @@ describe("host-managed Builder credentials", () => {
     } finally {
       error.mockRestore();
     }
+  });
+});
+
+describe("a personal run with a provider-key organization", () => {
+  const ORG = "org-key-holder";
+  const POLICY_SETTING = `o:${ORG}:restrict-personal-provider-keys`;
+
+  function storeRows(rows: Record<string, string>) {
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: any) => {
+        const value = rows[`${scope}:${scopeId}:${key}`];
+        return value ? { value, last4: value.slice(-4), updatedAt: 1 } : null;
+      },
+    );
+  }
+
+  function memberRole(role: string, restricted = false) {
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === POLICY_SETTING ? { restricted } : null,
+    );
+    mockGetDbExec.mockReturnValue({
+      execute: vi.fn(async ({ sql }: { sql: string }) => ({
+        rows: sql.includes("org_members") ? [{ role }] : [],
+      })),
+    });
+  }
+
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestContext.mockReturnValue({
+      orgScope: "personal",
+      providerKeyOrg: { orgId: ORG, userEmail: "member@b.com" },
+    });
+    memberRole("member");
+  });
+
+  it("reads the organization's key only after every personal row", async () => {
+    storeRows({ [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org" });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({
+      value: "test-anthropic-org",
+      source: "org",
+      scopeId: ORG,
+    });
+    expect(
+      mockReadAppSecret.mock.calls.map(([q]) => `${q.scope}:${q.scopeId}`),
+    ).toEqual([
+      "user:member@b.com",
+      "workspace:solo:member@b.com",
+      `org:${ORG}`,
+      `workspace:${ORG}`,
+    ]);
+  });
+
+  it("falls back to the organization's workspace row when it has no org row", async () => {
+    storeRows({ [`workspace:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-ws" });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({
+      value: "test-anthropic-ws",
+      source: "workspace",
+      scopeId: ORG,
+    });
+  });
+
+  it.each([
+    ["a member's own key", "member", "user:member@b.com"],
+    ["an admin's own key", "admin", "user:member@b.com"],
+    ["a pre-organization solo key", "member", "workspace:solo:member@b.com"],
+  ])("keeps %s ahead of the organization's", async (_name, role, row) => {
+    memberRole(role);
+    storeRows({
+      [`${row}:ANTHROPIC_API_KEY`]: "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: "test-anthropic-personal" });
+  });
+
+  it("skips a restricted member's personal rows for the organization's key", async () => {
+    memberRole("member", true);
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      "workspace:solo:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-solo",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: "test-anthropic-org", source: "org" });
+    expect(
+      mockReadAppSecret.mock.calls.map(([q]) => `${q.scope}:${q.scopeId}`),
+    ).toEqual([`org:${ORG}`, `workspace:${ORG}`]);
+  });
+
+  it("finds nothing for a restricted member when the organization has no key", async () => {
+    memberRole("member", true);
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+    });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: false });
+  });
+
+  it("never lends the organization's Builder connection or other secrets", async () => {
+    storeRows({
+      [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
+      [`org:${ORG}:NOTION_TOKEN`]: "ntn-org",
+    });
+
+    await expect(
+      resolveSecretDetailed("BUILDER_PRIVATE_KEY"),
+    ).resolves.toMatchObject({ value: null });
+    await expect(resolveSecretDetailed("NOTION_TOKEN")).resolves.toMatchObject({
+      value: null,
+    });
+  });
+
+  it("takes no organization endpoint on its own, only beside the organization's key", async () => {
+    storeRows({
+      [`org:${ORG}:OPENAI_BASE_URL`]: "https://org.example.test/v1",
+    });
+
+    await expect(
+      resolveSecretDetailed("OPENAI_BASE_URL"),
+    ).resolves.toMatchObject({ value: null });
+    await expect(
+      resolveSecretDetailed("OPENAI_BASE_URL", {
+        endpointForCredential: { scope: "user", scopeId: "member@b.com" },
+      }),
+    ).resolves.toMatchObject({ value: null });
+    await expect(
+      resolveSecretDetailed("OPENAI_BASE_URL", {
+        endpointForCredential: { scope: "org", scopeId: ORG },
+      }),
+    ).resolves.toMatchObject({
+      value: "https://org.example.test/v1",
+      source: "org",
+      scopeId: ORG,
+    });
+  });
+
+  it("does nothing different when no provider-key organization was decided", async () => {
+    mockGetRequestContext.mockReturnValue({
+      orgScope: "personal",
+    });
+    storeRows({ [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org" });
+
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: null });
   });
 });

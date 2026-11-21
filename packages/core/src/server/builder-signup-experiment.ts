@@ -20,19 +20,41 @@ import { z } from "zod";
 
 import { getAppConfig } from "../app-config/index.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
-import { getSetting, mutateSetting } from "../settings/store.js";
+import {
+  deleteSetting,
+  getSetting,
+  listSettingsByPrefix,
+  mutateSetting,
+  putSetting,
+} from "../settings/store.js";
 import { flushTracking, track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
 import { platformWaitUntil } from "./background-work.js";
 import {
   getAuthSecret,
   getBetterAuthInternalAdapter,
+  runWithMagicLinkIssuedTokenHook,
 } from "./better-auth-instance.js";
+import { awaitFrameworkBootstrapForEvent } from "./framework-request-handler.js";
+import { canonicalFrameworkPathname } from "./framework-route-prefix.js";
 import { readBodyWithSizeLimit } from "./h3-helpers.js";
 
 export const BUILDER_SIGNUP_EXPERIMENT = "design_builder_signup_v1";
 export const BUILDER_SIGNUP_POLICY = "builder-signup-2026-11-06";
 export const BUILDER_SIGNUP_COOKIE = "an_builder_signup";
+export const BUILDER_SIGNUP_LANDING_COOKIE = "an_builder_signup_landing";
+const MAGIC_LINK_CHALLENGE_TTL_MS = 10 * 60 * 1000;
+const DEFERRED_GOOGLE_RECEIPT_TTL_MS = 5 * 60 * 1000;
+// The first page can probe readiness while the auth callback is provisioning.
+const SIGNUP_READINESS_REFRESH_WINDOW_MS = 60_000;
+
+function justConnected(record: Record<string, unknown>): boolean {
+  if (record.status !== "connected" || typeof record.completedAt !== "number")
+    return false;
+  const elapsed = Date.now() - record.completedAt;
+  return elapsed >= 0 && elapsed < SIGNUP_READINESS_REFRESH_WINDOW_MS;
+}
+
 const TTL = 7 * 24 * 60 * 60;
 const existingSignupStatusSchema = z.enum([
   "control",
@@ -182,11 +204,34 @@ function writeAssignment(event: H3Event, assignment: Assignment): void {
   );
 }
 
-export function isBuilderSignupExperimentEnabled(): boolean {
+function requestHostnames(event: H3Event): string[] {
+  return [getHeader(event, "host"), getHeader(event, "x-forwarded-host")]
+    .flatMap((value) => value?.split(",") ?? [])
+    .map((value) => value.trim().toLowerCase().replace(/:\d+$/, ""))
+    .filter(Boolean);
+}
+
+export function isBuilderSignupExperimentEnabled(event: H3Event): boolean {
   const config = getAppConfig().onboarding;
+  if (config.builderSignupExperimentOverride !== undefined)
+    return config.builderSignupExperimentOverride;
+  if (config.builderSignupExperiment) return true;
+  const hosts = requestHostnames(event);
   return (
-    config.builderSignupExperimentOverride ?? config.builderSignupExperiment
+    hosts.length > 0 &&
+    hosts.every((host) => config.builderSignupHostedHosts.includes(host))
   );
+}
+
+/** Server-resolved attribution for a browser-reported activation failure. */
+export function builderSignupClientFailureExperimentId(
+  event: H3Event,
+  eventName: string,
+): string | undefined {
+  return eventName === "builder_signup_experiment_client_failed" &&
+    isBuilderSignupExperimentEnabled(event)
+    ? experimentId()
+    : undefined;
 }
 
 export async function bindBuilderSignupAttempt(
@@ -195,7 +240,7 @@ export async function bindBuilderSignupAttempt(
   method: "password" | "magic-link" | "google",
   email: string,
 ): Promise<{ userId: string } | false> {
-  if (!isBuilderSignupExperimentEnabled()) return false;
+  if (!isBuilderSignupExperimentEnabled(event)) return false;
   const assignment = decodeBuilderSignupAssignment(
     getCookie(event, builderSignupAssignmentCookieName()),
   );
@@ -289,11 +334,12 @@ export async function bindBuilderSignupAttempt(
 }
 
 export async function getBuilderSignupConnectError(
+  event: H3Event,
   userId: string | undefined,
 ): Promise<
   { code: "account_exists"; message: string; at: number } | undefined
 > {
-  if (!userId || !isBuilderSignupExperimentEnabled()) return undefined;
+  if (!userId || !isBuilderSignupExperimentEnabled(event)) return undefined;
   const record = await getSetting(`${experimentId()}:${userId}`);
   if (record?.status !== "fallback" || record.code !== "account_exists")
     return undefined;
@@ -307,6 +353,436 @@ export async function getBuilderSignupConnectError(
   };
 }
 
+const SAFE_BUILDER_SIGNUP_CODE_RE = /^[a-z0-9_]{1,64}$/;
+
+function sanitizeBuilderSignupCode(code: string | undefined): string | null {
+  if (!code) return null;
+  return SAFE_BUILDER_SIGNUP_CODE_RE.test(code) ? code : "provision_failed";
+}
+
+const acceptedMagicLinkAssignmentSchema = assignmentSchema.extend({
+  variant: z.literal("automatic"),
+  acceptedAt: z.number().int(),
+  attemptId: z.string().min(16).max(128),
+  method: z.literal("magic-link"),
+  email: z.string().email().max(320),
+});
+
+const magicLinkChallengeSchema = z.object({
+  assignment: acceptedMagicLinkAssignmentSchema,
+  experimentId: z.string().min(1),
+  hosts: z.array(z.string().min(1)).min(1),
+  email: z.string().email().max(320),
+  attemptId: z.string().min(16).max(128),
+  issuedAt: z.number().int(),
+  expiresAt: z.number().int(),
+  consumedAt: z.number().int().nullable(),
+});
+
+const deferredGoogleReceiptSchema = z.object({
+  experimentId: z.string().min(1),
+  hosts: z.array(z.string().min(1)).min(1),
+  email: z.string().email().max(320),
+  attemptId: z.string().min(16).max(128),
+  expiresAt: z.number().int(),
+  consumedAt: z.number().int().nullable(),
+});
+
+function canonicalRequestHosts(event: H3Event): string[] {
+  return [...new Set(requestHostnames(event))].sort();
+}
+
+function hostsMatch(
+  stored: readonly string[],
+  current: readonly string[],
+): boolean {
+  return (
+    stored.length > 0 &&
+    stored.length === current.length &&
+    stored.every((host, index) => host === current[index])
+  );
+}
+
+function isSecureCookieRequest(event: H3Event): boolean {
+  return (
+    getHeader(event, "x-forwarded-proto") === "https" ||
+    getHeader(event, "host")?.includes("localhost") !== true
+  );
+}
+
+const HANDOFF_PRUNE_BATCH = 100;
+
+function magicLinkChallengePrefix(): string {
+  return `${experimentId()}:ml-challenge:`;
+}
+
+function deferredGoogleReceiptPrefix(): string {
+  return `${experimentId()}:google-handoff:`;
+}
+
+async function pruneExpiredHandoffs(prefix: string): Promise<void> {
+  const now = Date.now();
+  const rows = await listSettingsByPrefix(prefix, {
+    limit: HANDOFF_PRUNE_BATCH,
+  });
+  await Promise.all(
+    rows
+      .filter(
+        ({ value }) =>
+          typeof value.expiresAt !== "number" ||
+          value.expiresAt < now ||
+          value.consumedAt != null,
+      )
+      .map(({ key }) => deleteSetting(key)),
+  );
+}
+
+function magicLinkChallengeKey(token: string): string {
+  const digest = createHmac("sha256", getAuthSecret())
+    .update(`magic-link-challenge:${experimentId()}:${token}`)
+    .digest("hex");
+  return `${magicLinkChallengePrefix()}${digest}`;
+}
+
+function magicLinkLandingCookieValue(token: string, attemptId: string): string {
+  return createHmac("sha256", getAuthSecret())
+    .update(`magic-link-landing:${experimentId()}:${token}:${attemptId}`)
+    .digest("base64url");
+}
+
+function deferredGoogleReceiptKey(sessionToken: string): string {
+  const digest = createHmac("sha256", getAuthSecret())
+    .update(`deferred-google-signup:${experimentId()}:${sessionToken}`)
+    .digest("hex");
+  return `${deferredGoogleReceiptPrefix()}${digest}`;
+}
+
+function extractMagicLinkNewUserAttemptId(
+  newUserCallbackURL: string | undefined,
+  expectedOrigin: string,
+): string | null {
+  if (!newUserCallbackURL) return null;
+  try {
+    const parsed = new URL(newUserCallbackURL, expectedOrigin);
+    if (parsed.origin !== expectedOrigin) return null;
+    if (
+      !canonicalFrameworkPathname(parsed.pathname).endsWith(
+        "/_agent-native/auth/magic-link/new-user",
+      )
+    ) {
+      return null;
+    }
+    const attemptId = parsed.searchParams.get("builder_signup_attempt");
+    if (
+      typeof attemptId !== "string" ||
+      attemptId.length < 16 ||
+      attemptId.length > 128
+    ) {
+      return null;
+    }
+    return attemptId;
+  } catch {
+    // coercion-ok: malformed callback metadata fails closed.
+    return null;
+  }
+}
+
+function isSameOriginLandingPost(
+  event: H3Event,
+  expectedOrigin: string,
+): boolean {
+  const fetchSite = getHeader(event, "sec-fetch-site");
+  if (fetchSite && fetchSite !== "same-origin") return false;
+  const normalizedExpected = expectedOrigin.replace(/\/+$/, "");
+  const origin = getHeader(event, "origin");
+  if (
+    origin &&
+    origin !== "null" &&
+    origin.replace(/\/+$/, "") !== normalizedExpected
+  ) {
+    return false;
+  }
+  const referer = getHeader(event, "referer");
+  if (referer) {
+    try {
+      if (new URL(referer).origin !== normalizedExpected) return false;
+    } catch {
+      // coercion-ok: malformed Referer fails closed.
+      return false;
+    }
+  }
+  return true;
+}
+
+function readAcceptedMagicLinkBuilderSignup(
+  event: H3Event,
+  attemptId: unknown,
+  email: string,
+): z.infer<typeof acceptedMagicLinkAssignmentSchema> | null {
+  if (!isBuilderSignupExperimentEnabled(event)) return null;
+  if (
+    typeof attemptId !== "string" ||
+    attemptId.length < 16 ||
+    attemptId.length > 128
+  ) {
+    return null;
+  }
+  const assignment = decodeBuilderSignupAssignment(
+    getCookie(event, builderSignupAssignmentCookieName()),
+  );
+  if (!assignment) return null;
+  const parsed = acceptedMagicLinkAssignmentSchema.safeParse(assignment);
+  if (!parsed.success) return null;
+  const normalizedEmail = email.trim().toLowerCase();
+  if (
+    parsed.data.attemptId !== attemptId ||
+    parsed.data.email !== normalizedEmail
+  ) {
+    return null;
+  }
+  return parsed.data;
+}
+
+async function signupIdentityExists(email: string): Promise<boolean> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) throw new Error("Signup identity store is unavailable");
+  return Boolean(
+    await adapter.findUserByEmail(email, { includeAccounts: false }),
+  );
+}
+
+export async function withMagicLinkBuilderSignupRecorder<T>(
+  event: H3Event,
+  attemptId: unknown,
+  email: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const accepted = readAcceptedMagicLinkBuilderSignup(event, attemptId, email);
+  if (!accepted) return run();
+  const hosts = canonicalRequestHosts(event);
+  if (hosts.length === 0) return run();
+  const currentExperimentId = experimentId();
+  return runWithMagicLinkIssuedTokenHook(async (issuedEmail, token) => {
+    if (!token || issuedEmail.trim().toLowerCase() !== accepted.email) return;
+    const now = Date.now();
+    await pruneExpiredHandoffs(magicLinkChallengePrefix());
+    await putSetting(magicLinkChallengeKey(token), {
+      assignment: accepted,
+      experimentId: currentExperimentId,
+      hosts,
+      email: accepted.email,
+      attemptId: accepted.attemptId,
+      issuedAt: now,
+      expiresAt: now + MAGIC_LINK_CHALLENGE_TTL_MS,
+      consumedAt: null,
+    });
+  }, run);
+}
+
+export async function prepareMagicLinkLandingBuilderSignup(
+  event: H3Event,
+  token: string,
+  newUserCallbackURL: string | undefined,
+  callbackOrigin: string,
+): Promise<boolean> {
+  if (!isBuilderSignupExperimentEnabled(event) || !token) return false;
+  const attemptId = extractMagicLinkNewUserAttemptId(
+    newUserCallbackURL,
+    callbackOrigin,
+  );
+  if (!attemptId) return false;
+  const raw = await getSetting(magicLinkChallengeKey(token));
+  const parsed = magicLinkChallengeSchema.safeParse(raw);
+  if (!parsed.success) return false;
+  const challenge = parsed.data;
+  const now = Date.now();
+  if (
+    challenge.consumedAt !== null ||
+    now > challenge.expiresAt ||
+    challenge.experimentId !== experimentId() ||
+    !hostsMatch(challenge.hosts, canonicalRequestHosts(event)) ||
+    challenge.attemptId !== attemptId ||
+    challenge.assignment.attemptId !== attemptId ||
+    challenge.assignment.email !== challenge.email ||
+    challenge.assignment.issuedAt > challenge.assignment.acceptedAt ||
+    challenge.assignment.acceptedAt > now
+  ) {
+    return false;
+  }
+  if (await signupIdentityExists(challenge.email)) return false;
+  const existingCookie = decodeBuilderSignupAssignment(
+    getCookie(event, builderSignupAssignmentCookieName()),
+  );
+  if (
+    existingCookie &&
+    existingCookie.id === challenge.assignment.id &&
+    existingCookie.attemptId === challenge.attemptId &&
+    existingCookie.acceptedAt === challenge.assignment.acceptedAt &&
+    existingCookie.method === "magic-link" &&
+    existingCookie.email === challenge.email
+  ) {
+    return false;
+  }
+  setCookie(
+    event,
+    BUILDER_SIGNUP_LANDING_COOKIE,
+    magicLinkLandingCookieValue(token, attemptId),
+    {
+      httpOnly: true,
+      secure: isSecureCookieRequest(event),
+      sameSite: "lax",
+      path: "/",
+      maxAge: Math.ceil(MAGIC_LINK_CHALLENGE_TTL_MS / 1000),
+    },
+  );
+  return true;
+}
+
+export async function confirmMagicLinkLandingBuilderSignup(
+  event: H3Event,
+  token: string,
+  newUserCallbackURL: string | undefined,
+  expectedOrigin: string,
+  isTokenActive: () => Promise<boolean>,
+  callbackOrigin = expectedOrigin,
+): Promise<boolean> {
+  const presentedLandingCookie = getCookie(
+    event,
+    BUILDER_SIGNUP_LANDING_COOKIE,
+  );
+  if (presentedLandingCookie) {
+    deleteCookie(event, BUILDER_SIGNUP_LANDING_COOKIE, { path: "/" });
+  }
+  if (!isBuilderSignupExperimentEnabled(event) || !token) return false;
+  if (!presentedLandingCookie) return false;
+  if (!isSameOriginLandingPost(event, expectedOrigin)) return false;
+  const attemptId = extractMagicLinkNewUserAttemptId(
+    newUserCallbackURL,
+    callbackOrigin,
+  );
+  if (!attemptId) return false;
+  const expectedCookie = Buffer.from(
+    magicLinkLandingCookieValue(token, attemptId),
+  );
+  const actualCookie = Buffer.from(presentedLandingCookie);
+  if (
+    actualCookie.length !== expectedCookie.length ||
+    !timingSafeEqual(actualCookie, expectedCookie)
+  ) {
+    return false;
+  }
+  if (!(await isTokenActive())) return false;
+  const challengeKey = magicLinkChallengeKey(token);
+  const pending = magicLinkChallengeSchema.safeParse(
+    await getSetting(challengeKey),
+  );
+  if (!pending.success) return false;
+  if (await signupIdentityExists(pending.data.email)) return false;
+  const currentHosts = canonicalRequestHosts(event);
+  const currentExperimentId = experimentId();
+  const consumed: {
+    assignment: z.infer<typeof acceptedMagicLinkAssignmentSchema> | null;
+  } = { assignment: null };
+  await mutateSetting(challengeKey, (current) => {
+    consumed.assignment = null;
+    const parsed = magicLinkChallengeSchema.safeParse(current);
+    const now = Date.now();
+    if (
+      !parsed.success ||
+      parsed.data.consumedAt !== null ||
+      now > parsed.data.expiresAt ||
+      parsed.data.experimentId !== currentExperimentId ||
+      !hostsMatch(parsed.data.hosts, currentHosts) ||
+      parsed.data.attemptId !== attemptId ||
+      parsed.data.assignment.attemptId !== attemptId ||
+      parsed.data.assignment.email !== parsed.data.email ||
+      parsed.data.assignment.issuedAt > parsed.data.assignment.acceptedAt ||
+      parsed.data.assignment.acceptedAt > now
+    ) {
+      return current ?? { invalid: true };
+    }
+    consumed.assignment = parsed.data.assignment;
+    return {
+      ...parsed.data,
+      consumedAt: now,
+    };
+  });
+  if (!consumed.assignment) return false;
+  writeAssignment(event, consumed.assignment);
+  setCookie(event, "an_builder_signup_pending", "1", {
+    path: "/",
+    sameSite: "lax",
+    maxAge: TTL,
+    secure: isSecureCookieRequest(event),
+  });
+  await deleteSetting(challengeKey);
+  return true;
+}
+
+export async function recordDeferredGoogleSignupReceipt(
+  event: H3Event,
+  sessionToken: string,
+  attemptId: unknown,
+  email: string,
+): Promise<void> {
+  if (!isBuilderSignupExperimentEnabled(event) || !sessionToken) return;
+  if (
+    typeof attemptId !== "string" ||
+    attemptId.length < 16 ||
+    attemptId.length > 128
+  ) {
+    return;
+  }
+  const hosts = canonicalRequestHosts(event);
+  if (hosts.length === 0) return;
+  await pruneExpiredHandoffs(deferredGoogleReceiptPrefix());
+  await putSetting(deferredGoogleReceiptKey(sessionToken), {
+    experimentId: experimentId(),
+    hosts,
+    email: email.trim().toLowerCase(),
+    attemptId,
+    expiresAt: Date.now() + DEFERRED_GOOGLE_RECEIPT_TTL_MS,
+    consumedAt: null,
+  });
+}
+
+export async function readDeferredGoogleSignupReceipt(
+  event: H3Event,
+  sessionToken: string,
+  email: string,
+): Promise<string | null> {
+  if (!isBuilderSignupExperimentEnabled(event) || !sessionToken) return null;
+  const assignment = decodeBuilderSignupAssignment(
+    getCookie(event, builderSignupAssignmentCookieName()),
+  );
+  if (
+    assignment?.variant !== "automatic" ||
+    !assignment.acceptedAt ||
+    assignment.method !== "google"
+  )
+    return null;
+  const parsed = deferredGoogleReceiptSchema.safeParse(
+    await getSetting(deferredGoogleReceiptKey(sessionToken)),
+  );
+  if (
+    !parsed.success ||
+    parsed.data.consumedAt !== null ||
+    Date.now() > parsed.data.expiresAt ||
+    parsed.data.experimentId !== experimentId() ||
+    !hostsMatch(parsed.data.hosts, canonicalRequestHosts(event)) ||
+    parsed.data.email !== email.trim().toLowerCase() ||
+    parsed.data.attemptId !== assignment.attemptId
+  )
+    return null;
+  return parsed.data.attemptId;
+}
+
+export async function deleteDeferredGoogleSignupReceipt(
+  sessionToken: string,
+): Promise<void> {
+  await deleteSetting(deferredGoogleReceiptKey(sessionToken));
+}
+
 async function finishSignupActivation(
   key: string,
   attempt: string,
@@ -317,6 +793,7 @@ async function finishSignupActivation(
   },
 ) {
   let changed = false;
+  const safeCode = sanitizeBuilderSignupCode(outcome.code);
   const commit = () =>
     mutateSetting(key, (current) => {
       changed = false;
@@ -330,7 +807,7 @@ async function finishSignupActivation(
       return {
         ...current,
         status: outcome.status,
-        code: outcome.code ?? null,
+        code: safeCode,
         message: outcome.message ?? null,
         completedAt: Date.now(),
       };
@@ -368,12 +845,13 @@ export async function startBuilderSignupForVerifiedSession(
   session: AuthSession,
 ): Promise<void> {
   if (
-    !isBuilderSignupExperimentEnabled() ||
+    !isBuilderSignupExperimentEnabled(event) ||
     !session.userId ||
     !session.token ||
     session.emailVerified !== true
   )
     return;
+  if (!verifiedSignupStarter) await awaitFrameworkBootstrapForEvent(event);
   if (!verifiedSignupStarter)
     throw new Error("Builder signup activation handler is unavailable");
   await verifiedSignupStarter(event, session);
@@ -451,7 +929,7 @@ export function createBuilderSignupExperiment(dependencies: {
       if (!verifiedSignupSession) setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
-    if (!isBuilderSignupExperimentEnabled()) {
+    if (!isBuilderSignupExperimentEnabled(event)) {
       if (getCookie(event, "an_builder_signup_pending"))
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
@@ -468,10 +946,24 @@ export function createBuilderSignupExperiment(dependencies: {
     );
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
+      const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
+      if (
+        assignment?.variant === "control" &&
+        builderSignupAutomaticPercent === 100
+      ) {
+        track("builder_signup_experiment_reassigned", {
+          ...experimentProperties(assignment),
+          reason: "full_rollout",
+        });
+        assignment = null;
+      }
       if (!assignment) {
         assignment = {
           id: randomBytes(16).toString("hex"),
-          variant: randomInt(2) === 0 ? "control" : "automatic",
+          variant:
+            randomInt(100) < builderSignupAutomaticPercent
+              ? "automatic"
+              : "control",
           issuedAt: Date.now(),
           policy: BUILDER_SIGNUP_POLICY,
         };
@@ -581,6 +1073,8 @@ export function createBuilderSignupExperiment(dependencies: {
           );
         }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        if (body.data.operation === "start" && justConnected(existing))
+          return { status: "connected" as const };
         return { status: "disabled" as const, code: "already_completed" };
       }
       return { status: "eligible" as const };
@@ -712,7 +1206,11 @@ export function createBuilderSignupExperiment(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
-      if (status !== "started" && body.data.operation === "start") {
+      if (
+        status !== "started" &&
+        body.data.operation === "start" &&
+        !justConnected(existing)
+      ) {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }

@@ -211,6 +211,8 @@ export interface UpdateReviewCommentInput {
   resourceId: string;
   commentId: string;
   body?: string;
+  /** The comment's images, in place of the ones it has; [] removes them. */
+  attachments?: Record<string, unknown>[];
   anchor?: unknown;
   anchorKind?: string | null;
   anchorVersion?: number | null;
@@ -301,6 +303,8 @@ export interface UpdateResourceSuggestionInput {
   observedRevision: number;
   idempotencyKey: string;
   operations: SuggestionOperation[];
+  /** The revision `operations` were written against, when newer than the suggestion's. */
+  baseRevision?: string;
   summary?: string;
 }
 
@@ -1041,6 +1045,14 @@ export function useUpdateReviewComment() {
               ? {
                   ...comment,
                   ...(input.body !== undefined ? { body: input.body } : {}),
+                  ...(input.attachments !== undefined
+                    ? {
+                        metadata: withReviewAttachments(
+                          comment.metadata,
+                          input.attachments,
+                        ),
+                      }
+                    : {}),
                   ...(input.anchor !== undefined
                     ? { anchor: input.anchor }
                     : {}),
@@ -1262,4 +1274,14 @@ export function useUpdateResourceSuggestion() {
       successReplacesOptimistic: true,
     };
   });
+}
+
+/** A comment's metadata with its images swapped, as the server writes it. */
+function withReviewAttachments(
+  metadata: Record<string, unknown> | null,
+  attachments: Record<string, unknown>[],
+): Record<string, unknown> | null {
+  const { attachments: _previous, ...rest } = metadata ?? {};
+  const next = attachments.length ? { ...rest, attachments } : rest;
+  return Object.keys(next).length ? next : null;
 }

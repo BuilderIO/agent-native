@@ -2,9 +2,14 @@ import { z, type ZodTypeAny } from "zod";
 
 import {
   defineAction,
+  fail,
   type ActionHttpConfig,
   type ActionRunContext,
 } from "../../action.js";
+import {
+  credentialUseLedgerReadsOnly,
+  recordCredentialUse,
+} from "../../credentials/use-ledger.js";
 import { getCredentialContext } from "../../server/request-context.js";
 import { assertAgentProviderRequestAllowed } from "../agent-request-policy.js";
 import { registerProviderApiActionRuntime } from "../index.js";
@@ -22,7 +27,16 @@ import {
 } from "./custom-provider-registration.js";
 import { buildProviderApiAuditSummary } from "./provider-api-audit.js";
 
-const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
+const MethodSchema = z.enum([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "PROPFIND",
+  "REPORT",
+]);
 
 const PaginationSchema = z
   .object({
@@ -302,6 +316,26 @@ function readsProviderOnly(request: ProviderRequestActionArgs): boolean {
   );
 }
 
+function requestEffect(request: ProviderRequestActionArgs): "read" | "write" {
+  if (!readsProviderOnly(request)) return "write";
+  if (request.stageAs || request.saveToFile) return "write";
+  return "read";
+}
+
+function assertRunMaySendRequest(request: ProviderRequestActionArgs): void {
+  if (!credentialUseLedgerReadsOnly() || requestEffect(request) === "read") {
+    return;
+  }
+  recordCredentialUse({
+    kind: "provider-effect",
+    provider: String(request.provider),
+  });
+  fail(
+    `A run shared with the org only reads, so this ${String(request.provider)} request wasn't sent. The viewer's own run sends it.`,
+    { errorCode: "provider_effect_in_shared_run", statusCode: 403 },
+  );
+}
+
 const STAGED_DATASET_CAP_ERROR = /Staged dataset (?:byte )?cap exceeded/i;
 
 function rethrowStagingError(error: unknown): never {
@@ -379,12 +413,7 @@ export function createProviderApiRequestAction<
       ? {}
       : { allowPersistentApproval: options.allowPersistentApproval }),
     planMode: {
-      effect: (args) => {
-        const request = args as ProviderRequestActionArgs;
-        if (!readsProviderOnly(request)) return "write";
-        if (request.stageAs || request.saveToFile) return "write";
-        return "read";
-      },
+      effect: (args) => requestEffect(args as ProviderRequestActionArgs),
       allowedValues: { method: ["GET", "HEAD"] },
       omittedProperties: ["stageAs", "saveToFile"],
       description:
@@ -412,6 +441,7 @@ export function createProviderApiRequestAction<
     grounding: true,
     run: async (rawArgs) => {
       const args = rawArgs as ProviderRequestActionArgs;
+      assertRunMaySendRequest(args);
       assertAgentProviderRequestAllowed(args);
       if (args.stageAs) {
         if (!options.appId) {

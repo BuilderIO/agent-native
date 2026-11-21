@@ -19,6 +19,10 @@ import {
   preserveCommentComposerEscape,
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
+import {
+  escapeWasHandled,
+  leaveEscapeToPagePanel,
+} from "./document-page-panel-state";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -66,7 +70,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { filter?: string }) =>
     options?.filter === undefined ? key : `${key}:${options.filter}`,
 }));
-vi.mock("@agent-native/toolkit/app/review", () => ({
+vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/toolkit/app/review")
+  >()),
   CommentBody: ({ body }: { body: string }) => body,
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -128,6 +135,10 @@ const page: { current: HTMLDivElement | null } = { current: null };
 let onSelectedThreadChange: ((threadId: string | null) => void) | undefined;
 // Asks the panel for a new comment on the whole page, as a row's Comment does.
 let pageComment: { focus: boolean; onFocused?: () => void } = { focus: false };
+// Hears Discussion's Show.
+let showSubject: ((thread: CommentThread) => void) | undefined;
+// The page panel head's tool slot, when the panel gives one.
+let headTools: HTMLElement | null = null;
 
 function Owner({
   presentation,
@@ -155,6 +166,8 @@ function Owner({
       scrollContainerRef={page}
       focusPageComposer={pageComment.focus}
       onPageComposerFocused={pageComment.onFocused}
+      onShowThreadSubject={showSubject}
+      headToolsContainer={headTools}
     />
   );
 }
@@ -181,6 +194,9 @@ describe("the Discussion panel", () => {
     threads = fixtureThreads;
     onSelectedThreadChange = undefined;
     pageComment = { focus: false };
+    showSubject = undefined;
+    headTools?.remove();
+    headTools = null;
     queryClient.clear();
     window.localStorage.clear();
   });
@@ -214,6 +230,16 @@ describe("the Discussion panel", () => {
     document.querySelector<HTMLButtonElement>(selector)!;
   const click = async (selector: string) => {
     await act(async () => button(selector).click());
+  };
+  // Sort and Filter are Content's menus, which open on a press or Enter, not a
+  // bare click().
+  const openMenu = async (selector: string) => {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => {
+      button(selector).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
   };
   const filterOption = (group: string, option: string) =>
     `[data-discussion-filter-group="${group}"] [data-discussion-filter-option="${option}"]`;
@@ -311,11 +337,11 @@ describe("the Discussion panel", () => {
 
   it("remembers the sort and a Page's filters, and forgets the filters once they're back to default", async () => {
     render();
-    await click("[data-discussion-sort-trigger]");
+    await openMenu("[data-discussion-sort-trigger]");
     await click('[data-discussion-sort="activity"]');
     expect(window.localStorage.getItem(SORT_KEY)).toBe('"activity"');
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     await click(filterOption("target", "page"));
     expect(JSON.parse(storedFilters()!)).toEqual({
       kind: "all",
@@ -334,7 +360,7 @@ describe("the Discussion panel", () => {
     });
     expect(card("text-1")).toBeNull();
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     await click(filterOption("target", "all"));
     expect(storedFilters()).toBeNull();
     expect(card("text-1")).not.toBeNull();
@@ -361,6 +387,76 @@ describe("the Discussion panel", () => {
     render();
     expect(toggle().getAttribute("aria-label")).toBe("comments.showIndicators");
     expect(toggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("puts its controls in the panel head it's given, and opens the search under it", async () => {
+    headTools = document.createElement("div");
+    document.body.append(headTools);
+    render();
+    const head = headTools;
+    expect(head.querySelector("[data-discussion-sort-trigger]")).not.toBeNull();
+    expect(
+      head.querySelector("[data-discussion-filter-trigger]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-discussion-sort-trigger]"),
+    ).toBeNull();
+
+    const searchButton = head.querySelector<HTMLButtonElement>(
+      'button[aria-label="comments.searchDiscussion"]',
+    );
+    expect(searchButton).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => searchButton?.click());
+    const field = container.querySelector<HTMLInputElement>(
+      'input[aria-label="comments.searchDiscussion"]',
+    );
+    expect(field?.closest("[data-discussion-toolbar]")).toBeInstanceOf(
+      HTMLElement,
+    );
+    expect(head.querySelector("input")).toBeNull();
+
+    // Escape there closes the search, not the panel. The panel reads the key
+    // after the field is gone, so the search must mark it handled.
+    const pressEscape = async () => {
+      const open = container.querySelector(
+        'input[aria-label="comments.searchDiscussion"]',
+      );
+      expect(open).toBeInstanceOf(HTMLInputElement);
+      const escape = new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      });
+      await act(async () => open?.dispatchEvent(escape));
+      expect(
+        container.querySelector(
+          'input[aria-label="comments.searchDiscussion"]',
+        ),
+      ).toBeNull();
+      return escape;
+    };
+    expect(escapeWasHandled(await pressEscape())).toBe(true);
+
+    // A row preview around the page leaves Escape to its panel before the
+    // search sees it; the search still keeps it.
+    const rowPreview = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      leaveEscapeToPagePanel(event);
+    };
+    document.addEventListener("keydown", rowPreview, true);
+    try {
+      await act(async () =>
+        head
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="comments.searchDiscussion"]',
+          )
+          ?.click(),
+      );
+      expect(escapeWasHandled(await pressEscape())).toBe(true);
+    } finally {
+      document.removeEventListener("keydown", rowPreview, true);
+    }
   });
 
   it("shows a chip for each filter someone chose and clears it from the chip", async () => {
@@ -393,10 +489,11 @@ describe("the Discussion panel", () => {
     expect(
       container.querySelectorAll("[data-discussion-filter-trigger]"),
     ).toHaveLength(1);
+    // oracle-change: the options are menu items now, checked rather than pressed.
     const pressed = (group: string, option: string) =>
-      button(filterOption(group, option)).getAttribute("aria-pressed");
+      button(filterOption(group, option)).getAttribute("aria-checked");
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     expect(pressed("status", "open")).toBe("true");
     expect(pressed("status", "resolved")).toBe("false");
 
@@ -540,6 +637,36 @@ describe("the Discussion panel", () => {
       expect(card("created")).toBeNull();
     } finally {
       threads = fixtureThreads;
+    }
+  });
+
+  it("brings a page comment into view once it draws after posting", async () => {
+    actions.create.mockResolvedValue({ id: "created", threadId: "created" });
+    const scroll = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    render();
+    const composer = container.querySelector<HTMLElement>(
+      "[data-discussion-composer]",
+    );
+    const editor = composer ? richEditor(composer) : null;
+    if (!composer || !editor) throw new Error("No page composer");
+    await setRichEditorValue(editor, "Down at the foot");
+    await act(async () =>
+      composer
+        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')
+        ?.click(),
+    );
+    threads = [...fixtureThreads, thread("created", null)];
+    try {
+      render();
+      expect(scroll.mock.contexts).toEqual([card("created")]);
+      // Once is enough: drawing again leaves the reader where they scrolled.
+      render();
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      threads = fixtureThreads;
+      scroll.mockRestore();
     }
   });
 
@@ -756,5 +883,79 @@ describe("the Discussion panel", () => {
     render();
     await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
     expect(unavailable("text-1")).not.toBeNull();
+  });
+
+  it("puts the page composer above the threads, filed under where each points", () => {
+    render();
+    const composer = container.querySelector("[data-discussion-composer]");
+    const feed = container.querySelector("[data-comments-feed]");
+    if (!composer || !feed) throw new Error("Discussion didn't render");
+    expect(
+      composer.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      [...container.querySelectorAll("[data-discussion-section]")].map(
+        (heading) => heading.getAttribute("data-discussion-section"),
+      ),
+    ).toEqual(["text", "page"]);
+  });
+
+  it("shows a placed thread's text from its Show, without opening a reply", async () => {
+    showSubject = vi.fn();
+    page.current = document.createElement("div");
+    page.current.innerHTML =
+      '<div class="ProseMirror"><p><span data-comment-thread="text-1">Quoted line</span></p></div>';
+    document.body.append(page.current);
+    render();
+    await nextFrame();
+    const show = container.querySelector<HTMLButtonElement>(
+      '[data-thread-card="text-1"] [data-discussion-subject="text"]',
+    );
+    expect(show?.tagName).toBe("BUTTON");
+    expect(show?.getAttribute("aria-label")).toBe("comments.showQuoteOnPage");
+    expect(show?.querySelector("[data-comment-quote]")?.textContent).toBe(
+      "Quoted line",
+    );
+    await act(async () => show?.click());
+    expect(showSubject).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "text-1" }),
+    );
+    expect(container.querySelector("[data-comment-reply-composer]")).toBeNull();
+  });
+
+  it("quotes text the page hasn't placed, with no Show", async () => {
+    showSubject = vi.fn();
+    render();
+    await nextFrame();
+    const subject = container.querySelector(
+      '[data-thread-card="text-1"] [data-discussion-subject]',
+    );
+    expect(subject?.tagName).toBe("DIV");
+    expect(subject?.textContent).toBe("Quoted line");
+  });
+
+  it("closes a saved reply's box and hands focus to the thread's Reply", async () => {
+    actions.create.mockResolvedValue({ id: "reply-1" });
+    render();
+    await click('[data-thread-card="text-1"] [data-comment-reply-action]');
+    const box = () =>
+      container.querySelector<HTMLElement>("[data-comment-reply-composer]");
+    const opened = box();
+    const editor = opened ? richEditor(opened) : null;
+    if (!editor) throw new Error("The reply box didn't open");
+    await setRichEditorValue(editor, "Agreed");
+    await act(async () =>
+      box()
+        ?.querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')
+        ?.click(),
+    );
+    expect(actions.create).toHaveBeenCalledOnce();
+    expect(box()).toBeNull();
+    await nextFrame();
+    expect(document.activeElement).toBe(
+      container.querySelector(
+        '[data-thread-card="text-1"] [data-comment-reply-action]',
+      ),
+    );
   });
 });

@@ -28,6 +28,8 @@ const COMMENT_COUNT_MUTATIONS = new Set([
 ]);
 
 const DOCUMENT_MUTATIONS = new Set([
+  "add-github-pull-requests",
+  "append-to-document",
   "create-and-link-notion-page",
   "decide-resource-suggestion",
   "decide-resource-suggestion-proposal",
@@ -42,6 +44,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "execute-builder-source-batch",
   "execute-builder-source-execution",
   "create-github-collection",
+  "create-github-pull-request-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -55,6 +58,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "push-builder-doc",
   "push-notion-page",
   "refresh-content-database-source",
+  "run-builder-article-autosave",
   "reorder-document-property",
   "resolve-local-folder-conflict",
   "resolve-notion-sync-conflict",
@@ -76,8 +80,9 @@ const DOCUMENT_MUTATIONS = new Set([
   "upsert-database-item-by-key",
 ]);
 
-const DATABASE_RESULT_MUTATIONS = new Set([
+export const DATABASE_RESULT_MUTATIONS = new Set([
   "add-database-item",
+  "add-github-pull-requests",
   "configure-document-property",
   "delete-content-database",
   "delete-document",
@@ -90,6 +95,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "execute-builder-source-batch",
   "execute-builder-source-execution",
   "create-github-collection",
+  "create-github-pull-request-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -100,6 +106,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "reorder-document-property",
   "restore-content-database",
   "restore-document",
+  "run-builder-article-autosave",
   "set-document-property",
   "submit-content-database-form",
   "sync-github-folder",
@@ -118,6 +125,7 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "create-github-collection",
+  "create-github-pull-request-collection",
   "delete-content-database",
   "execute-content-trash-purge",
   "permanently-delete-document",
@@ -129,8 +137,10 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
 ]);
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
+  "add-github-pull-requests",
   "create-document",
   "create-github-collection",
+  "create-github-pull-request-collection",
   "import-content",
   "link-github-folder",
   "refresh-content-database-source",

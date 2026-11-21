@@ -36,7 +36,6 @@ const guards = [
   "guard:design-e2e-workflow",
   "guard:test-title-production",
   "guard:mobile-build-paths",
-  "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",
   "guard:template-standard",
@@ -76,7 +75,10 @@ const guards = [
   "guard:no-legacy-config",
   "guard:no-silent-coercion",
   "guard:no-source-reading-tests",
+  "guard:no-duplicate-vi-mock",
   "guard:no-major-changeset",
+  "guard:no-part-class-redefinition",
+  "guard:no-part-geometry-classes",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
   "guard:help-icon-scale",
@@ -91,15 +93,21 @@ const guards = [
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
+  "guard:no-unsealed-secret-columns",
+  "guard:no-vault-secrets-table",
   "guard:no-unobserved-writes",
   "guard:no-bare-pnpm-spawn",
+  "guard:recursive-copy-links",
   "guard:no-deferred-server-counts",
   "guard:no-oracle-loosening",
+  "guard:no-wall-clock-assertions",
   "guard:no-new-legacy-mcp-hints",
+  "guard:no-new-mcp-parity-gaps",
   "guard:action-output-schema",
   "guard:no-new-escape-hatches",
   "guard:compiler-strictness",
   "guard:strict-lint",
+  "guard:new-prose-comments",
   "guard:mcp-unredacted-call-boundary",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
@@ -120,7 +128,49 @@ type GuardResult = {
   output: string;
 };
 
+const diffScopedGuards = new Set<GuardName>([
+  "guard:no-silent-coercion",
+  "guard:new-prose-comments",
+  "guard:no-legacy-config",
+  "guard:e2e-harness",
+  "guard:no-raw-colors",
+  "guard:no-boot-data-work",
+  "guard:no-heavy-dashboard-list-reads",
+  "guard:no-blob-column-predicate",
+  "guard:no-unbounded-table-reads",
+  "guard:no-bare-error-in-actions",
+  "guard:no-unobserved-writes",
+  "guard:external-result-contract",
+  "guard:no-source-reading-tests",
+  "guard:no-oracle-loosening",
+  "guard:no-wall-clock-assertions",
+  "guard:no-raw-sql-interpolation",
+  "guard:action-output-schema",
+  "guard:strict-lint",
+  "guard:compiler-strictness",
+  "guard:no-new-escape-hatches",
+  "guard:no-new-legacy-mcp-hints",
+  "guard:no-new-mcp-parity-gaps",
+  "guard:no-bare-pnpm-spawn",
+  "guard:no-unsealed-secret-columns",
+  "guard:no-raw-app-identity-env",
+  "guard:no-default-chrome",
+  "guard:realtime-opt-in",
+  "guard:tracking-event-names",
+  "guard:chat-send-gate",
+  "guard:i18n-changed-copy",
+  "guard:request-storms",
+  "guard:dead-settings-keys",
+]);
+
 const args = parseArgs(process.argv.slice(2));
+const selectedGuards = args.diff
+  ? guards.filter((name) => diffScopedGuards.has(name))
+  : guards;
+if (args.diff)
+  console.error(
+    `[guards] Diff scope: ${selectedGuards.length} ratchets; the whole-tree audit remains available without --diff.`,
+  );
 
 if (args.help) {
   printHelp();
@@ -128,7 +178,7 @@ if (args.help) {
 }
 
 if (args.list) {
-  console.log(guards.join("\n"));
+  console.log(selectedGuards.join("\n"));
   process.exit(0);
 }
 
@@ -140,15 +190,16 @@ if (args.unknown.length > 0) {
 
 const concurrency = resolveConcurrency(args.concurrency);
 
-const strictSkips = Boolean(process.env.CI) && !process.env.GUARD_ALLOW_SKIPS;
+const strictSkips =
+  args.diff || (Boolean(process.env.CI) && !process.env.GUARD_ALLOW_SKIPS);
 
 if (args.dryRun) {
   console.log(
-    `[guards] ${guards.length} checks, concurrency=${formatConcurrency(
+    `[guards] ${selectedGuards.length} checks, concurrency=${formatConcurrency(
       concurrency,
     )}`,
   );
-  for (const guard of guards) {
+  for (const guard of selectedGuards) {
     console.log(formatCommand(guardCommand(guard)));
   }
   process.exit(0);
@@ -170,11 +221,11 @@ process.on("SIGTERM", () => {
 
 const numericConcurrency =
   concurrency === Infinity
-    ? guards.length
-    : Math.min(concurrency, guards.length);
+    ? selectedGuards.length
+    : Math.min(concurrency, selectedGuards.length);
 
 console.error(
-  `[guards] Running ${guards.length} checks with concurrency ${numericConcurrency}`,
+  `[guards] Running ${selectedGuards.length} checks with concurrency ${numericConcurrency}`,
 );
 
 const results = await runAll(numericConcurrency);
@@ -183,7 +234,7 @@ console.error(summary.message);
 process.exit(summary.exitCode);
 
 async function runAll(concurrency: number): Promise<GuardResult[]> {
-  const queue = [...guards];
+  const queue = [...selectedGuards];
   const results: GuardResult[] = [];
 
   await Promise.all(
@@ -265,6 +316,7 @@ Runs root guard:* scripts in a bounded parallel pool.
 Options:
   --concurrency <n|Infinity>  Override computed guard concurrency
   --dry-run                   Print the guard commands without running them
+  --diff                 Run the added-line ratchets; missing bases fail closed.
   --list                      List guard scripts and exit
 
 Environment overrides:
@@ -279,7 +331,17 @@ function guardCommand(name: GuardName): [string, string[]] {
   if (name === "guard:no-blob-column-predicate") {
     return ["node", ["scripts/guard-no-blob-column-predicate.mjs"]];
   }
-  return ["pnpm", ["run", name]];
+  return [
+    "pnpm",
+    [
+      "run",
+      name,
+      ...(args.diff &&
+      (name === "guard:request-storms" || name === "guard:dead-settings-keys")
+        ? ["--diff"]
+        : []),
+    ],
+  ];
 }
 
 function formatCommand([command, args]: [string, string[]]): string {
@@ -288,12 +350,14 @@ function formatCommand([command, args]: [string, string[]]): string {
 
 function parseArgs(rawArgs: string[]): {
   concurrency?: string;
+  diff: boolean;
   dryRun: boolean;
   help: boolean;
   list: boolean;
   unknown: string[];
 } {
   let concurrency: string | undefined;
+  let diff = false;
   let dryRun = false;
   let help = false;
   let list = false;
@@ -303,6 +367,10 @@ function parseArgs(rawArgs: string[]): {
     const arg = rawArgs[index];
 
     if (arg === "--") continue;
+    if (arg === "--diff") {
+      diff = true;
+      continue;
+    }
     if (arg === "--dry-run") {
       dryRun = true;
       continue;
@@ -333,7 +401,7 @@ function parseArgs(rawArgs: string[]): {
     unknown.push(arg);
   }
 
-  return { concurrency, dryRun, help, list, unknown };
+  return { concurrency, diff, dryRun, help, list, unknown };
 }
 
 function resolveConcurrency(explicitValue?: string): number | typeof Infinity {

@@ -59,8 +59,15 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * host rule instead of rebuilding it in SQL. Moving that rule's detail into
  * data-querying and dropping the backend field's repeat of the health-check
  * rule paid back ~40t.
+ *
+ * 18,950 -> 19,010: mutate-dashboard's `expectedUpdatedAt` and
+ * `idempotencyKey` (~60t), the fence and replay key external MCP clients must
+ * send. Its agent schema is also its MCP schema, so they cannot stay out of the
+ * in-app catalog; each carries one clause, and the protocol itself lives in the
+ * MCP instructions, which no in-app turn pays for.
  */
-const BASELINE_BUDGET_TOKENS = 18_950;
+// oracle-change: save-memory and delete-memory join the first-request tools so "remember this" works on the first turn
+const BASELINE_BUDGET_TOKENS = 19_460;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;

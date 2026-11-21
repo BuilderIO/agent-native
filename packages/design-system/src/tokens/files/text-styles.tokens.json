@@ -1,0 +1,147 @@
+{
+  "text-style": {
+    "display": {
+      "$type": "typography",
+      "$description": "Hero and marketing headlines; one per page at most.",
+      "$value": {
+        "fontFamily": "{font.family.heading}",
+        "fontSize": "{font.size.9}",
+        "fontWeight": "{font.weight.bold}",
+        "lineHeight": "{font.line-height.9}",
+        "letterSpacing": "{font.letter-spacing.9}"
+      }
+    },
+    "headline": {
+      "$type": "typography",
+      "$description": "A page's title on a document or landing surface.",
+      "$value": {
+        "fontFamily": "{font.family.heading}",
+        "fontSize": "{font.size.7}",
+        "fontWeight": "{font.weight.semibold}",
+        "lineHeight": "{font.line-height.7}",
+        "letterSpacing": "{font.letter-spacing.7}"
+      }
+    },
+    "title-large": {
+      "$type": "typography",
+      "$description": "A page or dialog title in an app.",
+      "$value": {
+        "fontFamily": "{font.family.heading}",
+        "fontSize": "{font.size.6}",
+        "fontWeight": "{font.weight.semibold}",
+        "lineHeight": "{font.line-height.6}",
+        "letterSpacing": "{font.letter-spacing.6}"
+      }
+    },
+    "title": {
+      "$type": "typography",
+      "$description": "A section title within a page.",
+      "$value": {
+        "fontFamily": "{font.family.heading}",
+        "fontSize": "{font.size.5}",
+        "fontWeight": "{font.weight.semibold}",
+        "lineHeight": "{font.line-height.5}",
+        "letterSpacing": "{font.letter-spacing.5}"
+      }
+    },
+    "title-small": {
+      "$type": "typography",
+      "$description": "A card, panel or group title.",
+      "$value": {
+        "fontFamily": "{font.family.heading}",
+        "fontSize": "{font.size.4}",
+        "fontWeight": "{font.weight.semibold}",
+        "lineHeight": "{font.line-height.4}",
+        "letterSpacing": "{font.letter-spacing.4}"
+      }
+    },
+    "body-large": {
+      "$type": "typography",
+      "$description": "Long-form reading text.",
+      "$value": {
+        "fontFamily": "{font.family.sans}",
+        "fontSize": "{font.size.3}",
+        "fontWeight": "{font.weight.regular}",
+        "lineHeight": "{font.line-height.3}",
+        "letterSpacing": "{font.letter-spacing.3}"
+      }
+    },
+    "body": {
+      "$type": "typography",
+      "$description": "The default text in app UI: rows, descriptions and messages.",
+      "$value": {
+        "fontFamily": "{font.family.sans}",
+        "fontSize": "{font.size.2}",
+        "fontWeight": "{font.weight.regular}",
+        "lineHeight": "{font.line-height.2}",
+        "letterSpacing": "{font.letter-spacing.2}"
+      }
+    },
+    "body-small": {
+      "$type": "typography",
+      "$description": "Dense UI text such as inspector values and table cells.",
+      "$value": {
+        "fontFamily": "{font.family.sans}",
+        "fontSize": "{font.size.1}",
+        "fontWeight": "{font.weight.regular}",
+        "lineHeight": "{font.line-height.1}",
+        "letterSpacing": "{font.letter-spacing.1}"
+      }
+    },
+    "label-large": {
+      "$type": "typography",
+      "$description": "A prominent label, such as a panel header.",
+      "$value": {
+        "fontFamily": "{font.family.sans}",
+        "fontSize": "{font.size.2}",
+        "fontWeight": "{font.weight.medium}",
+        "lineHeight": "{font.line-height.2}",
+        "letterSpacing": "{font.letter-spacing.2}"
+      }
+    },
+    "label": {
+      "$type": "typography",
+      "$description": "Control and field labels; the text inside every control.",
+      "$value": {
+        "fontFamily": "{font.family.sans}",
+        "fontSize": "{font.size.1}",
+        "fontWeight": "{font.weight.medium}",
+        "lineHeight": "{font.line-height.1}",
+        "letterSpacing": "{font.letter-spacing.1}"
+      }
+    },
+    "label-small": {
+      "$type": "typography",
+      "$description": "Badges, counters and other compact labels.",
+      "$value": {
+        "fontFamily": "{font.family.sans}",
+        "fontSize": "{font.size.0}",
+        "fontWeight": "{font.weight.medium}",
+        "lineHeight": "{font.line-height.0}",
+        "letterSpacing": "{font.letter-spacing.0}"
+      }
+    },
+    "caption": {
+      "$type": "typography",
+      "$description": "Secondary notes, timestamps and hints.",
+      "$value": {
+        "fontFamily": "{font.family.sans}",
+        "fontSize": "{font.size.0}",
+        "fontWeight": "{font.weight.regular}",
+        "lineHeight": "{font.line-height.0}",
+        "letterSpacing": "{font.letter-spacing.0}"
+      }
+    },
+    "code": {
+      "$type": "typography",
+      "$description": "Inline code, keys and identifiers.",
+      "$value": {
+        "fontFamily": "{font.family.mono}",
+        "fontSize": "{font.size.1}",
+        "fontWeight": "{font.weight.regular}",
+        "lineHeight": "{font.line-height.1}",
+        "letterSpacing": "{font.letter-spacing.1}"
+      }
+    }
+  }
+}

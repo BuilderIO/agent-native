@@ -14,6 +14,7 @@ import {
   withheldZoomPassageCount,
 } from "../server/lib/search-index-contracts.js";
 import { redactSensitiveText } from "../server/lib/search.js";
+import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
 import { captureKindSchema, sourceProviderSchema } from "./_schemas.js";
 
 const captureStatusSchema = z.enum([
@@ -62,6 +63,7 @@ export default defineAction({
     "List raw Brain captures for review without returning raw content by default. Use get-capture to open one accessible capture when needed.",
   schema: z.object({
     sourceId: z.string().optional(),
+    captureId: z.string().optional(),
     provider: sourceProviderSchema.optional(),
     status: captureStatusSchema.optional(),
     kind: captureKindSchema.optional(),
@@ -83,8 +85,21 @@ export default defineAction({
       sourceRows.push(access.resource);
     } else {
       const sourceClauses = [
-        accessFilter(schema.brainSources, schema.brainSourceShares),
+        and(
+          accessFilter(schema.brainSources, schema.brainSourceShares),
+          personalGoogleSourceFilter(),
+        ),
       ];
+      if (args.captureId) {
+        const captureRows = await db
+          .select({ sourceId: schema.brainRawCaptures.sourceId })
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, args.captureId))
+          .limit(1);
+        const captureRow = captureRows.find((row) => row.sourceId);
+        if (!captureRow) return { count: 0, captures: [] };
+        sourceClauses.push(eq(schema.brainSources.id, captureRow.sourceId));
+      }
       if (args.provider) {
         sourceClauses.push(eq(schema.brainSources.provider, args.provider));
       }
@@ -110,6 +125,9 @@ export default defineAction({
       eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
       inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
     ];
+    if (args.captureId) {
+      captureClauses.push(eq(schema.brainRawCaptures.id, args.captureId));
+    }
     if (args.status) {
       captureClauses.push(eq(schema.brainRawCaptures.status, args.status));
     }

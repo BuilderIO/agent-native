@@ -7,7 +7,7 @@ description: "Netlify CLI로 독립 실행형 Agent-Native 앱을 Netlify에 배
 
 Netlify가 앱을 대신 호스팅하므로 서버를 설정하거나 계속 실행해 둘 필요가 없습니다. 빌드하면 앱이 Netlify가 직접 제공하는 정적 파일과 Netlify가 필요할 때 실행하는 함수로 변환되며, Netlify는 앱에 HTTPS가 적용된 공개 주소를 제공합니다.
 
-이 가이드는 독립 실행형 앱 하나를 처음부터 배포하는 과정을 안내합니다. 앱을 만들고, 프로덕션 데이터베이스와 인증 시크릿을 지정하고, 앱용 Netlify 사이트를 만들고, 데이터베이스를 준비한 다음, 빌드하고 배포합니다.
+이 가이드는 독립 실행형 앱 하나를 처음부터 배포하는 과정을 안내합니다. 앱을 만들고, 프로덕션 데이터베이스와 시크릿 두 개를 지정하고, 앱용 Netlify 사이트를 만들고, 데이터베이스를 준비한 다음, 빌드하고 배포합니다.
 
 <Callout tone="info">
 
@@ -16,6 +16,8 @@ Node.js `22.22+`가 필요합니다.
 </Callout>
 
 Netlify 계정도 필요합니다. 이 가이드의 명령은 자신의 컴퓨터에서 실행하세요. 완성된 빌드는 Netlify CLI가 Netlify에 업로드합니다.
+
+명령은 macOS나 Linux의 터미널 같은 bash 셸 기준으로 작성되었습니다. Windows에서는 PowerShell 대신 Git Bash나 WSL에서 실행하세요.
 
 ## 1단계: 앱 만들기 {#step-1-create-the-app}
 
@@ -47,6 +49,7 @@ pnpm install
 | -------------------- | ------ | --------------------------------------------- |
 | `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
 | `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
+| `A2A_SECRET`         | 예     | 자동화를 실행하는 예약 호출에 서명합니다      |
 | `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
 
 아래의 export 명령을 실행하면 이 셸에서 이후 명령이 동작합니다. 배포하기 전에 같은 변수를 호스트의 프로젝트 또는 서비스 환경 설정에도 저장하세요. Netlify에 저장하는 방법은 다음 단계에서 설명합니다.
@@ -79,6 +82,14 @@ export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 
 생성한 값은 비밀번호 관리자처럼 안전한 곳에 저장하세요. 배포할 때마다 같은 값을 사용합니다.
 
+### 자동화 시크릿 {#automation-secret}
+
+Netlify는 매분 예약 함수를 실행해 기한이 된 자동화와 앱의 백그라운드 작업을 시작합니다. 이 함수는 모든 호출에 `A2A_SECRET`으로 서명하고, 앱은 확인할 수 없는 호출을 모두 거부합니다. 따라서 이 시크릿이 없으면 자동화가 하나도 실행되지 않습니다. 한 번만 생성해 인증 시크릿과 함께 보관하고, 이 값도 바꾸지 말고 계속 사용하세요.
+
+```bash
+export A2A_SECRET="$(openssl rand -hex 32)"
+```
+
 ### 공개 URL {#public-url}
 
 선택 사항입니다. 사용자 지정 도메인, 리버스 프록시, 또는 고정된 공개 origin이 필요한 인증이나 OAuth 흐름을 사용할 때 설정하세요.
@@ -101,15 +112,19 @@ npx netlify sites:create --name my-app
 
 `sites:create`는 사이트를 만들고 앱 폴더에 연결하므로, 이후 명령은 어떤 사이트를 사용할지 알 수 있습니다. 이 이름은 `my-app.netlify.app` 같은 사이트 주소도 됩니다. 사이트 이름은 Netlify 전체에서 공유되므로 `my-app`이 이미 사용 중이면 다른 이름을 고르세요. 5단계에서 자신의 컴퓨터에서 앱을 배포하므로 GitHub 저장소는 필요하지 않습니다.
 
-필수 변수 두 개를 사이트 환경에 저장합니다.
+필수 변수 세 개를 사이트 환경에 저장합니다.
 
 ```bash
 npx netlify env:set DATABASE_URL "$DATABASE_URL"
 
 npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+
+npx netlify env:set A2A_SECRET "$A2A_SECRET"
 ```
 
 각 명령은 2단계에서 export한 값을 읽어 Netlify에 저장하므로 시크릿을 직접 붙여 넣을 필요가 없습니다. `BETTER_AUTH_URL`을 설정했다면 같은 방법으로 저장하세요. 이 값들은 나중에 Netlify 대시보드의 사이트 설정에서 확인하고 변경할 수도 있습니다.
+
+그런 다음 사이트가 공개 상태인지 확인합니다. 일부 Netlify 팀은 새 사이트를 비공개로 만들기 때문에 로그인한 팀원만 열 수 있습니다. 예약 함수도 공개 주소를 통해 앱에 접근하므로, 비공개 사이트에서는 모든 자동화 호출이 거부됩니다. Netlify 대시보드에서 사이트를 열고 **Project configuration** > **General** > **Visitor access**로 이동하세요. 사이트가 비공개라면 공개로 바꿉니다.
 
 ## 4단계: 마이그레이션 {#step-4-migrate}
 
@@ -134,10 +149,12 @@ NITRO_PRESET=netlify pnpm build
 빌드를 업로드하고 게시합니다.
 
 ```bash
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 `--dir`과 `--functions`는 방금 빌드한 정적 파일과 함수의 위치를 CLI에 알려 줍니다. `--prod`는 이를 초안 미리보기 대신 프로덕션 주소에 게시합니다.
+
+`--no-build`는 다시 빌드하지 않고 그 빌드를 그대로 업로드합니다.
 
 명령이 끝나면 앱의 프로덕션 주소가 출력됩니다. 그 주소를 열고 첫 계정을 만듭니다.
 
@@ -150,10 +167,18 @@ pnpm migrate:production
 
 NITRO_PRESET=netlify pnpm build
 
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 사이트 연결과 저장한 변수는 그대로 유지되므로 3단계를 반복할 필요가 없습니다.
+
+## 자동화와 유휴 데이터베이스 {#netlify-idle-sweep}
+
+빌드는 매분 실행되는 예약 함수 `agent-native-recurring-jobs`를 추가합니다. 사람들이 앱을 사용하는 동안에는 실행할 때마다 기한이 된 자동화와 그 밖의 백그라운드 작업이 있는지 데이터베이스를 확인합니다. 10분 동안 아무도 앱을 열지 않았고 실행 중인 작업도 없으면, 함수는 다음 자동화의 기한까지, 길어도 한 시간 동안 확인을 멈춥니다. 이 일정은 데이터베이스가 아니라 Netlify Blobs에 저장하므로, 조용한 앱은 데이터베이스 쿼리를 보내지 않고 Neon 무료 플랜 같은 scale-to-zero 데이터베이스는 일시 중지될 수 있습니다. 조용한 기간 뒤의 첫 요청이 확인 주기를 다시 매분으로 되돌립니다.
+
+연결된 계정의 변경 사항 확인처럼, 함수가 기한을 알 수 없는 백그라운드 작업도 있습니다. 앱이 유휴 상태인 동안 이런 작업은 한 시간에 한 번만 실행됩니다. 가장 긴 대기 시간을 바꾸려면 `AGENT_NATIVE_IDLE_SWEEP_MAX_MINUTES`를 `0`에서 `1440`분 사이로 설정하세요. `0`으로 설정하면 매분 확인하므로 데이터베이스가 깨어 있습니다. 실행 중인 앱이 이 변수를 읽으므로, `npx netlify env:set`으로 사이트 환경에 저장한 다음 다시 배포하세요. 아래의 keep-warm은 이 설정과 관계없이 데이터베이스를 깨어 있게 합니다.
+
+`AGENT_INTEGRATION_DURABLE_DISPATCH`를 켜면 그 복구 함수가 매분 데이터베이스를 확인하므로 데이터베이스가 깨어 있습니다.
 
 ## Keep-warm과 scale-to-zero 데이터베이스 {#netlify-keep-warm}
 
@@ -169,6 +194,13 @@ Keep-warm은 **기본적으로 꺼져 있습니다**. 데이터베이스를 깨�
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | `AGENT_NATIVE_ENABLE_KEEP_WARM`이 설정되어 있어도 keep-warm을 끕니다. 이전 설정과의 호환성을 위해 유지됩니다.                                                                                   |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | warm-up 실행 주기를 `*/5 * * * *` 같은 5개 필드의 cron 표현식으로 변경합니다. 기본값은 매분을 뜻하는 `* * * * *`입니다. 유효한 cron이 아닌 값은 **빌드를 실패시킵니다**.                        |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 백그라운드 함수 warm-up은 건너뛰고 서버 함수 warm-up은 유지합니다. 서버 warm-up은 요청 하나로 끝납니다. 백그라운드 함수 warm-up은 데이터베이스 스키마를 다시 확인하는 새 컨테이너를 시작합니다. |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | 멀티 앱 워크스페이스 전용: 각 앱이 warm 상태로 유지하는 서버 인스턴스 수(1~50)입니다. 기본값은 `1`입니다. 범위를 벗어난 값은 **빌드를 실패시킵니다**.                                           |
+
+### 멀티 앱 워크스페이스 {#netlify-workspace-keep-warm}
+
+워크스페이스 배포도 같은 변수를 읽습니다. keep-warm이 켜져 있으면 일정에 따라 모든 앱의 `/<app>/_agent-native/health` 엔드포인트를 호출하는 예약 함수 `agent-native-workspace-keep-warm` 하나를 생성합니다.
+
+Netlify 함수 인스턴스는 한 번에 요청 하나만 처리하며, 앱을 열면 프레임워크 요청이 한꺼번에 병렬로 전송됩니다. 유휴 인스턴스를 찾지 못한 요청은 각각 콜드 인스턴스를 시작하므로, warm 인스턴스 하나로는 페이지 로드에 거의 도움이 되지 않습니다. `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`를 설정하면 앱마다 그 수만큼 겹치는 헬스 요청을 보내 그만큼의 인스턴스를 warm 상태로 유지합니다. 한 번 실행할 때마다 `앱 수 x 동시성`만큼 요청을 보내므로, 높은 값은 `*/3 * * * *`처럼 더 느린 일정과 함께 사용하세요.
 
 데이터베이스가 무료 요금제나 그 밖의 제한된 요금제를 사용한다면 `AGENT_NATIVE_ENABLE_KEEP_WARM`을 설정하지 않은 채로 두세요. 켜는 경우에는 더 느린 일정을 고르거나, 비용이 더 큰 백그라운드 warm-up을 건너뛰도록 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`을 설정하세요.
 

@@ -67,3 +67,23 @@ export const CONTENT_METRICS_MIGRATION_SQL = [
 ];
 
 export const CONTENT_COVERAGE_CONFIG_MIGRATION_SQL = `ALTER TABLE analytics_content_collection_runs ADD COLUMN IF NOT EXISTS config_fingerprint TEXT`;
+
+export const CONTENT_SEARCH_QUERIES_MIGRATION_SQL = [
+  `ALTER TABLE analytics_content_collection_runs ADD COLUMN IF NOT EXISTS detail TEXT`,
+  `CREATE TABLE IF NOT EXISTS analytics_content_search_queries (
+    id TEXT PRIMARY KEY,
+    tenant_key TEXT NOT NULL,
+    owner_email TEXT NOT NULL,
+    org_id TEXT,
+    item_id TEXT NOT NULL,
+    week_start TEXT NOT NULL,
+    query TEXT NOT NULL,
+    clicks DOUBLE PRECISION NOT NULL,
+    impressions DOUBLE PRECISION NOT NULL,
+    position_weighted DOUBLE PRECISION NOT NULL,
+    run_id TEXT NOT NULL,
+    collected_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS analytics_content_search_queries_key_idx ON analytics_content_search_queries (tenant_key, item_id, week_start, query)`,
+  `CREATE INDEX IF NOT EXISTS analytics_content_search_queries_week_idx ON analytics_content_search_queries (tenant_key, week_start)`,
+];

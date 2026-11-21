@@ -111,6 +111,7 @@ export function MembersTableCard({
   onRetryMembers,
   currentUserEmail,
   currentUserRole,
+  showDisabledInviteForMembers,
   emailConfigured,
   appRoles,
   groups,
@@ -123,6 +124,7 @@ export function MembersTableCard({
   onMemberPageChange,
   onMemberSearchChange,
   onCreateGroup,
+  onInvite,
 }: {
   members: MemberListItem[];
   totalMembers: number | undefined;
@@ -133,6 +135,7 @@ export function MembersTableCard({
   onRetryMembers: () => void;
   currentUserEmail: string;
   currentUserRole: OrgRole | null;
+  showDisabledInviteForMembers?: boolean;
   emailConfigured?: boolean;
   appRoles?: AppRolesDescriptor;
   groups: WorkspaceUserGroup[];
@@ -145,6 +148,7 @@ export function MembersTableCard({
   onMemberPageChange: (offset: number) => void;
   onMemberSearchChange: (value: string) => void;
   onCreateGroup: (memberEmails: string[]) => void;
+  onInvite?: () => void;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -268,18 +272,25 @@ export function MembersTableCard({
               className="h-8 w-full ps-8 text-xs"
             />
           </form>
-          {canInvite && !showInviteForm && (
-            <Button
-              type="button"
-              intent="primary"
-              emphasis="solid"
-              onClick={() => setShowInviteForm(true)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              <IconUserPlus size={14} />
-              {t("org.inviteMembers")}
-            </Button>
-          )}
+          {canInvite && !showInviteForm ? (
+            <InviteMembersButton
+              onClick={onInvite ?? (() => setShowInviteForm(true))}
+            />
+          ) : !canInvite &&
+            showDisabledInviteForMembers &&
+            currentUserRole === "member" ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* A disabled button gets no pointer events, so the wrapper carries the tooltip. */}
+                <span tabIndex={0} className="inline-flex">
+                  <InviteMembersButton disabled />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("agentChat.settingsOrg.inviteAdminExplanation")}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
       {canInvite && showInviteForm && (
@@ -900,11 +911,43 @@ export function MemberRow({
  * The members table for the active organization: search, invite, member rows,
  * pending invitations, pagination, and app-role controls.
  */
+function InviteMembersButton({
+  onClick,
+  disabled,
+}: {
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const t = useT();
+  return (
+    <Button
+      type="button"
+      intent="primary"
+      emphasis="solid"
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+    >
+      <IconUserPlus size={14} />
+      {t("org.inviteMembers")}
+    </Button>
+  );
+}
+
 export function MembersSection({
   appRoles,
   groupEditor,
+  showDisabledInviteForMembers,
+  onInvite,
 }: {
   appRoles?: AppRolesDescriptor;
+  /**
+   * Shows a member the Invite button disabled, with a tooltip saying only
+   * admins can invite, instead of hiding it.
+   */
+  showDisabledInviteForMembers?: boolean;
+  /** Opens the app's own invite flow in place of the inline invite form. */
+  onInvite?: () => void;
   /**
    * Share one group editor with a `GroupsSection` on the same page. Without
    * it, this section opens its own.
@@ -980,6 +1023,8 @@ export function MembersSection({
         onRetryMembers={() => void refetchMembers()}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
+        showDisabledInviteForMembers={showDisabledInviteForMembers}
+        onInvite={onInvite}
         emailConfigured={org.emailConfigured}
         appRoles={appRoles}
         groups={groupsQuery.data ?? []}

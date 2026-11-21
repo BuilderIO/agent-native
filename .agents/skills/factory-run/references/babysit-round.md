@@ -17,8 +17,9 @@ them. Never report "commits are unavailable", "read-only", or "a person must
 sync main" without running the command and quoting its error. If merging main
 really fails, or the fix or proof gate you need is only on main, don't ask a
 person to sync: commit your other work and stop with
-`OUTCOME: blocked - needs main merged: <the error or what main has>`. When the
-PR is behind main, the factory merges main itself and sends another round.
+`OUTCOME: blocked - needs main merged: <the error or what main has>`. Being
+behind main is not a reason to merge it: merge `origin/main` yourself only when
+GitHub reports the PR `CONFLICTING` (mergeStateStatus `DIRTY`).
 
 - The factory owns this PR: it opened or adopted it. Skip `babysit-pr`'s
   `gh api user` login and author check. In Builder, `gh` uses an app token
@@ -89,7 +90,8 @@ proof line it names, and list every report under `## Reports` (a chat-health
 report by its key, `chat-health:<app>:<date>`).
 
 1. Leave the PR's checkout clean: `merge` refuses a dirty one.
-2. Worktrees `create` (name `fix-<n>`), then `activate` it, and run
+2. Worktrees `create` (name `fix-<n>`, and `folder` when the workspace has
+   several git folders; see below), then `activate` it, and run
    `pnpm install --frozen-lockfile --prefer-offline` (about a minute).
 3. Make the fix and its test in the worktree.
 4. Worktrees `merge` it. That commits the fix and fast-forwards the PR
@@ -104,7 +106,35 @@ report by its key, `chat-health:<app>:<date>`).
 7. Worktrees `activate` `original`, then `remove` the worktree. It is
    merged and clean, so removal is expected and loses nothing.
 
+### Several git folders
+
+A factory branch can hold more than one git folder (agent-native and
+agent-native-labs). Pass Worktrees `create` the `folder` that holds this
+PR's repository. Only that folder moves into the worktree, so the fix, the
+install, and the proof all happen inside it; files in the other folders stay
+in their original checkouts. Bash doesn't follow the worktree there: start
+every command with `cd <worktree path>` (the path `create` printed), or it
+runs in the original checkout.
+
+If `create` or `activate` refuses with "Worktrees support workspaces with a
+single git repository" (a Builder CLI from before multi-folder worktrees),
+prove in the PR's checkout instead of stopping:
+
+1. Leave the PR's checkout clean, then make the fix and its test there and
+   commit them as one commit (`git commit`).
+2. From that folder's root, run `node scripts/fix-proof.ts --fix HEAD -- <check>`.
+   It reverts the fix's files with fs, runs the check, and puts HEAD back,
+   even when interrupted. Run `git status` afterwards: it must be clean.
+   If it isn't, restore with the command fix-proof printed before doing
+   anything else.
+3. Continue from step 6.
+
+A missing single-repository worktree is never a reason for
+`OUTCOME: blocked`.
+
 End your reply with the OUTCOME and CONFIDENCE lines the prompt asks for.
-Score CONFIDENCE with the fix rubric in [confidence.md](confidence.md): how
-sure you are the PR's fix is correct as it now stands. Under 70, the
+Score CONFIDENCE with the fix signals in [confidence.md](confidence.md): how
+sure you are the PR's fix is correct as it now stands. List the signal ids in
+square brackets after the score, e.g.
+`CONFIDENCE: 75 [test-reproduces, fix-proof, surface] - <why>`. Under 70, the
 factory won't merge it until a person approves it on GitHub.

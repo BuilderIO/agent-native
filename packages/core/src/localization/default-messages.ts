@@ -1,4 +1,5 @@
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+import { ACTION_ERROR_MESSAGES } from "./action-error-messages.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 import { CONSENT_BANNER_MESSAGES } from "./privacy-choice-messages.js";
@@ -6,6 +7,7 @@ import { SAVE_CONFLICT_MESSAGES } from "./save-conflict-messages.js";
 import { WRITE_FAILURE_MESSAGES } from "./write-failure-messages.js";
 
 const messages = {
+  actionErrors: ACTION_ERROR_MESSAGES["en-US"],
   iconPicker: ICON_PICKER_MESSAGES["en-US"],
   agentChat: {
     settingsModel: {
@@ -292,6 +294,8 @@ const messages = {
     scopePersonal: "Personal",
     scopeWorkspace: "Workspace",
     testStoredValue: "Test",
+    testing: "Testing…",
+    cannotCheckAlone: "This key can't be checked on its own",
     candidateValueWorking: "New value works",
     storedValueWorking: "Working",
     invalid: "Invalid",
@@ -794,7 +798,6 @@ const messages = {
     builderOrOwnKeys: "Use Builder.io or custom keys.",
     connectBuilderIo: "Use Builder.io",
     connectingBuilder: "Setting up Builder.io…",
-    builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
     addOwnKeys: "Custom keys",
     configureProviderKeys: "Choose a provider.",
     chooseProvider: "Choose a provider",
@@ -1499,6 +1502,8 @@ const messages = {
     members: "Members",
     inviteMembers: "Invite members",
     invited: "Invited",
+    cancelInvite: "Cancel invite",
+    cancelInviteFailed: "Couldn't cancel the invitation.",
     role: "Role",
     status: "Status",
     actions: "Actions",

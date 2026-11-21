@@ -36,7 +36,7 @@ export function renderMobileInspectorSheet({
   >;
 }) {
   const { hostOwnsChrome, mode, t } = editorCore;
-  const { minimalUi, motionDockOpen } = editorHistory;
+  const { minimalUi } = editorHistory;
   const { initialGenerationChromeLimited } = editorLiveEditsAndPresence;
   const { uiHidden } = editorContentAndComponents;
 
@@ -48,7 +48,7 @@ export function renderMobileInspectorSheet({
       !initialGenerationChromeLimited &&
       mode === "edit" &&
       !editPanelProps.readOnly ? (
-        <Sheet modal={!motionDockOpen}>
+        <Sheet>
           <SheetTrigger asChild>
             <Button
               type="button"
@@ -62,23 +62,7 @@ export function renderMobileInspectorSheet({
           </SheetTrigger>
           <SheetContent
             side="right"
-            onInteractOutside={(event) => {
-              if (motionDockOpen) event.preventDefault();
-            }}
-            className={
-              motionDockOpen
-                ? "w-[min(max(240px,48vw),360px)] overflow-hidden p-0 md:hidden"
-                : "w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
-            }
-            showOverlay={!motionDockOpen}
-            style={
-              motionDockOpen
-                ? {
-                    bottom: "var(--design-motion-dock-height, 0px)",
-                    height: "auto",
-                  }
-                : undefined
-            }
+            className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{t("editPanel.properties")}</SheetTitle>

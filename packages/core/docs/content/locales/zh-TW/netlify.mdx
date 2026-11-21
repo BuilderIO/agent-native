@@ -10,7 +10,7 @@ Netlify 直接提供的靜態檔案，以及 Netlify 依需求執行的函式，
 提供一個支援 HTTPS 的公開網址。
 
 本指南會從頭開始示範如何部署一個獨立應用程式。你將建立應用程式，為它設定正式環境
-資料庫和驗證密鑰，為它建立一個 Netlify 網站，準備好資料庫，然後建置並部署它。
+資料庫和兩個密鑰，為它建立一個 Netlify 網站，準備好資料庫，然後建置並部署它。
 
 <Callout tone="info">
 
@@ -20,6 +20,8 @@ Netlify 直接提供的靜態檔案，以及 Netlify 依需求執行的函式，
 
 你還需要一個 Netlify 帳號。請在你自己的電腦上執行本指南中的指令。Netlify CLI 會替你
 把完成的建置上傳到 Netlify。
+
+這些指令是為 bash shell 撰寫的，例如 macOS 或 Linux 上的終端機。在 Windows 上，請在 Git Bash 或 WSL 中執行，而不是在 PowerShell 中。
 
 ## 步驟 1：建立應用程式 {#step-1-create-the-app}
 
@@ -54,6 +56,7 @@ pnpm install
 | -------------------- | ---- | ------------------------------------------ |
 | `DATABASE_URL`       | 是   | 將應用程式連線到它的 PostgreSQL 資料庫     |
 | `BETTER_AUTH_SECRET` | 是   | 為使用者工作階段簽章                       |
+| `A2A_SECRET`         | 是   | 為執行自動化的排程呼叫簽章                 |
 | `BETTER_AUTH_URL`    | 否   | 設定使用者連到你的應用程式時使用的公開網址 |
 
 下面的 export 指令讓後續指令能在目前的 shell 中正常運作。部署之前，請把這些變數
@@ -91,6 +94,14 @@ export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
 
 請把產生的值儲存在安全的地方，例如密碼管理工具。每次部署時都使用相同的值。
 
+### 自動化密鑰 {#automation-secret}
+
+Netlify 每分鐘會執行一個排程函式，用來啟動應用程式中到期的自動化和背景工作。它會用 `A2A_SECRET` 為每次呼叫簽章，應用程式會拒絕任何無法驗證的呼叫，所以沒有這個密鑰，任何自動化都不會執行。只需產生一次，和驗證密鑰放在一起保管，並同樣保持不變：
+
+```bash
+export A2A_SECRET="$(openssl rand -hex 32)"
+```
+
 ### 公開 URL {#public-url}
 
 選用。在使用自訂網域、反向代理，或需要固定公開來源的驗證/OAuth 流程時設定它。
@@ -119,17 +130,21 @@ npx netlify sites:create --name my-app
 Netlify 中共用，因此如果 `my-app` 已經被使用，請選擇其他名稱。你不需要 GitHub
 存放庫，因為你會在步驟 5 中從自己的電腦部署應用程式。
 
-把兩個必要變數儲存到網站的環境中：
+把三個必要變數儲存到網站的環境中：
 
 ```bash
 npx netlify env:set DATABASE_URL "$DATABASE_URL"
 
 npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+
+npx netlify env:set A2A_SECRET "$A2A_SECRET"
 ```
 
 每個指令都會讀取你在步驟 2 中匯出的值並儲存到 Netlify，因此你不需要手動貼上密鑰。
 如果你有設定 `BETTER_AUTH_URL`，請用同樣的方式儲存它。之後你也可以在 Netlify
 資訊主頁的網站設定中查看和變更這些值。
+
+接著確認網站是公開的。有些 Netlify 團隊會把新網站建立為私人網站，只有已登入的團隊成員才能開啟。排程函式也會透過公開網址連到應用程式，所以在私人網站上，每次自動化呼叫都會被拒絕。在 Netlify 控制台中開啟網站，前往 **Project configuration** > **General** > **Visitor access**。如果網站是私人的，請把它改為公開。
 
 ## 步驟 4：遷移 {#step-4-migrate}
 
@@ -157,11 +172,13 @@ NITRO_PRESET=netlify pnpm build
 上傳建置並發布它：
 
 ```bash
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 `--dir` 和 `--functions` 會告訴 CLI 在哪裡找到你剛剛建置的靜態檔案和函式。`--prod`
 會把它們發布到你的正式環境網址，而不是草稿預覽。
+
+`--no-build` 會直接上傳這份建置，而不會重新建置。
 
 指令完成後，會輸出應用程式的正式環境網址。開啟它並建立第一個帳號。
 
@@ -174,10 +191,18 @@ pnpm migrate:production
 
 NITRO_PRESET=netlify pnpm build
 
-npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
+npx netlify deploy --prod --no-build --dir=dist --functions=.netlify/functions-internal
 ```
 
 網站連結和已儲存的變數會保持不變，因此你不需要重複步驟 3。
+
+## 自動化與閒置的資料庫 {#netlify-idle-sweep}
+
+建置會加入一個每分鐘執行的排程函式 `agent-native-recurring-jobs`。在有人使用應用程式期間，每次執行都會檢查資料庫中是否有到期的自動化和其他背景工作。一旦十分鐘內沒有人開啟應用程式，而且沒有任何工作在執行，函式就會停止檢查，直到下一個自動化到期，最長一小時。它把這個排程存放在 Netlify Blobs 而不是資料庫中，所以閒置的應用程式不會發出任何資料庫查詢，Neon 免費方案這類縮減至零的資料庫就能暫停。閒置之後的第一個請求會讓檢查恢復為每分鐘一次。
+
+有些背景工作沒有函式看得到的到期時間，例如檢查已連結帳號的變更，所以在應用程式閒置時，這類工作每小時只執行一次。設定 `AGENT_NATIVE_IDLE_SWEEP_MAX_MINUTES` 可以修改最長等待時間，範圍為 `0` 到 `1440` 分鐘。設為 `0` 時每分鐘檢查一次，資料庫會一直保持喚醒。這個變數由執行中的應用程式讀取，所以請用 `npx netlify env:set` 把它儲存到網站環境中，然後重新部署。下面介紹的 keep-warm 不論這個設定是什麼，都會讓資料庫保持喚醒。
+
+如果開啟 `AGENT_INTEGRATION_DURABLE_DISPATCH`，它的復原函式會每分鐘檢查一次資料庫，因此資料庫會一直保持喚醒。
 
 ## Keep-warm 與縮減至零資料庫 {#netlify-keep-warm}
 
@@ -199,6 +224,13 @@ Keep-warm **預設為停用**。讓資料庫保持喚醒會阻止它暫停，進
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 即使設定了 `AGENT_NATIVE_ENABLE_KEEP_WARM`，也會停用 keep-warm。為了與舊版設定相容而保留。                                              |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 以 5 段式 cron 運算式變更喚醒的執行頻率，例如 `*/5 * * * *`。預設值是 `* * * * *`，也就是每分鐘一次。無效的 cron 值會**導致建置失敗**。 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 略過背景函式的喚醒，仍持續喚醒伺服器函式。喚醒伺服器只是一次請求。喚醒背景函式會啟動一個新的容器，並再次檢查資料庫 schema。             |
+| `AGENT_NATIVE_KEEP_WARM_CONCURRENCY`        | 僅限多應用程式工作區：每個應用程式保持喚醒的伺服器實例數，範圍 1 到 50。預設值為 `1`。超出範圍的值**會使建置失敗**。                    |
+
+### 多應用程式工作區 {#netlify-workspace-keep-warm}
+
+工作區部署會讀取相同的變數。啟用 keep-warm 後，它會產生一個排程函式 `agent-native-workspace-keep-warm`，依排程呼叫每個應用程式的 `/<app>/_agent-native/health` 端點。
+
+Netlify 函式實例一次只處理一個請求，而開啟應用程式會同時送出一批平行的框架請求。每個找不到閒置實例的請求都會冷啟動一個新實例，所以只有一個喚醒的實例對頁面載入幫助不大。設定 `AGENT_NATIVE_KEEP_WARM_CONCURRENCY` 可為每個應用程式送出相應數量的重疊健康檢查請求，藉此讓相應數量的實例保持喚醒。每次執行會送出 `應用程式數 x 並行數` 個請求，因此較高的值應搭配較慢的排程，例如 `*/3 * * * *`。
 
 如果你的資料庫使用的是免費方案或其他有限制的方案，請讓 `AGENT_NATIVE_ENABLE_KEEP_WARM`
 保持未設定。如果你啟用了它，請選擇較慢的排程，或設定

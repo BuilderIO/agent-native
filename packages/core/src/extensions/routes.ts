@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   defineEventHandler,
+  getHeader,
   getMethod,
   setResponseStatus,
   setResponseHeader,
@@ -225,6 +226,10 @@ async function dispatch(
   }
 
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
+    if (getHeader(event, "sec-fetch-dest")?.toLowerCase() === "document") {
+      setResponseStatus(event, 403);
+      return { error: "Extensions open inside the app" };
+    }
     const localExtension = await getLocalExtension(parts[0]);
     if (localExtension) {
       const search = event.url?.search || "";
@@ -985,7 +990,7 @@ export const DESTRUCTIVE_SQL_RE =
   /\b(CREATE\s+(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP)?\s*(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE|TABLESPACE|PUBLICATION|SUBSCRIPTION)|DROP\s+(TABLE|INDEX|VIEW|SCHEMA|DATABASE|TRIGGER|FUNCTION|EXTENSION|ROLE)|TRUNCATE|DELETE\s+FROM\s+(?!tool_data\b)|ALTER\s+(TABLE|VIEW|SCHEMA|DATABASE|FUNCTION|ROLE|EXTENSION|PUBLICATION)\s+(?!tool_data\b)|ATTACH|DETACH|VACUUM|REINDEX|GRANT|REVOKE|SET\s+ROLE|RESET\s+ROLE|COPY)\b/i;
 
 export const SENSITIVE_SQL_RE =
-  /\b(app_secrets|settings|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|tool_history|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+  /\b(app_secrets|vault_secrets|settings|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|tool_history|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_instruction_updates|sandbox_executions|automation_runs|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
 
 export const POSITIONAL_INSERT_RE =
   /\bINSERT\s+INTO\s+["'`]?\w+["'`]?\s+VALUES\b/i;

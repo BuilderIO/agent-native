@@ -23,8 +23,10 @@ How to export designs and generate handoff documentation for developers converti
 - **PNG**: `export-png` renders one stored HTML screen in headless Chromium and
   uploads the PNG through the configured file provider. Pass `fileId`, or
   `designId` plus `filename`, to select the screen. It returns a durable `url`
-  and suggested `filename`; `width` defaults to 1440px and `height` only sets
-  the responsive viewport because the export includes the screen's full page.
+  and suggested `filename`; `width` defaults to the screen's authored frame
+  width (1440px when it has none) and `height` only sets the responsive
+  viewport because the export includes the screen's full page. The PNG is
+  rendered at 2x pixel density, so a 390px screen yields a 780px-wide file.
 
   ```bash
   pnpm action export-png --designId <designId> --fileId <fileId>
@@ -51,6 +53,15 @@ How to export designs and generate handoff documentation for developers converti
   Output dimensions are the crop size times `pixelRatio`, bounded to 4096 pixels
   per edge and 8,388,608 pixels total. Poll `get-native-local-export` with the
   exact request and tab IDs; only `completed` provides the protected PNG URL.
+
+- **A screen pinned in a Content page**: Content asks Design for a picture of
+  one screen with `capture-design-screen`, and for a design's sharing, screen
+  fingerprints and open comments with `get-design-screen-status`. Both answer
+  only another Agent-Native app's call, made as the signed-in person, and only
+  for designs that person can open; neither is yours to call. To pin a screen
+  in a page, use Content's own `capture-design-screen` with the screen's copied
+  link (`/design/<designId>?screen=<fileId>`). A screen with live native
+  effects can't be pinned; export it with the live editor's PNG path instead.
 
 - **Deploy preview**: `deploy-design-preview` triggers a preview deploy for a
   fusion-backed design branch. It requires the design's source to advertise

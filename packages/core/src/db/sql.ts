@@ -16,6 +16,13 @@ export interface SqlFragment {
   readonly [fragmentBrand]: true;
 }
 
+export interface SqlExecutionBudget {
+  readonly timeoutMs: number;
+  readonly maxAttempts: number;
+}
+
+export interface BudgetedSqlFragment extends SqlFragment, SqlExecutionBudget {}
+
 interface SqlIdentifier {
   readonly name: string;
   readonly [identifierBrand]: true;
@@ -124,6 +131,46 @@ export function getSqlFragmentParameterOffsets(
     throw new TypeError("SQL fragment is missing parameter marker metadata.");
   }
   return offsets;
+}
+
+/**
+ * Attach an execution budget to a top-level SQL statement. Composing this
+ * fragment into another statement does not propagate the budget; wrap the
+ * final statement that will be executed. Both values must be positive
+ * integers: timeoutMs at most 2,147,483,647 and maxAttempts at most 10.
+ * Invalid budgets throw RangeError. Driver timeout handling is unchanged;
+ * attaching a budget does not guarantee cancellation of database execution.
+ */
+export function withSqlBudget(
+  query: SqlFragment,
+  budget: SqlExecutionBudget,
+): BudgetedSqlFragment {
+  if (!isSqlFragment(query)) {
+    throw new TypeError("SQL execution budget requires a SQL fragment.");
+  }
+  // JavaScript callers can pass anything; the declared type is not a check.
+  const uncheckedBudget: unknown = budget;
+  if (!uncheckedBudget) throw new RangeError("Invalid SQL execution budget.");
+  const { timeoutMs, maxAttempts } = budget;
+  if (
+    !Number.isInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 2_147_483_647 ||
+    !Number.isInteger(maxAttempts) ||
+    maxAttempts < 1 ||
+    maxAttempts > 10
+  ) {
+    throw new RangeError("Invalid SQL execution budget.");
+  }
+  return Object.freeze({
+    ...makeFragment(
+      query.sql,
+      query.args,
+      getSqlFragmentParameterOffsets(query),
+    ),
+    timeoutMs,
+    maxAttempts,
+  });
 }
 
 function isSqlIdentifier(value: unknown): value is SqlIdentifier {

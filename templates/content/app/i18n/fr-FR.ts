@@ -412,6 +412,12 @@ const database = {
   failedToSavePagePreview: "Échec de l’enregistrement de l’aperçu",
   failedToSaveView: "Échec de l’enregistrement de la vue",
   failedToUpdateCheckbox: "Échec de la mise à jour de la case",
+  undoPropertyChangedSince:
+    "Non annulé : cette propriété a changé après votre modification",
+  redoPropertyChangedSince:
+    "Non rétabli : cette propriété a changé après l’annulation",
+  undoPropertyFailed: "Impossible d’annuler la modification de la propriété",
+  redoPropertyFailed: "Impossible de rétablir la modification de la propriété",
   failedToUpdateEverySelectedRow:
     "Impossible de mettre à jour toutes les lignes sélectionnées",
   filter: "Filtrer",
@@ -749,6 +755,17 @@ const editor = {
     duplicate: "Dupliquer",
     delete: "Supprimer",
     insertBelow: "Insérer un bloc en dessous",
+    insertAbove: "Insérer un bloc au-dessus",
+    turnIntoCollection: "Convertir en collection",
+    askAgent: "Demander à l’agent",
+    columns: "Colonnes",
+    syncedBlock: "Bloc synchronisé",
+    component: "Composant",
+    file: "Fichier",
+    pdf: "PDF",
+    bookmark: "Signet",
+    embed: "Intégration",
+    tableOfContents: "Table des matières",
     search: "Rechercher des actions...",
     noResults: "Aucun résultat",
     block: "Bloc",
@@ -760,6 +777,22 @@ const editor = {
     lockedSuggesting:
       "Les suggestions ne peuvent pas ajouter ni retirer ce type de bloc.",
     lockedPage: "Cette page n’autorise pas cette modification.",
+    lockedCollection:
+      "Une collection reste sur la page à laquelle elle appartient.",
+    lockedUploadedClip:
+      "Un Clip importé sur cette page y reste, car c’est la page qui détermine qui peut le regarder.",
+    moveTo: "Déplacer vers",
+    moveToTitle: "Déplacer le bloc vers",
+    movingTo: "Déplacement vers {{title}}…",
+    movedTo: "Déplacé vers {{title}}",
+    copiedTo:
+      "Copié vers {{title}}. Le bloc a changé pendant le déplacement, il reste donc aussi ici.",
+    copiedPageClosed:
+      "Copié vers {{title}}. La page d’origine s’est fermée avant la fin du déplacement, le bloc y reste donc aussi.",
+    moveChanged:
+      "Le bloc a changé avant de pouvoir être déplacé, donc rien n’a été déplacé.",
+    moveFailed: "Impossible de déplacer le bloc vers {{title}}",
+    openPage: "Ouvrir",
   },
   noDocumentSelected: "Aucun document sélectionné",
   registryBlockLoadError:
@@ -793,9 +826,27 @@ const editor = {
   creatingDatabase: "Création d'une collection intégrée...",
   databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
+  newPagePlaceholder: "Commencez à écrire",
+  newPageLine: "Commencez à écrire, {{draft}} ou {{import}}",
+  newPageLineWithoutImport: "Commencez à écrire ou {{draft}}",
+  newPageLineDraft: "rédigez-la avec l’agent",
+  newPageLineImport: "importez du Markdown",
+  newPageDraftPrompt: "Rédige cette page sur ",
+  newPageDraftPromptTitled: "Rédige cette page sur {{title}}",
+  newPageAgentContextLabel: "Cette page",
   describeWhatToGenerate: "Décrivez ce qu'il faut générer...",
   enterToSubmit: "Entrez pour soumettre",
   failedToCreateDatabase: "Échec de la création de la collection intégrée",
+  turningIntoCollection: "Conversion du tableau en collection...",
+  turnedIntoCollection: "Tableau converti en collection",
+  failedToTurnIntoCollection:
+    "Impossible de convertir le tableau en collection",
+  tableChangedWhileTurning:
+    "Le tableau a changé pendant sa conversion en collection, il a donc été laissé tel quel. Réessayez.",
+  tableTooBigForCollection:
+    "Une collection peut accueillir un tableau de 500 lignes et 50 colonnes au maximum.",
+  tableTextTooLongForCollection:
+    "Dans une collection, le nom d’une ligne (la première colonne du tableau) peut compter jusqu’à 500 caractères, et les autres cellules jusqu’à 20 000. Raccourcissez les cellules trop longues et réessayez.",
   generateWithAi: "Générer avec l'IA",
   untitledDatabase: "Collection sans titre",
   media: {
@@ -805,8 +856,9 @@ const editor = {
     addImage: "Ajouter une image",
     addVideo: "Ajouter une vidéo",
     altText: "Texte alternatif",
-    altTextGenerationFailed:
-      "Impossible de démarrer la génération de texte alternatif.",
+    altTextAdded: "Texte alternatif ajouté.",
+    altTextGenerationFailed: "Impossible de rédiger le texte alternatif.",
+    altTextNeedsAiSetup: "Configurez l'IA pour rédiger le texte alternatif.",
     assets: "Actifs",
     assetsCopyFailed:
       "Impossible de copier cette image depuis les éléments. Réessayez ou importez plutôt le fichier.",
@@ -839,10 +891,12 @@ const editor = {
     currentDocumentMissing: "Impossible de trouver le document actuel.",
     delete: "Supprimer",
     describeThisImage: "Décrivez cette image",
+    dismissAltTextStatus: "Fermer",
     download: "Télécharger",
     downloadAudio: "Télécharger l'audio",
     downloadImage: "Télécharger l'image",
     downloadVideo: "Télécharger la vidéo",
+    editAltTextInChat: "Modifier dans le chat",
     embedAudio: "Intégrer l'audio",
     embedImage: "Intégrer l'image",
     embedVideo: "Intégrer la vidéo",
@@ -851,7 +905,7 @@ const editor = {
     expandImage: "Agrandir l'image",
     expandVideo: "Développer la vidéo",
     generateAltText: "Générer du texte alternatif",
-    generatingAltText: "Génération du texte alternatif...",
+    generatingAltText: "Rédaction du texte alternatif…",
     image: "Images",
     imageAdded: "Image ajoutée",
     imagesAdded: "Images ajoutées",
@@ -865,12 +919,14 @@ const editor = {
     imageUploadsFailed:
       "{{failed}} images sur {{total}} n'ont pas pu être importées.",
     imageView: "Vue des images",
+    keptYourAltText: "Votre texte alternatif a été conservé.",
     link: "Lien",
     loadingAssetsPicker: "Chargement du sélecteur d'actifs",
     more: "Plus",
     moreAudioActions: "Plus d'actions audio",
     moreImageActions: "Plus d'actions liées aux images",
     moreVideoActions: "Plus d'actions vidéo",
+    openChat: "Ouvrir le chat",
     openedAudioInNewTab: "Audio ouvert dans un nouvel onglet.",
     openedImageInNewTab: "Image ouverte dans un nouvel onglet.",
     openedVideoInNewTab: "Vidéo ouverte dans un nouvel onglet.",
@@ -898,6 +954,7 @@ const editor = {
     transcript: "Transcription",
     transcriptBlockFailed: "Impossible d'ajouter un bloc de transcription.",
     transcriptionStarted: "La transcription a commencé.",
+    tryAgain: "Réessayer",
     upload: "Télécharger",
     uploadFile: "Télécharger le fichier",
     uploadingAudio: "Téléchargement de l'audio...",
@@ -982,7 +1039,11 @@ const editor = {
     imageUploaded_other: "Images téléchargées",
     includeTime: "Inclure le temps",
     loadingProperties: "Chargement des propriétés",
-    content: "Contenu",
+    pageDetails: "Détails de la page",
+    createdOn: "Créée le {{date}}",
+    editedAgo: "Modifiée {{time}}",
+    editedOn: "Modifiée le {{date}}",
+    editedJustNow: "Modifiée à l’instant",
     loadingContent: "Chargement du contenu",
     wordCount_zero: "{{count}} mot",
     wordCount_one: "{{count}} mot",
@@ -995,6 +1056,8 @@ const editor = {
     noFilesOrMedia: "Aucun fichier ni média",
     noMatchingOptions: "Aucune option correspondante",
     noMatchingPropertyTypes: "Aucun type de propriété correspondant",
+    typeChangeUnavailable:
+      "Le type de propriété ne peut pas être modifié afin de protéger les valeurs existantes.",
     notMappedToBuilder: "Non mappé à Builder.",
     onlyBlocksPropertyWarning:
       "C'est la seule propriété de blocs présente dans ce type d'objet. Cela supprimera le contenu principal (corps) de tous les objets de ce type.",
@@ -1087,6 +1150,10 @@ const editor = {
     fourColumns: "4 colonnes",
     codeBlock: "Bloc de code",
     codeBlockDescription: "Extrait de code",
+    toggleHeading1: "Titre dépliable 1",
+    toggleHeading2: "Titre dépliable 2",
+    toggleHeading3: "Titre dépliable 3",
+    toggleHeadingDescription: "Titre qui s’ouvre et se referme",
     collapsibleBlockDescription: "Bloc pliable",
     database: "Collection",
     databaseDescription: "Collection intégrée dans cette page",
@@ -1178,6 +1245,13 @@ const editor = {
     agentLevelNote: "Les agents peuvent commenter",
     agentLevelNoteHint:
       "Les agents peuvent commenter sur cette page. Modifiez cela dans Partager.",
+    agentLevelViewDescription:
+      "Peuvent lire cette page, mais pas commenter, suggérer ni modifier.",
+    agentLevelViewConfirm:
+      "Les agents peuvent désormais uniquement lire cette page.",
+    agentLevelViewNote: "Les agents peuvent uniquement consulter",
+    agentLevelViewNoteHint:
+      "Les agents peuvent uniquement consulter cette page. Modifiez cela dans Partager.",
     sendPageToAgent: "Envoyer cette page à un agent",
     connectAgentOverMcp: "Connecter un agent via MCP",
     importingFromNotion: "Importation depuis Notion...",
@@ -1287,6 +1361,7 @@ const rawLiterals = {
     rename: "Renommer",
     duplicate: "Dupliquer",
     moveTo: "Déplacer vers",
+    addSubPage: "Ajouter une sous-page",
     moveToTrash: "Placer dans la corbeille",
     lastEditedBy: "Dernière modification par {{name}}",
     lastEdited: "Dernière modification",
@@ -1527,6 +1602,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
     discardSuggestionDraft: "Ignorer le brouillon",
+    mermaid: {
+      source: "Mermaid",
+      done: "Terminé",
+      doneShortcut: "Fermer le code source (Échap)",
+      editDiagram: "Modifier le diagramme",
+      cantDraw: "Impossible de dessiner ce diagramme",
+    },
     failedToCreatePage: "Impossible de créer la page",
     slash: {
       blockEquation: "Équation en bloc",
@@ -1565,6 +1647,9 @@ const exactEnglish = {
       privateLinkCanView:
         "Seules les personnes autorisées peuvent consulter ce lien",
       publicLinkCanView: "Toute personne disposant du lien peut le consulter",
+      publicSubPagesOne: "Cette page et sa sous-page",
+      publicSubPages: "Cette page et ses {{count}} sous-pages",
+      publicSubPagesMore: "Cette page et plus de {{count}} sous-pages",
       copiedAgentPrompt: "Instructions pour l'agent copiées",
       couldNotCopyAgentPrompt:
         "Impossible de copier les instructions pour l’agent",
@@ -1688,6 +1773,27 @@ const overrides = {
     builderReviewShowMore: "Afficher plus",
     builderReviewRemainingBatches:
       "Relancez la revue après ce lot pour préparer les modifications Builder restantes.",
+    builderReviewLoadingMorePagesOne:
+      "Chargement des modifications d’1 page de plus…",
+    builderReviewLoadingMorePages:
+      "Chargement des modifications de {{count}} pages de plus…",
+    builderReviewConfirmingBodiesOne:
+      "Vérification d’1 modification du corps auprès de Builder…",
+    builderReviewConfirmingBodies:
+      "Vérification de {{count}} modifications du corps auprès de Builder…",
+    builderReviewFindingPages: "Recherche des pages modifiées…",
+    builderReviewRowsMatchBuilderOne:
+      "1 page correspond déjà à Builder une fois son corps converti ; elle n’est donc pas incluse.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} pages correspondent déjà à Builder une fois leur corps converti ; elles ne sont donc pas incluses.",
+    builderReviewLoadFailed:
+      "Certaines modifications ne se sont pas chargées : {{message}}",
+    bodyDiffAdded: "Ajouté :",
+    bodyDiffRemoved: "Supprimé :",
+    bodyDiffMoreLinesOne: "1 ligne modifiée de plus",
+    bodyDiffMoreLines: "{{count}} lignes modifiées de plus",
+    bodyDiffMoreChangesOne: "1 autre modification non affichée",
+    bodyDiffMoreChanges: "{{count}} autres modifications non affichées",
     builderBodiesSyncingProgress:
       "Synchronisation de {{hydrated}} corps sur {{total}}.",
     builderBodiesSyncFinishedWithFailures:
@@ -1742,9 +1848,21 @@ const overrides = {
     commandDatabasesHeading: "Collections",
     commandLocalFilesHeading: "Fichiers locaux",
     commandDatabaseResultDescription: "Ouvrir la page de collection",
-    commandAppearance: "Apparence",
     openAgent: "Ouvrir l’agent",
     toggleTheme: "Changer de thème",
+    commandOnPage: "Dans « {{title}} »",
+    commandSearchInPage: "Rechercher dans cette page",
+    commandSearchInPageDescription:
+      "Uniquement cette page et les pages qu’elle contient",
+    commandScopeChip: "Dans « {{title}} »",
+    commandClearScope: "Rechercher dans tout l’espace",
+    commandAskAgent: "Demander à l’agent : « {{query}} »",
+    commandAskAgentDescription:
+      "L’agent peut chercher, lire et résumer pour vous",
+    commandPreview: "Aperçu",
+    commandHintNavigate: "Naviguer",
+    commandHintOpen: "Ouvrir",
+    commandHintClose: "Fermer",
   },
   theme: {
     system: "Thème système",
@@ -1856,10 +1974,17 @@ const overrides = {
     heading6: "Titre 6",
     link: "Lien",
     comment: "Commentaire",
+    suggestEdit: "Suggérer une modification",
     pasteLink: "Coller le lien...",
     apply: "Appliquer",
     plainText: "Texte brut",
     searchLanguages: "Rechercher des langages...",
+    codeLanguageAuto: "Automatique",
+    codeLanguage: "Langage du code",
+    noLanguagesFound: "Aucun langage trouvé",
+    copyCode: "Copier le code",
+    codeCopied: "Copié",
+    wrapCodeLines: "Retour à la ligne",
     noBlocksFields:
       "Aucun champ Blocks. Ajoutez-en un depuis le menu des propriétés.",
     addBlockField: "Ajouter un champ",
@@ -1880,6 +2005,18 @@ const overrides = {
       "« {{name}} » et son texte seront supprimés de toutes les lignes de cette collection. Cette action est irréversible.",
     deleteBlockFieldBodyWarning:
       "« {{name}} » est le corps de la page : le texte principal de chaque ligne sera aussi supprimé.",
+    blockFieldFrozen: "Figé tant que {{column}} vaut {{value}}",
+    blockFieldFrozenDescription:
+      "Une règle de cette collection empêche quiconque, personne ou agent, de modifier cet onglet. Donnez à {{column}} une autre valeur que {{value}} pour le modifier.",
+    blockFieldFrozenByManagers:
+      "Figé tant que {{column}} vaut {{value}}. Seules les personnes ayant un accès complet à la collection peuvent changer cela.",
+    blockFieldFrozenSaveRefused:
+      "Cet onglet est figé, votre modification n'a donc pas été enregistrée",
+    freezeBlockField: "Figer tant que…",
+    freezeBlockFieldWhile: "Tant que {{column}} vaut",
+    freezeBlockFieldNoColumns:
+      "Ajoutez une colonne de statut ou de sélection pour figer selon elle",
+    unfreezeBlockField: "Ne pas figer",
   },
   comments: {
     add: "Ajouter un commentaire...",
@@ -1919,6 +2056,18 @@ const overrides = {
     agentBadge: "Agent",
     addEmoji: "Ajouter un emoji",
     mentionSomeone: "Mentionner quelqu’un",
+    attachImage: "Ajouter une image",
+    removeImage: "Retirer l’image",
+    uploadingImage: "Envoi de l’image…",
+    imageUploadFailed: "Impossible d’envoyer l’image. Réessayez.",
+    imageTypeUnsupported:
+      "Un commentaire accepte les images PNG, JPEG, GIF ou WebP.",
+    imageTooLarge: "Chaque image peut peser jusqu’à 10 Mo.",
+    imageLimit: "Un commentaire contient au plus {{count}} images.",
+    imagesNeedStorage:
+      "Les images nécessitent un stockage de fichiers privé, que cet espace de travail n’a pas connecté.",
+    commentImages: "Images",
+    openImage: "Ouvrir l’image : {{name}}",
     mentionPeople: "Personnes",
     mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",
@@ -1951,7 +2100,9 @@ const overrides = {
     aiResponseMode: "Réponse",
     aiChooseSendMode: "Choisir le mode d’envoi IA",
     aiSuggestChanges: "Suggérer des modifications",
-    aiUnavailable: "Indisponible",
+    aiModelNotConnected:
+      "{{model}} n’est pas connecté. Cliquez sur son nom pour choisir un autre modèle.",
+    aiModelNotConnectedAlone: "{{model}} n’est pas connecté.",
     aiReplyInThread: "Répondre dans le fil",
     aiApplyAndResolve: "Appliquer les modifications et résoudre",
     aiPromptSuggest: "Suggère des modifications pour ce commentaire.",
@@ -2019,6 +2170,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
+    workspaceReferenceProtected:
+      "Les références aux espaces de travail sont protégées et ne peuvent pas être modifiées comme des pages.",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",
     failedMovePage: "Échec du déplacement de la page",

@@ -10,6 +10,7 @@ import {
 } from "../app-roles.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Set or reset which declared app roles grant a code-declared permission in the active organization. An empty role list denies the permission to everyone; pass reset=true to restore defaults.",
   schema: z.object({

@@ -25,33 +25,49 @@ import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
+  ContentDatabaseFilterOperator,
+  ContentDatabaseItem,
   ContentDatabaseNavigationPage,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseNavigationSort,
   ContentDatabasePersonalViewOverrides,
+  ContentDatabaseSort,
+  DocumentProperty,
 } from "../shared/api.js";
 import {
+  applyContentDatabaseTableQuery,
   contentDatabaseDateFilterCheck,
   contentDatabaseFilterComparesDates,
   contentDatabaseFilterHasTime,
+  contentDatabaseFilterInstant,
   contentDatabaseFilterIsActive,
   contentDatabaseFilterIsRelative,
   contentDatabaseFilterToday,
   contentDatabaseFilterTree,
   reduceContentDatabaseFilterTree,
+  type ContentDatabaseDateComparisonFilter,
   type ContentDatabaseDateFilterBound,
 } from "../shared/database-query.js";
+import {
+  parsePropertyOptions,
+  parsePropertyValue,
+} from "../shared/properties.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
-import { parseDatabaseViewConfig } from "./_property-utils.js";
+import {
+  parseDatabaseViewConfig,
+  serializePropertyDefinition,
+} from "./_property-utils.js";
 
 const CURSOR_VERSION = 2;
+
+type NavigationSort = ContentDatabaseNavigationSort | "property";
 
 type NavigationCursor = {
   version: typeof CURSOR_VERSION;
   databaseId: string;
   parentId: string | null;
-  sort: ContentDatabaseNavigationSort;
+  sort: NavigationSort;
   viewId: string | null;
   orderHash: string | null;
   revision: string;
@@ -75,7 +91,9 @@ function decodeCursor(value: string): NavigationCursor {
       parsed?.version !== CURSOR_VERSION ||
       typeof parsed.databaseId !== "string" ||
       !(parsed.parentId === null || typeof parsed.parentId === "string") ||
-      !["custom", "name", "created", "last_edited"].includes(parsed.sort) ||
+      !["custom", "name", "created", "last_edited", "property"].includes(
+        parsed.sort,
+      ) ||
       !(parsed.viewId === null || typeof parsed.viewId === "string") ||
       !(parsed.orderHash === null || typeof parsed.orderHash === "string") ||
       typeof parsed.revision !== "string" ||
@@ -85,7 +103,7 @@ function decodeCursor(value: string): NavigationCursor {
         typeof parsed.sortValue === "number"
       ) ||
       typeof parsed.itemId !== "string" ||
-      (parsed.sort === "custom" &&
+      ((parsed.sort === "custom" || parsed.sort === "property") &&
         (typeof parsed.sortValue !== "number" ||
           typeof parsed.position !== "number"))
     ) {
@@ -198,6 +216,285 @@ function dateFilterSql(
   return and(sql`${value} <> ''`, compare(check.op, check.bound));
 }
 
+const STORED_VALUE_FILTER_TYPES: ReadonlySet<string> = new Set([
+  "text",
+  "url",
+  "email",
+  "phone",
+  "place",
+  "number",
+  "checkbox",
+  "select",
+  "status",
+  "multi_select",
+  "person",
+  "date",
+]);
+
+const NUMBER_FILTER_OPERATORS: Partial<
+  Record<ContentDatabaseFilterOperator, ">" | "<" | ">=" | "<=">
+> = {
+  greater_than: ">",
+  less_than: "<",
+  greater_than_or_equal: ">=",
+  less_than_or_equal: "<=",
+};
+
+const NUMBER_TEXT_PATTERN =
+  "^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$";
+
+const NUMBER_OVERFLOW = ((2n ** 54n - 1n) * 2n ** 970n).toString();
+const NUMBER_UNDERFLOW = `0.${(5n ** 1075n).toString().padStart(1075, "0")}`;
+
+const DATE_TIME_PATTERN =
+  "^([0-9]{4})-([0-9]{2})-([0-9]{2})[T ]([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:[.]([0-9]+))?)?(Z|[+-][0-9]{2}(?::?[0-9]{2})?)?$";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+type StoredFilterDefinition = {
+  id: string;
+  type: string;
+  optionNames: Record<string, string>;
+};
+
+const storedIsUnset = sql`coalesce(jsonb_typeof(stored.value), 'null') = 'null'`;
+const storedString = sql`(stored.value #>> '{}')`;
+const trimmedSql = (expression: SQL) =>
+  sql`btrim(${expression}, ${TRIMMED_CHARACTERS})`;
+
+function storedOptionId() {
+  return sql`case when jsonb_typeof(stored.value) = 'string' then ${storedString} else ${trimmedSql(sql`stored.raw`)} end`;
+}
+
+function storedValueText(type: string, names: SQL): SQL<string> {
+  const id = storedOptionId();
+  const start = trimmedSql(sql`(stored.value ->> 'start')`);
+  const end = trimmedSql(sql`(stored.value ->> 'end')`);
+  const scalar =
+    type === "select" || type === "status"
+      ? sql`coalesce(${names} ->> ${id}, ${id})`
+      : type === "checkbox"
+        ? sql`case when stored.value in ('false', '0', '""') then 'Unchecked' else 'Checked' end`
+        : sql`case
+              when jsonb_typeof(stored.value) = 'string' then ${storedString}
+              when jsonb_typeof(stored.value -> 'start') = 'string' then ${start} || case when jsonb_typeof(stored.value -> 'end') = 'string' and ${end} <> '' then ' - ' || ${end} else '' end
+              else ${trimmedSql(sql`stored.raw`)}
+            end`;
+  return sql<string>`case
+    when ${storedIsUnset} then ''
+    when jsonb_typeof(stored.value) = 'array' then (
+      select coalesce(string_agg(coalesce(case when jsonb_typeof(item.element) = 'string' then ${names} ->> (item.element #>> '{}') end, item.element #>> '{}', ''), ' ' order by item.ordinal), '')
+      from jsonb_array_elements(stored.value) with ordinality as item(element, ordinal)
+    )
+    else ${scalar}
+  end`;
+}
+
+function storedValueIsAnyOf(type: string, names: SQL, values: string[]) {
+  if (!values.length) return sql`false`;
+  const list = sql.join(
+    values.map((value) => sql`${value}`),
+    sql`, `,
+  );
+  const among = (expression: SQL) =>
+    sql`lower(${trimmedSql(expression)}) in (${list})`;
+  const id = storedOptionId();
+  const scalar =
+    type === "select" || type === "status"
+      ? sql`${among(id)} or ${among(sql`coalesce(${names} ->> ${id}, ${id})`)}`
+      : among(storedValueText(type, names));
+  return sql`case
+    when ${storedIsUnset} then false
+    when jsonb_typeof(stored.value) = 'array' then exists (
+      select 1 from jsonb_array_elements(stored.value) as item(element)
+      where ${among(sql`(item.element #>> '{}')`)} or ${among(sql`(${names} ->> (item.element #>> '{}'))`)}
+    )
+    else coalesce(${scalar}, false)
+  end`;
+}
+
+function storedNumber() {
+  const text = trimmedSql(storedString);
+  const exact = sql`case
+    when jsonb_typeof(stored.value) = 'number' then (stored.value #>> '{}')::numeric
+    when jsonb_typeof(stored.value) = 'string' and ${storedString} <> '' then
+      case
+        when ${text} = '' then 0
+        when ${text} !~ ${NUMBER_TEXT_PATTERN} then null
+        when pg_input_is_valid(${text}, 'numeric') then ${text}::numeric
+        when ${text} ~ '^[+-]?[0.]*([eE]|$)' or ${text} ~ '[eE]-' then 0
+      end
+  end`;
+  return sql`(select case
+      when abs(parsed.exact) >= ${NUMBER_OVERFLOW}::numeric then null
+      when abs(parsed.exact) <= ${NUMBER_UNDERFLOW}::numeric then 0
+      else parsed.exact::double precision
+    end from (select ${exact} as exact) as parsed)`;
+}
+
+function storedDateText() {
+  return sql<string>`case
+    when jsonb_typeof(stored.value) = 'string' then ${trimmedSql(storedString)}
+    when jsonb_typeof(stored.value) = 'object' and jsonb_typeof(stored.value -> 'start') = 'string' then ${trimmedSql(sql`(stored.value ->> 'start')`)}
+    else ''
+  end`;
+}
+
+function wallClockOffsets(instant: number, timeZone: string | undefined) {
+  const offsetAt = (wall: number) =>
+    wall -
+    contentDatabaseFilterInstant(
+      new Date(wall).toISOString().slice(0, 23),
+      timeZone,
+    );
+  const from = instant - 3 * DAY_MS;
+  const to = instant + 3 * DAY_MS;
+  const fromOffset = offsetAt(from);
+  const toOffset = offsetAt(to);
+  const before = Number.isFinite(fromOffset) ? fromOffset : toOffset || 0;
+  const after = Number.isFinite(toOffset) ? toOffset : before;
+  let low = from;
+  let high = to;
+  if (before !== after) {
+    while (high - low > 1) {
+      const middle = Math.floor((low + high) / 2);
+      if (offsetAt(middle) === before) low = middle;
+      else high = middle;
+    }
+  }
+  return { switchAt: high, before, after };
+}
+
+function storedInstantSql(
+  text: SQL<string>,
+  instant: number,
+  timeZone: string | undefined,
+) {
+  const { switchAt, before, after } = wallClockOffsets(instant, timeZone);
+  const field = (index: number) => sql.raw(`parsed.m[${index}]::int`);
+  const [year, month, day, hour, minute] = [1, 2, 3, 4, 5].map(field);
+  const second = sql.raw(`coalesce(parsed.m[6], '0')::int`);
+  const offset = sql.raw("parsed.m[8]");
+  const offsetHours = sql`substr(${offset}, 2, 2)::int`;
+  const offsetMinutes = sql`coalesce(nullif(substr(replace(${offset}, ':', ''), 4, 2), ''), '0')::int`;
+  const wall = sql`((make_date(${year}, ${month}, ${day}) - date '1970-01-01')::bigint * 86400000 + ${hour} * 3600000 + ${minute} * 60000 + ${second} * 1000 + rpad(coalesce(parsed.m[7], ''), 3, '0')::int)`;
+  return sql`(select case
+      when parsed.m is null then null
+      when not (${year} >= 100 and ${month} between 1 and 12 and ${hour} <= 23 and ${minute} <= 59 and ${second} <= 59) then null
+      when ${day} not between 1 and extract(day from make_date(${year}, ${month}, 1) + interval '1 month - 1 day') then null
+      when ${offset} is null then ${wall} - case when ${wall} < ${String(switchAt)}::bigint then ${String(before)}::bigint else ${String(after)}::bigint end
+      when upper(${offset}) = 'Z' then ${wall}
+      when ${offsetHours} > 23 or ${offsetMinutes} > 59 then null
+      else ${wall} - case when left(${offset}, 1) = '-' then -1 else 1 end * (${offsetHours} * 60 + ${offsetMinutes}) * 60000
+    end
+    from (select regexp_match(${text}, ${DATE_TIME_PATTERN}, 'i') as m) as parsed)`;
+}
+
+function storedDateFilterSql(
+  filter: ContentDatabaseDateComparisonFilter,
+  today: string,
+  timeZone: string | undefined,
+): SQL {
+  const check = contentDatabaseDateFilterCheck(filter, today, timeZone);
+  if (!check) return sql`false`;
+  const text = storedDateText();
+  const compare = (
+    op: "=" | "<>" | "<" | "<=" | ">" | ">=",
+    bound: ContentDatabaseDateFilterBound,
+  ) => {
+    if ("day" in bound) {
+      return sql`(case when ${text} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' then left(${text}, 10) end) ${sql.raw(op)} ${bound.day}`;
+    }
+    const instant = new Date(bound.instant).getTime();
+    return sql`case
+      when ${text} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then ${text} ${sql.raw(op)} ${contentDatabaseFilterToday(timeZone, new Date(instant))}
+      else ${storedInstantSql(text, instant, timeZone)} ${sql.raw(op)} ${String(instant)}::bigint
+    end`;
+  };
+  if (check.op === "between") {
+    return sql`(${text} <> '' and coalesce(${compare(">=", check.start)} and ${compare("<=", check.end)}, false))`;
+  }
+  if (check.op === "<>") {
+    return sql`(${text} = '' or coalesce(${compare("<>", check.bound)}, true))`;
+  }
+  return sql`(${text} <> '' and coalesce(${compare(check.op, check.bound)}, false))`;
+}
+
+function storedValuePredicate(
+  definition: StoredFilterDefinition,
+  filter: ContentDatabaseFilter,
+  today: string,
+  timeZone: string | undefined,
+): SQL | undefined {
+  const { type } = definition;
+  const names = sql`${JSON.stringify(definition.optionNames)}::jsonb`;
+  if (filter.operator === "is_checked")
+    return sql`coalesce(stored.value = 'true', false)`;
+  if (filter.operator === "is_unchecked")
+    return sql`not coalesce(stored.value = 'true', false)`;
+  const numberOperator = NUMBER_FILTER_OPERATORS[filter.operator];
+  if (numberOperator) {
+    const target = Number(filter.value.trim());
+    if (!Number.isFinite(target)) return sql`false`;
+    return sql`coalesce(${storedNumber()} ${sql.raw(numberOperator)} ${String(target)}::double precision, false)`;
+  }
+  if (
+    contentDatabaseFilterComparesDates(filter) &&
+    ((filter.operator !== "equals" && filter.operator !== "does_not_equal") ||
+      type === "date")
+  ) {
+    return storedDateFilterSql(filter, today, timeZone);
+  }
+  const selected = selectedFilterValues(filter.value).map((value) =>
+    value.toLowerCase(),
+  );
+  const discrete =
+    type === "select" ||
+    type === "status" ||
+    type === "multi_select" ||
+    type === "person";
+  if (filter.operator === "equals" || filter.operator === "does_not_equal") {
+    const matches = storedValueIsAnyOf(
+      type,
+      names,
+      discrete ? selected : selected.slice(0, 1),
+    );
+    return filter.operator === "equals" ? matches : sql`not ${matches}`;
+  }
+  if (discrete && filter.operator === "contains") {
+    return storedValueIsAnyOf(type, names, selected);
+  }
+  return textFilterSql(storedValueText(type, names), filter);
+}
+
+function storedValueFilterSql(args: {
+  documentId: SQL<string>;
+  definition: StoredFilterDefinition;
+  filter: ContentDatabaseFilter;
+  today: string;
+  timeZone: string | undefined;
+}): SQL | undefined {
+  const predicate = storedValuePredicate(
+    args.definition,
+    args.filter,
+    args.today,
+    args.timeZone,
+  );
+  if (!predicate) return undefined;
+  const values = schema.documentPropertyValues;
+  return sql`coalesce((
+    select ${predicate}
+    from (select 1) as stored_row
+    left join (
+      select ${values.valueJson} as raw,
+        case when pg_input_is_valid(${values.valueJson}, 'jsonb') then ${values.valueJson}::jsonb end as value
+      from ${values}
+      where ${values.documentId} = ${args.documentId} and ${values.propertyId} = ${args.definition.id}
+      limit 1
+    ) as stored on true
+  ), false)`;
+}
+
 async function navigationFilterDefinitions(
   databaseId: string,
   filters: ContentDatabaseFilter[],
@@ -217,6 +514,7 @@ async function navigationFilterDefinitions(
           name: schema.documentPropertyDefinitions.name,
           type: schema.documentPropertyDefinitions.type,
           systemRole: schema.documentPropertyDefinitions.systemRole,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
         })
         .from(schema.documentPropertyDefinitions)
         .where(
@@ -226,7 +524,85 @@ async function navigationFilterDefinitions(
           ),
         )
     : [];
-  return new Map(definitions.map((definition) => [definition.id, definition]));
+  return new Map(
+    definitions.map(({ optionsJson, ...definition }) => [
+      definition.id,
+      { ...definition, optionNames: optionNamesById(optionsJson) },
+    ]),
+  );
+}
+
+async function navigationPropertySorts(
+  databaseId: string,
+  sorts: ContentDatabaseSort[],
+) {
+  const propertyIds = [
+    ...new Set(sorts.map((sort) => sort.key).filter((key) => key !== "name")),
+  ];
+  const definitions = propertyIds.length
+    ? await getDb()
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            inArray(schema.documentPropertyDefinitions.id, propertyIds),
+          ),
+        )
+    : [];
+  const storedById = new Map(
+    definitions
+      .filter(
+        (definition) =>
+          !definition.systemRole &&
+          STORED_VALUE_FILTER_TYPES.has(definition.type),
+      )
+      .map((definition) => [
+        definition.id,
+        {
+          definition: serializePropertyDefinition(definition),
+          value: null,
+          editable: false,
+        } satisfies DocumentProperty,
+      ]),
+  );
+  const usable: ContentDatabaseSort[] = [];
+  for (const sort of sorts) {
+    if (sort.key !== "name" && !storedById.has(sort.key)) break;
+    usable.push(sort);
+  }
+  return {
+    sorts: usable.some((sort) => sort.key !== "name") ? usable : [],
+    properties: [...storedById.values()].filter((property) =>
+      usable.some((sort) => sort.key === property.definition.id),
+    ),
+  };
+}
+
+const LONE_SURROGATE =
+  /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+const jsonbCanHold = (text: string) =>
+  !text.includes("\u0000") && !LONE_SURROGATE.test(text);
+
+function optionNamesById(optionsJson: string) {
+  const seen = new Set<string>();
+  const names = new Map<string, string>();
+  for (const option of parsePropertyOptions(optionsJson).options ?? []) {
+    if (seen.has(option.id)) continue;
+    seen.add(option.id);
+    const name: unknown = option.name;
+    if (
+      typeof name === "string" ||
+      typeof name === "number" ||
+      typeof name === "boolean"
+    ) {
+      names.set(option.id, String(name));
+    }
+  }
+  return Object.fromEntries(
+    [...names].filter(([id, text]) => jsonbCanHold(id) && jsonbCanHold(text)),
+  );
 }
 
 function navigationFilterSql(args: {
@@ -323,6 +699,17 @@ function navigationFilterSql(args: {
         definition.type === "last_edited_by"
       ) {
         predicate = textFilterSql(args.document.ownerEmail, filter);
+      } else if (
+        !definition.systemRole &&
+        STORED_VALUE_FILTER_TYPES.has(definition.type)
+      ) {
+        predicate = storedValueFilterSql({
+          documentId: args.document.id,
+          definition,
+          filter,
+          today: args.today,
+          timeZone: args.timeZone,
+        });
       }
     }
     if (!predicate) {
@@ -540,7 +927,15 @@ export async function getContentDatabaseNavigationPage(args: {
   const configuredSort =
     (sharedSort && FILES_NAVIGATION_SORT_KEYS.get(sharedSort.key)) ?? null;
   const sidebarSort = personalView?.sidebarOrder?.mode;
-  const effectiveSort = sidebarSort ?? configuredSort ?? args.sort;
+  const propertySorts =
+    sidebarSort || !sharedSort || (configuredSort && configuredSort !== "name")
+      ? null
+      : await navigationPropertySorts(args.database.id, sorts);
+  const effectiveSort: NavigationSort =
+    sidebarSort ??
+    (propertySorts?.sorts.length ? "property" : null) ??
+    configuredSort ??
+    args.sort;
   const descending = sidebarSort
     ? sidebarSort === "created" || sidebarSort === "last_edited"
     : effectiveSort !== "custom" && sharedSort?.direction === "desc";
@@ -944,62 +1339,122 @@ export async function getContentDatabaseNavigationPage(args: {
   // order, instead of walking a saved list that mostly holds other branches.
   // The order is one jsonb object bound once; a joined set of saved IDs would
   // be estimated at 100 rows and planned as a rescan per sibling.
-  const savedOrder = sql`(select ${JSON.stringify(
-    Object.fromEntries(rankById),
-  )}::jsonb as ranks) as navigation_saved_order`;
-  const siblingRank = sql<number>`coalesce((navigation_saved_order.ranks ->> ${schema.contentDatabaseItems.id})::int, ${unrankedValue})`;
-  const siblingKey = sql`(${siblingRank}, ${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.id})`;
-  const cursorKey = (key: NavigationCursor) =>
-    sql`(${Number(key.sortValue)}, ${key.position!}, ${key.itemId})`;
-  const siblingRankOrder: NavigationOrder = {
-    page: (siblings, after) =>
-      db
-        .select({ ...rowFields, sortValue: siblingRank })
-        .from(schema.contentDatabaseItems)
-        .innerJoin(
-          schema.documents,
-          eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-        )
-        .innerJoin(savedOrder, sql`true`)
-        .where(
-          and(
-            siblings,
-            after ? sql`${siblingKey} > ${cursorKey(after)}` : undefined,
+  const rankOrder = (
+    ranks: ReadonlyMap<string, number>,
+    unranked: number,
+  ): NavigationOrder => {
+    const savedOrder = sql`(select ${JSON.stringify(
+      Object.fromEntries(ranks),
+    )}::jsonb as ranks) as navigation_saved_order`;
+    const siblingRank = sql<number>`coalesce((navigation_saved_order.ranks ->> ${schema.contentDatabaseItems.id})::int, ${unranked})`;
+    const siblingKey = sql`(${siblingRank}, ${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.id})`;
+    const cursorKey = (key: NavigationCursor) =>
+      sql`(${Number(key.sortValue)}, ${Number(key.position)}, ${key.itemId})`;
+    return {
+      page: (siblings, after) =>
+        db
+          .select({ ...rowFields, sortValue: siblingRank })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.documents,
+            eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+          )
+          .innerJoin(savedOrder, sql`true`)
+          .where(
+            and(
+              siblings,
+              after ? sql`${siblingKey} > ${cursorKey(after)}` : undefined,
+            ),
+          )
+          .orderBy(
+            siblingRank,
+            asc(schema.contentDatabaseItems.position),
+            asc(schema.contentDatabaseItems.id),
+          )
+          .limit(args.limit + 1),
+      through: (siblings, cursor) =>
+        Promise.all([
+          revisionOf(
+            db
+              .select(revisionFields)
+              .from(schema.contentDatabaseItems)
+              .innerJoin(
+                schema.documents,
+                eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+              )
+              .innerJoin(savedOrder, sql`true`)
+              .where(and(siblings, sql`${siblingKey} <= ${cursorKey(cursor)}`)),
           ),
-        )
-        .orderBy(
-          siblingRank,
-          asc(schema.contentDatabaseItems.position),
-          asc(schema.contentDatabaseItems.id),
-        )
-        .limit(args.limit + 1),
-    through: (siblings, cursor) =>
-      Promise.all([
-        revisionOf(
-          db
-            .select(revisionFields)
-            .from(schema.contentDatabaseItems)
-            .innerJoin(
-              schema.documents,
-              eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-            )
-            .innerJoin(savedOrder, sql`true`)
-            .where(and(siblings, sql`${siblingKey} <= ${cursorKey(cursor)}`)),
-        ),
-      ]),
+        ]),
+    };
+  };
+
+  const propertyRanks = async (
+    siblings: SQL | undefined,
+    { sorts: rankSorts, properties }: NonNullable<typeof propertySorts>,
+  ) => {
+    const values = schema.documentPropertyValues;
+    const rows = await db
+      .select({
+        itemId: schema.contentDatabaseItems.id,
+        title: schema.documents.title,
+        values: sql<
+          string | null
+        >`(select jsonb_object_agg(${values.propertyId}, ${values.valueJson})::text from ${values} where ${values.documentId} = ${schema.documents.id} and ${inArray(
+          values.propertyId,
+          properties.map((property) => property.definition.id),
+        )})`,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(siblings)
+      .orderBy(
+        asc(schema.contentDatabaseItems.position),
+        asc(schema.contentDatabaseItems.createdAt),
+        asc(schema.contentDatabaseItems.id),
+      );
+    const items = rows.map((row) => {
+      const saved: Record<string, string> = row.values
+        ? JSON.parse(row.values)
+        : {};
+      return {
+        id: row.itemId,
+        databaseId: args.database.id,
+        document: { title: row.title },
+        properties: properties.map((property) => ({
+          ...property,
+          value: parsePropertyValue(saved[property.definition.id]),
+        })),
+      } as ContentDatabaseItem;
+    });
+    const sorted = applyContentDatabaseTableQuery(
+      items,
+      properties,
+      { search: "", filters: [], sorts: rankSorts, filterMode: "and" },
+      timeZone ? { timeZone } : {},
+    );
+    return new Map(sorted.map((item, index) => [item.id, index + 1]));
   };
 
   const readBranch = async (
     parentId: string | null,
     after: NavigationCursor | null,
   ): Promise<ContentDatabaseNavigationPage> => {
-    const order =
-      effectiveSort !== "custom"
+    const siblings = siblingsOf(parentId);
+    const ranks =
+      effectiveSort === "property" && propertySorts
+        ? await propertyRanks(siblings, propertySorts)
+        : null;
+    const order = ranks
+      ? rankOrder(ranks, ranks.size + 1)
+      : effectiveSort !== "custom"
         ? sortedOrder
         : parentId === null
           ? savedListOrder
-          : siblingRankOrder;
-    const siblings = siblingsOf(parentId);
+          : rankOrder(rankById, unrankedValue);
     const [rows, prefixRevision] = await Promise.all([
       order.page(siblings, after),
       after ? order.through(siblings, after) : [],
@@ -1054,7 +1509,7 @@ export async function getContentDatabaseNavigationPage(args: {
                 configHash,
                 sortValue: last.sortValue,
                 position:
-                  effectiveSort === "custom"
+                  effectiveSort === "custom" || effectiveSort === "property"
                     ? last.membershipPosition
                     : undefined,
                 itemId: last.membershipId,

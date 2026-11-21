@@ -3,11 +3,58 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-16
+
+### Added
+
+- Connected MCP agents can now edit, archive, and restore dashboards and analyses; each write applies only to the version the agent read, a retried request never writes twice, and every edit can be undone: from history, or by unarchiving, unhiding, or moving it back.
+
+## 2026-11-14
+
+### Fixed
+
+- Clicking a chart's "No value" point no longer opens an empty records list. Panels whose record query handles a missing x value open those records, and the rest show the chart's rows with a note.
+- Shared settings migrations now refresh open analytics views when they finish.
+
+## 2026-11-13
+
+### Improved
+
+- Dashboard panel descriptions stay condensed to a single subtext line by default and expand on click.
+
+## 2026-11-10
+
+### Fixed
+
+- Grafana and Prometheus connections can reach private endpoints when an administrator explicitly trusts their origins in server configuration.
+
+### Security
+
+- Configured Grafana, Prometheus, and Gong endpoints now block private destinations by default and reject unsafe redirects.
+- Chart images now use unique filenames so one chart cannot replace another user's image.
+
 ## 2026-11-09
 
 ### Improved
 
+- Share controls use a consistent compact layout.
 - More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-08
+
+### Improved
+
+- Feature flag changes can apply to this organization or to every organization, and the panel shows when an organization's own rule overrides the rule for all organizations.
+
+## 2026-11-07
+
+### Added
+
+- Sessions triage Lab: have the agent write a report on a session, with its key moments, repro steps and commit, to share with your organization or hand to another agent through a link
+
+### Fixed
+
+- Charts now give a row with no x value its own "No value" label, so later values stay on the right dates and categories.
 
 ## 2026-11-06
 
@@ -1447,113 +1494,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Session recordings now include response bodies for 5xx errors so agents can see the actual server error
-
-## 2026-07-02
-
-### Added
-
-- Alert rules can now be viewed and managed from Settings.
-- Session replays can be copied as temporary private links for agents.
-- Session replays now capture console logs and network requests so agents can debug user-reported issues from a shared link.
-- The session replay viewer has a Dev Tools panel with console and network tabs.
-
-### Improved
-
-- Recent Ask chats show a loading placeholder while your chat history loads.
-- Sharing status labels use neutral icons instead of colored dots.
-
-### Fixed
-
-- Agent chat can keep working through longer data queries instead of stopping mid-action.
-- Session replay playback now preserves the initial page snapshot when an upload needs to retry.
-
-## 2026-07-01
-
-### Added
-
-- Analytics can now notify inbox, email, Slack, or webhook channels when first-party events spike.
-
-### Improved
-
-- Dashboard filters take less space and keep view actions tucked to the side.
-- Analytics chat responses stream more smoothly during long background runs and guarded final answers.
-
-### Fixed
-
-- Dashboard charts no longer show future dates when clients send bad event timestamps.
-- Session replay recordings upload reliably in production.
-- Session replay playback keeps rrweb's inlined stylesheet snapshots while stripping live resource loads, reducing blank replay frames for captured pages with external CSS.
-- Session replays load large production recordings from scoped chunks instead of truncating playback.
-- Session replays now play back in production instead of showing a blank recording, because chunk downloads no longer rely on a manual gzip content-encoding that serverless hosts corrupted.
-
-## 2026-06-30
-
-### Improved
-
-- Ask opens a fresh chat unless you were just chatting, and dashboard navigation keeps the sidebar closed from an empty Ask state.
-- Dashboard toolbar controls use a quieter share button and vertical actions menu.
-- Session replay rows show whole-minute durations in the playlist.
-
-### Fixed
-
-- Dashboard charts now use theme-aware tooltip and grid colors in light and dark mode.
-- Dashboard email reports are more reliable and use cleaner header copy.
-- Fixed Ask composer spacing so the chat field has a comfortable side inset.
-- Session replays now render captured styling and keep the event timeline out of compact layouts.
-
-## 2026-06-29
-
-### Added
-
-- Agents can search and read connected GitHub repositories when auditing tracking events.
-- Dashboards can now include extension panels that embed a sandboxed extension inline instead of a SQL chart
-- Set up session replay storage from settings: use Builder.io or add S3-compatible storage
-
-### Improved
-
-- Analytics pages now sit closer under the header with tighter content padding.
-
-### Fixed
-
-- Analytics agents can now place new charts into requested dashboard rows.
-- Analytics queries now report failed source-query errors instead of falling back to a vague no-data message.
-- Charts can now be dropped between full dashboard rows to create wider rows.
-- Dashboard email reports include the full dashboard image without an extra image border.
-- The main dashboard surface border now reaches the top edge and keeps its rounded corners.
-- Session replay now records playable sessions in production and shows them to your whole workspace
-- Sessions and explorer dashboard layouts now adapt cleanly when the agent sidebar narrows the app.
-
-## 2026-06-28
-
-### Improved
-
-- Dashboard email reports now use cleaner light-mode snapshots with direct subscription settings links.
-- The left sidebar now collapses into an animated icon rail with quieter footer controls.
-
-### Fixed
-
-- The Ask tab now matches the darker background used across the rest of Analytics.
-- Sessions now show only signed-in recordings with playable replay events.
-- The Sessions page shows scoped recordings even when replay events are unavailable, with a cleaner setup snippet.
-
-## 2026-06-27
-
-### Added
-
-- Dashboards can now nest under a parent in the sidebar via a parentId field
-
-### Improved
-
-- Dashboard charts drag smoothly when rearranging panels.
-- Improved mobile navigation chrome and sidebar drawer motion.
-
-### Fixed
-
-- Anonymous replay recordings remain visible in session lists when signed-in replay is disabled.
-- Dashboard email reports still send when the live screenshot renderer fails.
-- Fixed dashboard edits so charts no longer briefly snap back to an old layout after agent updates or drag-and-drop.
-- Session replay lists now show only signed-in recordings with real activity and reliable durations.
-- Sidebar loading placeholders are visible in light mode.
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
 
 For the full list of updates, see the [changelog folder](./changelog/).

@@ -74,6 +74,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "integrations.manage": "Manage",
       "integrations.connectedSection": "Connected",
       "integrations.availableSection": "Available integrations",
+      "agentChat.setup.reconnectBuilder": "Reconnect Builder.io",
     };
     return (messages[key] ?? String(options?.defaultValue ?? key)).replace(
       /\{\{(\w+)\}\}/g,
@@ -143,6 +144,114 @@ describe("IntegrationsPanel MCP connection errors", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  it("reconnects a saved personal Builder grant from Connected apps using OAuth", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("connection-status/builder")
+          ? Response.json({
+              configured: true,
+              builderEnabled: true,
+              credentialSource: "user",
+              effective: "personal",
+              grants: {
+                personal: {
+                  connectedAt: 1,
+                  needsReconnect: false,
+                  restricted: false,
+                },
+              },
+              canConnect: { org: false, personal: true },
+              canDisconnect: true,
+              connectUrl: "/_agent-native/builder/connect?_an_connect=test",
+              agentNativeProvisioningEnabled: true,
+            })
+          : Response.json({}),
+      ),
+    );
+    const popup = {
+      closed: false,
+      close: vi.fn(),
+      document: document.implementation.createHTMLDocument(),
+      location: { href: "" },
+    };
+    const openPopup = vi.fn(() => popup);
+    vi.stubGlobal("open", openPopup);
+
+    await act(async () => root.render(<IntegrationsPanel />));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    const manage = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Manage Builder.io connection"]',
+    );
+    expect(manage).not.toBeNull();
+    act(() => manage?.click());
+    const reconnect = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Reconnect Builder.io",
+    );
+    expect(reconnect).toBeDefined();
+    await act(async () => reconnect?.click());
+
+    expect(openPopup).toHaveBeenCalledOnce();
+    const url = new URL(popup.location.href);
+    expect(url.pathname).toBe("/_agent-native/builder/connect");
+    expect(url.searchParams.get("scope")).toBe("personal");
+    expect(document.body.textContent).not.toContain("Create and activate");
+  });
+
+  it("offers scoped disconnect for an expired stored connection", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("connection-status/builder")) {
+        return Response.json({
+          configured: false,
+          builderEnabled: true,
+          effective: null,
+          grants: { org: { connectedAt: 1, needsReconnect: true } },
+          canConnect: { org: true, personal: false },
+          builderReauthorizationRequired: true,
+          connectError: { message: "Connection expired", at: Date.now() },
+        });
+      }
+      return Response.json({ disconnected: "org" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await act(async () => root.render(<IntegrationsPanel />));
+    await vi.waitFor(() =>
+      expect(
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ),
+      ).not.toBeNull(),
+    );
+    act(() =>
+      (
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    act(() =>
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Disconnect")
+        ?.click(),
+    );
+    await act(async () =>
+      Array.from(document.body.querySelectorAll("button"))
+        .find((button) => button.textContent?.trim() === "Confirm disconnect")
+        ?.click(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/actions/manage-builder-connection"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ disconnect: "org" }),
+      }),
+    );
   });
 
   it("shows the connection cause and reconnects the saved server", async () => {

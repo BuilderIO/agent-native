@@ -82,6 +82,10 @@ import "@/lib/register-google-font-catalog";
 
 import changelog from "../CHANGELOG.md?raw";
 import {
+  BUILDER_SIGNUP_EXPERIMENT_ID,
+  BUILDER_SIGNUP_HOSTED_HOSTS,
+} from "../shared/builder-signup.js";
+import {
   SLIDES_NEW_DECK_DRAFT_SCOPE,
   slidesHomeSuggestionPools,
   trackSlidesHomeSuggestionClick,
@@ -635,7 +639,8 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
-          builderSignupExperiment="slides_builder_signup_v1"
+          builderSignupExperiment={BUILDER_SIGNUP_EXPERIMENT_ID}
+          builderSignupHostedHosts={BUILDER_SIGNUP_HOSTED_HOSTS}
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

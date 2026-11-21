@@ -202,4 +202,21 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
             AND duplicate.id <> group_row.id
         )`,
   },
+  {
+    // Additive owner backfill for connections created before owner_email was
+    // recorded. A connection with an empty owner can never be resolved for a
+    // personal reader (fail closed). Only fill blanks, from the grant that
+    // actually granted it; never repoint or delete an existing owner.
+    version: 15,
+    sql: `UPDATE workspace_connections AS connection
+      SET owner_email = source.owner_email
+      FROM (
+        SELECT connection_id, MIN(granted_by_email) AS owner_email
+        FROM workspace_connection_grants
+        WHERE BTRIM(granted_by_email) <> ''
+        GROUP BY connection_id
+      ) AS source
+      WHERE connection.id = source.connection_id
+        AND BTRIM(connection.owner_email) = ''`,
+  },
 ];

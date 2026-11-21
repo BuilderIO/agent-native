@@ -3,6 +3,7 @@ import { IconChevronDown, IconShieldCheck } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
 import { ActionButton, IconButton } from "../../../agentkit.js";
+import { COMPOSER_POPOVER_SURFACE_CLASS } from "../../../composer/popover-surface.js";
 import { Menu } from "../../../design-system/index.js";
 import { cn } from "../../../utils.js";
 import { ActionCard } from "../../chat/chat/widgets/ActionCard.js";
@@ -124,10 +125,21 @@ export function ApprovalCard({
             {button}
             <Menu
               align="end"
+              className={COMPOSER_POPOVER_SURFACE_CLASS}
               onAction={(id) => menu.onAction(String(id))}
               items={menu.items.map((item) => ({
                 id: item.id,
-                label: <span title={item.hint}>{item.label}</span>,
+                // A title attribute never reaches keyboard or touch users.
+                label: item.hint ? (
+                  <span className="flex min-w-0 flex-col">
+                    <span>{item.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {item.hint}
+                    </span>
+                  </span>
+                ) : (
+                  item.label
+                ),
                 disabled: busy,
               }))}
               trigger={
@@ -152,7 +164,7 @@ export function ApprovalCard({
   return (
     <section
       className={cn(
-        "agentkit-approval overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-(--agent-kit-control-elevation)",
+        "agentkit-approval overflow-hidden rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-card text-card-foreground",
         className,
       )}
       aria-label={title}

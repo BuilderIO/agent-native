@@ -9,6 +9,14 @@ export default mergeConfig(
   defineConfig({
     resolve: {
       alias: {
+        "@agent-native/core/resources/shared-memory": resolve(
+          __dirname,
+          "../core/src/resources/shared-memory.ts",
+        ),
+        "@agent-native/shared-app-config": resolve(
+          __dirname,
+          "../shared-app-config/index.ts",
+        ),
         "@shared": resolve(__dirname, "shared"),
       },
     },

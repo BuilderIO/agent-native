@@ -80,16 +80,21 @@ import { VisualEditor } from "./VisualEditor";
 const PRIVATE_IMAGE_URL =
   "/api/private-media/0b9f3c1e-7a2d-4c5b-9e8f-1a2b3c4d5e6f";
 
-function mediaEvent(type: "drop" | "paste", file: File) {
+function mediaEvent(type: "drop" | "paste", file: File, html = "") {
   const event = new Event(type, { cancelable: true }) as Event & {
     dataTransfer?: { files: File[]; items: [] };
-    clipboardData?: { files: File[] };
+    clipboardData?: { files: File[]; getData(format: string): string };
     clientX: number;
     clientY: number;
   };
   Object.defineProperties(event, {
     dataTransfer: { value: { files: [file], items: [] } },
-    clipboardData: { value: { files: [file] } },
+    clipboardData: {
+      value: {
+        files: [file],
+        getData: (format: string) => (format === "text/html" ? html : ""),
+      },
+    },
     clientX: { value: 0 },
     clientY: { value: 0 },
   });
@@ -321,6 +326,29 @@ describe("VisualEditor upload storage gate", () => {
       ).toBe(false);
     },
   );
+
+  it("pastes Excel's cells, not the picture of them it copies alongside", async () => {
+    const editor = await mount();
+    const handler = editor.options.editorProps.handlePaste as unknown as (
+      view: typeof editor.view,
+      event: Event,
+    ) => boolean;
+    const picture = new File(["image"], "image.png", { type: "image/png" });
+    const event = mediaEvent(
+      "paste",
+      picture,
+      "<html><body><table><tr><td>Name</td><td>Score</td></tr></table></body></html>",
+    );
+
+    await act(async () => {
+      expect(handler(editor.view, event)).toBe(false);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(
+      document.body.querySelector('[data-testid="file-storage-setup-popover"]'),
+    ).toBeNull();
+  });
 
   it("keeps the image picker open to private uploads without file storage", async () => {
     await mount({ privateImages: true });

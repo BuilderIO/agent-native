@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const writeClipboardTextMock = vi.hoisted(() => vi.fn());
+const widgetEmbed = vi.hoisted(() => ({ active: false }));
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
 const databaseItemsState = vi.hoisted(() => ({ settled: true, failed: false }));
 const databaseQueryState = vi.hoisted(() => ({
@@ -157,6 +158,13 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   }),
 }));
 
+vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/mcp-app-host")
+  >()),
+  useIsMcpAppWidgetEmbed: () => widgetEmbed.active,
+}));
+
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
@@ -237,12 +245,6 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   useDisconnectContentDatabaseSource: () => benignMutation,
   useProcessBuilderBodyHydration: () => processBuilderBodiesMutation,
   usePrepareBuilderSourceReview: () => benignMutation,
-  usePreviewBuilderSourceReview: () => ({
-    data: undefined,
-    isLoading: false,
-    isFetching: false,
-    error: null,
-  }),
   useExecuteBuilderSourceExecution: () => benignMutation,
   useCancelPreparedBuilderSourceUpdate: () => benignMutation,
   useSetContentDatabaseSourceWriteMode: () => benignMutation,
@@ -345,6 +347,7 @@ import {
   DatabaseView,
   defaultDatabaseViewConfig,
 } from "./DatabaseView";
+import { RowActionsCell as SharedRowActionsCell } from "./shared";
 
 const databaseViewConfig = defaultDatabaseViewConfig();
 
@@ -508,6 +511,7 @@ describe("DatabaseView UI regressions", () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     writeClipboardTextMock.mockReset().mockResolvedValue(true);
+    widgetEmbed.active = false;
     contentDatabaseQueryMock.mockReset();
     databaseItemsState.settled = true;
     databaseItemsState.failed = false;
@@ -568,7 +572,7 @@ describe("DatabaseView UI regressions", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  async function renderDatabaseView(viewId?: string) {
+  async function renderDatabaseView(viewId?: string, canEdit = true) {
     const { QueryClientProvider } = await import("@tanstack/react-query");
     act(() => {
       root.render(
@@ -580,6 +584,7 @@ describe("DatabaseView UI regressions", () => {
                 <DatabaseView
                   databaseId="database-1"
                   databaseDocumentId="document-1"
+                  canEdit={canEdit}
                   viewId={viewId}
                 />
               </TooltipProvider>
@@ -2017,6 +2022,210 @@ describe("DatabaseView UI regressions", () => {
       "editor.toolbar.couldNotCopyLink",
       { description: "editor.toolbar.clipboardAccessUnavailable" },
     );
+  });
+
+  it.each([
+    {
+      error: Object.assign(
+        new Error("Workspace references cannot be duplicated as pages"),
+        {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        },
+      ),
+      description: "sidebar.workspaceReferenceProtected",
+    },
+    { error: new Error("Unrelated failure"), description: "Unrelated failure" },
+  ])(
+    "reports row duplication failures without exposing protected-reference server text",
+    async ({ error, description }) => {
+      const row = commentableRow("a", "Alpha", true);
+      databaseResponse.items = [
+        { ...row, document: { ...row.document, canView: true } },
+      ];
+      benignMutation.mutateAsync.mockRejectedValueOnce(error);
+      await renderDatabaseView();
+      const trigger = container.querySelector(
+        '[aria-label="Row actions for Alpha"]',
+      );
+      if (!trigger) throw new Error("Alpha has no row menu.");
+
+      await mousePointerDown(trigger);
+      await selectMenuItem("Duplicate row");
+      expect(toastErrorMock).toHaveBeenCalledWith("Failed to duplicate row", {
+        description,
+      });
+    },
+  );
+
+  it.each(
+    [
+      {
+        error: Object.assign(new Error("Protected server detail"), {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        }),
+        description: "sidebar.workspaceReferenceProtected",
+      },
+      {
+        error: new Error("Unrelated failure"),
+        description: "Unrelated failure",
+      },
+      { error: null, description: "Something went wrong" },
+    ].flatMap((scenario) =>
+      (["duplicate", "remove"] as const).map((operation) => ({
+        ...scenario,
+        operation,
+      })),
+    ),
+  )(
+    "reports shared-view $operation errors without exposing protected details",
+    async ({ error, description, operation }) => {
+      const { QueryClientProvider } = await import("@tanstack/react-query");
+      const row = commentableRow("a", "Alpha", true);
+      const item = { ...row, document: { ...row.document, canView: true } };
+      const onPreviewItem = vi.fn();
+      const onDeletedPreviewItem = vi.fn(() => true);
+      act(() => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <AppToolkitProvider>
+              <SharedRowActionsCell
+                item={item}
+                databaseDocumentId="document-1"
+                onOpenPage={vi.fn()}
+                onPreviewItem={onPreviewItem}
+                onDeletedPreviewItem={onDeletedPreviewItem}
+              />
+            </AppToolkitProvider>
+          </QueryClientProvider>,
+        );
+      });
+      const trigger = container.querySelector(
+        '[aria-label="Row actions for Alpha"]',
+      );
+      if (!trigger) throw new Error("Alpha has no row menu.");
+
+      benignMutation.mutateAsync.mockRejectedValueOnce(error);
+      await mousePointerDown(trigger);
+      if (operation === "duplicate") {
+        await selectMenuItem("Duplicate row");
+      } else {
+        await selectMenuItem("Remove from collection");
+        const dialog = document.querySelector<HTMLElement>(
+          '[role="alertdialog"]',
+        );
+        const confirm = dialog && findButtonByText(dialog, "Remove");
+        if (!confirm) throw new Error("Removal confirmation is not available.");
+        await act(async () => {
+          confirm.click();
+          await Promise.resolve();
+        });
+      }
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        operation === "duplicate"
+          ? "Failed to duplicate row"
+          : "Failed to remove row from collection",
+        { description },
+      );
+      expect(benignMutation.mutateAsync).toHaveBeenCalledWith(
+        operation === "duplicate"
+          ? { itemId: item.id }
+          : { documentId: "document-1", documentIds: [item.document.id] },
+      );
+      expect(onDeletedPreviewItem.mock.calls).toEqual(
+        operation === "remove" ? [[item]] : [],
+      );
+      expect(onPreviewItem.mock.calls).toEqual(
+        operation === "remove" ? [[item]] : [],
+      );
+    },
+  );
+
+  it("shows the protected-reference refusal when removing a row", async () => {
+    const row = commentableRow("a", "Alpha", true);
+    databaseResponse.items = [
+      { ...row, document: { ...row.document, canView: true } },
+    ];
+    benignMutation.mutateAsync.mockRejectedValueOnce(
+      Object.assign(
+        new Error("Workspace references cannot be removed as pages"),
+        {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        },
+      ),
+    );
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+    await mousePointerDown(trigger);
+    await selectMenuItem("Remove from collection");
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    const confirm = dialog && findButtonByText(dialog, "Remove");
+    if (!confirm) throw new Error("Removal confirmation is not available.");
+    await act(async () => {
+      confirm.click();
+      await Promise.resolve();
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Failed to remove row from collection",
+      { description: "sidebar.workspaceReferenceProtected" },
+    );
+  });
+
+  it.each([
+    {
+      reader: "someone who can't edit the collection",
+      canEdit: false,
+      items: ["Open page", "sidebar.copyLink", "editor.comment"],
+    },
+    {
+      reader: "an editor",
+      canEdit: true,
+      items: [
+        "Open page",
+        "sidebar.copyLink",
+        "editor.comment",
+        "Duplicate row",
+        "Remove from collection",
+      ],
+    },
+  ])("gives $reader the row menu items they can use", async (role) => {
+    const open = commentableRow("a", "Alpha", true);
+    const closed = commentableRow("b", "Beta", false);
+    databaseResponse.items = [
+      { ...open, document: { ...open.document, canView: true } },
+      { ...closed, document: { ...closed.document, canView: false } },
+    ];
+    await renderDatabaseView(undefined, role.canEdit);
+
+    // A row whose page the reader can't open has nothing for them to do.
+    expect(
+      container.querySelector('[aria-label="Row actions for Beta"]') !== null,
+    ).toBe(role.canEdit);
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+    await mousePointerDown(trigger);
+    expect(
+      [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].map(
+        (item) => item.textContent.trim(),
+      ),
+    ).toEqual(role.items);
+  });
+
+  it("gives a reader in an MCP App widget no row menu", async () => {
+    widgetEmbed.active = true;
+    const open = commentableRow("a", "Alpha", true);
+    databaseResponse.items = [
+      { ...open, document: { ...open.document, canView: true } },
+    ];
+    await renderDatabaseView(undefined, false);
+
+    expect(
+      container.querySelector('[aria-label="Row actions for Alpha"]'),
+    ).toBeNull();
   });
 
   it("keeps the preview a row's menu opened for a comment", async () => {

@@ -132,10 +132,6 @@ export interface LayerMoveArgs {
   handleScreenLayerMove: (intent: LayersPanelMoveIntent) => void;
   recordContentHistoryEntry: (entry: ContentHistoryEntry) => void;
   recordLocalContentHistoryEntry: (change: ContentHistoryChange) => void;
-  remapMotionTracksForClone: (
-    nodeIdMap: Map<string, string>,
-    targetFileId: string,
-  ) => void;
   runtimeStructureMoveRevisionRef: RefObject<number>;
   runtimeStructureInsertRevisionRef?: RefObject<number>;
   runtimeLayerSnapshotsById?: Record<string, { html: string }>;
@@ -285,7 +281,6 @@ function tryDuplicateOnPanelDrop(
     getFreshActiveContent,
     getScreenContent,
     overviewSelectedScreenIds,
-    remapMotionTracksForClone,
     setSelectedElement,
     setSelectedLayerIdsState,
   }: Pick<
@@ -301,7 +296,6 @@ function tryDuplicateOnPanelDrop(
     | "getFreshActiveContent"
     | "getScreenContent"
     | "overviewSelectedScreenIds"
-    | "remapMotionTracksForClone"
     | "setSelectedElement"
     | "setSelectedLayerIdsState"
   >,
@@ -361,7 +355,6 @@ function tryDuplicateOnPanelDrop(
     },
   );
   if (publication.status !== "accepted") return "handled";
-  remapMotionTracksForClone(duplicated.nodeIdMap, targetOwner.fileId);
   const candidateProjection = buildCodeLayerProjection(duplicated.content, {
     source: { kind: "design-file", fileId: targetOwner.fileId },
   });
@@ -425,7 +418,6 @@ export function runLayerMove(
     contentUndoStackRef,
     recordContentHistoryEntry,
     recordLocalContentHistoryEntry,
-    remapMotionTracksForClone,
     runtimeLayerSnapshotsById,
     runtimeStructureMoveRevisionRef,
     runtimeStructureInsertRevisionRef,
@@ -491,7 +483,6 @@ export function runLayerMove(
             getFreshActiveContent,
             getScreenContent,
             overviewSelectedScreenIds,
-            remapMotionTracksForClone,
             setSelectedElement,
             setSelectedLayerIdsState,
           })

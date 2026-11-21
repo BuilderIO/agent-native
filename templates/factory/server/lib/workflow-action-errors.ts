@@ -114,5 +114,8 @@ export function failWorkflowAction(options: WorkflowActionErrorOptions): never {
 
 /** What an agent reading a run's failed step does about a provider that is not connected. */
 export function connectionAdvice(provider: string): string {
+  if (provider === "content") {
+    return `Only the workflow's owner can connect Content for it. If you are helping the owner, call request-workflow-connection with provider "content"; otherwise tell the person that the owner must connect it.`;
+  }
   return `To connect it, call request-workflow-connection with provider "${provider}".`;
 }

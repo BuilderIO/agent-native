@@ -1416,6 +1416,44 @@ export const migrations = runMigrations(
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
+    {
+      version: 103,
+      name: "recording-rich-tracks",
+      // Additive. Mirrors `recordings.mediaFormat`/`richManifestUrl`/`richBytes`
+      // and `recordingTracks` in server/db/schema.ts.
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_format TEXT NOT NULL DEFAULT 'flat';
+      ALTER TABLE recordings ADD COLUMN IF NOT EXISTS rich_manifest_url TEXT;
+      ALTER TABLE recordings ADD COLUMN IF NOT EXISTS rich_bytes BIGINT NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS recording_tracks (
+        id TEXT PRIMARY KEY,
+        recording_id TEXT NOT NULL,
+        track TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        url TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        bytes BIGINT NOT NULL DEFAULT 0,
+        start_ms INTEGER NOT NULL DEFAULT 0,
+        end_ms INTEGER NOT NULL DEFAULT 0,
+        complete BOOLEAN NOT NULL DEFAULT FALSE,
+        meta_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS recording_tracks_recording_track_unique_idx
+        ON recording_tracks (recording_id, track)`,
+    },
+    {
+      version: 104,
+      name: "recording-made-by",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by TEXT;
+      ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by_agent TEXT`,
+    },
+    {
+      version: 105,
+      name: "calendar-enabled-calendars",
+      sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS enabled_calendar_ids_json TEXT;
+      ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS calendar_id TEXT`,
+    },
   ]),
   { table: "clips_migrations" },
 );

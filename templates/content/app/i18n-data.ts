@@ -2,7 +2,10 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { analyticsChartMessagesByLocale } from "./analytics-chart-messages";
+import { builderAutosaveMessagesByLocale } from "./builder-autosave-messages";
 import { clipEmbedMessagesByLocale } from "./clip-embed-messages";
+import { designScreenMessagesByLocale } from "./design-screen-messages";
 import {
   discussionMessages,
   discussionMessagesByLocale,
@@ -228,6 +231,24 @@ const databaseMessages = {
   builderReviewShowMore: "Show more",
   builderReviewRemainingBatches:
     "Review again after this batch to prepare the remaining Builder changes.",
+  builderReviewLoadingMorePagesOne: "Loading changes for 1 more page…",
+  builderReviewLoadingMorePages: "Loading changes for {{count}} more pages…",
+  builderReviewConfirmingBodiesOne:
+    "Double-checking 1 body change against Builder…",
+  builderReviewConfirmingBodies:
+    "Double-checking {{count}} body changes against Builder…",
+  builderReviewFindingPages: "Finding pages with changes…",
+  builderReviewRowsMatchBuilderOne:
+    "1 page already matches Builder once its body is converted, so it’s left out.",
+  builderReviewRowsMatchBuilder:
+    "{{count}} pages already match Builder once their bodies are converted, so they’re left out.",
+  builderReviewLoadFailed: "Some changes didn’t load: {{message}}",
+  bodyDiffAdded: "Added:",
+  bodyDiffRemoved: "Removed:",
+  bodyDiffMoreLinesOne: "1 more changed line",
+  bodyDiffMoreLines: "{{count}} more changed lines",
+  bodyDiffMoreChangesOne: "1 more change not shown",
+  bodyDiffMoreChanges: "{{count}} more changes not shown",
   builderBodiesSyncingProgress: "Syncing {{hydrated}} of {{total}} bodies.",
   builderBodiesSyncFinishedWithFailures:
     "{{hydrated}} of {{total}} bodies synced. {{failed}} failed.",
@@ -271,6 +292,11 @@ const databaseMessages = {
   failedToSavePagePreview: "Failed to save page preview",
   failedToSaveView: "Failed to save view",
   failedToUpdateCheckbox: "Failed to update checkbox",
+  undoPropertyChangedSince: "Not undone: this property changed after your edit",
+  redoPropertyChangedSince:
+    "Not redone: this property changed after you undid it",
+  undoPropertyFailed: "Couldn't undo the property change",
+  redoPropertyFailed: "Couldn't redo the property change",
   failedToUpdateEverySelectedRow: "Failed to update every selected row",
   removeSelectedRowsFromDatabaseQuestion:
     "Remove selected rows from collection?",
@@ -850,7 +876,11 @@ const editorPropertiesMessages = {
   imageUploaded_other: "Images uploaded",
   includeTime: "Include time",
   loadingProperties: "Loading properties",
-  content: "Content",
+  pageDetails: "Page details",
+  createdOn: "Created {{date}}",
+  editedAgo: "Edited {{time}}",
+  editedOn: "Edited {{date}}",
+  editedJustNow: "Edited just now",
   loadingContent: "Loading content",
   wordCount_zero: "{{count}} words",
   wordCount_one: "{{count}} word",
@@ -863,6 +893,8 @@ const editorPropertiesMessages = {
   noFilesOrMedia: "No files or media",
   noMatchingOptions: "No matching options",
   noMatchingPropertyTypes: "No matching property types",
+  typeChangeUnavailable:
+    "Property type changes are unavailable to protect existing values.",
   notMappedToBuilder: "Not mapped to Builder.",
   onlyBlocksPropertyWarning:
     "This is the only blocks property present in this object type. This will delete the main content (body) for all objects of this type.",
@@ -946,7 +978,9 @@ const editorMediaMessages = {
   addImage: "Add an image",
   addVideo: "Add a video",
   altText: "Alt text",
-  altTextGenerationFailed: "Could not start alt text generation.",
+  altTextAdded: "Alt text added.",
+  altTextGenerationFailed: "Couldn't write alt text.",
+  altTextNeedsAiSetup: "Set up AI to write alt text.",
   assets: "Assets",
   assetsCopyFailed:
     "Couldn't copy this image from Assets. Try again, or upload the file instead.",
@@ -979,10 +1013,12 @@ const editorMediaMessages = {
   currentDocumentMissing: "Could not find the current document.",
   delete: "Delete",
   describeThisImage: "Describe this image",
+  dismissAltTextStatus: "Dismiss",
   download: "Download",
   downloadAudio: "Download audio",
   downloadImage: "Download image",
   downloadVideo: "Download video",
+  editAltTextInChat: "Edit in chat",
   embedAudio: "Embed audio",
   embedImage: "Embed image",
   embedVideo: "Embed video",
@@ -991,7 +1027,7 @@ const editorMediaMessages = {
   expandImage: "Expand image",
   expandVideo: "Expand video",
   generateAltText: "Generate alt text",
-  generatingAltText: "Generating alt text...",
+  generatingAltText: "Writing alt text…",
   image: "Image",
   imageAdded: "Image added",
   imagesAdded: "Images added",
@@ -1004,12 +1040,14 @@ const editorMediaMessages = {
   imageUploadFailed: "Couldn’t upload this image",
   imageUploadsFailed: "{{failed}} of {{total}} image uploads failed.",
   imageView: "Image view",
+  keptYourAltText: "Kept your alt text.",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
   more: "More",
   moreAudioActions: "More audio actions",
   moreImageActions: "More image actions",
   moreVideoActions: "More video actions",
+  openChat: "Open chat",
   openedAudioInNewTab: "Opened audio in a new tab.",
   openedImageInNewTab: "Opened image in a new tab.",
   openedVideoInNewTab: "Opened video in a new tab.",
@@ -1037,6 +1075,7 @@ const editorMediaMessages = {
   transcript: "Transcript",
   transcriptBlockFailed: "Could not add a transcript block.",
   transcriptionStarted: "Transcription started.",
+  tryAgain: "Try again",
   upload: "Upload",
   uploadFile: "Upload file",
   uploadingAudio: "Uploading audio...",
@@ -1104,6 +1143,9 @@ const editorToolbarMessages = {
   temporaryAgentLink: "Temporary agent link",
   privateLinkCanView: "Only people with access can view",
   publicLinkCanView: "Anyone with the link can view",
+  publicSubPagesOne: "This page and its sub-page",
+  publicSubPages: "This page and its {{count}} sub-pages",
+  publicSubPagesMore: "This page and more than {{count}} sub-pages",
   copiedAgentPrompt: "Agent prompt copied",
   couldNotCopyAgentPrompt: "Could not copy agent prompt",
   agentPrompt:
@@ -1163,6 +1205,11 @@ const editorToolbarMessages = {
   agentLevelUpdateFailed: "Couldn't change what agents can do here.",
   agentLevelNote: "Agents can comment",
   agentLevelNoteHint: "Agents can comment on this page. Change it in Share.",
+  agentLevelViewDescription:
+    "Can read this page. Can't comment, suggest or edit.",
+  agentLevelViewConfirm: "Agents can now only read this page.",
+  agentLevelViewNote: "Agents can only view",
+  agentLevelViewNoteHint: "Agents can only view this page. Change it in Share.",
   sendPageToAgent: "Send this page to an agent",
   connectAgentOverMcp: "Connect an agent over MCP",
   importingFromNotion: "Importing from Notion...",
@@ -1294,9 +1341,21 @@ const editorSlashMessages = {
   todoListDescription: "Checklist items",
   toggle: "Toggle",
   toggleDescription: "Notion-style toggle line",
+  toggleHeading1: "Toggle heading 1",
+  toggleHeading2: "Toggle heading 2",
+  toggleHeading3: "Toggle heading 3",
+  toggleHeadingDescription: "Heading that opens and closes",
   turnInto: "Turn into",
   video: "Video",
   videoDescription: "Upload or embed video",
+};
+
+const mermaidMessages = {
+  source: "Mermaid",
+  done: "Done",
+  doneShortcut: "Close the source (Esc)",
+  editDiagram: "Edit diagram",
+  cantDraw: "Can't draw this diagram",
 };
 
 const localFilesMessages = {
@@ -1423,9 +1482,20 @@ const enUS = {
     commandDatabasesHeading: "Collections",
     commandLocalFilesHeading: "Local files",
     commandDatabaseResultDescription: "Open collection page",
-    commandAppearance: "Appearance",
     openAgent: "Open Agent",
     toggleTheme: "Toggle theme",
+    commandOnPage: "On “{{title}}”",
+    commandSearchInPage: "Search in this page",
+    commandSearchInPageDescription: "Only this page and the pages inside it",
+    commandScopeChip: "In “{{title}}”",
+    commandClearScope: "Search the whole workspace",
+    commandAskAgent: "Ask the agent: “{{query}}”",
+    commandAskAgentDescription:
+      "The agent can search, read and summarize for you",
+    commandPreview: "Preview",
+    commandHintNavigate: "Navigate",
+    commandHintOpen: "Open",
+    commandHintClose: "Close",
     metaTitle:
       "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
     metaDescription:
@@ -1550,6 +1620,7 @@ const enUS = {
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
     discardSuggestionDraft: "Discard draft",
+    mermaid: mermaidMessages,
     bold: "Bold",
     underline: "Underline",
     italic: "Italic",
@@ -1581,6 +1652,17 @@ const enUS = {
       duplicate: "Duplicate",
       delete: "Delete",
       insertBelow: "Insert block below",
+      insertAbove: "Insert block above",
+      turnIntoCollection: "Turn into collection",
+      askAgent: "Ask agent",
+      columns: "Columns",
+      syncedBlock: "Synced block",
+      component: "Component",
+      file: "File",
+      pdf: "PDF",
+      bookmark: "Bookmark",
+      embed: "Embed",
+      tableOfContents: "Table of contents",
       search: "Search actions...",
       noResults: "No results",
       block: "Block",
@@ -1591,6 +1673,20 @@ const enUS = {
         "Components from the source file can’t be duplicated or deleted here.",
       lockedSuggesting: "Suggestions can’t add or remove this kind of block.",
       lockedPage: "This page doesn’t allow that change.",
+      lockedCollection: "A collection stays on the page it belongs to.",
+      lockedUploadedClip:
+        "A Clip uploaded to this page stays on it, since the page decides who can watch it.",
+      moveTo: "Move to",
+      moveToTitle: "Move block to",
+      movingTo: "Moving to {{title}}…",
+      movedTo: "Moved to {{title}}",
+      copiedTo:
+        "Copied to {{title}}. The block changed while it moved, so it’s still here too.",
+      copiedPageClosed:
+        "Copied to {{title}}. The page it came from closed before the move finished, so the block is still there too.",
+      moveChanged: "The block changed before it could move, so nothing moved.",
+      moveFailed: "Couldn’t move the block to {{title}}",
+      openPage: "Open",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",
@@ -1600,10 +1696,17 @@ const enUS = {
     heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
+    suggestEdit: "Suggest edit",
     pasteLink: "Paste link...",
     apply: "Apply",
     plainText: "Plain text",
     searchLanguages: "Search languages...",
+    codeLanguageAuto: "Auto",
+    codeLanguage: "Code language",
+    noLanguagesFound: "No languages found",
+    copyCode: "Copy code",
+    codeCopied: "Copied",
+    wrapCodeLines: "Wrap lines",
     noBlocksFields: "No Blocks fields. Add one from the property menu.",
     noDocumentSelected: "No document selected",
     registryBlockLoadError: "Could not load {{type}} block: {{message}}",
@@ -1692,13 +1795,41 @@ const enUS = {
       "This deletes “{{name}}” and its text from every row in this collection. You can't undo this.",
     deleteBlockFieldBodyWarning:
       "“{{name}}” is the page body, so every row's main text is deleted too.",
+    blockFieldFrozen: "Frozen while {{column}} is {{value}}",
+    blockFieldFrozenDescription:
+      "A rule on this collection stops anyone, person or agent, from changing this tab. Move {{column}} off {{value}} to edit it.",
+    blockFieldFrozenByManagers:
+      "Frozen while {{column}} is {{value}}. Only people with full access to the collection can change this.",
+    blockFieldFrozenSaveRefused:
+      "This tab is frozen, so your edit wasn't saved",
+    freezeBlockField: "Freeze while…",
+    freezeBlockFieldWhile: "While {{column}} is",
+    freezeBlockFieldNoColumns: "Add a status or select column to freeze by",
+    unfreezeBlockField: "Don't freeze",
     title: "Title",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
+    newPagePlaceholder: "Start writing",
+    newPageLine: "Start writing, {{draft}}, or {{import}}",
+    newPageLineWithoutImport: "Start writing, or {{draft}}",
+    newPageLineDraft: "draft it with the agent",
+    newPageLineImport: "import Markdown",
+    newPageDraftPrompt: "Draft this page about ",
+    newPageDraftPromptTitled: "Draft this page about {{title}}",
+    newPageAgentContextLabel: "This page",
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
     failedToCreateDatabase: "Failed to create inline collection",
+    turningIntoCollection: "Turning the table into a collection...",
+    turnedIntoCollection: "Table turned into a collection",
+    failedToTurnIntoCollection: "Couldn’t turn the table into a collection",
+    tableChangedWhileTurning:
+      "The table changed while it was turning into a collection, so it was left as it is. Try again.",
+    tableTooBigForCollection:
+      "A collection can take a table of up to 500 rows and 50 columns.",
+    tableTextTooLongForCollection:
+      "In a collection, a row’s name (the table’s first column) can be up to 500 characters, and other cells up to 20,000. Shorten the long cells and try again.",
     failedToCreatePage: "Failed to create page",
     generateWithAi: "Generate with AI",
     dropMedia: "Drop media",
@@ -1875,6 +2006,17 @@ const enUS = {
     agentBadge: "Agent",
     addEmoji: "Add emoji",
     mentionSomeone: "Mention someone",
+    attachImage: "Add image",
+    removeImage: "Remove image",
+    uploadingImage: "Uploading image…",
+    imageUploadFailed: "Couldn't upload the image. Try again.",
+    imageTypeUnsupported: "A comment takes PNG, JPEG, GIF or WebP images.",
+    imageTooLarge: "Each image can be up to 10 MB.",
+    imageLimit: "A comment holds up to {{count}} images.",
+    imagesNeedStorage:
+      "Images need private file storage, which this workspace hasn't connected.",
+    commentImages: "Images",
+    openImage: "Open image: {{name}}",
     mentionPeople: "People",
     mentionPeopleLoadFailed: "Couldn't load people.",
     mentionAgents: "Agents",
@@ -1904,7 +2046,9 @@ const enUS = {
     aiResponseMode: "Response",
     aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
-    aiUnavailable: "Unavailable",
+    aiModelNotConnected:
+      "{{model}} isn’t connected. Click its name to choose another model.",
+    aiModelNotConnectedAlone: "{{model}} isn’t connected.",
     aiReplyInThread: "Reply in thread",
     aiApplyAndResolve: "Apply changes and resolve",
     aiPromptSuggest: "Suggest changes for this comment.",
@@ -2138,6 +2282,8 @@ const enUS = {
       "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
+    workspaceReferenceProtected:
+      "Workspace references are protected and cannot be changed as pages.",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",
     failedPermanentDeletePage: "Failed to permanently delete page",
     failedMovePage: "Failed to move page",
@@ -2230,6 +2376,9 @@ const enUS = {
   trash: trashMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
+  analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  designScreen: designScreenMessagesByLocale["en-US"],
+  builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -2294,6 +2443,9 @@ function mergeMessages(overrides: PartialMessages): Messages {
     trash: enUS.trash,
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
+    analyticsChart: enUS.analyticsChart,
+    designScreen: enUS.designScreen,
+    builderAutosave: enUS.builderAutosave,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2798,6 +2950,7 @@ function mergeMessagesForLocale(
       suggestionFormattingBaselineUnsupported:
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
+      mermaid: { ...base.editor.mermaid },
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {
@@ -2814,6 +2967,9 @@ function mergeMessagesForLocale(
     trash: trashMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
+    analyticsChart: analyticsChartMessagesByLocale[locale],
+    designScreen: designScreenMessagesByLocale[locale],
+    builderAutosave: builderAutosaveMessagesByLocale[locale],
   };
 }
 
