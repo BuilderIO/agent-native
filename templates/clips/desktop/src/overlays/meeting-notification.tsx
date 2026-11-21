@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
   IconChevronDown,
+  IconHeadphones,
   IconNotes,
   IconVideo,
   IconX,
@@ -141,6 +142,16 @@ function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
         aria-hidden
       >
         <IconVideo size={14} stroke={2.2} />
+      </span>
+    );
+  }
+  if (provider === "slack") {
+    return (
+      <span
+        className="meeting-notification-provider meeting-notification-provider-slack"
+        aria-hidden
+      >
+        <IconHeadphones size={14} stroke={2.2} />
       </span>
     );
   }
