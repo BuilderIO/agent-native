@@ -241,8 +241,9 @@ async function handleEmbeddedViewRequest(event: MessageEvent): Promise<void> {
     !port ||
     !token ||
     event.source !== window.parent ||
-    !getFrameOrigin() ||
-    !isTrustedFrameMessage(event)
+    event.origin !== getFrameOrigin() ||
+    (event.origin !== window.location.origin &&
+      !configuredFrameHostOrigins().includes(event.origin))
   )
     return;
   const request = event.data as {
@@ -288,12 +289,10 @@ function runEmbeddedViewRequest(request: {
   path?: unknown;
 }) {
   if (request.operation === "read") {
-    const root = document.querySelector("main") ?? document.body;
     return {
       path: viewPath(new URL(window.location.href)),
       title: document.title,
       selectedText: window.getSelection()?.toString().trim().slice(0, 4000),
-      visibleText: root.innerText.replace(/\s+/g, " ").trim().slice(0, 4000),
     };
   }
   const path = typeof request.path === "string" ? request.path.trim() : "";

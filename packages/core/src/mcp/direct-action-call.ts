@@ -275,18 +275,6 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       return actionError(err);
     }
 
-    const callableEntry = Object.hasOwn(callableActions, name)
-      ? callableActions[name]
-      : undefined;
-    if (
-      effectiveIdentity?.userEmail &&
-      callableEntry &&
-      isAdvertisable(name) &&
-      actionCallReadOnly(callableEntry, args) !== true
-    ) {
-      const { markActiveTurn } = await import("../server/active-turn.js");
-      markActiveTurn(effectiveIdentity.userEmail);
-    }
     const outcome = await runMcpActionCallUnredacted(actionCallContext, {
       name,
       args,

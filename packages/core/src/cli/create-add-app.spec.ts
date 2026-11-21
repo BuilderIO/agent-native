@@ -197,9 +197,15 @@ describe("workspace chat starter", () => {
 
         await expect(
           navigate.run({ ...target, intent: "open" }, { caller: "mcp" }),
-        ).resolves.toBe(
-          "Queued navigation to /chat/thread-8. Use view-screen to confirm it opened.",
-        );
+        ).resolves.toMatchObject({
+          kept: false,
+          navigated: true,
+          resolvedUrl: "/chat/thread-8",
+          tabId: "active-tab",
+          writeId: expect.any(String),
+          message:
+            "Queued navigation to /chat/thread-8. Use view-screen to confirm it opened.",
+        });
         expect(await appStateGet(userEmail, `navigate:${tabId}`)).toMatchObject(
           {
             path: "/chat/thread-8",

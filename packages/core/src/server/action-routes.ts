@@ -22,7 +22,6 @@ import {
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
-  isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   failedCallEmitsChange,
   recordInvalidActionCall,
@@ -46,7 +45,6 @@ import { assertActionAccess } from "../authorization/check-action.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
-import { registerManifestActions } from "../manifest/server.js";
 import { mcpCallAttribution } from "../mcp/call-attribution.js";
 import {
   hasForbiddenOrgScope,
@@ -106,7 +104,6 @@ import { redact, redactErrorStack } from "../tracking/redaction.js";
 import { actionApprovalRequiredError } from "./action-approval.js";
 import { ACTION_ROUTE_PREFIX, bindActionBatch } from "./action-batch.js";
 import { notifyActionChangeForResponse } from "./action-change.js";
-import { markActiveTurn } from "./active-turn.js";
 import {
   readBrowserSessionIdHeader,
   readBrowserTabIdHeader,
@@ -769,16 +766,6 @@ function mountActionRoutesInternal(
 
   if (!options?.caller && !options?.forcePost && !options?.routePrefix) {
     bindActionBatch({ fetch: (request) => nitroApp.fetch(request), actions });
-    registerManifestActions(
-      nitroApp,
-      Object.entries(actions)
-        .filter(
-          ([, entry]) =>
-            isActionExposedToExternalAgents(entry) &&
-            !isActionHiddenFromEveryAgentSurface(entry),
-        )
-        .map(([name]) => name),
-    );
   }
 
   for (const [name, entry] of Object.entries(actions)) {
@@ -1542,12 +1529,6 @@ function mountActionRoutesInternal(
               callArgs: unknown,
               result: unknown,
             ) => {
-              if (
-                runContext?.caller === "mcp-widget" ||
-                runContext?.caller === "mcp-widget-write" ||
-                runContext?.caller === "webmcp"
-              )
-                markActiveTurn(userEmail);
               const markerLanded = await notifyActionChangeForResponse({
                 actionName: name,
                 ...actionChangeResource(entry, callArgs, result),

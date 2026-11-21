@@ -3,6 +3,11 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolSearchEntry } from "../agent/tool-search.js";
+import { defineAppConfig } from "../app-config/store.js";
+import {
+  APP_CAPABILITIES_META_KEY,
+  defineAppManifest,
+} from "../manifest/index.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   createMCPServerForRequest,
@@ -113,7 +118,46 @@ beforeEach(() => {
   observedVerifiedServiceIdentity = undefined;
 });
 
+// oracle-change: Grant coverage moved from standalone manifest surfaces to tools/list.
 describe("MCP tools/list for a service principal", () => {
+  it("projects registered capabilities through the current action grant", async () => {
+    const removeConfig = defineAppConfig({
+      manifest: defineAppManifest({
+        version: 1,
+        screens: {
+          library: { route: "/library", action: "list-docs" },
+          document: { route: "/document", action: "read-doc" },
+          missing: { route: "/missing", action: "unregistered" },
+        },
+        suggestions: { "saved-view": "delete-doc" },
+      }),
+    });
+    activeWithGrant(["list-docs", "delete-doc", "unregistered"]);
+    const base = config();
+    const client = await clientFor(serviceIdentity, {
+      ...base,
+      externalAgents: { denyActions: ["delete-doc"] },
+    });
+    try {
+      expect(
+        (await client.listTools())._meta?.[APP_CAPABILITIES_META_KEY],
+      ).toEqual({
+        version: 1,
+        screens: { library: { route: "/library", action: "list-docs" } },
+      });
+      activeWithGrant(["read-doc"]);
+      expect(
+        (await client.listTools())._meta?.[APP_CAPABILITIES_META_KEY],
+      ).toEqual({
+        version: 1,
+        screens: { document: { route: "/document", action: "read-doc" } },
+      });
+    } finally {
+      removeConfig();
+      await client.close();
+    }
+  });
+
   it("lists everything for an ungoverned principal", async () => {
     evaluateServicePrincipalMock.mockResolvedValue({
       status: "ungoverned",
@@ -650,33 +694,7 @@ describe("MCP App resources for a service principal", () => {
     activeWithGrant(null);
     const client = await clientFor(serviceIdentity, widgetConfig());
 
-    expect((await client.listResources()).resources).toEqual([
-      expect.objectContaining({ uri: "app://manifest" }),
-    ]);
-  });
-
-  it("omits denied and ungranted action names from derived manifests", async () => {
-    activeWithGrant(["list-docs", "operator-hidden", "get_app_manifest"]);
-    const cfg = widgetConfig();
-    cfg.catalogMode = "app";
-    cfg.actions = {
-      ...cfg.actions,
-      "operator-hidden": cfg.actions["list-docs"],
-      "grant-hidden": cfg.actions["list-docs"],
-    };
-    cfg.externalAgents = { denyActions: ["operator-hidden"] };
-    const client = await clientFor(serviceIdentity, cfg);
-    const resource = await client.readResource({ uri: "app://manifest" });
-    const tool = await client.callTool({
-      name: "get_app_manifest",
-      arguments: {},
-    });
-    for (const result of [resource.contents, tool.content]) {
-      const text = JSON.stringify(result);
-      expect(text).toContain("list docs");
-      expect(text).not.toContain("operator hidden");
-      expect(text).not.toContain("grant hidden");
-    }
+    expect((await client.listResources()).resources).toEqual([]);
   });
 
   it("lists, templates, and reads only widgets inside the grant", async () => {

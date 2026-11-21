@@ -220,7 +220,7 @@ describe("frame bridge", () => {
     expect(parent.postMessage).not.toHaveBeenCalled();
   });
 
-  it("handshakes with opaque sandbox parents on a resolved embed session", async () => {
+  it("allows the embed handshake without granting opaque parents view requests", async () => {
     setEmbedToken("embed-session");
     stubSessionResponse({
       email: "member@example.com",
@@ -232,6 +232,21 @@ describe("frame bridge", () => {
 
     dispatchFrameOrigin("null", parent, "https://chatgpt-sandbox.example");
     await vi.waitFor(() => expect(frame.getFrameOrigin()).toBe("null"));
+
+    const port = { postMessage: vi.fn(), close: vi.fn() };
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "agentNative.viewRequest",
+          operation: "read",
+          deadline: Date.now() + 1000,
+        },
+        origin: "null",
+        source: parent,
+        ports: [port as unknown as MessagePort],
+      }),
+    );
+    expect(port.postMessage).not.toHaveBeenCalled();
 
     expect(frame.getFramePostMessageTargetOrigin()).toBe("*");
     expect(parent.postMessage).toHaveBeenCalledWith(
