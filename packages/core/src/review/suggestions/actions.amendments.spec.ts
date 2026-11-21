@@ -263,6 +263,78 @@ describe("pending suggestion amendments", () => {
     );
   });
 
+  it("moves the suggestion onto a newer basis the amendment was written against", async () => {
+    const amended = await updateResourceSuggestion.run(
+      { ...request(), baseRevision: "base-2" },
+      author,
+    );
+    expect(validate).toHaveBeenCalledWith(
+      expect.objectContaining({ baseRevision: "base-2" }),
+    );
+    expect(amended).toMatchObject({ baseRevision: "base-2", revision: 2 });
+    expect(await getSuggestion(suggestion.id)).toMatchObject({
+      baseRevision: "base-2",
+      operations: [expect.objectContaining({ after: "better" })],
+    });
+    expect(
+      await updateResourceSuggestion.run(
+        { ...request(), baseRevision: "base-2" },
+        author,
+      ),
+    ).toEqual(amended);
+    await expect(
+      updateResourceSuggestion.run(request(), author),
+    ).rejects.toMatchObject({ errorCode: "idempotency_conflict" });
+  });
+
+  it("refuses an amendment that edits something the suggestion doesn't", async () => {
+    await expect(
+      updateResourceSuggestion.run(
+        {
+          ...request(),
+          baseRevision: "base-2",
+          operations: [
+            { ...operation, after: "better" },
+            { ...operation, ordinal: 1, targetId: "another-field" },
+          ],
+        },
+        author,
+      ),
+    ).rejects.toMatchObject({
+      message: "An amendment must edit what the suggestion edits",
+      statusCode: 422,
+      errorCode: "suggestion_invalid",
+    });
+    expect(validate).not.toHaveBeenCalled();
+    expect(await getSuggestion(suggestion.id)).toMatchObject({
+      baseRevision: "base-1",
+      revision: 1,
+      operations: [expect.objectContaining({ after: "new" })],
+    });
+  });
+
+  it("replays an amendment recorded before amendments could name a basis", async () => {
+    const recorded = await client.transaction((tx) =>
+      amendSuggestion(
+        tx,
+        suggestion,
+        request().operations,
+        "Original",
+        "amend-1",
+        JSON.stringify({
+          id: suggestion.id,
+          observedRevision: 1,
+          operations: request().operations,
+          summary: null,
+        }),
+      ),
+    );
+    expect(await updateResourceSuggestion.run(request(), author)).toEqual(
+      recorded,
+    );
+    expect(validate).not.toHaveBeenCalled();
+  });
+
   it("rejects changed canonical basis through adapter validation without an amendment", async () => {
     validate.mockRejectedValueOnce(new Error("Canonical changed"));
     await expect(
