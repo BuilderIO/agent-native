@@ -1,9 +1,6 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { describe, expect, it } from "vitest";
 
-// How outside agents (MCP, HTTP, CLI, A2A and automation callers) reach each
-// Clips action, as the MCP parity inventory marked them. "search" actions stay
-// out of tools/list: tool-search finds them and call-tool runs them.
 const SERVED = [
   "add-comment",
   "add-vocabulary-term",
@@ -77,9 +74,6 @@ const SERVED = [
   "update-recording-context",
 ] as const;
 
-// Deletes, memberships and invites, organization settings, meeting recording,
-// edits that throw work away, and copies into Brain: an outside agent asks a
-// person first. The app's UI and its own agent don't ask.
 const APPROVED_WHEN_OUTSIDE = [
   "accept-invite",
   "add-space-member",
@@ -96,20 +90,14 @@ const APPROVED_WHEN_OUTSIDE = [
   "remove-earlier-meeting-audio",
   "remove-space-member",
   "set-organization-branding",
-  "start-meeting-recording",
-  "stop-meeting-recording",
 ] as const;
 
-// These already ask on every agent call, the app's own agent included.
 const ALWAYS_APPROVED = [
   "invite-member",
   "remove-member",
   "update-member-role",
 ] as const;
 
-// Kept in the app: background bookkeeping, account connections and their
-// tokens, personal preferences, the UI refresh signal, and the Builder credit
-// state behind the app's own notices.
 const IN_APP_ONLY = [
   "complete-transactional-email-summary",
   "connect-calendar",
@@ -128,6 +116,8 @@ const IN_APP_ONLY = [
   "list-slack-installations",
   "refresh-list",
   "retry-recording-media-cleanup",
+  "start-meeting-recording",
+  "stop-meeting-recording",
   "update-ai-request-status",
   "update-clips-ai-prefs",
   "update-clips-notification-prefs",
@@ -146,14 +136,17 @@ async function load(name: string): Promise<Exposure> {
 }
 
 describe("Clips actions over MCP", () => {
-  it.each(SERVED)("serves %s to outside agents unlisted", async (name) => {
-    const action = await load(name);
-    expect(action.mcpTool).toBe("search");
-    expect(action.needsApproval).toBeUndefined();
-  });
+  it.each(SERVED)(
+    "serves %s to outside agents through tool-search",
+    async (name) => {
+      const action = await load(name);
+      expect(action.mcpTool).toBe("search");
+      expect(action.needsApproval).toBeUndefined();
+    },
+  );
 
   it.each(APPROVED_WHEN_OUTSIDE)(
-    "serves %s unlisted, and asks only outside agents to approve it",
+    "serves %s through tool-search, and asks only outside agents to approve it",
     async (name) => {
       const action = await load(name);
       expect(action.mcpTool).toBe("search");
@@ -164,6 +157,9 @@ describe("Clips actions over MCP", () => {
       expect(await approves({}, { caller: "tool" } as ActionRunContext)).toBe(
         false,
       );
+      expect(
+        await approves({}, { caller: "frontend" } as ActionRunContext),
+      ).toBe(false);
       expect(await approves({}, { caller: "mcp" } as ActionRunContext)).toBe(
         true,
       );
@@ -171,7 +167,7 @@ describe("Clips actions over MCP", () => {
   );
 
   it.each(ALWAYS_APPROVED)(
-    "serves %s unlisted, still asking on every agent call",
+    "serves %s through tool-search, still asking on every agent call",
     async (name) => {
       const action = await load(name);
       expect(action.mcpTool).toBe("search");

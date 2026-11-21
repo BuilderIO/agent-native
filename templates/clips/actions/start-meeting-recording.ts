@@ -1,4 +1,4 @@
-import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
+import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -30,8 +30,7 @@ export default defineAction({
     hasCamera: z.boolean().optional().default(false),
     hasAudio: z.boolean().optional().default(true),
   }),
-  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
-  mcpTool: "search",
+  mcpTool: false,
   run: async (args, actionContext) => {
     let meetingId = args.meetingId;
     if (parseCalendarMeetingId(args.meetingId)) {

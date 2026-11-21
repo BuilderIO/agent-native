@@ -1,8 +1,4 @@
-import {
-  defineAction,
-  fail,
-  isOutsideAgentCall,
-} from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import shareResource from "@agent-native/core/sharing/actions/share-resource";
@@ -73,8 +69,7 @@ export default defineAction({
         "Why the recording stopped, e.g. 'manual' or a native detector name. Omit to leave end_reason untouched.",
       ),
   }),
-  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
-  mcpTool: "search",
+  mcpTool: false,
   run: async (args) => {
     const access = await assertAccess("meeting", args.meetingId, "editor");
     const db = getDb();
