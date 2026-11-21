@@ -80,7 +80,6 @@ describe("import-markdown-files", () => {
       sourceId: "source-1",
       externalId: "markdown:docs/getting-started.md",
       title: "docs/getting-started.md",
-      kind: "document",
       content: "# Getting started",
       metadata: {
         path: "docs/getting-started.md",
@@ -91,7 +90,6 @@ describe("import-markdown-files", () => {
       sourceId: "source-1",
       externalId: "markdown:docs/setup.markdown",
       title: "docs/setup.markdown",
-      kind: "document",
       content: "# Setup",
       metadata: {
         path: "docs/setup.markdown",
@@ -105,6 +103,61 @@ describe("import-markdown-files", () => {
       blocked: 0,
       failed: 0,
     });
+  });
+
+  // oracle-change: participant labels are now accepted and screened to a count.
+  it.each([
+    { participants: [""] },
+    { participants: ["   "] },
+    { participants: ["x".repeat(201)] },
+    { participants: [42] },
+    { participants: Array(101).fill("Avery") },
+  ])("rejects invalid participant labels %j", ({ participants }) => {
+    const schema = (
+      action as unknown as {
+        schema: { safeParse: (value: unknown) => { success: boolean } };
+      }
+    ).schema;
+    expect(
+      schema.safeParse({
+        files: [{ path: "meeting.md", content: "Meeting", participants }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts per-file transcript provenance without changing the source audience", async () => {
+    const schema = (
+      action as unknown as {
+        schema: { parse: (value: unknown) => Parameters<typeof action.run>[0] };
+      }
+    ).schema;
+    const args = schema.parse({
+      sourceId: "source-1",
+      files: [
+        {
+          path: "meetings/launch.md",
+          content: "Avery: The launch is approved.",
+          kind: "transcript",
+          capturedAt: "2026-05-20T15:00:00.000Z",
+        },
+        { path: "docs/plan.md", content: "Plan" },
+      ],
+      enqueueDistillation: false,
+    });
+    await action.run(args);
+
+    expect(mocks.createCapture).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        kind: "transcript",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+        metadata: { path: "meetings/launch.md", sourceFormat: "markdown" },
+      }),
+    );
+    expect(mocks.createCapture.mock.calls[0]?.[0]).not.toHaveProperty(
+      "audience",
+    );
+    expect(mocks.createCapture.mock.calls[1]?.[0]).not.toHaveProperty("kind");
   });
 
   it("imports plain text files and records their format", async () => {

@@ -499,6 +499,10 @@ const enUS = {
     companyContextOpenFailed:
       "Couldn't open the company context upload. Try again.",
     manualImportNoFiles: "No documents selected",
+    importCaptureTime: "Capture time (optional)",
+    importTranscript: "This file is a transcript",
+    importParticipants:
+      "Participants, comma-separated (only the count is saved; no access is granted)",
     manualImportFilesSelected: "{{count}} documents selected",
     manualImportFileLimit:
       "Supports .md, .markdown, and .txt. Imports are limited to 100 files and 4 million characters.",
@@ -3304,6 +3308,10 @@ const exactEnglishDebtOverrides: Partial<
         "يمكن فقط لمالكي المؤسسة ومسؤوليها رفع سياق الشركة.",
       companyContextOpenFailed: "تعذّر فتح رفع سياق الشركة. حاول مرة أخرى.",
       manualImportNoFiles: "لم يتم اختيار مستندات",
+      importCaptureTime: "وقت التسجيل (اختياري)",
+      importTranscript: "هذا الملف نص محادثة",
+      importParticipants:
+        "المشاركون، مفصولون بفواصل (يُحفظ العدد فقط؛ لا يُمنح وصول)",
       manualImportFileLimit:
         "يدعم .md و.markdown و.txt. يقتصر الاستيراد على 100 ملف و4 ملايين حرف.",
       chooseDocumentFiles: "اختيار ملفات",
@@ -3744,6 +3752,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "Der Upload für Unternehmenskontext konnte nicht geöffnet werden. Versuche es erneut.",
       manualImportNoFiles: "Keine Dokumente ausgewählt",
+      importCaptureTime: "Aufnahmezeit (optional)",
+      importTranscript: "Diese Datei ist ein Transkript",
+      importParticipants:
+        "Teilnehmende, durch Kommas getrennt (nur die Anzahl wird gespeichert; kein Zugriff wird gewährt)",
       manualImportFileLimit:
         "Unterstützt .md, .markdown und .txt. Importe sind auf 100 Dateien und 4 Millionen Zeichen begrenzt.",
       chooseDocumentFiles: "Dateien auswählen",
@@ -4179,6 +4191,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "No se pudo abrir la subida de contexto de la empresa. Inténtalo de nuevo.",
       manualImportNoFiles: "No se han seleccionado documentos",
+      importCaptureTime: "Hora de captura (opcional)",
+      importTranscript: "Este archivo es una transcripción",
+      importParticipants:
+        "Participantes separados por comas (solo se guarda el número; no se concede acceso)",
       manualImportFileLimit:
         "Admite .md, .markdown y .txt. Las importaciones están limitadas a 100 archivos y 4 millones de caracteres.",
       chooseDocumentFiles: "Elegir archivos",
@@ -4619,6 +4635,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "Impossible d'ouvrir l'import du contexte d'entreprise. Réessayez.",
       manualImportNoFiles: "Aucun document sélectionné",
+      importCaptureTime: "Date et heure de capture (facultatif)",
+      importTranscript: "Ce fichier est une transcription",
+      importParticipants:
+        "Participants séparés par des virgules (seul le nombre est enregistré ; aucun accès n’est accordé)",
       manualImportFileLimit:
         "Formats pris en charge : .md, .markdown et .txt. Les imports sont limités à 100 fichiers et 4 millions de caractères.",
       chooseDocumentFiles: "Choisir des fichiers",
@@ -5023,6 +5043,10 @@ const exactEnglishDebtOverrides: Partial<
         "केवल संगठन के स्वामी और व्यवस्थापक ही कंपनी संदर्भ अपलोड कर सकते हैं।",
       companyContextOpenFailed: "कंपनी संदर्भ अपलोड नहीं खुल सका। फिर से कोशिश करें।",
       manualImportNoFiles: "कोई दस्तावेज़ नहीं चुना गया",
+      importCaptureTime: "कैप्चर समय (वैकल्पिक)",
+      importTranscript: "यह फ़ाइल एक प्रतिलेख है",
+      importParticipants:
+        "प्रतिभागी, अल्पविराम से अलग (केवल संख्या सहेजी जाती है; पहुँच नहीं दी जाती)",
       manualImportFileLimit:
         ".md, .markdown और .txt समर्थित हैं। आयात 100 फ़ाइलों और 40 लाख वर्णों तक सीमित हैं।",
       chooseDocumentFiles: "फ़ाइलें चुनें",
@@ -5445,6 +5469,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "会社コンテキストのアップロードを開けませんでした。もう一度お試しください。",
       manualImportNoFiles: "ドキュメントが選択されていません",
+      importCaptureTime: "記録日時（任意）",
+      importTranscript: "このファイルは文字起こしです",
+      importParticipants:
+        "参加者（カンマ区切り。人数のみ保存され、アクセス権は付与されません）",
       manualImportFileLimit:
         ".md、.markdown、.txtに対応しています。インポートは100ファイル、400万文字までです。",
       chooseDocumentFiles: "ファイルを選択",
@@ -5859,6 +5887,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "회사 컨텍스트 업로드를 열 수 없습니다. 다시 시도하세요.",
       manualImportNoFiles: "선택한 문서 없음",
+      importCaptureTime: "기록 시간 (선택 사항)",
+      importTranscript: "이 파일은 대화록입니다",
+      importParticipants:
+        "참가자 (쉼표로 구분, 인원만 저장되며 접근 권한은 부여되지 않음)",
       manualImportFileLimit:
         ".md, .markdown, .txt를 지원합니다. 가져오기는 파일 100개와 400만 자로 제한됩니다.",
       chooseDocumentFiles: "파일 선택",
@@ -6289,6 +6321,10 @@ const exactEnglishDebtOverrides: Partial<
       companyContextOpenFailed:
         "Não foi possível abrir o envio de contexto da empresa. Tente novamente.",
       manualImportNoFiles: "Nenhum documento selecionado",
+      importCaptureTime: "Data e hora da captura (opcional)",
+      importTranscript: "Este arquivo é uma transcrição",
+      importParticipants:
+        "Participantes separados por vírgulas (apenas a quantidade é salva; nenhum acesso é concedido)",
       manualImportFileLimit:
         "Compatível com .md, .markdown e .txt. As importações são limitadas a 100 arquivos e 4 milhões de caracteres.",
       chooseDocumentFiles: "Escolher arquivos",
@@ -6657,6 +6693,9 @@ const exactEnglishDebtOverrides: Partial<
       companyContextAdminOnly: "只有组织所有者和管理员可以上传公司上下文。",
       companyContextOpenFailed: "无法打开公司上下文上传。请重试。",
       manualImportNoFiles: "未选择文档",
+      importCaptureTime: "记录时间（可选）",
+      importTranscript: "此文件是转录文本",
+      importParticipants: "参与者，以逗号分隔（仅保存人数，不授予访问权限）",
       manualImportFileLimit:
         "支持 .md、.markdown 和 .txt。每次导入最多 100 个文件、400 万个字符。",
       chooseDocumentFiles: "选择文件",

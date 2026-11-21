@@ -213,6 +213,7 @@ export function sanitizeEvidenceCitationUrls(
 ): BrainEvidence[] {
   return evidence.map((item) => {
     const next: BrainEvidence = { ...item };
+    if (next.capturedAtSource !== "manual-markdown") delete next.capturedAt;
     const sourceUrl = safeCitationUrl(next.sourceUrl);
     const url = safeCitationUrl(next.url);
     if (sourceUrl) next.sourceUrl = sourceUrl;
@@ -857,6 +858,7 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   delete comparable.captureSanitization;
   // Connectors stamp every re-pull with a fresh run id; it must not re-queue unchanged captures.
   delete comparable.syncRunId;
+  delete comparable.capturedAtExplicit;
   return stableJson(comparable);
 }
 
@@ -865,10 +867,11 @@ export type CaptureInput = {
   sourceId: string;
   externalId?: string | null | undefined;
   title: string;
-  kind: BrainCaptureKind;
+  kind?: BrainCaptureKind | undefined;
   content: string;
   metadata?: Record<string, unknown> | undefined;
   capturedAt?: string | undefined;
+  capturedAtSource?: "manual-markdown" | undefined;
   status?: "queued" | "distilling" | "distilled" | "ignored";
   audience?: {
     kind: BrainAudienceAssignment["kind"];
@@ -884,7 +887,8 @@ export interface PreparedCapture {
   readonly [preparedCaptureBrand]: true;
 }
 interface PreparedCaptureData {
-  values: CaptureInput;
+  values: CaptureInput & { kind: BrainCaptureKind };
+  preserveExistingKind: boolean;
   actor: string;
   sourceRevision: string;
   settingsRevision: string;
@@ -919,6 +923,26 @@ export async function prepareCapture(
     : null;
   if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+  const preserveExistingKind = values.kind === undefined;
+  const existing =
+    preserveExistingKind && values.externalId
+      ? firstRow(
+          await getDb()
+            .select({ kind: schema.brainRawCaptures.kind })
+            .from(schema.brainRawCaptures)
+            .where(
+              and(
+                eq(schema.brainRawCaptures.sourceId, values.sourceId),
+                eq(schema.brainRawCaptures.externalId, values.externalId),
+              ),
+            )
+            .limit(1),
+        )
+      : undefined;
+  const resolvedValues: CaptureInput & { kind: BrainCaptureKind } = {
+    ...values,
+    kind: values.kind ?? existing?.kind ?? "document",
+  };
   const settings = await readBrainSettings();
   const actor = requireUserEmail().trim().toLowerCase();
   const sourceRevision = captureScreeningSourceRevision(source);
@@ -928,7 +952,7 @@ export async function prepareCapture(
     values.metadata,
   );
   const sanitized = await sanitizeCaptureForStorage({
-    kind: values.kind,
+    kind: resolvedValues.kind,
     title: values.title,
     content: values.content,
     metadata,
@@ -949,7 +973,8 @@ export async function prepareCapture(
     [preparedCaptureBrand]: true as const,
   });
   preparedCaptures.set(token, {
-    values,
+    values: resolvedValues,
+    preserveExistingKind,
     actor,
     sourceRevision,
     settingsRevision,
@@ -1013,6 +1038,15 @@ export async function commitPreparedCaptureWithWarnings(
     : null;
   if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+  if (
+    prepared.preserveExistingKind &&
+    existing &&
+    existing.kind !== values.kind
+  ) {
+    throw new Error(
+      "Capture kind changed during screening. Screen the capture again before storing it.",
+    );
+  }
 
   if (!sanitized.decision || sanitized.decision.disposition !== "allowed") {
     const receipt = await recordBlockedCapture({
@@ -1035,18 +1069,51 @@ export async function commitPreparedCaptureWithWarnings(
     throw new BrainCaptureBlockedError(receipt);
   }
   const nextContentHash = await contentHash(sanitized.content);
-  const nextMetadataJson = stableJson(sanitized.metadata);
-  const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
+  const previousMetadata = existing
+    ? parseJson<Record<string, unknown>>(existing.metadataJson, {})
+    : {};
+  const nextMetadata = { ...sanitized.metadata };
+  if (
+    source.provider === "manual" &&
+    values.externalId?.startsWith("markdown:") &&
+    nextMetadata.participantsCount === undefined &&
+    typeof previousMetadata.participantsCount === "number" &&
+    Number.isInteger(previousMetadata.participantsCount) &&
+    previousMetadata.participantsCount >= 0 &&
+    previousMetadata.participantsCount <= 100
+  ) {
+    nextMetadata.participantsCount = previousMetadata.participantsCount;
+  }
+  delete nextMetadata.capturedAtExplicit;
+  delete nextMetadata.capturedAtSource;
+  if (
+    source.provider === "manual" &&
+    values.externalId?.startsWith("markdown:") &&
+    ((values.capturedAt && values.capturedAtSource === "manual-markdown") ||
+      (!values.capturedAt &&
+        previousMetadata.capturedAtSource === "manual-markdown"))
+  ) {
+    nextMetadata.capturedAtSource = "manual-markdown";
+  }
+  const nextMetadataJson = stableJson(nextMetadata);
+  const requestedCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
+  const nextCapturedAt =
+    existing &&
+    Number.isFinite(Date.parse(existing.capturedAt)) &&
+    Date.parse(existing.capturedAt) === Date.parse(requestedCapturedAt)
+      ? existing.capturedAt
+      : requestedCapturedAt;
   const contentChanged = existing?.contentHash !== nextContentHash;
   const metadataChanged = Boolean(
     existing &&
     captureMetadataFingerprint(
       parseJson<Record<string, unknown>>(existing.metadataJson, {}),
-    ) !== captureMetadataFingerprint(sanitized.metadata),
+    ) !== captureMetadataFingerprint(nextMetadata),
   );
   const indexedMetadataChanged = Boolean(
     existing &&
     (existing.title !== sanitized.title ||
+      existing.kind !== values.kind ||
       existing.capturedAt !== nextCapturedAt),
   );
   const derivedInputChanged =
@@ -1173,6 +1240,26 @@ export async function commitPreparedCaptureWithWarnings(
         ],
         scoped,
       );
+      if (existing || prepared.preserveExistingKind) {
+        const current = firstRow(
+          await scoped
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, captureId))
+            .limit(1),
+        );
+        if (existing && stableJson(current) !== stableJson(existing)) {
+          throw new Error("Capture changed during import. Retry the import.");
+        }
+        if (
+          prepared.preserveExistingKind &&
+          (!current || current.kind !== values.kind)
+        ) {
+          throw new Error(
+            "Capture kind changed during screening. Screen the capture again before storing it.",
+          );
+        }
+      }
       const audience = await ensureCaptureAudience(audienceInput);
       const result = (await scoped
         .update(schema.brainRawCaptures)
@@ -1904,6 +1991,15 @@ export async function validateEvidenceWithContent(
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
       quote,
+      ...(access.source.provider === "manual" &&
+      access.capture.externalId?.startsWith("markdown:") &&
+      metadata.capturedAtSource === "manual-markdown" &&
+      !Number.isNaN(Date.parse(access.capture.capturedAt))
+        ? {
+            capturedAt: access.capture.capturedAt,
+            capturedAtSource: "manual-markdown" as const,
+          }
+        : {}),
       note: item.note,
       timestampMs: item.timestampMs,
     };
@@ -2021,6 +2117,10 @@ export function applyRedactions(values: {
       })),
     ).map((item) => {
       const next = { ...item };
+      if (next.capturedAt && redact(next.capturedAt) !== next.capturedAt) {
+        delete next.capturedAt;
+        delete next.capturedAtSource;
+      }
       for (const key of ["sourceUrl", "url"] as const) {
         const destination = next[key];
         if (destination && destinationRevealsRedaction(destination, redact)) {
@@ -2293,6 +2393,13 @@ function canonicalEvidenceFromUnknown(value: unknown): BrainEvidence[] {
             : captureId,
         quote,
       };
+      if (
+        evidence.capturedAtSource === "manual-markdown" &&
+        typeof evidence.capturedAt === "string"
+      ) {
+        result.capturedAt = evidence.capturedAt;
+        result.capturedAtSource = "manual-markdown";
+      }
       if (typeof evidence.note === "string") result.note = evidence.note;
       const sourceUrl = safeCitationUrl(evidence.sourceUrl ?? evidence.url);
       if (sourceUrl) result.sourceUrl = sourceUrl;

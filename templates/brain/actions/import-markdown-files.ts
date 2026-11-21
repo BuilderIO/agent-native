@@ -41,10 +41,31 @@ type ImportedMarkdownResult =
       errorCode?: string;
     };
 
-const markdownFileSchema = z.object({
-  path: z.string().trim().min(1).max(2_000),
-  content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
-});
+const markdownFileSchema = z
+  .object({
+    path: z.string().trim().min(1).max(2_000),
+    content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
+    kind: z
+      .enum(["document", "transcript"])
+      .optional()
+      .describe(
+        "Set document or transcript explicitly; when omitted, preserve an existing capture's kind or use document for a new file.",
+      ),
+    capturedAt: z.iso
+      .datetime({ offset: true })
+      .optional()
+      .describe(
+        "Capture time as an ISO 8601 datetime with timezone, when known.",
+      ),
+    participants: z
+      .array(z.string().trim().min(1).max(200))
+      .max(100)
+      .optional()
+      .describe(
+        "Optional participant labels. Privacy screening discards the labels and stores only their count; they do not grant access or change the audience. An empty list preserves the existing count.",
+      ),
+  })
+  .strict();
 
 function normalizeMarkdownPath(value: string) {
   const rawPath = value.trim().replace(/\\/g, "/");
@@ -75,7 +96,7 @@ function normalizeMarkdownPath(value: string) {
 
 export default defineAction({
   description:
-    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default.",
+    "Import a bounded folder or batch of Markdown (.md, .markdown) or plain text (.txt) files into a manual Brain source. Paths are preserved for deduplication and each file is queued for distillation by default. Participant labels are screened to a count, not retained or used as access grants.",
   schema: z.object({
     sourceId: z.string().min(1).optional(),
     sourceTitle: z
@@ -175,11 +196,20 @@ export default defineAction({
             sourceId: source.id,
             externalId: `markdown:${normalizedPath}`,
             title: normalizedPath,
-            kind: "document",
+            ...(file.input.kind ? { kind: file.input.kind } : {}),
             content: file.input.content,
+            ...(file.input.capturedAt
+              ? {
+                  capturedAt: file.input.capturedAt,
+                  capturedAtSource: "manual-markdown" as const,
+                }
+              : {}),
             metadata: {
               path: normalizedPath,
               sourceFormat: documentImportFormat(normalizedPath) ?? "markdown",
+              ...(file.input.participants?.length
+                ? { participants: file.input.participants }
+                : {}),
             },
           },
         );
