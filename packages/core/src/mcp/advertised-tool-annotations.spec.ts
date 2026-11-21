@@ -380,7 +380,10 @@ function mutatingToolNames(app: AppCatalog): string[] {
         )
         .map(({ tool }) => tool.name),
     ),
-  ].filter((name) => !Object.hasOwn(SERVER_DECIDED_TOOLS, name));
+  ].filter(
+    (name) =>
+      !Object.hasOwn(SERVER_DECIDED_TOOLS, name) && name !== "call-tool",
+  );
 }
 
 // Only annotations the action itself declares count as a decision. The server

@@ -7,6 +7,7 @@ import {
   actionCallIntent,
   invocationEffect,
   isActionContractError,
+  isReversibleWriteInlineApprovalAction,
   recordInvalidActionCall,
   preparedCallArguments,
   preparedCallClearsReview,
@@ -32,6 +33,7 @@ import {
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -984,11 +986,18 @@ async function authorizeApproval(
         : `${name} requires a valid user-turn grant and approval on its review page.`,
     );
   }
-  const directEmail = getRequestUserEmail();
+  const verifiedIdentityEmail =
+    identity?.identityAssurance === "user"
+      ? identity.userEmail?.trim() || undefined
+      : undefined;
+  const approvalUserEmail =
+    getRequestContext()?.userEmail ??
+    verifiedIdentityEmail ??
+    getRequestUserEmail();
   if (
     direct &&
     (await preparedCallClearsReview(entry, prepared, {
-      ...(directEmail ? { userEmail: directEmail } : {}),
+      ...(approvalUserEmail ? { userEmail: approvalUserEmail } : {}),
       orgId: getRequestOrgId() ?? null,
       ...(context.appId ? { appId: context.appId } : {}),
       caller: "mcp",
@@ -997,16 +1006,16 @@ async function authorizeApproval(
   ) {
     return { status: "authorized" };
   }
-  const pageApprovalOnly = requiresTurnGrantPageApproval(name);
+  const inlineFormApproval = isReversibleWriteInlineApprovalAction(entry);
+  const pageApprovalOnly =
+    requiresTurnGrantPageApproval(name) && !inlineFormApproval;
   const verifiedState = pageApprovalOnly ? undefined : call.approval?.state();
   // A grant binds the exact call: as sent, which must be JSON, and the
   // identity of the arguments it runs with.
   const argumentsHash = await sha256Base64Url(
     `${canonicalJson(args)}\n${prepared.argumentsHash}`,
   );
-  const hasVerifiedUserIdentity =
-    identity?.identityAssurance === "user" &&
-    Boolean(identity.userEmail?.trim());
+  const hasVerifiedUserIdentity = Boolean(verifiedIdentityEmail);
 
   if (verifiedState !== undefined) {
     if (!hasVerifiedUserIdentity) {
@@ -1060,7 +1069,9 @@ async function authorizeApproval(
     }
 
     // The person may have approved on the review page while the prompt was open.
-    const reviewed = await consumeReviewedMcpApprovalGrant(grant, grant.nonce);
+    const reviewed = inlineFormApproval
+      ? undefined
+      : await consumeReviewedMcpApprovalGrant(grant, grant.nonce);
     if (reviewed) {
       return {
         status: "authorized",
@@ -1092,6 +1103,9 @@ async function authorizeApproval(
         }),
       };
     }
+    if (inlineFormApproval) {
+      return approvalDenied(`${name} was not approved.`);
+    }
     // A client can decline without showing anyone a prompt, so a decline
     // ends this grant and the person reviews a new one on the page.
     const { review } = await createApprovalGrant(
@@ -1106,16 +1120,17 @@ async function authorizeApproval(
   if (!pageApprovalOnly && entry.needsApproval === undefined) {
     return { status: "authorized" };
   }
-  const requestEmail = getRequestUserEmail();
-  const mustApprove =
-    pageApprovalOnly ||
-    (await preparedCallNeedsApproval(entry, prepared, {
-      ...(requestEmail ? { userEmail: requestEmail } : {}),
+  const mustApprove = await preparedCallNeedsApproval(
+    pageApprovalOnly ? { ...entry, needsApproval: true } : entry,
+    prepared,
+    {
+      ...(approvalUserEmail ? { userEmail: approvalUserEmail } : {}),
       orgId: getRequestOrgId() ?? null,
       ...(context.appId ? { appId: context.appId } : {}),
       caller: "mcp",
       actionName: name,
-    }));
+    },
+  );
   if (!mustApprove) return { status: "authorized" };
 
   if (!hasVerifiedUserIdentity) {
@@ -1135,7 +1150,9 @@ async function authorizeApproval(
     actionName: name,
     argumentsHash,
   };
-  const reviewed = await consumeReviewedMcpApprovalGrant(exactCall);
+  const reviewed = inlineFormApproval
+    ? undefined
+    : await consumeReviewedMcpApprovalGrant(exactCall);
   if (reviewed) {
     return {
       status: "authorized",

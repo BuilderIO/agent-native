@@ -169,6 +169,7 @@ import {
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
+import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -347,6 +348,7 @@ import {
   localSourceRevisionForSave,
   type PendingLocalSourceWrite,
 } from "./local-source-write-state";
+import { NewPageStartingPoints } from "./NewPageStartingPoints";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournalGeneration,
@@ -510,8 +512,9 @@ export function observeAcceptedCanonicalSettlement(args: {
 
 export function shouldResumeSelectedSuggestionFromPageActions(
   capturedSelection: VisualEditorSelectionSnapshot | null,
+  fromSelectionToolbar = false,
 ) {
-  return capturedSelection == null;
+  return capturedSelection == null && !fromSelectionToolbar;
 }
 
 export function restoreCapturedEditorSelection(
@@ -3768,7 +3771,11 @@ function PageEditorSessionBody({
       }
       toast.error(t("sidebar.failedDeletePage"), {
         description:
-          error instanceof Error ? error.message : t("empty.genericError"),
+          workspaceReferenceErrorMessage(
+            error,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ??
+          (error instanceof Error ? error.message : t("empty.genericError")),
       });
     }
   }, [
@@ -8083,7 +8090,7 @@ function PageEditorSessionBody({
   ]);
 
   const handleSuggestionModeChange = useCallback(
-    async (next: boolean) => {
+    async (next: boolean, { fromSelectionToolbar = false } = {}) => {
       if (next) {
         if (!canSuggest || startingSuggestionRef.current) return;
         const initialSelection = pageActionsSelectionRef.current;
@@ -8124,7 +8131,10 @@ function PageEditorSessionBody({
             return;
           }
           if (
-            !shouldResumeSelectedSuggestionFromPageActions(initialSelection)
+            !shouldResumeSelectedSuggestionFromPageActions(
+              initialSelection,
+              fromSelectionToolbar,
+            )
           ) {
             if (
               !startSuggestionDraft(readyDocument, undefined, initialSelection)
@@ -8178,6 +8188,14 @@ function PageEditorSessionBody({
     canResume: documentFresh && canSuggest && (!canEdit || editorCanEdit),
     resume: resumeSuggestionMode,
   });
+
+  const handleSuggestEdit = useCallback(
+    (selection: VisualEditorSelectionSnapshot | null) => {
+      pageActionsSelectionRef.current = selection;
+      void handleSuggestionModeChange(true, { fromSelectionToolbar: true });
+    },
+    [handleSuggestionModeChange],
+  );
 
   const capturePageActionsSelection = useCallback(
     (includeRemembered = false) => {
@@ -11445,6 +11463,17 @@ function PageEditorSessionBody({
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const showNewPageStartingPoints =
+    host === "page" &&
+    !isDatabasePage &&
+    editorCanEdit &&
+    !isSuggesting &&
+    !isStartingSuggestion &&
+    !mcpDirectoryWidgetReadOnly &&
+    !bodyHydrationError &&
+    !awaitingLiveCopy &&
+    isEffectivelyEmptyDocumentContent(localContent) &&
+    isEffectivelyEmptyDocumentContent(document.content);
   const iconRow: DocumentEditorIconRow = document.icon
     ? "icon"
     : canEdit && !isSuggesting
@@ -12035,7 +12064,10 @@ function PageEditorSessionBody({
                 {!isDatabasePage ? (
                   <div
                     {...(host === "page" ? startupAnchor("body") : {})}
-                    className={documentEditorBodyClassName(host)}
+                    className={cn(
+                      documentEditorBodyClassName(host),
+                      showNewPageStartingPoints && "content-new-page-body",
+                    )}
                     onClick={(e) => {
                       if (e.target === e.currentTarget) {
                         cancelPaddingScrollRestore();
@@ -12058,6 +12090,13 @@ function PageEditorSessionBody({
                       }
                     }}
                   >
+                    {showNewPageStartingPoints ? (
+                      <NewPageStartingPoints
+                        documentId={documentId}
+                        title={localTitle}
+                        onImport={canImportPages ? openImport : undefined}
+                      />
+                    ) : null}
                     {(() => {
                       if (bodyHydrationPending) {
                         return (
@@ -12349,6 +12388,11 @@ function PageEditorSessionBody({
                                 onComment={
                                   canComment ? handleComment : undefined
                                 }
+                                onSuggestEdit={
+                                  canSuggest && !mcpDirectoryWidgetReadOnly
+                                    ? handleSuggestEdit
+                                    : undefined
+                                }
                                 onBlockComment={
                                   canComment ? handleBlockComment : undefined
                                 }
@@ -12381,6 +12425,11 @@ function PageEditorSessionBody({
                                   handleSuggestionAnchorsChange
                                 }
                                 showCommentIndicators={showCommentIndicators}
+                                emptyDocumentPlaceholder={
+                                  showNewPageStartingPoints
+                                    ? t("editor.newPagePlaceholder")
+                                    : null
+                                }
                                 onJoinTitle={joinFirstBodyBlockToTitle}
                                 onOpenNotionPageLink={handleOpenNotionPageLink}
                                 notionPageId={document.notionPageId}

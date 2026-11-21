@@ -61,6 +61,7 @@ const GUARD_ALLOW_DIRECTIVES = new Set([
   "large-help-icon",
   "localhost-fallback",
   "no-output-schema",
+  "part-geometry",
   "plaintext-secret-column",
   "raw-color",
   "realtime-opt-in",

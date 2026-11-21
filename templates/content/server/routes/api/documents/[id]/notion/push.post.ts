@@ -9,7 +9,9 @@ export default defineEventHandler(async (event) => {
   if (!id) {
     throw createError({ statusCode: 400, statusMessage: "id is required" });
   }
-  const owner = await getDocumentOwnerEmail(event, id);
+  const owner = await getDocumentOwnerEmail(event, id, {
+    requireOwner: true,
+  });
   return runAsRouteCaller(event, (ctx) =>
     pushDocumentToNotion(owner, id, false, { ctx }),
   );

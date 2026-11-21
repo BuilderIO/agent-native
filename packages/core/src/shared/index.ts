@@ -362,6 +362,9 @@ export {
 } from "./agent-readable-resource.js";
 export {
   applyTargetedReplace,
+  describeCandidateKinds,
+  editRemovedTextMessage,
+  findEditThatRemovedText,
   findTargetedMatches,
   type TargetedAmbiguousMatch,
   type TargetedCandidate,

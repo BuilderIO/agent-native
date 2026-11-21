@@ -2,8 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ACTION_CACHE_FLUSH_EVENT,
   advanceMutationEpoch,
   readMutationEpoch,
+  requestActionCacheFlush,
 } from "./action-query-cache-mutation.js";
 
 const KEY = "agent-native.action-query-cache.mutation-epoch";
@@ -56,5 +58,19 @@ describe("action query cache mutation epoch", () => {
   it("reports a write that did not stick as not advanced", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {});
     expect(advanceMutationEpoch()).toBe(false);
+  });
+
+  it("carries the settled epoch on the flush event, and none when not given", () => {
+    const details: unknown[] = [];
+    const listen = (event: Event) =>
+      details.push((event as CustomEvent).detail);
+    window.addEventListener(ACTION_CACHE_FLUSH_EVENT, listen);
+    try {
+      requestActionCacheFlush("epoch-1");
+      requestActionCacheFlush();
+    } finally {
+      window.removeEventListener(ACTION_CACHE_FLUSH_EVENT, listen);
+    }
+    expect(details).toEqual([{ settledEpoch: "epoch-1" }, {}]);
   });
 });

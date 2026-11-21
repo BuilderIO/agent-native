@@ -1,9 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
+import { invalidateContentQueries } from "../hooks/use-content-action-mutation";
 import { getDesktopContentFiles } from "../lib/desktop-content-files";
-import { syncLiveLocalFolder } from "../lib/local-folder-live-sync";
+import {
+  syncLiveLocalFolder,
+  type LiveLocalFolderSyncResult,
+} from "../lib/local-folder-live-sync";
 import { connectTemporaryLocalFolder } from "../lib/local-folder-live-sync";
+import { localFolderSyncTreeTargets } from "../lib/local-folder-sync-refresh";
 
 const RECONCILE_DELAY_MS = 120;
 
@@ -41,6 +46,12 @@ export function LocalFolderLiveSync() {
               void queryClient.invalidateQueries({
                 queryKey: ["action", "get-content-database"],
               });
+              invalidateContentQueries(
+                queryClient,
+                localFolderSyncTreeTargets(
+                  outcome.result as LiveLocalFolderSyncResult,
+                ),
+              );
             })
             .catch(() => {
               // A later watcher event or ordinary launch reconciliation retries.

@@ -5,10 +5,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabState } from "@agent-native/core/client/labs";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
-import { CLIPS_MEETINGS } from "@shared/labs";
 import {
   IconArrowLeft,
   IconCheck,
@@ -27,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, NavLink, useNavigate, useParams } from "react-router";
+import { NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
@@ -482,7 +480,6 @@ function ActionItemTextEditor({
 
 export default function MeetingDetailRoute() {
   const t = useT();
-  const lab = useLabState(CLIPS_MEETINGS.key);
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -1126,10 +1123,6 @@ export default function MeetingDetailRoute() {
     hasNotes,
     finalize,
   ]);
-
-  if (lab.isSuccess && !lab.enabled) {
-    return <Navigate replace to="/library" />;
-  }
 
   if (isError && !meeting) {
     return (
