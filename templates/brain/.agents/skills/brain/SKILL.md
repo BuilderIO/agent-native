@@ -38,6 +38,10 @@ Use Brain actions rather than raw SQL.
    since, nothing is saved and the call fails with `save_conflict`: redo your
    edit on `details.current` and resend with `details.currentRevision`. A
    resent update that already landed returns the record as saved.
+8. To replace an entry with a new one, pass its id as `supersedesId` and its
+   `revision` from your latest read as `supersedesRevision`; the old entry is
+   archived when the write saves. If it changed since, nothing is saved and the
+   `save_conflict` carries the superseded record in `details.current`.
 
 ## Privacy, Quarantine, And Safe Captures
 

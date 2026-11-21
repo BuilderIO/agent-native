@@ -369,7 +369,11 @@ describe.skipIf(!POSTGRES_URL)(
       });
       await failSupersessionWithTrigger();
       await expect(
-        write({ ...publishInput(), supersedesId: older.knowledge.id }),
+        write({
+          ...publishInput(),
+          supersedesId: older.knowledge.id,
+          supersedesRevision: older.knowledge.revision,
+        }),
       ).rejects.toSatisfy(isForcedFailure);
       expect(await resourcePaths()).toEqual([]);
       expect((await knowledgeRows()).map((row) => row.id)).toEqual([
@@ -390,6 +394,7 @@ describe.skipIf(!POSTGRES_URL)(
           ...publishInput(first.knowledge),
           title: "Atlas launch renamed",
           supersedesId: older.knowledge.id,
+          supersedesRevision: older.knowledge.revision,
         }),
       ).rejects.toSatisfy(isForcedFailure);
       expect(await resourcePaths()).toEqual([oldPath]);
@@ -465,6 +470,7 @@ describe.skipIf(!POSTGRES_URL)(
         ...publishInput(),
         title: "Atlas launch v2",
         supersedesId: older.knowledge.id,
+        supersedesRevision: older.knowledge.revision,
       });
       const newPath = newer.knowledge.publishedResourcePath;
       expect(newPath).toBeTruthy();
@@ -478,6 +484,35 @@ describe.skipIf(!POSTGRES_URL)(
       expect(
         harness.notifications.filter((entry) => entry.startsWith("delete:")),
       ).toHaveLength(1);
+    });
+
+    it("keeps the superseded record and its canonical resource when the superseded revision is stale", async () => {
+      const older = await write(publishInput());
+      const edited = await write({
+        ...publishInput(older.knowledge),
+        body: "Morgan ships Atlas next Friday.",
+      });
+      const oldPath = edited.knowledge.publishedResourcePath;
+      const before = await knowledgeRows();
+      harness.notifications.length = 0;
+      const outcome = await track(
+        write({
+          ...publishInput(),
+          title: "Atlas launch v2",
+          supersedesId: older.knowledge.id,
+          supersedesRevision: older.knowledge.revision,
+        }),
+      ).outcome;
+      expect(outcome.ok ? "written" : outcome.error).toMatchObject({
+        errorCode: "save_conflict",
+        details: {
+          current: { id: older.knowledge.id, publishedResourcePath: oldPath },
+          currentRevision: edited.knowledge.revision,
+        },
+      });
+      expect(await knowledgeRows()).toEqual(before);
+      expect(await resourcePaths()).toEqual([oldPath]);
+      expect(harness.notifications).toEqual([]);
     });
 
     it("counts a resent canonical update as applied only while its mirror holds what publishing writes", async () => {

@@ -796,6 +796,7 @@ export async function seedBrainDemoData(
     ],
     confidence: 96,
     supersedesId: oldFreemium.id,
+    supersedesRevision: oldFreemium.revision,
     publishCanonical: options.publishCanonical ?? true,
   });
 
@@ -1162,6 +1163,7 @@ export async function seedBrainRetrievalEvalData(
     ],
     confidence: 95,
     supersedesId: oldConnectorMarketplace.id,
+    supersedesRevision: oldConnectorMarketplace.revision,
     publishCanonical: options.publishCanonical ?? false,
   });
 

@@ -1,4 +1,8 @@
-import { fail } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  fail,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import {
@@ -12,6 +16,7 @@ import {
   resourcePutWithDb,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
+import { SAVE_CONFLICT_ERROR_CODE } from "@agent-native/core/save-conflict";
 import {
   changedRowCount,
   checkSaveRevision,
@@ -1941,7 +1946,9 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
   return rows.length;
 }
 
-export class EvidenceQuoteMismatchError extends Error {
+export class EvidenceInputError extends Error {}
+
+export class EvidenceQuoteMismatchError extends EvidenceInputError {
   constructor(captureId: string) {
     super(`Evidence quote is not an exact substring of capture ${captureId}`);
     this.name = "EvidenceQuoteMismatchError";
@@ -1955,9 +1962,10 @@ export async function validateEvidenceWithContent(
   const content = new Map<string, string>();
   for (const item of evidence) {
     const access = await getAccessibleCapture(item.captureId);
-    if (!access) throw new Error(`No access to capture ${item.captureId}`);
+    if (!access)
+      throw new EvidenceInputError(`No access to capture ${item.captureId}`);
     const quote = item.quote.trim();
-    if (!quote) throw new Error("Evidence quote cannot be empty");
+    if (!quote) throw new EvidenceInputError("Evidence quote cannot be empty");
     if (!access.capture.content.includes(quote)) {
       throw new EvidenceQuoteMismatchError(item.captureId);
     }
@@ -2121,6 +2129,7 @@ export interface WriteKnowledgeInput {
   confidence?: number;
   publishTier?: BrainPublishTier;
   supersedesId?: string;
+  supersedesRevision?: string | undefined;
   rationale?: string;
   redactions?: string[];
   publishCanonical?: boolean;
@@ -2656,7 +2665,7 @@ const storedEvidenceInputSchema = z.array(
 );
 
 export interface WriteKnowledgeOptions {
-  allowUncheckedLegacyProposalUpdate?: boolean;
+  legacyProposalCreatedAt?: string;
 }
 
 function knowledgeConflict(row: KnowledgeRow) {
@@ -2665,6 +2674,98 @@ function knowledgeConflict(row: KnowledgeRow) {
     serializeKnowledge(row),
     knowledgeRevision(row),
   );
+}
+
+function supersededConflict(row: KnowledgeRow) {
+  countSaveOutcome("superseded_knowledge", "conflict");
+  return new ActionContractError(
+    `The superseded knowledge ${row.id} changed after you read it, so nothing was saved. Decide again from details.current and resend with supersedesRevision set to details.currentRevision.`,
+    {
+      errorCode: SAVE_CONFLICT_ERROR_CODE,
+      statusCode: 409,
+      details: {
+        current: serializeKnowledge(row),
+        currentRevision: knowledgeRevision(row),
+      },
+    },
+  );
+}
+
+function supersessionIsStored(
+  superseded: Pick<
+    KnowledgeRow,
+    "status" | "supersededById" | "publishedResourcePath"
+  >,
+  id: string,
+) {
+  return (
+    superseded.status === "archived" &&
+    superseded.supersededById === id &&
+    superseded.publishedResourcePath === null
+  );
+}
+
+function changedAfterLegacyProposal(row: KnowledgeRow, createdAt: string) {
+  const changedAt = Date.parse(row.updatedAt);
+  const proposedAt = Date.parse(createdAt);
+  if (Number.isNaN(changedAt) || Number.isNaN(proposedAt)) return true;
+  return changedAt > proposedAt;
+}
+
+function revisionReadByWriter(
+  input: WriteKnowledgeInput,
+  existing: KnowledgeRow,
+  options: WriteKnowledgeOptions,
+) {
+  const legacyCreatedAt = options.legacyProposalCreatedAt;
+  if (legacyCreatedAt === undefined || input.expectedRevision !== undefined)
+    return {
+      expectedRevision: input.expectedRevision,
+      requireRevision: legacyCreatedAt === undefined,
+    };
+  return {
+    expectedRevision: changedAfterLegacyProposal(existing, legacyCreatedAt)
+      ? null
+      : knowledgeRevision(existing),
+    requireRevision: false,
+  };
+}
+
+function supersededChangedSinceRead(
+  input: WriteKnowledgeInput,
+  superseded: KnowledgeRow,
+  options: WriteKnowledgeOptions,
+) {
+  if (input.supersedesRevision !== undefined)
+    return input.supersedesRevision !== knowledgeRevision(superseded);
+  if (options.legacyProposalCreatedAt !== undefined)
+    return changedAfterLegacyProposal(
+      superseded,
+      options.legacyProposalCreatedAt,
+    );
+  fail(
+    "supersedesRevision is required with supersedesId: send the superseded record's revision from your latest read.",
+    { errorCode: "supersedes_revision_required", statusCode: 400 },
+  );
+}
+
+async function readSupersededKnowledge(
+  input: WriteKnowledgeInput,
+  id: string,
+  options: WriteKnowledgeOptions,
+) {
+  if (!input.supersedesId) return null;
+  const access = await assertAccess(
+    "brain-knowledge",
+    input.supersedesId,
+    "editor",
+  );
+  const superseded: KnowledgeRow = access.resource;
+  if (supersessionIsStored(superseded, id))
+    return { row: superseded, stored: true };
+  if (supersededChangedSinceRead(input, superseded, options))
+    throw supersededConflict(superseded);
+  return { row: superseded, stored: false };
 }
 
 async function currentKnowledgeConflict(id: string) {
@@ -2697,9 +2798,14 @@ export async function touchKnowledgeRevision(
   return firstRow(touched) ?? null;
 }
 
+function isExpectedProbeFailure(error: unknown) {
+  if (error instanceof EvidenceInputError) return true;
+  return isActionContractError(error) && error.statusCode < 500;
+}
+
 export async function decideKnowledgeSave<T>(check: {
   record: string;
-  expectedRevision: string | undefined;
+  expectedRevision: string | null | undefined;
   requireRevision: boolean;
   row: KnowledgeRow;
   current: T;
@@ -2716,7 +2822,7 @@ export async function decideKnowledgeSave<T>(check: {
     try {
       stored = await check.alreadyStored();
     } catch (error) {
-      if (error instanceof ResourceStoreNotReadyError) throw error;
+      if (!isExpectedProbeFailure(error)) throw error;
       throw saveConflict(check.record, check.current, revision);
     }
   }
@@ -2937,11 +3043,7 @@ async function plannedKnowledgeIsStored(
       .where(eq(schema.brainKnowledge.id, supersedesId))
       .limit(1),
   );
-  return (
-    superseded?.status === "archived" &&
-    superseded.supersededById === row.id &&
-    superseded.publishedResourcePath === null
-  );
+  return superseded ? supersessionIsStored(superseded, row.id) : false;
 }
 
 export async function knowledgeWriteIsStored(
@@ -2986,8 +3088,7 @@ export async function writeKnowledgeRecordInTransaction(
     await assertDerivedAudienceAccess(existing);
     const decision = await decideKnowledgeSave({
       record: "knowledge",
-      expectedRevision: input.expectedRevision,
-      requireRevision: !options.allowUncheckedLegacyProposalUpdate,
+      ...revisionReadByWriter(input, existing, options),
       row: existing,
       current: serializeKnowledge(existing),
       evidenceLocked,
@@ -3004,6 +3105,7 @@ export async function writeKnowledgeRecordInTransaction(
         knowledge: serializeKnowledge(existing),
       };
   }
+  const superseded = await readSupersededKnowledge(input, id, options);
   const plan = await planKnowledgeWrite(input, id, existing, settings, "write");
   const now = existing ? nextKnowledgeUpdatedAt(existing.updatedAt) : nowIso();
   const publishedAt =
@@ -3071,24 +3173,28 @@ export async function writeKnowledgeRecordInTransaction(
       .limit(1);
     returned = updated;
   }
-  if (input.supersedesId) {
-    const superseded = await peekKnowledgeRow(input.supersedesId, db);
-    if (!superseded)
-      throw new Error(`Superseded knowledge ${input.supersedesId} vanished.`);
-    if (superseded.publishedResourcePath)
+  if (superseded && !superseded.stored) {
+    const old = superseded.row;
+    if (old.publishedResourcePath)
       await deleteCanonicalResourceInTransaction(
-        superseded.publishedResourcePath,
+        old.publishedResourcePath,
         effects,
       );
-    await db
+    const archived = await db
       .update(schema.brainKnowledge)
       .set({
         supersededById: id,
         status: "archived",
         publishedResourcePath: null,
-        updatedAt: nextKnowledgeUpdatedAt(superseded.updatedAt),
+        updatedAt: nextKnowledgeUpdatedAt(old.updatedAt),
       })
-      .where(eq(schema.brainKnowledge.id, input.supersedesId));
+      .where(knowledgeRowUnchanged(old))
+      .returning({ id: schema.brainKnowledge.id });
+    const changed = changedRowCount(archived);
+    if (changed !== 1)
+      throw new Error(
+        `Superseding knowledge ${old.id} changed ${changed} rows.`,
+      );
   }
   if (!existing) {
     effects.pending.push(() => {

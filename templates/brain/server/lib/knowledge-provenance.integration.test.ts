@@ -16,11 +16,25 @@ import {
 const harness = vi.hoisted(() => ({
   db: null as unknown,
   autoRedactEmails: false,
+  provenanceFailure: null as Error | null,
 }));
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   createGetDb: () => () => harness.db,
 }));
+vi.mock("./knowledge-provenance.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./knowledge-provenance.js")>();
+  return {
+    ...actual,
+    buildKnowledgeProvenance: async (
+      ...args: Parameters<typeof actual.buildKnowledgeProvenance>
+    ) => {
+      if (harness.provenanceFailure) throw harness.provenanceFailure;
+      return actual.buildKnowledgeProvenance(...args);
+    },
+  };
+});
 vi.mock("@agent-native/core/settings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/settings")>()),
   getSetting: async () => ({
@@ -33,10 +47,12 @@ import { isSaveConflict } from "@agent-native/core/save-conflict";
 import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
+import approveProposalAction from "../../actions/approve-proposal.js";
 import askBrainAction from "../../actions/ask-brain.js";
 import getEntityGraphAction from "../../actions/get-entity-graph.js";
 import getKnowledgeAction from "../../actions/get-knowledge.js";
 import listKnowledgeAction from "../../actions/list-knowledge.js";
+import reviewProposalAction from "../../actions/review-proposal.js";
 import searchEverythingAction from "../../actions/search-everything.js";
 import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import writeKnowledgeAction from "../../actions/write-knowledge.js";
@@ -103,6 +119,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 beforeEach(async () => {
   harness.autoRedactEmails = false;
+  harness.provenanceFailure = null;
   for (const table of Object.values(schema)) await database.delete(table);
   network.mockClear();
   vi.stubGlobal("fetch", network);
@@ -1291,4 +1308,336 @@ describe("knowledge updates send the revision they read", () => {
     expect(second).not.toBe(first);
     expect((await storedRow(second)).body).toBe("Morgan will ship Atlas.");
   });
+});
+
+async function caughtError(write: unknown) {
+  return Promise.resolve(write).then(
+    () => {
+      throw new Error("Expected the write to fail");
+    },
+    (caught: unknown) => caught,
+  );
+}
+
+describe("a stale update's replay check reports failures it did not expect", () => {
+  it("passes an unexpected error from the check through instead of a save conflict", async () => {
+    const id = await saveKnowledge();
+    const read = knowledgeRevision(await storedRow(id));
+    await saveKnowledge({
+      knowledgeId: id,
+      expectedRevision: read,
+      body: "Morgan will ship Atlas on Friday.",
+    });
+    const before = await storedRow(id);
+    harness.provenanceFailure = new Error("provenance store offline");
+    const error = await caughtError(
+      saveKnowledge({
+        knowledgeId: id,
+        expectedRevision: read,
+        body: "Morgan will ship Atlas next month.",
+      }),
+    );
+    expect(isSaveConflict(error)).toBe(false);
+    expect(error).toBe(harness.provenanceFailure);
+    expect(await storedRow(id)).toEqual(before);
+  });
+
+  it("still answers a stale update whose evidence no longer validates with the current record", async () => {
+    const id = await saveKnowledge();
+    const read = knowledgeRevision(await storedRow(id));
+    await saveKnowledge({
+      knowledgeId: id,
+      expectedRevision: read,
+      body: "Morgan will ship Atlas on Friday.",
+    });
+    const before = await storedRow(id);
+    const error = await caughtError(
+      saveKnowledge({
+        knowledgeId: id,
+        expectedRevision: read,
+        evidence: [{ captureId: "capture", quote: "Not in the capture." }],
+      }),
+    );
+    expect(isSaveConflict(error)).toBe(true);
+    expect(error).toMatchObject({
+      details: { currentRevision: knowledgeRevision(before) },
+    });
+    expect(await storedRow(id)).toEqual(before);
+  });
+});
+
+describe("superseding knowledge sends the superseded record's revision", () => {
+  async function olderAndNewer() {
+    const older = await saveKnowledge({ title: "Atlas launch v1" });
+    const newer = await saveKnowledge({ title: "Atlas launch v2" });
+    return { older, newer };
+  }
+
+  const supersede = (
+    newer: string,
+    older: string,
+    supersedesRevision: string | undefined,
+    expectedRevision?: string,
+  ) =>
+    saveKnowledge({
+      knowledgeId: newer,
+      expectedRevision,
+      title: "Atlas launch v2",
+      body: "Morgan will ship Atlas after review.",
+      supersedesId: older,
+      supersedesRevision,
+    });
+
+  it("archives the superseded record when its revision is current", async () => {
+    const { older, newer } = await olderAndNewer();
+    const read = await storedRow(older);
+    const before = await storedRow(newer);
+    await supersede(
+      newer,
+      older,
+      knowledgeRevision(read),
+      knowledgeRevision(before),
+    );
+    const archived = await storedRow(older);
+    expect(archived).toMatchObject({
+      status: "archived",
+      supersededById: newer,
+    });
+    expect(archived.updatedAt > read.updatedAt).toBe(true);
+    expect(await storedRow(newer)).toMatchObject({
+      supersedesId: older,
+      body: "Morgan will ship Atlas after review.",
+    });
+  });
+
+  it("refuses a stale superseded revision, writing nothing and returning the superseded record", async () => {
+    const { older, newer } = await olderAndNewer();
+    const stale = knowledgeRevision(await storedRow(older));
+    await saveKnowledge({
+      knowledgeId: older,
+      expectedRevision: stale,
+      title: "Atlas launch v1",
+      body: "Morgan will ship Atlas next quarter.",
+    });
+    const olderBefore = await storedRow(older);
+    const newerBefore = await storedRow(newer);
+    const error = await caughtError(
+      supersede(newer, older, stale, knowledgeRevision(newerBefore)),
+    );
+    expect(isSaveConflict(error)).toBe(true);
+    expect(error).toMatchObject({
+      statusCode: 409,
+      details: {
+        current: {
+          id: older,
+          body: "Morgan will ship Atlas next quarter.",
+          revision: knowledgeRevision(olderBefore),
+        },
+        currentRevision: knowledgeRevision(olderBefore),
+      },
+    });
+    expect(String(error)).toContain(`superseded knowledge ${older}`);
+    expect(await storedRow(older)).toEqual(olderBefore);
+    expect(await storedRow(newer)).toEqual(newerBefore);
+  });
+
+  it("refuses a new record that supersedes on a stale read without creating it", async () => {
+    const { older } = await olderAndNewer();
+    const stale = knowledgeRevision(await storedRow(older));
+    await saveKnowledge({
+      knowledgeId: older,
+      expectedRevision: stale,
+      body: "Morgan will ship Atlas next quarter.",
+    });
+    const olderBefore = await storedRow(older);
+    const count = (await database.select().from(schema.brainKnowledge)).length;
+    const error = await caughtError(
+      saveKnowledge({
+        title: "Atlas launch v3",
+        supersedesId: older,
+        supersedesRevision: stale,
+      }),
+    );
+    expect(error).toMatchObject({
+      details: { currentRevision: knowledgeRevision(olderBefore) },
+    });
+    expect(await storedRow(older)).toEqual(olderBefore);
+    expect(await database.select().from(schema.brainKnowledge)).toHaveLength(
+      count,
+    );
+  });
+
+  it("rejects supersedesId without supersedesRevision as invalid input", async () => {
+    const { older } = await olderAndNewer();
+    const olderBefore = await storedRow(older);
+    const count = (await database.select().from(schema.brainKnowledge)).length;
+    await expect(
+      asQa(() =>
+        writeKnowledgeAction.run({
+          title: "Atlas launch v3",
+          body: "Morgan will ship Atlas.",
+          supersedesId: older,
+        }),
+      ),
+    ).rejects.toThrow(/supersedesRevision/);
+    await expect(
+      saveKnowledge({ title: "Atlas launch v3", supersedesId: older }),
+    ).rejects.toMatchObject({
+      errorCode: "supersedes_revision_required",
+      statusCode: 400,
+    });
+    expect(await storedRow(older)).toEqual(olderBefore);
+    expect(await database.select().from(schema.brainKnowledge)).toHaveLength(
+      count,
+    );
+    const parameters = writeKnowledgeAction.tool.parameters as {
+      properties?: Record<string, { description?: string } | undefined>;
+    };
+    expect(parameters.properties?.supersedesRevision?.description).toContain(
+      EXPECTED_REVISION_DESCRIPTION,
+    );
+  });
+
+  it("counts a resent supersession that already applied as done", async () => {
+    const { older, newer } = await olderAndNewer();
+    const olderRead = knowledgeRevision(await storedRow(older));
+    const newerRead = knowledgeRevision(await storedRow(newer));
+    await supersede(newer, older, olderRead, newerRead);
+    const olderApplied = await storedRow(older);
+    const newerApplied = await storedRow(newer);
+    await supersede(newer, older, olderRead, newerRead);
+    expect(await storedRow(older)).toEqual(olderApplied);
+    expect(await storedRow(newer)).toEqual(newerApplied);
+
+    await saveKnowledge({
+      knowledgeId: newer,
+      expectedRevision: knowledgeRevision(newerApplied),
+      title: "Atlas launch v2",
+      body: "Morgan will ship Atlas after the final review.",
+      supersedesId: older,
+      supersedesRevision: olderRead,
+    });
+    expect(await storedRow(older)).toEqual(olderApplied);
+    expect((await storedRow(newer)).body).toBe(
+      "Morgan will ship Atlas after the final review.",
+    );
+  });
+});
+
+describe("approving a legacy proposal checks the record has not changed since", () => {
+  async function proposeUpdate(
+    knowledgeId: string,
+    createdAt: string,
+    payload: Record<string, unknown> = {},
+  ) {
+    const id = `proposal-${knowledgeId}-${createdAt}`;
+    await database.insert(schema.brainProposals).values({
+      id,
+      knowledgeId,
+      title: "Atlas launch",
+      body: "Morgan will ship Atlas in spring.",
+      proposedAction: "update",
+      payloadJson: JSON.stringify({
+        knowledgeId,
+        title: "Atlas launch",
+        body: "Morgan will ship Atlas in spring.",
+        publishTier: "company",
+        ...payload,
+      }),
+      createdBy: qaEmail,
+      createdAt,
+      updatedAt: createdAt,
+      ownerEmail: qaEmail,
+      visibility: "private",
+    });
+    return id;
+  }
+
+  async function proposalStatus(id: string) {
+    const rows = await database
+      .select()
+      .from(schema.brainProposals)
+      .where(eq(schema.brainProposals.id, id));
+    return rows.find((row) => row.id === id)?.status;
+  }
+
+  const approvals = [
+    [
+      "approve-proposal",
+      (proposalId: string) => approveProposalAction.run({ proposalId }),
+    ],
+    [
+      "review-proposal",
+      (proposalId: string) =>
+        reviewProposalAction.run({ id: proposalId, decision: "approve" }),
+    ],
+  ] as const;
+
+  it.each(approvals)(
+    "%s applies a proposal for a record unchanged since it was proposed",
+    async (_action, approve) => {
+      const id = await saveKnowledge();
+      const proposal = await proposeUpdate(id, (await storedRow(id)).updatedAt);
+      await asQa(() => approve(proposal));
+      expect((await storedRow(id)).body).toBe(
+        "Morgan will ship Atlas in spring.",
+      );
+      expect(await proposalStatus(proposal)).toBe("approved");
+    },
+  );
+
+  it.each(approvals)(
+    "%s refuses a proposal for a record edited after it was proposed, changing nothing",
+    async (_action, approve) => {
+      const id = await saveKnowledge();
+      const proposed = await storedRow(id);
+      const proposal = await proposeUpdate(id, proposed.updatedAt);
+      await saveKnowledge({
+        knowledgeId: id,
+        expectedRevision: knowledgeRevision(proposed),
+        body: "Morgan will ship Atlas on Friday.",
+      });
+      const before = await storedRow(id);
+      const error = await caughtError(asQa(() => approve(proposal)));
+      expect(isSaveConflict(error)).toBe(true);
+      expect(error).toMatchObject({
+        details: {
+          current: { id, body: "Morgan will ship Atlas on Friday." },
+          currentRevision: knowledgeRevision(before),
+        },
+      });
+      expect(await storedRow(id)).toEqual(before);
+      expect(await proposalStatus(proposal)).toBe("pending");
+    },
+  );
+
+  it.each(approvals)(
+    "%s refuses a proposal whose superseded record was edited after it was proposed",
+    async (_action, approve) => {
+      const target = await saveKnowledge({ title: "Atlas launch v2" });
+      const older = await saveKnowledge({ title: "Atlas launch v1" });
+      const proposedOlder = await storedRow(older);
+      const proposal = await proposeUpdate(target, proposedOlder.updatedAt, {
+        supersedesId: older,
+      });
+      await saveKnowledge({
+        knowledgeId: older,
+        expectedRevision: knowledgeRevision(proposedOlder),
+        title: "Atlas launch v1",
+        body: "Morgan will ship Atlas next quarter.",
+      });
+      const olderBefore = await storedRow(older);
+      const targetBefore = await storedRow(target);
+      const error = await caughtError(asQa(() => approve(proposal)));
+      expect(error).toMatchObject({
+        details: {
+          current: { id: older },
+          currentRevision: knowledgeRevision(olderBefore),
+        },
+      });
+      expect(await storedRow(older)).toEqual(olderBefore);
+      expect(await storedRow(target)).toEqual(targetBefore);
+      expect(await proposalStatus(proposal)).toBe("pending");
+    },
+  );
 });

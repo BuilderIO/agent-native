@@ -888,11 +888,13 @@ async function verifyKnowledgeLocked(input: {
         revision: knowledgeRevision(row),
       };
     }
-    throw saveConflict(
-      "intelligence_record",
-      await itemFromRows(row, detail, existingVerification),
-      knowledgeRevision(row),
-    );
+    const current = await itemFromRows(row, detail, existingVerification);
+    if (!current)
+      fail(
+        "This intelligence record no longer matches its structured details, so it cannot be verified. Read it again and save it with write-intelligence before verifying.",
+        { errorCode: "intelligence_out_of_date", statusCode: 409 },
+      );
+    throw saveConflict("intelligence_record", current, knowledgeRevision(row));
   }
   const touched = await touchKnowledgeRevision(row);
   if (!touched) throw new Error(`Knowledge ${row.id} changed while locked.`);

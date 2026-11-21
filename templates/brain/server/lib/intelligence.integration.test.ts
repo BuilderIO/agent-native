@@ -20,6 +20,7 @@ import * as schema from "../db/schema.js";
 const harness = vi.hoisted(() => ({
   db: null as unknown,
   autoRedactEmails: false,
+  editedOnAssert: null as { id: string; body: string } | null,
 }));
 const email = "qa-fleet@builder.io";
 
@@ -81,6 +82,12 @@ vi.mock("@agent-native/core/sharing", async () => {
       const access = await resolve(type, id);
       if (!access || access.resource.ownerEmail !== "qa-fleet@builder.io")
         throw new Error("Access denied");
+      const edited = harness.editedOnAssert;
+      if (edited?.id === id)
+        return {
+          ...access,
+          resource: { ...access.resource, body: edited.body },
+        };
       return access;
     },
   };
@@ -178,6 +185,7 @@ afterAll(async () => client.close());
 
 beforeEach(async () => {
   harness.autoRedactEmails = false;
+  harness.editedOnAssert = null;
   for (const table of Object.values(schema)) await database.delete(table);
   const now = "2026-11-18T10:00:00.000Z";
   await database.insert(schema.brainSources).values({
@@ -846,6 +854,42 @@ describe("evidence-backed intelligence", () => {
         expectedRevision: item.revision,
       }),
     ).rejects.toMatchObject({ errorCode: "save_conflict" });
+  });
+
+  it("refuses a stale verification of a record that no longer matches its details as out of date, never with an empty current record", async () => {
+    const { item } = await writeIntelligence(input());
+    const rows = () =>
+      database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id));
+    const before = await rows();
+    harness.editedOnAssert = {
+      id: item.id,
+      body: "Changed through generic knowledge editor",
+    };
+    const refused = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: "stale",
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    harness.editedOnAssert = null;
+    expect(refused).toMatchObject({
+      errorCode: "intelligence_out_of_date",
+      statusCode: 409,
+    });
+    expect(String(refused)).toContain("write-intelligence");
+    expect(await rows()).toEqual(before);
+    expect(
+      await database
+        .select()
+        .from(schema.brainKnowledgeVerifications)
+        .where(eq(schema.brainKnowledgeVerifications.knowledgeId, item.id)),
+    ).toEqual([]);
   });
 
   it("keeps deprecated facts out of shared answers and resets generic-edited structured facts until re-extracted", async () => {
