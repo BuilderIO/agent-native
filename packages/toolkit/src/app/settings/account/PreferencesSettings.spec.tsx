@@ -204,13 +204,13 @@ describe("PreferencesSettings", () => {
     const options = [
       ...document.body.querySelectorAll<HTMLElement>('[role="option"]'),
     ];
-    expect(options.map((option) => option.textContent?.trim())).toEqual([
+    expect(options.map((option) => option.textContent.trim())).toEqual([
       "System",
       "Light",
       "Dark",
     ]);
 
-    act(() => options[2]!.click());
+    act(() => options[2]?.click());
 
     expect(window.localStorage.getItem("crm:theme")).toBe("dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);

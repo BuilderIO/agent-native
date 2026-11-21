@@ -1163,6 +1163,7 @@ describe("AppProviders session gate", () => {
       configurable: true,
       value: parent,
     });
+    window.localStorage.setItem("theme", "system");
 
     renderProviders({ isPublicPath: true });
 
@@ -1196,7 +1197,7 @@ describe("AppProviders session gate", () => {
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.classList.contains("light")).toBe(false);
     expect(document.documentElement.style.colorScheme).toBe("dark");
-    expect(window.localStorage.getItem("theme")).toBe("dark");
+    expect(window.localStorage.getItem("theme")).toBe("system");
 
     await act(async () => {
       window.dispatchEvent(
@@ -1212,7 +1213,7 @@ describe("AppProviders session gate", () => {
 
     expect(document.documentElement.classList.contains("dark")).toBe(false);
     expect(document.documentElement.classList.contains("light")).toBe(true);
-    expect(window.localStorage.getItem("theme")).toBe("light");
+    expect(window.localStorage.getItem("theme")).toBe("system");
   });
 
   it("repairs structured route titles before they reach the browser tab", async () => {
