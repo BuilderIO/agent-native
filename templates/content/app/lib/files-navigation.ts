@@ -68,11 +68,16 @@ export function filesNavigationPageParams(args: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
+  pagesOnly?: boolean;
 }) {
   return {
     databaseId: args.databaseId,
     limit: FILES_NAVIGATION_PAGE_SIZE,
-    navigation: { parentId: args.parentId, cursor: args.cursor },
+    navigation: {
+      parentId: args.parentId,
+      cursor: args.cursor,
+      ...(args.pagesOnly ? { pagesOnly: true } : {}),
+    },
   };
 }
 

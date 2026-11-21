@@ -149,6 +149,7 @@ function navigate(
     sort?: ContentDatabaseNavigationSort;
     cursor?: string;
     expand?: string[];
+    pagesOnly?: boolean;
   },
   limit?: number,
 ) {
@@ -162,13 +163,14 @@ async function readWholeBranch(
   parentId: string | null,
   limit: number,
   sort?: ContentDatabaseNavigationSort,
+  pagesOnly?: boolean,
 ) {
   const items: ContentDatabaseNavigationItem[] = [];
   let cursor: string | undefined;
   for (let pages = 0; pages < 50; pages += 1) {
     const page = await navigate(
       databaseId,
-      { parentId, sort, ...(cursor ? { cursor } : {}) },
+      { parentId, sort, pagesOnly, ...(cursor ? { cursor } : {}) },
       limit,
     );
     expect(page.items.length).toBeLessThanOrEqual(limit);
@@ -563,6 +565,46 @@ describe("Files navigation paging through linked folders", () => {
         .set({ trashedAt: TIMESTAMP })
         .where(eq(schema.documents.id, "aardvark-file"));
     }
+  });
+
+  it("asks for a fresh read when a folder it listed changes its dates", async () => {
+    const first = await navigate(FILES, { parentId: null }, 3);
+    expect(shown(first.items)).toEqual(["[alpha]", "[bravo]", "[charlie]"]);
+    const cursor = first.pagination.nextCursor;
+    expect(cursor).toEqual(expect.any(String));
+    await getDb()
+      .update(schema.documents)
+      .set({ updatedAt: "2026-03-01T00:00:00.000Z" })
+      .where(eq(schema.documents.id, "bravo-file"));
+    try {
+      await expect(
+        navigate(FILES, { parentId: null, cursor: cursor ?? undefined }, 3),
+      ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+    } finally {
+      await getDb()
+        .update(schema.documents)
+        .set({ updatedAt: "2026-01-02T00:00:00.000Z" })
+        .where(eq(schema.documents.id, "bravo-file"));
+    }
+  });
+
+  it("lists only pages for a picker that asks for them", async () => {
+    const everything = await navigate(FILES, { parentId: null }, 20);
+    const pages = await navigate(FILES, { parentId: null, pagesOnly: true }, 5);
+    expect(pages.items).toEqual(everything.items.slice(5));
+    expect(pages.pagination.hasMore).toBe(false);
+    expect(await readWholeBranch(FILES, null, 2, "custom", true)).toEqual(
+      pages.items,
+    );
+
+    const first = await navigate(FILES, { parentId: null, pagesOnly: true }, 2);
+    await expect(
+      navigate(
+        FILES,
+        { parentId: null, cursor: first.pagination.nextCursor ?? undefined },
+        2,
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
   });
 });
 

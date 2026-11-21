@@ -961,6 +961,7 @@ export async function getContentDatabaseNavigationPage(args: {
   limit: number;
   cursor?: string;
   expand?: readonly string[];
+  pagesOnly?: boolean;
 }): Promise<ContentDatabaseNavigationPageResponse> {
   if (args.database.systemRole !== "files" || !args.database.spaceId) {
     fail("Navigation mode is only available for a Files database.", {
@@ -1004,6 +1005,7 @@ export async function getContentDatabaseNavigationPage(args: {
       personalView: personalView ?? null,
       effectiveSort,
       descending,
+      ...(args.pagesOnly ? { pagesOnly: true } : {}),
       // A relative date filter matches other rows on another day, and one
       // with a time can in another time zone.
       ...(effectiveFilters.some(contentDatabaseFilterIsRelative)
@@ -1504,7 +1506,9 @@ export async function getContentDatabaseNavigationPage(args: {
   const folderKey = sql`(${folderRoot}, ${folderName})`;
   const folderKeyOf = ([rootPath, name]: [string, string]) =>
     sql`(${rootPath}::text, ${name}::text)`;
-  const folderHash = sql`hashtextextended(concat_ws('|', ${folderRoot}, ${folderName}), 0)`;
+  const folderCreatedAt = sql<string>`min(navigation_folder_entry.created_at)`;
+  const folderUpdatedAt = sql<string>`max(navigation_folder_entry.updated_at)`;
+  const folderHash = sql`hashtextextended(concat_ws('|', ${folderRoot}, ${folderName}, ${folderCreatedAt}::text, ${folderUpdatedAt}::text), 0)`;
   const readFolders = (
     level: FolderLevel,
     after: [string, string] | null,
@@ -1514,8 +1518,8 @@ export async function getContentDatabaseNavigationPage(args: {
       .select({
         rootPath: folderRoot,
         name: folderName,
-        createdAt: sql<string>`min(navigation_folder_entry.created_at)`,
-        updatedAt: sql<string>`max(navigation_folder_entry.updated_at)`,
+        createdAt: folderCreatedAt,
+        updatedAt: folderUpdatedAt,
         rowHash: sql<string>`${folderHash}::text`,
       })
       .from(folderEntries(level))
@@ -1563,8 +1567,9 @@ export async function getContentDatabaseNavigationPage(args: {
           : siblingRankOrder;
     const siblings = siblingsOf(parentId);
     const level = folderLevel(parentId);
-    if (after?.folder && !level) invalidCursor();
-    const foldersAfter = level && (!after || after.folder) ? level : null;
+    const listed = args.pagesOnly ? null : level;
+    if (after?.folder && !listed) invalidCursor();
+    const foldersAfter = listed && (!after || after.folder) ? listed : null;
     const [folders, rows, prefixRevision] = await Promise.all([
       foldersAfter
         ? readFolders(foldersAfter, after?.folder ?? null, args.limit + 1)
@@ -1572,12 +1577,12 @@ export async function getContentDatabaseNavigationPage(args: {
       order.page(siblings, foldersAfter ? null : after, args.limit + 1),
       !after
         ? []
-        : !level
+        : !listed
           ? order.through(siblings, after)
           : after.folder
-            ? Promise.all([folderRevision(level, after.folder)])
+            ? Promise.all([folderRevision(listed, after.folder)])
             : Promise.all([
-                folderRevision(level, null),
+                folderRevision(listed, null),
                 order.through(siblings, after),
               ]).then(([folderPart, pageParts]) => [folderPart, ...pageParts]),
     ]);
