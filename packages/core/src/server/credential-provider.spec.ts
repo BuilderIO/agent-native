@@ -216,6 +216,11 @@ beforeEach(() => {
   delete process.env.SLACK_BOT_TOKEN;
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  delete process.env.WHATSAPP_ACCESS_TOKEN;
+  delete process.env.WHATSAPP_PHONE_NUMBER_ID;
+  delete process.env.MICROSOFT_TEAMS_APP_ID;
+  delete process.env.MICROSOFT_TEAMS_APP_PASSWORD;
+  delete process.env.MICROSOFT_TEAMS_APP_TENANT_ID;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
   mockReadAppSecretMeta.mockResolvedValue(null);
@@ -2314,6 +2319,25 @@ describe("resolveSecret (generic)", () => {
       ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
     });
   });
+
+  it.each([
+    "WHATSAPP_ACCESS_TOKEN",
+    "WHATSAPP_PHONE_NUMBER_ID",
+    "MICROSOFT_TEAMS_APP_ID",
+    "MICROSOFT_TEAMS_APP_PASSWORD",
+    "MICROSOFT_TEAMS_APP_TENANT_ID",
+  ])(
+    "uses the deployed %s in a signed-in production shared-database request",
+    async (key) => {
+      process.env.NODE_ENV = "production";
+      process.env[key] = `fake-deploy-${key}`;
+      mockIsLocalDatabase.mockReturnValue(false);
+      mockGetRequestUserEmail.mockReturnValue("a@b.com");
+      mockReadAppSecret.mockResolvedValue(null);
+
+      expect(await resolveSecret(key)).toBe(`fake-deploy-${key}`);
+    },
+  );
 
   it("uses the deployed Telegram bot credentials in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
