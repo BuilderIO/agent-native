@@ -156,6 +156,9 @@ export function telegramAdapter(): PlatformAdapter {
         externalThreadId,
         text: cleanText,
         files,
+        ...(message.media_group_id
+          ? { messageGroupId: String(message.media_group_id) }
+          : {}),
         senderName:
           from?.first_name + (from?.last_name ? ` ${from.last_name}` : ""),
         senderId: String(from?.id),
@@ -168,10 +171,39 @@ export function telegramAdapter(): PlatformAdapter {
           messageId: message.message_id,
           messageThreadId,
           rawText: text,
+          ...(message.media_group_id
+            ? { mediaGroupId: String(message.media_group_id) }
+            : {}),
           fromId: from?.id,
           fromUsername: from?.username,
         },
         timestamp: message.date * 1000,
+      };
+    },
+
+    // Telegram sends each photo or file of an album as its own update with a
+    // shared media_group_id. Usually only one of them has a caption.
+    mergeMessageGroup(messages: IncomingMessage[]): IncomingMessage {
+      const ordered = [...messages].sort(
+        (a, b) =>
+          Number(a.platformContext.messageId) -
+          Number(b.platformContext.messageId),
+      );
+      const first = ordered[0];
+      const captioned = ordered.filter((message) => message.text.trim());
+      return {
+        ...first,
+        text: captioned.map((message) => message.text).join("\n\n"),
+        files: ordered.flatMap((message) => message.files ?? []),
+        platformContext: {
+          ...first.platformContext,
+          rawText: captioned
+            .map((message) => String(message.platformContext.rawText ?? ""))
+            .join("\n\n"),
+          mediaGroupMessageIds: ordered.map(
+            (message) => message.platformContext.messageId,
+          ),
+        },
       };
     },
 

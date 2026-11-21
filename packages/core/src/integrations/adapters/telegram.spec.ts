@@ -215,6 +215,27 @@ describe("telegramAdapter parseIncomingMessage", () => {
     ]);
   });
 
+  it("marks each photo of an album with the album's media_group_id", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          media_group_id: "13579",
+          photo: [{ file_id: "example-photo", width: 1280, height: 853 }],
+        }),
+      ),
+    );
+    expect(msg?.messageGroupId).toBe("13579");
+    expect(msg?.platformContext.mediaGroupId).toBe("13579");
+  });
+
+  it("leaves messageGroupId unset outside an album", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(update()),
+    );
+    expect(msg?.messageGroupId).toBeUndefined();
+  });
+
   it("leaves a text message without files", async () => {
     const msg = await telegramAdapter().parseIncomingMessage(
       eventWithBody(update({ text: "hello" })),
@@ -611,5 +632,68 @@ describe("telegramAdapter sendMessageToTarget", () => {
         { destination: "999" },
       ),
     ).rejects.toThrow("chat not found");
+  });
+});
+
+describe("telegramAdapter mergeMessageGroup", () => {
+  async function albumPhoto(
+    messageId: number,
+    fileId: string,
+    caption?: string,
+  ) {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody({
+        update_id: messageId,
+        message: {
+          message_id: messageId,
+          date: 1_700_000_000,
+          chat: { id: 4242, type: "private" },
+          from: { id: 99, first_name: "QA" },
+          media_group_id: "13579",
+          ...(caption ? { caption } : {}),
+          photo: [{ file_id: fileId, width: 1280, height: 853 }],
+        },
+      }),
+    );
+    if (!msg) throw new Error("album photo was not parsed");
+    return msg;
+  }
+
+  it("makes one message with every photo in order and the caption", async () => {
+    const adapter = telegramAdapter();
+    const merged = adapter.mergeMessageGroup!([
+      await albumPhoto(12, "photo-c"),
+      await albumPhoto(10, "photo-a", "receipts for March"),
+      await albumPhoto(11, "photo-b"),
+    ]);
+    expect(merged.text).toBe("receipts for March");
+    expect(merged.files?.map((file) => file.id)).toEqual([
+      "photo-a",
+      "photo-b",
+      "photo-c",
+    ]);
+    expect(merged.replyRef).toBe("10");
+    expect(merged.platformContext.messageId).toBe(10);
+    expect(merged.platformContext.mediaGroupMessageIds).toEqual([10, 11, 12]);
+  });
+
+  it("keeps an album without a caption as files with empty text", async () => {
+    const merged = telegramAdapter().mergeMessageGroup!([
+      await albumPhoto(21, "photo-b"),
+      await albumPhoto(20, "photo-a"),
+    ]);
+    expect(merged.text).toBe("");
+    expect(merged.files?.map((file) => file.id)).toEqual([
+      "photo-a",
+      "photo-b",
+    ]);
+  });
+
+  it("keeps every caption when more than one photo has one", async () => {
+    const merged = telegramAdapter().mergeMessageGroup!([
+      await albumPhoto(31, "photo-b", "back"),
+      await albumPhoto(30, "photo-a", "front"),
+    ]);
+    expect(merged.text).toBe("front\n\nback");
   });
 });

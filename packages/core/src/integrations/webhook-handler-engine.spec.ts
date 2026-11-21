@@ -41,6 +41,13 @@ const flushRunEventsMock = vi.hoisted(() => vi.fn(async () => {}));
 const captureRunControlMock = vi.hoisted(() => vi.fn());
 const captureDirectRunnerControlMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
+const listPendingTasksForThreadMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<PendingTask[]> => []),
+);
+const absorbPendingTaskMock = vi.hoisted(() => vi.fn(async () => true));
+const updateProcessingTaskPayloadMock = vi.hoisted(() =>
+  vi.fn(async () => undefined),
+);
 const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
@@ -70,6 +77,9 @@ vi.mock("./pending-tasks-store.js", async () => {
   return {
     ...actual,
     stageTaskDeliveryPayload: stageTaskDeliveryPayloadMock,
+    listPendingTasksForThread: listPendingTasksForThreadMock,
+    absorbPendingTask: absorbPendingTaskMock,
+    updateProcessingTaskPayload: updateProcessingTaskPayloadMock,
   };
 });
 
@@ -3841,6 +3851,150 @@ describe("integration webhook handler engine resolution", () => {
       expect(documentContent[0].type).toBe("text");
       expect(documentContent[0].text).toContain(
         "[file] example.pdf (application/pdf)",
+      );
+    },
+  );
+  it(
+    "answers a Telegram album with one agent turn that has every photo and the caption",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const { telegramAdapter } = await import("./adapters/telegram.js");
+      const albumPhoto = async (messageId: number, caption?: string) =>
+        telegramAdapter().parseIncomingMessage({
+          context: {
+            __rawBody: {
+              update_id: messageId,
+              message: {
+                message_id: messageId,
+                date: 1_700_000_000,
+                chat: { id: 4242, type: "private" },
+                from: { id: 99, first_name: "QA" },
+                media_group_id: "13579",
+                ...(caption ? { caption } : {}),
+                photo: [
+                  { file_id: `photo-${messageId}`, width: 1280, height: 853 },
+                ],
+              },
+            },
+          },
+        } as any);
+      const first = await albumPhoto(10);
+      const queued = [
+        pendingTask({
+          id: "album-2",
+          status: "pending",
+          payload: JSON.stringify({
+            incoming: await albumPhoto(11, "receipts for March"),
+          }),
+        }),
+        pendingTask({
+          id: "album-3",
+          status: "pending",
+          payload: JSON.stringify({ incoming: await albumPhoto(12) }),
+        }),
+      ];
+      listPendingTasksForThreadMock.mockImplementation(async () => queued);
+      const adapter = {
+        ...createAdapter(),
+        mergeMessageGroup: telegramAdapter().mergeMessageGroup,
+      };
+
+      try {
+        await processIntegrationTask(
+          pendingTask({
+            id: "album-1",
+            payload: JSON.stringify({ incoming: first }),
+          }),
+          {
+            adapter,
+            systemPrompt: "system",
+            actions: {},
+            model: "claude-sonnet-4-6",
+            apiKey: "",
+            ownerEmail: "dispatch+qa@integration.local",
+          },
+        );
+      } finally {
+        listPendingTasksForThreadMock.mockImplementation(async () => []);
+      }
+
+      expect(absorbPendingTaskMock.mock.calls.map((call) => call[0])).toEqual([
+        "album-2",
+        "album-3",
+      ]);
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+      const text =
+        runAgentLoopMock.mock.calls[0]?.[0]?.messages?.at(-1)?.content?.[0]
+          ?.text;
+      expect(text).toContain("receipts for March");
+      expect(text).toContain("[file] photo-10 (image/jpeg)");
+      expect(text).toContain("[file] photo-11 (image/jpeg)");
+      expect(text).toContain("[file] photo-12 (image/jpeg)");
+
+      // The task keeps the whole album, so a retry still has every photo.
+      const savedPayload = JSON.parse(
+        String(updateProcessingTaskPayloadMock.mock.calls[0]?.[1]),
+      );
+      expect(updateProcessingTaskPayloadMock.mock.calls[0]?.[0]).toBe(
+        "album-1",
+      );
+      expect(savedPayload.incoming.files).toHaveLength(3);
+
+      // History keeps the caption and the file lines for later turns.
+      const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+      const userTurn = persisted.messages.find(
+        (message: any) => message.role === "user",
+      );
+      expect(userTurn.content[0].text).toBe(
+        [
+          "receipts for March",
+          "[file] photo-10 (image/jpeg)",
+          "[file] photo-11 (image/jpeg)",
+          "[file] photo-12 (image/jpeg)",
+        ].join("\n"),
+      );
+    },
+  );
+  it(
+    "saves a photo sent without a caption to history as its file line, not an empty message",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const { telegramAdapter } = await import("./adapters/telegram.js");
+      const incoming = await telegramAdapter().parseIncomingMessage({
+        context: {
+          __rawBody: {
+            update_id: 1,
+            message: {
+              message_id: 7,
+              date: 1_700_000_000,
+              chat: { id: 4242, type: "private" },
+              from: { id: 99, first_name: "QA" },
+              photo: [{ file_id: "example-photo", width: 1280, height: 853 }],
+            },
+          },
+        },
+      } as any);
+
+      await processIntegrationTask(
+        pendingTask({ payload: JSON.stringify({ incoming }) }),
+        {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          model: "claude-sonnet-4-6",
+          apiKey: "",
+          ownerEmail: "dispatch+qa@integration.local",
+        },
+      );
+
+      const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+      const userTurn = persisted.messages.find(
+        (message: any) => message.role === "user",
+      );
+      expect(userTurn.content[0].text).toBe(
+        "[file] example-photo (image/jpeg)",
       );
     },
   );
