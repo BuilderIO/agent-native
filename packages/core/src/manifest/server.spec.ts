@@ -54,5 +54,5 @@ it("uses the workspace app's landing route as the fallback screen", () => {
   });
   const manifest = getAppManifest();
   expect(manifest.id).toBe("items");
-  expect(manifest.screens.definitions.home?.show.route).toBe("/inbox");
+  expect(manifest.screens.definitions.home.show.route).toBe("/inbox");
 });
