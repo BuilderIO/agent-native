@@ -16,8 +16,20 @@ export function registerManifestActions(
   manifestActions.set(app, names);
 }
 
+const manifestDeniedActions = new WeakMap<object, Set<string>>();
+
+export function registerManifestActionDenials(
+  app: object,
+  names: readonly string[],
+): void {
+  const denied = manifestDeniedActions.get(app) ?? new Set();
+  for (const name of names) denied.add(name.trim());
+  manifestDeniedActions.set(app, denied);
+}
+
 export function getManifestActions(app: object): readonly string[] {
-  return manifestActions.get(app) ?? [];
+  const denied = manifestDeniedActions.get(app);
+  return (manifestActions.get(app) ?? []).filter((name) => !denied?.has(name));
 }
 
 export function getAppManifest(

@@ -9,7 +9,10 @@ import {
 } from "../file-upload/index.js";
 import type { FileUploadProvider } from "../file-upload/types.js";
 import { deriveAppManifest } from "../manifest/index.js";
-import { registerManifestActions } from "../manifest/server.js";
+import {
+  registerManifestActionDenials,
+  registerManifestActions,
+} from "../manifest/server.js";
 import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
@@ -56,7 +59,8 @@ describe("GET /_agent-native/manifest.json", () => {
     const nitroApp = {};
     const app = createApp();
     mountAppManifestRoute(nitroApp, app);
-    registerManifestActions(nitroApp, ["list-items"]);
+    registerManifestActions(nitroApp, ["list-items", "delete-items"]);
+    registerManifestActionDenials(nitroApp, [" delete-items "]);
     const fetchManifest = () =>
       app.fetch(
         new Request("https://example.test/_agent-native/manifest.json"),

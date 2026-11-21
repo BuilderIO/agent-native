@@ -3544,17 +3544,6 @@ export async function createMCPServerForRequest(
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta, effectiveIdentity)),
   };
-  const appManifest = () =>
-    getAppManifest(
-      Object.entries(baseActions)
-        .filter(
-          ([, entry]) =>
-            isActionExposedToExternalAgents(entry) &&
-            !isActionHiddenFromEveryAgentSurface(entry),
-        )
-        .map(([name]) => name),
-      { id: config.appId, name: config.name },
-    );
   if (!directoryCatalog) {
     mergedActions.get_app_manifest = {
       tool: {
@@ -3569,7 +3558,8 @@ export async function createMCPServerForRequest(
       http: false,
       readOnly: true,
       mcpTool: true,
-      run: async () => appManifest(),
+      run: async () =>
+        appManifest(await grantedServedActions("get_app_manifest")),
     };
   }
   const mergedResources = actionNamed(mergedActions, "resources");
@@ -4231,14 +4221,28 @@ export async function createMCPServerForRequest(
         );
   }
 
+  function appManifest(served: Record<string, ActionEntry>) {
+    return getAppManifest(
+      Object.keys(served).filter(
+        (name) =>
+          name !== "get_app_manifest" &&
+          Object.hasOwn(baseActions, name) &&
+          isAdvertisable(name),
+      ),
+      { id: config.appId, name: config.name },
+    );
+  }
+
   async function grantedResourceSurface(actionName: string) {
     const served = await grantedServedActions(actionName);
     return {
-      hasManifest:
+      manifestActions:
         !scriptCatalog &&
         !directoryCatalog &&
         Object.hasOwn(served, "get_app_manifest") &&
-        isAdvertisable("get_app_manifest"),
+        isAdvertisable("get_app_manifest")
+          ? served
+          : undefined,
       actions: Object.fromEntries(
         Object.entries(served).filter(
           ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
@@ -5002,7 +5006,7 @@ export async function createMCPServerForRequest(
       "resources/list",
       async (request: any, ctx: any) => {
         const startedAt = Date.now();
-        const { actions: grantedActions, hasManifest } =
+        const { actions: grantedActions, manifestActions } =
           await grantedResourceSurface("mcp:resources/list");
         const result = await withCallerContext(async () => {
           const mcpAppResources = supportsMcpApps
@@ -5027,7 +5031,7 @@ export async function createMCPServerForRequest(
                   mimeType: resource.mimeType,
                   ...(resource._meta ? { _meta: resource._meta } : {}),
                 })),
-              ...(hasManifest ? [APP_MANIFEST_RESOURCE] : []),
+              ...(manifestActions ? [APP_MANIFEST_RESOURCE] : []),
             ],
           };
         });
@@ -5092,18 +5096,18 @@ export async function createMCPServerForRequest(
           });
         };
         try {
-          const { actions: grantedActions, hasManifest } =
+          const { actions: grantedActions, manifestActions } =
             await grantedResourceSurface("mcp:resources/read");
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
-            if (hasManifest && uri === APP_MANIFEST_RESOURCE.uri) {
+            if (manifestActions && uri === APP_MANIFEST_RESOURCE.uri) {
               emitRead({ resourceName: APP_MANIFEST_RESOURCE.name });
               return {
                 contents: [
                   {
                     uri,
                     mimeType: APP_MANIFEST_RESOURCE.mimeType,
-                    text: JSON.stringify(appManifest()),
+                    text: JSON.stringify(appManifest(manifestActions)),
                   },
                 ],
               };

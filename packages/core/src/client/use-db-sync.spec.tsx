@@ -69,6 +69,7 @@ function SyncProbe({
   queryClient,
   actionInvalidatePredicate,
   suppressActionInvalidationFor,
+  queryKeys,
   onEvent,
 }: {
   queryClient: QueryClientProbe;
@@ -77,6 +78,7 @@ function SyncProbe({
     events: readonly { source?: string; key?: string }[],
   ) => boolean;
   suppressActionInvalidationFor?: string[];
+  queryKeys?: string[];
   onEvent?: (data: any) => void;
 }) {
   useDbSync({
@@ -88,6 +90,7 @@ function SyncProbe({
     pauseWhenHidden: false,
     actionInvalidatePredicate,
     suppressActionInvalidationFor,
+    queryKeys,
     onEvent,
   });
   return null;
@@ -239,46 +242,57 @@ describe("useDbSync", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
-  it("acknowledges a completed action after its query refetch resolves", async () => {
-    vi.useFakeTimers();
-    let finish = () => {};
-    const refetch = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const queryClient = Object.assign(new QueryClientProbe(), {
-      invalidateQueries: vi.fn(() => refetch),
-    });
-    const settled = vi.fn();
-    window.addEventListener("agent-native:screen-settled", settled, {
-      once: true,
-    });
-    const root = createRoot(document.createElement("div"));
-    roots.push(root);
-    function Probe() {
-      useDbSync({ queryClient, realtime: false });
-      return null;
-    }
-    await act(async () => root.render(<Probe />));
-    window.dispatchEvent(
-      new CustomEvent("agent-native:tool-done", {
-        detail: {
-          tool: "create-item",
-          eventId: "refetch-1",
-          completedSideEffect: true,
-        },
-      }),
-    );
-    await vi.advanceTimersByTimeAsync(250);
-    expect(queryClient.invalidateQueries).toHaveBeenCalledOnce();
-    expect(settled).not.toHaveBeenCalled();
-    finish();
-    await Promise.resolve();
-    expect(settled).toHaveBeenCalledWith(
-      expect.objectContaining({
-        detail: expect.objectContaining({ writeId: "refetch-1", url: "/" }),
-      }),
-    );
-  });
+  it.each([true, false])(
+    "acknowledges an action only after successful refetch (success: %s)",
+    async (succeeds) => {
+      vi.useFakeTimers();
+      let finish = () => {};
+      const refetch = new Promise<void>((resolve, reject) => {
+        finish = succeeds ? resolve : () => reject(new Error("Refetch failed"));
+      });
+      const queryClient = Object.assign(new QueryClientProbe(), {
+        invalidateQueries: vi.fn(() => refetch),
+      });
+      const settled = vi.fn<(event: Event) => void>();
+      window.addEventListener("agent-native:screen-settled", settled, {
+        once: true,
+      });
+      const root = createRoot(document.createElement("div"));
+      roots.push(root);
+      function Probe() {
+        useDbSync({ queryClient, realtime: false });
+        return null;
+      }
+      await act(async () => root.render(<Probe />));
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "create-item",
+            eventId: "refetch-1",
+            completedSideEffect: true,
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(250);
+      expect(queryClient.invalidateQueries).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ queryKey: ["action"] }),
+        { cancelRefetch: false, throwOnError: true },
+      );
+      expect(settled).not.toHaveBeenCalled();
+      finish();
+      await Promise.resolve();
+      const receipts = settled.mock.calls.map(([event]) => {
+        const { writeId, url } = (
+          event as CustomEvent<{ writeId: string; url: string }>
+        ).detail;
+        return { writeId, url };
+      });
+      expect(receipts).toEqual(
+        succeeds ? [{ writeId: "refetch-1", url: "/" }] : [],
+      );
+      window.removeEventListener("agent-native:screen-settled", settled);
+    },
+  );
 
   it("uses chat run events to invalidate local side effects without polling", async () => {
     const queryClient = new QueryClientProbe();
@@ -1353,7 +1367,12 @@ describe("useDbSync", () => {
     containers.push(container);
 
     await act(async () => {
-      root.render(<SyncProbe queryClient={queryClient} />);
+      root.render(
+        <SyncProbe
+          queryClient={queryClient}
+          queryKeys={["action", "sql-chart"]}
+        />,
+      );
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -1365,6 +1384,9 @@ describe("useDbSync", () => {
     ).toBe(true);
     expect(queryClient.calls[0]?.predicate?.({ queryKey: ["unrelated"] })).toBe(
       false,
+    );
+    expect(queryClient.calls[0]?.predicate?.({ queryKey: ["sql-chart"] })).toBe(
+      true,
     );
     expect(urls[1]).toContain("since=0");
   });

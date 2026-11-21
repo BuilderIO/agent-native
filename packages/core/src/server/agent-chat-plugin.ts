@@ -255,6 +255,7 @@ import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
 import { getUserLabEnabled } from "../labs/store.js";
 import { workspaceIntegrationMessagesForUser } from "../localization/workspace-integration-messages.js";
+import { registerManifestActionDenials } from "../manifest/server.js";
 import {
   mcpToolsToActionEntries,
   mountMcpServersRoutes,
@@ -1665,6 +1666,10 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      registerManifestActionDenials(
+        nitroApp,
+        mcpOptions.externalAgents?.denyActions ?? [],
+      );
       const mcpServerName = options?.appId
         ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
         : "Agent";

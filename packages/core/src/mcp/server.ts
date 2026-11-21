@@ -10,6 +10,7 @@ import {
 
 import { getAppConfig } from "../app-config/store.js";
 import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
+import { registerManifestActionDenials } from "../manifest/server.js";
 import { readBrowserTabIdHeader } from "../server/agent-run-context.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
@@ -577,6 +578,10 @@ export function mountMCP(
   routePrefix = "/_agent-native",
 ): void {
   warnIfRetiredInlineEnvSet();
+  registerManifestActionDenials(
+    nitroApp,
+    config.externalAgents?.denyActions ?? [],
+  );
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]

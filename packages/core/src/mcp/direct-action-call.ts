@@ -275,7 +275,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       return actionError(err);
     }
 
-    if (effectiveIdentity?.userEmail && isAdvertisable(name)) {
+    const callableEntry = callableActions[name];
+    if (
+      effectiveIdentity?.userEmail &&
+      Object.hasOwn(callableActions, name) &&
+      isAdvertisable(name) &&
+      actionCallReadOnly(callableEntry, args) !== true
+    ) {
       const { markActiveTurn } = await import("../server/active-turn.js");
       markActiveTurn(effectiveIdentity.userEmail);
     }

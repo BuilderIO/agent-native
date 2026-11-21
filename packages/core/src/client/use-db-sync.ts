@@ -44,7 +44,7 @@ interface QueryClient {
       queryKey?: string[];
       predicate?: (query: Query) => boolean;
     },
-    options?: { cancelRefetch?: boolean },
+    options?: { cancelRefetch?: boolean; throwOnError?: boolean },
   ): unknown;
   isFetching?(filters?: {
     queryKey?: string[];
@@ -1853,7 +1853,10 @@ export function useDbSync(
             pending.queries.has(query),
           );
 
-        const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
+        const invalidateWithoutCancel = (
+          requested?: InvalidateFilters,
+          requireSuccess = false,
+        ) => {
           asked.push(requested ?? {});
           const callerPredicate = requested?.predicate;
           const normalizedFilters: InvalidateFilters = {
@@ -1877,9 +1880,14 @@ export function useDbSync(
               return matches;
             },
           });
-          const completion = queryClient.invalidateQueries(normalizedFilters, {
+          const refetchOptions = {
             cancelRefetch: false,
-          });
+            ...(requireSuccess ? { throwOnError: true } : {}),
+          };
+          const completion = queryClient.invalidateQueries(
+            normalizedFilters,
+            refetchOptions,
+          );
           if (
             !disposed &&
             busyQueries.size > 0 &&
@@ -1887,24 +1895,31 @@ export function useDbSync(
           ) {
             const pending = { queries: busyQueries };
             pendingTrailingRefreshes.push(pending);
-            void completion.then(
+            const release = () => {
+              const index = pendingTrailingRefreshes.indexOf(pending);
+              if (index >= 0) pendingTrailingRefreshes.splice(index, 1);
+              return index >= 0;
+            };
+            const trailing = completion.then(
               () => {
-                const index = pendingTrailingRefreshes.indexOf(pending);
-                if (index < 0) return;
-                pendingTrailingRefreshes.splice(index, 1);
-                if (!disposed)
-                  queryClient.invalidateQueries({
+                if (!release() || disposed) return;
+                return queryClient.invalidateQueries(
+                  {
                     ...normalizedFilters,
                     predicate: (query: Query) =>
                       busyQueries.has(query) &&
                       (normalizedFilters.predicate?.(query) ?? true),
-                  });
+                  },
+                  refetchOptions,
+                );
               },
-              () => {
-                const index = pendingTrailingRefreshes.indexOf(pending);
-                if (index >= 0) pendingTrailingRefreshes.splice(index, 1);
+              (error: unknown) => {
+                release();
+                throw error;
               },
             );
+            if (!requireSuccess) void trailing.catch(() => {});
+            return trailing;
           }
           return completion;
         };
@@ -1914,10 +1929,7 @@ export function useDbSync(
         const hasActionEvent = actionEvents.length > 0;
         if (hasActionEvent) {
           const writeIds = actionEvents.map(
-            (event) =>
-              event.writeId ??
-              event.cursorId ??
-              (event.version ? String(event.version) : undefined),
+            (event) => event.writeId ?? event.cursorId,
           );
           const urlAtRefetch =
             window.location.pathname +
@@ -1951,9 +1963,13 @@ export function useDbSync(
                         new Set([resourceType]),
                       ))
               : undefined;
+          const requireSuccess = writeIds.some((id) => typeof id === "string");
           const completion = invalidateWithoutCancel(
             predicate ? { predicate } : { queryKey: ["action"] },
+            requireSuccess,
           );
+          if (requireSuccess && completion instanceof Promise)
+            void completion.catch(() => {});
 
           for (const writeId of writeIds) {
             if (
@@ -2412,11 +2428,15 @@ export function useDbSync(
                   )
                 )
                   return false;
+                const declared = queryKeysRef.current;
                 return (
-                  actionInvalidatePredicateRef.current?.(query, []) ?? true
+                  !declared?.length ||
+                  declared.includes("action") ||
+                  declared.includes(String(query.queryKey[1]))
                 );
               }
               return [
+                ...(queryKeysRef.current ?? []),
                 "app-state",
                 "navigate-command",
                 "__set_url__",
