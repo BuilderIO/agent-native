@@ -168,6 +168,10 @@ export function readFilterParams(
     if (value.length > 0) state.pinned[field.id] = value;
   }
   if (params.get(names.match) === "any") state.mode = "or";
+  const members: (
+    | { kind: "group"; number: string; parent: string | null }
+    | { kind: "rule"; group: string | null; rule: FilterRule }
+  )[] = [];
   for (const [key, raw] of params) {
     if (key === names.group) {
       const [number = "", mode = ""] = raw.split(":");
@@ -177,19 +181,27 @@ export function readFilterParams(
       const top = parts.at(0) ?? "";
       const nested = parts.at(1);
       if (!top || nested === "" || parts.length > 2) continue;
-      const parent = nested === undefined ? null : groups.get(top);
-      if (nested !== undefined && !parent) continue;
-      const group = createFilterGroup([], mode === "all" ? "and" : "or");
-      groups.set(number, group);
-      if (parent) parent.rules.push(group);
-      else state.items.push(group);
+      groups.set(number, createFilterGroup([], mode === "all" ? "and" : "or"));
+      members.push({
+        kind: "group",
+        number,
+        parent: nested === undefined ? null : top,
+      });
     } else if (key === names.rule) {
       const decoded = decodeRule(raw, fields);
-      if (!decoded) continue;
-      const group = decoded.group === null ? null : groups.get(decoded.group);
-      if (group) group.rules.push(decoded.rule);
-      else if (decoded.group === null) state.items.push(decoded.rule);
+      if (decoded) members.push({ kind: "rule", ...decoded });
     }
+  }
+  for (const member of members) {
+    if (member.kind === "rule") {
+      if (member.group === null) state.items.push(member.rule);
+      else groups.get(member.group)?.rules.push(member.rule);
+      continue;
+    }
+    const group = groups.get(member.number);
+    if (!group) continue;
+    if (member.parent === null) state.items.push(group);
+    else groups.get(member.parent)?.rules.push(group);
   }
   const dropEmpty = (items: readonly FilterItem[]): FilterItem[] =>
     items.flatMap((item): FilterItem[] => {

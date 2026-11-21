@@ -447,6 +447,18 @@ export function addFilterRule(
   };
 }
 
+function filterGroupDepth(group: FilterGroup): number {
+  return (
+    1 +
+    Math.max(
+      0,
+      ...group.rules.map((member) =>
+        member.kind === "group" ? filterGroupDepth(member) : 0,
+      ),
+    )
+  );
+}
+
 /**
  * Adds a group at the top level, or inside the top-level group `parentGroupId`.
  * Groups nest no deeper, as in links and Content's saved views.
@@ -456,6 +468,7 @@ export function addFilterGroup(
   group: FilterGroup,
   parentGroupId?: string,
 ): FilterState {
+  if (filterGroupDepth(group) > (parentGroupId ? 1 : 2)) return state;
   if (!parentGroupId) return { ...state, items: [...state.items, group] };
   return {
     ...state,
@@ -497,7 +510,7 @@ export function patchFilterRule(
     ) {
       value = [];
     } else if (!filterOperatorTakesManyValues(field, operator)) {
-      value = value.slice(0, 1);
+      value = value.slice(0, filterOperatorValueCount(operator));
     }
   }
   return { ...rule, operator, value };
@@ -595,9 +608,6 @@ const DATE_RANGE_TOKEN = new RegExp(
 );
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-const LOCAL_TIMESTAMP_PATTERN =
-  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
 
 const RELATIVE_DAY_OFFSETS: Record<FilterRelativeDay, number> = {
   yesterday: -1,
@@ -728,7 +738,7 @@ function dayOfDate(date: Date, timeZone: string | undefined) {
   const parts = dayFormatter(timeZone).formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((candidate) => candidate.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
+  return `${part("year").padStart(4, "0")}-${part("month")}-${part("day")}`;
 }
 
 export function filterToday(timeZone?: string, now = new Date()) {
@@ -753,21 +763,27 @@ const DATE_TIME_PATTERN =
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const clockFormatters = new Map<string, Intl.DateTimeFormat>();
+const clockFormatters = new Map<string, Intl.DateTimeFormat | null>();
 
 function clockFormatter(timeZone: string) {
   const cached = clockFormatters.get(timeZone);
-  if (cached) return cached;
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  });
+  if (cached !== undefined) return cached;
+  let formatter: Intl.DateTimeFormat | null;
+  try {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      second: "numeric",
+    });
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    formatter = null;
+  }
   clockFormatters.set(timeZone, formatter);
   return formatter;
 }
@@ -794,7 +810,8 @@ export function filterDateValueHasTime(value: string) {
 /**
  * The moment a date-and-time filter value stands for, in milliseconds, or NaN
  * when it isn't one that exists. A time without an offset is a wall-clock time
- * in `timeZone` (this machine's zone without one), as Content reads its date
+ * in `timeZone` (this machine's zone without one, or when this runtime doesn't
+ * know it), as Content reads its date
  * filters. A time a daylight-saving change skips moves forward by the change,
  * and a time it repeats is the first of the two, as JavaScript's dates do.
  */
@@ -827,8 +844,9 @@ export function filterDateInstant(value: string, timeZone?: string) {
     const ms = (Number(hours) * 60 + Number(minutes)) * 60 * 1000;
     return sign === "+" ? asUtc - ms : asUtc + ms;
   }
-  if (!timeZone) return new Date(...fields).getTime();
-  const clock = clockFormatter(timeZone);
+  if (timeZone === "UTC") return asUtc;
+  const clock = timeZone ? clockFormatter(timeZone) : null;
+  if (!clock) return new Date(...fields).getTime();
   const offsetBefore = zoneOffset(asUtc - DAY_MS, clock);
   const offsetAfter = zoneOffset(asUtc + DAY_MS, clock);
   if (offsetBefore === offsetAfter) return asUtc - offsetBefore;
@@ -914,19 +932,20 @@ function cellInstant(value: FilterCellValue) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (trimmed === "" || DAY_PATTERN.test(trimmed)) return null;
-  const time = new Date(
-    LOCAL_TIMESTAMP_PATTERN.test(trimmed)
-      ? `${trimmed.replace(" ", "T")}Z`
-      : trimmed,
-  ).getTime();
+  const time = filterDateValueHasTime(trimmed)
+    ? filterDateInstant(trimmed, "UTC")
+    : new Date(trimmed).getTime();
   return Number.isNaN(time) ? null : time;
 }
 
-function cellDay(value: FilterCellValue, timeZone: string | undefined) {
+function cellDay(
+  value: FilterCellValue,
+  instant: number | null,
+  timeZone: string | undefined,
+) {
   if (typeof value === "string" && DAY_PATTERN.test(value.trim())) {
     return value.trim();
   }
-  const instant = cellInstant(value);
   return instant === null ? null : dayOfDate(new Date(instant), timeZone);
 }
 
@@ -1007,15 +1026,19 @@ function compareText(a: string, b: string) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function dateBoundEdge(
-  bound: FilterDateBound,
-  edge: "first" | "last",
+function boundDay(bound: FilterDateBound, timeZone: string | undefined) {
+  return "day" in bound
+    ? bound.day
+    : dayOfDate(new Date(bound.instant), timeZone);
+}
+
+function compareBounds(
+  a: FilterDateBound,
+  b: FilterDateBound,
   timeZone: string | undefined,
 ) {
-  if ("instant" in bound) return bound.instant;
-  return edge === "first"
-    ? filterDateInstant(`${bound.day}T00:00`, timeZone)
-    : filterDateInstant(`${addDays(bound.day, 1)}T00:00`, timeZone) - 1;
+  if ("instant" in a && "instant" in b) return Math.sign(a.instant - b.instant);
+  return compareText(boundDay(a, timeZone), boundDay(b, timeZone));
 }
 
 function filterRuleDateBounds(
@@ -1039,8 +1062,7 @@ function filterRuleDateBounds(
   const start = bounds.at(0);
   const end = bounds.at(1);
   if (rule.operator !== "between" || !start || !end) return bounds;
-  return dateBoundEdge(start, "first", context.timeZone) <=
-    dateBoundEdge(end, "last", context.timeZone)
+  return compareBounds(start, end, context.timeZone) <= 0
     ? [start, end]
     : [end, start];
 }
@@ -1051,9 +1073,8 @@ function compareCellToBound(
   bound: FilterDateBound,
   timeZone: string | undefined,
 ) {
-  if ("day" in bound) return compareText(day, bound.day);
-  if (instant === null) {
-    return compareText(day, dayOfDate(new Date(bound.instant), timeZone));
+  if ("day" in bound || instant === null) {
+    return compareText(day, boundDay(bound, timeZone));
   }
   return Math.sign(instant - bound.instant);
 }
@@ -1064,13 +1085,13 @@ function matchesDate(
   field: Pick<FilterField<never>, "times">,
   context: FilterMatchContext,
 ) {
-  const day = cellDay(raw, context.timeZone);
+  const instant = cellInstant(raw);
+  const day = cellDay(raw, instant, context.timeZone);
   if (rule.operator === "is_empty") return day === null;
   if (rule.operator === "is_not_empty") return day !== null;
   if (day === null) return rule.operator === "does_not_equal";
   const bounds = filterRuleDateBounds(rule, field, context);
   if (!bounds) return true;
-  const instant = cellInstant(raw);
   const compare = (bound: FilterDateBound) =>
     compareCellToBound(day, instant, bound, context.timeZone);
   const start = bounds.at(0);

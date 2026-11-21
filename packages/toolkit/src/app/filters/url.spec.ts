@@ -170,6 +170,25 @@ describe("filter URL params", () => {
     ]);
   });
 
+  it("reads a group or rule that comes before its parent group in a link", () => {
+    const read = readFilterParams(
+      "?g=1.1:any&r=1.1/tags:contains:a&r=1/tags:contains:b&g=1:all",
+      fields,
+    );
+    expect(shape(read.items)).toEqual([
+      {
+        mode: "and",
+        rules: [
+          {
+            mode: "or",
+            rules: [{ field: "tags", operator: "contains", value: ["a"] }],
+          },
+          { field: "tags", operator: "contains", value: ["b"] },
+        ],
+      },
+    ]);
+  });
+
   it("round-trips a date range and a date with a time", () => {
     const timed: FilterField = { ...createdField, times: true };
     const local = [timed];
