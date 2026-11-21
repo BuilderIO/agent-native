@@ -897,6 +897,12 @@ async function readJourneyEvents(
         raw.length = maxEventRows;
         break;
       }
+      if (
+        pageTotals.length === pages &&
+        pageTotals[0]?.rows === raw.length &&
+        journeyPagesAgree(pages, pageTotals, raw.length, false)
+      )
+        break;
       // Every page reports the whole read's row count, so the pages still
       // needed are known after the first and can run side by side. Full
       // pages only, so each later page starts a fixed step further on.

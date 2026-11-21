@@ -2132,6 +2132,44 @@ describe("getOnboardingJourney", () => {
     });
   });
 
+  it("ends a read at its reported total without asking for an empty page", async () => {
+    const total = 8_000;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`exact-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const offsets: number[] = [];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        offsets.push(offset);
+        await claimPageJob(options);
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(offsets).toEqual([0, 4_000]);
+    expect(summary.coverage.truncated).toBe(false);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      rows: total,
+      pages: 2,
+      truncated: false,
+      paginationConsistency: "stable",
+    });
+    expect(summary.continueWith).toBeUndefined();
+  });
+
   it("returns completed pages as partial coverage at the event-read deadline", async () => {
     vi.useFakeTimers();
     mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
