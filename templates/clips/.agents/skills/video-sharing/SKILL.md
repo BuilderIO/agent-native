@@ -94,6 +94,12 @@ than a week private unless I've shared them with someone", find them with one
   clips). Pass only the filters the request names: `hasShares: false` is
   not a neutral default, and "archive my clips older than three days" with
   it set leaves every shared clip behind.
+- `list-recordings` also takes `madeBy` (`"person"` or `"agent"`) for "the
+  clips an agent made" or "only the ones I recorded", and returns `madeBy`
+  and `madeByAgent` (the agent's name, such as `Claude`, when it gave one)
+  on each clip. Clips made before Clips recorded this have `madeBy: null`,
+  and either filter value leaves them out; say so when the answer may be
+  missing older clips.
 - `set-resource-visibility` takes `resourceIds` with `resourceType:
   "recording"`. Making any clip public asks for one approval for the call.
 - `archive-recording`, `trash-recording`, `restore-recording` and

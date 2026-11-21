@@ -23,6 +23,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/hooks", async () => {
   const { useQuery } = await import("@tanstack/react-query");
   return {
+    callAction: async (name: string) => {
+      const value = mocks.queries[name];
+      if (value instanceof Error) throw value;
+      return value;
+    },
     useActionQuery: (
       name: string,
       params?: unknown,
@@ -533,6 +538,37 @@ describe("Meetings › Calendar accounts", () => {
     );
     await click(button(stale, "clipsSettings.reconnect"));
     expect(mocks.startCalendarOAuth).toHaveBeenCalledWith("cal-stale");
+  });
+
+  it("shows a reconnect that finished without the popup reporting it", async () => {
+    mocks.startCalendarOAuth.mockResolvedValue(null);
+    await render(<ClipsMeetingsArea canManage={false} />);
+
+    mocks.queries["list-calendar-accounts"] = {
+      accounts: [
+        {
+          id: "cal-ok",
+          provider: "google",
+          email: "ok@example.com",
+          status: "connected",
+        },
+        {
+          id: "cal-stale",
+          provider: "google",
+          email: "stale@example.com",
+          status: "connected",
+        },
+      ],
+    };
+    await click(button(row("calendar-cal-stale"), "clipsSettings.reconnect"));
+    await flush();
+
+    expect(row("calendar-cal-stale").textContent).toContain(
+      'clipsSettings.connectedAs {"account":"stale@example.com"}',
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "meetingsRoute.calendarConnected",
+    );
   });
 
   it("asks before disconnecting and disconnects that account", async () => {

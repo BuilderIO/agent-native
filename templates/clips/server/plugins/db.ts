@@ -1444,6 +1444,12 @@ export const migrations = runMigrations(
     },
     {
       version: 104,
+      name: "recording-made-by",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by TEXT;
+      ALTER TABLE recordings ADD COLUMN IF NOT EXISTS made_by_agent TEXT`,
+    },
+    {
+      version: 105,
       name: "calendar-enabled-calendars",
       sql: `ALTER TABLE calendar_accounts ADD COLUMN IF NOT EXISTS enabled_calendar_ids_json TEXT;
       ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS calendar_id TEXT`,

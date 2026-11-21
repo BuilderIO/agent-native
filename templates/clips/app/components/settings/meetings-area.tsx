@@ -14,7 +14,7 @@ import {
   IconCalendar,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useState, type CSSProperties } from "react";
 import { toast } from "sonner";
 
 import {
@@ -47,9 +47,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { startCalendarOAuth } from "@/lib/calendar-oauth";
+import { useCalendarConnect } from "@/hooks/use-calendar-connect";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
-import { PopupBlockedError } from "@/lib/popup-blocked";
 
 import { FeatureKeysGroup } from "./feature-keys-group";
 import { LoadFailedRow } from "./load-failed-row";
@@ -231,32 +230,7 @@ function CalendarGroup() {
   const disconnect = useActionMutation<unknown, { id: string }>(
     "disconnect-calendar",
   );
-  const [connecting, setConnecting] = useState(false);
-  const connectingRef = useRef(false);
   const [target, setTarget] = useState<CalendarAccount | null>(null);
-
-  function connect(expectedAccountId?: string) {
-    if (connectingRef.current) return;
-    connectingRef.current = true;
-    setConnecting(true);
-    void startCalendarOAuth(expectedAccountId)
-      .then((result) => {
-        if (!result) return;
-        invalidate();
-        toast.success(t("meetingsRoute.calendarConnected"));
-      })
-      .catch((err: Error) =>
-        toast.error(
-          err instanceof PopupBlockedError
-            ? t("clipsSettings.popupBlocked")
-            : err.message,
-        ),
-      )
-      .finally(() => {
-        connectingRef.current = false;
-        setConnecting(false);
-      });
-  }
 
   function confirmDisconnect() {
     if (!target) return;
@@ -274,7 +248,9 @@ function CalendarGroup() {
     );
   }
 
-  const googleAccounts = (accounts.data?.accounts ?? []).filter(
+  const allAccounts = accounts.data?.accounts ?? [];
+  const { connect, isConnecting: connecting } = useCalendarConnect(allAccounts);
+  const googleAccounts = allAccounts.filter(
     (account) => account.provider === "google",
   );
   const connectButton = (label: string, expectedAccountId?: string) => (
