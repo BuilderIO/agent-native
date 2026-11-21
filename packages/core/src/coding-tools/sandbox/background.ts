@@ -63,6 +63,8 @@ export interface SandboxExecutionRunInput {
   code: string;
   timeoutMs: number;
   context?: ActionRunContext;
+  /** Characters of each stream the execution keeps once it finishes. */
+  maxOutputChars?: number;
 }
 
 export interface SandboxExecutionRunOutput {
@@ -71,6 +73,7 @@ export interface SandboxExecutionRunOutput {
   exitCode: number | null;
   timedOut: boolean;
   bridgeToolsUsed: string[];
+  stdoutTruncated?: boolean;
 }
 
 export interface SandboxExecutionRunner {
@@ -296,6 +299,7 @@ export async function processQueuedSandboxExecution(
           code: claimed.code,
           timeoutMs: claimed.timeoutMs,
           context,
+          maxOutputChars: claimed.maxOutputChars,
         }),
     );
     const finalStatus = output.timedOut
@@ -307,6 +311,7 @@ export async function processQueuedSandboxExecution(
       status: finalStatus,
       stdout: output.stdout,
       stderr: output.stderr,
+      ...(output.stdoutTruncated ? { stdoutTruncated: true } : {}),
       exitCode: output.exitCode,
       timedOut: output.timedOut,
       bridgeToolsUsed: output.bridgeToolsUsed,

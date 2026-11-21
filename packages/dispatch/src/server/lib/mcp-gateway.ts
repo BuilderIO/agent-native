@@ -10,7 +10,7 @@ import {
   type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
-import { fail } from "@agent-native/core/action";
+import { fail, NoWriteError } from "@agent-native/core/action";
 import { getAppConfig } from "@agent-native/core/app-config";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
@@ -1690,13 +1690,17 @@ export async function callGrantedDispatchMcpAppAction(
   args: Record<string, unknown>,
 ): Promise<GrantedAppActionResult> {
   if (TARGET_APP_HIDDEN_ACTIONS.has(action)) {
-    throw new Error(`"${action}" is not an app action.`);
+    throw new NoWriteError(`"${action}" is not an app action.`, {
+      errorCode: "app_action_not_found",
+      statusCode: 404,
+    });
   }
   return withGrantedAppMcp(app, action, async (manager, serverId) => {
     const toolName = buildMcpToolName(serverId, action);
     if (!manager.getTool(toolName)) {
-      throw new Error(
+      throw new NoWriteError(
         `The app has no action named "${action}". Call list_app_actions to see them.`,
+        { errorCode: "app_action_not_found", statusCode: 404 },
       );
     }
     let result: unknown;
@@ -1705,7 +1709,7 @@ export async function callGrantedDispatchMcpAppAction(
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       if (mcpToolCallWasNotSent(error)) {
-        fail(`The app action did not run (${reason}).`, {
+        throw new NoWriteError(`The app action did not run (${reason}).`, {
           errorCode: "app_action_not_sent",
           statusCode:
             (error as { statusCode?: unknown }).statusCode === 403 ? 403 : 502,

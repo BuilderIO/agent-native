@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   contentCollectionConfigSchema,
+  contentStepConfigFingerprint,
   ga4PropertyIdSchema,
   searchConsoleSiteSchema,
   signupsConfigSchema,
   signupsSettingsUpdateSchema,
+  stepEnabled,
 } from "./config";
 
 describe("collection GA4 property", () => {
@@ -95,4 +97,47 @@ it("normalizes Domain properties when reading stored config", () => {
       },
     }).searchConsole.sites,
   ).toEqual([{ siteUrl: "sc-domain:example.test" }]);
+});
+
+describe("Search Console history and queries", () => {
+  it("reads saved settings from before them with 16 months and queries on", () => {
+    const config = contentCollectionConfigSchema.parse({
+      searchConsole: {
+        enabled: true,
+        sites: [{ siteUrl: "sc-domain:example.test" }],
+      },
+    });
+    expect(config.searchConsole.historyMonths).toBe(16);
+    expect(config.searchConsoleQueries).toEqual({ enabled: true, perPage: 25 });
+    expect(stepEnabled(config, "search_console_queries")).toBe(true);
+  });
+
+  it("runs queries only while Search Console runs", () => {
+    const config = contentCollectionConfigSchema.parse({
+      searchConsole: { enabled: false, sites: [] },
+    });
+    expect(stepEnabled(config, "search_console_queries")).toBe(false);
+  });
+
+  it("keeps query history when only the history depth changes", () => {
+    const sites = [{ siteUrl: "sc-domain:example.test" }];
+    const fingerprint = (historyMonths: number, perPage: number) =>
+      contentStepConfigFingerprint(
+        "search_console_queries",
+        contentCollectionConfigSchema.parse({
+          searchConsole: { enabled: true, sites, historyMonths },
+          searchConsoleQueries: { enabled: true, perPage },
+        }),
+      );
+    expect(fingerprint(16, 25)).toBe(fingerprint(6, 25));
+    expect(fingerprint(16, 25)).not.toBe(fingerprint(16, 10));
+  });
+
+  it("keeps history depth within the 16 months Search Console keeps", () => {
+    expect(
+      contentCollectionConfigSchema.safeParse({
+        searchConsole: { enabled: true, sites: [], historyMonths: 17 },
+      }).success,
+    ).toBe(false);
+  });
 });
