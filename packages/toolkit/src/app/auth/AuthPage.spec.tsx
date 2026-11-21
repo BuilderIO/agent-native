@@ -13,6 +13,7 @@ import {
   isVerificationLinkInvalid,
   oauthReturnTarget,
   resolveGoogleAuthUrlPath,
+  resolveOAuthReturnOrigin,
   shouldUseIdentitySsoForGoogle,
   shouldAutoFederateIdentitySso,
   shouldHideAuthSubtitle,
@@ -364,9 +365,15 @@ describe("AuthPage", () => {
     expect(oauthReturnTarget(target, "", genericElectron, localApp)).toBe(
       "http://127.0.0.1:8080/agent?tab=context",
     );
-    expect(
-      oauthReturnTarget(target, "", genericElectron, "http://localhost:8100"),
-    ).toBe("http://127.0.0.1:8080/agent?tab=context");
+    for (const loopbackApp of [
+      "http://localhost:8100",
+      "http://127.1.2.3:8100",
+      "http://[::1]:8100",
+    ]) {
+      expect(oauthReturnTarget(target, "", genericElectron, loopbackApp)).toBe(
+        "http://127.0.0.1:8080/agent?tab=context",
+      );
+    }
     expect(
       oauthReturnTarget(
         target,
@@ -390,16 +397,25 @@ describe("AuthPage", () => {
       "Mozilla/5.0 Electron/32.0 BuilderDesktop",
       "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
     ]) {
-      expect(
-        oauthReturnTarget(
+      for (const hostedApp of [
+        "https://slides.agent-native.com",
+        "https://127.example.com",
+      ]) {
+        expect(oauthReturnTarget(target, "", userAgent, hostedApp)).toBe(
           target,
-          "",
-          userAgent,
-          "https://slides.agent-native.com",
-        ),
-      ).toBe(target);
+        );
+      }
     }
     expect(oauthReturnTarget(target, "", t3CodeBrowser, "")).toBe(target);
+    // Callers that predate currentOrigin fall back to the page's own origin,
+    // which is empty outside a browser.
+    expect(
+      resolveOAuthReturnOrigin({
+        previewOrigin: "",
+        workspaceGatewayReturnOrigin: "",
+        userAgent: t3CodeBrowser,
+      }),
+    ).toBe("");
   });
 
   it("keeps Builder preview OAuth at the public app root", () => {
