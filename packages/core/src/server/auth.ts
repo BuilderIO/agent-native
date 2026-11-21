@@ -4791,6 +4791,7 @@ function createAuthGuardFn(
     }
     if (
       p === "/_agent-native/ping" ||
+      (getMethod(event) === "GET" && p === "/_agent-native/manifest.json") ||
       p === "/_agent-native/health" ||
       // The credential self-check is read by an unauthenticated monitor. Without
       // this the gate 401s it, the monitor reads a non-JSON body as "route not

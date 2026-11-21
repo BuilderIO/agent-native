@@ -650,7 +650,33 @@ describe("MCP App resources for a service principal", () => {
     activeWithGrant(null);
     const client = await clientFor(serviceIdentity, widgetConfig());
 
-    expect((await client.listResources()).resources).toEqual([]);
+    expect((await client.listResources()).resources).toEqual([
+      expect.objectContaining({ uri: "app://manifest" }),
+    ]);
+  });
+
+  it("omits denied and ungranted action names from derived manifests", async () => {
+    activeWithGrant(["list-docs", "operator-hidden", "get_app_manifest"]);
+    const cfg = widgetConfig();
+    cfg.catalogMode = "app";
+    cfg.actions = {
+      ...cfg.actions,
+      "operator-hidden": cfg.actions["list-docs"],
+      "grant-hidden": cfg.actions["list-docs"],
+    };
+    cfg.externalAgents = { denyActions: ["operator-hidden"] };
+    const client = await clientFor(serviceIdentity, cfg);
+    const resource = await client.readResource({ uri: "app://manifest" });
+    const tool = await client.callTool({
+      name: "get_app_manifest",
+      arguments: {},
+    });
+    for (const result of [resource.contents, tool.content]) {
+      const text = JSON.stringify(result);
+      expect(text).toContain("list docs");
+      expect(text).not.toContain("operator hidden");
+      expect(text).not.toContain("grant hidden");
+    }
   });
 
   it("lists, templates, and reads only widgets inside the grant", async () => {

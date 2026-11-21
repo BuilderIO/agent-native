@@ -285,7 +285,7 @@ describe("poll handler", () => {
     const handler = createPollHandler() as any;
 
     const initial = await handler({ query: { since: "0" } });
-    expect(initial).toEqual({ version: 4_200, events: [] });
+    expect(initial).toEqual({ version: 4_200, events: [], serverless: true });
     expect(executedSql()).toBe(
       "SELECT MAX(version) as max_version FROM sync_events",
     );

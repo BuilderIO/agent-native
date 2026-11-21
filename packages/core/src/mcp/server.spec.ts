@@ -5977,6 +5977,67 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
+  it("serves the same app manifest through the resource and read-only tool", async () => {
+    const rpc = (id: number, method: string, params: object) =>
+      callWeb({ jsonrpc: "2.0", id, method, params });
+    const resources = await rpc(1, "resources/list", {});
+    expect(resources.result.resources).toContainEqual(
+      expect.objectContaining({ uri: "app://manifest" }),
+    );
+    const tools = await rpc(2, "tools/list", {});
+    expect(tools.result.tools).toContainEqual(
+      expect.objectContaining({
+        name: "get_app_manifest",
+        annotations: expect.objectContaining({ readOnlyHint: true }),
+      }),
+    );
+    const resource = await rpc(3, "resources/read", { uri: "app://manifest" });
+    const tool = await rpc(4, "tools/call", {
+      name: "get_app_manifest",
+      arguments: {},
+    });
+    const manifest = JSON.parse(resource.result.contents[0].text);
+    expect(manifest.screens.defaultLandingScreen).toBe("home");
+    expect(JSON.parse(tool.result.content[0].text)).toEqual(manifest);
+  });
+
+  it("keeps curated tool listings while exposing manifest discovery", async () => {
+    const curated = { ...config, connectorCatalog: ["echo-thing"] };
+    const rpc = (
+      id: number,
+      method: string,
+      params: object,
+      selected = curated,
+    ) => callWeb({ jsonrpc: "2.0", id, method, params }, { config: selected });
+    const tools = await rpc(1, "tools/list", {});
+    expect(
+      tools.result.tools.map((tool: { name: string }) => tool.name),
+    ).not.toContain("get_app_manifest");
+    const resources = await rpc(2, "resources/list", {});
+    expect(resources.result.resources).toContainEqual(
+      expect.objectContaining({ uri: "app://manifest" }),
+    );
+    const tool = await rpc(3, "tools/call", {
+      name: "get_app_manifest",
+      arguments: {},
+    });
+    expect(
+      JSON.parse(tool.result.content[0].text).screens.defaultLandingScreen,
+    ).toBe("home");
+    const advertised = await rpc(
+      4,
+      "tools/list",
+      {},
+      {
+        ...curated,
+        connectorCatalog: [...curated.connectorCatalog, "get_app_manifest"],
+      },
+    );
+    expect(
+      advertised.result.tools.map((entry: { name: string }) => entry.name),
+    ).toContain("get_app_manifest");
+  });
+
   it("negotiates 2026-07-28 and emits modern result and cache metadata", async () => {
     const { client, wireResponses } = await createModernClient();
     try {
@@ -5989,7 +6050,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ).toBeUndefined();
 
       const result = await client.listTools();
-      expect(result.tools.map((tool) => tool.name)).toEqual(["echo-thing"]);
+      expect(result.tools.map((tool) => tool.name)).toEqual([
+        "echo-thing",
+        "get_app_manifest",
+      ]);
 
       const discoverWire = wireResponses.find(
         (response) => response.result?.capabilities,
@@ -7461,7 +7525,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             ({ name }) => name,
           );
 
-          expect(tools).toEqual(["list-notes"]);
+          expect(tools).toEqual(["get_app_manifest", "list-notes"]);
           const logged = consoleError.mock.calls.filter(([line]) =>
             String(line).includes(`"${name}"`),
           );
@@ -8126,7 +8190,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).toEqual(["echo-thing", "get_app_manifest", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
@@ -8154,6 +8218,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "get_app_manifest",
       "list_apps",
       "open_app",
     ]);
@@ -8199,6 +8264,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
       "ui://mail/open_app/shell-v65",
+      "app://manifest",
     ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "INTERNAL_TOOL_BLOAT_SENTINEL",
@@ -8326,6 +8392,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
       "ui://mail/open_app/shell-v65",
       "ui://mail/status-panel/shell-v65",
+      "app://manifest",
     ]);
   });
 
@@ -8401,6 +8468,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "get_app_manifest",
       "list_apps",
       "open_app",
     ]);
@@ -8426,6 +8494,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
       "ui://mail/open_app/shell-v65",
+      "app://manifest",
     ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
@@ -8470,6 +8539,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.tools.map((t: any) => t.name)).toEqual([
       "echo-thing",
+      "get_app_manifest",
       "private-widget",
       "review-draft",
     ]);
@@ -8493,6 +8563,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "ui://mail/echo-thing/shell-v65",
       "ui://mail/private-widget/shell-v65",
       "ui://mail/review-draft/shell-v65",
+      "app://manifest",
     ]);
 
     const templatesOut = await callWeb(
@@ -8689,7 +8760,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).toEqual(["echo-thing", "get_app_manifest", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("public-search");
     expect(names).not.toContain("ask-agent");
@@ -8724,6 +8795,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.resources.map((r: any) => r.uri)).toEqual([
       "ui://mail/echo-thing/shell-v65",
       "ui://mail/review-draft/shell-v65",
+      "app://manifest",
     ]);
   });
 
@@ -8752,7 +8824,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).toEqual(["echo-thing", "get_app_manifest", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
@@ -8778,7 +8850,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).toEqual(["echo-thing", "get_app_manifest", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
@@ -8809,6 +8881,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(out.error).toBeUndefined();
       expect(out.result.tools.map((t: any) => t.name)).toEqual([
         "echo-thing",
+        "get_app_manifest",
         "review-draft",
       ]);
       expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
@@ -8840,7 +8913,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).toEqual(["echo-thing", "get_app_manifest", "review-draft"]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("ask-agent");
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
@@ -8862,6 +8935,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(names).toEqual([
       "ask_app",
       "ask_app_status",
+      "get_app_manifest",
       "list_apps",
       "open_app",
     ]);
@@ -8886,7 +8960,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(resourcesOut.error).toBeUndefined();
-    expect(resourcesOut.result.resources).toEqual([]);
+    expect(resourcesOut.result.resources).toEqual([
+      expect.objectContaining({ uri: "app://manifest" }),
+    ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
     );
@@ -9217,6 +9293,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
         }),
       }),
+      expect.objectContaining({
+        uri: "app://manifest",
+        mimeType: "application/json",
+      }),
     ]);
     expect(out.result.resources[0]._meta.ui.domain).toBeUndefined();
   });
@@ -9235,6 +9315,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(list.error).toBeUndefined();
       expect(list.result.resources).toEqual([
         expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+        expect.objectContaining({
+          uri: "app://manifest",
+          mimeType: "application/json",
+        }),
       ]);
 
       const tools = await callWeb(
@@ -9325,6 +9409,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+      expect.objectContaining({
+        uri: "app://manifest",
+        mimeType: "application/json",
+      }),
     ]);
 
     const call = await callWeb(
@@ -9365,6 +9453,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(list.error).toBeUndefined();
       expect(list.result.resources).toEqual([
         expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+        expect.objectContaining({
+          uri: "app://manifest",
+          mimeType: "application/json",
+        }),
       ]);
     } finally {
       delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
@@ -9673,7 +9765,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(resources.error).toBeUndefined();
       expect(
         resources.result.resources.map((resource: any) => resource.uri),
-      ).toEqual(["ui://mail/healthy-review/shell-v65"]);
+      ).toEqual(["ui://mail/healthy-review/shell-v65", "app://manifest"]);
 
       const templates = await callWeb(
         {
@@ -9810,6 +9902,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         uri: "ui://mail/custom-review/shell-v65",
         name: "custom-review",
       }),
+      expect.objectContaining({
+        uri: "app://manifest",
+        mimeType: "application/json",
+      }),
     ]);
 
     const read = await callWeb(
@@ -9873,6 +9969,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         uri: "ui://mail/custom-review/shell-v65",
         name: "custom-review",
       }),
+      expect.objectContaining({
+        uri: "app://manifest",
+        mimeType: "application/json",
+      }),
     ]);
 
     const legacyRead = await callWeb(
@@ -9935,6 +10035,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect.objectContaining({
         uri: "ui://mail/custom-review/shell-v65?mode=compact#preview",
         name: "custom-review",
+      }),
+      expect.objectContaining({
+        uri: "app://manifest",
+        mimeType: "application/json",
       }),
     ]);
 
@@ -10684,9 +10788,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.isError).not.toBe(true);
-    expect(warning).toHaveBeenCalledWith(
-      "Could not write the action-change marker after an MCP tool call: Error: refresh unavailable",
-    );
+    expect(warning).toHaveBeenCalledWith({
+      event: "action_change_marker_failed",
+      transport: "mcp",
+      action: "update-thing",
+      errorType: "Error",
+    });
     warning.mockRestore();
   });
 
@@ -11827,7 +11934,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           listed.result.tools.map((tool: { name: string }) => tool.name),
         ).not.toContain(name);
         const resources = await rpc(221, "resources/list", {});
-        expect(resources.result.resources).toEqual([]);
+        expect(resources.result.resources).toEqual([
+          expect.objectContaining({ uri: "app://manifest" }),
+        ]);
         const read = await rpc(222, "resources/read", {
           uri: `ui://mail/${name}/shell-v65`,
         });

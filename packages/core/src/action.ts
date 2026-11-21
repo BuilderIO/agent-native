@@ -2952,7 +2952,17 @@ function extractNavigationIntent(args: unknown): string | undefined {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     return undefined;
   }
-  const intent = (args as { intent?: unknown }).intent;
+  const { navigationMode, intent } = args as {
+    navigationMode?: unknown;
+    intent?: unknown;
+  };
+  if (
+    navigationMode === "open" ||
+    navigationMode === "reveal" ||
+    navigationMode === "keep"
+  ) {
+    return navigationMode;
+  }
   return typeof intent === "string" ? intent : undefined;
 }
 
@@ -3033,6 +3043,7 @@ export interface ActionCallRecord {
  */
 export interface ActionExecutionOutcome {
   refused: boolean;
+  navigationKeys?: Set<string>;
   record?: ActionCallRecord;
   /** What the call, and every call nested in it, has done; absent untracked. */
   evidence?: ActionCallEvidence;
@@ -3154,6 +3165,7 @@ export async function runActionWithExecutionOutcome(
 ): Promise<any> {
   outcome.refused = false;
   delete outcome.record;
+  delete outcome.navigationKeys;
   delete outcome.evidence;
   delete outcome.keyed;
   const vouched = takeVouchedEvidence(outcome);
