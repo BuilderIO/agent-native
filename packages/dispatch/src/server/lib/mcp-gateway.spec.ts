@@ -1809,6 +1809,144 @@ describe("openGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("hands off first-party opens within one second and shares the pending mint with the pane", async () => {
+    vi.useFakeTimers();
+    const asOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          identityAuthenticatedAtMs: 1,
+          requestOrigin: "http://localhost:8092",
+        },
+        run,
+      );
+    const startUrl =
+      "http://localhost:8086/_agent-native/embed/start?ticket=prefetch-fixture";
+    mocks.managerCallTool.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () => resolve({ structuredContent: { startUrl } }),
+            12_000,
+          );
+        }),
+    );
+
+    const input = {
+      app: "analytics",
+      path: "/dashboards",
+      chrome: "minimal",
+    } as const;
+    let handoff:
+      | Awaited<ReturnType<typeof openGrantedDispatchMcpApp>>
+      | undefined;
+    const opening = asOwner(() =>
+      openGrantedDispatchMcpApp(
+        { ...input, embed: true },
+        { prefetchEmbed: true },
+      ),
+    ).then((result) => {
+      handoff = result;
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(handoff).toEqual({
+      ...input,
+      embed: true,
+      url: "http://localhost:8086/dashboards",
+    });
+    await opening;
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+
+    const pane = asOwner(() => createGrantedDispatchMcpEmbedSession(input));
+    await vi.advanceTimersByTimeAsync(11_000);
+    await expect(pane).resolves.toMatchObject({ startUrl });
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
+
+    await expect(
+      asOwner(() => createGrantedDispatchMcpEmbedSession(input)),
+    ).resolves.toMatchObject({
+      startUrl: expect.not.stringContaining("prefetch-fixture"),
+    });
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels a stalled prefetch claimed by the pane and runs its fallback mint", async () => {
+    vi.useFakeTimers();
+    const asOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+          identityAuthenticatedAtMs: 1,
+        },
+        run,
+      );
+    const input = {
+      app: "analytics",
+      path: "/dashboards",
+      chrome: "minimal",
+    } as const;
+    mocks.managerCallTool.mockImplementationOnce(() => new Promise(() => {}));
+
+    await asOwner(() =>
+      openGrantedDispatchMcpApp(input, { prefetchEmbed: true }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    const pane = asOwner(() => createGrantedDispatchMcpEmbedSession(input));
+    await vi.advanceTimersByTimeAsync(15_000);
+    await expect(pane).resolves.toMatchObject({ app: "analytics" });
+    expect(mocks.managerStop).toHaveBeenCalled();
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks the current grant and keeps prefetched tickets within the initiating workspace", async () => {
+    vi.useFakeTimers();
+    const asOwner = <T>(orgId: string, run: () => Promise<T>) =>
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          identityAuthenticatedAtMs: 1,
+          orgId,
+          requestOrigin: "http://localhost:8092",
+        },
+        run,
+      );
+    const startUrl =
+      "http://localhost:8086/_agent-native/embed/start?ticket=workspace-fixture";
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: { startUrl },
+    });
+    const input = {
+      app: "analytics",
+      path: "/dashboards",
+      chrome: "minimal",
+    } as const;
+    await asOwner("prefetch-workspace", () =>
+      openGrantedDispatchMcpApp(input, { prefetchEmbed: true }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(
+      asOwner("another-workspace", () =>
+        createGrantedDispatchMcpEmbedSession(input),
+      ),
+    ).resolves.toMatchObject({
+      startUrl: expect.not.stringContaining("workspace-fixture"),
+    });
+
+    mocks.getOrgSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["dispatch"],
+    });
+    await expect(
+      asOwner("prefetch-workspace", () =>
+        createGrantedDispatchMcpEmbedSession(input),
+      ),
+    ).rejects.toThrow(/not granted/);
+    expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(15_000);
+  });
+
   it("reads the target embed start URL from Core MCP response metadata", async () => {
     mocks.managerCallTool.mockResolvedValueOnce({
       structuredContent: {

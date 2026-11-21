@@ -28,7 +28,9 @@ import {
   getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
+  getRequestRunContext,
   getRequestUserEmail,
+  platformWaitUntil,
   resolveAppRuntimeUrl,
 } from "@agent-native/core/server";
 import {
@@ -66,6 +68,7 @@ const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 // open_app answers with its link by then; a panel is worth a short wait, not
 // the full mint budget.
 const OPEN_APP_EMBED_WAIT_MS = 15_000;
+const PENDING_EMBED_LIMIT = 32;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
@@ -1168,14 +1171,17 @@ export async function getGrantedDispatchMcpAppTask(
   throw new Error("ask_app_status retry loop exited unexpectedly.");
 }
 
-export async function openGrantedDispatchMcpApp(input: {
-  app: string;
-  view?: string | undefined;
-  path?: string | undefined;
-  params?: Record<string, string | number | boolean> | undefined;
-  embed?: boolean | undefined;
-  chrome?: "full" | "minimal" | undefined;
-}): Promise<{
+export async function openGrantedDispatchMcpApp(
+  input: {
+    app: string;
+    view?: string | undefined;
+    path?: string | undefined;
+    params?: Record<string, string | number | boolean> | undefined;
+    embed?: boolean | undefined;
+    chrome?: "full" | "minimal" | undefined;
+  },
+  options?: { prefetchEmbed: boolean },
+): Promise<{
   app: string;
   view?: string;
   path?: string;
@@ -1210,7 +1216,11 @@ export async function openGrantedDispatchMcpApp(input: {
   // Says why no session came back, so the caller can tell a plain link it
   // asked for from a panel that failed to open.
   let embedUnavailable: string | undefined;
-  if (input.embed) {
+  if (options?.prefetchEmbed && input.embed !== false) {
+    // The first-party pane always asks for minimal chrome. External MCP
+    // widgets still need their target's ticket in the tool result.
+    prefetchGrantedEmbedSession(target, url);
+  } else if (input.embed) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const abort = new AbortController();
     try {
@@ -2027,6 +2037,113 @@ function publicEmbedSession({
   };
 }
 
+type ResolvedEmbedTarget = Awaited<
+  ReturnType<typeof resolveDispatchEmbedTarget>
+>;
+type PendingEmbedSession = {
+  result: Promise<InternalEmbedSession>;
+  release: () => void;
+  abort: () => void;
+};
+
+const pendingGrantedEmbeds = new Map<string, PendingEmbedSession>();
+
+function grantedEmbedPrefetchKey(
+  ownerEmail: string,
+  target: ResolvedEmbedTarget,
+): string {
+  const request = getRequestContext();
+  return JSON.stringify([
+    ownerEmail,
+    getRequestOrgId(),
+    request?.requestOrigin,
+    request?.identityAuthenticatedAtMs,
+    request?.mcpCredentialIssuedAtMs,
+    request?.a2aIdentityAssurance,
+    request?.credentialScope,
+    target.app.id,
+    appMcpUrl(target.app),
+    target.url,
+  ]);
+}
+
+function prefetchGrantedEmbedSession(
+  app: DispatchMcpAccessibleApp,
+  url: string,
+) {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail || app.id === DISPATCH_APP_ID) return;
+  const work = (async () => {
+    const target = await resolveDispatchEmbedTarget({ resolvedApp: app, url });
+    const key = grantedEmbedPrefetchKey(ownerEmail, target);
+    if (pendingGrantedEmbeds.has(key)) return;
+    if (pendingGrantedEmbeds.size >= PENDING_EMBED_LIMIT) {
+      pendingGrantedEmbeds.values().next().value?.abort();
+    }
+    const controller = new AbortController();
+    const result = Promise.race([
+      createEmbedSessionForResolvedApp({
+        ownerEmail,
+        orgId: getRequestOrgId(),
+        target,
+        chrome: "minimal",
+        signal: controller.signal,
+      }),
+      new Promise<never>((_resolve, reject) => {
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(controller.signal.reason),
+          { once: true },
+        );
+      }),
+    ]);
+    const release = () => {
+      clearTimeout(timer);
+      if (pendingGrantedEmbeds.get(key) === entry)
+        pendingGrantedEmbeds.delete(key);
+    };
+    const abort = () => {
+      release();
+      controller.abort();
+    };
+    const timer = setTimeout(abort, OPEN_APP_EMBED_WAIT_MS);
+    timer.unref?.();
+    const entry = { result, release, abort };
+    pendingGrantedEmbeds.set(key, entry);
+    try {
+      await result;
+    } catch {
+      // The browser can retry via its normal authorized mint if prefetch fails.
+      release();
+    }
+  })().catch(() => {
+    // The handoff remains usable if its optional prefetch target is unavailable.
+  });
+  const waitUntil = getRequestRunContext()?.waitUntil ?? platformWaitUntil();
+  waitUntil?.(work);
+}
+
+async function takePrefetchedGrantedEmbedSession(
+  ownerEmail: string,
+  target: ResolvedEmbedTarget,
+): Promise<InternalEmbedSession | undefined> {
+  const key = grantedEmbedPrefetchKey(ownerEmail, target);
+  const entry = pendingGrantedEmbeds.get(key);
+  if (!entry) return;
+  // The start URL can be redeemed once. Recheck grants (above) and let one
+  // consumer take it. Scoped chat credentials never use this cache.
+  pendingGrantedEmbeds.delete(key);
+  try {
+    const session = await entry.result;
+    if (session.expiresAt === undefined || session.expiresAt > Date.now())
+      return session;
+  } catch {
+    // Fall back to the foreground mint with normal errors and retry behavior.
+  } finally {
+    entry.release();
+  }
+}
+
 async function createGrantedDispatchMcpEmbedSessionResult(input: {
   app?: string;
   resolvedApp?: DispatchMcpAccessibleApp;
@@ -2039,6 +2156,13 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const target = await resolveDispatchEmbedTarget(input);
+  if (!input.resolvedApp && !input.runtime && input.chrome === "minimal") {
+    const prefetched = await takePrefetchedGrantedEmbedSession(
+      userEmail,
+      target,
+    );
+    if (prefetched) return prefetched;
+  }
 
   return createEmbedSessionForResolvedApp({
     ownerEmail: userEmail,
