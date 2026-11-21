@@ -156,6 +156,7 @@ import {
 import { documentQueryKey } from "@/lib/document-query";
 import {
   cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
   filesNavigationOrder,
   openFilesFolderIds,
 } from "@/lib/files-navigation";
@@ -3015,6 +3016,10 @@ export function DocumentSidebar({
           ? nextLocalPageId
           : remainingPageAfterDelete(id, {
               activePath,
+              siblingDocumentIds: cachedFilesSiblingDocumentIds(
+                queryClient,
+                id,
+              ),
               filesRootDocumentIds: cachedFilesRootDocumentIds(queryClient, id),
               pendingTrashIds: pendingTrash.documentIds,
             });

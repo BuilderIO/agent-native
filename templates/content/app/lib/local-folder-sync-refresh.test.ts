@@ -1,6 +1,7 @@
 import { QueryClient, type QueryKey } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { localSourceDirectoryId } from "../../shared/local-source-directory";
 import { invalidateContentQueries } from "../hooks/use-content-action-mutation";
 import { localFolderSyncTreeTargets } from "./local-folder-sync-refresh";
 
@@ -20,6 +21,14 @@ const keys = {
   section: branch(FILES, "section"),
   otherSection: branch(FILES, "other-section"),
   otherSpaceRoot: branch(OTHER_FILES, null),
+  folder: branch(
+    FILES,
+    localSourceDirectoryId({ rootPath: "vault", path: "notes" }),
+  ),
+  otherSpaceFolder: branch(
+    OTHER_FILES,
+    localSourceDirectoryId({ rootPath: "vault", path: "notes" }),
+  ),
   search: ["action", "search-documents", { query: "note" }],
   page: ["action", "get-document", { id: "open-page" }],
 };
@@ -58,6 +67,8 @@ beforeEach(() => {
   queryClient.setQueryData(keys.section, items("nested"));
   queryClient.setQueryData(keys.otherSection, items("elsewhere"));
   queryClient.setQueryData(keys.otherSpaceRoot, items("other-space-page"));
+  queryClient.setQueryData(keys.folder, items("note"));
+  queryClient.setQueryData(keys.otherSpaceFolder, items("other-note"));
   queryClient.setQueryData(keys.search, { results: [] });
   queryClient.setQueryData(keys.page, { id: "open-page" });
 });
@@ -80,6 +91,12 @@ describe("localFolderSyncTreeTargets", () => {
     sync({ removed: ["nested"] });
     expect(refreshed(keys.section)).toBe(true);
     expect(refreshed(keys.otherSection)).toBe(false);
+  });
+
+  it("rereads the space's open folders, which a file can join or leave on disk", () => {
+    sync({ created: ["added"] });
+    expect(refreshed(keys.folder)).toBe(true);
+    expect(refreshed(keys.otherSpaceFolder)).toBe(false);
   });
 
   it("renames a file changed outside Content where it's listed", () => {

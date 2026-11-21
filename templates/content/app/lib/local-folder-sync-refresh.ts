@@ -1,5 +1,6 @@
 import {
   contentFilesCollectionFilter,
+  contentLocalFolderBranchesFilter,
   contentNavigationBranchFilter,
   contentNavigationContextInDatabaseFilter,
   SEARCH_QUERY_KEYS,
@@ -20,6 +21,7 @@ export function localFolderSyncTreeTargets(
       parentIds: [null],
       databaseId: sync.filesDatabaseId,
     }),
+    contentLocalFolderBranchesFilter(sync.filesDatabaseId),
     contentNavigationContextInDatabaseFilter(sync.filesDatabaseId),
     contentFilesCollectionFilter(),
     ...SEARCH_QUERY_KEYS,

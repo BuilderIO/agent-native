@@ -16,6 +16,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({ callActionWithRetry }));
 
 import {
   cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
   confirmCreatedFilesRow,
   filesNavigationPageParams,
   filesNavigationQueryKey,
@@ -261,6 +262,32 @@ describe("pages this tab created in the Files tree", () => {
     expect(rows[rows.length - 1]?.title).toBe("Plans");
   });
 
+  it("stay at the end of the tree's first page when the Move picker's read lists them", async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) =>
+      row(`folder-${index}`, { type: "folder", sourceKind: "folder" }),
+    );
+    queryClient.setQueryData(branchKey(), page(firstPage, true));
+    startCreate(queryClient, created("new"));
+    confirmCreatedFilesRow(queryClient, "new");
+
+    const pickerParams = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: null,
+      pagesOnly: true,
+    });
+    callActionWithRetry.mockResolvedValueOnce(page([row("new")]));
+    const picker = await readFilesNavigationPage(queryClient, pickerParams, [
+      "folder-0",
+    ]);
+    expect(callActionWithRetry.mock.calls[0]?.[1]).toEqual(pickerParams);
+    expect(
+      "available" in picker ? [] : picker.items.map((item) => item.documentId),
+    ).toEqual(["new"]);
+
+    const shown = await reread(queryClient, page(firstPage, true));
+    expect(shown[shown.length - 1]).toBe("new");
+  });
+
   it("take out a failed create, and leave a deleted page to the write's reread", async () => {
     startCreate(queryClient, created("failed"));
     removeCreatedFilesRows(queryClient, ["failed"]);
@@ -353,6 +380,16 @@ describe("cachedFilesRootDocumentIds", () => {
     queryClient.setQueryData(key("personal", "journal"), rows("monday"));
     queryClient.setQueryData(key("personal", null, "page-2"), rows("later"));
     queryClient.setQueryData(key("archive", null), { available: false });
+    queryClient.setQueryData(
+      filesNavigationQueryKey(
+        filesNavigationPageParams({
+          databaseId: "personal",
+          parentId: null,
+          pagesOnly: true,
+        }),
+      ),
+      rows("journal", "draft"),
+    );
 
     expect(cachedFilesRootDocumentIds(queryClient, "draft")).toEqual([
       "journal",
@@ -381,6 +418,51 @@ describe("cachedFilesRootDocumentIds", () => {
     expect(cachedFilesRootDocumentIds(queryClient, "readme")).toEqual([
       "readme",
     ]);
+  });
+});
+
+describe("cachedFilesSiblingDocumentIds", () => {
+  it("lists the other pages of each cached tree read that lists the page", () => {
+    const queryClient = new QueryClient();
+    const notes = "local-source-directory:vault:notes";
+    const key = (
+      parentId: string | null,
+      extra: { cursor?: string; pagesOnly?: boolean } = {},
+    ) =>
+      filesNavigationQueryKey(
+        filesNavigationPageParams({ databaseId: FILES, parentId, ...extra }),
+      );
+    queryClient.setQueryData(
+      key(notes),
+      page([
+        row("local-source-directory:vault:notes%2Fold", {
+          type: "folder",
+          sourceKind: "folder",
+        }),
+        row("today"),
+        row("yesterday"),
+      ]),
+    );
+    queryClient.setQueryData(
+      key(notes, { cursor: "next" }),
+      page([row("later")]),
+    );
+    queryClient.setQueryData(
+      key(null),
+      page([
+        row(notes, { type: "folder", sourceKind: "folder" }),
+        row("inbox"),
+      ]),
+    );
+    queryClient.setQueryData(
+      key(null, { pagesOnly: true }),
+      page([row("inbox"), row("picker-only")]),
+    );
+
+    expect(cachedFilesSiblingDocumentIds(queryClient, "today")).toEqual([
+      "yesterday",
+    ]);
+    expect(cachedFilesSiblingDocumentIds(queryClient, "inbox")).toEqual([]);
   });
 });
 

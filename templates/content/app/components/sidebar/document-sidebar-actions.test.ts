@@ -154,6 +154,28 @@ describe("the remaining page after a delete", () => {
     ).toBe("inbox");
   });
 
+  it("opens a page beside the deleted one in its linked folder before a top-level row", () => {
+    const folderPath = [
+      { id: "local-source-directory:vault:notes", parentId: null },
+      { id: "today", parentId: "local-source-directory:vault:notes" },
+    ];
+    expect(
+      remainingPageAfterDelete("today", {
+        activePath: folderPath,
+        siblingDocumentIds: ["today", "yesterday"],
+        filesRootDocumentIds: ["inbox"],
+      }),
+    ).toBe("yesterday");
+    expect(
+      remainingPageAfterDelete("today", {
+        activePath: folderPath,
+        siblingDocumentIds: ["yesterday"],
+        filesRootDocumentIds: ["inbox"],
+        pendingTrashIds: new Set(["yesterday"]),
+      }),
+    ).toBe("inbox");
+  });
+
   it("knows no remaining page without a parent or another top-level row", () => {
     expect(
       remainingPageAfterDelete("projects", {

@@ -43,6 +43,7 @@ export function remainingPageAfterDelete(
   deletedId: string,
   {
     activePath,
+    siblingDocumentIds = [],
     filesRootDocumentIds,
     pendingTrashIds = new Set(),
   }: {
@@ -51,6 +52,7 @@ export function remainingPageAfterDelete(
       parentId: string | null;
       canView?: boolean;
     }[];
+    siblingDocumentIds?: readonly string[];
     filesRootDocumentIds: readonly string[];
     pendingTrashIds?: ReadonlySet<string>;
   },
@@ -65,11 +67,14 @@ export function remainingPageAfterDelete(
   ) {
     return parent.id;
   }
+  const remains = (documentId: string) =>
+    documentId !== deletedId && !pendingTrashIds.has(documentId);
   return (
-    filesRootDocumentIds.find(
-      (documentId) =>
-        documentId !== deletedId && !pendingTrashIds.has(documentId),
-    ) ?? null
+    (parentId && isLocalSourceDirectoryId(parentId)
+      ? siblingDocumentIds.find(remains)
+      : undefined) ??
+    filesRootDocumentIds.find(remains) ??
+    null
   );
 }
 

@@ -533,7 +533,8 @@ export function cachedFilesRootDocumentIds(
           | undefined;
         return (
           params?.navigation?.parentId === null &&
-          params.navigation.cursor === undefined
+          params.navigation.cursor === undefined &&
+          params.navigation.pagesOnly !== true
         );
       },
     })
@@ -552,6 +553,37 @@ export function cachedFilesRootDocumentIds(
   ].flat();
 }
 
+export function cachedFilesSiblingDocumentIds(
+  queryClient: Pick<QueryClient, "getQueriesData">,
+  documentId: string,
+): string[] {
+  const siblings = queryClient
+    .getQueriesData<FilesNavigationRead>({
+      queryKey: ["action", "query-content-database-items"],
+      predicate: ({ queryKey }) => {
+        const params = queryKey[2] as
+          | Partial<FilesNavigationPageParams>
+          | undefined;
+        return (
+          params?.navigation !== undefined &&
+          params.navigation.pagesOnly !== true
+        );
+      },
+    })
+    .flatMap(([, data]) =>
+      data &&
+      !("available" in data) &&
+      data.items.some((item) => item.documentId === documentId)
+        ? data.items.flatMap((item) =>
+            item.type === "folder" || item.documentId === documentId
+              ? []
+              : [item.documentId],
+          )
+        : [],
+    );
+  return [...new Set(siblings)];
+}
+
 /**
  * Reads one Files page and asks for any expanded folders that do not have a
  * cached page yet, so opening a cached root can still load its new branches.
@@ -562,7 +594,8 @@ export async function readFilesNavigationPage(
   expanded: Iterable<string>,
   signal?: AbortSignal,
 ): Promise<FilesNavigationRead> {
-  const expand = [...expanded]
+  const pagesOnly = params.navigation.pagesOnly === true;
+  const expand = [...(pagesOnly ? [] : expanded)]
     .filter((parentId) => {
       const key = filesNavigationQueryKey(
         filesNavigationPageParams({
@@ -630,7 +663,9 @@ export async function readFilesNavigationPage(
         );
       }
     }
-    return withCreatedFilesRows(queryClient, params, page, readStartMark);
+    return pagesOnly
+      ? page
+      : withCreatedFilesRows(queryClient, params, page, readStartMark);
   } catch (error) {
     // The server checks access to the whole Files database for every page of
     // it, and answers a folder it can't show with a 400. So a refused read of

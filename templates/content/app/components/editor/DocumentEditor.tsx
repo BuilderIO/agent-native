@@ -178,7 +178,10 @@ import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
-import { cachedFilesRootDocumentIds } from "@/lib/files-navigation";
+import {
+  cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
+} from "@/lib/files-navigation";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
 import {
@@ -3745,6 +3748,10 @@ function PageEditorSessionBody({
         ? null
         : remainingPageAfterDelete(documentId, {
             activePath: navigationPath,
+            siblingDocumentIds: cachedFilesSiblingDocumentIds(
+              queryClient,
+              documentId,
+            ),
             filesRootDocumentIds: cachedFilesRootDocumentIds(
               queryClient,
               documentId,

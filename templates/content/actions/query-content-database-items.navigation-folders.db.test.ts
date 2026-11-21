@@ -282,13 +282,14 @@ describe("Files navigation of linked local folders", () => {
     const root = await navigate(FILES, { parentId: null });
 
     expect(shown(root.items)).toEqual([
-      "[daily notes]",
       "[archive]",
+      "[daily notes]",
       "[daily notes]",
       "plain-page",
       "readme",
     ]);
-    expect(root.items[0]).toEqual({
+    expect(root.items[0]?.documentId).toBe(folder("vault", "archive"));
+    expect(root.items[1]).toEqual({
       membershipId: folder("handbook", "daily-notes"),
       membershipPosition: 0,
       documentId: folder("handbook", "daily-notes"),
@@ -305,13 +306,13 @@ describe("Files navigation of linked local folders", () => {
       createdAt: TIMESTAMP,
       updatedAt: TIMESTAMP,
     });
-    expect(root.items[1]?.documentId).toBe(folder("vault", "archive"));
     expect(root.items[2]?.documentId).toBe(folder("vault", "daily-notes"));
     expect(root.pagination).toEqual({
       limit: 20,
       hasMore: false,
       nextCursor: null,
     });
+    expect(await readWholeBranch(FILES, null, 1)).toEqual(root.items);
   });
 
   it("opens a folder to its subfolders and its own files, at any depth", async () => {

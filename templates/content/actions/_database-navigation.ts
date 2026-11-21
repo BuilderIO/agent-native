@@ -1503,9 +1503,9 @@ export async function getContentDatabaseNavigationPage(args: {
       .where(folderPages(level))}) as navigation_folder_entry`;
   const folderRoot = sql<string>`navigation_folder_entry.root_path`;
   const folderName = sql<string>`navigation_folder_entry.name`;
-  const folderKey = sql`(${folderRoot}, ${folderName})`;
+  const folderKey = sql`(${folderName}, ${folderRoot})`;
   const folderKeyOf = ([rootPath, name]: [string, string]) =>
-    sql`(${rootPath}::text, ${name}::text)`;
+    sql`(${name}::text, ${rootPath}::text)`;
   const folderCreatedAt = sql<string>`min(navigation_folder_entry.created_at)`;
   const folderUpdatedAt = sql<string>`max(navigation_folder_entry.updated_at)`;
   const folderHash = sql`hashtextextended(concat_ws('|', ${folderRoot}, ${folderName}, ${folderCreatedAt}::text, ${folderUpdatedAt}::text), 0)`;
@@ -1525,7 +1525,7 @@ export async function getContentDatabaseNavigationPage(args: {
       .from(folderEntries(level))
       .where(after ? sql`${folderKey} > ${folderKeyOf(after)}` : undefined)
       .groupBy(folderRoot, folderName)
-      .orderBy(asc(folderRoot), asc(folderName))
+      .orderBy(asc(folderName), asc(folderRoot))
       .limit(take);
   const folderRevision = (
     level: FolderLevel,

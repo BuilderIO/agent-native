@@ -2,6 +2,7 @@
 
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { ContentNavigationContext, Document } from "@shared/api";
+import { localSourceDirectoryId } from "@shared/local-source-directory";
 import {
   QueryClient,
   QueryClientProvider,
@@ -474,6 +475,38 @@ describe("Trash writes", () => {
         ...trashLists,
       ].sort(),
     );
+  });
+
+  it("delete of a linked folder's last file refreshes every folder above it, up to the top level", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const folderReads: Array<[string, QueryKey, unknown]> = [
+      ["top", navigation(FILES, null), branch(a, "other")],
+      ["a", navigation(FILES, a), branch(ab)],
+      ["ab", navigation(FILES, ab), branch("only")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ];
+    const fetched: string[] = [];
+    for (const [name, key, data] of folderReads) {
+      queryClient.setQueryData(key, data);
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          fetched.push(name);
+          return data;
+        },
+        staleTime: Infinity,
+        retry: false,
+      });
+      unsubscribes.push(observer.subscribe(() => {}));
+    }
+    actionResponses["delete-document"] = { success: true, deleted: 1 };
+    const remove = await renderHook(() => useDeleteDocument());
+
+    await act(() => remove.current.mutateAsync({ id: "only" }));
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["a", "ab", "top"]);
   });
 
   it("delete refreshes the open parent's path when only a cached path knows the parent", async () => {

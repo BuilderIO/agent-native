@@ -1,6 +1,12 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { ContentDatabaseNavigationPageResponse } from "@shared/api";
 import {
+  isLocalSourceDirectoryId,
+  localSourceDirectoryId,
+  parentLocalSourceDirectory,
+  parseLocalSourceDirectoryId,
+} from "@shared/local-source-directory";
+import {
   matchQuery,
   useQueryClient,
   type Query,
@@ -253,6 +259,22 @@ export function contentNavigationContextInDatabaseFilter(
  * the Files page and its table views. Their Parent column follows every page's
  * placement, which the sidebar's paged branches do not cover.
  */
+export function contentLocalFolderBranchesFilter(
+  databaseId: string,
+): QueryFilters {
+  return {
+    queryKey: navigationQueryKey,
+    predicate: (query) => {
+      const branch = navigationBranch(query);
+      return (
+        branch?.databaseId === databaseId &&
+        typeof branch.parentId === "string" &&
+        isLocalSourceDirectoryId(branch.parentId)
+      );
+    },
+  };
+}
+
 export function contentFilesCollectionFilter(): QueryFilters {
   return {
     queryKey: ["action"],
@@ -327,6 +349,20 @@ export function contentRowTargets(
   ];
 }
 
+function withFolderAncestors(ids: readonly string[]): string[] {
+  const all = new Set(ids);
+  for (const id of ids) {
+    for (
+      let folder = parseLocalSourceDirectoryId(id);
+      folder;
+      folder = parentLocalSourceDirectory(folder)
+    ) {
+      all.add(localSourceDirectoryId(folder));
+    }
+  }
+  return [...all];
+}
+
 /**
  * Targets for a write that adds, removes, or reparents pages: every loaded
  * page of the branches that list them now, the children of each destination
@@ -351,10 +387,10 @@ export function contentPlacementTargets(
   const currentDatabaseId = current.find(
     (branch) => typeof branch.databaseId === "string",
   )?.databaseId as string | undefined;
-  const parents = [
+  const parents = withFolderAncestors([
     ...cachedParents(queryClient, documentIds, current),
     ...parentIds.filter((id): id is string => id !== null),
-  ];
+  ]);
   return [
     contentNavigationBranchFilter({
       documentIds: [...documentIds, ...parents],
