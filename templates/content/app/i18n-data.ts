@@ -1646,6 +1646,7 @@ const enUS = {
       insertBelow: "Insert block below",
       insertAbove: "Insert block above",
       turnIntoCollection: "Turn into collection",
+      turnIntoTable: "Turn into table",
       askAgent: "Ask agent",
       columns: "Columns",
       syncedBlock: "Synced block",
@@ -1808,6 +1809,15 @@ const enUS = {
       "A collection can take a table of up to 500 rows and 50 columns.",
     tableTextTooLongForCollection:
       "In a collection, a row’s name (the table’s first column) can be up to 500 characters, and other cells up to 20,000. Shorten the long cells and try again.",
+    turningIntoTable: "Turning the collection into a table...",
+    turnedIntoTable: "Collection turned into a table",
+    failedToTurnIntoTable: "Couldn’t turn the collection into a table",
+    collectionChangedWhileTurning:
+      "The collection changed while it was turning into a table, so it was left as it is. Try again.",
+    collectionTooBigForTable:
+      "A table can take a view of up to 500 rows and 50 columns. Filter the view or hide some properties, then try again.",
+    collectionStillLoading:
+      "The collection is still loading. Try again in a moment.",
     failedToCreatePage: "Failed to create page",
     generateWithAi: "Generate with AI",
     dropMedia: "Drop media",

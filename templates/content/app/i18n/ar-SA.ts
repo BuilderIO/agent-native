@@ -721,6 +721,7 @@ const editor = {
     insertBelow: "إدراج كتلة أدناه",
     insertAbove: "إدراج كتلة أعلاه",
     turnIntoCollection: "تحويل إلى مجموعة",
+    turnIntoTable: "تحويل إلى جدول",
     askAgent: "اسأل الوكيل",
     columns: "أعمدة",
     syncedBlock: "كتلة متزامنة",
@@ -785,6 +786,15 @@ const editor = {
     "يمكن للمجموعة أن تأخذ جدولًا يصل إلى 500 صف و50 عمودًا.",
   tableTextTooLongForCollection:
     "في المجموعة، يمكن أن يصل اسم الصف (العمود الأول من الجدول) إلى 500 حرف، والخلايا الأخرى إلى 20,000 حرف. اختصر الخلايا الطويلة وحاول مرة أخرى.",
+  turningIntoTable: "جارٍ تحويل المجموعة إلى جدول...",
+  turnedIntoTable: "تم تحويل المجموعة إلى جدول",
+  failedToTurnIntoTable: "تعذّر تحويل المجموعة إلى جدول",
+  collectionChangedWhileTurning:
+    "تغيّرت المجموعة أثناء تحويلها إلى جدول، لذا تُركت كما هي. حاول مرة أخرى.",
+  collectionTooBigForTable:
+    "يمكن للجدول أن يأخذ عرضًا يصل إلى 500 صف و50 عمودًا. صفِّ العرض أو أخفِ بعض الخصائص، ثم حاول مرة أخرى.",
+  collectionStillLoading:
+    "لا تزال المجموعة قيد التحميل. حاول مرة أخرى بعد لحظة.",
   generateWithAi: "إنشاء باستخدام الذكاء الاصطناعي",
   untitledDatabase: "مجموعة بدون عنوان",
   media: {

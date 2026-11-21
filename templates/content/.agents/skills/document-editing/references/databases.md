@@ -426,6 +426,20 @@ cell per property. The editor then puts the new inline collection block where
 the table was, in one step that one undo takes back; undoing it leaves the
 collection unlinked, so the page's next save moves it to Trash.
 
+An inline collection's block menu offers the reverse, "Turn into table". It
+reads the rows its current view shows, in that order with its filters and
+search, as text: a "Name" column with each row's title, then one column per
+property the view shows. It puts a plain table where the block was, in one
+undoable step, and the page's next save moves the collection to Trash. A view
+with more than 500 rows or 49 properties stays a collection. An agent does the
+same with `export-document` (format `csv`) or `get-content-database`, then
+`edit-document`.
+
+A save whose body brings back a removed inline collection's block (same block
+ID, same `databaseId`) takes that collection back out of Trash, if it went
+there because a save dropped its block. A collection deleted on purpose, whose
+page is in Trash, stays there; restore it with `restore-content-database`.
+
 Read `get-content-database.mutationContract` immediately before a single-row
 mutation. Pass its exact target and schema revision to create, exact item and
 document IDs plus the current row revision to sparse update, and a fresh

@@ -756,6 +756,7 @@ const editor = {
     insertBelow: "Block darunter einfügen",
     insertAbove: "Block darüber einfügen",
     turnIntoCollection: "In Sammlung umwandeln",
+    turnIntoTable: "In Tabelle umwandeln",
     askAgent: "Agent fragen",
     columns: "Spalten",
     syncedBlock: "Synchronisierter Block",
@@ -829,6 +830,16 @@ const editor = {
     "Eine Sammlung kann eine Tabelle mit bis zu 500 Zeilen und 50 Spalten aufnehmen.",
   tableTextTooLongForCollection:
     "In einer Sammlung darf der Name einer Zeile (die erste Spalte der Tabelle) bis zu 500 Zeichen lang sein, andere Zellen bis zu 20.000. Kürze die langen Zellen und versuche es erneut.",
+  turningIntoTable: "Sammlung wird in eine Tabelle umgewandelt...",
+  turnedIntoTable: "Sammlung in eine Tabelle umgewandelt",
+  failedToTurnIntoTable:
+    "Die Sammlung konnte nicht in eine Tabelle umgewandelt werden",
+  collectionChangedWhileTurning:
+    "Die Sammlung hat sich während der Umwandlung geändert und bleibt daher, wie sie ist. Versuche es erneut.",
+  collectionTooBigForTable:
+    "Eine Tabelle kann eine Ansicht mit bis zu 500 Zeilen und 50 Spalten aufnehmen. Filtere die Ansicht oder blende einige Eigenschaften aus und versuche es erneut.",
+  collectionStillLoading:
+    "Die Sammlung wird noch geladen. Versuche es gleich noch einmal.",
   generateWithAi: "Generieren Sie mit KI",
   untitledDatabase: "Unbenannte Sammlung",
   media: {

@@ -339,6 +339,57 @@ test.describe("inline table controls", () => {
     await expect.poll(savedContent).not.toContain("<InlineDatabase");
   });
 
+  test("a collection's block menu turns it into a table of its view, and one undo brings the collection back", async ({
+    page,
+  }) => {
+    const id = await openTablePage(page, "Collection to table");
+    const savedContent = async () => (await getDocument(page, id)).content;
+
+    await cell(page, "Alpha").hover();
+    await page.locator(GRIP).click();
+    await page
+      .getByRole("menu", { name: "Block actions" })
+      .getByRole("menuitem", { name: "Turn into collection" })
+      .click();
+    await expect(page.locator(`${EDITOR} .tableWrapper`)).toHaveCount(0);
+    await expect(page.getByText("Draft", { exact: true })).toBeVisible();
+    await expect.poll(savedContent).toContain("<InlineDatabase");
+
+    await page.getByText("Draft", { exact: true }).hover();
+    await page.locator(GRIP).click();
+    await page
+      .getByRole("menu", { name: "Block actions" })
+      .getByRole("menuitem", { name: "Turn into table" })
+      .click();
+    await expect(
+      page.getByText("Collection turned into a table"),
+    ).toBeVisible();
+    await expect
+      .poll(() => cellTexts(page, "th"))
+      .toEqual(["Name", "State", "Notes"]);
+    await expect
+      .poll(() => cellTexts(page, "td"))
+      .toEqual(["Alpha", "Draft", "First", "Beta", "Ready", "Second"]);
+    await expect.poll(() => savedTableRows(page, id)).toBe(3);
+    await expect.poll(savedContent).not.toContain("<InlineDatabase");
+    const content = await savedContent();
+    expect(content.indexOf("Before the table.")).toBeLessThan(
+      content.indexOf("Alpha"),
+    );
+    expect(content.indexOf("Second")).toBeLessThan(
+      content.indexOf("After the table."),
+    );
+
+    await page.getByText("Before the table.").click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(page.locator(`${EDITOR} .tableWrapper`)).toHaveCount(0);
+    await expect.poll(savedContent).toContain("<InlineDatabase");
+    await expect(page.getByText("Draft", { exact: true })).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText("Collection unavailable")).toHaveCount(0);
+  });
+
   test("the table's block menu sets its headers and width, and they are saved", async ({
     page,
   }) => {

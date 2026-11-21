@@ -442,6 +442,7 @@ const overrides = {
       insertBelow: "在下方插入區塊",
       insertAbove: "在上方插入區塊",
       turnIntoCollection: "轉換為集合",
+      turnIntoTable: "轉換為表格",
       askAgent: "詢問代理",
       columns: "分欄",
       syncedBlock: "同步區塊",
@@ -582,6 +583,14 @@ const overrides = {
     tableTooBigForCollection: "集合最多可容納 500 列、50 欄的表格。",
     tableTextTooLongForCollection:
       "在集合中，列名稱（表格的第一欄）最多 500 個字元，其他儲存格最多 20,000 個字元。請縮短過長的儲存格後再試一次。",
+    turningIntoTable: "正在將集合轉換為表格...",
+    turnedIntoTable: "已將集合轉換為表格",
+    failedToTurnIntoTable: "無法將集合轉換為表格",
+    collectionChangedWhileTurning:
+      "轉換期間集合有所變更，因此保持原樣。請再試一次。",
+    collectionTooBigForTable:
+      "表格最多可容納 500 列、50 欄的檢視。請篩選檢視或隱藏部分屬性後再試一次。",
+    collectionStillLoading: "集合仍在載入中。請稍後再試一次。",
     failedToCreatePage: "建立頁面失敗",
     generateWithAi: "用人工智慧生成",
     dropMedia: "拖放媒體",
