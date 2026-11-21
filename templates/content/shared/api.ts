@@ -2031,6 +2031,7 @@ export interface PreviewBuilderSourceReviewResponse {
   documentIds?: string[];
   remainingDocumentIds?: string[];
   blocksCheckDocumentIds?: string[];
+  timings?: BuilderActionTiming[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
