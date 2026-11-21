@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
 import { resolveRecordingKind } from "@shared/recording-kind";
@@ -50,6 +50,7 @@ import { profileNameFor } from "../server/lib/user-identities.js";
 import {
   isDefaultLibraryFilter,
   readLibraryFilter,
+  unreadLibraryFilterParts,
   withLibrarySource,
 } from "../shared/library-filters.js";
 import { transcriptHasTextSql } from "./lib/transcript-text.js";
@@ -232,6 +233,13 @@ export default defineAction({
   schema: listRecordingsSchema,
   http: { method: "GET" },
   run: async (args, ctx) => {
+    const unread = unreadLibraryFilterParts(args.filters ?? "");
+    if (unread.length > 0) {
+      fail(
+        `Library's filter can't read ${unread.join(", ")}. Each rule is r=field:operator:values, with the fields and values the filters argument lists.`,
+        { errorCode: "invalid_filters", details: { unread } },
+      );
+    }
     const db = getDb();
     const libraryFilter =
       args.view === "library" && args.folderId == null
@@ -326,9 +334,6 @@ export default defineAction({
       if (args.folderId !== undefined && args.folderId !== null) {
         whereClauses.push(eq(schema.recordings.folderId, args.folderId));
       } else if (!libraryFilter || isDefaultLibraryFilter(libraryFilter)) {
-        // Library's own list sits beside its folder cards. A filter hides
-        // the cards, so it looks inside every folder instead, and the
-        // choices offered here count what it would find there.
         if (filterInMemory) listWithin = isNull(schema.recordings.folderId);
         else whereClauses.push(isNull(schema.recordings.folderId));
       }

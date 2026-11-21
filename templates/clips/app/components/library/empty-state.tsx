@@ -85,7 +85,6 @@ interface EmptyStateProps {
   spaceId?: string | null;
   folderId?: string | null;
   onCtaClick?: () => void;
-  /** Shown under the empty state's own actions. */
   extra?: ReactNode;
 }
 

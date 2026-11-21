@@ -1,9 +1,11 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   navigationIntentSchema,
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { z } from "zod";
+
+import { unreadLibraryFilterParts } from "../shared/library-filters.js";
 
 const Views = [
   "library",
@@ -117,7 +119,16 @@ export default defineAction({
     if (args.folderId) nav.folderId = args.folderId;
     if (args.shareId) nav.shareId = args.shareId;
     if (args.search) nav.search = args.search;
-    if (args.filters) nav.filters = args.filters;
+    if (args.filters) {
+      const unread = unreadLibraryFilterParts(args.filters);
+      if (unread.length > 0) {
+        fail(
+          `Library's filter can't read ${unread.join(", ")}. See list-recordings' filters for the fields and values.`,
+          { errorCode: "invalid_filters", details: { unread } },
+        );
+      }
+      nav.filters = args.filters;
+    }
     if (args.panel) nav.panel = args.panel;
     if (args.atMs != null) nav.atMs = args.atMs;
     if (path) nav.path = path;

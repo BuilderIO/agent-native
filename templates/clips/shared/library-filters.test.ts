@@ -9,6 +9,7 @@ import {
   libraryFilterQuery,
   libraryLength,
   readLibraryFilter,
+  unreadLibraryFilterParts,
   withLibrarySource,
   type LibraryFilterRow,
 } from "./library-filters";
@@ -139,6 +140,25 @@ describe("Library filter", () => {
     expect(result.counts.options.source).toEqual({ clips: 3, content: 1 });
     expect(result.counts.hiddenByPinned).toBe(1);
     expect(result.tags).toEqual(["bug", "demo"]);
+  });
+
+  it("names the parts of a filter it can't read", () => {
+    expect(
+      unreadLibraryFilterParts(
+        "source=all&match=any&r=madeBy:equals:agent&g=1:any&r=1/tag:contains:bug",
+      ),
+    ).toEqual([]);
+    expect(
+      unreadLibraryFilterParts(
+        "source=elsewhere&match=or&r=transcript:is_chekced&r=madeBy:equals:&r=2/tag:contains:bug",
+      ),
+    ).toEqual([
+      "source=elsewhere",
+      "match=or",
+      "r=transcript:is_chekced",
+      "r=madeBy:equals:",
+      "r=2/tag:contains:bug",
+    ]);
   });
 
   it("buckets lengths at 1, 5 and 20 minutes", () => {

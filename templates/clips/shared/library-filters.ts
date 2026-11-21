@@ -197,13 +197,35 @@ export function readLibraryFilter(search: string): FilterState {
   return readFilterParams(search, SERVER_FIELDS);
 }
 
-/**
- * The Library's own view: recordings made in Clips, no rules. Library shows
- * folder cards beside it; any other filter hides them and looks inside every
- * folder instead.
- */
 export function isDefaultLibraryFilter(state: FilterState): boolean {
   return isDefaultFilterState(state, SERVER_FIELDS);
+}
+
+export function unreadLibraryFilterParts(search: string): string[] {
+  const params = new URLSearchParams(search);
+  const unread: string[] = [];
+  const source = params.get(LIBRARY_SOURCE_FIELD);
+  if (
+    source !== null &&
+    source !== "all" &&
+    !source
+      .split(",")
+      .every((value) => LIBRARY_SOURCES.some((known) => known === value))
+  ) {
+    unread.push(`${LIBRARY_SOURCE_FIELD}=${source}`);
+  }
+  const match = params.get("match");
+  if (match !== null && match !== "any" && match !== "all") {
+    unread.push(`match=${match}`);
+  }
+  const groups = params.getAll("g").map((raw): [string, string] => ["g", raw]);
+  for (const raw of params.getAll("r")) {
+    const rule = new URLSearchParams([...groups, ["r", raw]]);
+    if (readLibraryFilter(rule.toString()).items.length === 0) {
+      unread.push(`r=${raw}`);
+    }
+  }
+  return unread;
 }
 
 export function libraryFilterQuery(search: string): string {
@@ -233,12 +255,6 @@ export interface LibraryFilterResult {
   tags: string[];
 }
 
-/**
- * `listed` narrows the list and its count but not the choices: the option
- * counts, the tags and the hidden count still read every row. Library's own
- * view lists what's outside folders, while a filter picked from it looks
- * inside them too, so its choices have to count those.
- */
 export function evaluateLibraryFilter(
   rows: readonly LibraryFilterRow[],
   state: FilterState,

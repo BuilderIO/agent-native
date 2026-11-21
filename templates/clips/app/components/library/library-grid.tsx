@@ -853,8 +853,6 @@ export function LibraryGrid({
                     }
                   />
                 ) : (
-                  // Library's own view with nothing recorded in Clips: its usual
-                  // empty state, plus a way to the Content uploads it hides.
                   <EmptyState
                     kind={resolvedEmptyKind}
                     spaceId={spaceId}

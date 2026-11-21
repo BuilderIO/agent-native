@@ -634,6 +634,18 @@ describe("list-recordings Library source", () => {
     },
   );
 
+  it("refuses a filter with a rule it can't read", async () => {
+    await expect(
+      action.run(
+        action.schema.parse({
+          view: "library",
+          filters: "r=transcript:is_chekced",
+        }),
+      ),
+    ).rejects.toThrow("r=transcript:is_chekced");
+    expect(mockCountWhere).not.toHaveBeenCalled();
+  });
+
   it("counts the default view's choices inside folders too", async () => {
     await action.run(
       action.schema.parse({ view: "library", countOnly: true, filters: "" }),

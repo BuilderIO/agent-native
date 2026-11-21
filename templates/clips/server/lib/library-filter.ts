@@ -64,7 +64,6 @@ export async function filterLibraryRecordings({
   where: (SQL | undefined)[];
   state: FilterState;
   orderBy: SQL[];
-  /** Narrows the list and its count, not the choices (see evaluateLibraryFilter). */
   listWithin?: SQL;
 }): Promise<LibraryFilterResult> {
   // guard:allow-unscoped — both callers, list-recordings and view-screen, put their access filter in `where`.
