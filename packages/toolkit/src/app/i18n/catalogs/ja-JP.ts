@@ -2216,6 +2216,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription":
     "すべてのデバイスに適用されます。",
   "settingsShell.account.appearance": "外観",
+  "settingsShell.account.theme": "カラーモード",
+  "settingsShell.account.themeDescription":
+    "「システム」はコンピューターのライト／ダーク設定に合わせます。",
+  "settingsShell.account.themeSystem": "システム",
+  "settingsShell.account.themeLight": "ライト",
+  "settingsShell.account.themeDark": "ダーク",
   "settingsShell.account.themeFamily": "テーマ",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "アプリのオリジナルカラー",

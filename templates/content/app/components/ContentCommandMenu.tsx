@@ -63,8 +63,6 @@ const COMPACT_MENU_CLASS =
 const WIDE_MENU_CLASS =
   "h-[min(680px,calc(85vh-1rem))] w-[calc(100vw-1rem)] max-w-5xl [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full";
 
-const THEME_PREFERENCE_STORAGE_KEY = "content-theme-preference";
-
 type ThemeOption = "system" | "light" | "dark";
 
 const NEXT_THEME: Record<ThemeOption, ThemeOption> = {
@@ -73,52 +71,16 @@ const NEXT_THEME: Record<ThemeOption, ThemeOption> = {
   dark: "system",
 };
 
-function isThemeOption(value: string | null | undefined): value is ThemeOption {
+function isThemeOption(value: string | undefined): value is ThemeOption {
   return value === "light" || value === "system" || value === "dark";
-}
-
-function readStoredThemePreference(): ThemeOption {
-  if (typeof window === "undefined") return "system";
-
-  try {
-    const storedTheme = window.localStorage.getItem(
-      THEME_PREFERENCE_STORAGE_KEY,
-    );
-    if (storedTheme === "auto") return "system";
-    return isThemeOption(storedTheme) ? storedTheme : "system";
-  } catch {
-    return "system";
-  }
-}
-
-function writeStoredThemePreference(theme: ThemeOption) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, theme);
-    // coercion-ok: blocked storage only loses the saved choice for next visit.
-  } catch {
-    // next-themes still updates the page.
-  }
-}
-
-function nextTheme(theme: ThemeOption): ThemeOption {
-  return NEXT_THEME[theme];
 }
 
 function useThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
-
-  useEffect(() => {
-    setSelectedTheme(readStoredThemePreference());
-  }, [theme]);
+  const selectedTheme: ThemeOption = isThemeOption(theme) ? theme : "system";
 
   const toggle = useCallback(() => {
-    const next = nextTheme(selectedTheme);
-    setSelectedTheme(next);
-    writeStoredThemePreference(next);
-    setTheme(next);
+    setTheme(NEXT_THEME[selectedTheme]);
   }, [selectedTheme, setTheme]);
 
   return { theme: selectedTheme, toggle };

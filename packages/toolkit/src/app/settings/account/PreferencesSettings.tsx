@@ -10,6 +10,7 @@ import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { VoiceChatSettings } from "../VoiceChatSettings.js";
 import { VoiceTranscriptionSection } from "../VoiceTranscriptionSection.js";
 import { ThemeFamilySettings } from "./ThemeFamilySettings.js";
+import { ThemeModeSettings, useThemeMode } from "./ThemeModeSettings.js";
 
 const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 
@@ -22,6 +23,8 @@ export function PreferencesSettings() {
   const hasLocale = useOptionalLocale() !== null;
   const { session, status } = useSession();
   const [clientReady, setClientReady] = useState(false);
+  const { mode: themeMode } = useThemeMode();
+  const canChooseThemeMode = clientReady && themeMode !== null;
   const languageLabel = t("agentChat.settingsShell.interfaceLanguage");
   const canSwitchTheme = canShowThemeFamilySwitcher({
     clientReady,
@@ -54,13 +57,23 @@ export function PreferencesSettings() {
           control={<SchedulingTimezoneField compact />}
         />
       </SettingsGroup>
-      {canSwitchTheme ? (
+      {canChooseThemeMode || canSwitchTheme ? (
         <SettingsGroup id="appearance" title={t(key("appearance"))}>
-          <SettingsRow
-            id="theme-family"
-            label={t(key("themeFamily"))}
-            control={<ThemeFamilySettings />}
-          />
+          {canChooseThemeMode ? (
+            <SettingsRow
+              id="theme"
+              label={t(key("theme"))}
+              description={t(key("themeDescription"))}
+              control={<ThemeModeSettings />}
+            />
+          ) : null}
+          {canSwitchTheme ? (
+            <SettingsRow
+              id="theme-family"
+              label={t(key("themeFamily"))}
+              control={<ThemeFamilySettings />}
+            />
+          ) : null}
         </SettingsGroup>
       ) : null}
       <SettingsGroup id="voice-input" title={t(key("voiceInput"))}>

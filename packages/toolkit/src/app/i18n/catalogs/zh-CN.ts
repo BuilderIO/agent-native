@@ -2048,6 +2048,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "语言和地区",
   "settingsShell.account.languageDescription": "适用于您的所有设备。",
   "settingsShell.account.appearance": "外观",
+  "settingsShell.account.theme": "主题",
+  "settingsShell.account.themeDescription":
+    "“跟随系统”会使用电脑的浅色或深色设置。",
+  "settingsShell.account.themeSystem": "跟随系统",
+  "settingsShell.account.themeLight": "浅色",
+  "settingsShell.account.themeDark": "深色",
   "settingsShell.account.themeFamily": "主题样式",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "原应用配色",

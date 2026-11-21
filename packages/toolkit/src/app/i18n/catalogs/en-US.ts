@@ -2215,6 +2215,12 @@ const messages = {
   "settingsShell.account.languageAndRegion": "Language and region",
   "settingsShell.account.languageDescription": "Applies on all your devices.",
   "settingsShell.account.appearance": "Appearance",
+  "settingsShell.account.theme": "Theme",
+  "settingsShell.account.themeDescription":
+    "System follows your computer's light or dark setting.",
+  "settingsShell.account.themeSystem": "System",
+  "settingsShell.account.themeLight": "Light",
+  "settingsShell.account.themeDark": "Dark",
   "settingsShell.account.themeFamily": "Theme family",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "Original app colors",

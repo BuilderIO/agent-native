@@ -2174,6 +2174,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageAndRegion": "언어 및 지역",
   "settingsShell.account.languageDescription": "모든 기기에 적용됩니다.",
   "settingsShell.account.appearance": "모양",
+  "settingsShell.account.theme": "테마",
+  "settingsShell.account.themeDescription":
+    "'시스템'은 컴퓨터의 라이트 또는 다크 설정을 따릅니다.",
+  "settingsShell.account.themeSystem": "시스템",
+  "settingsShell.account.themeLight": "라이트",
+  "settingsShell.account.themeDark": "다크",
   "settingsShell.account.themeFamily": "테마 스타일",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "앱의 원래 색상",

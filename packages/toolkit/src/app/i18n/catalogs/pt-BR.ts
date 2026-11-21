@@ -2347,6 +2347,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription":
     "Vale para todos os seus dispositivos.",
   "settingsShell.account.appearance": "Aparência",
+  "settingsShell.account.theme": "Tema",
+  "settingsShell.account.themeDescription":
+    '"Sistema" segue a configuração clara ou escura do seu computador.',
+  "settingsShell.account.themeSystem": "Sistema",
+  "settingsShell.account.themeLight": "Claro",
+  "settingsShell.account.themeDark": "Escuro",
   "settingsShell.account.themeFamily": "Família do tema",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "Cores originais do app",

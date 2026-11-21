@@ -44,6 +44,11 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
 
 import { openConsentSettings } from "@agent-native/core/client/consent";
 import { useLocale } from "@agent-native/core/client/i18n";
+import {
+  EMBEDDED_THEME_CHANGE_EVENT,
+  THEME_STORAGE_KEY_ATTRIBUTE,
+  buildEmbeddedThemeUpdate,
+} from "@agent-native/core/client/theme";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
@@ -353,6 +358,57 @@ describe("AppProviders theme storage", () => {
         delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
           .__AGENT_NATIVE_CONFIG__;
       }
+    }
+  });
+
+  async function renderThemeApp() {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    await act(async () => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          sessionBypass
+          themeStorageKey="crm:theme"
+          disableWebMcp
+          enableThemeFamily={false}
+        >
+          <ThemeChoice />
+        </AppProviders>,
+      );
+    });
+  }
+
+  it("shows a host's theme without saving it as the visitor's choice", async () => {
+    window.localStorage.setItem("crm:theme", "system");
+    await renderThemeApp();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(EMBEDDED_THEME_CHANGE_EVENT, {
+          detail: buildEmbeddedThemeUpdate("dark"),
+        }),
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(window.localStorage.getItem("crm:theme")).toBe("system");
+  });
+
+  it("copies the saved choice to the key the early head script reads", async () => {
+    document.documentElement.setAttribute(THEME_STORAGE_KEY_ATTRIBUTE, "theme");
+    window.localStorage.setItem("crm:theme", "dark");
+    window.localStorage.setItem("theme", "system");
+    try {
+      await renderThemeApp();
+      expect(window.localStorage.getItem("theme")).toBe("dark");
+
+      await act(async () => container.querySelector("button")?.click());
+      expect(window.localStorage.getItem("crm:theme")).toBe("light");
+      expect(window.localStorage.getItem("theme")).toBe("light");
+    } finally {
+      document.documentElement.removeAttribute(THEME_STORAGE_KEY_ATTRIBUTE);
     }
   });
 });

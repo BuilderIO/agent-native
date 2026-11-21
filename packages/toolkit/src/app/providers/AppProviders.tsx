@@ -17,6 +17,7 @@ import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboardin
 import { AgentNativeRouteWarmup } from "@agent-native/core/client/route-warmup";
 import {
   EMBEDDED_THEME_CHANGE_EVENT,
+  THEME_STORAGE_KEY_ATTRIBUTE,
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
   themeStorageKeyForApp,
@@ -417,7 +418,26 @@ function readDocumentTitleFallback(): string {
   return normalizeDocumentTitle(metadataTitle, "Agent-Native");
 }
 
-function EmbeddedThemeSync() {
+function readStoredTheme(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+    // coercion-ok: unreadable storage holds no saved choice to keep.
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredTheme(key: string, value: string | null) {
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+    // coercion-ok: blocked storage only loses the saved choice for next visit.
+  } catch {
+    return;
+  }
+}
+
+function EmbeddedThemeSync({ storageKey }: { storageKey: string }) {
   const { setTheme } = useTheme();
 
   useEffect(() => {
@@ -426,7 +446,9 @@ function EmbeddedThemeSync() {
     ) => {
       if (!update) return;
       applyEmbeddedThemeUpdate(document.documentElement, update);
+      const savedChoice = readStoredTheme(storageKey);
       setTheme(update.theme);
+      writeStoredTheme(storageKey, savedChoice);
     };
 
     const onMessage = (event: MessageEvent) => {
@@ -445,7 +467,21 @@ function EmbeddedThemeSync() {
       window.removeEventListener("message", onMessage);
       window.removeEventListener(EMBEDDED_THEME_CHANGE_EVENT, onThemeChange);
     };
-  }, [setTheme]);
+  }, [setTheme, storageKey]);
+
+  return null;
+}
+
+function StartupThemeKeySync({ storageKey }: { storageKey: string }) {
+  const { theme } = useTheme();
+
+  useEffect(() => {
+    const startupKey = document.documentElement.getAttribute(
+      THEME_STORAGE_KEY_ATTRIBUTE,
+    );
+    if (!startupKey || startupKey === storageKey) return;
+    writeStoredTheme(startupKey, readStoredTheme(storageKey));
+  }, [storageKey, theme]);
 
   return null;
 }
@@ -647,7 +683,8 @@ function ProvidersInner({
           disableTransitionOnChange={disableThemeTransitions}
           scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
         >
-          <EmbeddedThemeSync />
+          <EmbeddedThemeSync storageKey={resolvedThemeStorageKey} />
+          <StartupThemeKeySync storageKey={resolvedThemeStorageKey} />
           {content}
         </ThemeProvider>
       ) : (
