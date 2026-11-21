@@ -650,6 +650,26 @@ describe("org handlers", () => {
     expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
   });
 
+  it("reports emailSent false when the email provider suppresses the send", async () => {
+    const email = await import("../server/email.js");
+    vi.mocked(email.isEmailConfigured).mockResolvedValueOnce(true);
+    vi.mocked(email.sendEmail).mockResolvedValueOnce({
+      status: "suppressed",
+      reason: "test-identity",
+    });
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    const result = await createInvitationHandler(
+      makeEvent("/_agent-native/org/invitations", {
+        email: "new@example.test",
+        role: "member",
+      }),
+    );
+
+    expect(result).toMatchObject({ emailSent: false });
+    expect((result as { emailError?: string }).emailError).toBeTruthy();
+  });
+
   it("refuses an admin inviting an admin in the single-invite shape", async () => {
     mockGetOrgContext.mockResolvedValue({
       email: "admin@example.test",

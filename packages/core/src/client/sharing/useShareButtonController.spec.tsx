@@ -205,6 +205,16 @@ describe("useShareButtonController agents", () => {
     controller = undefined;
   });
 
+  it("closes the invite suggestion list when the panel is closed and reopened", async () => {
+    await render();
+    act(() => current().setSuggestionsOpen(true));
+    expect(current().suggestionsOpen).toBe(true);
+
+    act(() => current().handleOpenChange(false));
+    act(() => current().handleOpenChange(true));
+    expect(current().suggestionsOpen).toBe(false);
+  });
+
   it("suggests the org's agents that do not have access yet, filtered by name", async () => {
     await render();
     expect(current().agentSuggestions).toEqual([reviewer, writer]);

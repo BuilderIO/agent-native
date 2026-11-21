@@ -430,6 +430,9 @@ export function useShareButtonController(
   const [shareMessage, setShareMessage] = useState("");
   const [messageOpen, setMessageOpen] = useState(false);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  useEffect(() => {
+    if (!open) setSuggestionsOpen(false);
+  }, [open]);
   const [pendingAdds, setPendingAdds] = useState<ShareButtonShare[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
   const [roleOverrides, setRoleOverrides] = useState<
