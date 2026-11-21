@@ -25,6 +25,7 @@ export {
   assertAccess,
   currentAccess,
   ForbiddenError,
+  TrashedResourceError,
   isResourceAvailable,
   resolveAccessStatus,
   registerHostAccessResolver,

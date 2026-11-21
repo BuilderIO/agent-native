@@ -41,6 +41,26 @@ function findRegistrationByTable(
   return undefined;
 }
 
+/**
+ * Thrown by `assertAccess` when the caller could open the resource but it is
+ * soft-deleted, so "in the trash" stays distinguishable from "no access".
+ * It extends ForbiddenError so existing not-found handling still applies.
+ */
+export class TrashedResourceError extends ForbiddenError {
+  constructor(message: string) {
+    super(message);
+    this.name = "TrashedResourceError";
+  }
+}
+
+function isStamped(
+  reg: ShareableResourceRegistration,
+  resource: Record<string, unknown>,
+) {
+  const column = reg.deletedAtColumn;
+  return column !== undefined && resource[column] != null;
+}
+
 export interface AccessContext {
   transaction?: DbExec;
   userEmail?: string;
@@ -261,7 +281,7 @@ export function accessFilter(
   sharesTable: any,
   rawCtx: AccessContext = currentAccess(),
   minRole: ShareRole = "viewer",
-  options: { includePublic?: boolean } = {},
+  options: { includePublic?: boolean; includeDeleted?: boolean } = {},
 ): SQL {
   const reg = findRegistrationByTable(resourceTable);
   const ctx = resolveRegisteredAccessContext(reg, rawCtx);
@@ -367,7 +387,10 @@ export function accessFilter(
     );
   }
 
-  return or(...clauses) ?? sql`1=0`;
+  const visible = or(...clauses) ?? sql`1=0`;
+  return reg?.deletedAtColumn && !options.includeDeleted
+    ? sql`(${isNull(resourceTable[reg.deletedAtColumn])} and ${visible})`
+    : visible;
 }
 
 function ownerScopeFilter(
@@ -456,6 +479,7 @@ export interface ResolvedAccessProjected {
 
 export interface ResolveAccessOptions {
   skipResourceBody?: boolean;
+  includeDeleted?: boolean;
 }
 
 async function publicAccessRoleForResource(
@@ -579,6 +603,7 @@ function projectedAccessColumns(
   for (const key of [
     ...(reg.availability?.columns ?? []),
     ...(reg.fallbackAccessContext?.columns ?? []),
+    ...(reg.deletedAtColumn ? [reg.deletedAtColumn] : []),
   ]) {
     if (resourceTable[key]) columns[key] = resourceTable[key];
   }
@@ -594,6 +619,7 @@ export function isResourceAvailable(
   reg: ShareableResourceRegistration,
   resource: any,
 ): boolean {
+  if (isStamped(reg, resource)) return false;
   if (!reg.availability) return true;
   if (reg.availability.columns.some((column) => !(column in resource))) {
     return true;
@@ -660,13 +686,13 @@ export async function resolveAccess(
   resourceType: string,
   resourceId: string,
   rawCtx?: AccessContext,
-  options?: { skipResourceBody?: false },
+  options?: { skipResourceBody?: false; includeDeleted?: boolean },
 ): Promise<ResolvedAccess | null>;
 export async function resolveAccess(
   resourceType: string,
   resourceId: string,
   rawCtx: AccessContext | undefined,
-  options: { skipResourceBody: true },
+  options: { skipResourceBody: true; includeDeleted?: boolean },
 ): Promise<ResolvedAccessProjected | null>;
 export async function resolveAccess(
   resourceType: string,
@@ -689,6 +715,8 @@ function inAccessTransaction<T>(
 
 interface LoadedAccess {
   access: ResolvedAccess | null;
+  /** The row is soft-deleted and the caller could otherwise open it. */
+  trashed?: boolean;
   /** The row access was resolved against, kept even when access is denied. */
   resource: any;
   reg: ShareableResourceRegistration;
@@ -726,11 +754,11 @@ async function loadAndResolveAccess(
     options,
   );
   if (!resource) return { access: null, resource: null, reg };
-  return {
-    access: await accessToResource(reg, resourceId, resource, ctx),
-    resource,
-    reg,
-  };
+  const access = await accessToResource(reg, resourceId, resource, ctx);
+  if (!options.includeDeleted && isStamped(reg, resource)) {
+    return { access: null, trashed: access !== null, resource, reg };
+  }
+  return { access, resource, reg };
 }
 
 const RESOLVE_MANY_ROW_CHUNK = 500;
@@ -1096,6 +1124,7 @@ export async function resolveAccessStatus(
   return inAccessTransaction(ctx, async () => {
     const loaded = await loadAndResolveAccess(resourceType, resourceId, ctx, {
       skipResourceBody: true,
+      includeDeleted: true,
     });
     const { resource, reg } = loaded;
     if (!resource) return { state: "missing" };
@@ -1237,14 +1266,14 @@ export async function assertAccess(
   resourceId: string,
   minRole?: ShareRole | "owner",
   ctx?: AccessContext,
-  options?: { skipResourceBody?: false },
+  options?: { skipResourceBody?: false; includeDeleted?: boolean },
 ): Promise<ResolvedAccess>;
 export async function assertAccess(
   resourceType: string,
   resourceId: string,
   minRole: ShareRole | "owner" | undefined,
   ctx: AccessContext | undefined,
-  options: { skipResourceBody: true },
+  options: { skipResourceBody: true; includeDeleted?: boolean },
 ): Promise<ResolvedAccessProjected>;
 export async function assertAccess(
   resourceType: string,
@@ -1253,13 +1282,18 @@ export async function assertAccess(
   ctx: AccessContext = currentAccess(),
   options: ResolveAccessOptions = {},
 ): Promise<ResolvedAccess | ResolvedAccessProjected> {
-  const { access } = await loadAndResolveAccess(
+  const { access, trashed } = await loadAndResolveAccess(
     resourceType,
     resourceId,
     ctx,
     options,
   );
   if (!access) {
+    if (trashed) {
+      throw new TrashedResourceError(
+        `${resourceType} ${resourceId} is in the trash`,
+      );
+    }
     throw new ForbiddenError(`No access to ${resourceType} ${resourceId}`);
   }
   if (ROLE_RANK[access.role] < ROLE_RANK[minRole]) {
