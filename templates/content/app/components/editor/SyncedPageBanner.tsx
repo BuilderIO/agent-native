@@ -9,10 +9,6 @@ import {
 
 import { builderSourceWriteMode } from "./database/builder-source-progress";
 
-/**
- * The one line atop a page that comes from a source: where it comes from, what
- * editing it here does, and a link to it there when the page knows one.
- */
 function SyncedPageLine({
   provider,
   children,
@@ -52,10 +48,6 @@ const BUILDER_EDIT_KEYS = {
   publish_updates: "editor.syncedPageBuilderPublish",
 } as const;
 
-/**
- * The sources a collection row's page comes from, read without its rows.
- * GitHub pages say so on the page itself, so they skip the read.
- */
 function useRowPageSources(document: Document): ContentDatabaseSource[] {
   const membership = document.databaseMembership;
   const read = useContentDatabaseById(
@@ -71,7 +63,6 @@ function useRowPageSources(document: Document): ContentDatabaseSource[] {
   return data?.sources ?? (data?.source ? [data.source] : []);
 }
 
-/** Says a page comes from GitHub, Builder or Notion, and what editing it does. */
 export function SyncedPageBanner({ document }: { document: Document }) {
   const t = useT();
   const sources = useRowPageSources(document);
