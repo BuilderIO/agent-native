@@ -457,6 +457,7 @@ const database = {
   resizeNameColumn: "Redimensionar coluna Nome",
   search: "Buscar",
   saveForEveryone: "Salvar para todos",
+  filterRows: "linhas",
   searchBuilderModels: "Buscar modelos do Builder",
   searchGroupProperties: "Buscar propriedades de grupo",
   searchModels: "Buscar modelos",

@@ -430,6 +430,7 @@ const database = {
   resizeNameColumn: "تغيير حجم عمود الاسم",
   search: "بحث",
   saveForEveryone: "حفظ للجميع",
+  filterRows: "الصفوف",
   searchBuilderModels: "بحث في نماذج Builder",
   searchGroupProperties: "بحث في خصائص المجموعة",
   searchModels: "بحث في النماذج",

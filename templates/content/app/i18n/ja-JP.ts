@@ -453,6 +453,7 @@ const database = {
   resizeNameColumn: "名前列のサイズ変更",
   search: "検索",
   saveForEveryone: "全員に保存",
+  filterRows: "行",
   searchBuilderModels: "Builder モデルを検索",
   searchGroupProperties: "グループプロパティを検索",
   searchModels: "モデルを検索",

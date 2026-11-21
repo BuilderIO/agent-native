@@ -446,6 +446,7 @@ const database = {
   resizeNameColumn: "이름 열 크기 조정",
   search: "검색",
   saveForEveryone: "모두에게 저장",
+  filterRows: "행",
   searchBuilderModels: "Builder 모델 검색",
   searchGroupProperties: "그룹 속성 검색",
   searchModels: "모델 검색",

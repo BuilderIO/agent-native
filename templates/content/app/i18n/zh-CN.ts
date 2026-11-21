@@ -408,6 +408,7 @@ const database = {
   resizeNameColumn: "调整名称列宽",
   search: "搜索",
   saveForEveryone: "为所有人保存",
+  filterRows: "行",
   searchBuilderModels: "搜索 Builder 模型",
   searchGroupProperties: "搜索分组属性",
   searchModels: "搜索模型",

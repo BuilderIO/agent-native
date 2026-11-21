@@ -1849,6 +1849,7 @@ const overrides = {
     rowOptions: "行選項",
     search: "搜尋",
     saveForEveryone: "為所有人儲存",
+    filterRows: "行",
     searchBuilderModels: "搜尋 Builder 模型",
     searchGroupProperties: "搜尋分組屬性",
     searchModels: "搜尋模型",

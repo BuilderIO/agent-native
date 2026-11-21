@@ -426,6 +426,7 @@ const database = {
   resizeNameColumn: "नाम कॉलम का आकार बदलें",
   search: "खोजें",
   saveForEveryone: "सभी के लिए सहेजें",
+  filterRows: "पंक्तियाँ",
   searchBuilderModels: "Builder मॉडल खोजें",
   searchGroupProperties: "समूह प्रॉपर्टीज़ खोजें",
   searchModels: "मॉडल खोजें",

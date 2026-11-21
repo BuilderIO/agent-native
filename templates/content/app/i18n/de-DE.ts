@@ -464,6 +464,7 @@ const database = {
   resizeNameColumn: "Namensspalte anpassen",
   search: "Suchen",
   saveForEveryone: "Für alle speichern",
+  filterRows: "Zeilen",
   searchBuilderModels: "Builder-Modelle suchen",
   searchGroupProperties: "Gruppeneigenschaften suchen",
   searchModels: "Modelle suchen",

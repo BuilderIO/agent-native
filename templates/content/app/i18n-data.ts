@@ -369,6 +369,7 @@ const databaseMessages = {
   rowOptions: "Row options",
   search: "Search",
   saveForEveryone: "Save for everyone",
+  filterRows: "rows",
   searchBuilderModels: "Search Builder models",
   searchGroupProperties: "Search group properties",
   searchModels: "Search models",
