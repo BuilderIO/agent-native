@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   listOAuthAccountsByOwner: vi.fn(),
   resolveOAuthTokenBundleAccess: vi.fn(),
   listWorkspaceConnections: vi.fn(),
+  getWorkspaceConnectionGrant: vi.fn(),
   resolveWorkspaceConnectionForApp: vi.fn(),
   upsertWorkspaceConnection: vi.fn(),
   upsertWorkspaceConnectionGrant: vi.fn(),
@@ -39,13 +40,18 @@ vi.mock("../oauth-tokens/index.js", async (original) => ({
 vi.mock("../workspace-connections/store.js", async (original) => ({
   ...(await original<typeof import("../workspace-connections/store.js")>()),
   listWorkspaceConnections: mocks.listWorkspaceConnections,
+  getWorkspaceConnectionGrant: mocks.getWorkspaceConnectionGrant,
   resolveWorkspaceConnectionForApp: mocks.resolveWorkspaceConnectionForApp,
   upsertWorkspaceConnection: mocks.upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant: mocks.upsertWorkspaceConnectionGrant,
 }));
 
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
-import { resolveProviderApiOAuthAccessToken } from "../provider-api/index.js";
+import {
+  createProviderApiRuntime,
+  resolveProviderApiOAuthAccessToken,
+  type ProviderApiCredentialResolver,
+} from "../provider-api/index.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import { encodeOAuthState } from "./google-oauth.js";
 import {
@@ -82,6 +88,7 @@ beforeEach(() => {
   mocks.getOrgContext.mockResolvedValue({ email, orgId, role: "member" });
   mocks.resolveSecret.mockResolvedValue("synthetic-client-config");
   mocks.listWorkspaceConnections.mockResolvedValue([]);
+  mocks.getWorkspaceConnectionGrant.mockResolvedValue(null);
   mocks.upsertWorkspaceConnection.mockResolvedValue({
     id: "fixture-connection",
   });
@@ -203,9 +210,13 @@ describe("workspace OAuth consent", () => {
     expect(zoom.searchParams.get("optional_scope")).toBe(zoomScopes[2]);
   });
 
-  it.each([{ allowedApps: [] }, { allowedApps: ["mail"] }])(
-    "reuses the Slack connection and preserves allowedApps (%j)",
-    async ({ allowedApps }) => {
+  it.each([
+    { allowedApps: [], explicitGrant: false },
+    { allowedApps: [appId], explicitGrant: false },
+    { allowedApps: ["mail"], explicitGrant: true },
+  ])(
+    "reuses the Slack connection and preserves an app's existing access (%j)",
+    async ({ allowedApps, explicitGrant }) => {
       const accountId = scopedOAuthAccountId(
         "slack",
         email,
@@ -219,6 +230,15 @@ describe("workspace OAuth consent", () => {
           allowedUsers: [email],
         },
       ]);
+      if (explicitGrant) {
+        mocks.getWorkspaceConnectionGrant.mockResolvedValue({
+          id: "fixture-grant",
+          appId,
+          connectionId: "fixture-connection",
+          config: { fixturePolicy: true },
+          credentialRefs: [],
+        });
+      }
       fetchMock.mockResolvedValueOnce(Response.json(slackGrant()));
       const result = await handleWorkspaceProviderOAuthCallback(
         callbackEvent("slack", { requestedScopes: slackScopes }),
@@ -243,11 +263,42 @@ describe("workspace OAuth consent", () => {
           scopes: slackScopes,
         }),
       );
-      expect(mocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledTimes(
-        allowedApps.length === 0 ? 1 : 0,
+      expect(mocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId,
+          connectionId: "fixture-connection",
+          scopes: slackScopes,
+          config: expect.objectContaining(
+            explicitGrant
+              ? { fixturePolicy: true }
+              : { personalProviderOAuth: true },
+          ),
+        }),
       );
     },
   );
+
+  it("denies reconnect from an app without access before changing the shared token", async () => {
+    const accountId = scopedOAuthAccountId(
+      "slack",
+      email,
+      JSON.stringify([orgId, JSON.stringify(["T_FIXTURE", "U_FIXTURE"])]),
+    );
+    mocks.listWorkspaceConnections.mockResolvedValue([
+      {
+        id: "fixture-connection",
+        accountId,
+        allowedApps: ["mail"],
+        allowedUsers: [email],
+      },
+    ]);
+    fetchMock.mockResolvedValueOnce(Response.json(slackGrant()));
+    const event = callbackEvent("slack");
+    await handleWorkspaceProviderOAuthCallback(event, "slack");
+    expect(event.res.status).toBe(403);
+    expect(mocks.saveOAuthTokens).not.toHaveBeenCalled();
+    expect(mocks.upsertWorkspaceConnectionGrant).not.toHaveBeenCalled();
+  });
 
   it("exchanges Zoom consent and saves the hosted-recording grant", async () => {
     fetchMock
@@ -384,6 +435,45 @@ describe("workspace OAuth runtime", () => {
     },
   );
 
+  it("keeps ordinary requests on the configured bot credential and rejects unscoped personal requests", async () => {
+    const { connection } = setup("slack");
+    const botCredential = "synthetic-legacy-credential";
+    const resolveCredential = vi.fn<ProviderApiCredentialResolver>(
+      async () => ({
+        key: "SLACK_BOT_TOKEN",
+        value: botCredential,
+        source: "app_local",
+        provider: "slack",
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId,
+      providerIds: ["slack"],
+      getCredentialContext: () => ({ userEmail: email, orgId }),
+      resolveCredential,
+    });
+    fetchMock.mockResolvedValueOnce(Response.json({ ok: true }));
+
+    await runtime.executeRequest({ provider: "slack", path: "/auth.test" });
+    expect(resolveCredential).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "SLACK_BOT_TOKEN" }),
+    );
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("authorization"),
+    ).toBe(`Bearer ${botCredential}`);
+
+    resolveCredential.mockResolvedValueOnce(null);
+    await expect(
+      runtime.executeRequest({
+        provider: "slack",
+        path: "/auth.test",
+        connectionId: connection.id,
+      }),
+    ).rejects.toThrow("requires a selected connection and operation scopes");
+    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("denies wrong user, organization, access scope, operation scope, and revoked grants before reading tokens", async () => {
     const { resolve } = setup("slack");
     await expect(resolve({ userEmail: otherEmail, orgId })).rejects.toThrow();
@@ -394,6 +484,7 @@ describe("workspace OAuth runtime", () => {
       resolve({ userEmail: email, orgId, credentialScope: "org" }),
     ).rejects.toThrow();
     await expect(resolve(undefined, ["search:read.public"])).rejects.toThrow();
+    await expect(resolve(undefined, [])).rejects.toThrow();
     mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
       available: false,
       connection: null,

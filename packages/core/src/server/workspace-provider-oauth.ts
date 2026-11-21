@@ -40,6 +40,8 @@ import {
   writeAppSecret,
 } from "../secrets/storage.js";
 import {
+  getWorkspaceConnectionAppAccess,
+  getWorkspaceConnectionGrant,
   listWorkspaceConnections,
   normalizeOAuthScope,
   upsertWorkspaceConnection,
@@ -782,6 +784,41 @@ export async function handleWorkspaceProviderOAuthCallback(
             ? JSON.stringify([orgId, identity.accountId])
             : identity.accountId,
         );
+        const existing = existingConnections.find(
+          (connection) =>
+            connection.accountId === accountId &&
+            (flow.scope === "user"
+              ? connection.allowedUsers.some(
+                  (allowedUser) =>
+                    allowedUser.toLowerCase() === session.email.toLowerCase(),
+                )
+              : flow.scope === "organization"
+                ? connection.allowedUsers.length === 0 &&
+                  (connection.allowedUserGroups?.length ?? 0) === 0
+                : connection.allowedApps.some(
+                    (allowedApp) =>
+                      allowedApp.toLowerCase() === flow.appId.toLowerCase(),
+                  )),
+        );
+        const existingGrant =
+          personalGrant && existing
+            ? await getWorkspaceConnectionGrant(existing.id, flow.appId)
+            : null;
+        if (
+          personalGrant &&
+          existing &&
+          !getWorkspaceConnectionAppAccess(
+            existing,
+            flow.appId,
+            existingGrant ? [existingGrant] : [],
+          ).available
+        ) {
+          return oauthFlowFailure(
+            event,
+            403,
+            "Grant this app access before reconnecting this account.",
+          );
+        }
         try {
           const previousTokens =
             googleGrant && !googleGrant.explicitScope
@@ -813,22 +850,6 @@ export async function handleWorkspaceProviderOAuthCallback(
           provider.oauth!.provider,
           accountId,
           identity.label,
-        );
-        const existing = existingConnections.find(
-          (connection) =>
-            connection.accountId === accountId &&
-            (flow.scope === "user"
-              ? connection.allowedUsers.some(
-                  (allowedUser) =>
-                    allowedUser.toLowerCase() === session.email.toLowerCase(),
-                )
-              : flow.scope === "organization"
-                ? connection.allowedUsers.length === 0 &&
-                  (connection.allowedUserGroups?.length ?? 0) === 0
-                : connection.allowedApps.some(
-                    (allowedApp) =>
-                      allowedApp.toLowerCase() === flow.appId.toLowerCase(),
-                  )),
         );
         const scopes =
           googleGrant?.scopes ??
@@ -890,19 +911,16 @@ export async function handleWorkspaceProviderOAuthCallback(
             : null,
         });
         if (providerId === "sigma") sigmaConnectionId = connection.id;
-        if (
-          !personalGrant ||
-          !existing?.allowedApps.length ||
-          existing.allowedApps.includes(flow.appId)
-        ) {
-          await upsertWorkspaceConnectionGrant({
-            connectionId: connection.id,
-            appId: flow.appId,
-            provider: providerId,
-            scopes,
-            config: connectionConfig,
-          });
-        }
+        await upsertWorkspaceConnectionGrant({
+          connectionId: connection.id,
+          appId: flow.appId,
+          provider: providerId,
+          scopes,
+          config: { ...existingGrant?.config, ...connectionConfig },
+          ...(existingGrant
+            ? { credentialRefs: existingGrant.credentialRefs }
+            : {}),
+        });
         if (googleGrant?.explicitScope) {
           await dropGoogleScopesTokenLacks(
             connection.id,

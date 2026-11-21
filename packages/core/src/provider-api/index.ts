@@ -5747,6 +5747,16 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   }
   const connection = resolved.connection;
   const personal = isPersonalProviderConnection(connection);
+  if (personal && !requestedConnectionId && !requestedAccountId) return null;
+  if (personal && (!requestedConnectionId || !options.requiredScopes?.length)) {
+    return throwWorkspaceConnectionRequired({
+      runtime: options.runtime,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId ?? null,
+      message:
+        "Personal OAuth requires a selected connection and operation scopes.",
+    });
+  }
   if (
     (personal &&
       (connection.config.workspaceConnectionScope !== "user" ||
