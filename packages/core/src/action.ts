@@ -3246,6 +3246,84 @@ export async function validateActionArgs(
   }
 }
 
+const MAX_NUL_BYTE_PATHS = 8;
+
+function findNulBytePaths(root: unknown): Array<readonly (string | number)[]> {
+  const paths: Array<readonly (string | number)[]> = [];
+  const seen = new Set<object>();
+  const stack: Array<{ value: unknown; path: readonly (string | number)[] }> = [
+    { value: root, path: [] },
+  ];
+  while (stack.length > 0 && paths.length < MAX_NUL_BYTE_PATHS) {
+    const current = stack.pop()!;
+    const { value, path } = current;
+    if (typeof value === "string") {
+      if (value.includes("\u0000")) {
+        paths.push(path);
+      }
+      continue;
+    }
+    if (
+      !value ||
+      typeof value !== "object" ||
+      value instanceof Date ||
+      value instanceof RegExp ||
+      ArrayBuffer.isView(value) ||
+      seen.has(value)
+    ) {
+      continue;
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (let i = value.length - 1; i >= 0; i -= 1) {
+        const desc = Object.getOwnPropertyDescriptor(value, i);
+        if (!desc || "get" in desc || "set" in desc) continue;
+        stack.push({ value: desc.value, path: [...path, i] });
+      }
+      continue;
+    }
+    const keys = Object.keys(value);
+    for (let i = keys.length - 1; i >= 0; i -= 1) {
+      const key = keys[i]!;
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (!desc || "get" in desc || "set" in desc) continue;
+      const nextPath = [...path, key];
+      if (key.includes("\u0000")) {
+        paths.push(nextPath);
+        if (paths.length >= MAX_NUL_BYTE_PATHS) break;
+        continue;
+      }
+      stack.push({ value: desc.value, path: nextPath });
+    }
+  }
+  return paths;
+}
+
+function assertNoNulByteActionArgs(
+  value: unknown,
+  schema?: StandardSchemaV1,
+): void {
+  const rawPaths = findNulBytePaths(value);
+  if (rawPaths.length === 0) return;
+  const declared = schema ? inputIssueSchema(schema) : undefined;
+  const paths: string[] = [];
+  const descriptions: string[] = [];
+  for (const segments of rawPaths) {
+    const masked =
+      segments.length > 0 ? maskedIssuePath(segments, declared).join(".") : "";
+    if (masked) paths.push(masked);
+    descriptions.push(
+      masked
+        ? `${masked}: String cannot contain NUL bytes`
+        : "String cannot contain NUL bytes",
+    );
+  }
+  throw new ActionInputValidationError(
+    `Invalid action parameters — ${[...new Set(descriptions)].join("; ")}.`,
+    paths,
+  );
+}
+
 async function validatedActionArgs(
   schema: StandardSchemaV1,
   args: unknown,
@@ -3316,6 +3394,7 @@ async function validatedActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
+  assertNoNulByteActionArgs(value, schema);
   const navigationIntent = extractNavigationIntent(args);
   if (ctx) {
     preparedRuns.set(ctx, {
@@ -3407,6 +3486,9 @@ export async function actionCallIntent(
     // Arguments with no exact snapshot (an accessor, a Map, a class
     // instance) are refused: a gate could not be sure it read what runs.
     snapshot = snapshotActionArguments(args);
+    if (!schema) {
+      assertNoNulByteActionArgs(snapshot.value);
+    }
   } catch (error) {
     return {
       valid: false,
