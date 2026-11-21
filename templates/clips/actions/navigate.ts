@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   navigationIntentSchema,
   writeAppStateForCurrentTab,
@@ -11,6 +11,7 @@ import {
 import { z } from "zod";
 
 import { CLIPS_MEETINGS } from "../shared/labs.js";
+import { unreadLibraryFilterParts } from "../shared/library-filters.js";
 
 const Views = [
   "library",
@@ -85,6 +86,12 @@ export default defineAction({
         .string()
         .optional()
         .describe("Library search term (sets ?q=… on library/space)"),
+      filters: z
+        .string()
+        .optional()
+        .describe(
+          "For view=library: the Library's filter, written as the query of a Library link, such as source=content or source=all&r=madeBy:equals:agent. See list-recordings' filters for the fields.",
+        ),
       panel: z
         .enum([
           "comments",
@@ -115,6 +122,7 @@ export default defineAction({
       message: "A nonempty view or path is required",
     }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const path = args.path?.trim() ? args.path : undefined;
     if (targetsMeetings({ view: args.view, path })) {
@@ -140,6 +148,16 @@ export default defineAction({
     if (args.folderId) nav.folderId = args.folderId;
     if (args.shareId) nav.shareId = args.shareId;
     if (args.search) nav.search = args.search;
+    if (args.filters) {
+      const unread = unreadLibraryFilterParts(args.filters);
+      if (unread.length > 0) {
+        fail(
+          `Library's filter can't read ${unread.join(", ")}. See list-recordings' filters for the fields and values.`,
+          { errorCode: "invalid_filters", details: { unread } },
+        );
+      }
+      nav.filters = args.filters;
+    }
     if (args.panel) nav.panel = args.panel;
     if (args.atMs != null) nav.atMs = args.atMs;
     if (path) nav.path = path;

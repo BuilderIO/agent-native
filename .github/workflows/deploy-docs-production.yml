@@ -11,6 +11,7 @@ on:
       - "packages/agentkit/**"
       - "packages/core/**"
       - "packages/core-corpus/**"
+      - "packages/design-system/**"
       - "packages/docs/**"
       - "packages/recap-cli/**"
       - "packages/toolkit/**"
@@ -164,6 +165,7 @@ jobs:
               "packages/agentkit/**",
               "packages/core/**",
               "packages/core-corpus/**",
+              "packages/design-system/**",
               "packages/docs/**",
               "packages/recap-cli/**",
               "packages/toolkit/**",

@@ -14,12 +14,17 @@ import { getTableHeaders } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
 const sendToAgentChat = vi.hoisted(() => vi.fn());
+const startMove = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/agent-chat")
   >()),
   sendToAgentChat,
+}));
+
+vi.mock("./MoveBlockDialog", () => ({
+  useMoveBlock: () => ({ start: startMove, dialog: null }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -73,6 +78,7 @@ describe("BlockActionsMenu", () => {
     act(() => root?.unmount());
     vi.restoreAllMocks();
     sendToAgentChat.mockClear();
+    startMove.mockClear();
     host?.remove();
     editor?.destroy();
     page?.remove();
@@ -248,6 +254,7 @@ describe("BlockActionsMenu", () => {
       "editor.blockMenu.insertAbove",
       "editor.blockMenu.insertBelow",
       "editor.blockMenu.duplicate",
+      "editor.blockMenu.moveTo",
       "editor.blockMenu.delete",
       "editor.blockMenu.askAgent",
     ]);
@@ -285,6 +292,7 @@ describe("BlockActionsMenu", () => {
       "editor.blockMenu.insertAbove",
       "editor.blockMenu.insertBelow",
       "editor.blockMenu.duplicate",
+      "editor.blockMenu.moveTo",
       "editor.blockMenu.delete",
       "editor.comment",
       "editor.blockMenu.askAgent",
@@ -297,6 +305,22 @@ describe("BlockActionsMenu", () => {
     choose("editor.blockMenu.duplicate");
 
     expect(request.duplicate).toHaveBeenCalledOnce();
+    expect(request.onClose).toHaveBeenCalledOnce();
+    expect(menus()).toEqual([]);
+  });
+
+  it("hands Move to the block and closes", () => {
+    const target = mount();
+    const { request } = open(target, 1);
+
+    choose("editor.blockMenu.moveTo");
+
+    expect(startMove).toHaveBeenCalledOnce();
+    expect(startMove.mock.calls[0]?.[0]).toEqual({
+      node: target.state.doc.child(1),
+      pos: target.state.doc.child(0).nodeSize,
+    });
+    expect(request.remove).not.toHaveBeenCalled();
     expect(request.onClose).toHaveBeenCalledOnce();
     expect(menus()).toEqual([]);
   });
@@ -593,13 +617,16 @@ describe("BlockActionsMenu", () => {
     const { request } = open(target, 1);
 
     const duplicate = item("editor.blockMenu.duplicate");
+    const move = item("editor.blockMenu.moveTo");
     const remove = item("editor.blockMenu.delete");
     expect(duplicate.hasAttribute("data-disabled")).toBe(true);
+    expect(move.hasAttribute("data-disabled")).toBe(true);
     expect(remove.hasAttribute("data-disabled")).toBe(true);
     const reason = document.getElementById(
       duplicate.getAttribute("aria-describedby") ?? "",
     );
     expect(reason?.textContent).toBe("editor.blockMenu.lockedSource");
+    expect(move.getAttribute("aria-describedby")).toBe(reason?.id);
     expect(remove.getAttribute("aria-describedby")).toBe(reason?.id);
 
     const shortcut = press(searchBox(), "d", MOD);
@@ -610,7 +637,7 @@ describe("BlockActionsMenu", () => {
     expect(menus()).toHaveLength(1);
   });
 
-  it("leaves out a block's kind, colour and table settings while suggesting", () => {
+  it("leaves out a block's kind, colour, table settings and Move to while suggesting", () => {
     const target = mount({ suggesting: true });
     open(target, 0);
 
@@ -782,6 +809,7 @@ describe("BlockActionsMenu", () => {
         "editor.blockMenu.insertAbove",
         "editor.blockMenu.insertBelow",
         "editor.blockMenu.duplicate",
+        "editor.blockMenu.moveTo",
         "editor.blockMenu.delete",
         "editor.comment",
         "editor.blockMenu.askAgent",
@@ -969,6 +997,22 @@ describe("BlockActionsMenu", () => {
 
       press(searchBox(), "Enter");
       expect(request.duplicate).toHaveBeenCalledOnce();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("hands Move to the block from the sheet too", () => {
+      onPhone();
+      const target = mount();
+      const { request } = open(target, 0);
+
+      tap("editor.blockMenu.moveTo");
+
+      expect(startMove).toHaveBeenCalledOnce();
+      expect(startMove.mock.calls[0]?.[0]).toEqual({
+        node: target.state.doc.child(0),
+        pos: 0,
+      });
+      expect(request.onClose).toHaveBeenCalledOnce();
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
 

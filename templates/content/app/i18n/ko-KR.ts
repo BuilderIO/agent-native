@@ -396,6 +396,12 @@ const database = {
   failedToSavePagePreview: "페이지 미리보기를 저장하지 못했습니다",
   failedToSaveView: "보기를 저장하지 못했습니다",
   failedToUpdateCheckbox: "체크박스를 업데이트하지 못했습니다",
+  undoPropertyChangedSince:
+    "실행 취소되지 않음: 편집 후 이 속성이 변경되었습니다",
+  redoPropertyChangedSince:
+    "다시 실행되지 않음: 실행 취소 후 이 속성이 변경되었습니다",
+  undoPropertyFailed: "속성 변경을 실행 취소하지 못했습니다",
+  redoPropertyFailed: "속성 변경을 다시 실행하지 못했습니다",
   failedToUpdateEverySelectedRow: "선택한 모든 행을 업데이트하지 못했습니다",
   filter: "필터",
   filterBy: "필터 기준...",
@@ -726,6 +732,7 @@ const editor = {
     delete: "삭제",
     insertBelow: "아래에 블록 삽입",
     insertAbove: "위에 블록 삽입",
+    turnIntoCollection: "컬렉션으로 전환",
     askAgent: "에이전트에게 묻기",
     columns: "열",
     syncedBlock: "동기화된 블록",
@@ -746,6 +753,20 @@ const editor = {
     lockedSuggesting:
       "제안으로는 이 유형의 블록을 추가하거나 제거할 수 없습니다.",
     lockedPage: "이 페이지에서는 해당 변경을 할 수 없습니다.",
+    lockedCollection: "컬렉션은 속한 페이지에 남습니다.",
+    lockedUploadedClip:
+      "이 페이지에 업로드한 Clip은 볼 수 있는 사람이 페이지에 따라 정해지므로 이 페이지에 남습니다.",
+    moveTo: "이동",
+    moveToTitle: "블록 이동 위치",
+    movingTo: "{{title}}(으)로 이동하는 중…",
+    movedTo: "{{title}}(으)로 이동했습니다",
+    copiedTo:
+      "{{title}}에 복사했습니다. 이동하는 동안 블록이 바뀌어 여기에도 남아 있습니다.",
+    copiedPageClosed:
+      "{{title}}에 복사했습니다. 이동이 끝나기 전에 원래 페이지가 닫혀 블록이 그곳에도 남아 있습니다.",
+    moveChanged: "이동하기 전에 블록이 바뀌어 아무것도 이동하지 않았습니다.",
+    moveFailed: "블록을 {{title}}(으)로 이동할 수 없습니다",
+    openPage: "열기",
   },
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",
@@ -787,6 +808,15 @@ const editor = {
   describeWhatToGenerate: "무엇을 생성할지 설명하세요...",
   enterToSubmit: "제출하려면 입력하세요.",
   failedToCreateDatabase: "인라인 컬렉션를 생성하지 못했습니다.",
+  turningIntoCollection: "표를 컬렉션으로 전환하는 중...",
+  turnedIntoCollection: "표를 컬렉션으로 전환했습니다",
+  failedToTurnIntoCollection: "표를 컬렉션으로 전환하지 못했습니다",
+  tableChangedWhileTurning:
+    "전환하는 동안 표가 변경되어 그대로 두었습니다. 다시 시도하세요.",
+  tableTooBigForCollection:
+    "컬렉션에는 최대 500행, 50열의 표를 넣을 수 있습니다.",
+  tableTextTooLongForCollection:
+    "컬렉션에서 행 이름(표의 첫 번째 열)은 최대 500자, 다른 셀은 최대 20,000자까지 가능합니다. 긴 셀을 줄인 후 다시 시도하세요.",
   generateWithAi: "AI로 생성",
   untitledDatabase: "제목 없는 컬렉션",
   media: {
@@ -795,7 +825,9 @@ const editor = {
     addImage: "이미지 추가",
     addVideo: "비디오 추가",
     altText: "대체 텍스트",
-    altTextGenerationFailed: "대체 텍스트 생성을 시작할 수 없습니다.",
+    altTextAdded: "대체 텍스트를 추가했습니다.",
+    altTextGenerationFailed: "대체 텍스트를 작성하지 못했습니다.",
+    altTextNeedsAiSetup: "대체 텍스트를 작성하려면 AI를 설정하세요.",
     assets: "자산",
     assetsCopyFailed:
       "자산에서 이 이미지를 복사하지 못했습니다. 다시 시도하거나 대신 파일을 업로드하세요.",
@@ -828,10 +860,12 @@ const editor = {
     currentDocumentMissing: "현재 문서를 찾을 수 없습니다.",
     delete: "삭제",
     describeThisImage: "이 이미지에 대해 설명하세요.",
+    dismissAltTextStatus: "닫기",
     download: "다운로드",
     downloadAudio: "오디오 다운로드",
     downloadImage: "이미지 다운로드",
     downloadVideo: "비디오 다운로드",
+    editAltTextInChat: "채팅에서 편집",
     embedAudio: "오디오 삽입",
     embedImage: "이미지 삽입",
     embedVideo: "비디오 삽입",
@@ -840,7 +874,7 @@ const editor = {
     expandImage: "이미지 펼치기",
     expandVideo: "비디오 펼치기",
     generateAltText: "대체 텍스트 생성",
-    generatingAltText: "대체 텍스트 생성 중...",
+    generatingAltText: "대체 텍스트 작성 중…",
     image: "이미지",
     imageAdded: "이미지가 추가됨",
     imagesAdded: "이미지가 추가됨",
@@ -854,12 +888,14 @@ const editor = {
     imageUploadsFailed:
       "이미지 {{total}}개 중 {{failed}}개를 업로드할 수 없습니다.",
     imageView: "이미지 보기",
+    keptYourAltText: "입력한 대체 텍스트를 유지했습니다.",
     link: "링크",
     loadingAssetsPicker: "자산 선택기 로드 중",
     more: "더보기",
     moreAudioActions: "더 많은 오디오 작업",
     moreImageActions: "추가 이미지 작업",
     moreVideoActions: "추가 동영상 작업",
+    openChat: "채팅 열기",
     openedAudioInNewTab: "새 탭에서 오디오를 열었습니다.",
     openedImageInNewTab: "새 탭에서 이미지를 열었습니다.",
     openedVideoInNewTab: "새 탭에서 동영상을 열었습니다.",
@@ -887,6 +923,7 @@ const editor = {
     transcript: "성적 증명서",
     transcriptBlockFailed: "스크립트 블록을 추가할 수 없습니다.",
     transcriptionStarted: "전사가 시작되었습니다.",
+    tryAgain: "다시 시도",
     upload: "업로드",
     uploadFile: "파일 업로드",
     uploadingAudio: "오디오 업로드 중...",
@@ -1678,6 +1715,26 @@ const overrides = {
     builderReviewShowMore: "더 보기",
     builderReviewRemainingBatches:
       "남은 Builder 변경 사항을 준비하려면 이 배치 후 다시 검토하세요.",
+    builderReviewLoadingMorePagesOne:
+      "페이지 1개의 변경 사항을 더 불러오는 중…",
+    builderReviewLoadingMorePages:
+      "페이지 {{count}}개의 변경 사항을 더 불러오는 중…",
+    builderReviewConfirmingBodiesOne: "본문 변경 1개를 Builder와 대조하는 중…",
+    builderReviewConfirmingBodies:
+      "본문 변경 {{count}}개를 Builder와 대조하는 중…",
+    builderReviewFindingPages: "변경된 페이지를 찾는 중…",
+    builderReviewRowsMatchBuilderOne:
+      "페이지 1개는 본문을 변환하면 Builder와 같아서 제외했습니다.",
+    builderReviewRowsMatchBuilder:
+      "페이지 {{count}}개는 본문을 변환하면 Builder와 같아서 제외했습니다.",
+    builderReviewLoadFailed:
+      "일부 변경 사항을 불러오지 못했습니다: {{message}}",
+    bodyDiffAdded: "추가됨:",
+    bodyDiffRemoved: "삭제됨:",
+    bodyDiffMoreLinesOne: "변경된 줄 1개 더",
+    bodyDiffMoreLines: "변경된 줄 {{count}}개 더",
+    bodyDiffMoreChangesOne: "표시되지 않은 변경 1개 더",
+    bodyDiffMoreChanges: "표시되지 않은 변경 {{count}}개 더",
     builderBodiesSyncingProgress:
       "본문 {{total}}개 중 {{hydrated}}개를 동기화하는 중입니다.",
     builderBodiesSyncFinishedWithFailures:
@@ -1969,7 +2026,9 @@ const overrides = {
     aiResponseMode: "응답",
     aiChooseSendMode: "AI 전송 모드 선택",
     aiSuggestChanges: "변경 제안",
-    aiUnavailable: "사용할 수 없음",
+    aiModelNotConnected:
+      "{{model}}이(가) 연결되어 있지 않습니다. 이름을 클릭해 다른 모델을 선택하세요.",
+    aiModelNotConnectedAlone: "{{model}}이(가) 연결되어 있지 않습니다.",
     aiReplyInThread: "스레드에 답글",
     aiApplyAndResolve: "변경 적용 및 해결",
     aiPromptSuggest: "이 댓글에 대한 변경 사항을 제안해 주세요.",

@@ -119,6 +119,9 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 vi.mock("./AttachmentStrip", () => ({ AttachmentStrip: () => null }));
+vi.mock("./AttachFromContentButton", () => ({
+  AttachFromContentButton: () => null,
+}));
 vi.mock("./ComposeEditor", () => ({
   ComposeEditor: ({ onSend }: { onSend: (markDone?: boolean) => void }) => (
     <div data-testid="compose-editor">

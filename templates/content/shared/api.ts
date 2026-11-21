@@ -2,6 +2,7 @@ import type { IconValue } from "@agent-native/core/icons";
 
 import type { AgentLevel } from "./agent-level";
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { BuilderBodyDiff } from "./builder-body-diff";
 import type { GitHubPullRequestsProblemCode } from "./github-pull-requests";
 import type {
   GitHubSourceProblemCode,
@@ -14,6 +15,7 @@ import type {
   DocumentPropertyValue,
   DocumentPropertyVisibility,
 } from "./properties";
+import type { TableCollectionSeed } from "./table-collection-seed";
 
 export type DocumentAccessRole =
   | "owner"
@@ -422,11 +424,16 @@ export interface SetDocumentPropertyRequest {
   propertyId: string;
   value: DocumentPropertyValue;
   expectedBlocksFieldRevision?: number;
+  expectedGeneration?: number;
   /**
    * Client-only hint: titles for relation IDs, shown until the server's
    * resolved targets arrive. The action ignores it.
    */
   relationTargets?: DocumentPropertyRelationTarget[];
+}
+
+export interface SetDocumentPropertyResponse extends DocumentPropertiesResponse {
+  generation?: number;
 }
 
 export interface DuplicateDocumentPropertyRequest {
@@ -1038,6 +1045,7 @@ export interface ContentDatabaseSourceBodyChange {
   proposedBlocksJson?: string | null;
   sidecarsJson?: string | null;
   warnings?: string[];
+  textOnly?: boolean;
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -1456,6 +1464,7 @@ export interface CreateInlineDatabaseRequest {
   description?: string;
   newDocumentId?: string;
   ownerBlockId?: string;
+  table?: TableCollectionSeed;
 }
 
 export interface CreateInlineDatabaseResponse {
@@ -1536,6 +1545,7 @@ export interface UpdateDatabaseItemsResponse {
     itemId: string;
     documentId: string;
     success: boolean;
+    generation?: number;
     error?: string;
   }>;
 }
@@ -1959,6 +1969,56 @@ export function isBuilderCmsWriteEffect(
   return (BUILDER_CMS_WRITE_EFFECTS as readonly unknown[]).includes(value);
 }
 
+export function builderEntryEditorUrl(entryId: string) {
+  return `https://builder.io/content/${encodeURIComponent(entryId)}`;
+}
+
+export type BuilderArticleAutosaveState =
+  | "idle"
+  | "saving"
+  | "saved"
+  | "waiting"
+  | "failed"
+  | "review";
+
+export type BuilderArticleAutosaveReason =
+  | "builder_editor_changes"
+  | "checking_last_save"
+  | "another_save_running"
+  | "published"
+  | "needs_review"
+  | "edit_conflict"
+  | "builder_changed"
+  | "save_failed"
+  | "unconfirmed_save";
+
+export interface BuilderArticleAutosaveStatus {
+  enabled: boolean;
+  state: BuilderArticleAutosaveState;
+  reason: BuilderArticleAutosaveReason | null;
+  error: string | null;
+  lastSavedAt: string | null;
+  due: boolean;
+  dueSoon: boolean;
+  canSave: boolean;
+}
+
+export interface BuilderArticleRowStatus {
+  documentId: string;
+  databaseId: string;
+  sourceId: string;
+  databaseItemId: string;
+  entryId: string | null;
+  builderUrl: string | null;
+  autosave: BuilderArticleAutosaveStatus | null;
+}
+
+export interface ListBuilderArticleAutosavesResponse {
+  databaseId: string | null;
+  sourceId: string | null;
+  rows: BuilderArticleRowStatus[];
+}
+
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;
   databaseItemId: string | null;
@@ -1967,6 +2027,7 @@ export interface ContentDatabaseSourceReviewRowSummary {
   targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
+  bodyDiff?: BuilderBodyDiff | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
@@ -2007,6 +2068,8 @@ export interface PreviewBuilderSourceReviewRequest {
   sourceId?: string;
   scope?: "selected" | "all";
   documentIds?: string[];
+  bodyComparison?: "text" | "blocks";
+  batchSize?: number;
 }
 
 export interface PreviewBuilderSourceReviewResponse {
@@ -2014,6 +2077,10 @@ export interface PreviewBuilderSourceReviewResponse {
   sourceTable: string;
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
+  bodyComparison?: "text" | "blocks";
+  documentIds?: string[];
+  remainingDocumentIds?: string[];
+  blocksCheckDocumentIds?: string[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
@@ -2022,6 +2089,7 @@ export interface PrepareBuilderSourceReviewResponse {
     requestedChangeSetId: string;
     preparedChangeSetId: string;
   }>;
+  unchangedChangeSetIds?: string[];
   timings?: BuilderActionTiming[];
 }
 

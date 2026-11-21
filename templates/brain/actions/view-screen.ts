@@ -26,6 +26,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async () => {
     const screen = await readBrainScreen();
     const navigation = (screen as { navigation?: unknown }).navigation;

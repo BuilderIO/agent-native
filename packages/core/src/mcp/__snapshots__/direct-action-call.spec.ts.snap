@@ -1626,6 +1626,7 @@ Draft id: d-10",
 }
 `;
 
+// oracle-change: a read-only grant no longer gets cards by default, so the widget returns a plain result
 exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: embed-widget 1`] = `
 {
   "trace": [
@@ -1662,14 +1663,10 @@ exports[`direct tools/call wire output > compact catalog, read-only OAuth scope:
               "name": "agent-native-mail",
               "version": "1.0.0",
             },
-            "openai/outputTemplate": "ui://mail/embed-widget/shell-v65",
-            "openai/toolInvocation/invoked": "Mail widget ready",
-            "openai/toolInvocation/invoking": "Opening Mail widget",
-            "openai/widgetAccessible": true,
           },
           "content": [
             {
-              "text": "Thread is ready.",
+              "text": "{"app":"mail","embed":true,"url":"/inbox/thread-1","title":"Thread"}",
               "type": "text",
             },
           ],

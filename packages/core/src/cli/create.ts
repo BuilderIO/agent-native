@@ -3915,6 +3915,13 @@ function getLocalFrameworkPackageOverrides(): Record<string, string> {
     );
   }
 
+  const localDesignSystem = findLocalPackage("design-system");
+  if (localDesignSystem) {
+    overrides['"@agent-native/design-system"'] = JSON.stringify(
+      localPackageTarball(localDesignSystem),
+    );
+  }
+
   return overrides;
 }
 

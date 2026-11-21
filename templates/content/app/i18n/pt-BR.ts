@@ -405,6 +405,12 @@ const database = {
   failedToSavePagePreview: "Falha ao salvar prévia da página",
   failedToSaveView: "Falha ao salvar visualização",
   failedToUpdateCheckbox: "Falha ao atualizar caixa de seleção",
+  undoPropertyChangedSince:
+    "Não desfeito: esta propriedade mudou depois da sua edição",
+  redoPropertyChangedSince:
+    "Não refeito: esta propriedade mudou depois de desfazer",
+  undoPropertyFailed: "Não foi possível desfazer a alteração da propriedade",
+  redoPropertyFailed: "Não foi possível refazer a alteração da propriedade",
   failedToUpdateEverySelectedRow:
     "Falha ao atualizar todas as linhas selecionadas",
   filter: "Filtro",
@@ -743,6 +749,7 @@ const editor = {
     delete: "Excluir",
     insertBelow: "Inserir bloco abaixo",
     insertAbove: "Inserir bloco acima",
+    turnIntoCollection: "Transformar em coleção",
     askAgent: "Perguntar ao agente",
     columns: "Colunas",
     syncedBlock: "Bloco sincronizado",
@@ -763,6 +770,20 @@ const editor = {
     lockedSuggesting:
       "Sugestões não podem adicionar nem remover este tipo de bloco.",
     lockedPage: "Esta página não permite essa alteração.",
+    lockedCollection: "Uma coleção fica na página a que pertence.",
+    lockedUploadedClip:
+      "Um Clip enviado para esta página fica nela, porque é a página que define quem pode assisti-lo.",
+    moveTo: "Mover para",
+    moveToTitle: "Mover bloco para",
+    movingTo: "Movendo para {{title}}…",
+    movedTo: "Movido para {{title}}",
+    copiedTo:
+      "Copiado para {{title}}. O bloco mudou enquanto era movido, então também continua aqui.",
+    copiedPageClosed:
+      "Copiado para {{title}}. A página de origem foi fechada antes de o movimento terminar, então o bloco também continua lá.",
+    moveChanged: "O bloco mudou antes de ser movido, então nada foi movido.",
+    moveFailed: "Não foi possível mover o bloco para {{title}}",
+    openPage: "Abrir",
   },
   noDocumentSelected: "Nenhum documento selecionado",
   registryBlockLoadError:
@@ -805,6 +826,16 @@ const editor = {
   describeWhatToGenerate: "Descreva o que gerar...",
   enterToSubmit: "Entre para enviar",
   failedToCreateDatabase: "Falha ao criar coleção embutida",
+  turningIntoCollection: "Transformando a tabela em uma coleção...",
+  turnedIntoCollection: "Tabela transformada em coleção",
+  failedToTurnIntoCollection:
+    "Não foi possível transformar a tabela em uma coleção",
+  tableChangedWhileTurning:
+    "A tabela mudou enquanto era transformada em coleção, então foi mantida como estava. Tente novamente.",
+  tableTooBigForCollection:
+    "Uma coleção aceita tabelas de até 500 linhas e 50 colunas.",
+  tableTextTooLongForCollection:
+    "Em uma coleção, o nome de uma linha (a primeira coluna da tabela) pode ter até 500 caracteres, e as outras células até 20.000. Encurte as células longas e tente novamente.",
   generateWithAi: "Gere com IA",
   untitledDatabase: "Coleção sem título",
   media: {
@@ -814,8 +845,9 @@ const editor = {
     addImage: "Adicione uma imagem",
     addVideo: "Adicionar um vídeo",
     altText: "Texto alternativo",
-    altTextGenerationFailed:
-      "Não foi possível iniciar a geração de texto alternativo.",
+    altTextAdded: "Texto alternativo adicionado.",
+    altTextGenerationFailed: "Não foi possível escrever o texto alternativo.",
+    altTextNeedsAiSetup: "Configure a IA para escrever texto alternativo.",
     assets: "Ativos",
     assetsCopyFailed:
       "Não foi possível copiar esta imagem dos ativos. Tente novamente ou envie o arquivo.",
@@ -848,10 +880,12 @@ const editor = {
     currentDocumentMissing: "Não foi possível encontrar o documento atual.",
     delete: "Excluir",
     describeThisImage: "Descreva esta imagem",
+    dismissAltTextStatus: "Dispensar",
     download: "Baixar",
     downloadAudio: "Baixar áudio",
     downloadImage: "Baixar imagem",
     downloadVideo: "Baixar vídeo",
+    editAltTextInChat: "Editar no chat",
     embedAudio: "Incorporar áudio",
     embedImage: "Incorporar imagem",
     embedVideo: "Incorporar vídeo",
@@ -860,7 +894,7 @@ const editor = {
     expandImage: "Expandir imagem",
     expandVideo: "Expandir vídeo",
     generateAltText: "Gerar texto alternativo",
-    generatingAltText: "Gerando texto alternativo...",
+    generatingAltText: "Escrevendo texto alternativo…",
     image: "Imagem",
     imageAdded: "Imagem adicionada",
     imagesAdded: "Imagens adicionadas",
@@ -874,12 +908,14 @@ const editor = {
     imageUploadsFailed:
       "Não foi possível enviar {{failed}} de {{total}} imagens.",
     imageView: "Visualização de imagem",
+    keptYourAltText: "Seu texto alternativo foi mantido.",
     link: "Ligação",
     loadingAssetsPicker: "Carregando seletor de ativos",
     more: "Mais",
     moreAudioActions: "Mais ações de áudio",
     moreImageActions: "Mais ações de imagem",
     moreVideoActions: "Mais ações de vídeo",
+    openChat: "Abrir chat",
     openedAudioInNewTab: "Áudio aberto em uma nova guia.",
     openedImageInNewTab: "Imagem aberta em uma nova aba.",
     openedVideoInNewTab: "Vídeo aberto em uma nova guia.",
@@ -908,6 +944,7 @@ const editor = {
     transcriptBlockFailed:
       "Não foi possível adicionar um bloco de transcrição.",
     transcriptionStarted: "A transcrição foi iniciada.",
+    tryAgain: "Tentar novamente",
     upload: "Carregar",
     uploadFile: "Carregar arquivo",
     uploadingAudio: "Carregando áudio...",
@@ -1720,6 +1757,25 @@ const overrides = {
     builderReviewShowMore: "Mostrar mais",
     builderReviewRemainingBatches:
       "Revise novamente após este lote para preparar as alterações restantes do Builder.",
+    builderReviewLoadingMorePagesOne: "Carregando alterações de mais 1 página…",
+    builderReviewLoadingMorePages:
+      "Carregando alterações de mais {{count}} páginas…",
+    builderReviewConfirmingBodiesOne:
+      "Conferindo 1 alteração do corpo com o Builder…",
+    builderReviewConfirmingBodies:
+      "Conferindo {{count}} alterações do corpo com o Builder…",
+    builderReviewFindingPages: "Procurando páginas com alterações…",
+    builderReviewRowsMatchBuilderOne:
+      "1 página já corresponde ao Builder depois que o corpo é convertido, então ficou de fora.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} páginas já correspondem ao Builder depois que os corpos são convertidos, então ficaram de fora.",
+    builderReviewLoadFailed: "Algumas alterações não carregaram: {{message}}",
+    bodyDiffAdded: "Adicionado:",
+    bodyDiffRemoved: "Removido:",
+    bodyDiffMoreLinesOne: "Mais 1 linha alterada",
+    bodyDiffMoreLines: "Mais {{count}} linhas alteradas",
+    bodyDiffMoreChangesOne: "Mais 1 alteração não exibida",
+    bodyDiffMoreChanges: "Mais {{count}} alterações não exibidas",
     builderBodiesSyncingProgress:
       "Sincronizando {{hydrated}} de {{total}} corpos.",
     builderBodiesSyncFinishedWithFailures:
@@ -2026,7 +2082,9 @@ const overrides = {
     aiResponseMode: "Resposta",
     aiChooseSendMode: "Escolher modo de envio da IA",
     aiSuggestChanges: "Sugerir alterações",
-    aiUnavailable: "Indisponível",
+    aiModelNotConnected:
+      "{{model}} não está conectado. Clique no nome para escolher outro modelo.",
+    aiModelNotConnectedAlone: "{{model}} não está conectado.",
     aiReplyInThread: "Responder na conversa",
     aiApplyAndResolve: "Aplicar alterações e resolver",
     aiPromptSuggest: "Sugira alterações para este comentário.",

@@ -2514,13 +2514,18 @@ const AgentKitAssistantChatBody = forwardRef<
             persistenceKey,
             threadData: snapshot.threadData,
           };
-          try {
-            props.onThreadSnapshotPersisted?.(threadId, snapshot.messageCount);
-          } catch (error) {
-            console.error(
-              "Failed to report the saved chat thread snapshot.",
-              error,
-            );
+          if (!isUnmountingRef.current) {
+            try {
+              props.onThreadSnapshotPersisted?.(
+                threadId,
+                snapshot.messageCount,
+              );
+            } catch (error) {
+              console.error(
+                "Failed to report the saved chat thread snapshot.",
+                error,
+              );
+            }
           }
           if (retryThreadSaveTimerRef.current !== null) {
             window.clearTimeout(retryThreadSaveTimerRef.current);

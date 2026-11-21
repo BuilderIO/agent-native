@@ -68,6 +68,7 @@ import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { takesBlockColor } from "./extensions/NotionFidelity";
 import { instantCloseMenuClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
+import { useMoveBlock } from "./MoveBlockDialog";
 
 interface BlockMenuHost {
   editor: Editor;
@@ -98,6 +99,8 @@ const LOCK_REASON_KEYS: Record<BlockLock, string> = {
   source: "editor.blockMenu.lockedSource",
   suggesting: "editor.blockMenu.lockedSuggesting",
   page: "editor.blockMenu.lockedPage",
+  collection: "editor.blockMenu.lockedCollection",
+  uploadedClip: "editor.blockMenu.lockedUploadedClip",
 };
 
 const SHEET_ITEM = "data-block-sheet-item";
@@ -165,7 +168,10 @@ type BlockMenuSection =
   | { key: "found-turn-into"; targets: readonly TurnIntoTarget[] }
   | { key: "found-color" }
   | { key: "style"; turnInto: boolean; color: boolean }
-  | { key: "insert" | "block" | "assist"; actions: BlockMenuAction[] };
+  | {
+      key: "convert" | "insert" | "block" | "assist";
+      actions: BlockMenuAction[];
+    };
 
 type SheetView = "menu" | "turn-into" | "color";
 
@@ -173,12 +179,14 @@ export function BlockActionsMenu({
   editor,
   suggesting,
   onComment,
+  onTurnTableIntoCollection,
   documentId,
 }: {
   editor: Editor;
   /** Suggested edits can't change a block's kind, colour, or settings. */
   suggesting: boolean;
   onComment?: BubbleToolbarProps["onComment"];
+  onTurnTableIntoCollection?: (table: BlockAt) => void;
   /** The page, named to the agent a block is attached to. */
   documentId?: string | null;
 }) {
@@ -194,6 +202,7 @@ export function BlockActionsMenu({
   const searchRef = useRef<HTMLInputElement>(null);
   const leftViewRef = useRef<SheetView | null>(null);
   const reasonId = useId();
+  const moveBlock = useMoveBlock(editor, documentId);
 
   // The menu takes focus when it opens unless focus is already inside it, so
   // the search keeps it. A phone's keyboard would cover the page, though.
@@ -269,7 +278,7 @@ export function BlockActionsMenu({
     (next ?? content).focus({ preventScroll: true });
   }, [sheetView]);
 
-  if (!request) return null;
+  if (!request) return moveBlock.dialog;
 
   const block = request.getBlock();
   const node = block?.node ?? null;
@@ -285,7 +294,7 @@ export function BlockActionsMenu({
     onComment && block ? blockCommentRange(block.node, block.pos) : null;
   const locks = block
     ? blockActionLocks(request.view.state, block.pos, block.node)
-    : { duplicate: null, remove: null };
+    : { duplicate: null, remove: null, move: null };
   const canDuplicate = !!block && !locks.duplicate;
   const canRemove = !!block && !locks.remove;
 
@@ -380,6 +389,13 @@ export function BlockActionsMenu({
       tr.setNodeAttribute(pos, "color", next);
       return true;
     });
+
+  const turnIntoCollection = () => {
+    const latest = request.getBlock();
+    if (latest?.node.type.name === "table") {
+      onTurnTableIntoCollection?.(latest);
+    }
+  };
 
   const comment = () => {
     const latest = request.getBlock();
@@ -558,6 +574,16 @@ export function BlockActionsMenu({
             !!action && matches(action.label),
         )
       : [];
+  const convertActions = shownActions([
+    !suggesting &&
+      !!onTurnTableIntoCollection &&
+      node?.type.name === "table" && {
+        id: "turn-into-collection",
+        label: t("editor.blockMenu.turnIntoCollection"),
+        onSelect: turnIntoCollection,
+        lock: locks.remove,
+      },
+  ]);
   const insertActions = shownActions([
     {
       id: "insert-above",
@@ -577,6 +603,15 @@ export function BlockActionsMenu({
       onSelect: request.duplicate,
       lock: locks.duplicate,
       shortcut: shortcut("D"),
+    },
+    !suggesting && {
+      id: "move-to",
+      label: t("editor.blockMenu.moveTo"),
+      onSelect: () => {
+        const latest = request.getBlock();
+        if (latest) moveBlock.start(latest);
+      },
+      lock: locks.move,
     },
     {
       id: "delete",
@@ -611,6 +646,7 @@ export function BlockActionsMenu({
     sections.push({ key: "style", turnInto: showTurnInto, color: showColor });
   }
   for (const [key, actions] of [
+    ["convert", convertActions],
     ["insert", insertActions],
     ["block", blockActions],
     ["assist", assistActions],
@@ -819,6 +855,7 @@ export function BlockActionsMenu({
               {section.color ? opensView(colorLabel, "color") : null}
             </>
           );
+        case "convert":
         case "insert":
         case "block":
         case "assist":
@@ -1006,6 +1043,7 @@ export function BlockActionsMenu({
             ) : null}
           </>
         );
+      case "convert":
       case "insert":
       case "block":
       case "assist":

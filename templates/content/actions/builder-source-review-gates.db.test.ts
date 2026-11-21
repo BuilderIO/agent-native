@@ -421,6 +421,68 @@ describe("Builder source review execution gates", () => {
     }
   });
 
+  it("lists a whole-source review's pages without reviewing any for a batch of 0", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+
+    const response = await asOwner(() =>
+      previewReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        scope: "all",
+        bodyComparison: "text",
+        batchSize: 0,
+      }),
+    );
+
+    expect(response).toMatchObject({
+      sourceId: seeded.sourceId,
+      review: null,
+      changeSetIds: [],
+      documentIds: [],
+      remainingDocumentIds: [seeded.rowDocumentId],
+    });
+  });
+
+  it("leaves a checked row's prepared Builder request out of a later preview", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    await asOwner(() =>
+      prepareReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        changeSetIds: [seeded.changeSetId],
+        documentIds: [seeded.rowDocumentId],
+        pushModeConfirmation: "autosave",
+      }),
+    );
+
+    const response = await asOwner(() =>
+      previewReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        scope: "selected",
+        documentIds: [seeded.rowDocumentId],
+      }),
+    );
+
+    const payloads = (response.review?.rows ?? []).map(
+      (row) => row.execution?.payload,
+    );
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        target: expect.objectContaining({
+          entryId: expect.stringMatching(/^entry_/),
+        }),
+      }),
+    ]);
+    for (const payload of payloads) {
+      expect(payload).not.toHaveProperty("request");
+    }
+  });
+
   it("restores a linked Builder target from authoritative row identity when the snapshot window omits it", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
