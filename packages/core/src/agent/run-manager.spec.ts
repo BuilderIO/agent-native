@@ -271,7 +271,10 @@ vi.mock("../observability/tracking-identity.js", () => ({
 }));
 
 import { recordAgentRun } from "../observability/metrics.js";
-import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import {
+  registerErrorCaptureProvider,
+  type CaptureErrorContext,
+} from "../server/capture-error.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
@@ -4760,6 +4763,195 @@ describe("run manager soft timeout", () => {
     await run.finalized;
 
     expect(writeOrder).toEqual(["thread_data", "status"]);
+  });
+
+  async function runTerminalErrorCase({
+    kind,
+    releaseKind,
+    privateTurn,
+    expected,
+  }: {
+    kind: "stale" | "spoofed";
+    releaseKind: "stale" | "arbitrary" | "spoofed-stale";
+    privateTurn: boolean;
+    expected: string;
+  }) {
+    const sentinel = "private-terminal-sentinel";
+    const fence = {
+      runId: "run-terminal-error-kind",
+      threadId: "thread-terminal-error-kind",
+      turnId: "turn-terminal-error-kind",
+      generation: sentinel,
+    };
+    const error =
+      kind === "stale"
+        ? new StaleExecutionFenceError(fence)
+        : Object.assign(new Error(sentinel), {
+            name: "StaleExecutionFenceError",
+            code: "stale_execution_fence",
+            cause: new StaleExecutionFenceError(fence),
+          });
+    const provider = vi.fn(
+      (_error: unknown, _context: CaptureErrorContext) =>
+        "evt_terminal_error_kind",
+    );
+    const unregister = registerErrorCaptureProvider(
+      "run-terminal-error-kind",
+      provider,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(error);
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+    const releaseError =
+      releaseKind === "stale"
+        ? new StaleExecutionFenceError(fence)
+        : Object.assign(new Error(sentinel), {
+            code:
+              releaseKind === "spoofed-stale"
+                ? "stale_execution_fence"
+                : sentinel,
+          });
+    vi.mocked(releaseTurnExecutionLease).mockRejectedValueOnce(releaseError);
+
+    try {
+      const run = startRun(
+        fence.runId,
+        fence.threadId,
+        async (send) => {
+          await send({
+            type: "text",
+            text: privateTurn ? sentinel : "answer",
+            ...(privateTurn ? { omitFromPersistedHistory: true } : {}),
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, executionLease: true, turnId: fence.turnId },
+      );
+      await run.finalized;
+
+      const terminalReports = provider.mock.calls.filter(
+        ([, context]) => context.tags?.phase === "terminal-status-persistence",
+      );
+      expect(terminalReports).toHaveLength(1);
+      const [reportedError, context] = terminalReports[0];
+      expect(context.tags).toMatchObject({
+        source: "agent-run-manager",
+        phase: "terminal-status-persistence",
+        errorCode: "run_terminal_status_persistence_failed",
+        terminalErrorKind: expected,
+      });
+      const terminalReportIndex = provider.mock.calls.findIndex(
+        ([, reportContext]) =>
+          reportContext.tags?.phase === "terminal-status-persistence",
+      );
+      const releaseReports = provider.mock.calls.filter(
+        ([, reportContext]) =>
+          reportContext.tags?.phase === "execution-lease-release",
+      );
+      expect(releaseReports).toHaveLength(1);
+      const [reportedReleaseError, releaseContext] = releaseReports[0];
+      expect(releaseContext.tags).toMatchObject({
+        source: "agent-run-manager",
+        phase: "execution-lease-release",
+        errorCode:
+          releaseKind === "stale"
+            ? "stale_execution_fence"
+            : privateTurn
+              ? "execution_lease_release_failed"
+              : sentinel,
+      });
+      const releaseReportIndex = provider.mock.calls.indexOf(releaseReports[0]);
+      expect(releaseReportIndex).toBeGreaterThan(terminalReportIndex);
+      expect(run.status).toBe("completed");
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(fence.runId);
+      return {
+        sentinel,
+        error,
+        releaseError,
+        reportedError,
+        reportedReleaseError,
+        context,
+        releaseContext,
+        consoleCalls: [...consoleError.mock.calls],
+      };
+    } finally {
+      unregister();
+      consoleError.mockRestore();
+    }
+  }
+
+  it.each([
+    { kind: "stale", releaseKind: "stale", expected: "stale_execution_fence" },
+    { kind: "spoofed", releaseKind: "arbitrary", expected: "unclassified" },
+    { kind: "spoofed", releaseKind: "spoofed-stale", expected: "unclassified" },
+  ] as const)(
+    "classifies and redacts the private terminal persistence error ($kind, release: $releaseKind)",
+    async (testCase) => {
+      const {
+        sentinel,
+        reportedError,
+        reportedReleaseError,
+        context,
+        releaseContext,
+        consoleCalls,
+      } = await runTerminalErrorCase({ ...testCase, privateTurn: true });
+
+      expect(reportedError).toBeInstanceOf(Error);
+      expect(reportedError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(reportedError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(reportedReleaseError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(
+        JSON.stringify({
+          error: Object.getOwnPropertyDescriptors(reportedError),
+          context,
+        }),
+      ).not.toContain(sentinel);
+      expect(
+        JSON.stringify({
+          error: Object.getOwnPropertyDescriptors(reportedReleaseError),
+          context: releaseContext,
+        }),
+      ).not.toContain(sentinel);
+      expect(JSON.stringify(consoleCalls)).not.toContain(sentinel);
+      expect(consoleCalls).toContainEqual([
+        "[run-manager] terminal status persistence error:",
+        "Private content omitted",
+      ]);
+    },
+  );
+
+  it("classifies the nonprivate spoofed terminal persistence error", async () => {
+    const {
+      sentinel,
+      error,
+      releaseError,
+      reportedError,
+      reportedReleaseError,
+      consoleCalls,
+    } = await runTerminalErrorCase({
+      kind: "spoofed",
+      releaseKind: "arbitrary",
+      privateTurn: false,
+      expected: "unclassified",
+    });
+
+    expect(reportedError).toBe(error);
+    expect(reportedReleaseError).toBe(releaseError);
+    expect(consoleCalls).toContainEqual([
+      "[run-manager] terminal status persistence error:",
+      sentinel,
+    ]);
   });
 
   it("reconciles from the terminal event when the final status write misses", async () => {
