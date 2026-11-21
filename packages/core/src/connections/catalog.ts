@@ -23,6 +23,7 @@ export type WorkspaceConnectionTemplateUse =
 
 export type WorkspaceConnectionProviderId =
   | "slack"
+  | "zoom"
   | "github"
   | "figma"
   | "notion"
@@ -121,6 +122,11 @@ function googleOAuth(scopes: readonly string[], provider = "google") {
   return { ...GOOGLE_OAUTH_BASE, provider, scopes };
 }
 
+export const SLACK_PUBLIC_HISTORY_OAUTH_SCOPES = [
+  "channels:read",
+  "channels:history",
+] as const;
+
 const GOOGLE_IDENTITY_SCOPES = ["openid", "email", "profile"] as const;
 
 export const WORKSPACE_CONNECTION_PROVIDERS = [
@@ -138,8 +144,36 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
         required: true,
       },
     ],
+    oauth: {
+      provider: "slack",
+      authorizationUrl: "https://slack.com/oauth/v2/authorize",
+      tokenUrl: "https://slack.com/api/oauth.v2.access",
+      scopes: [...SLACK_PUBLIC_HISTORY_OAUTH_SCOPES, "search:read.public"],
+      // Preserve legacy installations. Operations check the grant they need.
+      requiredScopes: [],
+    },
     capabilities: ["search", "import", "messages"],
     recommendedTemplateUses: ["brain", "dispatch", "analytics", "factory"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "zoom",
+    label: "Zoom",
+    description: "Personal access to your hosted cloud recordings.",
+    credentialKeys: [],
+    oauth: {
+      provider: "zoom",
+      authorizationUrl: "https://zoom.us/oauth/authorize",
+      tokenUrl: "https://zoom.us/oauth/token",
+      scopes: [
+        "user:read:user",
+        "cloud_recording:read:list_user_recordings",
+        "cloud_recording:read:list_recording_files",
+      ],
+      // Calendar and existing recording connections may hold different scopes.
+      requiredScopes: [],
+    },
+    capabilities: ["meetings", "import"],
+    recommendedTemplateUses: ["brain"],
   }),
   defineWorkspaceConnectionProvider({
     id: "github",
