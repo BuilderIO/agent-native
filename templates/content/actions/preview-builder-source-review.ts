@@ -7,6 +7,7 @@ import type {
   PreviewBuilderSourceReviewRequest,
   PreviewBuilderSourceReviewResponse,
 } from "../shared/api.js";
+import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   builderReviewDocumentScope,
   getContentDatabaseSourceSnapshotForReview,
@@ -78,6 +79,9 @@ export default defineAction({
   run: async (
     args: PreviewBuilderSourceReviewRequest,
   ): Promise<PreviewBuilderSourceReviewResponse> => {
+    // Returned with the response, so a slow review on a deployed site shows
+    // which step took the time.
+    const timing = createBuilderSourceTiming("preview_builder_source_review");
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -96,7 +100,9 @@ export default defineAction({
     let reviewDocumentIds =
       args.scope === "selected" ? args.documentIds : undefined;
     if (args.batchSize !== undefined && args.scope !== "selected") {
-      const scope = await builderReviewDocumentScope(database, args.sourceId);
+      const scope = await timing.measure("scope", () =>
+        builderReviewDocumentScope(database, args.sourceId),
+      );
       if (!scope || scope.lightweight.sourceType !== "builder-cms") {
         fail("Attach a Builder CMS source before reviewing updates.", {
           errorCode: "builder_source_missing",
@@ -112,24 +118,36 @@ export default defineAction({
           bodyComparison,
           documentIds: [],
           remainingDocumentIds: [],
+          timings: timing.finish(),
         };
       }
       if (scope.documentIds) {
+        const reviewableChangeSetIds = new Set(scope.reviewableChangeSetIds);
         const priorityByDocumentId = new Map<string, number>();
+        const rejectedDocumentIds = new Set<string>();
         for (const changeSet of scope.lightweight.changeSets) {
           if (!changeSet.documentId) continue;
+          if (changeSet.state === "rejected") {
+            rejectedDocumentIds.add(changeSet.documentId);
+          }
+          if (!reviewableChangeSetIds.has(changeSet.id)) continue;
           const priority = reviewPreparePriority(changeSet, scope.lightweight);
           const known = priorityByDocumentId.get(changeSet.documentId);
           if (known === undefined || priority < known) {
             priorityByDocumentId.set(changeSet.documentId, priority);
           }
         }
+        // Only a reviewable change ranks a page first. A page whose change
+        // was rejected shows no row, so it goes last, behind pages that have
+        // no change yet, or it fills the first batch with nothing.
+        const priorityOf = (documentId: string) =>
+          priorityByDocumentId.get(documentId) ??
+          (rejectedDocumentIds.has(documentId) ? 100 : 99);
         reviewDocumentIds = scope.documentIds
           .map((documentId, index) => ({ documentId, index }))
           .sort(
             (left, right) =>
-              (priorityByDocumentId.get(left.documentId) ?? 99) -
-                (priorityByDocumentId.get(right.documentId) ?? 99) ||
+              priorityOf(left.documentId) - priorityOf(right.documentId) ||
               left.index - right.index,
           )
           .map((entry) => entry.documentId);
@@ -142,6 +160,7 @@ export default defineAction({
             bodyComparison,
             documentIds: [],
             remainingDocumentIds: reviewDocumentIds,
+            timings: timing.finish(),
           };
         }
       }
@@ -153,11 +172,13 @@ export default defineAction({
     }
 
     const blocksCheckDocumentIds = new Set<string>();
-    const source = await getContentDatabaseSourceSnapshotForReview(
-      database,
-      args.sourceId,
-      reviewDocumentIds,
-      { builderBodyComparison: bodyComparison, blocksCheckDocumentIds },
+    const source = await timing.measure("snapshot", () =>
+      getContentDatabaseSourceSnapshotForReview(
+        database,
+        args.sourceId,
+        reviewDocumentIds,
+        { builderBodyComparison: bodyComparison, blocksCheckDocumentIds },
+      ),
     );
     if (!source || source.sourceType !== "builder-cms") {
       throw new Error("Attach a Builder CMS source before reviewing updates.");
@@ -188,10 +209,10 @@ export default defineAction({
           reviewPreparePriority(right, source),
       )
       .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
-    const authoritativeSource = await withAuthoritativeBuilderTargetRows({
-      source,
-      changeSets,
-    });
+    const authoritativeSource = await timing.measure("targets", () =>
+      withAuthoritativeBuilderTargetRows({ source, changeSets }),
+    );
+    const payloadStartedAt = timing.start();
     const review =
       changeSets.length > 0
         ? withoutBodyPayloads(
@@ -205,6 +226,7 @@ export default defineAction({
       review.totalRowCount = allReviewableChanges.length;
       review.preparedRowLimit = changeSets.length;
     }
+    timing.record("payload", payloadStartedAt);
 
     return {
       sourceId: source.id,
@@ -222,6 +244,7 @@ export default defineAction({
             ),
           }
         : {}),
+      timings: timing.finish(),
     };
   },
 });

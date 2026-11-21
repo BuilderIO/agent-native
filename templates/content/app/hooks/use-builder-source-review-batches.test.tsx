@@ -16,6 +16,8 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   callAction,
 }));
 
+import { BUILDER_REVIEW_ROW_LIMIT } from "@/components/editor/database-sources/builder-review-batches";
+
 import {
   type BuilderSourceReviewBatches,
   useBuilderSourceReviewBatches,
@@ -292,7 +294,9 @@ describe("useBuilderSourceReviewBatches", () => {
     await settle();
 
     expect(latest.data?.review?.rows).toHaveLength(100);
-    expect(latest.data?.review?.totalRowCount).toBe(125);
+    // At 85 rows the limit isn't reached yet, so the last five pages go out
+    // too while two batches are still on their way.
+    expect(latest.data?.review?.totalRowCount).toBe(130);
     expect(latest.moreRowsBeyondLimit).toBe(true);
     expect(latest.progress).toEqual({ kind: "confirming", pageCount: 30 });
 
@@ -339,5 +343,149 @@ describe("useBuilderSourceReviewBatches", () => {
     );
     expect(latest.progress).toBeNull();
     expect(latest.error).toBeNull();
+  });
+
+  it("shows each batch's rows once the batches sent before it are in, in the order they were sent", async () => {
+    const release = new Map<string, () => void>();
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      const first = params.documentIds?.[0] ?? "";
+      if (!params.batchSize) {
+        const gate = deferred<void>();
+        release.set(first, () => gate.resolve());
+        await gate.promise;
+      }
+      return response([row(`c-${first}`, first)]);
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="selected"
+          documentIds={pages(0, 85)}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+    expect([...release.keys()]).toEqual(["doc-5", "doc-25", "doc-45"]);
+
+    act(() => release.get("doc-25")?.());
+    await settle();
+    expect([...release.keys()]).toEqual([
+      "doc-5",
+      "doc-25",
+      "doc-45",
+      "doc-65",
+    ]);
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-0"],
+    );
+
+    act(() => release.get("doc-5")?.());
+    await settle();
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-0", "c-doc-5", "c-doc-25"],
+    );
+    expect(latest.progress).toEqual({ kind: "loading", pageCount: 40 });
+
+    act(() => {
+      release.get("doc-65")?.();
+      release.get("doc-45")?.();
+    });
+    await settle();
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-0", "c-doc-5", "c-doc-25", "c-doc-45", "c-doc-65"],
+    );
+    expect(latest.progress).toBeNull();
+  });
+
+  it("keeps loading past the row limit until the batches already sent are in", async () => {
+    const release = new Map<string, () => void>();
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      const first = params.documentIds?.[0] ?? "";
+      if (params.batchSize) return response([row("c-doc-0", "doc-0")]);
+      if (first === "doc-5") {
+        return response(
+          Array.from({ length: BUILDER_REVIEW_ROW_LIMIT }, (_, index) =>
+            row(`c-doc-5-${index}`, "doc-5"),
+          ),
+        );
+      }
+      const gate = deferred<void>();
+      release.set(first, () => gate.resolve());
+      await gate.promise;
+      return response([row(`c-${first}`, first)]);
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="selected"
+          documentIds={pages(0, 85)}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+    expect(latest.data?.review?.rows).toHaveLength(BUILDER_REVIEW_ROW_LIMIT);
+    expect(latest.progress).toEqual({ kind: "loading", pageCount: 40 });
+
+    act(() => {
+      release.get("doc-25")?.();
+      release.get("doc-45")?.();
+    });
+    await settle();
+    expect(latest.progress).toBeNull();
+    expect(latest.moreRowsBeyondLimit).toBe(true);
+    expect([...release.keys()]).toEqual(["doc-25", "doc-45"]);
+  });
+
+  it("confirms blocks one batch of five at a time, after the text batches", async () => {
+    let blocksInFlight = 0;
+    let mostBlocksInFlight = 0;
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      const ids = params.documentIds ?? [];
+      if (params.bodyComparison === "blocks") {
+        blocksInFlight += 1;
+        mostBlocksInFlight = Math.max(mostBlocksInFlight, blocksInFlight);
+        await Promise.resolve();
+        blocksInFlight -= 1;
+        return response([]);
+      }
+      return response(
+        ids.map((id) => row(`c-${id}`, id)),
+        { blocksCheckDocumentIds: ids },
+      );
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="selected"
+          documentIds={pages(0, 12)}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+
+    expect(
+      requests().map((entry) => [entry.bodyComparison, entry.documentIds]),
+    ).toEqual([
+      ["text", pages(0, 5)],
+      ["text", pages(5, 12)],
+      ["blocks", pages(0, 5)],
+      ["blocks", pages(5, 10)],
+      ["blocks", pages(10, 12)],
+    ]);
+    expect(mostBlocksInFlight).toBe(1);
+    expect(latest.unchangedRowCount).toBe(12);
+    expect(latest.progress).toBeNull();
   });
 });
