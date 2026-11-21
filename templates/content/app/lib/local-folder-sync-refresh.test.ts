@@ -1,9 +1,16 @@
-import { QueryClient, type QueryKey } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it } from "vitest";
+import {
+  QueryClient,
+  QueryObserver,
+  type QueryKey,
+} from "@tanstack/react-query";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { localSourceDirectoryId } from "../../shared/local-source-directory";
 import { invalidateContentQueries } from "../hooks/use-content-action-mutation";
-import { localFolderSyncTreeTargets } from "./local-folder-sync-refresh";
+import {
+  localFolderSyncTreeTargets,
+  refreshFilesAfterLocalFolderDisconnect,
+} from "./local-folder-sync-refresh";
 
 const FILES = "files-db";
 const OTHER_FILES = "other-files-db";
@@ -102,5 +109,38 @@ describe("localFolderSyncTreeTargets", () => {
   it("renames a file changed outside Content where it's listed", () => {
     sync({ updated: ["nested"] });
     expect(refreshed(keys.section)).toBe(true);
+  });
+});
+
+describe("refreshFilesAfterLocalFolderDisconnect", () => {
+  it("rereads that space's top level and leaves its folders unread, since the server no longer opens them", async () => {
+    const reads: string[] = [];
+    const unsubscribes = (
+      [
+        ["root", keys.root],
+        ["folder", keys.folder],
+      ] as const
+    ).map(([name, key]) =>
+      new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          reads.push(name);
+          return items();
+        },
+        staleTime: Infinity,
+        retry: false,
+      }).subscribe(() => {}),
+    );
+
+    refreshFilesAfterLocalFolderDisconnect(queryClient, FILES);
+    await vi.waitFor(() => expect(reads).toContain("root"));
+    await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
+    for (const unsubscribe of unsubscribes) unsubscribe();
+
+    expect(reads).toEqual(["root"]);
+    expect(refreshed(keys.folder)).toBe(true);
+    expect(refreshed(keys.otherSpaceRoot)).toBe(false);
+    expect(refreshed(keys.otherSpaceFolder)).toBe(false);
+    expect(refreshed(keys.section)).toBe(false);
   });
 });

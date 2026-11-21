@@ -58,7 +58,10 @@ import {
   runNativeFolderPickerWithCrashSentinel,
 } from "@/lib/local-folder-picker-safety";
 import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
-import { localFolderSyncTreeTargets } from "@/lib/local-folder-sync-refresh";
+import {
+  localFolderSyncTreeTargets,
+  refreshFilesAfterLocalFolderDisconnect,
+} from "@/lib/local-folder-sync-refresh";
 import { cn } from "@/lib/utils";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -1339,6 +1342,12 @@ export default function LocalFilesRoute() {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
+      if (connection.filesDatabaseId) {
+        refreshFilesAfterLocalFolderDisconnect(
+          queryClient,
+          connection.filesDatabaseId,
+        );
+      }
       setStatus({
         kind: "success",
         title: t("localFiles.folderRemoved"),
