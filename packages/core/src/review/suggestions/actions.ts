@@ -504,6 +504,18 @@ export const updateResourceSuggestion = defineAction({
           errorCode: "suggestion_conflict",
         });
       }
+      const targets = new Set(
+        current.operations.map((operation) => operation.targetId ?? null),
+      );
+      if (
+        args.operations.some(
+          (operation) => !targets.has(operation.targetId ?? null),
+        )
+      )
+        fail("An amendment must edit what the suggestion edits", {
+          statusCode: 422,
+          errorCode: "suggestion_invalid",
+        });
       const adapter = getSuggestionAdapter(current.adapterKind);
       if (!adapter || adapter.version !== current.adapterVersion)
         throw new Error("Suggestion adapter version is unavailable");
