@@ -1003,6 +1003,62 @@ describe("preUploadAttachments", () => {
     warn.mockRestore();
   });
 
+  it.each([
+    "builder_oauth_reauthorization_required",
+    "builder_credentials_rejected",
+  ])(
+    "instructs the agent to reconnect Builder rather than retry (%s)",
+    async (errorCode) => {
+      uploadFileMock.mockRejectedValue(
+        Object.assign(new Error("untrusted detail"), { errorCode }),
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const att = makeImageAtt();
+        const result = await preUploadAttachments({
+          attachments: [att],
+          ownerEmail: "user@example.com",
+        });
+        expect(result.uploadFailed).toBe(true);
+        expect(att.storageReconnectRequired).toBe(true);
+        expect(result.injectedText).toContain(
+          "Builder.io connection for file storage needs to be reconnected",
+        );
+        expect(result.injectedText).not.toContain("Retry the upload");
+        expect(result.injectedText).not.toContain("untrusted detail");
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+
+  it("uses the generic failure detail when a Builder reconnect failure comes first", async () => {
+    uploadFileMock
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Builder reconnect detail"), {
+          errorCode: "builder_oauth_reauthorization_required",
+        }),
+      )
+      .mockRejectedValueOnce(new Error('generic <failure> & "detail"'));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await preUploadAttachments({
+      attachments: [makeImageAtt(), makeFileAtt()],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(uploadFileMock).toHaveBeenCalledTimes(2);
+    expect(result.uploadError).toBe("Builder reconnect detail");
+    expect(result.injectedText).toContain(
+      "Builder.io connection for file storage needs to be reconnected",
+    );
+    expect(result.injectedText).toContain("Retry the upload");
+    expect(result.injectedText).not.toContain("Builder reconnect detail");
+    expect(result.injectedText).toContain(
+      "generic &lt;failure&gt; &amp; &quot;detail&quot;",
+    );
+  });
+
   it("does not describe a readable photo as too large when storage is unconfigured", async () => {
     uploadFileMock.mockResolvedValue(null);
 
