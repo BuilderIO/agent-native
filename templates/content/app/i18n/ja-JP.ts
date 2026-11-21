@@ -403,6 +403,12 @@ const database = {
   failedToSavePagePreview: "ページプレビューを保存できませんでした",
   failedToSaveView: "ビューの保存に失敗しました",
   failedToUpdateCheckbox: "チェックボックスを更新できませんでした",
+  undoPropertyChangedSince:
+    "元に戻せませんでした: 編集後にこのプロパティが変更されました",
+  redoPropertyChangedSince:
+    "やり直せませんでした: 元に戻した後にこのプロパティが変更されました",
+  undoPropertyFailed: "プロパティの変更を元に戻せませんでした",
+  redoPropertyFailed: "プロパティの変更をやり直せませんでした",
   failedToUpdateEverySelectedRow: "選択したすべての行を更新できませんでした",
   filter: "フィルター",
   filterBy: "フィルター条件...",
@@ -784,6 +790,15 @@ const editor = {
   creatingDatabase: "インラインコレクションを作成しています...",
   databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
+  newPagePlaceholder: "書き始めましょう",
+  newPageLine: "書き始める、{{draft}}、または {{import}}",
+  newPageLineWithoutImport: "書き始める、または{{draft}}",
+  newPageLineDraft: "エージェントで下書き",
+  newPageLineImport: "Markdown をインポート",
+  newPageDraftPrompt: "次のテーマでこのページを下書きしてください: ",
+  newPageDraftPromptTitled:
+    "「{{title}}」についてこのページを下書きしてください",
+  newPageAgentContextLabel: "このページ",
   describeWhatToGenerate: "何を生成するかを説明します...",
   enterToSubmit: "入力して送信してください",
   failedToCreateDatabase: "インラインコレクションの作成に失敗しました",
@@ -1682,6 +1697,25 @@ const overrides = {
     builderReviewShowMore: "さらに表示",
     builderReviewRemainingBatches:
       "残りの Builder 変更を準備するには、このバッチの後で再度レビューしてください。",
+    builderReviewLoadingMorePagesOne: "残り 1 ページの変更を読み込んでいます…",
+    builderReviewLoadingMorePages:
+      "残り {{count}} ページの変更を読み込んでいます…",
+    builderReviewConfirmingBodiesOne:
+      "本文の変更 1 件を Builder と照合しています…",
+    builderReviewConfirmingBodies:
+      "本文の変更 {{count}} 件を Builder と照合しています…",
+    builderReviewFindingPages: "変更のあるページを探しています…",
+    builderReviewRowsMatchBuilderOne:
+      "1 ページは本文を変換すると Builder と一致するため、含めていません。",
+    builderReviewRowsMatchBuilder:
+      "{{count}} ページは本文を変換すると Builder と一致するため、含めていません。",
+    builderReviewLoadFailed: "一部の変更を読み込めませんでした: {{message}}",
+    bodyDiffAdded: "追加:",
+    bodyDiffRemoved: "削除:",
+    bodyDiffMoreLinesOne: "ほかに変更された行が 1 行",
+    bodyDiffMoreLines: "ほかに変更された行が {{count}} 行",
+    bodyDiffMoreChangesOne: "表示されていない変更があと 1 件",
+    bodyDiffMoreChanges: "表示されていない変更があと {{count}} 件",
     builderBodiesSyncingProgress:
       "{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
     builderBodiesSyncFinishedWithFailures:
@@ -1859,6 +1893,7 @@ const overrides = {
     heading6: "見出し 6",
     link: "リンク",
     comment: "コメント",
+    suggestEdit: "編集を提案",
     pasteLink: "リンクを貼り付け...",
     apply: "適用",
     plainText: "プレーンテキスト",
@@ -2049,6 +2084,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "保留中の作成と未保存の下書きを消去します。ページがすでに保存されている場合は、ワークスペースに残ります。",
     failedDeletePage: "ページを削除できませんでした",
+    workspaceReferenceProtected:
+      "ワークスペースへの参照は保護されており、ページとして変更できません。",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",
     failedMovePage: "ページを移動できませんでした",

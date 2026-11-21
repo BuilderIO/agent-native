@@ -190,10 +190,6 @@ const DESIGN_BROAD_WORKFLOW_SHARDS = new Map([
     "music-app-workflow",
   ],
   [
-    "templates/design/e2e/home-system-selection.spec.ts",
-    "home-system-selection",
-  ],
-  [
     "templates/design/e2e/interaction-landing-page-build.spec.ts",
     "landing-page-build",
   ],
@@ -624,6 +620,7 @@ const CHECK_NAMES = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
   "changeset",
   "verify_execution_lease",
   "core_mutation",
@@ -653,6 +650,7 @@ const SLOW_APP_CHECKS = [
   "slides_text_surface_e2e",
   "slides_authoring_e2e",
   "slides_oracle",
+  "storybook_tests",
 ] as const;
 
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
@@ -1111,6 +1109,33 @@ export function scriptTestsForPaths(
     }
   }
   return [...tests].sort();
+}
+
+const STORYBOOK_TEST_PREFIXES = [
+  "packages/design-system/",
+  "packages/toolkit/src/",
+  "packages/toolkit/dev/",
+  "packages/toolkit/.storybook/",
+] as const;
+
+const STORYBOOK_TEST_FILES = new Set([
+  "packages/toolkit/vitest.storybook.config.ts",
+  "packages/toolkit/package.json",
+  ".github/workflows/storybook-tests.yml",
+]);
+
+export function isStorybookTestPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    STORYBOOK_TEST_FILES.has(normalized) ||
+    GLOBAL_RUNTIME_INPUTS.has(normalized)
+  ) {
+    return true;
+  }
+  return (
+    STORYBOOK_TEST_PREFIXES.some((prefix) => normalized.startsWith(prefix)) &&
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  );
 }
 
 // The paths that can change which tests Vitest collects and how it modes them.
@@ -2549,6 +2574,7 @@ function buildChecks(
     slides_text_surface_e2e: slidesTextSurfaceE2eChanged,
     slides_authoring_e2e: changedPaths.some(isSlidesAuthoringPath),
     slides_oracle: changedPaths.some(isSlidesOraclePath),
+    storybook_tests: changedPaths.some(isStorybookTestPath),
     changeset: changedPaths.some(isChangesetPath),
     verify_execution_lease: changedPaths.some((path) =>
       isExecutionLeasePath(path, executionLeaseCovered),

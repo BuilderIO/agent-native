@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { writeAppSecret } from "@agent-native/core/secrets";
 import {
   getSession,
+  oauthCallbackOwner,
   oauthCallbackResponse,
   oauthErrorPage,
   type OAuthStatePayload,
@@ -56,7 +57,7 @@ export async function handleGoogleCalendarCallback(
   }
 
   const session = await getSession(event);
-  const userEmail = session?.email ?? state.owner;
+  const userEmail = oauthCallbackOwner(session?.email, state);
   if (!userEmail) {
     return oauthErrorPage(
       "Your session expired during the OAuth flow. Sign in again and retry.",

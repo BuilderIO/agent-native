@@ -551,6 +551,123 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).toBe("<p>Comment on this text</p>");
   });
 
+  it("offers Suggest edit after Comment only to someone who can suggest", () => {
+    const editorHost = document.createElement("div");
+    const toolbarHost = document.createElement("div");
+    editorElement = editorHost;
+    toolbarElement = toolbarHost;
+    document.body.append(editorHost, toolbarHost);
+    const suggestingEditor = new Editor({
+      element: editorHost,
+      extensions: [StarterKit],
+      content: "<p>Suggest an edit here</p>",
+    });
+    editor = suggestingEditor;
+    suggestingEditor.commands.setTextSelection({ from: 1, to: 8 });
+    const onComment = vi.fn();
+    const onSuggestEdit = vi.fn();
+    const labels = () =>
+      [...toolbarHost.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      );
+    const toolbarRoot = createRoot(toolbarHost);
+    root = toolbarRoot;
+
+    act(() =>
+      toolbarRoot.render(
+        <BubbleToolbar editor={suggestingEditor} onComment={onComment} />,
+      ),
+    );
+    expect(labels()).not.toContain("editor.suggestEdit");
+
+    act(() =>
+      toolbarRoot.render(
+        <BubbleToolbar
+          editor={suggestingEditor}
+          onComment={onComment}
+          onSuggestEdit={onSuggestEdit}
+        />,
+      ),
+    );
+    expect(labels().slice(-2)).toEqual([
+      "editor.comment",
+      "editor.suggestEdit",
+    ]);
+
+    const suggestEdit = defined(
+      toolbarHost.querySelector<HTMLButtonElement>(
+        'button[aria-label="editor.suggestEdit"]',
+      ),
+    );
+    act(() => {
+      suggestEdit.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(onSuggestEdit).toHaveBeenCalledOnce();
+    expect(onComment).not.toHaveBeenCalled();
+    expect(suggestingEditor.state.selection.from).toBe(1);
+    expect(suggestingEditor.state.selection.to).toBe(8);
+  });
+
+  it("offers Suggest edit to a reader who can't edit, with or without Comment", () => {
+    const editorHost = document.createElement("div");
+    const toolbarHost = document.createElement("div");
+    editorElement = editorHost;
+    toolbarElement = toolbarHost;
+    document.body.append(editorHost, toolbarHost);
+    const readerEditor = new Editor({
+      element: editorHost,
+      extensions: [StarterKit],
+      content: "<p>Suggest an edit here</p>",
+      editable: false,
+    });
+    editor = readerEditor;
+    const onComment = vi.fn();
+    const onSuggestEdit = vi.fn();
+    const labels = () =>
+      [...toolbarHost.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      );
+    const toolbarRoot = createRoot(toolbarHost);
+    root = toolbarRoot;
+
+    act(() =>
+      toolbarRoot.render(
+        <ReadOnlyCommentBubble
+          editor={readerEditor}
+          onComment={onComment}
+          onSuggestEdit={onSuggestEdit}
+        />,
+      ),
+    );
+    expect(labels()).toEqual(["editor.comment", "editor.suggestEdit"]);
+
+    act(() =>
+      toolbarRoot.render(
+        <ReadOnlyCommentBubble
+          editor={readerEditor}
+          onSuggestEdit={onSuggestEdit}
+        />,
+      ),
+    );
+    expect(labels()).toEqual(["editor.suggestEdit"]);
+
+    readerEditor.commands.setTextSelection({ from: 1, to: 8 });
+    const suggestEdit = defined(
+      toolbarHost.querySelector<HTMLButtonElement>(
+        'button[aria-label="editor.suggestEdit"]',
+      ),
+    );
+    act(() => {
+      suggestEdit.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(onSuggestEdit).toHaveBeenCalledOnce();
+    expect(readerEditor.getHTML()).toBe("<p>Suggest an edit here</p>");
+  });
+
   it("opens the link input for selected editor text on Mod+K", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");

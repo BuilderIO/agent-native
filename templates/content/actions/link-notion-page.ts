@@ -26,7 +26,9 @@ export default defineAction({
       throw new Error("documentId and pageId are required");
     }
 
-    const owner = await getNotionDocumentOwner(documentId);
+    const owner = await getNotionDocumentOwner(documentId, {
+      requireOwner: true,
+    });
     await flushNotionDocumentEditor(documentId, owner);
     return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl, ctx);
   },

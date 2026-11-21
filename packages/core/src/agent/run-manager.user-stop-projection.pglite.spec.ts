@@ -34,6 +34,7 @@ const batchHarness = vi.hoisted(() => ({
     wait: Promise<void>;
     sizes: number[];
   },
+  abortStateRead: null as null | { runId: string; read: () => void },
 }));
 vi.mock("./run-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./run-store.js")>();
@@ -49,6 +50,14 @@ vi.mock("./run-store.js", async (importOriginal) => {
         gate.sizes.push(args[1].length);
       }
       return actual.insertRunEvents(...args);
+    },
+    getRunAbortState: async (
+      ...args: Parameters<typeof actual.getRunAbortState>
+    ) => {
+      const state = await actual.getRunAbortState(...args);
+      const watch = batchHarness.abortStateRead;
+      if (watch?.runId === args[0]) watch.read();
+      return state;
     },
   };
 });
@@ -71,6 +80,7 @@ const {
   ensureRunTables,
   insertRun,
   claimTurnExecutionLease,
+  markRunAborted,
   isTurnAborted,
   updateRunStatusIfRunning,
 } = await import("./run-store.js");
@@ -161,6 +171,44 @@ function startStoppableRun(input: {
   return { run, ready, completion };
 }
 
+async function stopOnAnotherServer(
+  input: Parameters<typeof startStoppableRun>[0],
+  shownThrough?: (run: ActiveRun) => number,
+) {
+  const abortChecked = new Promise<void>((resolve) => {
+    batchHarness.abortStateRead = { runId: input.runId, read: resolve };
+  });
+  const started = startStoppableRun(input);
+  await started.ready;
+  await abortChecked;
+  batchHarness.abortStateRead = null;
+
+  expect(
+    await markRunAborted(
+      input.runId,
+      "user",
+      shownThrough ? { shownThroughSeq: shownThrough(started.run) } : undefined,
+    ),
+  ).toBe(true);
+  await started.run.finalized;
+  return started;
+}
+
+function seqOfText(run: ActiveRun, text: string): number {
+  const found = run.events.find(
+    ({ event }) => event.type === "text" && event.text === text,
+  );
+  if (!found) throw new Error(`The run streamed no "${text}"`);
+  return found.seq;
+}
+
+function savedText(reply: { content: { type: string; text?: string }[] }) {
+  return reply.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
 describe("a stopped leased run's completion", () => {
   it("saves the partial reply the run streamed before Stop, marked as stopped", async () => {
     const runId = "run-user-stop-partial";
@@ -188,6 +236,129 @@ describe("a stopped leased run's completion", () => {
         .map((part: { text: string }) => part.text)
         .join(""),
     ).toContain("Mangrove forests grow along tropical co");
+  });
+
+  it("saves the partial reply when another server handles the Stop", async () => {
+    const runId = "run-user-stop-other-server";
+    const { completion } = await stopOnAnotherServer({
+      runId,
+      threadId: "thread-user-stop-other-server",
+      text: "45. Rain taps softly on the slow br",
+    });
+
+    expect(completion.error).toBeUndefined();
+    const reply = JSON.parse((await savedReply(runId)) ?? "null");
+    expect(reply).toMatchObject({
+      role: "assistant",
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId, custom: { userStopped: true } },
+    });
+    expect(
+      reply.content
+        .filter((part: { type: string }) => part.type === "text")
+        .map((part: { text: string }) => part.text)
+        .join(""),
+    ).toContain("Rain taps softly on the slow br");
+  });
+
+  it("saves the reply only up to what the user's browser showed at Stop", async () => {
+    const runId = "run-user-stop-shown-through";
+    const { run, ready, completion } = startStoppableRun({
+      runId,
+      threadId: "thread-user-stop-shown-through",
+      text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+    });
+    await ready;
+
+    await abortRunAndTurnDurably(runId, "user", {
+      shownThroughSeq: seqOfText(run, "pull. "),
+    });
+    await run.finalized;
+
+    expect(completion.error).toBeUndefined();
+    const reply = JSON.parse((await savedReply(runId)) ?? "null");
+    expect(reply).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { runId, custom: { userStopped: true } },
+    });
+    expect(savedText(reply).trim()).toBe("1. Tides turn. 2. Moons pull.");
+  });
+
+  it("keeps the first Stop's cutoff when a Stop without one follows", async () => {
+    const runId = "run-user-stop-twice";
+    const { run, ready } = startStoppableRun({
+      runId,
+      threadId: "thread-user-stop-twice",
+      text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+    });
+    await ready;
+    const shownThroughSeq = seqOfText(run, "pull. ");
+    await abortRunAndTurnDurably(runId, "user", { shownThroughSeq });
+    await run.finalized;
+
+    expect(await markRunAborted(runId, "user")).toBe(true);
+
+    expect((await events(runId)).at(-1)).toMatchObject({
+      type: "done",
+      reason: "user",
+      shownThroughSeq,
+    });
+  });
+
+  it("saves the reply only up to what the browser showed when another server handles the Stop", async () => {
+    const runId = "run-user-stop-other-server-shown-through";
+    const { completion } = await stopOnAnotherServer(
+      {
+        runId,
+        threadId: "thread-user-stop-other-server-shown-through",
+        text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+      },
+      (run) => seqOfText(run, "turn. "),
+    );
+
+    expect(completion.error).toBeUndefined();
+    const reply = JSON.parse((await savedReply(runId)) ?? "null");
+    expect(savedText(reply).trim()).toBe("1. Tides turn.");
+  });
+
+  it("ends the run with the cutoff another server's Stop wrote", async () => {
+    let shownThroughSeq: number | undefined;
+    const { run } = await stopOnAnotherServer(
+      {
+        runId: "run-user-stop-other-server-terminal-cutoff",
+        threadId: "thread-user-stop-other-server-terminal-cutoff",
+        text: "1. Tides turn. 2. Moons pull. 3. Reefs",
+      },
+      (streaming) => (shownThroughSeq = seqOfText(streaming, "turn. ")),
+    );
+
+    expect(run.events.at(-1)?.event).toMatchObject({
+      type: "done",
+      reason: "user",
+      shownThroughSeq,
+    });
+  });
+
+  it("leaves a run another server stopped for the projection retry when its save fails", async () => {
+    const runId = "run-user-stop-other-server-save-failed";
+    const { completion } = await stopOnAnotherServer({
+      runId,
+      threadId: "thread-user-stop-other-server-save-failed",
+      text: "A reply the thread could not take",
+      beforeStopSaved: async () => {
+        throw new Error("thread save failed");
+      },
+    });
+
+    expect(completion.error).toMatchObject({ message: "thread save failed" });
+    const { rows } = await pglite.query(
+      "SELECT status, thread_projection_pending FROM agent_runs WHERE id = ?",
+      [runId],
+    );
+    expect(rows[0]).toEqual({
+      status: "aborted",
+      thread_projection_pending: true,
+    });
   });
 
   it("saves no reply for a run stopped before it wrote anything", async () => {

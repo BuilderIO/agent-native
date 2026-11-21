@@ -187,7 +187,60 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0]?.source?.sessionId).toBeUndefined();
     expect(tracked[0]?.properties).not.toHaveProperty("utm_source");
     expect(tracked[0]?.properties).not.toHaveProperty("first_touch_path");
+    expect(tracked[0]?.properties).toMatchObject({
+      analytics_consent: "withheld",
+      attribution_consent: "withheld",
+    });
     expect(persisted).toEqual([]);
+  });
+
+  it("names only the category a stored choice withheld", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        cookie: `an_consent=1.p1.t0; an_aid=anon_eu; ${firstTouchCookie({
+          utm_source: "newsletter",
+          landing_path: "/welcome",
+        })}`,
+        "x-country": "DE",
+      }),
+    });
+
+    expect(tracked[0]?.source?.anonymousId).toBe("anon_eu");
+    expect(tracked[0]?.properties).not.toHaveProperty("utm_source");
+    expect(tracked[0]?.properties).not.toHaveProperty("analytics_consent");
+    expect(tracked[0]?.properties).toMatchObject({
+      attribution_consent: "withheld",
+    });
+  });
+
+  it("marks consent unknown when the request has no choice and no usable country", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        cookie: firstTouchCookie({ utm_source: "newsletter" }),
+        "x-country": "XX",
+      }),
+    });
+
+    expect(tracked[0]?.properties).not.toHaveProperty("utm_source");
+    expect(tracked[0]?.properties).toMatchObject({
+      analytics_consent: "unknown",
+      attribution_consent: "unknown",
+    });
+  });
+
+  it("adds no consent marker when the request allows both categories", async () => {
+    await emitSignupEventForCreatedUser(USER, {
+      headers: new Headers({
+        cookie: `an_consent=1.p1.t1; ${firstTouchCookie({
+          utm_source: "newsletter",
+        })}`,
+        "x-country": "DE",
+      }),
+    });
+
+    expect(tracked[0]?.properties).toMatchObject({ utm_source: "newsletter" });
+    expect(tracked[0]?.properties).not.toHaveProperty("analytics_consent");
+    expect(tracked[0]?.properties).not.toHaveProperty("attribution_consent");
   });
 
   it("still records direct for a real visitor who arrived with no campaign", async () => {

@@ -411,6 +411,14 @@ const database = {
   failedToSavePagePreview: "Seitenvorschau konnte nicht gespeichert werden",
   failedToSaveView: "Ansicht konnte nicht gespeichert werden",
   failedToUpdateCheckbox: "Kontrollkästchen konnte nicht aktualisiert werden",
+  undoPropertyChangedSince:
+    "Nicht rückgängig gemacht: Diese Eigenschaft wurde nach deiner Änderung geändert",
+  redoPropertyChangedSince:
+    "Nicht wiederhergestellt: Diese Eigenschaft wurde nach dem Rückgängigmachen geändert",
+  undoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht rückgängig gemacht werden",
+  redoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht wiederhergestellt werden",
   failedToUpdateEverySelectedRow:
     "Nicht jede ausgewählte Zeile konnte aktualisiert werden",
   filter: "Filter",
@@ -799,6 +807,14 @@ const editor = {
   creatingDatabase: "Inline-Sammlung wird erstellt...",
   databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
+  newPagePlaceholder: "Schreib los",
+  newPageLine: "Schreib los, {{draft}} oder {{import}}",
+  newPageLineWithoutImport: "Schreib los oder {{draft}}",
+  newPageLineDraft: "entwirf sie mit dem Agenten",
+  newPageLineImport: "importiere Markdown",
+  newPageDraftPrompt: "Entwirf diese Seite über ",
+  newPageDraftPromptTitled: "Entwirf diese Seite über {{title}}",
+  newPageAgentContextLabel: "Diese Seite",
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",
   failedToCreateDatabase: "Inline-Sammlung konnte nicht erstellt werden",
@@ -1720,6 +1736,27 @@ const overrides = {
     builderReviewShowMore: "Mehr anzeigen",
     builderReviewRemainingBatches:
       "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
+    builderReviewLoadingMorePagesOne:
+      "Änderungen für 1 weitere Seite werden geladen…",
+    builderReviewLoadingMorePages:
+      "Änderungen für {{count}} weitere Seiten werden geladen…",
+    builderReviewConfirmingBodiesOne:
+      "1 Textänderung wird mit Builder abgeglichen…",
+    builderReviewConfirmingBodies:
+      "{{count}} Textänderungen werden mit Builder abgeglichen…",
+    builderReviewFindingPages: "Seiten mit Änderungen werden gesucht…",
+    builderReviewRowsMatchBuilderOne:
+      "1 Seite stimmt nach der Umwandlung ihres Texts bereits mit Builder überein und ist daher nicht enthalten.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} Seiten stimmen nach der Umwandlung ihrer Texte bereits mit Builder überein und sind daher nicht enthalten.",
+    builderReviewLoadFailed:
+      "Einige Änderungen wurden nicht geladen: {{message}}",
+    bodyDiffAdded: "Hinzugefügt:",
+    bodyDiffRemoved: "Entfernt:",
+    bodyDiffMoreLinesOne: "1 weitere geänderte Zeile",
+    bodyDiffMoreLines: "{{count}} weitere geänderte Zeilen",
+    bodyDiffMoreChangesOne: "1 weitere Änderung nicht angezeigt",
+    bodyDiffMoreChanges: "{{count}} weitere Änderungen nicht angezeigt",
     builderBodiesSyncingProgress:
       "{{hydrated}} von {{total}} Texten werden synchronisiert.",
     builderBodiesSyncFinishedWithFailures:
@@ -1900,6 +1937,7 @@ const overrides = {
     heading6: "Überschrift 6",
     link: "Link",
     comment: "Kommentar",
+    suggestEdit: "Änderung vorschlagen",
     pasteLink: "Link einfügen...",
     apply: "Anwenden",
     plainText: "Nur Text",
@@ -2095,6 +2133,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
+    workspaceReferenceProtected:
+      "Arbeitsbereichsreferenzen sind geschützt und können nicht als Seiten geändert werden.",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
     failedMovePage: "Seite konnte nicht verschoben werden",
