@@ -25,6 +25,8 @@ export type TrackSelection =
 export interface TimelineTrackProps {
   width: number;
   height: number;
+  viewportWidth?: number;
+  scrollLeft?: number;
   durationMs: number;
   edits: EditsJson;
   selection: TrackSelection | null;
@@ -238,6 +240,8 @@ function anchorFor(
 export function TimelineTrack({
   width,
   height,
+  viewportWidth = width,
+  scrollLeft = 0,
   durationMs,
   edits,
   selection,
@@ -409,6 +413,13 @@ export function TimelineTrack({
     };
   };
 
+  const rangeSummaryX =
+    selection?.kind === "range"
+      ? (clamp(toX(selection.startMs) - scrollLeft, 0, viewportWidth) +
+          clamp(toX(selection.endMs) - scrollLeft, 0, viewportWidth)) /
+        2
+      : 0;
+
   return (
     <div
       ref={rootRef}
@@ -528,30 +539,39 @@ export function TimelineTrack({
       })}
 
       {selection?.kind === "range" ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute top-0 h-full rounded-[3px] border border-primary bg-primary/20 ring-2 ring-inset ring-primary"
-          style={{
-            left: toX(selection.startMs),
-            width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
-          }}
-        />
-      ) : null}
-
-      {selection?.kind === "range" ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1 z-10 flex justify-center"
-          style={{
-            left: toX(selection.startMs),
-            width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
-          }}
-        >
-          <span className="whitespace-nowrap rounded-sm bg-primary px-1.5 py-0.5 font-mono text-[10px] leading-none text-primary-foreground shadow">
-            {formatMs(selection.startMs)} – {formatMs(selection.endMs)} ·{" "}
-            {formatMs(selection.endMs - selection.startMs)}
-          </span>
-        </div>
+        <>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 h-full rounded-[3px] border border-primary bg-primary/20 ring-2 ring-inset ring-primary"
+            style={{
+              left: toX(selection.startMs),
+              width: Math.max(1, toX(selection.endMs) - toX(selection.startMs)),
+            }}
+          />
+          <div
+            className="pointer-events-none absolute top-1 z-10"
+            style={{ left: scrollLeft, width: viewportWidth }}
+          >
+            <span
+              className="absolute w-max break-all rounded-sm bg-primary px-1.5 py-0.5 text-center font-mono text-[10px] leading-none text-primary-foreground shadow tabular-nums"
+              style={{
+                left: rangeSummaryX,
+                maxWidth: viewportWidth,
+                transform: `translateX(clamp(max(-100%, -${rangeSummaryX}px), -50%, min(0px, calc(${viewportWidth - rangeSummaryX}px - 100%))))`,
+              }}
+            >
+              {formatMs(selection.startMs)}.
+              {String(selection.startMs % 1000).padStart(3, "0")} –{" "}
+              {formatMs(selection.endMs)}.
+              {String(selection.endMs % 1000).padStart(3, "0")} ·{" "}
+              {formatMs(selection.endMs - selection.startMs)}.
+              {String((selection.endMs - selection.startMs) % 1000).padStart(
+                3,
+                "0",
+              )}
+            </span>
+          </div>
+        </>
       ) : null}
 
       {/*

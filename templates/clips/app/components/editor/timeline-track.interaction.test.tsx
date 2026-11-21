@@ -163,6 +163,66 @@ describe("TimelineTrack pointer gestures", () => {
     expect(onCommit).not.toHaveBeenCalled();
   });
 
+  it("shows exact source timestamps throughout range selection, resize, and move", () => {
+    const thirdPiece = () => {
+      const piece = pieces().slice(2, 3).pop();
+      if (!piece) throw new Error("third timeline piece not rendered");
+      return piece;
+    };
+    const summaries = () =>
+      Array.from(container.querySelectorAll("span"))
+        .filter((span) => !span.closest('[role="button"]'))
+        .filter((span) => /^\d{2}:\d{2}(?:\.\d{3})?/.test(span.textContent))
+        .map((span) => {
+          expect(span.closest('[aria-hidden="true"]')).toBeNull();
+          return span.textContent.replace(/\.\d{3}$/, "");
+        });
+
+    function ControlledTrack() {
+      const [selection, setSelection] = React.useState<TrackSelection | null>(
+        null,
+      );
+      return (
+        <TimelineTrack
+          width={WIDTH}
+          height={100}
+          durationMs={DURATION}
+          edits={addCut(DEFAULT_EDITS, 100, 600, "cut-a")}
+          selection={selection}
+          onSelectionChange={setSelection}
+          onPreview={onPreview}
+          onCommit={onCommit}
+        />
+      );
+    }
+
+    act(() => root.render(<ControlledTrack />));
+    act(() => {
+      pointer(thirdPiece(), "pointerdown", 123.4);
+      pointer(track(), "pointermove", 126.8);
+    });
+    expect(summaries()).toEqual(["00:01.234 – 00:01.268 · 00:00"]);
+
+    act(() => pointer(track(), "pointerup", 126.8));
+    expect(summaries()).toEqual(["00:01.234 – 00:01.268 · 00:00"]);
+
+    act(() => {
+      pointer(thirdPiece(), "pointerdown", 126.8);
+      pointer(track(), "pointermove", 153.7);
+    });
+    expect(summaries()).toEqual(["00:01.234 – 00:01.537 · 00:00"]);
+    act(() => pointer(track(), "pointerup", 153.7));
+    expect(summaries()).toEqual(["00:01.234 – 00:01.537 · 00:00"]);
+
+    act(() => {
+      pointer(thirdPiece(), "pointerdown", 140);
+      pointer(track(), "pointermove", 160);
+    });
+    expect(summaries()).toEqual(["00:01.434 – 00:01.737 · 00:00"]);
+    act(() => pointer(track(), "pointerup", 160));
+    expect(summaries()).toEqual(["00:01.434 – 00:01.737 · 00:00"]);
+  });
+
   describe("with a range already selected", () => {
     const RANGE: TrackSelection = {
       kind: "range",
