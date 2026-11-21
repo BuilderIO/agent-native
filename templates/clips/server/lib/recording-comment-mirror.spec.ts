@@ -586,6 +586,22 @@ describe("Clips comments in the review kit", () => {
         as(OWNER, () => (action as Runnable).run(args, ctx)),
       ).rejects.toThrow("add-comment");
     }
+    await as(OWNER, () =>
+      resolveComment.run({ id: comment.id, resolved: true }, ctx),
+    );
+    await expect(
+      as(OWNER, () =>
+        (resolveReviewThread as unknown as Runnable).run(
+          {
+            ...recording,
+            threadId: comment.threadId,
+            status: "resolved",
+            resolutionNote: "Changed through the kit",
+          },
+          ctx,
+        ),
+      ),
+    ).rejects.toThrow("add-comment");
     await expectStoresAgree("rec-kit-write");
   });
 });

@@ -1,9 +1,12 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
+import { ForbiddenError } from "../../sharing/access.js";
 import {
   assertReviewableResourceAccess,
+  getReviewableResource,
   reviewCommentPolicy,
+  reviewWriteRefusal,
 } from "../registry.js";
 import {
   getReviewCommentById,
@@ -44,12 +47,21 @@ export default defineAction({
   run: async (args, ctx) => {
     const status = args.status ?? "resolved";
     const actionCtx = ctx as ReviewResourceContext | undefined;
-    await assertReviewableResourceAccess(
+    const access = await assertReviewableResourceAccess(
       args.resourceType,
       args.resourceId,
       actionCtx,
       reviewCommentPolicy(args.resourceType).resolveRole,
     );
+    if (getReviewableResource(args.resourceType)?.commentsWrittenByApp) {
+      throw new ForbiddenError(
+        reviewWriteRefusal(
+          args.resourceType,
+          access,
+          "Not allowed to resolve this review thread",
+        ),
+      );
+    }
     let threadId = args.threadId;
     if (!threadId && args.commentId) {
       const comment = await getReviewCommentById(
