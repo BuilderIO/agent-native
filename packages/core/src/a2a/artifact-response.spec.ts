@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { detectArtifactReceipts } from "../artifacts/detect.js";
 import {
   appendA2AArtifactLinks,
   appendA2APersistedMutationReceipts,
@@ -791,6 +792,26 @@ describe("appendA2AArtifactLinks", () => {
       expect(guarded.text).toContain(
         "Added the ask: https://content.agent.test/page/row_doc_789",
       );
+      expect(guarded.text).not.toContain("could not verify the document URL");
+    });
+
+    it("lets a reply name the row when the agent loop recorded its artifacts", () => {
+      const guarded = guardA2AArtifactResponse(
+        "Added the ask: https://content.agent.test/page/row_doc_789",
+        [
+          {
+            tool: "add-database-item",
+            result,
+            artifacts: detectArtifactReceipts(
+              JSON.parse(result),
+              "add-database-item",
+            ),
+          },
+        ],
+        { baseUrl: "https://content.agent.test" },
+      );
+
+      expect(guarded.rejectedUnverifiedArtifactReferences).toBe(false);
       expect(guarded.text).not.toContain("could not verify the document URL");
     });
 
