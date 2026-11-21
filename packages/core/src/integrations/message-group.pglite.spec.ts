@@ -9,9 +9,8 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import type { IncomingMessage } from "./types.js";
 
-// Real PGlite behind getDbExec, so listing, claiming and absorbing queued
-// tasks run their genuine SQL.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
@@ -77,7 +76,7 @@ async function telegramMessage(
         },
       },
     },
-  } as any);
+  } as unknown as H3Event);
   if (!incoming) throw new Error("Telegram update was not parsed");
   return incoming;
 }
@@ -102,8 +101,22 @@ async function queue(
     ownerEmail: "dispatch+qa@integration.local",
     externalEventKey: `telegram:${incoming.externalThreadId}:${incoming.platformContext.messageId}`,
   });
-  // Distinct created_at values keep the queue order the order of arrival.
-  await new Promise((resolve) => setTimeout(resolve, 2));
+}
+
+async function claimed(id: string) {
+  const task = await claimPendingTask(id);
+  if (!task) throw new Error(`task ${id} could not be claimed`);
+  return task;
+}
+
+async function stored(id: string) {
+  const task = await getPendingTask(id);
+  if (!task) throw new Error(`task ${id} is missing`);
+  return task;
+}
+
+function incomingOf(task: { payload: string }) {
+  return (JSON.parse(task.payload) as { incoming: IncomingMessage }).incoming;
 }
 
 describe("Telegram albums in the integration task queue", () => {
@@ -114,14 +127,12 @@ describe("Telegram albums in the integration task queue", () => {
     await queue("other-album", await albumPhoto(13, undefined, "24680"));
     await queue("text", await telegramMessage(14, { text: "and one more" }));
 
-    const leader = await claimPendingTask("album-1");
-    expect(leader).not.toBeNull();
-    // While the first update runs, the rest of the album waits behind it.
+    const leader = await claimed("album-1");
     expect(await claimPendingTask("album-2")).toBeNull();
 
     const merged = await collectMessageGroup(
-      leader!,
-      JSON.parse(leader!.payload).incoming,
+      leader,
+      incomingOf(leader),
       telegramAdapter(),
       { sleep: instant },
     );
@@ -136,7 +147,6 @@ describe("Telegram albums in the integration task queue", () => {
     expect((await getPendingTask("album-3"))?.status).toBe("completed");
     expect((await getPendingTask("other-album"))?.status).toBe("pending");
     expect((await getPendingTask("text"))?.status).toBe("pending");
-    // The merged photos never become turns of their own.
     expect(await claimPendingTask("album-2")).toBeNull();
     expect(await claimPendingTask("album-3")).toBeNull();
     expect((await getNextPendingTaskForThread("telegram", THREAD))?.id).toBe(
@@ -147,11 +157,11 @@ describe("Telegram albums in the integration task queue", () => {
   it("folds an album without a caption into one message of files", async () => {
     await queue("album-1", await albumPhoto(20));
     await queue("album-2", await albumPhoto(21));
-    const leader = await claimPendingTask("album-1");
+    const leader = await claimed("album-1");
 
     const merged = await collectMessageGroup(
-      leader!,
-      JSON.parse(leader!.payload).incoming,
+      leader,
+      incomingOf(leader),
       telegramAdapter(),
       { sleep: instant },
     );
@@ -166,12 +176,12 @@ describe("Telegram albums in the integration task queue", () => {
 
   it("waits for album updates that are still arriving", async () => {
     await queue("album-1", await albumPhoto(30));
-    const leader = await claimPendingTask("album-1");
+    const leader = await claimed("album-1");
     let polls = 0;
 
     const merged = await collectMessageGroup(
-      leader!,
-      JSON.parse(leader!.payload).incoming,
+      leader,
+      incomingOf(leader),
       telegramAdapter(),
       {
         sleep: async () => {
@@ -192,12 +202,12 @@ describe("Telegram albums in the integration task queue", () => {
 
   it("stops waiting after the longest wait even if updates keep arriving", async () => {
     await queue("album-1", await albumPhoto(40));
-    const leader = await claimPendingTask("album-1");
+    const leader = await claimed("album-1");
     let next = 41;
 
     const merged = await collectMessageGroup(
-      leader!,
-      JSON.parse(leader!.payload).incoming,
+      leader,
+      incomingOf(leader),
       telegramAdapter(),
       {
         maxWaitMs: 1_000,
@@ -208,35 +218,27 @@ describe("Telegram albums in the integration task queue", () => {
       },
     );
 
-    // 1 000 ms of 200 ms polls: five more updates arrived and were folded in.
     expect(merged?.files).toHaveLength(6);
   });
 
   it("returns null for a single photo of an album and for a normal message", async () => {
     await queue("album-1", await albumPhoto(50, "just one"));
     await queue("text", await telegramMessage(51, { text: "hello" }));
-    const leader = await claimPendingTask("album-1");
+    const leader = await claimed("album-1");
     expect(
-      await collectMessageGroup(
-        leader!,
-        JSON.parse(leader!.payload).incoming,
-        telegramAdapter(),
-        { sleep: instant },
-      ),
+      await collectMessageGroup(leader, incomingOf(leader), telegramAdapter(), {
+        sleep: instant,
+      }),
     ).toBeNull();
     expect((await getPendingTask("text"))?.status).toBe("pending");
 
     const sleep = vi.fn(instant);
-    const text = await getPendingTask("text");
+    const text = await stored("text");
     expect(
-      await collectMessageGroup(
-        text!,
-        JSON.parse(text!.payload).incoming,
-        telegramAdapter(),
-        { sleep },
-      ),
+      await collectMessageGroup(text, incomingOf(text), telegramAdapter(), {
+        sleep,
+      }),
     ).toBeNull();
-    // A message outside an album never waits.
     expect(sleep).not.toHaveBeenCalled();
   });
 

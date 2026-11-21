@@ -16,6 +16,7 @@ vi.mock("../../server/h3-helpers.js", () => ({
   readBody: vi.fn(async (event: any) => event.context.__rawBody ?? {}),
 }));
 
+import type { IncomingMessage } from "../types.js";
 import { telegramAdapter } from "./telegram.js";
 
 function eventWithBody(body: unknown): any {
@@ -636,6 +637,12 @@ describe("telegramAdapter sendMessageToTarget", () => {
 });
 
 describe("telegramAdapter mergeMessageGroup", () => {
+  function mergeAlbum(messages: IncomingMessage[]) {
+    const merge = telegramAdapter().mergeMessageGroup;
+    if (!merge) throw new Error("the Telegram adapter cannot merge albums");
+    return merge(messages);
+  }
+
   async function albumPhoto(
     messageId: number,
     fileId: string,
@@ -660,8 +667,7 @@ describe("telegramAdapter mergeMessageGroup", () => {
   }
 
   it("makes one message with every photo in order and the caption", async () => {
-    const adapter = telegramAdapter();
-    const merged = adapter.mergeMessageGroup!([
+    const merged = mergeAlbum([
       await albumPhoto(12, "photo-c"),
       await albumPhoto(10, "photo-a", "receipts for March"),
       await albumPhoto(11, "photo-b"),
@@ -678,7 +684,7 @@ describe("telegramAdapter mergeMessageGroup", () => {
   });
 
   it("keeps an album without a caption as files with empty text", async () => {
-    const merged = telegramAdapter().mergeMessageGroup!([
+    const merged = mergeAlbum([
       await albumPhoto(21, "photo-b"),
       await albumPhoto(20, "photo-a"),
     ]);
@@ -690,7 +696,7 @@ describe("telegramAdapter mergeMessageGroup", () => {
   });
 
   it("keeps every caption when more than one photo has one", async () => {
-    const merged = telegramAdapter().mergeMessageGroup!([
+    const merged = mergeAlbum([
       await albumPhoto(31, "photo-b", "back"),
       await albumPhoto(30, "photo-a", "front"),
     ]);

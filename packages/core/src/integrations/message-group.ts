@@ -5,10 +5,9 @@ import {
 } from "./pending-tasks-store.js";
 import type { IncomingMessage, PlatformAdapter } from "./types.js";
 
-// Telegram sends the updates of one album within moments of each other. A
-// thread runs one task at a time, so the rest of the album is still waiting
-// in the queue while its first update is being processed.
+/** How long no new update of a group must arrive before its turn starts. */
 export const MESSAGE_GROUP_QUIET_MS = 1_000;
+/** The longest a turn waits for the rest of its group. */
 export const MESSAGE_GROUP_MAX_WAIT_MS = 3_000;
 const MESSAGE_GROUP_POLL_MS = 200;
 
@@ -33,6 +32,7 @@ function waitingGroupMembers(
         other.messageGroupId === incoming.messageGroupId
         ? [{ id: row.id, incoming: other }]
         : [];
+      // coercion-ok: an unreadable queued row is not part of this group; its own task records the parse error
     } catch {
       return [];
     }

@@ -552,26 +552,27 @@ export async function processIntegrationTask(
     parsed.orgScope ??
     (task.orgId === null && principalType === "user" ? "personal" : undefined);
 
-  let incoming = parsed.incoming;
   if (!campaignOptions?.continuationInvocation) {
-    const merged = await collectMessageGroup(task, incoming, options.adapter);
+    const merged = await collectMessageGroup(
+      task,
+      parsed.incoming,
+      options.adapter,
+    );
     if (merged) {
-      incoming = merged;
-      // Keep the whole group on this task, so a retry still has every update.
-      await updateProcessingTaskPayload(
-        task.id,
-        JSON.stringify({ ...parsed, incoming }),
-      ).catch((err) => {
-        console.error(
-          `[integrations] Could not save the merged message group on task ${task.id}:`,
-          err,
-        );
-      });
+      parsed.incoming = merged;
+      await updateProcessingTaskPayload(task.id, JSON.stringify(parsed)).catch(
+        (err) => {
+          console.error(
+            `[integrations] Could not save the merged message group on task ${task.id}:`,
+            err,
+          );
+        },
+      );
     }
-    await recordInboundIntegrationAudit(task, incoming);
+    await recordInboundIntegrationAudit(task, parsed.incoming);
   }
 
-  return processIncomingMessage(incoming, options, {
+  return processIncomingMessage(parsed.incoming, options, {
     taskId: task.id,
     attempts: task.attempts,
     placeholderRef: parsed.placeholderRef,
@@ -1859,11 +1860,6 @@ function fileReferenceLine(file: IntegrationFileReference): string {
   return `[file] ${file.name || file.id}${file.mimetype ? ` (${file.mimetype})` : ""}${file.permalink ? ` ${file.permalink}` : ""}`;
 }
 
-/**
- * The user turn saved to thread history: the message text plus a line per
- * attached file, so later turns still know a file was sent and a message
- * with only a file is not saved as empty.
- */
 function historyUserText(incoming: IncomingMessage): string {
   const fileLines = (incoming.files ?? []).slice(0, 20).map(fileReferenceLine);
   return [incoming.text, ...fileLines].filter((line) => line.trim()).join("\n");

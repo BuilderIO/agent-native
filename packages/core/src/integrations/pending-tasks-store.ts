@@ -421,7 +421,7 @@ export async function listPendingTasksForThread(
       Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
     ],
   });
-  return (rows ?? []).map((row) => rowToTask(row as Record<string, unknown>));
+  return rows.map((row) => rowToTask(row as Record<string, unknown>));
 }
 
 /**
@@ -439,7 +439,7 @@ export async function absorbPendingTask(id: string): Promise<boolean> {
           RETURNING id`,
     args: ["completed", now, now, "{}", id],
   });
-  return (rows ?? []).length > 0;
+  return rows.length > 0;
 }
 
 export async function updateProcessingTaskPayload(

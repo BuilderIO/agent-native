@@ -181,15 +181,14 @@ export function telegramAdapter(): PlatformAdapter {
       };
     },
 
-    // Telegram sends each photo or file of an album as its own update with a
-    // shared media_group_id. Usually only one of them has a caption.
     mergeMessageGroup(messages: IncomingMessage[]): IncomingMessage {
       const ordered = [...messages].sort(
         (a, b) =>
           Number(a.platformContext.messageId) -
           Number(b.platformContext.messageId),
       );
-      const first = ordered[0];
+      const first = ordered.at(0);
+      if (!first) throw new Error("A Telegram album needs at least one update");
       const captioned = ordered.filter((message) => message.text.trim());
       return {
         ...first,
