@@ -4523,7 +4523,7 @@ describe("defineAction — action_kind", () => {
     const { runWithRequestContext } =
       await import("./server/request-context.js");
     try {
-      await runWithRequestContext({ provenUiRequest: true }, () =>
+      await runWithRequestContext({ appPageRequest: true }, () =>
         calls({ caller: "frontend", actionName: name }),
       );
     } finally {
@@ -4602,7 +4602,7 @@ describe("defineAction — action_kind", () => {
     expect(received).toEqual([1_000, 1_000, 1_000]);
   });
 
-  it("counts a frontend call the action route did not prove as a write", async () => {
+  it("counts a frontend call the action route did not see from the app page as a write", async () => {
     const refresh = defineAction({
       description: "Refresh a sync status.",
       schema: z.object({}),
@@ -4612,7 +4612,7 @@ describe("defineAction — action_kind", () => {
     const { runWithRequestContext } =
       await import("./server/request-context.js");
     const events = await capture("kind-unproven", async (ctx) => {
-      await runWithRequestContext({ provenUiRequest: false }, () =>
+      await runWithRequestContext({ appPageRequest: false }, () =>
         refresh.run({}, ctx),
       );
       await refresh.run({}, ctx);

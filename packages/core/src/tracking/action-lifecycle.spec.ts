@@ -189,7 +189,7 @@ describe("action lifecycle tracking", () => {
     const kinds = (events: TrackingEvent[]) =>
       events.map((event) => event.properties?.action_kind);
     const fromApp = <T>(run: () => Promise<T>) =>
-      runWithRequestContext({ provenUiRequest: true }, run);
+      runWithRequestContext({ appPageRequest: true }, run);
 
     it("labels every event of a write the app makes on its own automatic", async () => {
       const events = captureEvents();

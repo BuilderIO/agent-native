@@ -9,6 +9,7 @@ import {
   getQuery,
   getHeader,
   readBody as readH3Body,
+  type H3Event,
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
@@ -294,6 +295,21 @@ function isFrontendActionRequest(event: any): boolean {
   } catch {
     return false;
   }
+}
+
+function isAppPageRequest(
+  event: H3Event,
+  caller: ActionCaller,
+  userEmail: string | undefined,
+  embedded: boolean,
+): boolean {
+  return (
+    caller === "frontend" &&
+    !!userEmail &&
+    !embedded &&
+    !getHeader(event, "authorization") &&
+    hasSameOriginBrowserEvidence(event)
+  );
 }
 
 /**
@@ -1423,6 +1439,9 @@ function mountActionRoutesInternal(
             ...(requestId ? { requestId } : {}),
             userEmail,
             provenUiRequest,
+            appPageRequest:
+              provenUiRequest ||
+              isAppPageRequest(event, requestCaller, userEmail, embedded),
             ...(verifiedServiceIdentity &&
             verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
               userEmail?.trim().toLowerCase() &&

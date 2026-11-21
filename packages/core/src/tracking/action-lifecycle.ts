@@ -61,10 +61,10 @@ function outputId(result: unknown): string | undefined {
   return undefined;
 }
 
-async function isProvenAppUiCall(ctx: ActionRunContext): Promise<boolean> {
+async function isAppUiCall(ctx: ActionRunContext): Promise<boolean> {
   if (ctx.caller !== "frontend") return false;
   const { getRequestContext } = await import("../server/request-context.js");
-  return getRequestContext()?.provenUiRequest === true;
+  return getRequestContext()?.appPageRequest === true;
 }
 
 export function wrapRunWithActionTracking(
@@ -85,7 +85,7 @@ export function wrapRunWithActionTracking(
     if (!ctx || !shouldTrackAction(ctx)) return run(args, ctx);
 
     const kind =
-      (await options.actionKind?.(args, ctx, await isProvenAppUiCall(ctx))) ??
+      (await options.actionKind?.(args, ctx, await isAppUiCall(ctx))) ??
       "write";
     const { track } = await import("./registry.js");
     const startedAt = Date.now();

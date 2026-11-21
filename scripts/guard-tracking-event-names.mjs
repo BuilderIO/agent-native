@@ -54,18 +54,52 @@ export function namesBeyondBase(headSource, baseSource, names) {
   );
 }
 
-function baseSourceOf(relativePath) {
+export function renamedFrom(nameStatus) {
+  const renames = new Map();
+  for (const line of nameStatus.split("\n")) {
+    const [status, from, to] = line.split("\t");
+    if (status?.startsWith("R") && from && to) renames.set(to, from);
+  }
+  return renames;
+}
+
+let baseFiles;
+
+function baseFilesOf() {
+  if (baseFiles) return baseFiles;
   const commit = diffBaseCommit(REPO_ROOT);
   if (commit === null) {
     console.error("guard:tracking-event-names: no diff base");
     process.exit(2);
   }
+  const renames = renamedFrom(
+    execGuardCommand(
+      "git",
+      [
+        "-c",
+        "core.quotePath=false",
+        "diff",
+        "--name-status",
+        "--find-renames",
+        "--diff-filter=R",
+        commit,
+      ],
+      { cwd: REPO_ROOT, encoding: "utf8" },
+    ),
+  );
+  baseFiles = { commit, renames };
+  return baseFiles;
+}
+
+function baseSourceOf(relativePath) {
+  const { commit, renames } = baseFilesOf();
+  const basePath = renames.get(relativePath) ?? relativePath;
   const listed = execGuardCommand(
     "git",
-    ["ls-tree", "--name-only", commit, "--", relativePath],
+    ["ls-tree", "--name-only", commit, "--", basePath],
     { cwd: REPO_ROOT, encoding: "utf8" },
   );
-  return listed.trim() ? readCommitFile(REPO_ROOT, commit, relativePath) : "";
+  return listed.trim() ? readCommitFile(REPO_ROOT, commit, basePath) : "";
 }
 
 function relative(absolutePath) {

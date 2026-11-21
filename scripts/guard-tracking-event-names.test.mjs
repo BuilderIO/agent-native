@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EVENT_CALL, namesBeyondBase } from "./guard-tracking-event-names.mjs";
+import {
+  EVENT_CALL,
+  namesBeyondBase,
+  renamedFrom,
+} from "./guard-tracking-event-names.mjs";
 
 test("matches optional-member and optional-call telemetry tracking calls", () => {
   const sources = [
@@ -36,4 +40,18 @@ trackEvent(${JSON.stringify("session status")});`;
     [...namesBeyondBase(brandNew, "", ["Clicked Thing"])],
     ["Clicked Thing"],
   );
+});
+
+void test("reads a renamed file's base text from its old path", () => {
+  const renames = renamedFrom(
+    [
+      "R087\tsrc/old-name.ts\tsrc/new-name.ts",
+      "R100\tsrc/moved.ts\tlib/moved.ts",
+      "",
+    ].join("\n"),
+  );
+
+  assert.equal(renames.get("src/new-name.ts"), "src/old-name.ts");
+  assert.equal(renames.get("lib/moved.ts"), "src/moved.ts");
+  assert.equal(renames.get("src/untouched.ts"), undefined);
 });
