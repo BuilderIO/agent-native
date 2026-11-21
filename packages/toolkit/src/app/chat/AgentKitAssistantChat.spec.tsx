@@ -9871,6 +9871,9 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(prompt);
     await act(async () => send().click());
     await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+    expect(startRun.mock.calls[1]![0].messages.at(-1)?.parts).toEqual([
+      { type: "text", text: prompt },
+    ]);
     await client.shutdown();
   });
 
