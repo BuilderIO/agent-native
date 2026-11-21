@@ -6841,10 +6841,10 @@ export function permanentPreconditionReason(
     .replace(/[.。]+$/, "");
   const nestedPrecondition = reason
     .match(
-      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\. That needs to be fixed outside this chat\b|\.?$)/i,
+      /\bI stopped because [\w-]+ can't run yet:\s*(.+?)(?:\.? That needs to be fixed outside this chat\b|\.?$)/i,
     )?.[1]
     ?.trim();
-  if (nestedPrecondition) return nestedPrecondition;
+  if (nestedPrecondition) return shortenPreconditionReason(nestedPrecondition);
   if (!reason) return null;
   if (
     /\bI stopped because\b/i.test(reason) ||
@@ -6852,9 +6852,35 @@ export function permanentPreconditionReason(
   ) {
     return null;
   }
-  return reason.length > PERMANENT_PRECONDITION_REASON_MAX_CHARS
-    ? `${reason.slice(0, PERMANENT_PRECONDITION_REASON_MAX_CHARS).trim()}…`
-    : reason;
+  return shortenPreconditionReason(reason);
+}
+
+/**
+ * Fit a reason into the headline, ending on a whole sentence where one ends
+ * past the halfway mark, else on a whole word. The full error stays under the
+ * stop's details; a cut mid-word ("as the ow…") reads as a broken message.
+ */
+function shortenPreconditionReason(reason: string): string {
+  const max = PERMANENT_PRECONDITION_REASON_MAX_CHARS;
+  if (reason.length <= max) return reason;
+  let sentenceEnd = 0;
+  for (const match of reason.matchAll(/[.!?](?=\s)/g)) {
+    const index = match.index ?? max;
+    if (index >= max) break;
+    sentenceEnd = index + 1;
+  }
+  if (sentenceEnd >= max / 2) {
+    // A period comes back from the headline; "?" and "!" stay.
+    return reason.slice(0, sentenceEnd).replace(/\.$/, "");
+  }
+  const wordEnd = reason.lastIndexOf(" ", max - 1);
+  const cut = wordEnd >= max / 2 ? wordEnd : max;
+  return `${reason.slice(0, cut).replace(/[\s,;:—–-]+$/, "")}…`;
+}
+
+/** The headline's sentence: a reason ending in "…", "?" or "!" keeps it. */
+function asSentence(text: string): string {
+  return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
 const SOURCE_SWEEP_TOOL_NAME =
@@ -10119,8 +10145,8 @@ export async function runAgentLoop(opts: {
           requestedActionStop ??= {
             message: reason
               ? directStop?.ownRemedy
-                ? `I stopped because ${toolCall.name} can't run yet: ${reason}.`
-                : `I stopped because ${toolCall.name} can't run yet: ${reason}. ` +
+                ? `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)}`
+                : `I stopped because ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                   "That needs to be fixed outside this chat (a credential, a role, a connected account, or an approval), then you can retry."
               : `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
                 "Retrying would not have changed it, and anything completed before this is saved.",
@@ -10128,7 +10154,7 @@ export async function runAgentLoop(opts: {
             details: sanitizedResult,
           };
           return reason
-            ? `Stopped: ${toolCall.name} can't run yet: ${reason}. ` +
+            ? `Stopped: ${toolCall.name} can't run yet: ${asSentence(reason)} ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`
             : `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
                 `Do not retry it with different arguments. ${sanitizedResult}`;

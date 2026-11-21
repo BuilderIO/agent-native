@@ -18453,6 +18453,93 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it.each([
+    {
+      // The reason Dispatch's chat cut to "…and this run resolves
+      // credentials as the ow…." on November 20.
+      label: "ends a long reason on its last whole sentence",
+      thrown:
+        'github credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. Personal keys are " +
+        "readable only by their own owner's signed-in sessions, and this run " +
+        "resolves credentials as the owner identity behind the integration, job, " +
+        'or automation — so it needs "GITHUB_TOKEN" saved with Workspace or ' +
+        "Organization scope instead.",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        'credential not configured. Tried: GITHUB_TOKEN. A "GITHUB_TOKEN" ' +
+        "key is saved in this workspace with Personal scope. That needs to " +
+        "be fixed outside this chat",
+    },
+    {
+      label:
+        "ends a long single sentence on a whole word, without a stray period",
+      thrown:
+        "github credential not configured for " +
+        "the repository workspace ".repeat(12).trim(),
+      headline:
+        "I stopped because github-repo-list-files can't run yet: github " +
+        "credential not configured for " +
+        "the repository workspace ".repeat(8).trimEnd() +
+        "… That needs to be fixed outside this chat",
+    },
+  ])("$label in the stop headline", async ({ thrown, headline }) => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(thrown);
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `github-${streamCalls}`,
+              name: "github-repo-list-files",
+              input: { repo: "BuilderIO/agent-native" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "github-repo-list-files": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const stop = events.find((e) => e.type === "error") as {
+      error: string;
+      details: string;
+    };
+    expect(stop.error).toContain(headline);
+    expect(stop.error).not.toMatch(/…./);
+    expect(stop.details).toContain(thrown);
+  });
+
   function importFileEngine(): AgentEngine {
     let streamCalls = 0;
     return {

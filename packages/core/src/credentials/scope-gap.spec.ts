@@ -51,17 +51,65 @@ describe("describeCredentialScopeGap", () => {
     resolveOrgIdForEmailResult = null;
   });
 
-  it("names the scope found and the scope the run needed", async () => {
+  it("tells a person in their own chat that the only key is a teammate's", async () => {
+    execute = async () => ({ rows: [{ 1: 1 }] });
+
+    const message = await describeCredentialScopeGap(["GITHUB_TOKEN"], {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(message).toBe(
+      'The only "GITHUB_TOKEN" key in this workspace is another ' +
+        "member's Personal key. Save your own, or ask an organization " +
+        "owner or admin to save one with Workspace or Organization scope.",
+    );
+  });
+
+  it.each([
+    ["an integration delivery", { isIntegrationCaller: true }],
+    ["an org-level A2A caller", { a2aIdentityAssurance: "organization" }],
+    ["a shared-keys-only lookup", { credentialScope: "org" }],
+    [
+      "a verified service token",
+      {
+        verifiedServiceIdentity: {
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+        },
+      },
+    ],
+  ] as const)(
+    "says %s can't use a member's Personal key",
+    async (_label, requestContext) => {
+      execute = async () => ({ rows: [{ 1: 1 }] });
+
+      const message = await runWithRequestContext(requestContext, () =>
+        describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
+          userEmail: "owner@example.com",
+          orgId: "org-1",
+        }),
+      );
+
+      expect(message).toBe(
+        "This integration, job, or automation run can't use a member's " +
+          'Personal "SLACK_BOT_TOKEN" key. Ask an organization owner or ' +
+          "admin to save one with Workspace or Organization scope.",
+      );
+    },
+  );
+
+  it("names the integration when the lookup itself is limited to shared keys", async () => {
     execute = async () => ({ rows: [{ 1: 1 }] });
 
     const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
       userEmail: "owner@example.com",
       orgId: "org-1",
+      credentialScope: "org",
     });
 
-    expect(message).toContain("SLACK_BOT_TOKEN");
-    expect(message).toContain("Personal scope");
-    expect(message).toContain("Workspace or Organization scope");
+    expect(message).toContain("integration, job, or automation run");
+    expect(message).not.toContain("Save your own");
   });
 
   it("never reveals the secret value or the account holding it", async () => {
@@ -116,7 +164,7 @@ describe("describeCredentialScopeGap", () => {
       userEmail: "owner@example.com",
     });
 
-    expect(message).toContain("Personal scope");
+    expect(message).toContain("Personal key");
   });
 
   it("stays quiet when the key is missing everywhere in the org", async () => {
@@ -213,7 +261,7 @@ describe("describeCredentialScopeGap across organizations", () => {
       orgId: "org-1",
     });
 
-    expect(message).toContain("Personal scope");
+    expect(message).toContain("Personal key");
     expect(execCalls).toHaveLength(1);
   });
 

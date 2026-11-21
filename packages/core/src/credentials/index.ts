@@ -22,7 +22,10 @@ import {
   isPersonalProviderPolicyKey,
   readOrgMemberRole,
 } from "../server/personal-provider-key-policy.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  type RequestContext,
+} from "../server/request-context.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import { recordCredentialUse } from "./use-ledger.js";
@@ -389,10 +392,12 @@ export async function resolveCredential(
  * Two distinct causes produce the same "the key is right there and it still
  * says it's missing" report:
  *
- *  - Non-interactive runs — integration/webhook deliveries, scheduled jobs,
- *    automations, and inbound A2A calls — resolve credentials as an owner
- *    identity rather than as the person who triggered them, so a teammate's
- *    Personal key is invisible to them even though the vault visibly holds it.
+ *  - The only key of that name is a teammate's Personal key, which no one
+ *    else's run can read. In a person's own chat that just means they have no
+ *    key of their own. Integration and webhook deliveries, platform-bound jobs
+ *    and triggers, org-level A2A calls and service tokens resolve credentials
+ *    as an owner identity rather than as the person who triggered them, so
+ *    the message names that instead (see `resolvesAsOwnerIdentity`).
  *  - The key is saved in a DIFFERENT organization the caller also belongs to.
  *    Credentials are per-organization, so gaining a second organization (or
  *    having `active-org-id` repointed at one) orphans every key synced under
@@ -437,13 +442,15 @@ export async function describeCredentialScopeGap(
 
   for (const key of keys) {
     if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
-      return (
-        `A "${key}" key is saved in this workspace with Personal scope. ` +
-        `Personal keys are readable only by their own owner's signed-in sessions, ` +
-        `and this run resolves credentials as the owner identity behind the ` +
-        `integration, job, or automation — so it needs "${key}" saved with ` +
-        `Workspace or Organization scope instead.`
-      );
+      // Kept short: the chat headline shows about 240 characters of the
+      // error, whole sentences only (`permanentPreconditionReason`).
+      return resolvesAsOwnerIdentity(ctx, requestContext)
+        ? `This integration, job, or automation run can't use a member's ` +
+            `Personal "${key}" key. Ask an organization owner or admin to ` +
+            `save one with Workspace or Organization scope.`
+        : `The only "${key}" key in this workspace is another member's ` +
+            `Personal key. Save your own, or ask an organization owner or ` +
+            `admin to save one with Workspace or Organization scope.`;
     }
 
     const holder = isDelegatedOrgMember
@@ -461,6 +468,28 @@ export async function describeCredentialScopeGap(
     }
   }
   return null;
+}
+
+/**
+ * Whether this run reads credentials as someone other than the person who
+ * sees its error: a lookup limited to shared keys, an integration or webhook
+ * delivery (platform-bound jobs and triggers set the same marker), an
+ * org-level A2A caller, or a verified service token. A person's own chat, a
+ * user-assured A2A call and a job running as its creator read that person's
+ * own Personal keys, so none of these apply.
+ */
+function resolvesAsOwnerIdentity(
+  ctx: CredentialContext,
+  requestContext: RequestContext | undefined,
+): boolean {
+  return (
+    ctx.credentialScope === "org" ||
+    requestContext?.credentialScope === "org" ||
+    requestContext?.isIntegrationCaller === true ||
+    requestContext?.integration !== undefined ||
+    requestContext?.a2aIdentityAssurance === "organization" ||
+    requestContext?.verifiedServiceIdentity !== undefined
+  );
 }
 
 async function hasForeignPersonalCredentialInOrg(
