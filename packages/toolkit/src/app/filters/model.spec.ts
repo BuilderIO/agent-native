@@ -712,6 +712,35 @@ describe("date ranges and times", () => {
     expect(filterOperatorValueCount("is_empty")).toBe(0);
   });
 
+  it("offers and takes only the operators a field names", () => {
+    const filesField: FilterField = {
+      id: "files",
+      label: "Files",
+      type: "text",
+      operators: ["contains", "is_empty", "is_not_empty"],
+    };
+    const narrowedDate: FilterField<Clip> = {
+      ...createdField,
+      operators: ["before", "after"],
+    };
+    expect(filterOperatorsFor(filesField)).toEqual([
+      "contains",
+      "is_empty",
+      "is_not_empty",
+    ]);
+    expect(createFilterRule(filesField).operator).toBe("contains");
+    expect(
+      isFilterRuleComplete(
+        createFilterRule(filesField, ["a"], "starts_with"),
+        filesField,
+      ),
+    ).toBe(false);
+    expect(filterOperatorsAcceptedFor(narrowedDate)).toEqual([
+      "before",
+      "after",
+    ]);
+  });
+
   it("needs both ends of a range", () => {
     expect(
       isFilterRuleComplete(

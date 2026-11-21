@@ -63,6 +63,7 @@ export interface FilterField<Row = never> {
   alwaysSet?: boolean;
   dates?: "past" | "future" | "any";
   times?: boolean;
+  operators?: readonly FilterOperator[];
   valueNoun?: { one: string; other: string };
   booleanLabels?: { checked: string; unchecked: string };
   pinned?: { default: readonly string[]; allLabel?: string };
@@ -149,17 +150,18 @@ const UNLISTED_OPERATORS_BY_TYPE: Partial<
 };
 
 export function filterOperatorsFor(
-  field: Pick<FilterField<unknown>, "type" | "alwaysSet">,
+  field: Pick<FilterField<unknown>, "type" | "alwaysSet" | "operators">,
 ): readonly FilterOperator[] {
-  const operators = OPERATORS_BY_TYPE[field.type];
+  const operators = field.operators ?? OPERATORS_BY_TYPE[field.type];
   return field.alwaysSet
     ? operators.filter((operator) => !EMPTINESS_OPERATORS.has(operator))
     : operators;
 }
 
 export function filterOperatorsAcceptedFor(
-  field: Pick<FilterField<unknown>, "type" | "alwaysSet">,
+  field: Pick<FilterField<unknown>, "type" | "alwaysSet" | "operators">,
 ): readonly FilterOperator[] {
+  if (field.operators) return filterOperatorsFor(field);
   const unlisted = UNLISTED_OPERATORS_BY_TYPE[field.type] ?? [];
   return [...filterOperatorsFor(field), ...unlisted];
 }
@@ -192,7 +194,7 @@ export function filterOperatorTakesManyValues(
 }
 
 export function defaultFilterOperator(
-  field: Pick<FilterField<unknown>, "type" | "alwaysSet">,
+  field: Pick<FilterField<unknown>, "type" | "alwaysSet" | "operators">,
 ): FilterOperator {
   return filterOperatorsFor(field).at(0) ?? "equals";
 }
@@ -209,7 +211,7 @@ export function filterItemId(prefix: "r" | "g") {
 }
 
 export function createFilterRule(
-  field: Pick<FilterField<unknown>, "id" | "type" | "alwaysSet">,
+  field: Pick<FilterField<unknown>, "id" | "type" | "alwaysSet" | "operators">,
   value: string[] = [],
   operator: FilterOperator = defaultFilterOperator(field),
 ): FilterRule {
