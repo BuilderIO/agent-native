@@ -5,6 +5,30 @@ const BROWSER_CALL_APP_BUNDLE_IDS: &[&str] = &[
     "org.mozilla.firefox",
 ];
 
+/// Chromium browsers run call audio in a helper process (bundle id
+/// `<browser>.helper`, child of the browser's main process), not in the main
+/// process the focused window belongs to.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn is_browser_audio_helper(bundle_id: &str, browser_bundle_id: &str) -> bool {
+    bundle_id.eq_ignore_ascii_case(&format!("{browser_bundle_id}.helper"))
+}
+
+#[cfg(target_os = "macos")]
+fn parent_pid(pid: i32) -> Option<i32> {
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
+    (read == size).then_some(info.pbi_ppid as i32)
+}
+
 #[cfg(any(target_os = "macos", test))]
 pub(crate) fn supported_browser_bundle_id(bundle_id: &str) -> Option<&'static str> {
     BROWSER_CALL_APP_BUNDLE_IDS
@@ -117,6 +141,7 @@ fn call_matching_process_microphone(
     let mut matched_bundle = false;
 
     for process in processes {
+        let mut via_child_process = false;
         if let Some(expected_pid) = expected_pid {
             let mut pid_address = AudioObjectPropertyAddress {
                 mSelector: kAudioProcessPropertyPID,
@@ -140,7 +165,10 @@ fn call_matching_process_microphone(
                 continue;
             }
             if process_pid != expected_pid {
-                continue;
+                if parent_pid(process_pid) != Some(expected_pid) {
+                    continue;
+                }
+                via_child_process = true;
             }
         }
 
@@ -172,10 +200,16 @@ fn call_matching_process_microphone(
         }
         .to_string()
         .to_lowercase();
-        if !bundle_ids
-            .iter()
-            .any(|candidate| bundle_id_matches(&bundle_id, candidate))
-        {
+        let bundle_matches = if via_child_process {
+            bundle_ids
+                .iter()
+                .any(|candidate| is_browser_audio_helper(&bundle_id, candidate))
+        } else {
+            bundle_ids
+                .iter()
+                .any(|candidate| bundle_id_matches(&bundle_id, candidate))
+        };
+        if !bundle_matches {
             continue;
         }
         matched_bundle = true;
@@ -221,7 +255,10 @@ fn call_matching_process_microphone(
 
 #[cfg(test)]
 mod tests {
-    use super::{bundle_id_matches, supported_browser_bundle_id, BROWSER_CALL_APP_BUNDLE_IDS};
+    use super::{
+        bundle_id_matches, is_browser_audio_helper, supported_browser_bundle_id,
+        BROWSER_CALL_APP_BUNDLE_IDS,
+    };
 
     #[test]
     fn matches_native_helpers_but_only_exact_browser_processes() {
@@ -272,6 +309,18 @@ mod tests {
                 bundle_id
             ));
         }
+        assert!(is_browser_audio_helper(
+            "com.google.Chrome.helper",
+            "com.google.chrome"
+        ));
+        assert!(!is_browser_audio_helper(
+            "com.google.Chrome.helper.renderer",
+            "com.google.chrome"
+        ));
+        assert!(!is_browser_audio_helper(
+            "com.google.chrome",
+            "com.google.chrome"
+        ));
         assert_eq!(
             supported_browser_bundle_id("COM.GOOGLE.CHROME"),
             Some("com.google.chrome")
