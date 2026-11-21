@@ -682,6 +682,8 @@ export function ImageBlock({
         "After the action succeeds, do not repeat the alt text in chat. Give one short confirmation that the image alt text was updated.",
       ].join("\n"),
       imageDataUrl,
+      imageUrl: src,
+      imageOccurrence,
       altAtStart: alt,
     });
   }
