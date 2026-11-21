@@ -2349,6 +2349,13 @@ export function isSavedContentLocalEcho(
   return sentContent !== undefined && sentContent === savedContent;
 }
 
+export function newerMergedLocalSave<T extends { sequence: number }>(
+  current: T | null,
+  next: T,
+): T {
+  return current && current.sequence > next.sequence ? current : next;
+}
+
 export function resolveAcknowledgedDocumentSnapshot<
   T extends { id: string; updatedAt: string },
 >(args: {
@@ -3951,6 +3958,12 @@ function PageEditorSessionBody({
     sequence: number;
   } | null>(null);
   const acknowledgedLocalSnapshotSequenceRef = useRef(0);
+  const [mergedLocalSave, setMergedLocalSave] = useState<{
+    sent: string;
+    value: string;
+    revision: string;
+    sequence: number;
+  } | null>(null);
   const getLinkedLocalEditorSnapshot = useCallback(
     () => ({
       title: localTitleRef.current,
@@ -4805,7 +4818,8 @@ function PageEditorSessionBody({
   );
   const persistDocumentUpdates = useCallback(
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
-      options.persistenceSequence = ++persistenceSequenceRef.current;
+      const persistenceSequence = ++persistenceSequenceRef.current;
+      options.persistenceSequence = persistenceSequence;
       const persistenceIdentity = {
         editorSessionId: options.editorSessionId ?? editorSessionIdRef.current!,
         editGeneration:
@@ -4850,6 +4864,16 @@ function PageEditorSessionBody({
                 !current || snapshot.sequence > current.sequence
                   ? snapshot
                   : current,
+              );
+            } else if (updates.content !== undefined && result.revision) {
+              const merged = {
+                sent: updates.content,
+                value: result.content,
+                revision: result.revision,
+                sequence: persistenceSequence,
+              };
+              setMergedLocalSave((current) =>
+                newerMergedLocalSave(current, merged),
               );
             }
             if (
@@ -12350,6 +12374,7 @@ function PageEditorSessionBody({
                                 acknowledgedLocalSnapshot={
                                   acknowledgedLocalSnapshot
                                 }
+                                mergedLocalSave={mergedLocalSave}
                                 onBaseAwareReconcile={
                                   suggestionEditorIsolation.reconcileCanonical
                                     ? handleBaseAwareReconcile
