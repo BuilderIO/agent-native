@@ -1323,6 +1323,12 @@ export default function LocalFilesRoute() {
         "disconnect-local-folder-source" as never,
         { sourceId: connection.sourceId } as never,
       );
+      if (connection.filesDatabaseId) {
+        refreshFilesAfterLocalFolderDisconnect(
+          queryClient,
+          connection.filesDatabaseId,
+        );
+      }
       const nextDirectories = directories.filter(
         (candidate) => candidate.id !== directory.id,
       );
@@ -1342,12 +1348,6 @@ export default function LocalFilesRoute() {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
-      if (connection.filesDatabaseId) {
-        refreshFilesAfterLocalFolderDisconnect(
-          queryClient,
-          connection.filesDatabaseId,
-        );
-      }
       setStatus({
         kind: "success",
         title: t("localFiles.folderRemoved"),
