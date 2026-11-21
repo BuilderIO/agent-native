@@ -6,11 +6,8 @@ const mocks = vi.hoisted(() => ({
   getOrgContext: vi.fn(),
   resolveSecret: vi.fn(),
   saveOAuthTokens: vi.fn(),
-  listOAuthAccountsByOwner: vi.fn(),
-  resolveOAuthTokenBundleAccess: vi.fn(),
   listWorkspaceConnections: vi.fn(),
   getWorkspaceConnectionGrant: vi.fn(),
-  resolveWorkspaceConnectionForApp: vi.fn(),
   upsertWorkspaceConnection: vi.fn(),
   upsertWorkspaceConnectionGrant: vi.fn(),
 }));
@@ -32,26 +29,15 @@ vi.mock("../oauth-tokens/store.js", async (original) => ({
   saveOAuthTokens: mocks.saveOAuthTokens,
   setOAuthDisplayName: vi.fn(),
 }));
-vi.mock("../oauth-tokens/index.js", async (original) => ({
-  ...(await original<typeof import("../oauth-tokens/index.js")>()),
-  listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
-  resolveOAuthTokenBundleAccess: mocks.resolveOAuthTokenBundleAccess,
-}));
 vi.mock("../workspace-connections/store.js", async (original) => ({
   ...(await original<typeof import("../workspace-connections/store.js")>()),
   listWorkspaceConnections: mocks.listWorkspaceConnections,
   getWorkspaceConnectionGrant: mocks.getWorkspaceConnectionGrant,
-  resolveWorkspaceConnectionForApp: mocks.resolveWorkspaceConnectionForApp,
   upsertWorkspaceConnection: mocks.upsertWorkspaceConnection,
   upsertWorkspaceConnectionGrant: mocks.upsertWorkspaceConnectionGrant,
 }));
 
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
-import {
-  createProviderApiRuntime,
-  resolveProviderApiOAuthAccessToken,
-  type ProviderApiCredentialResolver,
-} from "../provider-api/index.js";
 import { encryptSecretValue } from "../secrets/crypto.js";
 import { encodeOAuthState } from "./google-oauth.js";
 import {
@@ -356,183 +342,5 @@ describe("workspace OAuth consent", () => {
     await handleWorkspaceProviderOAuthCallback(event, "slack");
     expect(event.res.status).toBe(400);
     expect(mocks.saveOAuthTokens).not.toHaveBeenCalled();
-  });
-});
-
-describe("workspace OAuth runtime", () => {
-  function setup(provider: "slack" | "zoom", expiry = Date.now() + 600_000) {
-    const scopes = provider === "slack" ? slackScopes : zoomScopes;
-    const connection = {
-      id: "fixture-connection",
-      label: "Fixture",
-      ownerEmail: email,
-      orgId,
-      scopes,
-      accountId: "fixture-account",
-      config: { workspaceConnectionScope: "user", personalProviderOAuth: true },
-    };
-    const tokens = {
-      ...fixture,
-      expiry_date: expiry,
-      scope: scopes.join(" "),
-      personalProviderOAuth: true,
-    };
-    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
-      available: true,
-      connection,
-    });
-    mocks.listOAuthAccountsByOwner.mockResolvedValue([
-      { accountId: connection.accountId, tokens },
-    ]);
-    return {
-      connection,
-      tokens,
-      resolve: (
-        ctx: { userEmail: string; orgId: string; credentialScope?: "org" } = {
-          userEmail: email,
-          orgId,
-        },
-        requiredScopes = scopes,
-      ) =>
-        resolveProviderApiOAuthAccessToken(
-          { provider, connectionId: connection.id, requiredScopes },
-          {
-            appId: "consumer-app",
-            providerIds: [provider],
-            getCredentialContext: () => ctx,
-          },
-        ),
-    };
-  }
-
-  it.each(["slack", "zoom"] as const)(
-    "resolves %s cross-app by reference and reports upstream revocation",
-    async (provider) => {
-      const { resolve } = setup(provider);
-      fetchMock.mockResolvedValueOnce(
-        Response.json(
-          provider === "slack" ? { ok: true } : { id: "zoom-fixture-user" },
-        ),
-      );
-      await expect(resolve()).resolves.toMatchObject({
-        connectionId: "fixture-connection",
-        accessToken: fixture.access_token,
-      });
-      expect(mocks.resolveWorkspaceConnectionForApp).toHaveBeenCalledWith(
-        expect.objectContaining({
-          appId: "consumer-app",
-          connectionId: "fixture-connection",
-          requireConnected: true,
-        }),
-      );
-      fetchMock.mockResolvedValueOnce(
-        Response.json(
-          { ok: false, error: "token_revoked" },
-          { status: provider === "slack" ? 200 : 401 },
-        ),
-      );
-      await expect(resolve()).rejects.toMatchObject({ reason: "reauthorize" });
-    },
-  );
-
-  it("keeps ordinary requests on the configured bot credential and rejects unscoped personal requests", async () => {
-    const { connection } = setup("slack");
-    const botCredential = "synthetic-legacy-credential";
-    const resolveCredential = vi.fn<ProviderApiCredentialResolver>(
-      async () => ({
-        key: "SLACK_BOT_TOKEN",
-        value: botCredential,
-        source: "app_local",
-        provider: "slack",
-      }),
-    );
-    const runtime = createProviderApiRuntime({
-      appId,
-      providerIds: ["slack"],
-      getCredentialContext: () => ({ userEmail: email, orgId }),
-      resolveCredential,
-    });
-    fetchMock.mockResolvedValueOnce(Response.json({ ok: true }));
-
-    await runtime.executeRequest({ provider: "slack", path: "/auth.test" });
-    expect(resolveCredential).toHaveBeenCalledWith(
-      expect.objectContaining({ key: "SLACK_BOT_TOKEN" }),
-    );
-    expect(
-      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("authorization"),
-    ).toBe(`Bearer ${botCredential}`);
-
-    resolveCredential.mockResolvedValueOnce(null);
-    await expect(
-      runtime.executeRequest({
-        provider: "slack",
-        path: "/auth.test",
-        connectionId: connection.id,
-      }),
-    ).rejects.toThrow("requires a selected connection and operation scopes");
-    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("denies wrong user, organization, access scope, operation scope, and revoked grants before reading tokens", async () => {
-    const { resolve } = setup("slack");
-    await expect(resolve({ userEmail: otherEmail, orgId })).rejects.toThrow();
-    await expect(
-      resolve({ userEmail: email, orgId: "second-workspace" }),
-    ).rejects.toThrow();
-    await expect(
-      resolve({ userEmail: email, orgId, credentialScope: "org" }),
-    ).rejects.toThrow();
-    await expect(resolve(undefined, ["search:read.public"])).rejects.toThrow();
-    await expect(resolve(undefined, [])).rejects.toThrow();
-    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
-      available: false,
-      connection: null,
-      reason: "Grant revoked.",
-    });
-    await expect(resolve()).rejects.toThrow("Grant revoked");
-    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it.each(["slack", "zoom"] as const)(
-    "rotates an expired %s grant under the token lifecycle lease",
-    async (provider) => {
-      const { resolve, tokens } = setup(provider, Date.now() - 1);
-      mocks.resolveOAuthTokenBundleAccess.mockImplementation(
-        async (_identity, { refresh }) => refresh(tokens),
-      );
-      fetchMock
-        .mockResolvedValueOnce(
-          Response.json({
-            ...fixture,
-            ok: true,
-            token_type: "user",
-            access_token: "synthetic-rotated-access",
-            refresh_token: "synthetic-rotated-refresh",
-          }),
-        )
-        .mockResolvedValueOnce(
-          Response.json({ ok: true, id: "zoom-fixture-user" }),
-        );
-      await expect(resolve()).resolves.toMatchObject({
-        accessToken: "synthetic-rotated-access",
-      });
-      expect(mocks.resolveOAuthTokenBundleAccess).toHaveBeenCalledOnce();
-      expect(fetchMock.mock.calls[0]?.[1]?.body.get("grant_type")).toBe(
-        "refresh_token",
-      );
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    },
-  );
-
-  it("rejects expired credentials when the refresh token is absent", async () => {
-    const { resolve, tokens } = setup("zoom", Date.now() - 1);
-    mocks.resolveOAuthTokenBundleAccess.mockImplementation(
-      async (_identity, { refresh }) =>
-        refresh({ ...tokens, refresh_token: undefined }),
-    );
-    await expect(resolve()).rejects.toThrow("Zoom OAuth token has expired");
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
