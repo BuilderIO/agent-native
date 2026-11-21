@@ -56,6 +56,7 @@ import {
   buildAgentNavigationKeptResult,
   isAgentNavigationRefusedError,
 } from "./application-state/navigate-write-guard.js";
+import { isReversibleWriteInlineApprovalAction } from "./approval/reversible-write-policy.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { RecordActionAuditInput } from "./audit/record.js";
 import type { ActionAuditConfig } from "./audit/types.js";
@@ -1419,7 +1420,8 @@ interface DefineActionWithSchema<
    * `"review-page"`: over MCP, only the person's approval on the app's review
    * page approves a call. A client's form answer never does, so the prompt
    * opens the page or the call returns its link, and no-approvals mode does
-   * not skip the question.
+   * not skip the question. A reversible-write inline approval never links to
+   * the page, so `defineAction` refuses the two together.
    */
   approvalProof?: "review-page";
   allowPersistentApproval?: boolean;
@@ -1794,6 +1796,14 @@ export function defineAction(options: any) {
   ) {
     throw new Error(
       'defineAction: approvalProof is "review-page" or left out; any other value would weaken the proof it names.',
+    );
+  }
+  if (
+    options.approvalProof === "review-page" &&
+    isReversibleWriteInlineApprovalAction(options)
+  ) {
+    throw new Error(
+      'defineAction: approvalProof: "review-page" can\'t be combined with a reversible-write inline approval, which never links to the review page, so no call could be approved.',
     );
   }
   for (const key of ["mcpNeedsApproval", "approvalNotice"] as const) {
