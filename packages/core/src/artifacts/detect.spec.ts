@@ -182,6 +182,16 @@ describe("detectArtifactReceipts", () => {
       [{ kind: "document", id: "row_doc_7" }],
     ],
     [
+      "a row link to another kind of page",
+      "add-database-item",
+      {
+        receipt: {
+          row: { documentId: "row_doc_9", urlPath: "/deck/row_doc_9" },
+        },
+      },
+      [{ kind: "document", id: "row_doc_9" }],
+    ],
+    [
       "a result link naming the row",
       "add-database-item",
       { receipt: { row: { documentId: "row_doc_8" } }, url: "/page/row_doc_8" },
