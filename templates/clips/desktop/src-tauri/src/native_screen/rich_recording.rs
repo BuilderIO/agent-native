@@ -185,7 +185,7 @@ impl RecordingClock {
     /// the pipeline's grown offset puts at the position the pause holds.
     /// `None` until the pipeline has applied the resume's offset, which it
     /// does before its new stream starts and so before the session ends the
-    /// pause here.
+    /// pause here. It puts the offset back if the new stream fails to start.
     fn resumed_at_nanos(&self, pause: &CurrentPause) -> Option<u64> {
         let offset_bits = self.pause_offset_bits.load(Ordering::SeqCst);
         if offset_bits == pause.offset_bits {
@@ -199,13 +199,14 @@ impl RecordingClock {
     /// Whether something captured at `host_nanos` belongs to no recording
     /// time: anything from inside a pause, however late its callback runs.
     /// After the resume the pipeline's offset has grown, and would give it a
-    /// time in the stretch after. What the resumed stream sends before the
-    /// session ends the pause is the recording's.
-    fn in_pause(&self, host_nanos: u64) -> bool {
+    /// time in the stretch after.
+    fn in_pause(&self, host_nanos: u64, resume_from: ResumeFrom) -> bool {
         let log = self.pause_log();
         let in_current = log.current.is_some_and(|pause| {
-            self.resumed_at_nanos(&pause)
-                .is_none_or(|resumed| host_nanos < resumed)
+            resume_from == ResumeFrom::Session
+                || self
+                    .resumed_at_nanos(&pause)
+                    .is_none_or(|resumed| host_nanos < resumed)
         });
         in_current
             || log
@@ -230,7 +231,7 @@ impl RecordingClock {
     /// Recording milliseconds of a host time; `None` before the first frame,
     /// while paused and for a time inside an earlier pause.
     pub(super) fn at_host_nanos(&self, nanos: u64) -> Option<f64> {
-        if self.in_pause(nanos) {
+        if self.in_pause(nanos, ResumeFrom::Session) {
             return None;
         }
         recording_ms(nanos, self.session_start_secs(), self.pause_offset_secs())
@@ -265,16 +266,28 @@ impl RecordingClock {
         self.resume_at(self.host_now_nanos())
     }
 
-    /// Recording seconds of a ScreenCaptureKit frame stamped `pts_secs`: the
+    /// Recording seconds of a frame stamped `pts_secs` on the host clock: the
     /// first frame's time and the pause offset taken off, as the flattened
     /// writer retimes its own frames. Negative for a frame captured before
     /// the first one.
     pub(super) fn frame_time(&self, pts_secs: f64) -> FrameTime {
+        self.place_frame(pts_secs, ResumeFrom::Session)
+    }
+
+    /// `frame_time` for a buffer of the flattened recording's own stream,
+    /// which counts from the resume as the flattened writer does: once the
+    /// pipeline applies the resume's offset, since its new stream sends
+    /// nothing unless it starts.
+    pub(super) fn stream_frame_time(&self, pts_secs: f64) -> FrameTime {
+        self.place_frame(pts_secs, ResumeFrom::Offset)
+    }
+
+    fn place_frame(&self, pts_secs: f64, resume_from: ResumeFrom) -> FrameTime {
         let host_nanos = (pts_secs.max(0.0) * 1e9) as u64;
         if self.after_stop(host_nanos) {
             return FrameTime::AfterStop;
         }
-        if self.in_pause(host_nanos) {
+        if self.in_pause(host_nanos, resume_from) {
             return FrameTime::Paused;
         }
         let start = self.session_start_secs();
@@ -288,6 +301,17 @@ impl RecordingClock {
         let (numer, denom) = self.timebase;
         (u128::from(host_ticks()) * u128::from(numer) / u128::from(denom.max(1))) as u64
     }
+}
+
+/// From when something captured after a resume, but handled before the
+/// session ends the pause, has a recording time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResumeFrom {
+    /// Once the pipeline applies the resume's offset.
+    Offset,
+    /// Once the session ends the pause, so a capture that runs through the
+    /// pause keeps nothing from a resume that fails.
+    Session,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1948,20 +1972,47 @@ mod tests {
         let clock = RecordingClock::new(start, Arc::clone(&offset), (1, 1));
         let secs = |s: f64| (s * 1e9) as u64;
         assert_eq!(clock.pause_at(secs(103.0)), 3000.0);
-        assert_eq!(clock.frame_time(105.0), FrameTime::Paused);
+        assert_eq!(clock.stream_frame_time(105.0), FrameTime::Paused);
         // The pipeline applies the resume's 5 s and starts its new stream
         // before the session ends the pause here at 108.5 s.
         offset.store(5.0_f64.to_bits(), Ordering::SeqCst);
-        assert_eq!(clock.frame_time(107.5), FrameTime::Paused);
-        assert_eq!(clock.at_host_nanos(secs(107.5)), None);
-        assert_eq!(clock.frame_time(108.25), FrameTime::At(3.25));
-        assert_eq!(clock.at_host_nanos(secs(108.25)), Some(3250.0));
+        assert_eq!(clock.stream_frame_time(107.5), FrameTime::Paused);
+        assert_eq!(clock.stream_frame_time(108.25), FrameTime::At(3.25));
+        // The camera and input run through the pause, so they wait for the
+        // session, in case the new stream fails to start.
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.at_host_nanos(secs(108.25)), None);
         assert_eq!(clock.paused_position_ms(), Some(3000.0));
         assert_eq!(clock.resume_at(secs(108.5)), Some(3000.0));
         // However late their callbacks run, the new stream's first buffers
         // keep their times, and what came from inside the pause has none.
+        assert_eq!(clock.stream_frame_time(108.25), FrameTime::At(3.25));
         assert_eq!(clock.frame_time(108.25), FrameTime::At(3.25));
+        assert_eq!(clock.at_host_nanos(secs(108.25)), Some(3250.0));
         assert_eq!(clock.at_host_nanos(secs(107.5)), None);
+    }
+
+    #[test]
+    fn a_resume_whose_stream_fails_to_start_leaves_the_recording_paused() {
+        let start = Arc::new(AtomicU64::new(100.0_f64.to_bits()));
+        let offset = Arc::new(AtomicU64::new(0.0_f64.to_bits()));
+        let clock = RecordingClock::new(start, Arc::clone(&offset), (1, 1));
+        let secs = |s: f64| (s * 1e9) as u64;
+        assert_eq!(clock.pause_at(secs(103.0)), 3000.0);
+        // The pipeline applies 5 s, its new stream fails to start, and it puts
+        // the offset back while the camera and input go on.
+        offset.store(5.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.at_host_nanos(secs(108.25)), None);
+        offset.store(0.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.stream_frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        // A later resume that works goes on from where the pause began.
+        offset.store(10.0_f64.to_bits(), Ordering::SeqCst);
+        assert_eq!(clock.resume_at(secs(113.5)), Some(3000.0));
+        assert_eq!(clock.frame_time(108.25), FrameTime::Paused);
+        assert_eq!(clock.frame_time(113.25), FrameTime::At(3.25));
+        assert_eq!(clock.at_host_nanos(secs(113.25)), Some(3250.0));
     }
 
     #[test]

@@ -137,13 +137,26 @@ unsafe impl Send for CameraSession {}
 impl CameraSession {
     /// Stops the session and waits for frames already on their way.
     fn stop(self) {
+        self.halt();
+        self.queue.exec_sync(|| {});
+    }
+
+    fn halt(&self) {
         let _ = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
             self.session.stopRunning();
         }));
         unsafe { self.output.setSampleBufferDelegate_queue(None, None) };
-        self.queue.exec_sync(|| {});
+    }
+}
+
+/// Stops a session never handed to `stop`, such as one left in its slot when
+/// the close thread could not start, and lets go of its clock.
+impl Drop for CameraSession {
+    fn drop(&mut self) {
+        self.halt();
         if !self.clock.is_null() {
-            // SAFETY: retained in `run_session`; no frame reads it any more.
+            // SAFETY: retained in `run_session`. A frame reads it only through
+            // the track, which `stop` has waited out, or which is gone.
             unsafe { CFRelease(self.clock) };
         }
     }
@@ -426,7 +439,7 @@ impl Shared {
         }
         if let Some(clock) = unsafe { camera.session.synchronizationClock() }.as_deref() {
             let clock = clock as *const _ as *const c_void;
-            // SAFETY: a live clock, released in `CameraSession::stop`.
+            // SAFETY: a live clock, released when `camera` drops.
             unsafe { CFRetain(clock) };
             camera.clock = clock;
         }
@@ -439,6 +452,7 @@ impl Shared {
         if this.closing.load(Ordering::SeqCst) {
             drop(slot);
             camera.stop();
+            this.sync_clock.store(0, Ordering::SeqCst);
         } else {
             *slot = Some(camera);
         }

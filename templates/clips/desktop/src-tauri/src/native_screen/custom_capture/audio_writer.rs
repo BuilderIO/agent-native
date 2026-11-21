@@ -207,7 +207,7 @@ impl Shared {
             return;
         };
         // Before the first frame, while paused or after Stop: no recording time.
-        let FrameTime::At(at) = self.clock.frame_time(pts_secs) else {
+        let FrameTime::At(at) = self.clock.stream_frame_time(pts_secs) else {
             return;
         };
         if at < 0.0 {
