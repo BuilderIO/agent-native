@@ -2,6 +2,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { DashboardPanelDescription } from "@agent-native/toolkit/app/dashboard-charts/DashboardPanelDescription";
+import { readPanelColumns } from "@agent-native/toolkit/dashboard/panel-columns";
 import { timeRangeDays } from "@agent-native/toolkit/dashboard/pivot";
 import { isValidPanelBreakdowns } from "@agent-native/toolkit/dashboard/row-breakdown";
 import type {
@@ -250,10 +251,14 @@ export function SqlChartCard({
   // While viewing, dragging a column edge sizes it for this person only. A
   // table offers rename, reorder, and format whenever it gets onSaveColumns,
   // so only edit mode passes it on.
+  const configColumns = useMemo(
+    () => readPanelColumns(panel.config?.columns),
+    [panel.config?.columns],
+  );
   const personalColumnWidths = usePersonalColumnWidths(
     dashboardId,
     panel.id,
-    panel.config?.columns,
+    configColumns,
   );
   const tableColumnProps = editable
     ? { onSaveColumns }
