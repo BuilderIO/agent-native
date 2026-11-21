@@ -477,10 +477,11 @@ function contentDatabaseRowReceiptArtifact(
     stringValue(createdDocument?.id) === id
       ? stringValue(createdDocument?.title)
       : undefined;
+  const url = stringValue(receiptRow?.urlPath) ?? stringValue(rowLink?.urlPath);
   return {
     id,
     ...(title ? { title } : {}),
-    url: stringValue(receiptRow?.urlPath) ?? stringValue(rowLink?.urlPath),
+    ...(url ? { url } : {}),
   };
 }
 
