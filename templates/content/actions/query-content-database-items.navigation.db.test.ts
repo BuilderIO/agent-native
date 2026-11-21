@@ -3930,7 +3930,10 @@ describe("Files navigation groups", () => {
     ).toEqual([]);
     await setView({ groupByPropertyId: definitions.tags.id });
     const first = await read({ parentId: null }, 1);
-    const cursor = first.groups?.[0]?.page.pagination.nextCursor ?? undefined;
+    const cursor =
+      first.groups?.find((group) => group.id === "group-tags:tag-blue")?.page
+        .pagination.nextCursor ?? undefined;
+    expect(cursor).toEqual(expect.any(String));
     for (const navigation of [
       { parentId: "group-beta", locate: "group-alpha" },
       { parentId: null, group: "group-tags:tag-blue", locate: "group-alpha" },
