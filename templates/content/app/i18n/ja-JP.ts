@@ -729,6 +729,8 @@ const editor = {
     "ここでの編集はレビュー後に Builder に公開できます。",
   syncedPageNotion:
     "このページの一部の詳細は Notion の {{name}} データベースから来ており、ここでは表示のみです。",
+  syncedPageSourceUnreadable: "このページの取得元を確認できませんでした。",
+  syncedPageCheckAgain: "再試行",
   textColor: "テキストの色",
   resizeColumns: "列の幅を変更",
   backgroundColor: "背景色",

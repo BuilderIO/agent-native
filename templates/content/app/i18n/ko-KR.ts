@@ -723,6 +723,8 @@ const editor = {
     "여기서 편집한 내용은 검토 후 Builder에 게시할 수 있습니다.",
   syncedPageNotion:
     "이 페이지의 일부 세부 정보는 Notion의 {{name}} 데이터베이스에서 가져오며 여기서는 보기 전용입니다.",
+  syncedPageSourceUnreadable: "이 페이지의 출처를 확인하지 못했습니다.",
+  syncedPageCheckAgain: "다시 시도",
   textColor: "텍스트 색상",
   resizeColumns: "열 너비 조절",
   backgroundColor: "배경색",

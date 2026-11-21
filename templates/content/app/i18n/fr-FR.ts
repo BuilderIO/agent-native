@@ -748,6 +748,8 @@ const editor = {
     "Les modifications faites ici peuvent être publiées dans Builder après relecture.",
   syncedPageNotion:
     "Certains détails de cette page proviennent de la base de données {{name}} dans Notion et sont en lecture seule ici.",
+  syncedPageSourceUnreadable: "Impossible de vérifier d’où vient cette page.",
+  syncedPageCheckAgain: "Réessayer",
   textColor: "Couleur du texte",
   resizeColumns: "Redimensionner les colonnes",
   backgroundColor: "Couleur d’arrière-plan",

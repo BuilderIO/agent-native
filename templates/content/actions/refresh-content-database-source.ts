@@ -4,7 +4,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
-import type { ContentDatabaseSourceStatusResponse } from "../shared/api.js";
+import type {
+  ContentDatabaseSource,
+  ContentDatabaseSourceStatusResponse,
+} from "../shared/api.js";
 import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   claimBuilderCmsSourceRefresh,
@@ -26,6 +29,34 @@ import {
 } from "./_github-source-freshness.js";
 import { githubSyncSummary, syncGitHubSource } from "./_github-source.js";
 import { serializeDatabase } from "./_property-utils.js";
+
+export function sourceRefreshSummary(args: {
+  snapshot: ContentDatabaseSource | null;
+  githubSummary: string | null;
+  skippedOverlappingBuilderRefresh: boolean;
+  notionStoppedAt: number | null;
+}): string {
+  const { snapshot } = args;
+  if (args.githubSummary) return args.githubSummary;
+  if (!snapshot) return "Source metadata refreshed.";
+  if (args.skippedOverlappingBuilderRefresh) {
+    return `${snapshot.sourceName} already advanced or has another refresh in progress; the current snapshot was preserved.`;
+  }
+  if (snapshot.sourceType === "notion-database") {
+    return args.notionStoppedAt === null
+      ? `${snapshot.sourceName} refreshed read-only from Notion.`
+      : `${snapshot.sourceName} refreshed read-only from Notion but stopped at ${args.notionStoppedAt} rows; more rows remain in Notion and are not shown here.`;
+  }
+  if (
+    snapshot.sourceType === "builder-cms" &&
+    (snapshot.metadata.sourceFetchState === "fetching" ||
+      snapshot.syncState === "refreshing")
+  ) {
+    const fetched = snapshot.metadata.lastReadFetchedEntryCount;
+    return `${snapshot.sourceName} fetched ${typeof fetched === "number" ? fetched : "some"} rows. Run refresh again to continue loading the remaining Builder rows.`;
+  }
+  return `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`;
+}
 
 export default defineAction({
   description:
@@ -84,6 +115,7 @@ export default defineAction({
     let skippedOverlappingBuilderRefresh = false;
     let githubSummary: string | null = null;
     let githubChanged = false;
+    let notionStoppedAt: number | null = null;
     if (source.sourceType === "github") {
       const shownBefore = await readGitHubStatusShown(source.id);
       const result = await syncGitHubSource({
@@ -180,6 +212,9 @@ export default defineAction({
         message: read.message,
         metadata: read.metadata,
       });
+      if (read.metadata?.hasMore === true) {
+        notionStoppedAt = read.entries.length;
+      }
     } else {
       throw new Error(`Unsupported source type "${source.sourceType}".`);
     }
@@ -187,30 +222,15 @@ export default defineAction({
       ? await getContentDatabaseSourceSnapshotById(database, args.sourceId)
       : await getContentDatabaseSourceSnapshot(database);
 
-    const builderProgress =
-      snapshot?.sourceType === "builder-cms" ? snapshot.metadata : null;
-    const builderFetching =
-      builderProgress?.sourceFetchState === "fetching" ||
-      snapshot?.syncState === "refreshing";
-    const builderFetched =
-      typeof builderProgress?.lastReadFetchedEntryCount === "number"
-        ? builderProgress.lastReadFetchedEntryCount
-        : undefined;
-
     return {
       database: serializeDatabase(database),
       mode: "source-backed",
-      summary: githubSummary
-        ? githubSummary
-        : snapshot
-          ? skippedOverlappingBuilderRefresh
-            ? `${snapshot.sourceName} already advanced or has another refresh in progress; the current snapshot was preserved.`
-            : builderFetching
-              ? `${snapshot.sourceName} fetched ${builderFetched ?? "some"} rows. Run refresh again to continue loading the remaining Builder rows.`
-              : snapshot.sourceType === "notion-database"
-                ? `${snapshot.sourceName} refreshed read-only from Notion.`
-                : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
-          : "Source metadata refreshed.",
+      summary: sourceRefreshSummary({
+        snapshot,
+        githubSummary,
+        skippedOverlappingBuilderRefresh,
+        notionStoppedAt,
+      }),
       source: snapshot,
       ...(source.sourceType === "github" ? { githubChanged } : {}),
     };
