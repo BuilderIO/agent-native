@@ -767,6 +767,13 @@ const editor = {
     moveChanged: "이동하기 전에 블록이 바뀌어 아무것도 이동하지 않았습니다.",
     moveFailed: "블록을 {{title}}(으)로 이동할 수 없습니다",
     openPage: "열기",
+    copyLink: "링크 복사",
+    linkCopied: "링크를 복사했습니다",
+    copyLinkFailed: "링크를 복사하지 못했습니다",
+    linkNotReady:
+      "이 블록의 링크가 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요.",
+    linkedBlockDeleted: "이 링크가 가리키는 블록이 삭제되었습니다.",
+    linkedBlockMissing: "이 링크가 가리키는 블록을 찾을 수 없습니다.",
   },
   noDocumentSelected: "선택한 문서가 없습니다.",
   registryBlockLoadError: "{{type}} 블록을 불러올 수 없습니다: {{message}}",

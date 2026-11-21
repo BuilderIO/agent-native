@@ -2733,6 +2733,12 @@ audio.media-block__content {
   outline-offset: 0;
 }
 
+.content-editor .content-linked-block {
+  border-radius: 4px;
+  background-color: hsl(var(--primary) / 0.08);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.35);
+}
+
 .visual-editor-wrapper--dragging {
   position: relative;
 }

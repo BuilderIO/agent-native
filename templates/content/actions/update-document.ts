@@ -661,6 +661,15 @@ const updateDocumentAction = defineAction({
         "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
       ),
     editorSnapshotContent: z.string().optional(),
+    editorBlockIds: z
+      .object({
+        shape: z.string().min(1).max(100),
+        idsByPath: z.record(z.string().max(200), z.string().min(1).max(200)),
+      })
+      .optional()
+      .describe(
+        "The browser editor's block IDs by path, so links to its blocks survive the save",
+      ),
     browserSaveAttemptId: z
       .string()
       .min(1)
@@ -1722,6 +1731,7 @@ const updateDocumentAction = defineAction({
             },
             afterWrite: async () => {
               if (lockedContentChanged && content !== undefined) {
+                const editorIds = args.editorBlockIds;
                 for (const field of primaryBlocksFields) {
                   await persistBlocksFieldIdentity({
                     db: tx as unknown as ReturnType<typeof getDb>,
@@ -1730,6 +1740,7 @@ const updateDocumentAction = defineAction({
                     propertyId: field.propertyId,
                     previousMarkdown: historyBefore.content,
                     markdown: content,
+                    ...(editorIds ? { editorIds } : {}),
                     now: updatedAt,
                   });
                 }

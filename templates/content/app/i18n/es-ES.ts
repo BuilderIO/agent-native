@@ -784,6 +784,13 @@ const editor = {
       "El bloque cambió antes de poder moverse, así que no se movió nada.",
     moveFailed: "No se pudo mover el bloque a {{title}}",
     openPage: "Abrir",
+    copyLink: "Copiar enlace",
+    linkCopied: "Enlace copiado",
+    copyLinkFailed: "No se pudo copiar el enlace",
+    linkNotReady:
+      "El enlace de este bloque aún no está listo. Inténtalo de nuevo en un momento.",
+    linkedBlockDeleted: "Se eliminó el bloque al que apunta este enlace.",
+    linkedBlockMissing: "No se encontró el bloque al que apunta este enlace.",
   },
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
