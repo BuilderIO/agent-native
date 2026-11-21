@@ -3521,7 +3521,7 @@ describe("Files navigation groups", () => {
     );
   });
 
-  const evaluatorProperties: DocumentProperty[] = keys.map((key, position) => ({
+  const evaluatorProperty = (key: Key, position: number): DocumentProperty => ({
     definition: {
       ...definitions[key],
       databaseId: GROUP_DATABASE_ID,
@@ -3532,7 +3532,8 @@ describe("Files navigation groups", () => {
     },
     value: null,
     editable: true,
-  }));
+  });
+  const evaluatorProperties = keys.map(evaluatorProperty);
   const evaluatorItems: ContentDatabaseItem[] = visibleFiles.map((file) => ({
     id: `membership-group-${file.id}`,
     databaseId: GROUP_DATABASE_ID,
@@ -3550,10 +3551,10 @@ describe("Files navigation groups", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
-    properties: evaluatorProperties.map((property, position) => {
-      const value = file.values[keys[position]!];
+    properties: keys.map((key, position) => {
+      const value = file.values[key];
       return {
-        ...property,
+        ...evaluatorProperty(key, position),
         value:
           value === undefined ? null : parsePropertyValue(savedJson(value)),
       };
@@ -3808,6 +3809,8 @@ describe("Files navigation groups", () => {
     await setView({ groupByPropertyId: definitions.tags.id });
     const first = await read({ parentId: null }, 1);
     const blue = first.groups?.find((group) => group.label === "Blue");
+    const blueId = "group-tags:tag-blue";
+    expect(blue?.id).toBe(blueId);
     const cursor = blue?.page.pagination.nextCursor ?? undefined;
     expect(cursor).toEqual(expect.any(String));
     await expect(read({ parentId: null, cursor }, 1)).rejects.toMatchObject({
@@ -3817,7 +3820,7 @@ describe("Files navigation groups", () => {
       read({ parentId: null, group: "group-tags:tag-red", cursor }, 1),
     ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
     await expect(
-      read({ parentId: "group-beta", group: blue!.id, cursor }, 1),
+      read({ parentId: "group-beta", group: blueId, cursor }, 1),
     ).rejects.toMatchObject({ errorCode: "invalid_navigation_group" });
     await expect(
       read({ parentId: null, group: "group-tags:tag-missing" }, 1),
@@ -3836,7 +3839,7 @@ describe("Files navigation groups", () => {
       .where(tags);
     try {
       await expect(
-        read({ parentId: null, group: blue!.id, cursor }, 1),
+        read({ parentId: null, group: blueId, cursor }, 1),
       ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
     } finally {
       await getDb()
@@ -3845,7 +3848,7 @@ describe("Files navigation groups", () => {
         .where(tags);
     }
     expect(
-      (await read({ parentId: null, group: blue!.id, cursor }, 1)).items.map(
+      (await read({ parentId: null, group: blueId, cursor }, 1)).items.map(
         (item) => item.documentId,
       ),
     ).toEqual(["group-epsilon"]);

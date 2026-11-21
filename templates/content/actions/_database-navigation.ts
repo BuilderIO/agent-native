@@ -655,7 +655,7 @@ async function navigationGrouping(
   if (!view.groupByPropertyId || !NAVIGATION_GROUP_VIEW_TYPES.has(view.type)) {
     return null;
   }
-  const [definition] = await getDb()
+  const definitions = await getDb()
     .select({
       id: schema.documentPropertyDefinitions.id,
       name: schema.documentPropertyDefinitions.name,
@@ -671,6 +671,7 @@ async function navigationGrouping(
       ),
     )
     .limit(1);
+  const definition = definitions.at(0);
   if (
     !definition ||
     definition.systemRole ||
@@ -1199,11 +1200,13 @@ export async function getContentDatabaseNavigationPage(args: {
   const groupRows = (candidate: NavigationGroup) =>
     and(
       filesRows,
-      storedValueSql(
-        sql`${schema.documents.id}`,
-        grouping!.propertyId,
-        candidate.predicate,
-      ),
+      grouping
+        ? storedValueSql(
+            sql`${schema.documents.id}`,
+            grouping.propertyId,
+            candidate.predicate,
+          )
+        : sql`false`,
     );
   const accessRevision = sql<string>`coalesce((
     SELECT string_agg(ds.role || ':' || ds.principal_type || ':' || ds.principal_id, ',' ORDER BY ds.role, ds.principal_type, ds.principal_id)
@@ -1699,7 +1702,7 @@ export async function getContentDatabaseNavigationPage(args: {
                     ),
                   },
                 ]),
-                configHash: inGroup ? groupConfigHash! : configHash,
+                configHash: (inGroup ? groupConfigHash : null) ?? configHash,
                 sortValue: last.sortValue,
                 position:
                   effectiveSort === "custom" || effectiveSort === "property"
@@ -1823,7 +1826,7 @@ export async function getContentDatabaseNavigationPage(args: {
   const groupReads =
     grouping && !group && !cursor
       ? (async () => {
-          const [counts] = await db
+          const countRows = await db
             .select(
               Object.fromEntries(
                 grouping.groups.map((candidate, index) => [
@@ -1842,6 +1845,7 @@ export async function getContentDatabaseNavigationPage(args: {
               sql`true`,
             )
             .where(filesRows);
+          const counts = countRows.at(0);
           const shown = grouping.groups.flatMap((candidate, index) => {
             const count = Number(counts?.[`group${index}`] ?? 0);
             return count > 0 || sharedView.hideEmptyGroups !== true

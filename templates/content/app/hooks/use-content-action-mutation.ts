@@ -140,12 +140,14 @@ function navigationBranchListsAny(
   const data = query.state.data as
     | ContentDatabaseNavigationPageResponse
     | undefined;
-  return (
-    data?.items?.some((item) => documentIds.has(item.documentId)) === true ||
+  if (
     data?.groups?.some((group) =>
       group.page.items.some((item) => documentIds.has(item.documentId)),
     ) === true
-  );
+  ) {
+    return true;
+  }
+  return data?.items?.some((item) => documentIds.has(item.documentId)) === true;
 }
 
 function navigationReadIsGrouped(query: Pick<Query, "queryKey" | "state">) {

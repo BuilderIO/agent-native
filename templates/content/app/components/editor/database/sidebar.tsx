@@ -233,7 +233,7 @@ function PagedContentFilesBranch({
    * Reloads the branch from its first page. Returns false when an automatic
    * reload is refused because the branch reloaded itself moments ago.
    */
-  reloadBranch?: (automatic: boolean) => boolean;
+  reloadBranch?: ((automatic: boolean) => boolean) | undefined;
   depth: number;
   activeDocumentId?: string | null;
   expandedDocumentIds: ReadonlySet<string>;
