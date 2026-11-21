@@ -9,11 +9,17 @@ import {
   createFilterRule,
   createFilterState,
   FILTER_NOBODY,
+  filterDateInstant,
   filterDatePresets,
   filterDateRangeDays,
   filterDateRangeToken,
+  filterItemRules,
+  filterOperatorsAcceptedFor,
   filterOperatorsFor,
+  filterOperatorValueCount,
   filterToday,
+  findFilterGroup,
+  findFilterRule,
   hasIncompleteFilterRules,
   isDefaultFilterState,
   isFilterRuleComplete,
@@ -374,6 +380,21 @@ describe("matching", () => {
     expect(matchingIds(setFilterMode(state, "or"))).toEqual(["1", "4"]);
   });
 
+  it("takes a wide group and refuses a deep one without walking all of it", () => {
+    const empty = createFilterState(fields);
+    const wide = createFilterGroup(
+      Array.from({ length: 150_000 }, () =>
+        createFilterRule(titleField, ["clip"]),
+      ),
+    );
+    expect(addFilterGroup(empty, wide).items).toHaveLength(1);
+    let deep = createFilterGroup([createFilterRule(titleField, ["clip"])]);
+    for (let level = 0; level < 10_000; level += 1) {
+      deep = createFilterGroup([deep]);
+    }
+    expect(addFilterGroup(empty, deep)).toBe(empty);
+  });
+
   it("evaluates a group with its own mode", () => {
     const group = createFilterGroup([
       createFilterRule(tagsField, ["bug"]),
@@ -515,9 +536,8 @@ describe("patching a rule", () => {
     );
     const next = updateFilterRule(state, rule.id, { value: ["bug"] }, fields);
     const group = next.items.at(0);
-    expect(group?.kind === "group" ? group.rules.at(0)?.value : null).toEqual([
-      "bug",
-    ]);
+    const member = group?.kind === "group" ? group.rules.at(0) : undefined;
+    expect(member?.kind === "rule" ? member.value : null).toEqual(["bug"]);
   });
 });
 
@@ -596,9 +616,25 @@ describe("dates", () => {
     const now = new Date("2026-11-21T03:00:00Z");
     expect(filterToday("America/New_York", now)).toBe("2026-11-20");
     expect(filterToday("UTC", now)).toBe("2026-11-21");
-    expect(() => filterToday("Not/A_Zone", now)).toThrow(RangeError);
     expect(filterToday(undefined, now)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(() => filterToday("", now)).toThrow(RangeError);
+  });
+
+  it("reads days in this machine's zone when it doesn't know the caller's", () => {
+    const now = new Date("2026-11-21T03:00:00Z");
+    expect(filterToday("Not/A_Zone", now)).toBe(filterToday(undefined, now));
+    expect(filterToday("", now)).toBe(filterToday(undefined, now));
+    const state = withRules(
+      createFilterRule(createdField, ["2026-10-01", "2026-10-31"], "between"),
+    );
+    const first = clips.at(0);
+    if (!first) throw new Error("No clips");
+    const clip = { ...first, created: "2026-10-22T09:00Z" };
+    expect(
+      matchesFilter(clip, state, fields, {
+        today: "2026-10-22",
+        timeZone: "Bogus/Zone",
+      }),
+    ).toBe(true);
   });
 
   it("offers presets that fit the field", () => {
@@ -673,5 +709,320 @@ describe("counting", () => {
       context,
     );
     expect(counts.option("space", "home")).toBeUndefined();
+  });
+});
+
+describe("date ranges and times", () => {
+  const timedField: FilterField<Clip> = { ...createdField, times: true };
+  const timedFields = [timedField];
+  const clip: Clip = {
+    id: "t",
+    source: "clips",
+    owner: null,
+    tags: [],
+    created: "",
+    title: "",
+    minutes: 0,
+    starred: false,
+  };
+  const matches = (created: string, rule: FilterRule, timeZone = "UTC") =>
+    matchesFilter(
+      { ...clip, created },
+      addFilterRule(createFilterState(timedFields), rule),
+      timedFields,
+      { today, timeZone },
+    );
+
+  it("lists between but only accepts is not on", () => {
+    expect(filterOperatorsFor(createdField)).toContain("between");
+    expect(filterOperatorsFor(createdField)).not.toContain("does_not_equal");
+    expect(filterOperatorsAcceptedFor(createdField)).toContain(
+      "does_not_equal",
+    );
+    expect(filterOperatorValueCount("between")).toBe(2);
+    expect(filterOperatorValueCount("is_empty")).toBe(0);
+  });
+
+  it("offers and takes only the operators a field names", () => {
+    const filesField: FilterField = {
+      id: "files",
+      label: "Files",
+      type: "text",
+      operators: ["contains", "is_empty", "is_not_empty"],
+    };
+    const narrowedDate: FilterField<Clip> = {
+      ...createdField,
+      operators: ["before", "after"],
+    };
+    expect(filterOperatorsFor(filesField)).toEqual([
+      "contains",
+      "is_empty",
+      "is_not_empty",
+    ]);
+    expect(createFilterRule(filesField).operator).toBe("contains");
+    expect(
+      isFilterRuleComplete(
+        createFilterRule(filesField, ["a"], "starts_with"),
+        filesField,
+      ),
+    ).toBe(false);
+    expect(filterOperatorsAcceptedFor(narrowedDate)).toEqual([
+      "before",
+      "after",
+    ]);
+  });
+
+  it("needs both ends of a range", () => {
+    expect(
+      isFilterRuleComplete(
+        createFilterRule(createdField, ["2026-10-01"], "between"),
+        createdField,
+      ),
+    ).toBe(false);
+    expect(
+      isFilterRuleComplete(
+        createFilterRule(createdField, ["2026-10-01", "today"], "between"),
+        createdField,
+      ),
+    ).toBe(true);
+  });
+
+  it("takes a time only on a field with times", () => {
+    const rule = createFilterRule(createdField, ["2026-10-22T09:00"], "after");
+    expect(isFilterRuleComplete(rule, createdField)).toBe(false);
+    expect(isFilterRuleComplete(rule, timedField)).toBe(true);
+    expect(
+      isFilterRuleComplete(
+        createFilterRule(timedField, ["2026-10-22T24:00"], "after"),
+        timedField,
+      ),
+    ).toBe(false);
+  });
+
+  it("matches days inside a range, either way round", () => {
+    const range = createFilterRule(
+      createdField,
+      ["2026-10-01", "2026-11-19"],
+      "between",
+    );
+    expect(matchingIds(withRules(range))).toEqual(["2"]);
+    expect(
+      matchingIds(withRules({ ...range, value: ["2026-11-19", "2026-10-01"] })),
+    ).toEqual(["2"]);
+    expect(
+      matchingIds(
+        withRules(
+          createFilterRule(createdField, ["yesterday", "today"], "between"),
+        ),
+      ),
+    ).toEqual(["1", "2"]);
+  });
+
+  it("matches is not on, including an empty date", () => {
+    const notOn = createFilterRule(
+      timedField,
+      ["2026-11-20"],
+      "does_not_equal",
+    );
+    expect(matches("2026-11-20", notOn)).toBe(false);
+    expect(matches("2026-11-19", notOn)).toBe(true);
+    expect(matches("", notOn)).toBe(true);
+  });
+
+  it("compares a time as a moment and a bare day by the day it falls on", () => {
+    const after = createFilterRule(timedField, ["2026-10-22T09:00Z"], "after");
+    expect(matches("2026-10-22T09:30:00Z", after)).toBe(true);
+    expect(matches("2026-10-22T08:30:00Z", after)).toBe(false);
+    expect(matches("2026-10-22", after)).toBe(false);
+    expect(
+      matches(
+        "2026-10-22",
+        createFilterRule(timedField, ["2026-10-22T09:00Z"], "equals"),
+      ),
+    ).toBe(true);
+  });
+
+  it("reads a time without an offset in the caller's zone", () => {
+    const after = createFilterRule(timedField, ["2026-10-22T09:00"], "after");
+    expect(matches("2026-10-22T12:30:00Z", after, "America/New_York")).toBe(
+      false,
+    );
+    expect(matches("2026-10-22T13:30:00Z", after, "America/New_York")).toBe(
+      true,
+    );
+    expect(filterDateInstant("2026-10-22T09:00", "America/New_York")).toBe(
+      Date.UTC(2026, 9, 22, 13),
+    );
+  });
+
+  it("reads a skipped time forward and a repeated time as the first", () => {
+    expect(filterDateInstant("2026-03-08T02:30", "America/New_York")).toBe(
+      Date.UTC(2026, 2, 8, 7, 30),
+    );
+    expect(filterDateInstant("2026-11-01T01:30", "America/New_York")).toBe(
+      Date.UTC(2026, 10, 1, 5, 30),
+    );
+  });
+
+  it("resets the value when the operator needs another shape", () => {
+    const rule = createFilterRule(createdField, ["2026-10-01"], "before");
+    expect(
+      patchFilterRule(rule, { operator: "between" }, fields).value,
+    ).toEqual([]);
+    expect(patchFilterRule(rule, { operator: "after" }, fields).value).toEqual([
+      "2026-10-01",
+    ]);
+    const range = createFilterRule(
+      createdField,
+      ["2026-10-01", "2026-10-31"],
+      "between",
+    );
+    expect(
+      patchFilterRule(range, { operator: "between" }, fields).value,
+    ).toEqual(["2026-10-01", "2026-10-31"]);
+  });
+
+  it("reads a time in a row the way it reads one in a rule", () => {
+    const at = (value: string) =>
+      createFilterRule(timedField, [value], "equals");
+    expect(
+      matches("2026-10-22T09:00:00+05", at("2026-10-22T09:00:00+05")),
+    ).toBe(true);
+    expect(
+      matches("2026-10-22t09:00", at("2026-10-22T09:00Z"), "America/New_York"),
+    ).toBe(true);
+    expect(matches("2026-10-22 09:00", at("2026-10-22T09:00Z"))).toBe(true);
+  });
+
+  it("keeps a range in order when a day and a time share a day", () => {
+    const range = (value: string[]) =>
+      createFilterRule(timedField, value, "between");
+    const untilNine = range(["2026-10-22", "2026-10-22T09:00Z"]);
+    expect(matches("2026-10-22T08:00:00Z", untilNine)).toBe(true);
+    expect(matches("2026-10-22T10:00:00Z", untilNine)).toBe(false);
+    expect(matches("2026-10-22", untilNine)).toBe(true);
+    const fromNine = range(["2026-10-22T09:00Z", "2026-10-22"]);
+    expect(matches("2026-10-22T08:00:00Z", fromNine)).toBe(false);
+    expect(matches("2026-10-22T10:00:00Z", fromNine)).toBe(true);
+  });
+
+  it("orders a range by the days its ends fall on", () => {
+    const stJohns = createFilterRule(
+      timedField,
+      ["2009-11-01T02:45Z", "2009-10-31"],
+      "between",
+    );
+    expect(matches("2009-10-31T14:00:00Z", stJohns, "America/St_Johns")).toBe(
+      false,
+    );
+    expect(matches("2009-11-01T03:00:00Z", stJohns, "America/St_Johns")).toBe(
+      true,
+    );
+    const days = (value: string[]) =>
+      createFilterRule(createdField, value, "between");
+    expect(matches("0099-12-15", days(["0099-12-01", "0100-01-01"]))).toBe(
+      true,
+    );
+    expect(matches("9999-12-15", days(["9999-12-01", "9999-12-31"]))).toBe(
+      true,
+    );
+  });
+
+  it("compares a bare day with the day an offset time falls on in the caller's zone", () => {
+    const on = createFilterRule(
+      timedField,
+      ["2026-10-22T02:00+05:30"],
+      "equals",
+    );
+    expect(matches("2026-10-21", on)).toBe(true);
+    expect(matches("2026-10-22", on, "Asia/Kolkata")).toBe(true);
+    expect(matches("2026-10-21", on, "Asia/Kolkata")).toBe(false);
+  });
+
+  it("reads a time in a zone this runtime doesn't know as this machine's", () => {
+    expect(filterDateInstant("2026-10-22T09:00", "Bogus/Zone")).toBe(
+      filterDateInstant("2026-10-22T09:00"),
+    );
+  });
+});
+
+describe("groups inside groups", () => {
+  const demo = () => createFilterRule(tagsField, ["demo"]);
+  const agent = () => createFilterRule(ownerField, ["agent"]);
+  const long = () => createFilterRule(minutesField, ["10"], "greater_than");
+
+  function nestedState() {
+    const agentRule = agent();
+    const longRule = long();
+    const inner = createFilterGroup([agentRule, longRule], "and");
+    const outer = createFilterGroup([demo(), inner], "or");
+    return {
+      agentRule,
+      longRule,
+      inner,
+      outer,
+      state: addFilterGroup(createFilterState(fields), outer),
+    };
+  }
+
+  it("matches a group inside a group with its own mode", () => {
+    expect(matchingIds(nestedState().state)).toEqual(["1", "4"]);
+  });
+
+  it("adds a group only at the top or one level down", () => {
+    const { outer, inner, state } = nestedState();
+    const child = createFilterGroup([demo()]);
+    expect(
+      findFilterGroup(addFilterGroup(state, child, outer.id), child.id),
+    ).toBeDefined();
+    const tooDeep = createFilterGroup([demo()]);
+    const unchanged = addFilterGroup(state, tooDeep, inner.id);
+    expect(findFilterGroup(unchanged, tooDeep.id)).toBeUndefined();
+    expect(unchanged).toEqual(state);
+    const alreadyNested = createFilterGroup([createFilterGroup([demo()])]);
+    expect(addFilterGroup(state, alreadyNested, outer.id)).toEqual(state);
+    expect(
+      addFilterGroup(
+        state,
+        createFilterGroup([createFilterGroup([alreadyNested])]),
+      ),
+    ).toEqual(state);
+    expect(
+      findFilterGroup(addFilterGroup(state, alreadyNested), alreadyNested.id),
+    ).toBeDefined();
+  });
+
+  it("finds, updates, counts and removes rules inside a nested group", () => {
+    const { agentRule, longRule, inner, outer, state } = nestedState();
+    expect(findFilterRule(state, agentRule.id)?.field).toBe("owner");
+    const updated = updateFilterRule(
+      state,
+      agentRule.id,
+      { value: ["alice"] },
+      fields,
+    );
+    expect(findFilterRule(updated, agentRule.id)?.value).toEqual(["alice"]);
+    expect(activeFilterRuleCount(state, fields)).toBe(3);
+    expect(filterItemRules(outer)).toHaveLength(3);
+    const removed = removeFilterItem(
+      removeFilterItem(state, agentRule.id),
+      longRule.id,
+    );
+    expect(findFilterGroup(removed, inner.id)).toBeUndefined();
+    expect(activeFilterRuleCount(removed, fields)).toBe(1);
+  });
+
+  it("sets a nested group's mode and prunes its unfinished rules", () => {
+    const { inner, state } = nestedState();
+    expect(
+      findFilterGroup(setFilterMode(state, "or", inner.id), inner.id)?.mode,
+    ).toBe("or");
+    const unfinished = addFilterRule(
+      state,
+      createFilterRule(ownerField),
+      inner.id,
+    );
+    expect(hasIncompleteFilterRules(unfinished, fields)).toBe(true);
+    expect(pruneFilterState(unfinished, fields)).toEqual(state);
   });
 });
