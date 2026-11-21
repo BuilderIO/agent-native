@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "ملاحظة لنفسي",
     },
     inbox: {
-      atLeastCount: "على الأقل {{count}}",
+      conversationsCount: "المحادثات: {{count}}",
+      conversationsAtLeastCount: "المحادثات: {{count}} على الأقل",
+      unreadCount: "المحادثات غير المقروءة: {{count}}",
+      draftsToReviewCount: "مسودات للمراجعة: {{count}}",
       syncing: "جارٍ مزامنة الوارد…",
     },
     sort: {
@@ -150,8 +153,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "تثبيت الشريط الجانبي",
-      unpinSidebar: "إلغاء تثبيت الشريط الجانبي",
       closeSidebar: "إغلاق الشريط الجانبي",
       settings: "الإعدادات",
       aiSettings: "إدارة الوسوم والقواعد",
@@ -169,7 +170,7 @@ const messages = {
       filtersLimitReached: "يمكنك حفظ ما يصل إلى 20 فلترًا.",
     },
     tabSettings: {
-      splitInbox: "صندوق وارد مقسّم",
+      splitInbox: "تقسيم صندوق الوارد إلى علامات تبويب",
       views: "وجهات النظر",
       categories: "الفئات",
       rename: "إعادة تسمية",
@@ -177,7 +178,7 @@ const messages = {
       savedFilters: "الفلاتر المحفوظة",
       combinedInbox: "صندوق وارد موحد",
       allTab: "تبويب الكل",
-      help: "يعرض صندوق الوارد الموحّد جميع الحسابات معًا؛ أوقفه لتقسيم البريد إلى علامات تبويب.",
+      help: "يعرض طرق العرض والتصنيفات وعوامل التصفية المحفوظة التي اخترتها كعلامات تبويب منفصلة في صندوق الوارد. أوقفه لعرض كل بريد الوارد في علامة تبويب واحدة.",
       aiSetup: "إعداد وسوم وقواعد الذكاء الاصطناعي",
     },
     accounts: {

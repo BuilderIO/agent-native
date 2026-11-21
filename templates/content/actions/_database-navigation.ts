@@ -26,13 +26,17 @@ import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
   ContentDatabaseFilterOperator,
+  ContentDatabaseItem,
   ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPage,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseNavigationSort,
   ContentDatabasePersonalViewOverrides,
+  ContentDatabaseSort,
+  DocumentProperty,
 } from "../shared/api.js";
 import {
+  applyContentDatabaseTableQuery,
   contentDatabaseDateFilterCheck,
   contentDatabaseFilterComparesDates,
   contentDatabaseFilterHasTime,
@@ -54,19 +58,27 @@ import {
   parseLocalSourceDirectoryId,
   type LocalSourceDirectory,
 } from "../shared/local-source-directory.js";
-import { parsePropertyOptions } from "../shared/properties.js";
+import {
+  parsePropertyOptions,
+  parsePropertyValue,
+} from "../shared/properties.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
-import { parseDatabaseViewConfig } from "./_property-utils.js";
+import {
+  parseDatabaseViewConfig,
+  serializePropertyDefinition,
+} from "./_property-utils.js";
 
 const CURSOR_VERSION = 2;
+
+type NavigationSort = ContentDatabaseNavigationSort | "property";
 
 type NavigationCursor = {
   version: typeof CURSOR_VERSION;
   databaseId: string;
   parentId: string | null;
-  sort: ContentDatabaseNavigationSort;
+  sort: NavigationSort;
   viewId: string | null;
   orderHash: string | null;
   revision: string;
@@ -91,7 +103,9 @@ function decodeCursor(value: string): NavigationCursor {
       parsed?.version !== CURSOR_VERSION ||
       typeof parsed.databaseId !== "string" ||
       !(parsed.parentId === null || typeof parsed.parentId === "string") ||
-      !["custom", "name", "created", "last_edited"].includes(parsed.sort) ||
+      !["custom", "name", "created", "last_edited", "property"].includes(
+        parsed.sort,
+      ) ||
       !(parsed.viewId === null || typeof parsed.viewId === "string") ||
       !(parsed.orderHash === null || typeof parsed.orderHash === "string") ||
       typeof parsed.revision !== "string" ||
@@ -108,7 +122,7 @@ function decodeCursor(value: string): NavigationCursor {
           parsed.folder.every((part: unknown) => typeof part === "string"))
       ) ||
       (parsed.folder === undefined &&
-        parsed.sort === "custom" &&
+        (parsed.sort === "custom" || parsed.sort === "property") &&
         (typeof parsed.sortValue !== "number" ||
           typeof parsed.position !== "number"))
     ) {
@@ -535,6 +549,53 @@ async function navigationFilterDefinitions(
       { ...definition, optionNames: optionNamesById(optionsJson) },
     ]),
   );
+}
+
+async function navigationPropertySorts(
+  databaseId: string,
+  sorts: ContentDatabaseSort[],
+) {
+  const propertyIds = [
+    ...new Set(sorts.map((sort) => sort.key).filter((key) => key !== "name")),
+  ];
+  const definitions = propertyIds.length
+    ? await getDb()
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            inArray(schema.documentPropertyDefinitions.id, propertyIds),
+          ),
+        )
+    : [];
+  const storedById = new Map(
+    definitions
+      .filter(
+        (definition) =>
+          !definition.systemRole &&
+          STORED_VALUE_FILTER_TYPES.has(definition.type),
+      )
+      .map((definition) => [
+        definition.id,
+        {
+          definition: serializePropertyDefinition(definition),
+          value: null,
+          editable: false,
+        } satisfies DocumentProperty,
+      ]),
+  );
+  const usable: ContentDatabaseSort[] = [];
+  for (const sort of sorts) {
+    if (sort.key !== "name" && !storedById.has(sort.key)) break;
+    usable.push(sort);
+  }
+  return {
+    sorts: usable.some((sort) => sort.key !== "name") ? usable : [],
+    properties: [...storedById.values()].filter((property) =>
+      usable.some((sort) => sort.key === property.definition.id),
+    ),
+  };
 }
 
 const LONE_SURROGATE =
@@ -986,7 +1047,15 @@ export async function getContentDatabaseNavigationPage(args: {
   const configuredSort =
     (sharedSort && FILES_NAVIGATION_SORT_KEYS.get(sharedSort.key)) ?? null;
   const sidebarSort = personalView?.sidebarOrder?.mode;
-  const effectiveSort = sidebarSort ?? configuredSort ?? args.sort;
+  const propertySorts =
+    sidebarSort || !sharedSort || (configuredSort && configuredSort !== "name")
+      ? null
+      : await navigationPropertySorts(args.database.id, sorts);
+  const effectiveSort: NavigationSort =
+    sidebarSort ??
+    (propertySorts?.sorts.length ? "property" : null) ??
+    configuredSort ??
+    args.sort;
   const descending = sidebarSort
     ? sidebarSort === "created" || sidebarSort === "last_edited"
     : effectiveSort !== "custom" && sharedSort?.direction === "desc";
@@ -1429,49 +1498,104 @@ export async function getContentDatabaseNavigationPage(args: {
   // order, instead of walking a saved list that mostly holds other branches.
   // The order is one jsonb object bound once; a joined set of saved IDs would
   // be estimated at 100 rows and planned as a rescan per sibling.
-  const savedOrder = sql`(select ${JSON.stringify(
-    Object.fromEntries(rankById),
-  )}::jsonb as ranks) as navigation_saved_order`;
-  const siblingRank = sql<number>`coalesce((navigation_saved_order.ranks ->> ${schema.contentDatabaseItems.id})::int, ${unrankedValue})`;
-  const siblingKey = sql`(${siblingRank}, ${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.id})`;
-  const cursorKey = (key: NavigationCursor) =>
-    sql`(${Number(key.sortValue)}, ${key.position!}, ${key.itemId})`;
-  const siblingRankOrder: NavigationOrder = {
-    page: (siblings, after, take) =>
-      db
-        .select({ ...rowFields, sortValue: siblingRank })
-        .from(schema.contentDatabaseItems)
-        .innerJoin(
-          schema.documents,
-          eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-        )
-        .innerJoin(savedOrder, sql`true`)
-        .where(
-          and(
-            siblings,
-            after ? sql`${siblingKey} > ${cursorKey(after)}` : undefined,
+  const rankOrder = (
+    ranks: ReadonlyMap<string, number>,
+    unranked: number,
+  ): NavigationOrder => {
+    const savedOrder = sql`(select ${JSON.stringify(
+      Object.fromEntries(ranks),
+    )}::jsonb as ranks) as navigation_saved_order`;
+    const siblingRank = sql<number>`coalesce((navigation_saved_order.ranks ->> ${schema.contentDatabaseItems.id})::int, ${unranked})`;
+    const siblingKey = sql`(${siblingRank}, ${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.id})`;
+    const cursorKey = (key: NavigationCursor) =>
+      sql`(${Number(key.sortValue)}, ${Number(key.position)}, ${key.itemId})`;
+    return {
+      page: (siblings, after, take) =>
+        db
+          .select({ ...rowFields, sortValue: siblingRank })
+          .from(schema.contentDatabaseItems)
+          .innerJoin(
+            schema.documents,
+            eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+          )
+          .innerJoin(savedOrder, sql`true`)
+          .where(
+            and(
+              siblings,
+              after ? sql`${siblingKey} > ${cursorKey(after)}` : undefined,
+            ),
+          )
+          .orderBy(
+            siblingRank,
+            asc(schema.contentDatabaseItems.position),
+            asc(schema.contentDatabaseItems.id),
+          )
+          .limit(take),
+      through: (siblings, cursor) =>
+        Promise.all([
+          revisionOf(
+            db
+              .select(revisionFields)
+              .from(schema.contentDatabaseItems)
+              .innerJoin(
+                schema.documents,
+                eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+              )
+              .innerJoin(savedOrder, sql`true`)
+              .where(and(siblings, sql`${siblingKey} <= ${cursorKey(cursor)}`)),
           ),
-        )
-        .orderBy(
-          siblingRank,
-          asc(schema.contentDatabaseItems.position),
-          asc(schema.contentDatabaseItems.id),
-        )
-        .limit(take),
-    through: (siblings, cursor) =>
-      Promise.all([
-        revisionOf(
-          db
-            .select(revisionFields)
-            .from(schema.contentDatabaseItems)
-            .innerJoin(
-              schema.documents,
-              eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-            )
-            .innerJoin(savedOrder, sql`true`)
-            .where(and(siblings, sql`${siblingKey} <= ${cursorKey(cursor)}`)),
-        ),
-      ]),
+        ]),
+    };
+  };
+
+  const propertyRanks = async (
+    siblings: SQL | undefined,
+    { sorts: rankSorts, properties }: NonNullable<typeof propertySorts>,
+  ) => {
+    const values = schema.documentPropertyValues;
+    const rows = await db
+      .select({
+        itemId: schema.contentDatabaseItems.id,
+        title: schema.documents.title,
+        values: sql<
+          string | null
+        >`(select jsonb_object_agg(${values.propertyId}, ${values.valueJson})::text from ${values} where ${values.documentId} = ${schema.documents.id} and ${inArray(
+          values.propertyId,
+          properties.map((property) => property.definition.id),
+        )})`,
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(siblings)
+      .orderBy(
+        asc(schema.contentDatabaseItems.position),
+        asc(schema.contentDatabaseItems.createdAt),
+        asc(schema.contentDatabaseItems.id),
+      );
+    const items = rows.map((row) => {
+      const saved: Record<string, string> = row.values
+        ? JSON.parse(row.values)
+        : {};
+      return {
+        id: row.itemId,
+        databaseId: args.database.id,
+        document: { title: row.title },
+        properties: properties.map((property) => ({
+          ...property,
+          value: parsePropertyValue(saved[property.definition.id]),
+        })),
+      } as ContentDatabaseItem;
+    });
+    const sorted = applyContentDatabaseTableQuery(
+      items,
+      properties,
+      { search: "", filters: [], sorts: rankSorts, filterMode: "and" },
+      timeZone ? { timeZone } : {},
+    );
+    return new Map(sorted.map((item, index) => [item.id, index + 1]));
   };
 
   const folderPages = (level: FolderLevel) =>
@@ -1559,13 +1683,18 @@ export async function getContentDatabaseNavigationPage(args: {
     parentId: string | null,
     after: NavigationCursor | null,
   ): Promise<ContentDatabaseNavigationPage> => {
-    const order =
-      effectiveSort !== "custom"
+    const siblings = siblingsOf(parentId);
+    const ranks =
+      effectiveSort === "property" && propertySorts
+        ? await propertyRanks(siblings, propertySorts)
+        : null;
+    const order = ranks
+      ? rankOrder(ranks, ranks.size + 1)
+      : effectiveSort !== "custom"
         ? sortedOrder
         : parentId === null
           ? savedListOrder
-          : siblingRankOrder;
-    const siblings = siblingsOf(parentId);
+          : rankOrder(rankById, unrankedValue);
     const level = folderLevel(parentId);
     const listed = args.pagesOnly ? null : level;
     if (after?.folder && !listed) invalidCursor();
@@ -1668,7 +1797,7 @@ export async function getContentDatabaseNavigationPage(args: {
                 ...cursorFields,
                 sortValue: last.sortValue,
                 position:
-                  effectiveSort === "custom"
+                  effectiveSort === "custom" || effectiveSort === "property"
                     ? last.membershipPosition
                     : undefined,
                 itemId: last.membershipId,
