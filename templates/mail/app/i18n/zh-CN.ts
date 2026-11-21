@@ -141,8 +141,6 @@ const messages = {
       compose: "撰写",
       composeShortcut: "撰写 (C)",
       accounts: "账号",
-      pinSidebar: "固定侧边栏",
-      unpinSidebar: "取消固定侧边栏",
       closeSidebar: "关闭侧边栏",
       settings: "设置",
       aiSettings: "管理标签和规则",
