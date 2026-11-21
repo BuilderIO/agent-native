@@ -10,12 +10,8 @@
 //! moving the generation on waits for, so no callback that passed the check
 //! is still running once the clock it reads changes.
 
-use super::{
-    av_class_named, av_dict, av_dict_set, av_ns_string_from, av_number_bool, av_number_i64,
-    av_writer_error_suffix, describe_objc_exception, CMSampleBufferCreateCopyWithNewTiming,
-    ObjcCMSampleTimingInfo, ObjcCMTime, SegmentSink, SegmentWriterDelegate,
-    AV_WRITER_STATUS_COMPLETED, OUTPUT_SEGMENT_INTERVAL_SECONDS,
-};
+use super::describe_objc_exception;
+use super::track_writer::{h264_settings, retimed, TrackMedia, TrackWriter, INVALID_TIME};
 use crate::native_screen::rich_recording::{FrameTime, RecordingClock};
 use crate::native_screen::screen_track::{
     screen_track_bit_rate, FrameTimeline, ScreenArea, ScreenTrackReport, SCREEN_TRACK_MAX_FPS,
@@ -23,9 +19,6 @@ use crate::native_screen::screen_track::{
 };
 use crate::native_screen::track_upload::TrackUploadCtrl;
 
-use objc2::msg_send;
-use objc2::rc::{Allocated, Retained};
-use objc2::runtime::AnyObject;
 use screencapturekit::cg::CGRect;
 use screencapturekit::cm::{CMSampleBuffer, SCFrameStatus};
 use screencapturekit::dispatch_queue::{DispatchQoS, DispatchQueue};
@@ -48,19 +41,11 @@ use std::time::{Duration, Instant};
 /// Frames the encoder turned away in a row before the track gives up on it:
 /// about two seconds of a screen changing at full rate.
 const NOT_READY_LIMIT: u32 = 120;
-const FINISH_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long the end of the track waits to write a frame the encoder last
 /// turned away.
 const HELD_FRAME_WAIT: Duration = Duration::from_millis(500);
 /// Frames ScreenCaptureKit may have waiting for this track's queue.
 const STREAM_QUEUE_DEPTH: u32 = 6;
-
-struct Writer {
-    writer: Retained<AnyObject>,
-    input: Retained<AnyObject>,
-    sink: Arc<SegmentSink>,
-    _delegate: Retained<SegmentWriterDelegate>,
-}
 
 /// A frame waiting to be written: one from before the recording's first frame
 /// (`at` is `None`, so it goes at zero), or one the encoder wasn't ready for.
@@ -70,7 +55,7 @@ struct HeldFrame {
 }
 
 struct WriterState {
-    writer: Option<Writer>,
+    writer: Option<TrackWriter>,
     started: bool,
     accepting: bool,
     timeline: FrameTimeline,
@@ -123,7 +108,22 @@ pub(in crate::native_screen) fn start_screen_capture(
     recording_id: &str,
 ) -> Result<ScreenCapture, String> {
     // SAFETY: builds and configures a writer that nothing else holds yet.
-    let writer = unsafe { create_writer(path, &area)? };
+    let writer = unsafe {
+        let settings = h264_settings(
+            area.width_px,
+            area.height_px,
+            screen_track_bit_rate(area.width_px, area.height_px),
+            SCREEN_TRACK_MAX_FPS,
+            SCREEN_TRACK_MAX_KEYFRAME_SECONDS,
+        )?;
+        TrackWriter::create(
+            path,
+            TrackMedia::Video {
+                timescale: SCREEN_TRACK_TIMESCALE,
+            },
+            &settings,
+        )?
+    };
     let shared = Arc::new(Shared {
         recording_id: recording_id.to_string(),
         display_id,
@@ -359,50 +359,32 @@ impl Shared {
     }
 
     fn append(state: &mut WriterState, sample: &CMSampleBuffer, at: f64) -> Append {
-        let Some((writer, input)) = state.writer.as_ref().map(|writer| {
-            (
-                Retained::clone(&writer.writer),
-                Retained::clone(&writer.input),
-            )
-        }) else {
+        let Some(writer) = state.writer.as_ref() else {
             return Append::Failed("the writer is closed".into());
         };
-        // SAFETY: the writer and its input are live and used only under the
-        // state lock; exceptions are caught.
+        // SAFETY: the writer is live and used only under the state lock;
+        // exceptions are caught.
         unsafe {
             if !state.started {
-                if let Err(error) = start_writing(&writer) {
+                if let Err(error) = writer.start() {
                     return Append::Failed(error);
                 }
                 state.started = true;
             }
-            let ready: bool = msg_send![&*input, isReadyForMoreMediaData];
-            if !ready {
+            if !writer.is_ready() {
                 return Append::NotReady;
             }
             let place = state.timeline.place(at);
-            let copy = match sample_at(sample, place) {
+            let copy = match retimed(sample, writer.time(place), INVALID_TIME) {
                 Ok(copy) => copy,
                 Err(error) => return Append::Failed(error),
             };
-            let input_ptr = &*input as *const AnyObject;
-            let appended = objc2::exception::catch(AssertUnwindSafe(|| {
-                let appended: bool = msg_send![&*input_ptr, appendSampleBuffer: copy.as_ptr()];
-                appended
-            }));
-            match appended {
-                Ok(true) => {
+            match writer.append(&copy) {
+                Ok(()) => {
                     state.timeline.commit(place);
                     Append::Done
                 }
-                Ok(false) => Append::Failed(format!(
-                    "appendSampleBuffer failed{}",
-                    av_writer_error_suffix(&writer)
-                )),
-                Err(exception) => Append::Failed(format!(
-                    "appendSampleBuffer raised: {}",
-                    describe_objc_exception(exception)
-                )),
+                Err(error) => Append::Failed(error),
             }
         }
     }
@@ -482,7 +464,7 @@ impl Shared {
                 error = Some(finish_error);
             }
         }
-        if let Some(sink_error) = writer.as_ref().and_then(|writer| writer.sink.failure()) {
+        if let Some(sink_error) = writer.as_ref().and_then(TrackWriter::sink_failure) {
             error.get_or_insert(sink_error);
         }
         if let Some(error) = error {
@@ -492,14 +474,7 @@ impl Shared {
             );
             state.stopped_early.get_or_insert(error);
         }
-        let init = writer.as_ref().and_then(|writer| {
-            writer
-                .sink
-                .state
-                .lock()
-                .ok()
-                .and_then(|sink| sink.init_segment.clone())
-        });
+        let init = writer.as_ref().and_then(TrackWriter::init_segment);
         let report = ScreenTrackReport {
             init,
             frames: state.timeline.frames(),
@@ -520,7 +495,7 @@ impl Shared {
                 .unwrap_or_default()
         );
         *lock(&self.report) = report;
-        if let Some(error) = writer.as_ref().and_then(|writer| writer.sink.failure()) {
+        if let Some(error) = writer.as_ref().and_then(TrackWriter::sink_failure) {
             self.upload
                 .fail_source(format!("its file could not be written: {error}"));
         }
@@ -622,254 +597,10 @@ impl SCStreamDelegateTrait for StreamDelegate {
     }
 }
 
-/// A copy of `sample` at `secs` of the file's timeline.
-fn sample_at(sample: &CMSampleBuffer, secs: f64) -> Result<CMSampleBuffer, String> {
-    let invalid = ObjcCMTime {
-        value: 0,
-        timescale: 0,
-        flags: 0,
-        epoch: 0,
-    };
-    let timing = ObjcCMSampleTimingInfo {
-        duration: invalid,
-        presentation_time_stamp: track_time(secs),
-        decode_time_stamp: invalid,
-    };
-    let mut out: *mut std::ffi::c_void = std::ptr::null_mut();
-    // SAFETY: `sample` is a live sample buffer and `out` receives a new one
-    // the wrapper below owns.
-    let status = unsafe {
-        CMSampleBufferCreateCopyWithNewTiming(
-            std::ptr::null(),
-            sample.as_ptr(),
-            1,
-            &timing,
-            &mut out,
-        )
-    };
-    if status != 0 || out.is_null() {
-        return Err(format!(
-            "CMSampleBufferCreateCopyWithNewTiming failed (status={status})"
-        ));
-    }
-    CMSampleBuffer::from_raw(out).ok_or_else(|| "retimed sample buffer wrap failed".to_string())
-}
-
-fn track_time(secs: f64) -> ObjcCMTime {
-    ObjcCMTime {
-        value: (secs * f64::from(SCREEN_TRACK_TIMESCALE)).round() as i64,
-        timescale: SCREEN_TRACK_TIMESCALE,
-        flags: 1,
-        epoch: 0,
-    }
-}
-
-/// Starts writing with the session at zero: the recording's first frame, so
-/// media time is recording time.
-unsafe fn start_writing(writer: &AnyObject) -> Result<(), String> {
-    let writer_ptr = writer as *const AnyObject;
-    let zero = track_time(0.0);
-    let outcome = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
-        let ok: bool = msg_send![&*writer_ptr, startWriting];
-        if ok {
-            let _: () = msg_send![&*writer_ptr, startSessionAtSourceTime: zero];
-        }
-        ok
-    }));
-    match outcome {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(format!(
-            "startWriting failed{}",
-            av_writer_error_suffix(writer)
-        )),
-        Err(exception) => Err(format!(
-            "startWriting raised: {}",
-            describe_objc_exception(exception)
-        )),
-    }
-}
-
-impl Writer {
-    unsafe fn finish(&self, end_secs: f64) -> Result<(), String> {
-        use block2::RcBlock;
-
-        let writer = &*self.writer as *const AnyObject;
-        let input = &*self.input as *const AnyObject;
-        let (tx, rx) = std::sync::mpsc::sync_channel::<()>(1);
-        let block = RcBlock::new(move || {
-            let _ = tx.send(());
-        });
-        let end = track_time(end_secs);
-        let requested = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
-            let _: () = msg_send![&*writer, endSessionAtSourceTime: end];
-            let _: () = msg_send![&*input, markAsFinished];
-            let _: () = msg_send![&*writer, finishWritingWithCompletionHandler: &*block];
-        }));
-        if let Err(exception) = requested {
-            return Err(format!(
-                "finishing raised: {}",
-                describe_objc_exception(exception)
-            ));
-        }
-        if rx.recv_timeout(FINISH_TIMEOUT).is_err() {
-            let _: () = msg_send![&*self.writer, cancelWriting];
-            return Err("finishing timed out".into());
-        }
-        let status: i64 = msg_send![&*self.writer, status];
-        if status != AV_WRITER_STATUS_COMPLETED {
-            return Err(format!(
-                "finishing failed (status={status}{})",
-                av_writer_error_suffix(&self.writer)
-            ));
-        }
-        Ok(())
-    }
-}
-
-/// An fMP4 writer in one-second fragments that hands its segments to a
-/// `SegmentSink` on `path`, as the flattened recording's live-upload writer
-/// does. AVAssetWriter makes the first frame of each fragment a keyframe.
-unsafe fn create_writer(path: &Path, area: &ScreenArea) -> Result<Writer, String> {
-    #[link(name = "AVFoundation", kind = "framework")]
-    extern "C" {
-        static AVMediaTypeVideo: *const AnyObject;
-        static AVFileTypeProfileMPEG4AppleHLS: *const AnyObject;
-    }
-
-    let writer_cls =
-        av_class_named("AVAssetWriter").ok_or_else(|| "AVAssetWriter missing".to_string())?;
-    let input_cls = av_class_named("AVAssetWriterInput")
-        .ok_or_else(|| "AVAssetWriterInput missing".to_string())?;
-    let ident = av_ns_string_from("public.mpeg-4")
-        .ok_or_else(|| "NSString for UTType failed".to_string())?;
-    let ut_cls = av_class_named("UTType").ok_or_else(|| "UTType missing".to_string())?;
-    // `alloc` hands over an `Allocated` the `init` consumes, so an `init` that
-    // returns nil, having released its receiver, never has it released again.
-    let created = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
-        let ut: Option<Retained<AnyObject>> = msg_send![ut_cls, typeWithIdentifier: &*ident];
-        let ut = ut.ok_or_else(|| "UTType public.mpeg-4 unavailable".to_string())?;
-        let allocated: Allocated<AnyObject> = msg_send![writer_cls, alloc];
-        let writer: Option<Retained<AnyObject>> = msg_send![allocated, initWithContentType: &*ut];
-        let writer =
-            writer.ok_or_else(|| "AVAssetWriter initWithContentType failed".to_string())?;
-        let settings = video_settings(area.width_px, area.height_px)?;
-        let input: Option<Retained<AnyObject>> = msg_send![
-            input_cls,
-            assetWriterInputWithMediaType: AVMediaTypeVideo,
-            outputSettings: &*settings
-        ];
-        let input = input.ok_or_else(|| "AVAssetWriterInput allocation failed".to_string())?;
-        Ok::<_, String>((writer, input))
-    }));
-    let (writer, input) = match created {
-        Ok(created) => created?,
-        Err(exception) => {
-            return Err(format!(
-                "writer creation raised: {}",
-                describe_objc_exception(exception)
-            ))
-        }
-    };
-
-    let sink = SegmentSink::create_with(path, false)?;
-    let delegate = SegmentWriterDelegate::new(Arc::clone(&sink));
-    let writer_ptr = &*writer as *const AnyObject;
-    let input_ptr = &*input as *const AnyObject;
-    let configured = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
-        let interval = ObjcCMTime {
-            value: OUTPUT_SEGMENT_INTERVAL_SECONDS,
-            timescale: 1,
-            flags: 1,
-            epoch: 0,
-        };
-        let _: () = msg_send![&*writer_ptr, setPreferredOutputSegmentInterval: interval];
-        let _: () = msg_send![&*writer_ptr, setInitialSegmentStartTime: track_time(0.0)];
-        let _: () =
-            msg_send![&*writer_ptr, setOutputFileTypeProfile: AVFileTypeProfileMPEG4AppleHLS];
-        let _: () = msg_send![&*writer_ptr, setDelegate: &*delegate];
-        let _: () = msg_send![&*input_ptr, setExpectsMediaDataInRealTime: true];
-        let _: () = msg_send![&*input_ptr, setMediaTimeScale: SCREEN_TRACK_TIMESCALE];
-        let can_add: bool = msg_send![&*writer_ptr, canAddInput: &*input_ptr];
-        if can_add {
-            let _: () = msg_send![&*writer_ptr, addInput: &*input_ptr];
-        }
-        can_add
-    }));
-    match configured {
-        Ok(true) => Ok(Writer {
-            writer,
-            input,
-            sink,
-            _delegate: delegate,
-        }),
-        Ok(false) => Err("AVAssetWriter cannot add the screen input".into()),
-        Err(exception) => Err(format!(
-            "writer setup raised: {}",
-            describe_objc_exception(exception)
-        )),
-    }
-}
-
-/// H.264 High at the area's native size, the bit rate sized by its pixels.
-unsafe fn video_settings(width: u32, height: u32) -> Result<Retained<AnyObject>, String> {
-    #[link(name = "AVFoundation", kind = "framework")]
-    extern "C" {
-        static AVVideoCodecKey: *const AnyObject;
-        static AVVideoCodecTypeH264: *const AnyObject;
-        static AVVideoHeightKey: *const AnyObject;
-        static AVVideoWidthKey: *const AnyObject;
-        static AVVideoCompressionPropertiesKey: *const AnyObject;
-        static AVVideoAllowFrameReorderingKey: *const AnyObject;
-        static AVVideoAverageBitRateKey: *const AnyObject;
-        static AVVideoExpectedSourceFrameRateKey: *const AnyObject;
-        static AVVideoMaxKeyFrameIntervalDurationKey: *const AnyObject;
-        static AVVideoProfileLevelKey: *const AnyObject;
-        static AVVideoProfileLevelH264HighAutoLevel: *const AnyObject;
-    }
-    let number = |value: i64| av_number_i64(value).ok_or_else(|| "NSNumber failed".to_string());
-
-    let settings = av_dict()?;
-    av_dict_set(&settings, AVVideoCodecKey, &*AVVideoCodecTypeH264);
-    av_dict_set(&settings, AVVideoWidthKey, &*number(i64::from(width))?);
-    av_dict_set(&settings, AVVideoHeightKey, &*number(i64::from(height))?);
-
-    let compression = av_dict()?;
-    av_dict_set(
-        &compression,
-        AVVideoProfileLevelKey,
-        &*AVVideoProfileLevelH264HighAutoLevel,
-    );
-    let no_reordering =
-        av_number_bool(false).ok_or_else(|| "NSNumber reordering flag failed".to_string())?;
-    av_dict_set(&compression, AVVideoAllowFrameReorderingKey, &no_reordering);
-    av_dict_set(
-        &compression,
-        AVVideoAverageBitRateKey,
-        &*number(screen_track_bit_rate(width, height))?,
-    );
-    av_dict_set(
-        &compression,
-        AVVideoExpectedSourceFrameRateKey,
-        &*number(i64::from(SCREEN_TRACK_MAX_FPS))?,
-    );
-    let keyframe_seconds: *mut AnyObject = msg_send![
-        objc2::class!(NSNumber),
-        numberWithDouble: SCREEN_TRACK_MAX_KEYFRAME_SECONDS
-    ];
-    let keyframe_seconds = Retained::retain(keyframe_seconds)
-        .ok_or_else(|| "NSNumber keyframe interval failed".to_string())?;
-    av_dict_set(
-        &compression,
-        AVVideoMaxKeyFrameIntervalDurationKey,
-        &keyframe_seconds,
-    );
-    av_dict_set(&settings, AVVideoCompressionPropertiesKey, &compression);
-    Ok(settings)
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::rebased_time;
+    use super::super::track_writer::track_time;
     use super::*;
     use crate::native_screen::track_upload::TrackSendGate;
 
@@ -998,7 +729,7 @@ mod tests {
             assert!((secs - flat_secs).abs() < 1e-6, "{secs} vs {flat_secs}");
             let place = timeline.place(secs);
             timeline.commit(place);
-            let at = track_time(place);
+            let at = track_time(place, SCREEN_TRACK_TIMESCALE);
             assert_eq!(at.timescale, SCREEN_TRACK_TIMESCALE);
             at.value
         };
