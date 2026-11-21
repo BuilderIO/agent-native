@@ -1,0 +1,20 @@
+/*
+ * Part: aspect-ratio
+ *
+ *   <div class="aspect-ratio" style="--aspect-ratio: 1.7778">
+ *     <img>                                sized by the box, such as with
+ *                                          width and height at 100%
+ *
+ * Radix Themes' aspect ratio: a box as wide as its container and as tall as
+ * `ratio` makes it. Content taller than that overflows instead of
+ * stretching the box, as Radix's does.
+ */
+
+@layer components {
+  .aspect-ratio {
+    position: relative;
+    width: 100%;
+    min-height: 0;
+    aspect-ratio: var(--aspect-ratio, 1);
+  }
+}

@@ -65,6 +65,7 @@ import {
   type ExecutionFence,
   withFencedExecutionWrite,
 } from "./execution-fence.js";
+import { resolvePrivateSafeError } from "./run-errors.js";
 import {
   AGENT_RUN_MIGRATIONS,
   AGENT_RUN_MIGRATIONS_TABLE,
@@ -218,8 +219,15 @@ export function __resetNoRunningRunsProbeForTests(): void {
   _noRunningRunsUntil = 0;
 }
 
-async function hasRunningRuns(): Promise<boolean> {
-  if (Date.now() < _noRunningRunsUntil) return false;
+/**
+ * Whether any agent run is still running. A "no" is cached for a few seconds
+ * because hot paths probe on every request; `fresh` skips that cache for a
+ * caller about to act on the answer.
+ */
+export async function hasRunningRuns(
+  options: { fresh?: boolean } = {},
+): Promise<boolean> {
+  if (!options.fresh && Date.now() < _noRunningRunsUntil) return false;
   const { rows } = await getDbExec().execute({
     sql: `SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1`,
     args: [],
@@ -959,7 +967,9 @@ export type AgentExecutionStepAdmission =
   | { status: "completed"; resultJson: string | null; errorJson: string | null }
   | { status: "unknown" };
 
-export function privateExecutionStepInputJson(input: {
+export const PRIVATE_REPLAY_IDENTITY_PATTERN = /^hmac-v1:[a-f0-9]{64}$/;
+
+export function privateExecutionStepIdentity(input: {
   threadId: string;
   turnId: string;
   toolName: string;
@@ -976,9 +986,18 @@ export function privateExecutionStepInputJson(input: {
       ]),
     )
     .digest("hex");
+  return `hmac-v1:${identity}`;
+}
+
+export function privateExecutionStepInputJson(input: {
+  threadId: string;
+  turnId: string;
+  toolName: string;
+  argumentsHash: string;
+}): string {
   return JSON.stringify({
     omitFromPersistedHistory: true,
-    identity: `hmac-v1:${identity}`,
+    identity: privateExecutionStepIdentity(input),
   });
 }
 
@@ -3256,6 +3275,7 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
       const [
         {
           AGENT_CHAT_BACKGROUND_RUN_FIELD,
+          backgroundRunInitiatorMarker,
           resolveAgentChatProcessRunDispatchPath,
         },
         { fireInternalDispatch },
@@ -3263,6 +3283,7 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
         import("./durable-background.js"),
         import("../server/self-dispatch.js"),
       ]);
+      const initiator = await getTurnInitiatorByRun(successorRunId);
       await fireInternalDispatch({
         path: resolveAgentChatProcessRunDispatchPath(),
         taskId: successorRunId,
@@ -3271,6 +3292,7 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
           [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
             runId: successorRunId,
             payloadRef: true,
+            ...backgroundRunInitiatorMarker(successorRunId, initiator),
           },
         },
       });
@@ -4043,8 +4065,15 @@ export async function getRunStatus(runId: string): Promise<string | null> {
 
 const RECOVERABLE_ABORT_REASONS = new Set(["background_worker_died"]);
 
+/** What a user's Stop request reports about the run it stops. */
+export interface UserStopOptions {
+  /** The last event of the run the user's browser had shown, or -1 for none. */
+  shownThroughSeq?: number;
+}
+
 export function terminalEventForAbortReason(
   reason: string | undefined,
+  stop?: UserStopOptions,
 ): AgentChatEvent {
   const normalized = (reason ?? "").trim() || "user";
   if (isContinuationTerminalReason(normalized)) {
@@ -4054,9 +4083,13 @@ export function terminalEventForAbortReason(
     };
   }
   if (isRequestedStopAbortReason(normalized)) {
+    if (normalized === "displaced") return { type: "done" };
     return {
       type: "done",
-      ...(normalized !== "displaced" ? { reason: "user" } : {}),
+      reason: "user",
+      ...(stop?.shownThroughSeq !== undefined
+        ? { shownThroughSeq: stop.shownThroughSeq }
+        : {}),
     };
   }
   return {
@@ -4070,22 +4103,25 @@ export function terminalEventForAbortReason(
 export async function markRunAborted(
   runId: string,
   reason?: string,
+  stop?: UserStopOptions,
 ): Promise<boolean> {
-  return updateRunAborted(runId, reason, false);
+  return updateRunAborted(runId, reason, false, stop);
 }
 
 /** Abort only when no model or tool work has crossed its dispatch boundary. */
 export async function markRunAbortedAtSafeBoundary(
   runId: string,
   reason?: string,
+  stop?: UserStopOptions,
 ): Promise<boolean> {
-  return updateRunAborted(runId, reason, true);
+  return updateRunAborted(runId, reason, true, stop);
 }
 
 async function updateRunAborted(
   runId: string,
   reason: string | undefined,
   requireSafeBoundary: boolean,
+  stop?: UserStopOptions,
 ): Promise<boolean> {
   await ensureRunTables();
   const fence = currentExecutionFenceForScope({ runId });
@@ -4093,10 +4129,10 @@ async function updateRunAborted(
   if (!client.transaction) {
     throw new Error("Atomic run cancellation requires transaction support");
   }
-  const abortEvent = terminalEventForAbortReason(reason) as unknown as Record<
-    string,
-    unknown
-  >;
+  const abortEvent = terminalEventForAbortReason(
+    reason,
+    stop,
+  ) as unknown as Record<string, unknown>;
   const commitAbort = async (tx: DbExec) => {
     await lockExecutionLeasesForRuns(tx, [runId]);
     await lockAndAssertCurrentExecutionFences(tx);
@@ -4177,7 +4213,11 @@ async function updateRunAborted(
       terminalRun.terminal_reason === `aborted:${reason ?? "user"}` &&
       (!requireSafeBoundary || terminalRun.in_flight_since == null);
     if (appendTerminalEvent) {
-      await appendAbortTerminalRunEventInTransaction(tx, runId, abortEvent);
+      await appendAbortTerminalRunEventInTransaction(
+        tx,
+        runId,
+        await withFirstStopCutoff(tx, runId, abortEvent),
+      );
       return { rowsAffected: 0, appendTerminalEvent: true };
     }
     return { rowsAffected: 0, appendTerminalEvent: false };
@@ -4194,6 +4234,41 @@ async function updateRunAborted(
     );
   }
   return abortResult.rowsAffected > 0 || abortResult.appendTerminalEvent;
+}
+
+async function withFirstStopCutoff(
+  tx: DbExec,
+  runId: string,
+  event: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (event["type"] !== "done" || event["reason"] !== "user") return event;
+  const shownThroughSeq = await readUserStopCutoff(tx, runId);
+  return shownThroughSeq === undefined ? event : { ...event, shownThroughSeq };
+}
+
+async function readUserStopCutoff(
+  db: DbExec,
+  runId: string,
+): Promise<number | undefined> {
+  const { rows } = await db.execute({
+    sql: `SELECT event_data FROM agent_run_events
+          WHERE run_id = ? ORDER BY seq DESC LIMIT 1`,
+    args: [runId],
+  });
+  const data = (rows[0] as { event_data?: string } | undefined)?.event_data;
+  let last: { type?: unknown; reason?: unknown; shownThroughSeq?: unknown };
+  try {
+    last = data ? JSON.parse(data) : {};
+  } catch {
+    // coercion-ok: appending the final event reports the malformed last event.
+    return undefined;
+  }
+  return last.type === "done" &&
+    last.reason === "user" &&
+    typeof last.shownThroughSeq === "number" &&
+    Number.isSafeInteger(last.shownThroughSeq)
+    ? last.shownThroughSeq
+    : undefined;
 }
 
 async function lockExecutionLeasesForRuns(
@@ -4519,7 +4594,7 @@ export async function isRunAborted(runId: string): Promise<boolean> {
 
 export async function getRunAbortState(
   runId: string,
-): Promise<{ aborted: boolean; reason?: string }> {
+): Promise<{ aborted: boolean; reason?: string; shownThroughSeq?: number }> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
@@ -4529,9 +4604,22 @@ export async function getRunAbortState(
   if (rows.length === 0) return { aborted: false };
   const row = rows[0] as { status: string; abort_reason?: string | null };
   if (row.status !== "aborted") return { aborted: false };
+  let shownThroughSeq: number | undefined;
+  try {
+    shownThroughSeq = await readUserStopCutoff(client, runId);
+  } catch (error) {
+    captureError(error, {
+      tags: {
+        component: "agent-run-store",
+        operation: "read-user-stop-cutoff",
+      },
+      extra: { runId },
+    });
+  }
   return {
     aborted: true,
     ...(row.abort_reason ? { reason: row.abort_reason } : {}),
+    ...(shownThroughSeq !== undefined ? { shownThroughSeq } : {}),
   };
 }
 
@@ -4616,6 +4704,10 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
         ...(event.approvalPause === true ? { approvalPause: true } : {}),
         ...(event.outcomeUnknown === true ? { outcomeUnknown: true } : {}),
         ...(event.replayed === true ? { replayed: true } : {}),
+        ...(typeof event.privateReplayIdentity === "string" &&
+        PRIVATE_REPLAY_IDENTITY_PATTERN.test(event.privateReplayIdentity)
+          ? { privateReplayIdentity: event.privateReplayIdentity }
+          : {}),
       };
     case "approval_required":
       return {
@@ -4709,16 +4801,22 @@ function omitPersistedRunEventContent(event: Record<string, unknown>) {
       return {
         ...base,
         ...(event.reason ? { reason: event.reason } : {}),
+        ...(typeof event.durationMs === "number"
+          ? { durationMs: event.durationMs }
+          : {}),
       };
-    case "error":
+    case "error": {
+      const safeError = resolvePrivateSafeError(event.errorCode);
       return {
         ...base,
-        error: "Private content omitted",
+        error: safeError ? safeError.message : "Private content omitted",
+        ...(safeError ? { errorCode: safeError.errorCode } : {}),
         ...(event.recoverable === true ? { recoverable: true } : {}),
         ...(event.providerRetryable === true
           ? { providerRetryable: true }
           : {}),
       };
+    }
     case "loop_limit":
       return {
         ...base,
@@ -5900,6 +5998,11 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
             (value.argumentsHash === undefined ||
               (typeof value.argumentsHash === "string" &&
                 /^[a-f0-9]{64}$/.test(value.argumentsHash))) &&
+            (value.privateReplayIdentity === undefined ||
+              (typeof value.privateReplayIdentity === "string" &&
+                PRIVATE_REPLAY_IDENTITY_PATTERN.test(
+                  value.privateReplayIdentity,
+                ))) &&
             (value.approvalPause === undefined ||
               typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||

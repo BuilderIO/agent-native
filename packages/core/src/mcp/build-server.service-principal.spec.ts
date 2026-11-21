@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolSearchEntry } from "../agent/tool-search.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -26,26 +26,6 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
 }));
 const recordActionAuditMock = vi.fn(async (_input: any) => {});
-// People who turned on the "App cards in chat apps" lab. Other labs read the
-// real store.
-const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
-
-vi.mock("../labs/store.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../labs/store.js")>();
-  return {
-    ...actual,
-    getUserLabEnabled: vi.fn(
-      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
-        const [email, lab] = args;
-        const key = typeof lab === "string" ? lab : lab.key;
-        return key === "mcp-app-cards"
-          ? appCardsLab.optedIn.has(email)
-          : actual.getUserLabEnabled(...args);
-      },
-    ),
-  };
-});
-
 vi.mock("../audit/record.js", () => ({
   recordActionAudit: (input: any) => recordActionAuditMock(input),
 }));
@@ -664,17 +644,10 @@ describe("MCP App resources for a service principal", () => {
     };
   }
 
-  // Cards on for the request, as on the directory catalog. The lab never
-  // turns them on for a service principal.
   const cards = { inlineMcpApps: true };
 
-  afterEach(() => {
-    appCardsLab.optedIn.clear();
-  });
-
-  it("never gives a service principal cards from the lab", async () => {
+  it("never gives a service principal cards by default", async () => {
     activeWithGrant(null);
-    appCardsLab.optedIn = new Set([SVC]);
     const client = await clientFor(serviceIdentity, widgetConfig());
 
     expect((await client.listResources()).resources).toEqual([]);

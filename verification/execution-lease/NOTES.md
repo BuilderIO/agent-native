@@ -142,6 +142,22 @@ and `markTurnAborted` confirms that current-turn approval admission and
 completed-pause interruption use the cross-turn scope described above. They
 do not weaken step fencing or move an effect ahead of durable dispatch.
 
+## Coverage review for a Stop that reports the browser's last event
+
+The coverage refresh for the stopped-reply change re-read `updateRunAborted`.
+It now writes what a user's Stop reported about the browser
+(`shownThroughSeq`) into the terminal `done` event it appends with the
+aborted status. Only that event's content changed: the transaction still locks
+the run's leases and fences, moves the run from running to aborted, revokes
+its lease and appends the terminal event in that order, so `StopRun` and the
+existing model remain applicable.
+
+A later refresh re-read it again. A Stop on a run that is already aborted
+still rewrites the terminal event, but now reads the run's last event first,
+inside the same transaction and after the same locks, and keeps the first
+Stop's `shownThroughSeq` in the event it writes. That read adds no lock and no
+write, so the order above and the model's `StopRun` are unchanged.
+
 ## Results after the F2/F3 retention regression update
 
 | Config                                                                    | Result                          | Distinct states | Time   |

@@ -1329,6 +1329,9 @@
       "@agent-native/core/localization/mcp-settings-messages": [
         "./../core/src/localization/mcp-settings-messages.ts"
       ],
+      "@agent-native/core/localization/privacy-choice-messages": [
+        "./../core/src/localization/privacy-choice-messages.ts"
+      ],
       "@agent-native/core/localization/shared": [
         "./../core/src/localization/shared.ts"
       ],

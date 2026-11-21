@@ -7,6 +7,7 @@ import {
 } from "../operations.js";
 import { bigqueryOperations } from "./bigquery.js";
 import { builderOperations } from "./builder.js";
+import { contentOperations } from "./content.js";
 import { emailOperations } from "./email.js";
 import { factoryOperations } from "./factory.js";
 import { genericOperations } from "./generic.js";
@@ -34,6 +35,7 @@ export const OPERATION_DEFINITIONS: readonly OperationDefinitionInput[] = [
   ...bigqueryOperations,
   ...jiraOperations,
   ...notionOperations,
+  ...contentOperations,
   ...sentryOperations,
   ...emailOperations,
   ...genericOperations,

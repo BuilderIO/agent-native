@@ -491,3 +491,24 @@ describe("chat-first session watch contract", () => {
     );
   });
 });
+
+describe("resolveChatFirstAppTarget base-path precedence", () => {
+  it("opens the app with the most specific base path on a shared origin", () => {
+    const registrations = [
+      { id: "site", url: "https://apps.example.com/" },
+      { id: "fleet", url: "https://apps.example.com/fleet" },
+    ];
+    expect(
+      resolveChatFirstAppTarget(
+        { url: "https://apps.example.com/fleet/home" },
+        registrations,
+      ),
+    ).toEqual({ status: "ready", target: { appId: "fleet", path: "/home" } });
+    expect(
+      resolveChatFirstAppTarget(
+        { url: "https://apps.example.com/pricing" },
+        registrations,
+      ),
+    ).toEqual({ status: "ready", target: { appId: "site", path: "/pricing" } });
+  });
+});

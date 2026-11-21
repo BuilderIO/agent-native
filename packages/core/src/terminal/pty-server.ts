@@ -161,6 +161,8 @@ export interface PtySessionSetup {
   commandArgs?: string[];
   environment?: NodeJS.ProcessEnv;
   onClose?: () => void | Promise<void>;
+  /** Hands the owner a way to end this session's PTY from outside. */
+  bindTerminate?: (terminate: () => void) => void;
 }
 
 export interface PtyServerResult {
@@ -313,6 +315,7 @@ export async function createPtyWebSocketServer(
     try {
       if (getSessionSetup) {
         sessionSetup = await getSessionSetup(command, context);
+        sessionSetup.bindTerminate?.(() => ws.close());
         commandArgs = sessionSetup.commandArgs ?? [];
         commandEnvironment = sessionSetup.environment ?? {};
       }

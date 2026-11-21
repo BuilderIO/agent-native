@@ -22,3 +22,19 @@ export function advanceMutationEpoch(): boolean {
     return false;
   }
 }
+
+export const ACTION_CACHE_FLUSH_EVENT = "agentNative:actionCacheFlush";
+
+export interface ActionCacheFlushDetail {
+  /** This tab's mutation epoch, passed once its invalidation refetch settled. */
+  settledEpoch?: string | null | undefined;
+}
+
+export function requestActionCacheFlush(settledEpoch?: string | null): void {
+  if (typeof window !== "undefined")
+    window.dispatchEvent(
+      new CustomEvent<ActionCacheFlushDetail>(ACTION_CACHE_FLUSH_EVENT, {
+        detail: { settledEpoch },
+      }),
+    );
+}

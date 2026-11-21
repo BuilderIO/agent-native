@@ -20,6 +20,7 @@ import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import type { SandboxExecutionRow } from "../coding-tools/sandbox/index.js";
+import { CredentialUseLedger } from "../credentials/use-ledger.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import {
   buildDataProgramPrelude,
@@ -27,21 +28,42 @@ import {
   type DataProgramColumn,
 } from "./contract.js";
 import {
+  isOrgShareableRun,
+  parseCredentialUses,
+  SHAREABLE_BRIDGE_TOOLS,
+  viewerReadsSameCredentials,
+  viewerResolvesOnlyOrgCredentials,
+  type OrgSharingViewer,
+} from "./shared-runs.js";
+import {
   getActiveRun,
   getDataProgram,
   getLatestFinishedRunOutcome,
+  getLatestRun,
+  getLatestSharedRunRefusal,
   getLatestSuccessfulRun,
   recordDataProgramRun,
   updateDataProgramRun,
   MAX_PROGRAM_ROWS,
   MAX_PROGRAM_RESULT_BYTES,
+  SHARED_RUN_FAILED,
+  SHARED_RUN_NOT_SHAREABLE,
   type DataProgramRow,
+  type UpdateDataProgramRunInput,
+  type DataProgramRunRow,
 } from "./store.js";
 
 const PANEL_VIEW_TIMEOUT_MS = 25_000;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
+const PROGRAM_LOGS_ROOM_CHARS = 512 * 1024;
+const PROGRAM_MAX_OUTPUT_CHARS =
+  MAX_PROGRAM_RESULT_BYTES + PROGRAM_LOGS_ROOM_CHARS;
+const NOT_SHAREABLE_RETRY_MS = 24 * 60 * 60 * 1000;
+const MIN_RUN_TIMEOUT_MS = 1_000;
+const VIEWER_CHECK_RESERVE_MS = 1_000;
+const VIEWER_CHECK_MAX_MS = 5_000;
 
 /**
  * `program_error` is an error the program's own code threw, and its message is
@@ -188,6 +210,18 @@ export function hashDataProgramParams(
     .digest("hex");
 }
 
+export function hashOrgSharedDataProgramParams(
+  params: Record<string, unknown> | undefined,
+  orgId: string,
+): string {
+  return createHash("sha256")
+    .update(":org-shared:")
+    .update(orgId)
+    .update(":params:")
+    .update(canonicalDataProgramParamsJson(params ?? {}))
+    .digest("hex");
+}
+
 function truncateLogs(stdout: string, stderr: string): string {
   const combined = [stdout, stderr].filter(Boolean).join("\n---stderr---\n");
   if (combined.length <= LOGS_TAIL_MAX_CHARS) return combined;
@@ -291,6 +325,7 @@ async function executeProgramCode(
   timeoutMs: number,
   ctx: RunDataProgramArgs["ctx"],
   evaluator: SandboxCodeEvaluator | undefined,
+  credentialLedger?: CredentialUseLedger,
 ): Promise<
   | {
       ok: true;
@@ -298,8 +333,15 @@ async function executeProgramCode(
       schema: DataProgramColumn[];
       truncated: boolean;
       logsTail: string;
+      bridgeToolsUsed: string[];
     }
-  | { ok: false; code: DataProgramErrorCode; message: string; logsTail: string }
+  | {
+      ok: false;
+      code: DataProgramErrorCode;
+      message: string;
+      logsTail: string;
+      bridgeToolsUsed: string[];
+    }
 > {
   let executeSandboxCode: typeof import("../coding-tools/run-code.js").executeSandboxCode;
   try {
@@ -311,6 +353,7 @@ async function executeProgramCode(
       message:
         "The run-code sandbox module is unavailable in this build, so data programs cannot execute.",
       logsTail: "",
+      bridgeToolsUsed: [],
     };
   }
 
@@ -325,6 +368,8 @@ async function executeProgramCode(
       extraBridgeTools: new Set(),
       context: buildActionRunContext(ctx),
       evaluator: evaluator ?? _configuredEvaluator ?? "node",
+      maxStdoutChars: PROGRAM_MAX_OUTPUT_CHARS,
+      ...(credentialLedger ? { credentialLedger } : {}),
     });
 
     const logsTail = truncateLogs(result.stdout, result.stderr);
@@ -335,19 +380,25 @@ async function executeProgramCode(
         code: "timeout",
         message: `The program did not finish within ${timeoutMs}ms.`,
         logsTail,
+        bridgeToolsUsed: result.bridgeToolsUsed,
       };
     }
 
     const parsed = parseDataProgramResult(result.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
+      outputTruncated: result.stdoutTruncated === true,
     });
     if (!parsed.ok) {
       // A run that fails before emit() never prints a result, so report what
       // the program threw, or else that the sandbox failed, rather than a
       // missing emit().
-      if (parsed.error.code === "emit_missing" && result.exitCode !== 0) {
-        const thrown = thrownProgramMessage(result.stderr);
+      const thrown =
+        result.exitCode !== 0 ? thrownProgramMessage(result.stderr) : undefined;
+      if (
+        (parsed.error.code === "emit_missing" && result.exitCode !== 0) ||
+        (parsed.error.code === "result_too_large" && thrown !== undefined)
+      ) {
         return {
           ok: false,
           code: thrown ? "program_error" : "sandbox_error",
@@ -355,6 +406,7 @@ async function executeProgramCode(
             thrown ??
             "The sandbox stopped before the program emitted a result.",
           logsTail,
+          bridgeToolsUsed: result.bridgeToolsUsed,
         };
       }
       return {
@@ -362,6 +414,7 @@ async function executeProgramCode(
         code: parsed.error.code,
         message: parsed.error.message,
         logsTail,
+        bridgeToolsUsed: result.bridgeToolsUsed,
       };
     }
 
@@ -371,6 +424,7 @@ async function executeProgramCode(
       schema: parsed.result.schema,
       truncated: parsed.result.truncated,
       logsTail,
+      bridgeToolsUsed: result.bridgeToolsUsed,
     };
   } catch (err) {
     // The run row and get-data-program show this message to every viewer.
@@ -380,6 +434,7 @@ async function executeProgramCode(
       code: "sandbox_error",
       message: "The sandbox failed before the program finished.",
       logsTail: "",
+      bridgeToolsUsed: [],
     };
   }
 }
@@ -475,12 +530,249 @@ export async function runDataProgram(
     return runBackgroundProgram(program, args, paramsHash, timeoutMs);
   }
 
+  const deadline = Date.now() + timeoutMs;
+  const sharing = orgSharingFor(args);
+  if (sharing && !args.forceRefresh) {
+    const shared = await resolveSharedCacheHit(
+      program,
+      args,
+      sharing,
+      timeoutMs,
+      deadline,
+    );
+    if (shared) return shared;
+  }
+
   if (!args.forceRefresh) {
     const cached = await resolveCacheHit(program, paramsHash);
     if (cached) return cached;
   }
 
-  return runForegroundProgram(program, args, paramsHash, timeoutMs);
+  if (!sharing) {
+    return runForegroundProgram(program, args, paramsHash, timeoutMs);
+  }
+
+  if (
+    deadline - Date.now() >= MIN_RUN_TIMEOUT_MS &&
+    (await shouldRunShared(program, args, sharing, timeoutMs, deadline))
+  ) {
+    const shared = await runSharedProgram(program, args, sharing, deadline);
+    if (shared) return shared;
+  }
+  const remainingMs = deadline - Date.now();
+  if (remainingMs < MIN_RUN_TIMEOUT_MS) {
+    return failureWithLastGood(
+      program.id,
+      paramsHash,
+      "timeout",
+      `The program did not finish within ${timeoutMs}ms.`,
+    );
+  }
+  return runForegroundProgram(
+    program,
+    args,
+    paramsHash,
+    timeoutMs,
+    remainingMs,
+  );
+}
+
+function signalAt(deadline: number): AbortSignal {
+  return AbortSignal.timeout(Math.max(0, Math.floor(deadline - Date.now())));
+}
+
+function viewerCheckSignal(deadline: number, timeoutMs: number): AbortSignal {
+  return signalAt(
+    Math.min(
+      deadline,
+      Date.now() + Math.min(VIEWER_CHECK_MAX_MS, timeoutMs / 4),
+    ),
+  );
+}
+
+interface OrgSharing {
+  viewer: OrgSharingViewer;
+  paramsHash: string;
+}
+
+function orgSharingFor(args: RunDataProgramArgs): OrgSharing | null {
+  const { userEmail, orgId, credentialScope } = args.ctx;
+  if (!userEmail || !orgId || credentialScope) return null;
+  return {
+    viewer: { userEmail, orgId },
+    paramsHash: hashOrgSharedDataProgramParams(args.params, orgId),
+  };
+}
+
+async function resolveSharedCacheHit(
+  program: DataProgramRow,
+  args: RunDataProgramArgs,
+  sharing: OrgSharing,
+  timeoutMs: number,
+  deadline: number,
+): Promise<DataProgramSuccess | null> {
+  const latestSuccess = await getLatestSuccessfulRun(
+    program.id,
+    sharing.paramsHash,
+  );
+  const uses = parseCredentialUses(latestSuccess?.credentialUsesJson);
+  if (!latestSuccess || !uses) return null;
+  const hit = cacheHitFrom(program, latestSuccess);
+  if (!hit) return null;
+  const sameCredentials = await viewerReadsSameCredentials({
+    uses,
+    viewer: sharing.viewer,
+    appId: args.appId ?? program.appId,
+    signal: viewerCheckSignal(deadline, timeoutMs),
+  });
+  return sameCredentials ? hit : null;
+}
+
+async function shouldRunShared(
+  program: DataProgramRow,
+  args: RunDataProgramArgs,
+  sharing: OrgSharing,
+  timeoutMs: number,
+  deadline: number,
+): Promise<boolean> {
+  const now = Date.now();
+  const savedAt = Date.parse(program.updatedAt);
+  const refusal = await getLatestSharedRunRefusal(program.id, savedAt);
+  if (refusal) {
+    if (
+      refusal.errorCode === SHARED_RUN_NOT_SHAREABLE &&
+      (refusal.durationMs ?? 0) > timeoutMs / 2
+    ) {
+      return false;
+    }
+    const retryAfterMs =
+      refusal.errorCode === SHARED_RUN_NOT_SHAREABLE
+        ? NOT_SHAREABLE_RETRY_MS
+        : program.refreshTtlMs;
+    if (now - (refusal.finishedAt ?? refusal.startedAt) < retryAfterMs) {
+      return false;
+    }
+  }
+
+  const latest = await getLatestRun(program.id, sharing.paramsHash);
+  if (!latest || latest.startedAt < savedAt) return true;
+  if (latest.status === "queued" || latest.status === "running") {
+    return now - latest.startedAt >= Math.max(timeoutMs, DEFAULT_TIMEOUT_MS);
+  }
+  const uses = parseCredentialUses(latest.credentialUsesJson);
+  if (latest.status !== "succeeded" || !uses) return true;
+  if (!args.forceRefresh && isFreshRun(program, latest)) return false;
+  return viewerResolvesOnlyOrgCredentials({
+    uses,
+    viewer: sharing.viewer,
+    appId: args.appId ?? program.appId,
+    signal: viewerCheckSignal(deadline, timeoutMs),
+  });
+}
+
+async function runSharedProgram(
+  program: DataProgramRow,
+  args: RunDataProgramArgs,
+  sharing: OrgSharing,
+  deadline: number,
+): Promise<DataProgramSuccess | null> {
+  if (deadline - Date.now() - VIEWER_CHECK_RESERVE_MS < MIN_RUN_TIMEOUT_MS) {
+    return null;
+  }
+  const running = await recordDataProgramRun({
+    programId: program.id,
+    paramsHash: sharing.paramsHash,
+    paramsJson: JSON.stringify(args.params ?? {}),
+    status: "running",
+    triggeredBy: args.triggeredBy,
+  });
+  const runTimeoutMs = deadline - Date.now() - VIEWER_CHECK_RESERVE_MS;
+  if (runTimeoutMs < MIN_RUN_TIMEOUT_MS) {
+    await updateDataProgramRun(running.id, {
+      status: "timed_out",
+      errorCode: "timeout",
+      errorMessage: "Recording the run left too little time to start it.",
+      finishedAt: Date.now(),
+      durationMs: 0,
+    });
+    return null;
+  }
+
+  const ledger = new CredentialUseLedger({
+    readsOnly: true,
+    orgCredentialsOnly: true,
+    bridgeTools: SHAREABLE_BRIDGE_TOOLS,
+  });
+  const startedAt = Date.now();
+  const outcome = await executeProgramCode(
+    `${buildDataProgramPrelude(args.params)}\n${program.code}`,
+    runTimeoutMs,
+    { ...args.ctx, credentialScope: "org" },
+    args.evaluator,
+    ledger,
+  );
+  const finishedAt = Date.now();
+  const uses = ledger.uses;
+  const shareable = isOrgShareableRun({
+    uses,
+    bridgeToolsUsed: outcome.bridgeToolsUsed,
+    orgId: sharing.viewer.orgId,
+  });
+
+  if (!outcome.ok && shareable) {
+    await updateDataProgramRun(running.id, {
+      status: outcome.code === "timeout" ? "timed_out" : "failed",
+      errorCode: SHARED_RUN_FAILED,
+      errorMessage: outcome.code,
+      finishedAt,
+      durationMs: finishedAt - startedAt,
+    });
+    return null;
+  }
+
+  if (!outcome.ok || !shareable) {
+    await updateDataProgramRun(running.id, {
+      status: "failed",
+      errorCode: SHARED_RUN_NOT_SHAREABLE,
+      errorMessage:
+        "The run read a credential, called a tool or sent a request that isn't shared with the org.",
+      finishedAt,
+      durationMs: finishedAt - startedAt,
+    });
+    return null;
+  }
+
+  const rowsJson = JSON.stringify(outcome.rows);
+  await updateDataProgramRun(running.id, {
+    status: "succeeded",
+    rowsJson,
+    schemaJson: JSON.stringify(outcome.schema),
+    truncated: outcome.truncated,
+    rowCount: outcome.rows.length,
+    byteSize: Buffer.byteLength(rowsJson, "utf8"),
+    logsTail: outcome.logsTail,
+    finishedAt,
+    durationMs: finishedAt - startedAt,
+    credentialUsesJson: JSON.stringify(uses),
+  });
+
+  const sameCredentials = await viewerReadsSameCredentials({
+    uses,
+    viewer: sharing.viewer,
+    appId: args.appId ?? program.appId,
+    signal: signalAt(deadline),
+  });
+  if (!sameCredentials) return null;
+  return {
+    ok: true,
+    rows: outcome.rows,
+    schema: outcome.schema,
+    truncated: outcome.truncated,
+    stale: false,
+    cacheHit: false,
+    asOfMs: finishedAt,
+    runId: running.id,
+  };
 }
 
 async function resolveCacheHit(
@@ -488,16 +780,24 @@ async function resolveCacheHit(
   paramsHash: string,
 ): Promise<DataProgramSuccess | null> {
   const latestSuccess = await getLatestSuccessfulRun(program.id, paramsHash);
-  if (!latestSuccess || !latestSuccess.rowsJson) return null;
+  return latestSuccess ? cacheHitFrom(program, latestSuccess) : null;
+}
+
+function isFreshRun(program: DataProgramRow, run: DataProgramRunRow): boolean {
   // A save can change the code, so rows from a run started before it aren't
   // fresh, however young or manual.
-  if (latestSuccess.startedAt < Date.parse(program.updatedAt)) return null;
+  if (run.startedAt < Date.parse(program.updatedAt)) return false;
+  if (program.refreshMode === "manual") return true;
+  return Date.now() - (run.finishedAt ?? run.startedAt) < program.refreshTtlMs;
+}
 
-  const now = Date.now();
+function cacheHitFrom(
+  program: DataProgramRow,
+  latestSuccess: DataProgramRunRow,
+): DataProgramSuccess | null {
+  if (!latestSuccess.rowsJson) return null;
+  if (!isFreshRun(program, latestSuccess)) return null;
   const asOf = latestSuccess.finishedAt ?? latestSuccess.startedAt;
-  const fresh =
-    program.refreshMode === "manual" ? true : now - asOf < program.refreshTtlMs;
-  if (!fresh) return null;
 
   try {
     return {
@@ -522,6 +822,7 @@ async function runForegroundProgram(
   args: RunDataProgramArgs,
   paramsHash: string,
   timeoutMs: number,
+  runTimeoutMs = timeoutMs,
 ): Promise<DataProgramResult> {
   const active = await getActiveRun(program.id, paramsHash);
   if (active && Date.now() - active.startedAt < timeoutMs) {
@@ -551,7 +852,7 @@ async function runForegroundProgram(
   const startedAt = Date.now();
   const outcome = await executeProgramCode(
     `${prelude}\n${program.code}`,
-    timeoutMs,
+    runTimeoutMs,
     args.ctx,
     args.evaluator,
   );
@@ -613,6 +914,7 @@ async function runBackgroundProgram(
   const active = await getActiveRun(program.id, paramsHash);
   let statusUnknown = false;
   let finishedFailure: BackgroundRunFailure | null = null;
+  let finishedElsewhere = false;
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
@@ -637,7 +939,9 @@ async function runBackgroundProgram(
       execution.status !== "running"
     ) {
       try {
-        finishedFailure = await finalizeBackgroundRun(active.id, execution);
+        const finished = await finalizeBackgroundRun(active.id, execution);
+        if (finished.saved) finishedFailure = finished.failure;
+        else finishedElsewhere = true;
       } catch (err) {
         // The run stays queued for the next read to save. Until then the
         // caller gets the failure and the last good rows, not older rows
@@ -664,7 +968,9 @@ async function runBackgroundProgram(
     // it would run the broken program again on every read.
     const failed =
       finishedFailure ??
-      (active ? null : await recentBackgroundFailure(program, paramsHash));
+      (active && !finishedElsewhere
+        ? null
+        : await recentBackgroundFailure(program, paramsHash));
     if (failed) {
       return failureWithLastGood(
         program.id,
@@ -690,7 +996,7 @@ async function runBackgroundProgram(
       const { execution } = await enqueueSandboxExecution({
         code: `${prelude}\n${program.code}`,
         timeoutMs: backgroundTimeout,
-        maxOutputChars: 200_000,
+        maxOutputChars: PROGRAM_MAX_OUTPUT_CHARS,
         owner: args.ctx.userEmail,
         orgId: args.ctx.orgId ?? null,
         caller:
@@ -780,47 +1086,104 @@ async function recentBackgroundFailure(
   };
 }
 
-/** Saves a finished run. Returns the failure it saved, or null on success. */
+type FinalizedBackgroundRun =
+  | { saved: true; failure: BackgroundRunFailure | null }
+  | { saved: false };
+
 async function finalizeBackgroundRun(
   runId: string,
   execution: {
+    id: string;
     status: string;
     stdout: string;
     stderr: string;
+    stdoutTruncated?: boolean;
     error?: string | null;
     finishedAt?: number | null;
   },
-): Promise<BackgroundRunFailure | null> {
+): Promise<FinalizedBackgroundRun> {
   // When the program finished, not when a read noticed, so a panel's clock
   // doesn't make the rows look newer than they are.
   const finishedAt = execution.finishedAt ?? Date.now();
+  const { failure, update } = backgroundRunOutcome(runId, execution);
+  const saved = await updateDataProgramRun(runId, {
+    ...update,
+    logsTail: truncateLogs(execution.stdout, execution.stderr),
+    finishedAt,
+    onlyIfActive: true,
+  });
+  if (!saved) return { saved: false };
+
+  try {
+    const { discardSandboxExecutionOutput } =
+      await import("../coding-tools/sandbox/index.js");
+    await discardSandboxExecutionOutput(execution.id);
+  } catch (err) {
+    console.error(
+      `[data-programs] couldn't discard background run ${runId}'s output:`,
+      err,
+    );
+  }
+  return { saved: true, failure };
+}
+
+function backgroundRunOutcome(
+  runId: string,
+  execution: Parameters<typeof finalizeBackgroundRun>[1],
+): {
+  failure: BackgroundRunFailure | null;
+  update: UpdateDataProgramRunInput;
+} {
   if (execution.status === "succeeded") {
     const parsed = parseDataProgramResult(execution.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
+      outputTruncated: execution.stdoutTruncated === true,
     });
     if (parsed.ok) {
       const rowsJson = JSON.stringify(parsed.result.rows);
-      await updateDataProgramRun(runId, {
-        status: "succeeded",
-        rowsJson,
-        schemaJson: JSON.stringify(parsed.result.schema),
-        truncated: parsed.result.truncated,
-        rowCount: parsed.result.rows.length,
-        byteSize: Buffer.byteLength(rowsJson, "utf8"),
-        logsTail: truncateLogs(execution.stdout, execution.stderr),
-        finishedAt,
-      });
-      return null;
+      return {
+        failure: null,
+        update: {
+          status: "succeeded",
+          rowsJson,
+          schemaJson: JSON.stringify(parsed.result.schema),
+          truncated: parsed.result.truncated,
+          rowCount: parsed.result.rows.length,
+          byteSize: Buffer.byteLength(rowsJson, "utf8"),
+        },
+      };
     }
-    await updateDataProgramRun(runId, {
-      status: "failed",
-      errorCode: parsed.error.code,
-      errorMessage: parsed.error.message,
-      logsTail: truncateLogs(execution.stdout, execution.stderr),
-      finishedAt,
+    return {
+      failure: { code: parsed.error.code, message: parsed.error.message },
+      update: {
+        status: "failed",
+        errorCode: parsed.error.code,
+        errorMessage: parsed.error.message,
+      },
+    };
+  }
+
+  if (execution.status === "failed" && execution.stdoutTruncated === true) {
+    const parsed = parseDataProgramResult(execution.stdout, {
+      maxRows: MAX_PROGRAM_ROWS,
+      maxBytes: MAX_PROGRAM_RESULT_BYTES,
+      outputTruncated: true,
     });
-    return { code: parsed.error.code, message: parsed.error.message };
+    if (
+      !parsed.ok &&
+      parsed.error.code === "result_too_large" &&
+      thrownProgramMessage(execution.stderr) === undefined
+    ) {
+      return {
+        failure: { code: parsed.error.code, message: parsed.error.message },
+        update: {
+          status: "failed",
+          errorCode: parsed.error.code,
+          errorMessage: parsed.error.message,
+        },
+      };
+    }
   }
 
   if (execution.status === "timed_out") {
@@ -828,14 +1191,14 @@ async function finalizeBackgroundRun(
       code: "timeout",
       message: "Background execution timed out.",
     };
-    await updateDataProgramRun(runId, {
-      status: "timed_out",
-      errorCode: timedOut.code,
-      errorMessage: timedOut.message,
-      logsTail: truncateLogs(execution.stdout, execution.stderr),
-      finishedAt,
-    });
-    return timedOut;
+    return {
+      failure: timedOut,
+      update: {
+        status: "timed_out",
+        errorCode: timedOut.code,
+        errorMessage: timedOut.message,
+      },
+    };
   }
 
   // A set `error` means the executor itself failed; otherwise the program
@@ -854,12 +1217,12 @@ async function finalizeBackgroundRun(
   const failed: BackgroundRunFailure = thrown
     ? { code: "program_error", message: thrown }
     : { code: "sandbox_error", message: "Background execution failed." };
-  await updateDataProgramRun(runId, {
-    status: "failed",
-    errorCode: failed.code,
-    errorMessage: failed.message,
-    logsTail: truncateLogs(execution.stdout, execution.stderr),
-    finishedAt,
-  });
-  return failed;
+  return {
+    failure: failed,
+    update: {
+      status: "failed",
+      errorCode: failed.code,
+      errorMessage: failed.message,
+    },
+  };
 }

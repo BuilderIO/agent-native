@@ -47,6 +47,8 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => null,
+  mutateOrgSetting: async () => undefined,
   getSetting: async () => state.settings,
 }));
 vi.mock("./jev-classifier.js", async (importOriginal) => ({

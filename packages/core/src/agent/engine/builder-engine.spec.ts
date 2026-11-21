@@ -2784,9 +2784,18 @@ describe("createBuilderEngine", () => {
     expect(logged).toContain("requestId=req_masked_envelope");
     expect(logged).toContain("providerMessagePresent=true");
     expect(logged).toContain("code=builder_gateway_internal_error");
-    expect(logged).toMatch(
-      /requestShape=\{"model":"[^"]+","payloadBytes":\d+,"toolCount":\d+,"messageCount":\d+\}/,
+    expect(logged).toContain(
+      `requestShape=${JSON.stringify(stop?.requestShape)}`,
     );
+    expect(stop?.requestShape).toMatchObject({
+      payloadBytes: expect.any(Number),
+      toolCount: 0,
+      messageCount: 1,
+      toolBytes: 0,
+      systemBytes: expect.any(Number),
+      maxOutputTokens: DEFAULT_BUILDER_MAX_OUTPUT_TOKENS,
+      reasoningEffort: null,
+    });
     expect(logged).not.toContain("Sorry, this was caused by an internal error");
   });
 
@@ -2858,7 +2867,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.providerRetryable).toBe(true);
   });
 
-  it("keeps an uncoded non-envelope invalid_request terminal as invalid_request", async () => {
+  it("keeps an uncoded invalid_request terminal and carries its request ID", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -2879,9 +2888,24 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.errorCode).toBe("invalid_request");
     expect(stop?.providerRetryable).toBe(false);
+    expect(stop?.requestId).toBe("req_plain_invalid");
   });
 
-  it("marks unclassified no-detail gateway stop errors as retryable", async () => {
+  it.each([
+    { reason: "refusal" },
+    { reason: "content-filter" },
+    { reason: "error", errorCode: "content_filter" },
+  ])("preserves a typed gateway refusal ($reason)", async (stop) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonlResponse([{ type: "stop", ...stop }])),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(events.at(-1)).toEqual({ type: "stop", reason: "refusal" });
+  });
+
+  it("keeps unclassified no-detail gateway stop errors as failures", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -3221,6 +3245,44 @@ describe("createBuilderEngine", () => {
     expect(stop?.requestShape?.payloadBytes).toBe(
       new TextEncoder().encode(sentBody).length,
     );
+    const body = JSON.parse(sentBody);
+    expect(stop?.requestShape?.toolBytes).toBe(
+      new TextEncoder().encode(JSON.stringify(body.tools)).length,
+    );
+    expect(stop?.requestShape?.systemBytes).toBe(
+      new TextEncoder().encode(JSON.stringify(body.system)).length,
+    );
+  });
+
+  it("diagnoses a reasoning-only stop without logging its content", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "thinking-delta", text: "Private reasoning content" },
+          { type: "usage", inputTokens: 900, outputTokens: 64_000 },
+          { type: "stop", reason: "max_tokens" },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        model: "gpt-6-luna",
+        maxOutputTokens: 64_000,
+        reasoningEffort: "low",
+      }),
+    );
+
+    expect(events.at(-1)).toEqual({ type: "stop", reason: "max_tokens" });
+    const logged = warning.mock.calls.flat().join(" ");
+    expect(logged).toContain("empty stop reason=max_tokens");
+    expect(logged).toContain('"maxOutputTokens":64000');
+    expect(logged).toContain('"reasoningEffort":"low"');
+    expect(logged).toContain("outputTokens=64000");
+    expect(logged).not.toContain("Private reasoning content");
   });
 
   it("caps Builder provider tools at 128 and keeps tool-search", async () => {
@@ -3457,36 +3519,41 @@ describe("createBuilderEngine", () => {
     expect(body).not.toHaveProperty("reasoning_effort");
   });
 
-  it("sends the real reasoning_effort for a GPT model when tools are present", async () => {
-    const fetchSpy = vi
-      .fn()
-      .mockResolvedValue(
-        jsonlResponse([
-          { type: "stop", reason: "end_turn", requestId: "req_1" },
-        ]),
+  it.each(["high", "low"] as const)(
+    "sends %s GPT reasoning effort and includes the configured budget with tools",
+    async (reasoningEffort) => {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValue(
+          jsonlResponse([
+            { type: "stop", reason: "end_turn", requestId: "req_1" },
+          ]),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const engine = createBuilderEngine();
+      await collectEvents(
+        engine.stream({
+          ...BASE_OPTS,
+          model: "gpt-6-luna",
+          maxOutputTokens: 128_000,
+          reasoningEffort,
+          tools: [
+            {
+              name: "list_items",
+              description: "List items",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
+        }),
       );
-    vi.stubGlobal("fetch", fetchSpy);
 
-    const engine = createBuilderEngine();
-    await collectEvents(
-      engine.stream({
-        ...BASE_OPTS,
-        model: "gpt-5-6-luna",
-        reasoningEffort: "high",
-        tools: [
-          {
-            name: "list_items",
-            description: "List items",
-            inputSchema: { type: "object", properties: {} },
-          },
-        ],
-      }),
-    );
-
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.tools).toHaveLength(1);
-  });
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.max_tokens).toBe(128_000);
+      expect(body.reasoning_effort).toBe(reasoningEffort);
+      expect(body.tools).toHaveLength(1);
+    },
+  );
 
   it("omits reasoning_effort for a GPT model when explicit effort is none", async () => {
     const fetchSpy = vi

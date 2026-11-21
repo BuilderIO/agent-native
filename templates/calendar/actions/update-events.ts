@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -74,6 +75,13 @@ function assertEffectiveRangeOrdered(
 }
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
+  needsApproval: ({ dryRun }, ctx) => !dryRun && isOutsideAgentCall(ctx),
   searchHints: [
     "reschedule meetings",
     "move several meetings",

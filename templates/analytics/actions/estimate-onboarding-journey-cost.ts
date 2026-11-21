@@ -195,6 +195,7 @@ export default defineAction({
               experimentId: args.experimentId,
               splitDesignFirstTouch: args.splitDesignFirstTouch,
             },
+            context?.signal,
           )
         : null;
       if (allowance?.refusal) throw allowance.refusal;

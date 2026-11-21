@@ -307,6 +307,11 @@ function stubCatalog(
   currentEngineName: string | null = null,
 ) {
   invalidateClientStatusRequests();
+  const groups = buildChatModelGroups({
+    engines: engines as Parameters<typeof buildChatModelGroups>[0]["engines"],
+    configuredKeys,
+    builderConnected: builderConfigured,
+  });
   const modelEngines = Object.fromEntries(
     (
       engines as Array<{
@@ -314,6 +319,7 @@ function stubCatalog(
         label: string;
         defaultModel?: string;
         supportedModels?: string[];
+        runtimeSupportedModels?: string[];
         acceptsCustomModels?: boolean;
         preserveCustomModels?: boolean;
       }>
@@ -323,7 +329,11 @@ function stubCatalog(
         name: engine.name,
         label: engine.label,
         defaultModel: engine.defaultModel ?? engine.supportedModels?.[0] ?? "",
-        supportedModels: engine.supportedModels ?? [],
+        supportedModels:
+          engine.runtimeSupportedModels ?? engine.supportedModels ?? [],
+        selectableModels: groups
+          .filter((group) => group.engine === engine.name)
+          .flatMap((group) => group.models),
         ...(engine.acceptsCustomModels ? { acceptsCustomModels: true } : {}),
         ...(engine.preserveCustomModels ? { preserveCustomModels: true } : {}),
       },
@@ -331,11 +341,7 @@ function stubCatalog(
   );
   modelCatalogMocks.load = async () => ({
     state: "available",
-    groups: buildChatModelGroups({
-      engines: engines as Parameters<typeof buildChatModelGroups>[0]["engines"],
-      configuredKeys,
-      builderConnected: builderConfigured,
-    }),
+    groups,
     modelEngines,
     currentModelEngine: currentEngineName
       ? modelEngines[currentEngineName]
@@ -559,6 +565,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
           data-composer-disabled={props.composerDisabled ? "true" : "false"}
           data-composer-submission-disabled={
             props.composerSubmissionDisabled ? "true" : "false"
+          }
+          data-composer-model-pending={
+            props.composerModelSelectionPending ? "true" : "false"
           }
           data-disabled-placeholder={props.composerDisabledPlaceholder}
           data-composer-active={props.isActiveComposer ? "true" : "false"}
@@ -4511,6 +4520,20 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(composer?.getAttribute("data-composer-active")).toBe("true");
   });
 
+  it("tells a host it has settled while chat content is hidden", async () => {
+    const onSettledChange = vi.fn();
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          contentHidden
+          onSettledChange={onSettledChange}
+        />,
+      ),
+    );
+    expect(onSettledChange).toHaveBeenCalledWith(true);
+  });
+
   it("reopens a closed target tab before delivering a continuation", async () => {
     const generationThread = {
       id: "closed-generation-thread",
@@ -4693,6 +4716,56 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     el.remove();
   });
 
+  it.each([true, false])(
+    "uses Builder's configured Claude model with picker entry present: %s",
+    async (claudeChecked) => {
+      const configuredModel = "claude-sonnet-5-5";
+      const engineDefault = "gpt-6-luna";
+      stubCatalog(
+        [
+          {
+            name: "builder",
+            label: "Builder.io Gateway",
+            defaultModel: engineDefault,
+            runtimeSupportedModels: [engineDefault, configuredModel],
+            supportedModels: claudeChecked
+              ? [engineDefault, configuredModel]
+              : [engineDefault],
+          },
+        ],
+        [],
+        true,
+        { model: configuredModel, engine: "builder" },
+        "builder",
+      );
+      const el = document.createElement("div");
+      document.body.appendChild(el);
+      const localRoot = createRoot(el);
+      await act(async () => {
+        localRoot.render(
+          <MultiTabAssistantChat
+            storageKey="builder-configured-model"
+            preferEngineDefaultModel
+          />,
+        );
+      });
+      const selected = () => el.querySelector("[data-testid='assistant-chat']");
+      expect(selected()?.getAttribute("data-selected-model")).toBe(
+        configuredModel,
+      );
+      expect(selected()?.getAttribute("data-selected-engine")).toBe("builder");
+
+      await act(async () => {
+        assistantChatMockState.onModelChange?.(engineDefault, "builder");
+      });
+      expect(selected()?.getAttribute("data-selected-model")).toBe(
+        engineDefault,
+      );
+      await act(async () => localRoot.unmount());
+      el.remove();
+    },
+  );
+
   it("offers a provider's own key next to Builder.io", async () => {
     const view = await mountWithCatalog(
       [
@@ -4757,8 +4830,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
+      expect(
+        container
+          .querySelector("[data-testid='assistant-chat']")
+          ?.getAttribute("data-composer-submission-disabled"),
+      ).toBe("false");
 
       await act(async () => {
         dispatchSubmitChat({
@@ -4782,7 +4860,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("false");
 
       await act(async () => {
@@ -4838,7 +4916,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(
         container
           .querySelector("[data-testid='assistant-chat']")
-          ?.getAttribute("data-composer-submission-disabled"),
+          ?.getAttribute("data-composer-model-pending"),
       ).toBe("true");
 
       await act(async () => {

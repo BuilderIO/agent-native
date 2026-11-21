@@ -44,5 +44,6 @@ export default defineAction({
     "Search accessible approved Creative Context evidence, optionally within one named context, through lexical, Postgres FTS, and same-database pgvector lanes; fuse and diversify results, collapse revisions, and snapshot exact evidence by default. A result with nativeArtifact set has a real source artifact behind it, so call get-context-item on that item/version to read version.nativeCode instead of reusing the text excerpt.",
   schema,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: performCreativeContextSearch,
 });

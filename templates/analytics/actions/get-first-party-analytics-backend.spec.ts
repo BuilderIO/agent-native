@@ -71,6 +71,7 @@ describe("get-first-party-analytics-backend", () => {
         analytics_content_items: "postgres",
         analytics_content_metric_snapshots: "postgres",
         analytics_content_collection_runs: "postgres",
+        analytics_content_search_queries: "postgres",
       },
     });
     expect(mocks.getOrgSetting).toHaveBeenCalledWith(
@@ -97,6 +98,7 @@ describe("get-first-party-analytics-backend", () => {
         analytics_content_items: "postgres",
         analytics_content_metric_snapshots: "postgres",
         analytics_content_collection_runs: "postgres",
+        analytics_content_search_queries: "postgres",
       },
     });
     expectNoBigQuery();

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 
@@ -7,6 +9,7 @@ import {
   MAX_DECLARED_STARTER_TOOLS,
   analyzeAgentChatContextPolicy,
   checkAgentInstructionSizes,
+  checkAgentChatContextPolicies,
 } from "./guard-agent-chat-context";
 
 describe("agent chat context policy guard", () => {
@@ -77,6 +80,29 @@ describe("agent chat context policy guard", () => {
     });
 
     assert.equal(policy, null);
+  });
+});
+
+describe("starter tool availability", () => {
+  it("accepts the framework data widget and rejects unknown tools", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "agent-chat-context-"));
+    try {
+      const frameworkDir = path.join(root, "packages/core/src");
+      const pluginDir = path.join(root, "templates/example/server/plugins");
+      mkdirSync(frameworkDir, { recursive: true });
+      mkdirSync(pluginDir, { recursive: true });
+      writeFileSync(path.join(frameworkDir, "framework-tools.ts"), "");
+      writeFileSync(
+        path.join(pluginDir, "agent-chat.ts"),
+        'createAgentChatPlugin({ initialToolNames: ["render-data-widget", "unknown-tool"] });',
+      );
+
+      const { errors } = checkAgentChatContextPolicies(root);
+      assert.equal(errors.length, 1);
+      assert.match(errors[0] ?? "", /unknown-tool/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

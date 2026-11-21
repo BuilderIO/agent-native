@@ -64,6 +64,7 @@ jobs:
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
+      storybook_tests: ${{ steps.scope.outputs.storybook_tests }}
       changeset: ${{ steps.scope.outputs.changeset }}
       verify_execution_lease: ${{ steps.scope.outputs.verify_execution_lease }}
       core_mutation: ${{ steps.scope.outputs.core_mutation }}
@@ -662,7 +663,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'home-system-selection' && 40 || (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
+    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -765,15 +766,6 @@ jobs:
             exit 2
           fi
           pnpm exec playwright test "$landing_page_spec" --workers=1 --retries=0 --trace on
-
-      - name: Run Home design-system selection regressions
-        if: matrix.shard == 'home-system-selection'
-        working-directory: templates/design
-        timeout-minutes: 28
-        env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          E2E_AI_SIDEBAR_LOOPBACK: "1"
-        run: pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on
 
       - name: Run vertical auto-layout held-guide regression
         if: ${{ matrix.shard == 'autolayout-vertical-center-trailing' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/autolayout-drag-drop-matrix.spec.ts') }}
@@ -1838,12 +1830,43 @@ jobs:
           pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
           ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
 
+  storybook-tests:
+    name: Storybook story tests
+    needs: change-scope
+    if: needs.change-scope.outputs.storybook_tests == 'true'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/storybook-tests.yml
+    secrets:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      STORYBOOK_NETLIFY_SITE_ID: ${{ secrets.STORYBOOK_NETLIFY_SITE_ID }}
+
   brain-evals:
     name: Brain evals
     needs: change-scope
     if: needs.change-scope.outputs.brain_evals == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_DB: brain_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d brain_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -1859,6 +1882,13 @@ jobs:
       - name: Block privacy leaks and false positives
         if: ${{ !cancelled() }}
         run: pnpm test:brain-privacy-evals
+
+      - name: Run Brain PostgreSQL write and locking tests
+        if: ${{ !cancelled() }}
+        run: pnpm --filter brain test:db-postgres
+        env:
+          BRAIN_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/brain_test
+          BRAIN_POSTGRES_REQUIRED: "1"
 
   build:
     name: Build artifacts
@@ -2250,6 +2280,7 @@ jobs:
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/otel build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
@@ -2483,6 +2514,7 @@ jobs:
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
           pnpm --filter @agent-native/otel build

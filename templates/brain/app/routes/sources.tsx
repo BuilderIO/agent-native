@@ -131,6 +131,10 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  DISTILLATION_HANDOFF_CANCELLED_ERROR,
+  DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR,
+} from "../../shared/distillation-handoff-errors";
+import {
   documentImportFormat,
   DOCUMENT_IMPORT_EXTENSIONS,
 } from "../../shared/document-import";
@@ -1970,7 +1974,9 @@ function MarkdownImportDialog({
                     {resultIssues.slice(0, 5).map((file) => (
                       <p key={file.path}>
                         <span className="font-mono">{file.path}</span>:{" "}
-                        {file.error ?? t("sources.manualImportBlocked")}
+                        {file.errorCode === "screening_unavailable"
+                          ? t("sources.manualImportScreeningUnavailable")
+                          : (file.error ?? t("sources.manualImportBlocked"))}
                       </p>
                     ))}
                     {resultIssues.length > 5 ? (
@@ -3111,7 +3117,19 @@ export default function SourcesRoute() {
                                   ) : null}
                                 </div>
                                 {queue.error ? (
-                                  <p className="mt-2">{queue.error}</p>
+                                  <p className="mt-2">
+                                    {queue.error ===
+                                    DISTILLATION_HANDOFF_CANCELLED_ERROR
+                                      ? t(
+                                          "sources.distillationHandoffCancelled",
+                                        )
+                                      : queue.error ===
+                                          DISTILLATION_HANDOFF_DELIVERY_UNKNOWN_ERROR
+                                        ? t(
+                                            "sources.distillationDeliveryUnknown",
+                                          )
+                                        : queue.error}
+                                  </p>
                                 ) : queueIsActive ? (
                                   <p className="mt-2">
                                     {t("sources.waitingForWorker")}
