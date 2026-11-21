@@ -66,6 +66,7 @@ import {
   requireAgentEngineConfiguredForDispatch,
 } from "../agent-engine-readiness.js";
 import { agentNativePath } from "../api-path.js";
+import { flushClientAppStateBeforeAgentTurn } from "../application-state.js";
 import {
   CHAT_CAPABILITY_UNAVAILABLE_MESSAGE,
   CHAT_CAPABILITY_UNSUPPORTED_MESSAGE,
@@ -5703,6 +5704,7 @@ export function createAgentNativeAgentKitTransport(
     context,
   ) => {
     try {
+      await flushClientAppStateBeforeAgentTurn(context?.signal);
       return await protocolStartRun(input, context);
     } catch (error) {
       const record = asRecord(error);

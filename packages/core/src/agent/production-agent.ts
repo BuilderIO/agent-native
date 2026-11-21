@@ -1405,6 +1405,7 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  outputSchema?: import("@standard-schema/spec").StandardSchemaV1;
   /** The input schema agents are shown, when `defineAction` was given one
    *  narrower than `schema`. */
   agentInputSchema?: unknown;

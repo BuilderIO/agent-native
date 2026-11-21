@@ -67,3 +67,9 @@ export {
   AGENT_NAVIGATE_MESSAGE_TYPE,
   type AgentNavigateMessage,
 } from "../embed.js";
+
+export {
+  registerBeforeAgentTurnFlush,
+  registerBeforeAgentTurnStateKeys,
+  flushClientAppStateBeforeAgentTurn,
+} from "../application-state.js";

@@ -46,6 +46,13 @@ export const ACTION_HEADERS = {
 export const EDITOR = ".content-editor.ProseMirror";
 export const ACTIVE_EDITOR = `${EDITOR}:not([hidden] *)`;
 
+/**
+ * Idempotent reads retry a connection reset. The preview server can close an
+ * idle keep-alive socket just as the poll reuses it; Playwright retries only
+ * ECONNRESET, so a real failure status still fails the read.
+ */
+const READ_RETRIES = 3;
+
 export async function getActionResponse(
   page: Page,
   name: string,
@@ -55,6 +62,7 @@ export async function getActionResponse(
     params,
     headers: ACTION_HEADERS,
     timeout: 30_000,
+    maxRetries: READ_RETRIES,
   });
 }
 
@@ -239,7 +247,7 @@ export async function postUiAction(
 export async function getDocument(page: Page, id: string) {
   const response = await page.request.get(
     "/_agent-native/actions/get-document",
-    { params: { id }, headers: ACTION_HEADERS },
+    { params: { id }, headers: ACTION_HEADERS, maxRetries: READ_RETRIES },
   );
   const text = await response.text();
   expect(response.ok(), `get-document (${response.status()}): ${text}`).toBe(
@@ -258,7 +266,11 @@ export async function getDocument(page: Page, id: string) {
 export async function getPreviewDraft(page: Page, documentId: string) {
   const response = await page.request.get(
     "/_agent-native/actions/get-preview-document-draft",
-    { params: { documentId }, headers: ACTION_HEADERS },
+    {
+      params: { documentId },
+      headers: ACTION_HEADERS,
+      maxRetries: READ_RETRIES,
+    },
   );
   const text = await response.text();
   expect(

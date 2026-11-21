@@ -106,6 +106,7 @@ test("falls back to all core tests for fixture, config, and instruction changes"
 
 test("runs the catalog contract specs for any workspace source change", () => {
   const specs = [
+    "src/action-conformance-inventory.spec.ts",
     "src/mcp/advertised-tool-annotations.spec.ts",
     "src/mcp/agent-mcp-parity.spec.ts",
     "src/mcp/instructions-name-advertised-tools.spec.ts",
