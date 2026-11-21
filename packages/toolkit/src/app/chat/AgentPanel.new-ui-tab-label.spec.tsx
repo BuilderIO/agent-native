@@ -57,10 +57,11 @@ describe("AgentPanel newUiTabLabel", () => {
   it("titles an untitled active chat with the app-provided label in the page header", async () => {
     container = document.createElement("div");
     document.body.append(container);
-    root = createRoot(container);
+    const testRoot = createRoot(container);
+    root = testRoot;
 
     await act(async () => {
-      root!.render(
+      testRoot.render(
         <MemoryRouter>
           <AgentPanel
             storageKey="new-ui-tab-label-test"
