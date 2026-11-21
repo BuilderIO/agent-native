@@ -6861,10 +6861,12 @@ export function permanentPreconditionReason(
  * stop's details; a cut mid-word ("as the ow…") reads as a broken message.
  */
 function shortenPreconditionReason(reason: string): string {
-  const max = PERMANENT_PRECONDITION_REASON_MAX_CHARS;
+  // One character stays free for the closing "." or "…".
+  const max = PERMANENT_PRECONDITION_REASON_MAX_CHARS - 1;
   if (reason.length <= max) return reason;
   let sentenceEnd = 0;
-  for (const match of reason.matchAll(/[.!?](?=\s)/g)) {
+  // "e.g." and "i.e." don't end a sentence.
+  for (const match of reason.matchAll(/(?<!\b[a-z]\.[a-z])[.!?](?=\s)/gi)) {
     const index = match.index ?? max;
     if (index >= max) break;
     sentenceEnd = index + 1;
@@ -6873,7 +6875,7 @@ function shortenPreconditionReason(reason: string): string {
     // A period comes back from the headline; "?" and "!" stay.
     return reason.slice(0, sentenceEnd).replace(/\.$/, "");
   }
-  const wordEnd = reason.lastIndexOf(" ", max - 1);
+  const wordEnd = reason.lastIndexOf(" ", max);
   const cut = wordEnd >= max / 2 ? wordEnd : max;
   return `${reason.slice(0, cut).replace(/[\s,;:—–-]+$/, "")}…`;
 }

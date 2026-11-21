@@ -18242,7 +18242,20 @@ describe("runAgentLoop", () => {
     const long = "x".repeat(300);
     expect(
       permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
-    ).toBeLessThanOrEqual(241);
+    ).toBeLessThanOrEqual(240);
+    // The headline would add a period, so 240 characters no longer fit.
+    expect(
+      permanentPreconditionReason("t", `Error running t: ${"y".repeat(240)}`),
+    ).toBe(`${"y".repeat(239)}…`);
+    expect(
+      permanentPreconditionReason(
+        "t",
+        "Save a shared key that every member of the organization can read, " +
+          "the way a team saves its other provider keys in Settings, e.g. a " +
+          "bot token " +
+          "owned by the organization rather than by any one member ".repeat(3),
+      ),
+    ).toMatch(/e\.g\. a bot token owned .*…$/);
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
@@ -18482,6 +18495,24 @@ describe("runAgentLoop", () => {
         "credential not configured for " +
         "the repository workspace ".repeat(8).trimEnd() +
         "… That needs to be fixed outside this chat",
+    },
+    {
+      // The longest scope-gap error a provider throws: the fix must survive
+      // the cut, so the key list comes after it.
+      label: "keeps a missing key's fix and drops the key list",
+      thrown:
+        'hubspot credential not configured. "HUBSPOT_ACCESS_TOKEN" is saved ' +
+        "in this workspace only as a Personal key, which works only for the " +
+        "member who saved it. Ask an organization owner or admin to save one " +
+        "with Workspace or Organization scope. Tried: " +
+        "HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_ACCESS_TOKEN",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: hubspot " +
+        'credential not configured. "HUBSPOT_ACCESS_TOKEN" is saved in this ' +
+        "workspace only as a Personal key, which works only for the member " +
+        "who saved it. Ask an organization owner or admin to save one with " +
+        "Workspace or Organization scope. That needs to be fixed outside " +
+        "this chat",
     },
   ])("$label in the stop headline", async ({ thrown, headline }) => {
     let streamCalls = 0;

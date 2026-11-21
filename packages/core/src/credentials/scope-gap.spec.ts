@@ -51,25 +51,13 @@ describe("describeCredentialScopeGap", () => {
     resolveOrgIdForEmailResult = null;
   });
 
-  it("tells a person in their own chat that the only key is a teammate's", async () => {
-    execute = async () => ({ rows: [{ 1: 1 }] });
-
-    const message = await describeCredentialScopeGap(["GITHUB_TOKEN"], {
-      userEmail: "owner@example.com",
-      orgId: "org-1",
-    });
-
-    expect(message).toBe(
-      'The only "GITHUB_TOKEN" key in this workspace is another ' +
-        "member's Personal key. Save your own, or ask an organization " +
-        "owner or admin to save one with Workspace or Organization scope.",
-    );
-  });
-
+  // Who reads the error is unknown here (a person's own chat, a job's other
+  // readers, a Slack channel), so every run gets the cause and the fix that
+  // hold for all of them, and none is told an integration did it.
   it.each([
-    ["an integration delivery", { isIntegrationCaller: true }],
-    ["an org-level A2A caller", { a2aIdentityAssurance: "organization" }],
-    ["a shared-keys-only lookup", { credentialScope: "org" }],
+    ["a person's own chat", {}, {}],
+    ["an integration delivery", { isIntegrationCaller: true }, {}],
+    ["an org-level A2A caller", { a2aIdentityAssurance: "organization" }, {}],
     [
       "a verified service token",
       {
@@ -78,39 +66,30 @@ describe("describeCredentialScopeGap", () => {
           orgId: "org-1",
         },
       },
+      {},
     ],
+    ["a shared-keys-only lookup", {}, { credentialScope: "org" }],
   ] as const)(
-    "says %s can't use a member's Personal key",
-    async (_label, requestContext) => {
+    "gives %s the same cause and fix",
+    async (_label, requestContext, lookup) => {
       execute = async () => ({ rows: [{ 1: 1 }] });
 
       const message = await runWithRequestContext(requestContext, () =>
-        describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
+        describeCredentialScopeGap(["GITHUB_TOKEN"], {
           userEmail: "owner@example.com",
           orgId: "org-1",
+          ...lookup,
         }),
       );
 
       expect(message).toBe(
-        "This integration, job, or automation run can't use a member's " +
-          'Personal "SLACK_BOT_TOKEN" key. Ask an organization owner or ' +
-          "admin to save one with Workspace or Organization scope.",
+        '"GITHUB_TOKEN" is saved in this workspace only as a Personal key, ' +
+          "which works only for the member who saved it. Ask an " +
+          "organization owner or admin to save one with Workspace or " +
+          "Organization scope.",
       );
     },
   );
-
-  it("names the integration when the lookup itself is limited to shared keys", async () => {
-    execute = async () => ({ rows: [{ 1: 1 }] });
-
-    const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
-      userEmail: "owner@example.com",
-      orgId: "org-1",
-      credentialScope: "org",
-    });
-
-    expect(message).toContain("integration, job, or automation run");
-    expect(message).not.toContain("Save your own");
-  });
 
   it("never reveals the secret value or the account holding it", async () => {
     execute = async () => ({ rows: [{ 1: 1 }] });
