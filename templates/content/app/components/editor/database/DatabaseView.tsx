@@ -210,7 +210,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useBuilderSourceReviewBatches } from "@/hooks/use-builder-source-review-batches";
 import {
   cachedDocumentPropertyState,
   forgetDocumentPropertyChanges,
@@ -219,6 +218,7 @@ import {
   startDocumentPropertySave,
   withExpectedGeneration,
 } from "@/hooks/document-property-undo";
+import { useBuilderSourceReviewBatches } from "@/hooks/use-builder-source-review-batches";
 import {
   applyOptimisticBuilderWriteMode,
   contentDatabaseQueryFilter,
@@ -303,6 +303,10 @@ import {
   chunkBuilderReviewIds,
   mergeBuilderReviewBatch,
 } from "../database-sources/builder-review-batches";
+import {
+  BuilderArticleAutosaveRunner,
+  BuilderArticleCellStatus,
+} from "../database-sources/BuilderArticleAutosave";
 import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
@@ -3525,6 +3529,12 @@ function DatabaseTable({
 
   return (
     <div className={DATABASE_VIEW_CLASS_NAME}>
+      {builderSources.length > 0 ? (
+        <BuilderArticleAutosaveRunner
+          collectionDocumentId={document.id}
+          canEdit={effectiveCanEdit}
+        />
+      ) : null}
       <div
         {...(renderMode === "page" ? startupAnchor("database-tabs") : {})}
         className={DATABASE_VIEW_TABS_ROW_CLASS_NAME}
@@ -20301,6 +20311,13 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
             ) : (
               value
             )}
+            {itemProperty.definition.systemRole === "builder_status" ? (
+              <BuilderArticleCellStatus
+                collectionDocumentId={databaseDocumentId}
+                documentId={item.document.id}
+                canEdit={canEdit}
+              />
+            ) : null}
             <DatabaseCellComments
               item={item}
               property={itemProperty}

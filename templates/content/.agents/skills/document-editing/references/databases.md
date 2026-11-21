@@ -418,6 +418,14 @@ Use `create-content-database`, `create-inline-content-database`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
 
+A page table's block menu offers "Turn into collection". It sends the table's
+text to `create-inline-content-database` as `table`: `properties` names one
+text property per column after the first (from the header row, or "Column N"),
+and each entry of `rows` is one row page's title followed by one plain-text
+cell per property. The editor then puts the new inline collection block where
+the table was, in one step that one undo takes back; undoing it leaves the
+collection unlinked, so the page's next save moves it to Trash.
+
 Read `get-content-database.mutationContract` immediately before a single-row
 mutation. Pass its exact target and schema revision to create, exact item and
 document IDs plus the current row revision to sparse update, and a fresh
