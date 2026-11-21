@@ -12,7 +12,11 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { NEW_APP_SUGGESTION_APP_ID } from "../../lib/action-suggestions.js";
+import {
+  hasUnselectedDestructiveVariant,
+  isUnsupportedSuggestedAction,
+  NEW_APP_SUGGESTION_APP_ID,
+} from "../../lib/action-suggestions.js";
 import {
   getAppCreationSettings,
   isLocalAppCreationRuntime,
@@ -90,6 +94,7 @@ export async function canOfferActionSuggestion(suggestion: ActionSuggestion) {
   const { appId, execution } = suggestion;
   switch (execution.type) {
     case "action": {
+      if (isUnsupportedSuggestedAction(execution)) return false;
       const app = await resolveGrantedDispatchMcpApp(appId);
       if (app.id !== appId) return false;
       const actions = await listGrantedDispatchMcpAppActions(app.id, [
@@ -97,7 +102,10 @@ export async function canOfferActionSuggestion(suggestion: ActionSuggestion) {
       ]);
       return actions.some(
         (action) =>
-          action.name === execution.action && action.readOnly !== true,
+          action.name === execution.action &&
+          action.readOnly !== true &&
+          action.destructive !== true &&
+          !hasUnselectedDestructiveVariant(execution, action.inputSchema),
       );
     }
     case "customize":

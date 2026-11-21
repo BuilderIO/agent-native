@@ -134,3 +134,58 @@ it("preserves a review requirement from the existing app action path", async () 
     details: { approvalReview },
   });
 });
+
+it("rejects a benign-looking suggestion when its real action is marked destructive", async () => {
+  mocks.listActions.mockResolvedValue([
+    { name: filter.execution.action, destructive: true },
+  ]);
+
+  expect(await propose.run({ suggestions: [filter] })).toEqual({
+    suggestions: [],
+  });
+  await expect(
+    execute.run({ suggestion: filter }, browser),
+  ).rejects.toMatchObject({
+    errorCode: "action_suggestion_unavailable",
+  });
+  expect(mocks.callAction).not.toHaveBeenCalled();
+});
+
+it("requires an explicit safe selection from actions that also offer deletion", async () => {
+  const multiplexed = {
+    ...filter,
+    execution: { type: "action", action: "manage-splits", params: {} },
+  } satisfies ActionSuggestion;
+  mocks.listActions.mockResolvedValue([
+    {
+      name: multiplexed.execution.action,
+      inputSchema: {
+        properties: { operation: { enum: ["create", "delete"] } },
+      },
+    },
+  ]);
+
+  for (const params of [{}, { operation: "delete" }]) {
+    const suggestion = {
+      ...multiplexed,
+      execution: { ...multiplexed.execution, params },
+    };
+    await expect(execute.run({ suggestion }, browser)).rejects.toMatchObject({
+      errorCode: "action_suggestion_unavailable",
+    });
+  }
+  expect(mocks.callAction).not.toHaveBeenCalled();
+
+  const safe = {
+    ...multiplexed,
+    execution: { ...multiplexed.execution, params: { operation: "create" } },
+  };
+  expect(await propose.run({ suggestions: [safe] })).toEqual({
+    suggestions: [safe],
+  });
+  await expect(
+    execute.run({ suggestion: safe }, browser),
+  ).resolves.toMatchObject({
+    status: "accepted",
+  });
+});

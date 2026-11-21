@@ -541,11 +541,11 @@ describe("Dispatch MCP gateway app discovery", () => {
       id: "workspace/fleet",
       name: "Fleet",
       source: "org-directory",
-      aliases: ["Delivery desk"],
+      aliases: ["Delivery desk", "fleet-2"],
     };
     const templateFleet = {
       ...analyticsAgent,
-      id: "fleet",
+      id: "fleet-2",
       name: "Fleet",
       source: "builtin",
     };
@@ -558,12 +558,15 @@ describe("Dispatch MCP gateway app discovery", () => {
         () => listDispatchMcpApps(),
       );
     mocks.discoverAgents.mockResolvedValue([workspaceFleet, templateFleet]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      { id: workspaceFleet.id, path: "/", url: workspaceFleet.url },
+    ]);
     await listFor("directory-org");
 
     mocks.discoverAgents.mockResolvedValue([templateFleet]);
     mocks.directoryStatus.mockReturnValue({
       status: "unavailable",
-      reason: "request-failed",
+      reason: "server-error",
     });
     const sameScope = await listFor("directory-org");
     expect(sameScope.degradedSources).toEqual([
@@ -576,7 +579,7 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(sameScope.apps).toContainEqual(
       expect.objectContaining({
         id: "workspace/fleet",
-        aliases: ["Delivery desk"],
+        aliases: ["Delivery desk", "fleet-2"],
         granted: true,
       }),
     );
@@ -595,29 +598,37 @@ describe("Dispatch MCP gateway app discovery", () => {
     await expect(resolve("Delivery desk")).resolves.toMatchObject({
       id: "workspace/fleet",
     });
+    await expect(resolve("fleet-2")).resolves.toMatchObject({
+      id: "fleet-2",
+    });
     expect((await listFor("another-org")).apps.map((app) => app.id)).toEqual([
       "dispatch",
-      "fleet",
+      "fleet-2",
     ]);
     expect(
       (await listFor("directory-org", "another-person@example.test")).apps.map(
         (app) => app.id,
       ),
-    ).toEqual(["dispatch", "fleet"]);
+    ).toEqual(["dispatch", "fleet-2"]);
 
     mocks.getOrgSetting.mockResolvedValue({
       mode: "selected-apps",
-      selectedAppIds: ["fleet"],
+      selectedAppIds: ["fleet-2"],
     });
     await expect(resolve("workspace/fleet")).rejects.toThrow(/not granted/);
     expect((await listFor("directory-org")).apps).toContainEqual(
       expect.objectContaining({ id: "workspace/fleet", granted: false }),
     );
 
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    expect((await listFor("directory-org")).apps.map((app) => app.id)).toEqual([
+      "dispatch",
+      "fleet-2",
+    ]);
     mocks.directoryStatus.mockReturnValue({ status: "forbidden" });
     expect((await listFor("directory-org")).apps.map((app) => app.id)).toEqual([
       "dispatch",
-      "fleet",
+      "fleet-2",
     ]);
     mocks.directoryStatus.mockReturnValue({
       status: "unavailable",
@@ -695,6 +706,9 @@ describe("Dispatch MCP gateway app discovery", () => {
     mocks.discoverAgents.mockResolvedValue([
       { ...analyticsAgent, id: "remote/project", source: "remote-agent" },
     ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      { id: "remote/project", path: "/", url: analyticsAgent.url },
+    ]);
     await read();
     expect(mocks.discoverAgents).toHaveBeenCalledWith("dispatch", {
       requireReadableAgentSources: true,
@@ -708,6 +722,22 @@ describe("Dispatch MCP gateway app discovery", () => {
     ]);
     expect(result.degradedSources).toEqual([
       { source: "connected-apps", status: "unavailable", usingCache: true },
+    ]);
+
+    mocks.discoverAgents.mockRejectedValue(
+      new Error("Unable to read connected agent resources", {
+        cause: Object.assign(new Error("Access denied"), { status: 403 }),
+      }),
+    );
+    const denied = await read();
+    expect(denied.apps.map((app) => app.id)).toEqual(["dispatch"]);
+    expect(denied.degradedSources).toEqual([
+      {
+        source: "connected-apps",
+        status: "forbidden",
+        usingCache: false,
+        httpStatus: 403,
+      },
     ]);
   });
 
@@ -2086,10 +2116,11 @@ describe("openGrantedDispatchMcpApp", () => {
     await opening;
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(1);
 
+    await vi.advanceTimersByTimeAsync(10_500);
     const pane = asOwner(() =>
       createGrantedDispatchMcpEmbedSession(input, { bindBrowserTab: true }),
     );
-    await vi.advanceTimersByTimeAsync(11_000);
+    await vi.advanceTimersByTimeAsync(500);
     const { childBrowserTabId, targetPath } = await pane;
     const launchUrl = new URL(mocks.managerCallTool.mock.calls[0][1].url);
     expect(childBrowserTabId).toMatch(/^[0-9a-f-]{36}$/i);
@@ -2134,7 +2165,7 @@ describe("openGrantedDispatchMcpApp", () => {
     const pane = asOwner(() =>
       createGrantedDispatchMcpEmbedSession(input, { bindBrowserTab: true }),
     );
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     await expect(pane).resolves.toMatchObject({ app: "analytics" });
     expect(mocks.managerStop).toHaveBeenCalled();
     expect(mocks.managerCallTool).toHaveBeenCalledTimes(2);

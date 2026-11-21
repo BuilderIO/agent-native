@@ -15,6 +15,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   ACTION_SUGGESTION_EXECUTION,
   selectTurnActionSuggestions,
+  suggestedActionOperations,
 } from "../lib/action-suggestions.js";
 import { Button } from "./ui/button.js";
 
@@ -49,6 +50,42 @@ function approvalLink(error: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function SuggestionOperation({ suggestion }: { suggestion: ActionSuggestion }) {
+  const t = useT();
+  const { execution } = suggestion;
+  if (execution.type === "create-app") {
+    return t("dispatch.pages.suggestionCreateAppOperation", {
+      defaultValue: "Create app in this workspace",
+    });
+  }
+  if (execution.type === "customize") {
+    return (
+      <>
+        {t("dispatch.pages.suggestionCustomizeOperation", {
+          defaultValue: "Customize",
+        })}
+        {" · "}
+        <bdi>{execution.targetAppId}</bdi>
+      </>
+    );
+  }
+
+  const operations = suggestedActionOperations(execution);
+  return (
+    <>
+      <bdi>{suggestion.appId}</bdi>
+      {" · "}
+      <bdi>{execution.action}</bdi>
+      {operations.length > 0 ? (
+        <>
+          {" · "}
+          <bdi>{operations.join(", ")}</bdi>
+        </>
+      ) : null}
+    </>
+  );
 }
 
 export function ChatActionSuggestions({ threadId }: { threadId: string }) {
@@ -136,13 +173,16 @@ export function ActionSuggestionChips({
             type="button"
             variant="ghost"
             size="sm"
-            className="min-w-0 rounded-l-full rounded-r-none"
+            className="h-auto min-w-0 flex-col items-start gap-0 rounded-l-full rounded-r-none py-1.5 text-left whitespace-normal"
             title={suggestion.rationale}
             disabled={pendingId !== undefined}
             aria-busy={pendingId === suggestion.id}
             onClick={() => void execute(suggestion)}
           >
-            <span className="truncate">{suggestion.label}</span>
+            <span dir="auto">{suggestion.label}</span>
+            <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+              <SuggestionOperation suggestion={suggestion} />
+            </span>
           </Button>
           <Button
             type="button"

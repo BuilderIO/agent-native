@@ -1,4 +1,5 @@
 import {
+  getConfiguredAppBasePath,
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
@@ -14,7 +15,10 @@ import {
   listWorkspaceApps,
   type WorkspaceAppSummary,
 } from "./app-creation-store.js";
-import { requestEnvironmentLane } from "./environment-lane.js";
+import {
+  projectEnvironmentUrl,
+  requestEnvironmentLane,
+} from "./environment-lane.js";
 
 const CACHE_TTL_MS = 5 * 60_000;
 const MAX_SCOPES = 64;
@@ -95,16 +99,107 @@ function withFallback(
   ];
 }
 
-async function readAgents(scope: string | null, started: number) {
+function registrationUrl(value: string): URL | null {
+  try {
+    const url = new URL(projectEnvironmentUrl(value));
+    return (url.protocol === "https:" || url.protocol === "http:") &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+      ? url
+      : null;
+  } catch {
+    // A malformed reported URL cannot prove an installation matches.
+    return null;
+  }
+}
+
+function sameInstallation(agent: AgentManifest, mount: WorkspaceMount) {
+  if (agent.id.toLowerCase() !== mount.id.toLowerCase() || !mount.url) {
+    return false;
+  }
+  const manifestUrl = registrationUrl(agent.url);
+  const currentUrl = registrationUrl(mount.url);
+  if (!manifestUrl || !currentUrl || manifestUrl.origin !== currentUrl.origin) {
+    return false;
+  }
+
+  if (
+    !mount.path.startsWith("/") ||
+    mount.path.startsWith("//") ||
+    mount.path.includes("\\") ||
+    /%(?:2f|5c)/i.test(mount.path)
+  )
+    return false;
+  const installUrl = new URL(mount.path, currentUrl.origin);
+  if (
+    installUrl.pathname !== mount.path ||
+    installUrl.search ||
+    installUrl.hash
+  ) {
+    return false;
+  }
+
+  const trimTrailingSlash = (path: string) => path.replace(/\/+$/, "");
+  const manifestPath = trimTrailingSlash(manifestUrl.pathname);
+  const installPath = trimTrailingSlash(installUrl.pathname);
+  const legacyPath = `/dispatch/apps/${encodeURIComponent(mount.id)}`;
+  return (
+    manifestPath === trimTrailingSlash(currentUrl.pathname) ||
+    manifestPath === installPath ||
+    manifestPath === legacyPath ||
+    manifestPath === `${getConfiguredAppBasePath()}${legacyPath}`
+  );
+}
+
+type MountRead = Awaited<ReturnType<typeof readMounts>>;
+
+async function recheckCachedInstallations(
+  readCached: () => AgentManifest[],
+  mountRead: Promise<MountRead>,
+) {
+  const { mounts, degraded } = await mountRead;
+  // Two cached records cannot vouch for each other's runtime identity. The
+  // source-independent check needs the current authorized registration.
+  if (degraded) return [];
+  const byId = new Map(mounts.map((mount) => [mount.id.toLowerCase(), mount]));
+  return readCached().filter((agent) => {
+    const mount = byId.get(agent.id.toLowerCase());
+    return mount !== undefined && sameInstallation(agent, mount);
+  });
+}
+
+const TRANSIENT_DIRECTORY_REASONS = new Set([
+  "network",
+  "server-error",
+  "timeout",
+]);
+
+async function readAgents(
+  scope: string | null,
+  started: number,
+  mountRead: Promise<MountRead>,
+) {
   let result: Awaited<ReturnType<typeof discoverAgentsWithDirectoryStatus>>;
   try {
     result = await discoverAgentsWithDirectoryStatus("dispatch", {
       requireReadableAgentSources: true,
     });
-  } catch {
-    const cached = readSnapshot(manifests, scope).filter(
-      (agent) => agent.source !== "builtin" && agent.source !== "org-directory",
-    );
+  } catch (error) {
+    const httpStatus = statusFromError(error);
+    const forbidden = httpStatus === 401 || httpStatus === 403;
+    if (forbidden) saveSnapshot(manifests, scope, started, []);
+    const cached = forbidden
+      ? []
+      : await recheckCachedInstallations(
+          () =>
+            readSnapshot(manifests, scope).filter(
+              (agent) =>
+                agent.source !== "builtin" && agent.source !== "org-directory",
+            ),
+          mountRead,
+        );
     return {
       agents: withFallback(
         getBuiltinAgents("dispatch").map(toManifest),
@@ -112,54 +207,77 @@ async function readAgents(scope: string | null, started: number) {
       ),
       degraded: {
         source: "connected-apps",
-        status: "unavailable",
+        status: forbidden ? "forbidden" : "unavailable",
         usingCache: cached.length > 0,
+        ...(httpStatus ? { httpStatus } : {}),
       } satisfies DispatchMcpDegradedSource,
     };
   }
 
   const agents = result.agents.map(toManifest);
   const directory = result.directory;
-  if (directory.status === "unavailable") {
-    const cached = readSnapshot(manifests, scope).filter(
-      (agent) => agent.source === "org-directory",
-    );
-    // Keep the last known directory snapshot at its original expiry while the
-    // directory is unavailable. Repeated failures must not extend its life.
+  if (directory.status === "unavailable" || directory.status === "forbidden") {
+    const reason =
+      directory.status === "unavailable" ? directory.reason : "authorization";
+    const forbidden =
+      reason === "authentication" ||
+      reason === "unauthorized" ||
+      reason === "authorization";
+    const transient = TRANSIENT_DIRECTORY_REASONS.has(reason);
+    const current = agents.filter((agent) => agent.source !== "org-directory");
+    const cached = transient
+      ? await recheckCachedInstallations(
+          () =>
+            readSnapshot(manifests, scope).filter(
+              (agent) => agent.source === "org-directory",
+            ),
+          mountRead,
+        )
+      : [];
+    // Refreshing errors must not extend the directory snapshot. An explicit
+    // denial takes precedence over older results for the same scope.
+    if (!transient) saveSnapshot(manifests, scope, started, current);
     return {
-      agents: withFallback(agents, cached),
+      agents: withFallback(current, cached),
       degraded: {
         source: "workspace-directory",
-        status: "unavailable",
+        status: forbidden ? "forbidden" : "unavailable",
         usingCache: cached.length > 0,
       } satisfies DispatchMcpDegradedSource,
     };
   }
-  saveSnapshot(manifests, scope, started, agents);
-  return {
-    agents,
-    degraded:
-      directory.status === "forbidden"
-        ? ({
-            source: "workspace-directory",
-            status: "forbidden",
-            usingCache: false,
-          } satisfies DispatchMcpDegradedSource)
-        : undefined,
-  };
+
+  const available =
+    directory.status === "available"
+      ? agents
+      : agents.filter((agent) => agent.source !== "org-directory");
+  saveSnapshot(manifests, scope, started, available);
+  return { agents: available, degraded: undefined };
 }
 
 function statusFromError(error: unknown): number | undefined {
-  if (typeof error !== "object" || !error) return undefined;
-  const status =
-    "statusCode" in error && typeof error.statusCode === "number"
-      ? error.statusCode
-      : "status" in error
-        ? error.status
-        : undefined;
-  return typeof status === "number" && status >= 400 && status <= 599
-    ? status
-    : undefined;
+  // Core wraps strict source errors. Inspect the underlying status so a
+  // generic outer failure cannot hide a connected-source authorization denial.
+  const seen = new Set<object>();
+  let current: unknown = error;
+  let firstStatus: number | undefined;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    for (const key of ["statusCode", "status", "code"] as const) {
+      const status = (current as Record<string, unknown>)[key];
+      if (status === 401 || status === 403) return status;
+      if (
+        firstStatus === undefined &&
+        typeof status === "number" &&
+        status >= 400 &&
+        status <= 599
+      ) {
+        firstStatus = status;
+      }
+    }
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return firstStatus;
 }
 
 async function readMounts(
@@ -221,9 +339,10 @@ export async function discoverDispatchMcpApps(): Promise<{
   const orgId = getRequestOrgId();
   const scope = scopeKey(ownerEmail, orgId);
   const started = ++nextRead;
+  const mountRead = readMounts(scope, started, ownerEmail, orgId);
   const [agents, mounts] = await Promise.all([
-    readAgents(scope, started),
-    readMounts(scope, started, ownerEmail, orgId),
+    readAgents(scope, started, mountRead),
+    mountRead,
   ]);
   const degradedSources = [agents.degraded, mounts.degraded].filter(
     (source) => source !== undefined,

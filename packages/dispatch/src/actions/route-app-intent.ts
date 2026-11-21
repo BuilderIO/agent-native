@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { matchDispatchAppCandidates } from "../lib/dispatch-app-identity.js";
 import { listGrantedDispatchMcpApps } from "../server/lib/mcp-gateway.js";
 import { listPointers, matchPointer } from "../server/lib/pointers-store.js";
 
@@ -60,7 +61,7 @@ export default defineAction({
       .optional()
       .describe("Id of the app currently on screen, if any."),
     openPath: z.string().max(2000).optional(),
-    selection: z.unknown().optional(),
+    selection: z.string().max(4000).optional(),
     previousTurn: z
       .union([z.string().max(4000), z.record(z.string(), z.unknown())])
       .optional()
@@ -135,13 +136,8 @@ export default defineAction({
       ?.trim()
       .toLowerCase();
     if (explicitName) {
-      const exactId = apps.find((app) => app.id.toLowerCase() === explicitName);
-      const byName = apps.filter(
-        (app) =>
-          app.name.toLowerCase() === explicitName ||
-          app.aliases?.some((alias) => alias.toLowerCase() === explicitName),
-      );
-      const explicitApp = exactId ?? (byName.length === 1 ? byName[0] : null);
+      const candidates = matchDispatchAppCandidates(apps, explicitName);
+      const explicitApp = candidates.length === 1 ? candidates[0] : null;
       if (explicitApp) {
         return {
           status: "ok",

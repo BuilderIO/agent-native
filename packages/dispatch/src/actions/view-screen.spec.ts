@@ -19,6 +19,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  appStateKeyForBrowserTab: (key: string, tabId: string) => `${key}:${tabId}`,
   resolveCurrentRequestStateTab: async () => mocks.tab,
   readAppState: vi.fn(async (key: string) =>
     key === "navigation" ? mocks.navigation : (mocks.appState[key] ?? null),
@@ -70,10 +71,14 @@ import viewScreen from "./view-screen.js";
 
 describe("view-screen MCP exposure", () => {
   it("returns current pane identity and paths over MCP without operational data", async () => {
-    mocks.navigation = {
-      view: "chat",
-      path: "/chat/current?filter=private",
-      owner: "hidden",
+    mocks.navigation = { view: "overview", path: "/account-wide" };
+    mocks.appState = {
+      "navigation:parent-one": {
+        view: "chat",
+        path: "/chat/current?filter=private",
+        owner: "hidden",
+      },
+      "navigation:parent-two": { view: "apps", path: "/apps?filter=private" },
     };
     mocks.pane = {
       appId: "workspace/mail",
@@ -90,9 +95,20 @@ describe("view-screen MCP exposure", () => {
         source: "chat-first-pane",
       },
     });
-    mocks.tab = { tabId: null, unavailable: true };
-    expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({});
+    mocks.tab = { tabId: "parent-two", unavailable: false };
+    expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({
+      navigation: { view: "apps", path: "/apps" },
+    });
+    for (const tab of [
+      { tabId: "parent-without-route", unavailable: false },
+      { tabId: null, unavailable: true },
+      { tabId: null, unavailable: false },
+    ]) {
+      mocks.tab = tab;
+      expect(await viewScreen.run({}, { caller: "mcp" } as never)).toEqual({});
+    }
     mocks.tab = { tabId: "parent-one", unavailable: false };
+    mocks.appState = {};
     mocks.pane = null;
   });
 });

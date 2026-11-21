@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  appStateKeyForBrowserTab,
   readAppState,
   resolveCurrentRequestStateTab,
 } from "@agent-native/core/application-state";
@@ -150,7 +151,9 @@ function publicPanePath(value: unknown): string | undefined {
 async function readMcpView() {
   const tab = await resolveCurrentRequestStateTab();
   if (!tab.tabId || tab.unavailable) return {};
-  const navigation = await readAppState("navigation");
+  const navigation = await readAppState(
+    appStateKeyForBrowserTab("navigation", tab.tabId),
+  );
   const pane = await resolveEmbeddedApp(navigation, readDispatchPaneContext);
   return {
     ...(typeof navigation?.view === "string"

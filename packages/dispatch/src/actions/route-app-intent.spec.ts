@@ -49,6 +49,33 @@ describe("route-app-intent", () => {
     expect(mocks.decide).not.toHaveBeenCalled();
   });
 
+  it("keeps explicit installation IDs ahead of competing workspace aliases", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      {
+        id: "fleet-2",
+        name: "Fleet",
+        description: "",
+        source: "builtin",
+      },
+      {
+        id: "workspace/fleet",
+        name: "Fleet",
+        description: "",
+        aliases: ["fleet-2"],
+        source: "workspace",
+      },
+    ]);
+    await expect(run({ text: "Open Fleet-2" })).resolves.toMatchObject({
+      app: "fleet-2",
+      explicit: true,
+    });
+    await expect(run({ text: "Open Fleet" })).resolves.toMatchObject({
+      app: "workspace/fleet",
+      explicit: true,
+    });
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
   it("includes the active route, selection, and granted installation manifests", async () => {
     mocks.listGrantedDispatchMcpApps.mockResolvedValue([
       {

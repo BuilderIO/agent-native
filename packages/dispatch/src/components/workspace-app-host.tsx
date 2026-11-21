@@ -424,7 +424,13 @@ export function WorkspaceAppFrame({
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const requestedPath = embedPath ?? initialPath;
   const [launchPath, setLaunchPath] = useState(requestedPath);
-  const [appliedPath, setAppliedPath] = useState(requestedPath);
+  const [completedNavigation, setCompletedNavigation] = useState({
+    requestedPath,
+    accepted: true,
+  });
+  const requestedPathAccepted =
+    completedNavigation.accepted &&
+    completedNavigation.requestedPath === requestedPath;
   // A load can replace the document while leaving the public iframe URL and
   // contentWindow proxy unchanged.
   const [loadedDocument, setLoadedDocument] = useState<{ url: string } | null>(
@@ -433,6 +439,7 @@ export function WorkspaceAppFrame({
   const pendingNavigation = useRef<{
     controller: AbortController;
     path: string;
+    requestedPath: string | undefined;
   } | null>(null);
   const observedPath = useRef<string | null>(null);
   const framePath = openInTopWindow ? requestedPath : launchPath;
@@ -701,7 +708,7 @@ export function WorkspaceAppFrame({
     pendingNavigation.current = null;
     setLoadedDocument(null);
     setLaunchPath(requestedPath);
-    setAppliedPath(requestedPath);
+    setCompletedNavigation({ requestedPath, accepted: true });
     setEmbedAttempt((attempt) => attempt + 1);
   }, [requestedPath]);
 
@@ -715,8 +722,13 @@ export function WorkspaceAppFrame({
 
   const finishNavigation = useEffectEvent(
     (route: string | undefined, accepted: boolean) => {
-      if (accepted) setAppliedPath(route);
-      else reloadFrame();
+      if (!accepted && route === requestedPath) {
+        reloadFrame();
+        return;
+      }
+      // Let the latest route proceed only after the old request has finished.
+      // The guest can still apply a delivered request after we close its port.
+      setCompletedNavigation({ requestedPath: route, accepted });
     },
   );
 
@@ -728,7 +740,7 @@ export function WorkspaceAppFrame({
       !embedUrl ||
       loadedDocument?.url !== embedUrl ||
       !target ||
-      requestedPath === appliedPath ||
+      requestedPathAccepted ||
       pendingNavigation.current
     ) {
       return;
@@ -766,29 +778,47 @@ export function WorkspaceAppFrame({
     }
 
     const controller = new AbortController();
-    pendingNavigation.current = { controller, path };
+    const navigation = { controller, path, requestedPath };
+    pendingNavigation.current = navigation;
     void requestWorkspaceAppFrameView(
       target,
       origin,
       { operation: "navigate", path },
       controller.signal,
     ).then((receipt) => {
-      if (pendingNavigation.current?.controller !== controller) return;
+      if (pendingNavigation.current !== navigation) return;
       pendingNavigation.current = null;
       if (frame !== embedFrameRef.current) return;
-      finishNavigation(requestedPath, receipt?.path === path);
+      const accepted = receipt?.path === navigation.path;
+      if (!accepted || observedPath.current !== navigation.path) {
+        // A pre-request observation cannot confirm the frame's latest route.
+        observedPath.current = null;
+      }
+      finishNavigation(navigation.requestedPath, accepted);
     });
   }, [
     app.path,
     appHref,
     appUrl,
-    appliedPath,
+    completedNavigation,
     embedUrl,
     hostPageDirectUrl,
     loadedDocument,
+    requestedPathAccepted,
     openInTopWindow,
     requestedPath,
   ]);
+
+  const relayChildRoute = useEffectEvent((childPath: string, route: string) => {
+    const pending = pendingNavigation.current;
+    if (
+      pending
+        ? pending.requestedPath === requestedPath && pending.path === childPath
+        : requestedPathAccepted
+    ) {
+      onChildRouteChange?.(route);
+    }
+  });
 
   useEffect(() => {
     const handleEmbedSessionExpired = (event: MessageEvent) => {
@@ -848,17 +878,12 @@ export function WorkspaceAppFrame({
       );
       if (!route) return;
       observedPath.current = childPath;
-      if (
-        !pendingNavigation.current ||
-        pendingNavigation.current.path === childPath
-      ) {
-        onChildRouteChange?.(route);
-      }
+      relayChildRoute(childPath, route);
     };
 
     window.addEventListener("message", handleWorkspaceAppRoute);
     return () => window.removeEventListener("message", handleWorkspaceAppRoute);
-  }, [app.id, app.path, appUrl, embedUrl, onChildRouteChange]);
+  }, [app.id, app.path, appUrl, embedUrl]);
 
   useEffect(() => {
     if (!onViewReaderChange || !embedUrl || loadedDocument?.url !== embedUrl) {

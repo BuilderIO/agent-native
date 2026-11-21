@@ -29,6 +29,70 @@ function wireResult(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
+const OPERATION_KEYS = ["operation", "action", "op", "command"] as const;
+const DESTRUCTIVE_OPERATIONS = new Set([
+  "delete",
+  "destroy",
+  "drop",
+  "erase",
+  "purge",
+  "remove",
+  "revoke",
+  "trash",
+  "truncate",
+  "wipe",
+]);
+
+type SuggestedAppAction = Extract<
+  ActionSuggestion["execution"],
+  { type: "action" }
+>;
+
+export function suggestedActionOperations(
+  execution: SuggestedAppAction,
+): string[] {
+  return OPERATION_KEYS.flatMap((key) => {
+    const value = execution.params[key];
+    return typeof value === "string" && /^[a-z][a-z0-9_-]{0,47}$/i.test(value)
+      ? [value]
+      : [];
+  });
+}
+
+/** Recognize explicit destructive commands, including actions which multiplex them. */
+export function isUnsupportedSuggestedAction(
+  execution: SuggestedAppAction,
+): boolean {
+  const [verb] = execution.action.toLowerCase().split(/[-_]/, 1);
+  return (
+    DESTRUCTIVE_OPERATIONS.has(verb) ||
+    suggestedActionOperations(execution).some((operation) =>
+      DESTRUCTIVE_OPERATIONS.has(operation.toLowerCase()),
+    )
+  );
+}
+
+export function hasUnselectedDestructiveVariant(
+  execution: SuggestedAppAction,
+  schema: Record<string, unknown> | undefined,
+): boolean {
+  const properties = asRecord(schema?.properties);
+  return OPERATION_KEYS.some((key) => {
+    const control = asRecord(properties?.[key]);
+    if (!Array.isArray(control?.enum)) return false;
+    const hasDestructiveVariant = control.enum.some(
+      (value) =>
+        typeof value === "string" &&
+        DESTRUCTIVE_OPERATIONS.has(value.toLowerCase()),
+    );
+    if (!hasDestructiveVariant) return false;
+    const selection = execution.params[key];
+    // Require an explicit selection because installed versions may have
+    // different defaults for a tool with mixed operations.
+    return typeof selection !== "string" || !control.enum.includes(selection);
+  });
+}
+
 export function uniqueActionSuggestions(
   suggestions: Iterable<ActionSuggestion>,
 ): ActionSuggestion[] {
@@ -67,6 +131,11 @@ function* suggestionsFromResult(
         suggestion.label.length > 96 ||
         !suggestion.rationale.trim() ||
         suggestion.rationale.length > 280
+      )
+        continue;
+      if (
+        suggestion.execution.type === "action" &&
+        isUnsupportedSuggestedAction(suggestion.execution)
       )
         continue;
       // Child output is authoritative only for actions in that installation.

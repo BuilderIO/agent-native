@@ -104,7 +104,7 @@ async function render() {
 
 function chip(label: string) {
   return [...container.querySelectorAll("button")].find(
-    (button) => button.textContent === label,
+    (button) => button.firstElementChild?.textContent === label,
   );
 }
 
@@ -120,6 +120,25 @@ it("shows at most two suggestions from real tool result shapes and executes the 
       structuredContent: {
         suggestions: [
           { ...filter, id: "foreign", label: "Foreign suggestion" },
+        ],
+      },
+    },
+  };
+  thread.tools.destructive = {
+    id: "destructive",
+    name: "call_app_action",
+    runId: "run",
+    status: "completed",
+    input: { app: filter.appId },
+    output: {
+      structuredContent: {
+        suggestions: [
+          {
+            ...filter,
+            id: "delete-split",
+            label: "Organize this inbox",
+            execution: { type: "action", action: "delete-split", params: {} },
+          },
         ],
       },
     },
@@ -151,6 +170,10 @@ it("shows at most two suggestions from real tool result shapes and executes the 
 
   await render();
   expect(chip("Foreign suggestion")).toBeUndefined();
+  expect(chip("Organize this inbox")).toBeUndefined();
+  expect(chip(filter.label)?.textContent).toContain(
+    "workspace/mail · create-split",
+  );
   expect(chip(build.label)).toBeUndefined();
   await act(async () =>
     container

@@ -40,6 +40,7 @@ import {
 } from "@agent-native/core/server/agent-discovery";
 import { EMBED_START_PATH } from "@agent-native/core/shared";
 
+import { matchDispatchAppCandidates } from "../../lib/dispatch-app-identity.js";
 import { DISPATCH_CHILD_BROWSER_TAB_PARAM } from "../../shared/chat-first-pane.js";
 import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
@@ -74,6 +75,7 @@ const TARGET_EMBED_SESSION_BUDGET_MS = 95_000;
 // open_app answers with its link by then; a panel is worth a short wait, not
 // the full mint budget.
 const OPEN_APP_EMBED_WAIT_MS = 15_000;
+const BROWSER_EMBED_PREFETCH_WAIT_MS = 1_000;
 const PENDING_EMBED_LIMIT = 32;
 const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 20_000;
@@ -901,41 +903,6 @@ export async function listGrantedDispatchMcpAppOrigins(): Promise<string[]> {
   return Array.from(new Set(apps.flatMap((app) => safeAppOrigin(app) ?? [])));
 }
 
-function matchDispatchAppCandidates(
-  apps: DispatchMcpAccessibleApp[],
-  target: string,
-): DispatchMcpAccessibleApp[] {
-  const exact = apps.filter((app) => normalizeAppId(app.id) === target);
-  // Qualified IDs address only the specified installation.
-  if (target.includes("/")) return exact;
-
-  const granted = apps.filter((app) => app.granted);
-  const exactGranted = exact.filter((app) => app.granted);
-  const qualified = granted.filter((app) =>
-    normalizeAppId(app.id).endsWith(`/${target}`),
-  );
-  const namedOrAliased = granted.filter((app) =>
-    [app.name, ...(app.aliases ?? [])].some(
-      (name) => normalizeAppId(name) === target,
-    ),
-  );
-  const normalMatches = [
-    ...new Set([...exactGranted, ...qualified, ...namedOrAliased]),
-  ];
-  const workspaceMatches = normalMatches.filter(
-    (app) =>
-      app.source === "workspace" ||
-      app.source === "org-directory" ||
-      (app.source !== "builtin" && qualified.includes(app)),
-  );
-  const exactWorkspace = workspaceMatches.filter((app) => exact.includes(app));
-  if (exactWorkspace.length) return exactWorkspace;
-  if (workspaceMatches.length) return workspaceMatches;
-  if (exactGranted.length) return exactGranted;
-  if (qualified.length) return qualified;
-  return namedOrAliased.length ? namedOrAliased : exact;
-}
-
 export async function resolveGrantedDispatchMcpApp(
   app: string,
 ): Promise<DispatchMcpAccessibleApp> {
@@ -1552,6 +1519,7 @@ export type GrantedAppAction = {
   description: string;
   inputSchema?: Record<string, unknown>;
   readOnly?: boolean;
+  destructive?: boolean;
 };
 
 export type GrantedAppActionResult = {
@@ -1739,6 +1707,9 @@ export async function listGrantedDispatchMcpAppActions(
             ? tool.description
             : (tool.description.split(/(?<=\.)\s/)[0] ?? "").slice(0, 160),
           ...(detailed ? { inputSchema: tool.inputSchema } : {}),
+          ...(detailed && tool.annotations?.destructiveHint === true
+            ? { destructive: true }
+            : {}),
           ...(tool.annotations?.readOnlyHint === true
             ? { readOnly: true }
             : {}),
@@ -2174,6 +2145,7 @@ async function takePrefetchedGrantedEmbedSession(
   // The start URL can be redeemed once. Recheck grants (above) and let one
   // consumer take it. Scoped chat credentials never use this cache.
   pendingGrantedEmbeds.delete(key);
+  const claimDeadline = setTimeout(entry.abort, BROWSER_EMBED_PREFETCH_WAIT_MS);
   try {
     const session = await entry.result;
     if (session.expiresAt === undefined || session.expiresAt > Date.now())
@@ -2181,6 +2153,7 @@ async function takePrefetchedGrantedEmbedSession(
   } catch {
     // Fall back to the foreground mint with normal errors and retry behavior.
   } finally {
+    clearTimeout(claimDeadline);
     entry.release();
   }
 }
