@@ -4281,14 +4281,7 @@ function DatabaseTable({
           );
           setSourceWriteMode.mutate(request, {
             onSuccess: () => {
-              toast.success(dbText("builderWriteModeUpdated"), {
-                description:
-                  settings.writeMode === "publish_updates"
-                    ? "Approved updates can write through to Builder while preserving publication state."
-                    : settings.writeMode === "stage_only"
-                      ? "Approved updates will stage Builder autosave revisions."
-                      : "Builder writes are disabled for this source.",
-              });
+              toast.success(dbText("builderWriteModeUpdated"));
             },
             onError: (error) => {
               for (const [queryKey, data] of previous) {
