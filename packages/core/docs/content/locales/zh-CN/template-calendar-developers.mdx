@@ -62,6 +62,8 @@ pnpm dev
 日历会将这些信息保存到自己的密钥存储中，而不是 `.env` 文件，因此这一步在
 Windows 和 macOS 上完全相同。连接完成后，令牌会自动刷新。
 
+在部署环境中，请在其环境变量里设置 `GOOGLE_CLIENT_ID` 和 `GOOGLE_CLIENT_SECRET`。这样 **使用 Google 登录** 会在同一个 Google 页面上一并请求日历访问权限，登录时就会同时连接该帐户；其他帐户仍通过 **添加帐户** 连接。登录与连接会返回同一个 `/_agent-native/google/callback` 地址，因此一个重定向 URI 即可同时满足两者。没有这些变量时，登录只确认你是谁，之后再连接 Google。
+
 ### 连接 Zoom（可选）
 
 与 Google 不同，Zoom 没有设置表单。请在项目根目录创建一个 `.env` 文件

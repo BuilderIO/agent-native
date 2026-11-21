@@ -342,6 +342,7 @@ export default defineAction({
             experimentId: args.experimentId,
             splitDesignFirstTouch: args.splitDesignFirstTouch,
           },
+          context?.signal,
         );
       if (refusal) throw refusal;
       const { value, report } = await runOutsideAgentBigQueryCall(

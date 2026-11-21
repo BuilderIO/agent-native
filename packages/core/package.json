@@ -672,6 +672,7 @@
     "./labs/core-labs": "./dist/labs/core-labs.js",
     "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
+    "./localization/privacy-choice-messages": "./dist/localization/privacy-choice-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",
     "./notifications/types": "./dist/notifications/types.js",
