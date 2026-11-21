@@ -64,7 +64,7 @@ export async function filterLibraryRecordings({
   where: (SQL | undefined)[];
   state: FilterState;
   orderBy: SQL[];
-  listWithin?: SQL;
+  listWithin?: SQL | undefined;
 }): Promise<LibraryFilterResult> {
   // guard:allow-unscoped — both callers, list-recordings and view-screen, put their access filter in `where`.
   const timeZone = requestTimeZone();
