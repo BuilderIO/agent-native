@@ -819,13 +819,15 @@ async function readJourneyEvents(
           })),
         trace,
       });
-      previousPageDecided = Promise.race([
-        decided,
-        result.then(
-          () => undefined,
-          () => undefined,
-        ),
-      ]);
+      previousPageDecided = afterPreviousPage.then(() =>
+        Promise.race([
+          decided,
+          result.then(
+            () => undefined,
+            () => undefined,
+          ),
+        ]),
+      );
       return { request, result, trace };
     };
     let prefetchEnd: number | null = null;

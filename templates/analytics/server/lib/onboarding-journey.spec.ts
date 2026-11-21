@@ -2092,6 +2092,46 @@ describe("getOnboardingJourney", () => {
     });
   });
 
+  it("keeps the budget in page order across a cached page between two misses", async () => {
+    const total = 16_001;
+    const rows = Array.from({ length: total }, (_, index) =>
+      eventRow(`between-${index}`, "signup", index, {
+        journey_total_rows: total,
+        journey_rows_fingerprint: 7,
+      }),
+    );
+    const jobs: number[] = [];
+    const letLaterPagesClaimFirst = async () => {
+      for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+    };
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (sql: string, _scope: unknown, options: unknown) => {
+        if (!sql.includes("journey_total_rows"))
+          return { rows: [], schema: [] };
+        const offset = pageOffset(sql);
+        if (offset !== 8_000) {
+          if (offset === 4_000) await letLaterPagesClaimFirst();
+          await claimPageJob(options);
+          jobs.push(offset);
+        }
+        return { rows: rows.slice(offset, offset + 4_000), schema: [] };
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 20_000,
+      maxTotalBytesBilled: 50_000_000_000,
+    })) as JourneySummary;
+
+    expect(jobs).toEqual([0, 4_000]);
+    expect(summary.followUp.coverage.journeyEventRead).toMatchObject({
+      pages: 3,
+      truncated: true,
+    });
+  });
+
   it("returns completed pages as partial coverage at the event-read deadline", async () => {
     vi.useFakeTimers();
     mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
