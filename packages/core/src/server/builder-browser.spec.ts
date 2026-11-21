@@ -2284,16 +2284,14 @@ describe("Builder callback CSRF state", () => {
 
       vi.stubGlobal(
         "fetch",
-        vi
-          .fn()
-          .mockResolvedValue(
-            new Response(
-              JSON.stringify({
-                error: "User not found for the provided email",
-              }),
-              { status: 400, headers: { "Content-Type": "application/json" } },
-            ),
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              error: "User not found for the provided email",
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
           ),
+        ),
       );
 
       await expect(
