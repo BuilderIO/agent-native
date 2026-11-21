@@ -128,6 +128,45 @@ describe("detectArtifactReceipts", () => {
     ]);
   });
 
+  it.each([
+    [
+      "its target and row link",
+      "upsert-database-item-by-key",
+      {
+        receipt: {
+          target: { rowDocumentId: "row_doc_1" },
+          rowLink: { urlPath: "/page/row_doc_1?db=db_1" },
+        },
+      },
+      [{ kind: "document", id: "row_doc_1", url: "/page/row_doc_1?db=db_1" }],
+    ],
+    [
+      "a row with no link or read-back",
+      "add-database-item",
+      { receipt: { row: { documentId: "row_doc_2" } } },
+      [{ kind: "document", id: "row_doc_2" }],
+    ],
+    [
+      "a row whose read-back is another page",
+      "add-database-item",
+      {
+        receipt: { row: { documentId: "row_doc_3" } },
+        createdItem: { document: { id: "other_doc", title: "Other page" } },
+      },
+      [{ kind: "document", id: "row_doc_3" }],
+    ],
+    [
+      "the older created-page fields",
+      "add-database-item",
+      { createdDocumentId: "doc_4", createdDocumentTitle: "Intake" },
+      [{ kind: "document", id: "doc_4", title: "Intake" }],
+    ],
+    ["no receipt", "add-database-item", { createdItem: { id: "item_5" } }, []],
+    ["a receipt with no row", "add-database-item", { receipt: {} }, []],
+  ])("reads a database row from %s", (_case, tool, result, expected) => {
+    expect(detectArtifactReceipts(result, tool)).toEqual(expected);
+  });
+
   it("fans out successful image batch slots and rejects mismatched URLs", () => {
     expect(
       detectArtifactReceipts(

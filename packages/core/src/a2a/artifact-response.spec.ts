@@ -824,6 +824,94 @@ describe("appendA2AArtifactLinks", () => {
         '- Document "Homepage refresh": https://content.agent.test/page/row_doc_789 (ID: row_doc_789)',
       );
     });
+
+    it("lists rows found through the receipt's row, target and row link", () => {
+      const text = buildA2ARecoverableArtifactMessage(
+        [
+          {
+            tool: "upsert-database-item-by-key",
+            result: JSON.stringify({
+              receipt: {
+                target: { databaseId: "db_1", rowDocumentId: "row_doc_1" },
+                rowLink: { urlPath: "/page/row_doc_1?db=db_1" },
+              },
+            }),
+          },
+          {
+            tool: "add-database-item",
+            result: JSON.stringify({
+              receipt: {
+                row: {
+                  documentId: "row_doc_2",
+                  urlPath: "/page/row_doc_2?db=db_1",
+                },
+              },
+            }),
+          },
+          {
+            tool: "add-database-item",
+            result: JSON.stringify({
+              receipt: { row: { documentId: "row_doc_3" } },
+            }),
+          },
+        ],
+        { baseUrl: "https://content.agent.test" },
+      );
+
+      expect(text).toContain(
+        "- Document: https://content.agent.test/page/row_doc_1?db=db_1 (ID: row_doc_1)",
+      );
+      expect(text).toContain(
+        "- Document: https://content.agent.test/page/row_doc_2?db=db_1 (ID: row_doc_2)",
+      );
+      expect(text).toContain(
+        "- Document: https://content.agent.test/page/row_doc_3 (ID: row_doc_3)",
+      );
+    });
+
+    it("takes the title only from a read-back of the same row", () => {
+      const text = buildA2ARecoverableArtifactMessage(
+        [
+          {
+            tool: "add-database-item",
+            result: JSON.stringify({
+              receipt: { row: { documentId: "row_doc_789" } },
+              createdItem: {
+                document: { id: "other_doc", title: "Other page" },
+              },
+            }),
+          },
+        ],
+        { baseUrl: "https://content.agent.test" },
+      );
+
+      expect(text).toContain(
+        "- Document: https://content.agent.test/page/row_doc_789 (ID: row_doc_789)",
+      );
+      expect(text).not.toContain("Other page");
+    });
+
+    it("lists nothing when a result names no row", () => {
+      expect(
+        buildA2ARecoverableArtifactMessage(
+          [
+            {
+              tool: "add-database-item",
+              result: JSON.stringify({ createdItem: { id: "item_1" } }),
+            },
+            {
+              tool: "add-database-item",
+              result: JSON.stringify({ receipt: {} }),
+            },
+            {
+              tool: "upsert-database-item-by-key",
+              result: JSON.stringify({ receipt: { row: {} } }),
+            },
+          ],
+          { baseUrl: "https://content.agent.test" },
+        ),
+      ).toBeNull();
+    });
   });
 
   it("builds an identity-only receipt for a verified document update", () => {
