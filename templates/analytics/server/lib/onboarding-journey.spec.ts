@@ -1990,7 +1990,7 @@ describe("getOnboardingJourney", () => {
       truncated: true,
     });
     expect(tree.notes?.join(" ")).toMatch(
-      /spent its maxTotalBytesBilled=50000000000 bytes budget on pages that were not cached/,
+      /spent its maxTotalBytesBilled=50000000000 bytes budget on pages it had to run in BigQuery/,
     );
     expect(tree.notes?.join(" ")).toMatch(/replay reads were skipped/);
     const examples = tree.nodes.flatMap((node) => node.examples);

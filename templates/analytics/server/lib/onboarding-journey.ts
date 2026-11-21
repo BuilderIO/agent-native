@@ -2666,7 +2666,7 @@ export async function getOnboardingJourney(
   const notes: string[] = [];
   const eventReadLimit =
     read.truncationReason === "page_budget"
-      ? `Event read spent its maxTotalBytesBilled=${args.maxTotalBytesBilled} bytes budget on pages that were not cached before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
+      ? `Event read spent its maxTotalBytesBilled=${args.maxTotalBytesBilled} bytes budget on pages it had to run in BigQuery before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
       : read.truncationReason === "read_deadline"
         ? `Event read stopped at its ${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000}-second time budget before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
         : read.truncationReason === "backend_result"
