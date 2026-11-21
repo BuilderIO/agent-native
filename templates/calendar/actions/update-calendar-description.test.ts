@@ -155,6 +155,17 @@ describe("update-calendar-description", () => {
     ).resolves.toBe(true);
   });
 
+  it("refuses to change a saved feed list that isn't a list", async () => {
+    mocks.settings.set(`${owner}:external-calendars`, { talks: "Talks" });
+
+    await expect(
+      updateExternalCalendars.run({ calendars: [] }),
+    ).rejects.toThrow("isn't a list");
+    expect(mocks.settings.get(`${owner}:external-calendars`)).toEqual({
+      talks: "Talks",
+    });
+  });
+
   it("keeps saved feed descriptions when the whole feed list is replaced", async () => {
     mocks.settings.set(`${owner}:external-calendars`, [
       {

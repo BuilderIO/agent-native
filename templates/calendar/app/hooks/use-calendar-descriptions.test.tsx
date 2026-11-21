@@ -78,7 +78,7 @@ describe("useUpdateCalendarDescription", () => {
     callAction.mockReset();
   });
 
-  it("keeps a feed's new description when a color is picked before it saves", async () => {
+  it("leaves descriptions out of a color change, so it can't overwrite a saved one", async () => {
     let finishDescription: () => void = () => {};
     callAction.mockImplementation((name: string) => {
       if (name === "update-calendar-description") {
@@ -108,18 +108,19 @@ describe("useUpdateCalendarDescription", () => {
       expect(callAction).toHaveBeenCalledWith(
         "update-external-calendars",
         {
-          calendars: [
-            {
-              ...FEEDS[0],
-              color: "red",
-              description: "Conference talks I might attend",
-            },
-            FEEDS[1],
-          ],
+          calendars: [{ ...FEEDS[0], color: "red" }, FEEDS[1]],
         },
         { method: "PUT" },
       ),
     );
+    const colorWrite = callAction.mock.calls.find(
+      ([name]) => name === "update-external-calendars",
+    );
+    expect(
+      colorWrite?.[1].calendars.some(
+        (feed: ExternalCalendar) => "description" in feed,
+      ),
+    ).toBe(false);
     await act(async () => finishDescription());
   });
 

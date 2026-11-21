@@ -8,6 +8,11 @@ export async function mutateExternalCalendars(
 ): Promise<ExternalCalendar[]> {
   let next: ExternalCalendar[] = [];
   await mutateUserSetting(owner, "external-calendars", (current) => {
+    if (current != null && !Array.isArray(current)) {
+      throw new Error(
+        "The saved calendar feed list isn't a list, so it was left unchanged",
+      );
+    }
     next = change(
       Array.isArray(current) ? (current as unknown as ExternalCalendar[]) : [],
     );
