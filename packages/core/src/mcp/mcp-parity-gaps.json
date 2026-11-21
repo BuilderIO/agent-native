@@ -325,6 +325,8 @@
     "update-source",
     "write-knowledge"
   ],
+  "calendar": [],
+  "chat": [],
   "clips": [
     "accept-invite",
     "add-comment",
