@@ -27,7 +27,8 @@ Where a test belongs and which CI lane runs it is owned by
 
 No new test is the default. Most fixes and features are proven by running the
 changed path (`verifying-changes`), not by a test that ships with them; a bug
-fix adds a regression test only when it meets the regression bar below. Before adding any test, answer four questions; a missing answer means do
+fix adds a regression test only when it passes the four questions below and
+fails on the pre-fix code. Before adding any test, answer four questions; a missing answer means do
 not add it:
 
 1. What observable behavior, invariant, or independent contract does it protect?
@@ -44,8 +45,9 @@ Then check the test against every [junk pattern](#junk-patterns); a match fails
 the gate unless the [retention bar](#retention-bar) names the contract it
 independently guards. Then imagine two edits. Break the behavior: a test that
 still passes proves nothing. Change the internals but keep every observable
-result: a test that fails is pinned to the implementation. Keep only tests that
-catch the first edit and survive the second; rewrite or drop the rest.
+result: a test that fails is pinned to the implementation. Land only new tests
+that catch the first edit and survive the second; existing tests follow the
+[retention bar](#retention-bar).
 
 Bug regression tests must fail on the pre-fix code for the intended reason and
 pass after the owner-boundary repair. A regression test that never demonstrably
