@@ -1656,20 +1656,22 @@ describe("ask_app — org-directory routing", () => {
       orgSecret: "org-secret",
       metadata: {},
     });
+    const timestamp = new Date().toISOString();
     const sendSpy = vi
       .spyOn(a2aClient.A2AClient.prototype, "send")
       .mockResolvedValue({
         id: "content-task-1",
-        status: { state: "working" },
+        status: { state: "working", timestamp },
         history: [],
         artifacts: [],
-      } as any);
+      });
     const getTaskSpy = vi
       .spyOn(a2aClient.A2AClient.prototype, "getTask")
       .mockResolvedValue({
         id: "content-task-1",
         status: {
           state: "completed",
+          timestamp,
           message: {
             role: "agent",
             parts: [{ type: "text", text: "content answer" }],
@@ -1677,12 +1679,12 @@ describe("ask_app — org-directory routing", () => {
         },
         history: [],
         artifacts: [],
-      } as any);
+      });
     const tools = getBuiltinCrossAppTools(
       baseConfig({ askAgent: async () => "local-answer" }),
       { origin: "https://mail.acme.com" },
     );
-    const submitted: any = await runWithRequestContext(
+    const submitted = await runWithRequestContext(
       { userEmail: "caller@acme.com", orgId: "org-1" },
       () =>
         tools.ask_app.run({
@@ -1696,6 +1698,16 @@ describe("ask_app — org-directory routing", () => {
       taskId: "content-task-1",
       taskHandle: expect.any(String),
     });
+    await expect(
+      runWithRequestContext(
+        { userEmail: "caller@acme.com", orgId: "org-1" },
+        () =>
+          tools.ask_app_status.run({
+            taskHandle: submitted.taskHandle,
+            taskId: "content-task-2",
+          }),
+      ),
+    ).rejects.toThrow(INVALID_HANDLE);
 
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2 * 60 * 60 * 1000);
     await expect(
@@ -1704,7 +1716,7 @@ describe("ask_app — org-directory routing", () => {
         () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
       ),
     ).rejects.toThrow(INVALID_HANDLE);
-    const completed: any = await runWithRequestContext(
+    const completed = await runWithRequestContext(
       { userEmail: "caller@acme.com", orgId: "org-1" },
       () =>
         tools.ask_app_status.run({

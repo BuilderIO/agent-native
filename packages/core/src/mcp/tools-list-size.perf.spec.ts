@@ -27,8 +27,14 @@ async function measure(
   app: AppCatalog,
   scope: (typeof SCOPES)[number],
 ): Promise<Measurement> {
+  const production = app.surfaces.find(
+    ({ surface }) => !surface.dev && surface.codeExecution === "off",
+  );
+  if (!production) {
+    throw new Error(`${app.appId} has no plain production catalog.`);
+  }
   const { tools } = await withCatalogClient(
-    app.surfaces[0]!.config,
+    production.config,
     { fullCatalog: false, fullSurface: false, oauthScopes: scope.oauthScopes },
     (client) => client.listTools(),
   );
@@ -88,9 +94,7 @@ describe("tools/list size report", () => {
     } finally {
       vi.unstubAllEnvs();
     }
-    rows.sort(
-      (a, b) => b.tokens - a.tokens || a.app.localeCompare(b.app),
-    );
+    rows.sort((a, b) => b.tokens - a.tokens || a.app.localeCompare(b.app));
     process.stdout.write(formatReport(rows));
   }, LOAD_TIMEOUT_MS);
 
