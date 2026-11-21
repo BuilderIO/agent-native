@@ -249,7 +249,6 @@ export function ThreadSuggestionBody({
     ? units.find((_, unitIndex) => unitIndex === index)?.leader.id
     : undefined;
   const followsDecision = useRef(false);
-  // Focus lost with a removed control, or still in the card, moves with it.
   const keepsFocus = () => {
     const focused = document.activeElement;
     return (
@@ -258,7 +257,6 @@ export function ThreadSuggestionBody({
       !!groupRef.current?.contains(focused)
     );
   };
-  // Deciding a stepped edit swaps in the next one, so focus goes to it.
   useLayoutEffect(() => {
     if (!followsDecision.current) return;
     followsDecision.current = false;
@@ -482,7 +480,6 @@ export function ThreadSuggestionBody({
           </div>
         </>
       ) : stepped ? (
-        // Edits that all ended without a decision, as when the AI replaced them.
         <div className="overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50">
           {stepper}
           <div className="grid gap-2 p-2">{edits}</div>

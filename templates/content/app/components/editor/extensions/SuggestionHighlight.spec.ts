@@ -746,6 +746,24 @@ describe("SuggestionHighlight", () => {
     );
   });
 
+  it("marks the active inserted words over an insertion's resting look", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    const resting = css.match(
+      /\.content-editor \.suggestion-insert\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+    const active = css.match(
+      /\.content-editor\s+\.suggestion-insert\.suggestion-highlight--active\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+
+    expect(resting).toContain("background: hsl(var(--suggestion) / 0.12);");
+    expect(active).toContain("background: hsl(var(--suggestion) / 0.16);");
+    expect(active).toContain(
+      "box-shadow: inset 0 -2px hsl(var(--suggestion));",
+    );
+  });
+
   it("sets new words apart from the whole words they replace", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",

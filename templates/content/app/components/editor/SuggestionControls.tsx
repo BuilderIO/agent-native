@@ -163,7 +163,6 @@ export function SuggestionStepper({
         {t("comments.editPosition", { index: index + 1, total })}
       </span>
       {steps.map((step) => {
-        // An end stays focusable, so stepping to it by keyboard keeps focus here.
         const atEnd = step.to < 0 || step.to >= total;
         return (
           <Tooltip key={step.direction}>
