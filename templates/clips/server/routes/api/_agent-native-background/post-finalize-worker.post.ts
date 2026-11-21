@@ -23,6 +23,10 @@ import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
 import {
+  ensureRecordingAudioLevel,
+  isRetryableAudioLevelStatus,
+} from "../../../lib/audio-level.js";
+import {
   ensureRecordingThumbnail,
   isRetryableRecordingThumbnailStatus,
   markThumbnailFailed,
@@ -38,6 +42,7 @@ const bodySchema = z.object({
   kind: z.enum([
     "media-ready",
     "seekable",
+    "audio-level",
     "thumbnail",
     "transcript",
     "brain-export",
@@ -56,6 +61,7 @@ const bodySchema = z.object({
 
 const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
 const MAX_THUMBNAIL_RETRIES = 5;
+const MAX_AUDIO_LEVEL_RETRIES = 3;
 // The backoff totals 155s, outlasting finalize-meeting's 2-minute pending lease.
 const MAX_MEETING_FINALIZE_RETRIES = 7;
 
@@ -72,6 +78,22 @@ async function scheduleThumbnailRetry(
   await dispatchPostFinalizeJob({
     recordingId,
     kind: "thumbnail",
+    delayMs: postFinalizeRetryDelayMs(retryAttempt ?? 0),
+    retryAttempt: nextRetryAttempt,
+    requireAccepted: true,
+  });
+  return nextRetryAttempt;
+}
+
+async function scheduleAudioLevelRetry(
+  recordingId: string,
+  retryAttempt: number | undefined,
+): Promise<number | null> {
+  const nextRetryAttempt = (retryAttempt ?? 0) + 1;
+  if (nextRetryAttempt > MAX_AUDIO_LEVEL_RETRIES) return null;
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "audio-level",
     delayMs: postFinalizeRetryDelayMs(retryAttempt ?? 0),
     retryAttempt: nextRetryAttempt,
     requireAccepted: true,
@@ -243,6 +265,7 @@ export default defineEventHandler(async (event: H3Event) => {
           requireAccepted:
             kind === "media-ready" ||
             kind === "thumbnail" ||
+            kind === "audio-level" ||
             kind === "meeting-finalize",
         });
         return {
@@ -258,6 +281,66 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           ownerEmail: recording.ownerEmail,
         });
+        // Level the audio after the remux, in the same job, so the two media
+        // rewrites never race on the same stored object. A transient failure
+        // is retried as its own audio-level job; the remux result stands.
+        const audioLevel = await ensureRecordingAudioLevel({
+          recordingId,
+          ownerEmail: recording.ownerEmail,
+        }).catch((err: unknown) => ({
+          recordingId,
+          status: "skipped-measure-failed" as const,
+          changed: false,
+          detail: err instanceof Error ? err.message : String(err),
+        }));
+        const audioLevelRetryAttempt = isRetryableAudioLevelStatus(
+          audioLevel.status,
+        )
+          ? // A failed dispatch throws, so this job fails and is retried
+            // instead of losing the leveling retry. The remux is idempotent.
+            await scheduleAudioLevelRetry(recordingId, undefined)
+          : null;
+        return {
+          ok: true,
+          kind,
+          result,
+          audioLevel,
+          ...(audioLevelRetryAttempt !== null
+            ? { audioLevelRetryScheduled: true }
+            : {}),
+        };
+      }
+      if (kind === "audio-level") {
+        const result = await ensureRecordingAudioLevel({
+          recordingId,
+          ownerEmail: recording.ownerEmail,
+        }).catch((err: unknown) => ({
+          recordingId,
+          status: "skipped-measure-failed" as const,
+          changed: false,
+          detail: err instanceof Error ? err.message : String(err),
+        }));
+        if (isRetryableAudioLevelStatus(result.status)) {
+          const nextRetryAttempt = await scheduleAudioLevelRetry(
+            recordingId,
+            retryAttempt,
+          );
+          if (nextRetryAttempt !== null) {
+            return {
+              ok: true,
+              kind,
+              result,
+              retryScheduled: true,
+              retryAttempt: nextRetryAttempt,
+            };
+          }
+          console.warn("[post-finalize-worker] audio level retries exhausted", {
+            recordingId,
+            status: result.status,
+            retryAttempt,
+          });
+          return { ok: true, kind, result, retryExhausted: true };
+        }
         return { ok: true, kind, result };
       }
       if (kind === "thumbnail") {

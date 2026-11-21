@@ -130,6 +130,23 @@ repoints the row only after verified output is stored; any transcode, audio
 verification, upload, or concurrent-update failure leaves the original URL and
 format untouched.
 
+## Quiet audio
+
+The desktop recorder captures the built-in MacBook microphone without Apple's
+voice processing, so speech can land near -40 LUFS even after the live
+auto-gain. After a clip is ready, the server measures its loudness
+(`server/lib/audio-level.ts`). A clip quieter than -24 LUFS gets a fixed boost
+toward -16 LUFS (at most +30 dB) with a peak limiter at -1 dBFS; the video
+stream is copied. Clips that already sound normal, and silent clips, are left
+untouched. The step runs inside the `seekable` post-finalize job after the
+remux, or as its own `audio-level` job when no remux is needed, so the two
+rewrites never race. Leveling keeps `mediaUpdatedAt`: timing is unchanged, so
+transcripts and chapters stay valid. A marker keyed on `videoUrl` +
+`mediaUpdatedAt` keeps it from running twice. Files over 1 GiB and hosts
+without ffmpeg are skipped. For older clips, call `level-recording-audio` with
+`--id`, `--ids='[...]'` (at most 50), or `--all --limit=N`, then
+`--before=<nextBefore>` to continue; `--force` measures again.
+
 ## Loom and YouTube import
 
 Direct-video and downloadable Loom MP4 imports use the same pinned storage
