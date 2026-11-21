@@ -133,6 +133,7 @@ export default defineAction({
   description:
     "See what the user is currently looking at in the dispatch UI, including navigation state, any embedded workspace app, and a compact operational summary.",
   schema: z.object({}),
+  readOnly: true,
   http: false,
   mcpTool: "search",
   run: async () => {

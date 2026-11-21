@@ -478,7 +478,7 @@
     "update-visual-edit-collaboration",
     "write-local-file"
   ],
-  "dispatch": ["view-screen"],
+  "dispatch": [],
   "factory": [
     "create-factory",
     "create-factory-automation",

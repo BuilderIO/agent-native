@@ -58,6 +58,13 @@ vi.mock("../server/lib/workspace-resources-store.js", () => ({
 
 import viewScreen from "./view-screen.js";
 
+describe("view-screen MCP exposure", () => {
+  it("is a read that tool-search serves even where outside agents' writes go through ask_app", () => {
+    expect(viewScreen.mcpTool).toBe("search");
+    expect(viewScreen.readOnly).toBe(true);
+  });
+});
+
 describe("view-screen Thread Debug summary", () => {
   beforeEach(() => {
     mocks.navigation = { view: "thread-debug" };
