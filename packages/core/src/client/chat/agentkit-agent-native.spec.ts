@@ -415,6 +415,14 @@ describe("createAgentNativeAgentKitTransport", () => {
       name: "AgentProtocolValidationError",
       path: "threadSnapshot.toolCalls[0].status",
     });
+    threadData.agentKit.toolCalls[0].status = "completed";
+    threadData.agentKit.toolCalls[0].omitFromPersistedHistory = false;
+    await expect(
+      transport.getThreadSnapshot?.({ threadId: "thread-redacted" }),
+    ).rejects.toMatchObject({
+      name: "AgentProtocolValidationError",
+      path: "threadSnapshot.toolCalls[0].name",
+    });
     await transport.dispose();
   });
 
