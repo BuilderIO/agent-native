@@ -604,6 +604,11 @@ impl Shared {
                 "[rich-tracks] {}: camera track could not close its file: {error}",
                 this.recording_id
             );
+            // The camera goes off now all the same; the session lets go of its
+            // clock once the track is gone.
+            if let Some(session) = lock(&this.session).as_ref() {
+                session.halt();
+            }
             this.upload
                 .fail_source(format!("its file could not be closed: {error}"));
             this.upload.close_source();
