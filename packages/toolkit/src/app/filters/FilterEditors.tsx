@@ -704,7 +704,7 @@ export function FilterRuleEditor({
     case "multi": {
       const operators = filterOperatorsFor(field);
       return (
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-col">
           {showOperator && operators.length > 1 ? (
             <div className="border-b p-1">
               <FilterOperatorSelect

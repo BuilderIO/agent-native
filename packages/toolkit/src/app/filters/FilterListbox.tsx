@@ -61,7 +61,7 @@ export function FilterListbox({
 
   let lastSection: string | undefined;
   return (
-    <div className="flex min-w-0 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-col">
       <div className="flex items-center gap-2 border-b px-3">
         <IconSearch className="size-4 shrink-0 text-muted-foreground" />
         <input
@@ -104,7 +104,10 @@ export function FilterListbox({
         role="listbox"
         aria-label={label}
         aria-multiselectable={multiple || undefined}
-        className="max-h-72 overflow-y-auto overscroll-contain p-1"
+        className={cn(
+          "max-h-72 overflow-y-auto overscroll-contain p-1",
+          footer ? "min-h-24" : undefined,
+        )}
       >
         {items.length === 0 ? (
           <div className="px-2 py-3 text-sm text-muted-foreground">{empty}</div>

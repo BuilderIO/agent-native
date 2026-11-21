@@ -68,7 +68,7 @@ export interface FilterControlProps {
 }
 
 export const FILTER_POPOVER_CLASS =
-  "max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto overflow-x-hidden p-0";
+  "flex max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-1rem))] flex-col overflow-y-auto overflow-x-hidden p-0";
 
 export function FilterModeSwitch({
   mode,
@@ -214,7 +214,7 @@ export function FilterAddPopover({
         }}
       >
         {draft && draftField ? (
-          <div className="flex min-w-0 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-col">
             <div className="flex min-w-0 items-center gap-1 border-b px-1 py-1">
               <Button
                 type="button"
