@@ -5141,101 +5141,113 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
-  it("uses trusted private-thread history for model input even when the client strips markers", async () => {
-    const secret = "private-prior-sentinel";
-    const snapshot = {
-      messages: [
-        {
-          message: {
-            id: "u1",
-            role: "user",
-            content: [{ type: "text", text: "public question" }],
-          },
-        },
-        {
-          message: {
-            id: "a1",
-            role: "assistant",
-            content: [{ type: "text", text: "public answer" }],
-          },
-        },
-        {
-          message: {
-            id: "a2",
-            role: "assistant",
-            metadata: { runId: "private-run" },
-            content: [{ type: "text", text: secret }],
-          },
-        },
-      ],
-    };
-    const access = vi
-      .spyOn(chatThreadStore, "resolveThreadAccess")
-      .mockResolvedValue({
-        id: "private-thread",
-        threadData: JSON.stringify(snapshot),
-      } as never);
-    const provenance = vi
-      .spyOn(runStore, "getThreadPrivateHistoryState")
-      .mockResolvedValue({
-        hasPrivateHistory: true,
-        projectionPending: false,
-        privateRunIds: ["private-run"],
-      });
-    const inputs: string[] = [];
-    const engine: AgentEngine = {
-      ...engineWithUncalledStream(),
-      async *stream(opts) {
-        inputs.push(JSON.stringify(opts.messages));
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text", text: "done" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
+  it.each([
+    { label: "direct", metadata: { runId: "private-run" } },
+    {
+      label: "folded",
+      metadata: {
+        runId: "later-run",
+        custom: { foldedRunIds: ["private-run", "later-run"] },
       },
-    };
-    const handler = createProductionAgentHandler({
-      systemPrompt: "Test",
-      engine,
-      actions: {},
-      prepareRequest: () => ({ followUpSuggestions: false }),
-    });
-    const event = mockEvent(
-      new Request("http://app.example.com/_agent-native/agent-chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          message: "new request",
-          threadId: "private-thread",
-          history: [{ role: "assistant", content: secret }],
-          structuredHistory: [
-            { role: "assistant", content: [{ type: "text", text: secret }] },
-          ],
-          loadedSkillSlugs: [secret],
+    },
+  ])(
+    "uses trusted private-thread history for model input when the client strips markers ($label)",
+    async ({ metadata }) => {
+      const secret = "private-prior-sentinel";
+      const snapshot = {
+        messages: [
+          {
+            message: {
+              id: "u1",
+              role: "user",
+              content: [{ type: "text", text: "public question" }],
+            },
+          },
+          {
+            message: {
+              id: "a1",
+              role: "assistant",
+              content: [{ type: "text", text: "public answer" }],
+            },
+          },
+          {
+            message: {
+              id: "a2",
+              role: "assistant",
+              metadata,
+              content: [{ type: "text", text: secret }],
+            },
+          },
+        ],
+      };
+      const access = vi
+        .spyOn(chatThreadStore, "resolveThreadAccess")
+        .mockResolvedValue({
+          id: "private-thread",
+          threadData: JSON.stringify(snapshot),
+        } as never);
+      const provenance = vi
+        .spyOn(runStore, "getThreadPrivateHistoryState")
+        .mockResolvedValue({
+          hasPrivateHistory: true,
+          projectionPending: false,
+          privateRunIds: ["private-run"],
+        });
+      const inputs: string[] = [];
+      const engine: AgentEngine = {
+        ...engineWithUncalledStream(),
+        async *stream(opts) {
+          inputs.push(JSON.stringify(opts.messages));
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+        prepareRequest: () => ({ followUpSuggestions: false }),
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "new request",
+            threadId: "private-thread",
+            history: [{ role: "assistant", content: secret }],
+            structuredHistory: [
+              { role: "assistant", content: [{ type: "text", text: secret }] },
+            ],
+            loadedSkillSlugs: [secret],
+          }),
         }),
-      }),
-    );
-    try {
-      const response = await runWithRequestContext(
-        { userEmail: "alice@example.com", orgId: "acme", run: {} },
-        () => handler(event),
       );
-      if (response instanceof ReadableStream) {
-        const reader = response.getReader();
-        while (!(await reader.read()).done) {}
+      try {
+        const response = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+        if (response instanceof ReadableStream) {
+          const reader = response.getReader();
+          while (!(await reader.read()).done) {}
+        }
+        expect(inputs.length).toBeGreaterThan(0);
+        expect(inputs.join("")).not.toContain(secret);
+        expect(inputs.join("")).toContain("public answer");
+        expect(inputs.join("")).toContain("new request");
+        expect(access.mock.invocationCallOrder[0]).toBeLessThan(
+          provenance.mock.invocationCallOrder[0],
+        );
+      } finally {
+        access.mockRestore();
+        provenance.mockRestore();
       }
-      expect(inputs.length).toBeGreaterThan(0);
-      expect(inputs.join("")).not.toContain(secret);
-      expect(inputs.join("")).toContain("public answer");
-      expect(inputs.join("")).toContain("new request");
-      expect(access.mock.invocationCallOrder[0]).toBeLessThan(
-        provenance.mock.invocationCallOrder[0],
-      );
-    } finally {
-      access.mockRestore();
-      provenance.mockRestore();
-    }
-  });
+    },
+  );
 
   it("omits stripped private history from durable dispatch payloads", async () => {
     const secret = "private-dispatch-sentinel";
