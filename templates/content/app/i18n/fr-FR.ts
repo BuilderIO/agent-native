@@ -2078,7 +2078,9 @@ const overrides = {
     aiResponseMode: "Réponse",
     aiChooseSendMode: "Choisir le mode d’envoi IA",
     aiSuggestChanges: "Suggérer des modifications",
-    aiUnavailable: "Indisponible",
+    aiModelNotConnected:
+      "{{model}} n’est pas connecté. Cliquez sur son nom pour choisir un autre modèle.",
+    aiModelNotConnectedAlone: "{{model}} n’est pas connecté.",
     aiReplyInThread: "Répondre dans le fil",
     aiApplyAndResolve: "Appliquer les modifications et résoudre",
     aiPromptSuggest: "Suggère des modifications pour ce commentaire.",

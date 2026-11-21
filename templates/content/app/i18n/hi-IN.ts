@@ -1971,7 +1971,9 @@ const overrides = {
     aiResponseMode: "जवाब",
     aiChooseSendMode: "AI भेजने का मोड चुनें",
     aiSuggestChanges: "बदलाव सुझाएँ",
-    aiUnavailable: "उपलब्ध नहीं",
+    aiModelNotConnected:
+      "{{model}} कनेक्ट नहीं है। दूसरा मॉडल चुनने के लिए उसके नाम पर क्लिक करें।",
+    aiModelNotConnectedAlone: "{{model}} कनेक्ट नहीं है।",
     aiReplyInThread: "थ्रेड में जवाब दें",
     aiApplyAndResolve: "बदलाव लागू करके सुलझाएँ",
     aiPromptSuggest: "इस टिप्पणी के लिए बदलाव सुझाएँ।",
