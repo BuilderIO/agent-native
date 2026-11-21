@@ -117,6 +117,29 @@ describe("default template catalogs when organization tools opt in", () => {
   });
 
   it(
+    "keeps Brain's existing default catalog when its policy is explicit",
+    async () => {
+      const brain = apps.find((app) => app.appId === "brain");
+      expect(brain).toBeDefined();
+      const config = brain!.surfaces[0]!.config;
+      const { connectorCatalog: _catalog, ...implicit } = config;
+      vi.stubEnv("AGENT_MODE", "production");
+      vi.stubEnv("AGENT_PROD_CODE_EXECUTION", "off");
+      try {
+        const options = { fullCatalog: false, fullSurface: false };
+        const before = await listAdvertised(implicit, options);
+        const after = await listAdvertised(config, options);
+        expect(after.tools.map((tool) => tool.name).sort()).toEqual(
+          before.tools.map((tool) => tool.name).sort(),
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+    LOAD_TIMEOUT_MS,
+  );
+
+  it(
     "keeps each default list exactly, adding only mounted organization tools",
     async () => {
       expect(apps.length).toBeGreaterThan(0);
