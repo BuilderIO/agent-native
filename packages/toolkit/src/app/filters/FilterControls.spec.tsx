@@ -279,20 +279,24 @@ describe("FilterValuePicker", () => {
 
 function DateEditor({
   onChange,
+  field = createdField,
+  rule = {
+    kind: "rule",
+    id: "created-rule",
+    field: "created",
+    operator: "before",
+    value: ["2026-11-01"],
+  },
 }: {
   onChange: (patch: FilterRulePatch) => void;
+  field?: FilterField;
+  rule?: FilterRule;
 }) {
   const text = useFilterText();
   return (
     <FilterDateEditor
-      field={createdField}
-      rule={{
-        kind: "rule",
-        id: "created-rule",
-        field: "created",
-        operator: "before",
-        value: ["2026-11-01"],
-      }}
+      field={field}
+      rule={rule}
       text={text}
       onChange={onChange}
       onDone={vi.fn()}
@@ -314,16 +318,140 @@ describe("FilterDateEditor", () => {
       value: ["yesterday"],
     });
   });
+
+  function dateInput(label: string) {
+    const input = document.querySelector<HTMLInputElement>(
+      `input[aria-label="${label}"]`,
+    );
+    if (!input) throw new Error(`No input named ${label}`);
+    return input;
+  }
+
+  it("applies a range from a start and an end date", () => {
+    const onChange = vi.fn();
+    render(
+      <DateEditor
+        onChange={onChange}
+        rule={createFilterRule(createdField, [], "between")}
+      />,
+    );
+    expect(hasButtonNamed("Apply")).toBe(true);
+    expect(buttonNamed("Apply").hasAttribute("disabled")).toBe(true);
+    typeInto(dateInput("Start date"), "2026-10-01");
+    typeInto(dateInput("End date"), "2026-10-31");
+    click(buttonNamed("Apply"));
+    expect(onChange).toHaveBeenLastCalledWith({
+      operator: "between",
+      value: ["2026-10-01", "2026-10-31"],
+    });
+  });
+
+  it("offers only the field's own operators and presets", () => {
+    const beforeOnly: FilterField = { ...createdField, operators: ["before"] };
+    render(<DateEditor onChange={vi.fn()} field={beforeOnly} />);
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(0);
+    expect(hasButtonNamed("Start date")).toBe(false);
+    const operator = document.querySelector("form button");
+    if (!operator) throw new Error("No operator menu");
+    openMenu(operator);
+    expect(
+      Array.from(document.querySelectorAll('[role="menuitemradio"]')).map(
+        (item) => item.textContent.trim(),
+      ),
+    ).toEqual(["is before"]);
+  });
+
+  it("names each end of a range's day menu by its end", () => {
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        rule={createFilterRule(createdField, ["today", ""], "between")}
+      />,
+    );
+    expect(hasButtonNamed("Start date: Today")).toBe(true);
+    expect(hasButtonNamed("End date: Exact date")).toBe(true);
+  });
+
+  it("reads a saved relative day with spaces around it", () => {
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        rule={createFilterRule(createdField, [" today "], "before")}
+      />,
+    );
+    expect(dayChoice("Exact date").textContent.trim()).toBe("Today");
+    expect(document.querySelector('input[aria-label="Exact date"]')).toBe(null);
+  });
+
+  function dayChoice(label: string) {
+    const button = document.querySelector(
+      `[role="group"][aria-label="${label}"] button`,
+    );
+    if (!button) throw new Error(`No day choice for ${label}`);
+    return button;
+  }
+
+  it("ends a range on a relative day", () => {
+    const onChange = vi.fn();
+    render(
+      <DateEditor
+        onChange={onChange}
+        rule={createFilterRule(createdField, [], "between")}
+      />,
+    );
+    typeInto(dateInput("Start date"), "2026-10-01");
+    openMenu(dayChoice("End date"));
+    click(menuItem("Today"));
+    expect(dayChoice("End date").textContent).toBe("Today");
+    expect(document.querySelector('input[aria-label="End date"]')).toBeNull();
+    click(buttonNamed("Apply"));
+    expect(onChange).toHaveBeenLastCalledWith({
+      operator: "between",
+      value: ["2026-10-01", "today"],
+    });
+  });
+
+  it("goes back from a relative day to a date box", () => {
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        rule={createFilterRule(createdField, ["yesterday"], "before")}
+      />,
+    );
+    expect(dayChoice("Exact date").textContent).toBe("Yesterday");
+    openMenu(dayChoice("Exact date"));
+    click(menuItem("Exact date"));
+    const input = dateInput("Exact date");
+    expect(input.type).toBe("date");
+    expect(input.value).toBe("");
+    expect(buttonNamed("Apply").hasAttribute("disabled")).toBe(true);
+  });
+
+  it("edits a time an agent wrote as text", () => {
+    const timed: FilterField = { ...createdField, times: true };
+    render(
+      <DateEditor
+        onChange={vi.fn()}
+        field={timed}
+        rule={createFilterRule(timed, ["2026-10-22T09:00"], "after")}
+      />,
+    );
+    const input = dateInput("Exact date");
+    expect(input.type).toBe("text");
+    expect(input.value).toBe("2026-10-22T09:00");
+  });
 });
 
 function Bar({
   initial,
   onClear,
   barFields = fields,
+  nestedGroups,
 }: {
   initial: FilterState;
   onClear?: () => void;
   barFields?: FilterField[];
+  nestedGroups?: boolean;
 }) {
   const [state, setState] = useState(initial);
   return (
@@ -332,6 +460,7 @@ function Bar({
       state={state}
       onChange={setState}
       onClear={onClear}
+      nestedGroups={nestedGroups}
     />
   );
 }
@@ -446,6 +575,44 @@ describe("FilterBar", () => {
     click(optionNamed("Alice"));
     expect(hasButtonNamed("Remove rule")).toBe(true);
     expect(hasButtonNamed("Choose a value")).toBe(true);
+  });
+
+  it("names a group inside a group in its own parentheses", () => {
+    render(
+      <Bar
+        nestedGroups
+        initial={addFilterGroup(
+          createFilterState(fields),
+          createFilterGroup([
+            createFilterRule(ownerField, ["alice"]),
+            createFilterGroup([createFilterRule(tagsField, ["demo"])], "and"),
+          ]),
+        )}
+      />,
+    );
+    click(buttonNamed("(Made by: Alice or (Tags: Demo))"));
+    expect(texts("button").filter((label) => label === "Add group")).toEqual([
+      "Add group",
+    ]);
+    expect(
+      Array.from(document.querySelectorAll("button")).filter(
+        (button) => button.getAttribute("aria-label") === "Remove group",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("offers a group inside a group only to apps that opt in", () => {
+    render(
+      <Bar
+        initial={addFilterGroup(
+          createFilterState(fields),
+          createFilterGroup([createFilterRule(ownerField, ["alice"])]),
+        )}
+      />,
+    );
+    click(buttonNamed("(Made by: Alice)"));
+    expect(hasButtonNamed("Add rule")).toBe(true);
+    expect(hasButtonNamed("Add group")).toBe(false);
   });
 });
 

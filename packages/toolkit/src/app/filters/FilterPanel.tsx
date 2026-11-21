@@ -50,6 +50,7 @@ function FilterPanelBody({
   state,
   onChange,
   counts,
+  nestedGroups,
   nouns,
   text,
 }: FilterPanelProps & { text: FilterText }) {
@@ -114,6 +115,7 @@ function FilterPanelBody({
                   state={state}
                   onChange={onChange}
                   counts={counts}
+                  nestedGroups={nestedGroups}
                   text={text}
                 />
               )}
@@ -168,6 +170,7 @@ export function FilterButton({
   state,
   onChange,
   counts,
+  nestedGroups,
   nouns,
   onClear,
   clearable,
@@ -231,6 +234,7 @@ export function FilterButton({
       state={state}
       onChange={handleChange}
       counts={shownCounts}
+      nestedGroups={nestedGroups}
       nouns={nouns}
       text={text}
     />

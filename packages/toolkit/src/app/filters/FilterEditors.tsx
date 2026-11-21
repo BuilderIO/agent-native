@@ -14,11 +14,14 @@ import { useState } from "react";
 import { FilterListbox, type FilterListboxItem } from "./FilterListbox.js";
 import {
   FILTER_NOBODY,
+  FILTER_RELATIVE_DAYS,
+  filterOperatorsAcceptedFor,
   filterOperatorsFor,
   filterOperatorTakesManyValues,
   filterOperatorTakesValue,
   isFilterOperator,
-  resolveFilterDay,
+  isFilterRelativeDay,
+  resolveFilterDateBound,
   type FilterCounts,
   type FilterField,
   type FilterOperator,
@@ -71,6 +74,9 @@ export function FilterOperatorSelect({
   onChange: (operator: FilterOperator) => void;
   className?: string;
 }) {
+  const shown = operators.includes(operator)
+    ? operators
+    : [...operators, operator];
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
@@ -96,7 +102,7 @@ export function FilterOperatorSelect({
             if (isFilterOperator(value)) onChange(value);
           }}
         >
-          {operators.map((candidate) => (
+          {shown.map((candidate) => (
             <DropdownMenuRadioItem key={candidate} value={candidate}>
               {text.operatorLabel(field, candidate, Math.max(valueCount, 1))}
             </DropdownMenuRadioItem>
@@ -219,7 +225,89 @@ const EXACT_DATE_OPERATORS: readonly FilterOperator[] = [
   "after",
   "on_or_before",
   "on_or_after",
+  "between",
 ];
+
+const DAY_VALUE = /^\d{4}-\d{2}-\d{2}$/;
+
+const EXACT_DAY = "exact";
+
+function FilterDateInput({
+  value,
+  label,
+  asText,
+  text,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  asText: boolean;
+  text: FilterText;
+  onChange: (value: string) => void;
+}) {
+  const day = value.trim();
+  const relative = isFilterRelativeDay(day);
+  const shown = relative
+    ? text.dayLabel(day)
+    : text.t("agentChat.filters.exactDate");
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex min-w-0 basis-full items-center gap-1"
+    >
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="min-w-0 shrink-0 gap-1 text-muted-foreground"
+            aria-label={
+              shown === label
+                ? undefined
+                : text.t("agentChat.filters.fieldValue", {
+                    field: label,
+                    value: shown,
+                  })
+            }
+          >
+            <span className="truncate">{shown}</span>
+            <IconChevronDown className="size-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" collisionPadding={8}>
+          <DropdownMenuRadioGroup
+            value={relative ? day : EXACT_DAY}
+            onValueChange={(next) => onChange(next === EXACT_DAY ? "" : next)}
+          >
+            <DropdownMenuRadioItem value={EXACT_DAY}>
+              {text.t("agentChat.filters.exactDate")}
+            </DropdownMenuRadioItem>
+            {FILTER_RELATIVE_DAYS.map((day) => (
+              <DropdownMenuRadioItem key={day} value={day}>
+                {text.dayLabel(day)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {relative ? null : (
+        <Input
+          type={asText ? "text" : "date"}
+          value={value}
+          aria-label={label}
+          placeholder={
+            asText ? text.t("agentChat.filters.dateTimeFormat") : undefined
+          }
+          onChange={(event) => onChange(event.target.value)}
+          size="sm"
+          className="min-w-0 flex-1"
+        />
+      )}
+    </div>
+  );
+}
 
 export function FilterDateEditor({
   field,
@@ -235,22 +323,48 @@ export function FilterDateEditor({
   onDone: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const current = rule.value.at(0) ?? "";
+  const listed = filterOperatorsFor(field);
+  const listedExact = EXACT_DATE_OPERATORS.filter((operator) =>
+    listed.includes(operator),
+  );
+  const exactOperators =
+    rule.operator === "does_not_equal" &&
+    filterOperatorsAcceptedFor(field).includes(rule.operator)
+      ? [...listedExact, rule.operator]
+      : listedExact;
   const [exactOperator, setExactOperator] = useState<FilterOperator>(
-    EXACT_DATE_OPERATORS.includes(rule.operator) ? rule.operator : "equals",
+    exactOperators.includes(rule.operator)
+      ? rule.operator
+      : (exactOperators.at(0) ?? "equals"),
   );
-  const [exactDay, setExactDay] = useState(
-    /^\d{4}-\d{2}-\d{2}$/.test(current) ? current : "",
+  const readable = (value: string | undefined = "") =>
+    resolveFilterDateBound(value, "2000-01-01", { times: field.times })
+      ? value
+      : "";
+  const [exactDays, setExactDays] = useState<[string, string]>(() =>
+    rule.operator === "is_within"
+      ? ["", ""]
+      : [readable(rule.value.at(0)), readable(rule.value.at(1))],
   );
+  const [asText] = useState(() =>
+    exactDays.map(
+      (value) =>
+        value !== "" &&
+        !DAY_VALUE.test(value) &&
+        !isFilterRelativeDay(value.trim()),
+    ),
+  );
+  const between = exactOperator === "between";
+  const exactValue = between ? exactDays : exactDays.slice(0, 1);
   const candidates: FilterValueCandidate[] = [
     ...filterValueCandidates(field, filterCandidateLabels(text)),
-    ...(field.alwaysSet
-      ? []
-      : (["is_empty", "is_not_empty"] as const).map((operator) => ({
-          operator,
-          value: [],
-          label: text.operatorLabel(field, operator),
-        }))),
+    ...(["is_empty", "is_not_empty"] as const)
+      .filter((operator) => listed.includes(operator))
+      .map((operator) => ({
+        operator,
+        value: [],
+        label: text.operatorLabel(field, operator),
+      })),
   ];
   const items: FilterListboxItem[] = candidates
     .filter((candidate) => matchesFilterQuery(candidate.label, query))
@@ -261,11 +375,21 @@ export function FilterDateEditor({
         candidate.operator === rule.operator &&
         candidate.value.join(",") === rule.value.join(","),
     }));
+  const exactValid = exactValue.every(
+    (value) =>
+      resolveFilterDateBound(value, "2000-01-01", { times: field.times }) !==
+      null,
+  );
   const applyExact = () => {
-    if (resolveFilterDay(exactDay, "2000-01-01") === null) return;
-    onChange({ operator: exactOperator, value: [exactDay] });
+    if (!exactValid) return;
+    onChange({
+      operator: exactOperator,
+      value: exactValue.map((value) => value.trim()),
+    });
     onDone();
   };
+  const setExactDay = (index: 0 | 1, value: string) =>
+    setExactDays((days) => (index === 0 ? [value, days[1]] : [days[0], value]));
   return (
     <FilterListbox
       label={text.fieldLabel(field)}
@@ -283,35 +407,55 @@ export function FilterDateEditor({
         onDone();
       }}
       footer={
-        <form
-          className="flex flex-wrap items-center gap-1.5 border-t p-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            applyExact();
-          }}
-        >
-          <span className="w-full text-xs font-medium text-muted-foreground">
-            {text.t("agentChat.filters.exactDate")}
-          </span>
-          <FilterOperatorSelect
-            field={field}
-            operator={exactOperator}
-            operators={EXACT_DATE_OPERATORS}
-            valueCount={1}
-            text={text}
-            onChange={setExactOperator}
-          />
-          <Input
-            type="date"
-            value={exactDay}
-            aria-label={text.t("agentChat.filters.exactDate")}
-            onChange={(event) => setExactDay(event.target.value)}
-            className="h-8 min-w-0 flex-1"
-          />
-          <Button type="submit" size="sm" disabled={exactDay === ""}>
-            {text.t("agentChat.filters.apply")}
-          </Button>
-        </form>
+        exactOperators.length === 0 ? undefined : (
+          <form
+            className="flex flex-wrap items-center gap-1.5 border-t p-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyExact();
+            }}
+          >
+            <span className="w-full text-xs font-medium text-muted-foreground">
+              {text.t("agentChat.filters.exactDate")}
+            </span>
+            <FilterOperatorSelect
+              field={field}
+              operator={exactOperator}
+              operators={exactOperators}
+              valueCount={1}
+              text={text}
+              onChange={setExactOperator}
+            />
+            <FilterDateInput
+              value={exactDays[0]}
+              label={text.t(
+                between
+                  ? "agentChat.filters.startDate"
+                  : "agentChat.filters.exactDate",
+              )}
+              asText={asText[0] === true}
+              text={text}
+              onChange={(value) => setExactDay(0, value)}
+            />
+            {between ? (
+              <FilterDateInput
+                value={exactDays[1]}
+                label={text.t("agentChat.filters.endDate")}
+                asText={asText[1] === true}
+                text={text}
+                onChange={(value) => setExactDay(1, value)}
+              />
+            ) : null}
+            <Button
+              type="submit"
+              size="sm"
+              className="ms-auto"
+              disabled={!exactValid}
+            >
+              {text.t("agentChat.filters.apply")}
+            </Button>
+          </form>
+        )
       }
     />
   );
