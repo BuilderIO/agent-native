@@ -19,6 +19,11 @@ export default defineAction({
       .array(actionSuggestionSchema)
       .max(MAX_ACTION_SUGGESTIONS_PER_TURN),
   }),
+  outputSchema: z.object({
+    suggestions: z
+      .array(actionSuggestionSchema)
+      .max(MAX_ACTION_SUGGESTIONS_PER_TURN),
+  }),
   readOnly: true,
   http: false,
   mcpTool: false,
@@ -28,10 +33,10 @@ export default defineAction({
       candidates.map(canOfferActionSuggestion),
     );
     return {
-      suggestions: candidates.filter(
-        (_, index) =>
-          available[index]?.status === "fulfilled" && available[index].value,
-      ),
+      suggestions: candidates.filter((_, index) => {
+        const result = available.at(index);
+        return result?.status === "fulfilled" && result.value;
+      }),
     };
   },
 });

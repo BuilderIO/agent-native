@@ -143,7 +143,6 @@ function publicPanePath(value: unknown): string | undefined {
   ) {
     return undefined;
   }
-  // Report the visible route without query parameters or fragments.
   const path = value.split(/[?#]/, 1)[0];
   return path && path.length <= 2_000 ? path : undefined;
 }

@@ -40,7 +40,7 @@ export async function resolveDispatchChildBrowserTab(target: {
     const origin = new URL(target.homeUrl ?? target.url).origin;
     return pane.origin === origin ? pane.childBrowserTabId : undefined;
   } catch {
-    // An installation without a valid runtime origin cannot confirm a binding.
+    // coercion-ok: An invalid installation origin cannot authorize a child binding.
     return undefined;
   }
 }

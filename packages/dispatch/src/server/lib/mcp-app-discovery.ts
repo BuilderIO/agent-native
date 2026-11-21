@@ -43,7 +43,6 @@ let nextRead = 0;
 
 function scopeKey(ownerEmail: string, orgId: string | undefined) {
   const context = getRequestContext();
-  // A capability session has a separate authorization scope from its owner.
   if (context?.authCapability || context?.verifiedServiceIdentity) return null;
   return JSON.stringify([
     ownerEmail.toLowerCase(),
@@ -100,19 +99,16 @@ function withFallback(
 }
 
 function registrationUrl(value: string): URL | null {
-  try {
-    const url = new URL(projectEnvironmentUrl(value));
-    return (url.protocol === "https:" || url.protocol === "http:") &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash
-      ? url
-      : null;
-  } catch {
-    // A malformed reported URL cannot prove an installation matches.
-    return null;
-  }
+  const projected = projectEnvironmentUrl(value);
+  if (!URL.canParse(projected)) return null;
+  const url = new URL(projected);
+  return (url.protocol === "https:" || url.protocol === "http:") &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+    ? url
+    : null;
 }
 
 function sameInstallation(agent: AgentManifest, mount: WorkspaceMount) {
@@ -160,8 +156,6 @@ async function recheckCachedInstallations(
   mountRead: Promise<MountRead>,
 ) {
   const { mounts, degraded } = await mountRead;
-  // Two cached records cannot vouch for each other's runtime identity. The
-  // source-independent check needs the current authorized registration.
   if (degraded) return [];
   const byId = new Map(mounts.map((mount) => [mount.id.toLowerCase(), mount]));
   return readCached().filter((agent) => {
@@ -234,8 +228,6 @@ async function readAgents(
           mountRead,
         )
       : [];
-    // Refreshing errors must not extend the directory snapshot. An explicit
-    // denial takes precedence over older results for the same scope.
     if (!transient) saveSnapshot(manifests, scope, started, current);
     return {
       agents: withFallback(current, cached),
@@ -256,8 +248,6 @@ async function readAgents(
 }
 
 function statusFromError(error: unknown): number | undefined {
-  // Core wraps strict source errors. Inspect the underlying status so a
-  // generic outer failure cannot hide a connected-source authorization denial.
   const seen = new Set<object>();
   let current: unknown = error;
   let firstStatus: number | undefined;
@@ -314,7 +304,7 @@ async function readMounts(
           );
         });
       } catch {
-        // A mount needs a current sharing decision before it can be reused.
+        // coercion-ok: an unreadable grant leaves the mount unavailable in the degraded result.
       }
     }
     return {

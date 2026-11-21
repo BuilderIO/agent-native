@@ -869,7 +869,6 @@ export async function listDispatchMcpApps(): Promise<{
               ? mountedWorkspaceAppHomeUrl(mountedApp)
               : null;
           if (homeUrl) return { ...accessible, homeUrl };
-          // Mounted installations require a verified mount and sharing decision.
           return agent.source === "workspace" ||
             isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
@@ -1210,8 +1209,6 @@ export async function openGrantedDispatchMcpApp(
   // asked for from a panel that failed to open.
   let embedUnavailable: string | undefined;
   if (options?.prefetchEmbed && input.embed !== false) {
-    // The first-party pane always asks for minimal chrome. External MCP
-    // widgets still need their target's ticket in the tool result.
     prefetchGrantedEmbedSession(target, url);
   } else if (input.embed) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2119,18 +2116,15 @@ function prefetchGrantedEmbedSession(
       controller.abort();
     };
     const timer = setTimeout(abort, OPEN_APP_EMBED_WAIT_MS);
-    timer.unref?.();
+    timer.unref();
     const entry = { result, release, abort };
     pendingGrantedEmbeds.set(key, entry);
     try {
       await result;
     } catch {
-      // The browser can retry via its normal authorized mint if prefetch fails.
       release();
     }
-  })().catch(() => {
-    // The handoff remains usable if its optional prefetch target is unavailable.
-  });
+  })().catch(() => {});
   const waitUntil = getRequestRunContext()?.waitUntil ?? platformWaitUntil();
   waitUntil?.(work);
 }
@@ -2142,8 +2136,6 @@ async function takePrefetchedGrantedEmbedSession(
   const key = grantedEmbedPrefetchKey(ownerEmail, target);
   const entry = pendingGrantedEmbeds.get(key);
   if (!entry) return;
-  // The start URL can be redeemed once. Recheck grants (above) and let one
-  // consumer take it. Scoped chat credentials never use this cache.
   pendingGrantedEmbeds.delete(key);
   const claimDeadline = setTimeout(entry.abort, BROWSER_EMBED_PREFETCH_WAIT_MS);
   try {
@@ -2151,7 +2143,7 @@ async function takePrefetchedGrantedEmbedSession(
     if (session.expiresAt === undefined || session.expiresAt > Date.now())
       return session;
   } catch {
-    // Fall back to the foreground mint with normal errors and retry behavior.
+    // coercion-ok: A failed prefetch requires the normal foreground mint.
   } finally {
     clearTimeout(claimDeadline);
     entry.release();
@@ -2192,10 +2184,10 @@ async function createGrantedDispatchMcpEmbedSessionResult(input: {
 
 export async function createGrantedDispatchMcpEmbedSession(
   input: {
-    app?: string;
-    url?: string;
-    path?: string;
-    chrome?: "full" | "minimal";
+    app?: string | undefined;
+    url?: string | undefined;
+    path?: string | undefined;
+    chrome?: "full" | "minimal" | undefined;
   },
   options?: { bindBrowserTab: boolean },
 ): Promise<ReturnType<typeof publicEmbedSession>> {
@@ -2254,12 +2246,12 @@ export async function createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
 
 async function createEmbedSessionForResolvedApp(input: {
   ownerEmail: string;
-  orgId?: string;
+  orgId?: string | undefined;
   target: { app: DispatchMcpAccessibleApp; path: string; url: string };
-  chrome?: "full" | "minimal";
-  runtime?: "workspace-app-chat";
+  chrome?: "full" | "minimal" | undefined;
+  runtime?: "workspace-app-chat" | undefined;
   workspaceSso?: boolean;
-  bindBrowserTab?: boolean;
+  bindBrowserTab?: boolean | undefined;
   signal?: AbortSignal;
 }): Promise<InternalEmbedSession> {
   const { ownerEmail, orgId, target, chrome } = input;
@@ -2423,7 +2415,6 @@ async function createEmbedSessionForResolvedApp(input: {
     const safePath = childBrowserTabId && safeAppPath(parsed.targetPath);
     if (safePath) {
       const reported = new URL(safePath, launchUrl.origin);
-      // A legacy guest may drop the claim. Only expose an ID it echoed back.
       if (
         reported.searchParams.get(DISPATCH_CHILD_BROWSER_TAB_PARAM) ===
         childBrowserTabId
@@ -2492,10 +2483,10 @@ async function createWorkspaceSsoEmbedSessionResult(input: {
 
 export async function createWorkspaceSsoEmbedSession(
   input: {
-    app?: string;
-    url?: string;
-    path?: string;
-    chrome?: "full" | "minimal";
+    app?: string | undefined;
+    url?: string | undefined;
+    path?: string | undefined;
+    chrome?: "full" | "minimal" | undefined;
   },
   options?: { bindBrowserTab: boolean },
 ): Promise<ReturnType<typeof publicEmbedSession>> {

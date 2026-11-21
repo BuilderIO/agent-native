@@ -37,19 +37,16 @@ function approvalLink(error: unknown): string | undefined {
     typeof review.url !== "string"
   )
     return undefined;
-  try {
-    const url = new URL(review.url);
-    const isLocal =
-      url.protocol === "http:" &&
-      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    if (url.protocol !== "https:" && !isLocal) return undefined;
-    if (url.username || url.password) return undefined;
-    if (!new URLSearchParams(url.hash.slice(1)).has("mcpApproval"))
-      return undefined;
-    return url.href;
-  } catch {
+  if (!URL.canParse(review.url)) return undefined;
+  const url = new URL(review.url);
+  const isLocal =
+    url.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !isLocal) return undefined;
+  if (url.username || url.password) return undefined;
+  if (!new URLSearchParams(url.hash.slice(1)).has("mcpApproval"))
     return undefined;
-  }
+  return url.href;
 }
 
 function SuggestionOperation({ suggestion }: { suggestion: ActionSuggestion }) {
@@ -113,7 +110,10 @@ export function ActionSuggestionChips({
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [pendingId, setPendingId] = useState<string>();
   const [receipt, setReceipt] = useState<ActionSuggestionReceipt>();
-  const [failure, setFailure] = useState<{ approval: boolean; url?: string }>();
+  const [failure, setFailure] = useState<{
+    approval: boolean;
+    url: string | undefined;
+  }>();
 
   function hide(suggestionId: string) {
     setHandled((current) => new Set(current).add(suggestionId));

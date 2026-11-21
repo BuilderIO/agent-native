@@ -1768,9 +1768,7 @@ function DispatchLayout({
             }
           : null,
         { keepalive: true },
-      ).catch(() => {
-        // Pane context sync is optional. The iframe remains interactive.
-      }),
+      ).catch(() => {}),
     [visiblePaneAppId, visiblePanePath],
   );
   useEffect(() => {
@@ -1786,9 +1784,7 @@ function DispatchLayout({
           return writeActivePaneContext(view);
         }
       })
-      .catch(() => {
-        // A frame being replaced may stop reporting its current view.
-      });
+      .catch(() => {});
   }, [writeActivePaneContext]);
   useEffect(() => {
     if (!visiblePaneAppId) return;
@@ -1797,9 +1793,7 @@ function DispatchLayout({
         `${CHAT_FIRST_PANE_CONTEXT_STATE_KEY}:${getBrowserTabId()}`,
         null,
         { keepalive: true },
-      ).catch(() => {
-        // A closing page might not have time to send the state update.
-      });
+      ).catch(() => {});
     };
     window.addEventListener("focus", refreshActivePaneContext);
     window.addEventListener("pageshow", refreshActivePaneContext);
@@ -2335,7 +2329,7 @@ function DispatchLayout({
   useEffect(() => {
     if (!chatFirstMode || !isChatRoute) return;
     const cancelPendingRoute = (event: Event) => {
-      const detail = (event as CustomEvent<{ tool?: unknown }>).detail;
+      const detail = (event as CustomEvent<{ tool?: unknown } | null>).detail;
       if (detail?.tool !== "open_app" && detail?.tool !== "open-app") return;
       const current = chatFirstRouteSendRef.current;
       chatFirstRouteSendRef.current = { seq: current.seq + 1, id: null };
@@ -2407,6 +2401,7 @@ function DispatchLayout({
           reader.scope === sent.scope
             ? await reader
                 .read(AbortSignal.timeout(CHAT_FIRST_PANE_READ_TIMEOUT_MS))
+                // coercion-ok: An unavailable live read leaves only the registered route as context.
                 .catch(() => null)
             : null;
         const latest = chatFirstRouteLatestRef.current;

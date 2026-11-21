@@ -4,6 +4,7 @@ import {
   type AgentThreadState,
 } from "@agent-native/agentkit/client";
 import {
+  AgentProtocolValidationError,
   MAX_ACTION_SUGGESTIONS_PER_TURN,
   parseActionSuggestion,
   type ActionSuggestion,
@@ -24,7 +25,8 @@ function wireResult(value: unknown): Record<string, unknown> | undefined {
   if (value.length > 65_536) return undefined;
   try {
     return asRecord(JSON.parse(value));
-  } catch {
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
     return undefined;
   }
 }
@@ -59,11 +61,10 @@ export function suggestedActionOperations(
   });
 }
 
-/** Recognize explicit destructive commands, including actions which multiplex them. */
 export function isUnsupportedSuggestedAction(
   execution: SuggestedAppAction,
 ): boolean {
-  const [verb] = execution.action.toLowerCase().split(/[-_]/, 1);
+  const verb = execution.action.toLowerCase().replace(/[-_][\s\S]*/, "");
   return (
     DESTRUCTIVE_OPERATIONS.has(verb) ||
     suggestedActionOperations(execution).some((operation) =>
@@ -87,8 +88,6 @@ export function hasUnselectedDestructiveVariant(
     );
     if (!hasDestructiveVariant) return false;
     const selection = execution.params[key];
-    // Require an explicit selection because installed versions may have
-    // different defaults for a tool with mixed operations.
     return typeof selection !== "string" || !control.enum.includes(selection);
   });
 }
@@ -124,32 +123,32 @@ function* suggestionsFromResult(
     0,
     MAX_ACTION_SUGGESTIONS_PER_TURN,
   )) {
+    let suggestion: ActionSuggestion;
     try {
-      const suggestion = parseActionSuggestion(value);
-      if (
-        !suggestion.label.trim() ||
-        suggestion.label.length > 96 ||
-        !suggestion.rationale.trim() ||
-        suggestion.rationale.length > 280
-      )
-        continue;
-      if (
-        suggestion.execution.type === "action" &&
-        isUnsupportedSuggestedAction(suggestion.execution)
-      )
-        continue;
-      // Child output is authoritative only for actions in that installation.
-      if (
-        sourceAppId !== undefined &&
-        (suggestion.appId !== sourceAppId ||
-          suggestion.execution.type !== "action")
-      ) {
-        continue;
-      }
-      yield suggestion;
-    } catch {
-      // A tool can return arbitrary JSON. Invalid candidates are never offered.
+      suggestion = parseActionSuggestion(value);
+    } catch (error) {
+      if (!(error instanceof AgentProtocolValidationError)) throw error;
+      continue;
     }
+    if (
+      !suggestion.label.trim() ||
+      suggestion.label.length > 96 ||
+      !suggestion.rationale.trim() ||
+      suggestion.rationale.length > 280
+    )
+      continue;
+    if (
+      suggestion.execution.type === "action" &&
+      isUnsupportedSuggestedAction(suggestion.execution)
+    )
+      continue;
+    if (
+      sourceAppId !== undefined &&
+      (suggestion.appId !== sourceAppId ||
+        suggestion.execution.type !== "action")
+    )
+      continue;
+    yield suggestion;
   }
 }
 

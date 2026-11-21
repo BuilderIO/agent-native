@@ -174,8 +174,6 @@ export default defineAction({
       app = await pickAppForIntent(intent, ctx);
     }
     const normalized = { ...normalizedArgs, app };
-    // An external MCP host needs the target's ticket. Dispatch chat can
-    // hand off the route immediately while its pane session mints.
     const result =
       ctx?.caller === "tool"
         ? await openGrantedDispatchMcpApp(normalized, { prefetchEmbed: true })

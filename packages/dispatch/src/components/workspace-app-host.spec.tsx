@@ -182,6 +182,13 @@ import {
   WorkspaceAppKeepAlive,
 } from "./workspace-app-host";
 
+function postGuestReply(port: MessagePort, result: unknown): Promise<void> {
+  const handled = Promise.withResolvers<void>();
+  port.addEventListener("close", () => handled.resolve(), { once: true });
+  port.postMessage(result);
+  return handled.promise;
+}
+
 describe("WorkspaceAppKeepAlive", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -657,11 +664,11 @@ describe("WorkspaceAppKeepAlive", () => {
     if (!iframe || !iframe.contentWindow) throw new Error("Missing app frame");
     const postMessage = vi.spyOn(iframe.contentWindow, "postMessage");
     const target = "/mail/threads/42?mode=all#message";
+    const guestPort = Promise.withResolvers<MessagePort>();
     postMessage.mockImplementation((message, _origin, transfer) => {
       if (message?.type !== "agentNative.viewRequest") return;
       const [port] = transfer as MessagePort[];
-      port.postMessage({ result: { path: target } });
-      port.close();
+      guestPort.resolve(port);
     });
 
     await act(async () => clientState.frameLoadHandler?.());
@@ -691,10 +698,8 @@ describe("WorkspaceAppKeepAlive", () => {
         .querySelector("[data-chat-first-app-embed-url]")
         ?.getAttribute("data-chat-first-app-embed-url"),
     ).toBe(startUrl);
-    await act(async () => {
-      // Yield to the channel callback so the correlated receipt is processed.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    const port = await guestPort.promise;
+    await act(() => postGuestReply(port, { result: { path: target } }));
     expect(container.querySelector("iframe")).toBe(iframe);
   });
 
@@ -750,11 +755,7 @@ describe("WorkspaceAppKeepAlive", () => {
       const reply = async (path: string, result: object) => {
         const port = ports.get(path);
         if (!port) throw new Error("Missing navigation request");
-        await act(async () => {
-          port.postMessage(result);
-          port.close();
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
+        await act(() => postGuestReply(port, result));
       };
 
       await act(async () => clientState.frameLoadHandler?.());

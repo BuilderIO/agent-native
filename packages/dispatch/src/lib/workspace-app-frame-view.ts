@@ -91,7 +91,6 @@ export function requestWorkspaceAppFrameView(
         [channel.port2],
       );
     } catch {
-      // A detached or legacy guest falls back to the ordinary embed launch.
       channel.port2.close();
       finish(null);
     }

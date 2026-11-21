@@ -1,4 +1,3 @@
-import type { ActionSuggestionReceipt } from "@agent-native/agentkit/protocol";
 import {
   defineAction,
   noteExternalWrite,
@@ -15,6 +14,32 @@ import {
 import { startWorkspaceAppCreation } from "../server/lib/app-creation-store.js";
 import callAppAction from "./call_app_action.js";
 
+const receiptSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    suggestionId: z.string(),
+    status: z.literal("accepted"),
+    outcome: z.literal("action-completed"),
+  }),
+  z.object({
+    suggestionId: z.string(),
+    status: z.literal("accepted"),
+    outcome: z.enum(["app-creation-started", "customization-started"]),
+    url: z.string().url(),
+  }),
+  z.object({
+    suggestionId: z.string(),
+    status: z.literal("handoff"),
+    outcome: z.literal("open-creation-workspace"),
+    url: z.string().url(),
+  }),
+  z.object({
+    suggestionId: z.string(),
+    status: z.literal("handoff"),
+    outcome: z.literal("local-app-creation"),
+    prompt: z.string(),
+  }),
+]);
+
 function unavailable(): never {
   throw new NoWriteError(
     "This suggestion is no longer available in this workspace.",
@@ -29,13 +54,17 @@ export default defineAction({
   description:
     "Execute the typed action the signed-in user selected in the chat.",
   schema: z.object({ suggestion: actionSuggestionSchema }),
+  outputSchema: receiptSchema,
   maxBodyBytes: 65_536,
   uiOnly: true,
   requiresAuth: true,
   requiresSignedInBrowser: true,
   agentTool: false,
   mcpTool: false,
-  run: async ({ suggestion }, context): Promise<ActionSuggestionReceipt> => {
+  run: async (
+    { suggestion },
+    context,
+  ): Promise<z.output<typeof receiptSchema>> => {
     const { id: suggestionId, appId, execution } = suggestion;
     if (execution.type === "customize") {
       const target = await resolveCustomizationTarget(execution.targetAppId);
@@ -88,7 +117,9 @@ export default defineAction({
           outcome: "local-app-creation",
           prompt: result.prompt,
         };
-      default:
+      case "app-id-taken":
+      case "builder-unavailable":
+      case "coming-soon":
         return unavailable();
     }
   },

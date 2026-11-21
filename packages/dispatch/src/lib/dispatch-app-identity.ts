@@ -2,7 +2,12 @@ type DispatchAppIdentity = {
   id: string;
   name: string;
   aliases?: string[];
-  source?: "workspace" | "org-directory" | "remote-agent" | "builtin";
+  source?:
+    | "workspace"
+    | "org-directory"
+    | "remote-agent"
+    | "builtin"
+    | undefined;
   granted?: boolean;
 };
 
@@ -13,7 +18,6 @@ export function matchDispatchAppCandidates<App extends DispatchAppIdentity>(
   const target = requested.trim().toLowerCase();
   if (!target) return [];
   const exact = apps.filter((app) => app.id.toLowerCase() === target);
-  // Explicit installation IDs must keep their identity even when denied.
   if (exact.length || target.includes("/")) return exact;
 
   const granted = apps.filter((app) => app.granted !== false);

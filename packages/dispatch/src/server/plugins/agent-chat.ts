@@ -151,9 +151,6 @@ When a user asks for something like a digest, reminder, routing rule, or saved b
 - Avoid inventing integrations or destinations that are not configured yet.${builderManagedAppsNote()}`,
 });
 
-/**
- * A managed workspace handles creation through its configured build surface.
- */
 function builderManagedAppsNote(): string {
   const url = getBuilderWorkspaceUrl();
   if (!url) return "";

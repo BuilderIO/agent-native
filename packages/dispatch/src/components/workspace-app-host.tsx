@@ -346,7 +346,7 @@ function navigateSameOriginWorkspaceApp(
     frame.dispatchEvent(new FramePopStateEvent("popstate", { state }));
     return true;
   } catch {
-    // The iframe may have redirected away from the same-origin installation.
+    // coercion-ok: a redirected iframe rejects direct access and falls back to the guest bridge.
     return false;
   }
 }
@@ -359,16 +359,17 @@ function readSameOriginWorkspaceAppView(
     const location = new URL(frame.location.href);
     const path = workspaceAppFramePathAtMount(location, mount);
     if (!path) return null;
+    const selectedText = frame.getSelection()?.toString().trim();
     return {
       path,
       title: frame.document.title,
-      selectedText: frame.getSelection()?.toString().trim(),
+      ...(selectedText ? { selectedText } : {}),
       pendingTabClaim: location.searchParams.has(
         DISPATCH_CHILD_BROWSER_TAB_PARAM,
       ),
     };
   } catch {
-    // Access is denied after a cross-origin redirect.
+    // coercion-ok: null means the frame view is unavailable after the browser denies access.
     return null;
   }
 }
@@ -431,8 +432,6 @@ export function WorkspaceAppFrame({
   const requestedPathAccepted =
     completedNavigation.accepted &&
     completedNavigation.requestedPath === requestedPath;
-  // A load can replace the document while leaving the public iframe URL and
-  // contentWindow proxy unchanged.
   const [loadedDocument, setLoadedDocument] = useState<{ url: string } | null>(
     null,
   );
@@ -726,8 +725,6 @@ export function WorkspaceAppFrame({
         reloadFrame();
         return;
       }
-      // Let the latest route proceed only after the old request has finished.
-      // The guest can still apply a delivered request after we close its port.
       setCompletedNavigation({ requestedPath: route, accepted });
     },
   );
@@ -750,7 +747,7 @@ export function WorkspaceAppFrame({
       requestedPath === undefined
         ? appHref
         : workspaceAppDirectHref(
-            { path: app.path, url: appUrl },
+            { path: app.path ?? null, url: appUrl },
             requestedPath,
           );
     if (!href) {
@@ -791,7 +788,6 @@ export function WorkspaceAppFrame({
       if (frame !== embedFrameRef.current) return;
       const accepted = receipt?.path === navigation.path;
       if (!accepted || observedPath.current !== navigation.path) {
-        // A pre-request observation cannot confirm the frame's latest route.
         observedPath.current = null;
       }
       finishNavigation(navigation.requestedPath, accepted);
@@ -892,7 +888,7 @@ export function WorkspaceAppFrame({
     const frame = embedFrameRef.current;
     const target = frame?.contentWindow;
     const mountHref = workspaceAppDirectHref(
-      { path: app.path, url: appUrl },
+      { path: app.path ?? null, url: appUrl },
       "/",
     );
     if (!target || !mountHref) return;
@@ -902,8 +898,13 @@ export function WorkspaceAppFrame({
     if (mount.origin !== origin) return;
 
     let current = true;
+    const canRead = (signal: AbortSignal) =>
+      current &&
+      !signal.aborted &&
+      frame === embedFrameRef.current &&
+      !pendingNavigation.current;
     const unregister = onViewReaderChange(async (signal) => {
-      if (!current || signal.aborted || pendingNavigation.current) return null;
+      if (!canRead(signal)) return null;
       const read =
         origin === window.location.origin
           ? readSameOriginWorkspaceAppView(target, mount)
@@ -913,15 +914,7 @@ export function WorkspaceAppFrame({
               { operation: "read" },
               signal,
             );
-      if (
-        !read ||
-        !current ||
-        signal.aborted ||
-        frame !== embedFrameRef.current ||
-        pendingNavigation.current
-      ) {
-        return null;
-      }
+      if (!read || !canRead(signal)) return null;
       if (/[\u0000-\u001f\u007f]/.test(read.path)) return null;
       const renderedUrl = new URL(read.path, origin);
       const path = workspaceAppFramePathAtMount(renderedUrl, mount);
@@ -935,8 +928,12 @@ export function WorkspaceAppFrame({
       }
       return {
         path,
-        title: read.title?.slice(0, 256),
-        selectedText: read.selectedText?.slice(0, 4_000),
+        ...(read.title === undefined
+          ? {}
+          : { title: read.title.slice(0, 256) }),
+        ...(read.selectedText === undefined
+          ? {}
+          : { selectedText: read.selectedText.slice(0, 4_000) }),
         ...(claim?.startUrl === embedUrl &&
         (!("pendingTabClaim" in read) || read.pendingTabClaim === false) &&
         !renderedUrl.searchParams.has(DISPATCH_CHILD_BROWSER_TAB_PARAM)
@@ -1277,8 +1274,6 @@ export function WorkspaceAppKeepAlive({
   onChildRouteChange?: (path: string) => void;
 }) {
   const warmAppIds = useWarmWorkspaceAppIds("standalone", activeAppId);
-  // Keep DOM order stable when recency changes. Moving a mounted iframe to
-  // another position can reload its browsing context even with a stable key.
   const renderedAppIds = useMemo(() => [...warmAppIds].sort(), [warmAppIds]);
   const [pathByAppId, setPathByAppId] = useState<
     Record<string, string | undefined>
