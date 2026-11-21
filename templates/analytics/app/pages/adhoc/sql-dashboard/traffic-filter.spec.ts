@@ -1,3 +1,7 @@
+import type {
+  DashboardFilter,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,7 +10,6 @@ import {
   reportFiltersWithTraffic,
   withOfferedTraffic,
 } from "./traffic-filter";
-import type { DashboardFilter, SqlPanel } from "./types";
 
 const labels = {
   label: "Verkehr",
@@ -28,6 +31,171 @@ const savedTraffic: DashboardFilter = {
 };
 
 describe("dashboardFiltersWithTraffic", () => {
+  // raw-sql-ok: spec fixture; the filter only reads this SQL as text and never runs it.
+  const reading = (sql: string) =>
+    ({ id: "p", source: "first-party", sql }) as unknown as SqlPanel;
+
+  it("leaves the filter off a dashboard whose panels read no table it narrows", () => {
+    const shown = dashboardFiltersWithTraffic(
+      [timeRange, savedTraffic],
+      [
+        reading("SELECT day FROM analytics_content_metric_snapshots"),
+        reading("SELECT title FROM analytics_content_items"),
+      ],
+      labels,
+    );
+
+    expect(shown.map((filter) => filter.id)).toEqual(["timeRange"]);
+  });
+
+  it.each([
+    "SELECT count(*) FROM analytics_events",
+    "SELECT day FROM analytics_event_daily_rollups",
+    "SELECT day FROM ANALYTICS_USER_DAYS",
+    "SELECT id FROM session_recordings",
+  ])("offers the filter when one panel runs %s", (query) => {
+    const shown = dashboardFiltersWithTraffic(
+      [timeRange],
+      [reading("SELECT title FROM analytics_content_items"), reading(query)],
+      labels,
+    );
+
+    expect(shown.map((filter) => filter.id)).toEqual([
+      "timeRange",
+      "traffic_environment",
+    ]);
+  });
+
+  it("does not take a longer table name for one the filter narrows", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [reading("SELECT 1 FROM analytics_events_archive")],
+        labels,
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange"]);
+  });
+
+  it("reads a table named by a dashboard variable or a filter's values", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [reading("SELECT count(*) FROM {{eventsTable}}")],
+        labels,
+        { eventsTable: "analytics_events" },
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange", "traffic_environment"]);
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          timeRange,
+          {
+            id: "source",
+            label: "Source",
+            type: "select",
+            options: [
+              { value: "analytics_content_items", label: "Articles" },
+              { value: "session_recordings", label: "Replays" },
+            ],
+          },
+        ],
+        [reading("SELECT count(*) FROM {{source}}")],
+        labels,
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange", "source", "traffic_environment"]);
+  });
+
+  it("leaves the filter off when variables name other tables", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [
+          reading(
+            "SELECT count(*) FROM {{itemsTable}} WHERE '{{timeRange}}' != ''",
+          ),
+        ],
+        labels,
+        { itemsTable: "analytics_content_items" },
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange"]);
+  });
+
+  it("reads a filter's values over a variable of the same name", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          {
+            id: "source",
+            label: "Source",
+            type: "select",
+            default: "analytics_content_items",
+            options: [
+              { value: "analytics_content_items", label: "Articles" },
+              { value: "session_recordings", label: "Replays" },
+            ],
+          },
+        ],
+        [reading("SELECT count(*) FROM {{source}}")],
+        labels,
+        { source: "analytics_content_items" },
+      ).map((filter) => filter.id),
+    ).toEqual(["source", "traffic_environment"]);
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          {
+            id: "source",
+            label: "Source",
+            type: "select",
+            options: [{ value: "analytics_content_items", label: "Articles" }],
+          },
+        ],
+        [reading("SELECT count(*) FROM {{source}}")],
+        labels,
+        { source: "analytics_events" },
+      ).map((filter) => filter.id),
+    ).toEqual(["source"]);
+  });
+
+  it("reads a table name built from SQL text and a placeholder", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [
+          {
+            id: "kind",
+            label: "Kind",
+            type: "select",
+            options: [
+              { value: "content_items", label: "Articles" },
+              { value: "events", label: "Events" },
+            ],
+          },
+        ],
+        [reading("SELECT count(*) FROM analytics_{{kind}}")],
+        labels,
+      ).map((filter) => filter.id),
+    ).toEqual(["kind", "traffic_environment"]);
+    expect(
+      dashboardFiltersWithTraffic(
+        [timeRange],
+        [reading("SELECT count(*) FROM {{prefix}}_events")],
+        labels,
+        { prefix: "analytics" },
+      ).map((filter) => filter.id),
+    ).toEqual(["timeRange", "traffic_environment"]);
+  });
+
+  it("offers the filter when a reader can type any table name", () => {
+    expect(
+      dashboardFiltersWithTraffic(
+        [{ id: "table", label: "Table", type: "text" }],
+        [reading("SELECT count(*) FROM {{table}}")],
+        labels,
+        { table: "analytics_content_items" },
+      ).map((filter) => filter.id),
+    ).toEqual(["table", "traffic_environment"]);
+  });
+
   it("offers a dashboard saved without the filter all traffic by default", () => {
     const shown = dashboardFiltersWithTraffic(
       [timeRange],

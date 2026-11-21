@@ -107,12 +107,14 @@ const TTL_MS = MCP_ACTION_APPROVAL_TTL_SECONDS * 1000;
  */
 export function mcpApprovalReviewUrl(
   nonce: string,
-  requestMeta: Pick<MCPRequestMeta, "origin" | "approvalRoute"> | undefined,
+  requestMeta:
+    | Pick<MCPRequestMeta, "origin" | "approvalRoute" | "approvalOrigin">
+    | undefined,
 ): string {
   const route = requestMeta?.approvalRoute ?? mcpApprovalRoute();
   return toAbsoluteOpenUrl(
     publicFrameworkPath(`${route}/${encodeURIComponent(nonce)}`),
-    declaredLinkOrigin(requestMeta?.origin),
+    declaredLinkOrigin(requestMeta?.approvalOrigin ?? requestMeta?.origin),
   );
 }
 
@@ -724,7 +726,7 @@ export async function mcpApprovalPrompt(input: {
   review: McpApprovalReview;
   ownerEmail: string | undefined;
   mode: "form" | "url";
-  reviewUrl: string;
+  reviewUrl?: string;
 }): Promise<{ message: string; decisionTitle: string; decisionHelp: string }> {
   const preference = await readerPreference(input.ownerEmail);
   const { locale } = resolveLocaleFromRequest({

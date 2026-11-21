@@ -17,8 +17,10 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseMutationContract,
+  ContentDatabaseReceiptReplay,
   ContentDatabaseRowMutationReceipt,
   ContentDatabaseRowMutationResult,
   ContentDatabaseRowPatchBatchResult,
@@ -95,7 +97,7 @@ export const databaseMutationTargetInputSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema
     .optional()
     .describe(
-      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected collection.",
+      "Optional. Copy it unchanged from the read that returned this target, or leave it out: the server derives authority from the collection and refuses a scope that is not the collection's own.",
     ),
   spaceId: z
     .string()
@@ -163,6 +165,21 @@ export type DatabaseMutationTargetInput = z.infer<
 type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type DefinitionRow = typeof schema.documentPropertyDefinitions.$inferSelect;
 type Db = ReturnType<typeof getDb>;
+
+/** Binds the private images in written property values to their pages. */
+async function syncPropertyValueMedia(
+  tx: Db,
+  actor: string,
+  writes: Iterable<{ documentId: string; valueJson: string }>,
+): Promise<void> {
+  for (const write of writes) {
+    await syncPrivateMediaReferences(tx, {
+      documentId: write.documentId,
+      after: write.valueJson,
+      userEmail: actor,
+    });
+  }
+}
 
 export interface MutationContext {
   database: DatabaseRow;
@@ -274,6 +291,20 @@ function conflict(
   details?: Record<string, unknown>,
 ): never {
   throw new ActionContractError(message, { errorCode, details });
+}
+
+export const CLOSED_KEY_OPERATION = "closed-key";
+
+export function assertReceiptKeyOpen(
+  stored: { operation: string },
+  idempotencyKey: string,
+): void {
+  if (stored.operation !== CLOSED_KEY_OPERATION) return;
+  conflict(
+    "IDEMPOTENCY_KEY_CLOSED",
+    "This idempotency key was closed because a script's write sent with it could not be confirmed. Nothing was written with it; send the change again with a new idempotency key.",
+    { idempotencyKey },
+  );
 }
 
 function invalidProperty(
@@ -1162,6 +1193,7 @@ async function replayReceipt(
       ),
     );
   if (!stored) return null;
+  assertReceiptKeyOpen(stored, idempotencyKey);
   if (!expectedPayloadDigests.includes(stored.payloadDigest)) {
     conflict(
       "IDEMPOTENCY_KEY_REUSED",
@@ -1189,7 +1221,19 @@ async function replayReceipt(
     receipt: {
       ...parsed.receipt,
       idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      replay: replayedReceiptNote(context.database.id, stored.createdAt),
     },
+  };
+}
+
+function replayedReceiptNote(
+  databaseId: string,
+  recordedAt: string,
+): ContentDatabaseReceiptReplay {
+  return {
+    readback: "historical",
+    recordedAt,
+    freshRead: { action: "get-content-database", databaseId },
   };
 }
 
@@ -1345,6 +1389,11 @@ async function createInsideTransaction(
         createdAt: now,
         updatedAt: now,
       })),
+    );
+    await syncPropertyValueMedia(
+      tx,
+      actor,
+      [...args.values.values()].map((valueJson) => ({ documentId, valueJson })),
     );
   }
   if (shares.length > 0) {
@@ -1534,6 +1583,14 @@ async function updateInsideTransaction(
       });
     }
   }
+  await syncPropertyValueMedia(
+    tx,
+    actor,
+    changedValues.map(([, valueJson]) => ({
+      documentId: args.documentId,
+      valueJson,
+    })),
+  );
   await ensureNaturalKeyClaim(tx, context, {
     itemId: args.itemId,
     documentId: args.documentId,
@@ -2347,6 +2404,7 @@ async function replayRowPatchReceipt(
       ),
     );
   if (!stored) return null;
+  assertReceiptKeyOpen(stored, idempotencyKey);
   if (
     stored.operation !== ROW_PATCH_RECEIPT_OPERATION ||
     stored.payloadDigest !== payloadDigest
@@ -2379,9 +2437,157 @@ async function replayRowPatchReceipt(
     receipt: {
       ...parsed.receipt,
       idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      replay: replayedReceiptNote(context.database.id, stored.createdAt),
       rows: ordered as ContentDatabaseRowPatchReceipt[],
     },
   };
+}
+
+export interface RowPatchReceiptLocator {
+  scope: string;
+  idempotencyKey: string;
+  payloadDigest: string;
+}
+
+export type RowPatchReconcileResult =
+  | { status: "committed"; receipt: { receiptId: string } }
+  | { status: "absent" };
+
+export type RowPatchFenceResult =
+  | { status: "committed"; receipt: { receiptId: string } }
+  | { status: "fenced" };
+
+export function rowPatchReceiptLocator(
+  input: PatchDatabaseRowsMutationInput,
+): RowPatchReceiptLocator {
+  return {
+    scope: input.target.databaseId,
+    idempotencyKey: input.idempotencyKey,
+    payloadDigest: rowPatchPayloadDigest(
+      input,
+      canonicalRowPatches(input.rows),
+    ),
+  };
+}
+
+async function locatorCollection(
+  locator: RowPatchReceiptLocator,
+  role: "viewer" | "editor",
+): Promise<DatabaseRow> {
+  const found = await getDb()
+    .select()
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.id, locator.scope),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
+  const database = found.find((row) => row.id === locator.scope);
+  if (!database) {
+    throw new ActionContractError("Content database not found.", {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  await assertAccess("document", database.documentId, role);
+  return database;
+}
+
+async function locatorRecord(
+  locator: RowPatchReceiptLocator,
+): Promise<{ id: string; operation: string } | undefined> {
+  const found = await getDb()
+    .select({
+      id: schema.contentDatabaseRowMutationReceipts.id,
+      operation: schema.contentDatabaseRowMutationReceipts.operation,
+      idempotencyKey: schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+      payloadDigest: schema.contentDatabaseRowMutationReceipts.payloadDigest,
+    })
+    .from(schema.contentDatabaseRowMutationReceipts)
+    .where(
+      and(
+        eq(schema.contentDatabaseRowMutationReceipts.databaseId, locator.scope),
+        eq(
+          schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+          locator.idempotencyKey,
+        ),
+      ),
+    );
+  const stored = found.find(
+    (record) => record.idempotencyKey === locator.idempotencyKey,
+  );
+  if (stored && stored.payloadDigest !== locator.payloadDigest) {
+    conflict(
+      "IDEMPOTENCY_KEY_REUSED",
+      "This idempotency key was already used for a different row mutation.",
+      { idempotencyKey: locator.idempotencyKey },
+    );
+  }
+  return stored;
+}
+
+export async function reconcileRowPatchReceipt(
+  locator: RowPatchReceiptLocator,
+): Promise<RowPatchReconcileResult> {
+  await locatorCollection(locator, "viewer");
+  const stored = await locatorRecord(locator);
+  return stored && stored.operation !== CLOSED_KEY_OPERATION
+    ? { status: "committed", receipt: { receiptId: stored.id } }
+    : { status: "absent" };
+}
+
+export async function fenceRowPatchReceipt(
+  locator: RowPatchReceiptLocator,
+): Promise<RowPatchFenceResult> {
+  const database = await locatorCollection(locator, "editor");
+  await getDb().transaction(async (tx) => {
+    const db = tx as unknown as Db;
+    await lockContentDatabaseMutation(db, database.id);
+    const editable = await editableDocumentIds(db, [database.documentId]);
+    if (!editable.has(database.documentId)) {
+      throw new ForbiddenError(
+        `Requires editor role on document ${database.documentId}`,
+      );
+    }
+    const now = new Date().toISOString();
+    await db
+      .insert(schema.contentDatabaseRowMutationReceipts)
+      .values({
+        id: nanoid(),
+        ownerEmail: database.ownerEmail,
+        orgId: database.orgId,
+        spaceId: database.spaceId ?? "",
+        databaseId: database.id,
+        databaseDocumentId: database.documentId,
+        operation: CLOSED_KEY_OPERATION,
+        itemId: "",
+        documentId: "",
+        idempotencyKey: locator.idempotencyKey,
+        payloadDigest: locator.payloadDigest,
+        schemaRevision: "",
+        postRowRevision: "",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({
+        target: [
+          schema.contentDatabaseRowMutationReceipts.databaseId,
+          schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+        ],
+      });
+  });
+  const stored = await locatorRecord(locator);
+  if (!stored) {
+    conflict(
+      "RECEIPT_MISMATCH",
+      "The record under this idempotency key went missing.",
+      { idempotencyKey: locator.idempotencyKey },
+    );
+  }
+  return stored.operation === CLOSED_KEY_OPERATION
+    ? { status: "fenced" }
+    : { status: "committed", receipt: { receiptId: stored.id } };
 }
 
 async function patchRowsInsideTransaction(
@@ -2592,6 +2798,7 @@ async function patchRowsInsideTransaction(
       })),
     );
   }
+  await syncPropertyValueMedia(tx, actor, [...valueUpdates, ...valueInserts]);
   rowPatchIssues(
     "NATURAL_KEY_CONFLICT",
     "Some rows claim a natural key that is already in use or cannot change; nothing was written.",

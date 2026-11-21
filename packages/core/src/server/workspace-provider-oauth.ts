@@ -96,6 +96,29 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "notion",
   "sigma",
 ]);
+// Whether one upstream account (a portal, an org, a site) is linked by each
+// user separately, so each owner gets its own token row. A provider that
+// starts owner-scoping after connections were saved must keep those
+// connections on their bare-id rows, which only their owner can rewrite.
+const OWNER_SCOPED_ACCOUNTS: Readonly<
+  Record<GenericWorkspaceOAuthProvider, boolean>
+> = {
+  figma: false,
+  gmail: false,
+  google_calendar: false,
+  google_docs: false,
+  google_drive: false,
+  bigquery: false,
+  google_sheets: false,
+  google_slides: false,
+  github: false,
+  hubspot: true,
+  salesforce: true,
+  jira: true,
+  sentry: false,
+  notion: false,
+  sigma: true,
+};
 const FLOW_TTL_SECONDS = 10 * 60;
 const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
 const PROVIDER_RESPONSE_MAX_BYTES = 256 * 1024;
@@ -104,6 +127,8 @@ const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
 const SIGMA_OAUTH_CLIENTS_SECRET = "SIGMA_OAUTH_CLIENT_REGISTRATIONS";
 const WORKSPACE_OAUTH_ADMIN_ERROR =
   "This shared connection requires organization or app-admin access. Personal connections can be connected by any workspace member.";
+import { OAUTH_ACCOUNT_ALREADY_LINKED_ERROR } from "../connections/oauth-callback-error.js";
+
 const OAUTH_ACCOUNT_OWNERSHIP_ERROR =
   "This account is already linked to another user. Choose a different account to connect.";
 
@@ -259,13 +284,31 @@ export function oauthFlowFailure(
 function oauthAccountOwnershipFailure(
   event: H3Event,
   error: unknown,
+  returnPath: string | undefined,
+  accountLabel: string,
 ): Response | { error: string } | null {
   if (!(error instanceof OAuthAccountOwnedByOtherUserError)) return null;
-  return oauthFlowFailure(
-    event,
-    error.statusCode,
-    OAUTH_ACCOUNT_OWNERSHIP_ERROR,
-  );
+  const accept = getRequestHeader(event, "accept") ?? "";
+  if (returnPath && accept.includes("text/html")) {
+    const returnUrl = new URL(getAppUrl(event, returnPath));
+    returnUrl.searchParams.set(
+      "oauth_error",
+      OAUTH_ACCOUNT_ALREADY_LINKED_ERROR,
+    );
+    returnUrl.searchParams.set("oauth_account", accountLabel);
+    return queryEchoSafeRedirect(
+      event,
+      redirectWithStagedCookies(event, returnUrl.href),
+    );
+  }
+  setResponseStatus(event, error.statusCode);
+  if (!accept.includes("text/html")) {
+    return { error: OAUTH_ACCOUNT_OWNERSHIP_ERROR };
+  }
+  return oauthErrorPage(OAUTH_ACCOUNT_OWNERSHIP_ERROR, error.statusCode, {
+    backHref: "/",
+    backLabel: "Back to app",
+  });
 }
 
 export async function handleWorkspaceProviderOAuthStart(
@@ -500,7 +543,10 @@ export async function handleWorkspaceProviderOAuthStart(
         redirectUri,
         state,
         challenge,
-        loginHint: targetAccountEmail ?? session.email,
+        // Only a reconnect names its account. Hinting the signed-in user's own
+        // email on a plain connect pins Google to that account, so a second
+        // account can never be chosen.
+        loginHint: targetAccountEmail,
         includeGrantedScopes: sharesGoogleTokenRow(provider),
         ...(requestedScopes || optionalScopes
           ? {
@@ -721,7 +767,12 @@ export async function handleWorkspaceProviderOAuthCallback(
             session.email,
           );
         } catch (error) {
-          const response = oauthAccountOwnershipFailure(event, error);
+          const response = oauthAccountOwnershipFailure(
+            event,
+            error,
+            flow.returnUrl ?? state.returnUrl,
+            identity.label,
+          );
           if (response) return response;
           throw error;
         }
@@ -1546,14 +1597,7 @@ export function scopedOAuthAccountId(
   owner: string,
   accountId: string,
 ): string {
-  if (
-    provider !== "hubspot" &&
-    provider !== "salesforce" &&
-    provider !== "jira" &&
-    provider !== "sigma"
-  ) {
-    return accountId;
-  }
+  if (!OWNER_SCOPED_ACCOUNTS[provider]) return accountId;
   const ownerKey = crypto
     .createHash("sha256")
     .update(`${provider}:${owner.trim().toLowerCase()}`)

@@ -944,6 +944,7 @@ export default defineAction({
             {
               limit: DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT,
               includeSources: false,
+              pageText: "omit",
             },
           );
           screen.database = databaseResponse;

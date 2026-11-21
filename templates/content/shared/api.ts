@@ -1,6 +1,9 @@
 import type { IconValue } from "@agent-native/core/icons";
 
+import type { AgentLevel } from "./agent-level";
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { BuilderBodyDiff } from "./builder-body-diff";
+import type { GitHubPullRequestsProblemCode } from "./github-pull-requests";
 import type {
   GitHubSourceProblemCode,
   GitHubSourceSkipReason,
@@ -12,6 +15,7 @@ import type {
   DocumentPropertyValue,
   DocumentPropertyVisibility,
 } from "./properties";
+import type { TableCollectionSeed } from "./table-collection-seed";
 
 export type DocumentAccessRole =
   | "owner"
@@ -38,8 +42,10 @@ export interface Document {
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
-  /** A person has set agents to Can comment on this page. */
+  /** A person has set agents to Can comment or Can view on this page. */
   agentTextLocked?: boolean;
+  /** What agents can do on this page. */
+  agentLevel?: AgentLevel;
   notionPageId?: string | null;
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";
@@ -181,10 +187,22 @@ export interface LiveCopyBodySave {
   collabVersion: number;
 }
 
+/**
+ * What a browser save's body came to when another writer had changed the page
+ * since the body was typed: merged in, or set aside where both changed the
+ * same block, the page keeping the other writer's version and History
+ * keeping the save's body as `displacedCheckpointId`.
+ */
+export interface DocumentBodyIntentOutcome {
+  status: "applied" | "displaced-preserved";
+  displacedCheckpointId?: string | undefined;
+}
+
 export interface DocumentUpdateResponse extends Document {
   urlPath: string;
   softDeletedDatabaseIds: string[];
   bodySave?: LiveCopyBodySave;
+  bodyIntentOutcome?: DocumentBodyIntentOutcome;
 }
 
 export interface DocumentMoveRequest {
@@ -372,6 +390,13 @@ export interface DocumentPropertiesResponse {
   databaseId: string | null;
   canEditValues?: boolean;
   canManageSchema?: boolean;
+  /** Full access to the collection: column rules, such as a tab's freeze, are theirs to set. */
+  canManageColumnRules?: boolean;
+  /**
+   * False where schema rights can't add a property: a system collection such
+   * as Files keeps only the ones the app gives it.
+   */
+  canAddProperties?: boolean;
   properties: DocumentProperty[];
 }
 
@@ -399,11 +424,16 @@ export interface SetDocumentPropertyRequest {
   propertyId: string;
   value: DocumentPropertyValue;
   expectedBlocksFieldRevision?: number;
+  expectedGeneration?: number;
   /**
    * Client-only hint: titles for relation IDs, shown until the server's
    * resolved targets arrive. The action ignores it.
    */
   relationTargets?: DocumentPropertyRelationTarget[];
+}
+
+export interface SetDocumentPropertyResponse extends DocumentPropertiesResponse {
+  generation?: number;
 }
 
 export interface DuplicateDocumentPropertyRequest {
@@ -804,6 +834,7 @@ export interface ContentDatabaseRowMutationReceipt {
     result: "applied" | "replayed";
     payloadDigest: string;
   };
+  replay?: ContentDatabaseReceiptReplay;
   revisions: { before: string | null; after: string };
   readback: {
     verified: true;
@@ -814,6 +845,12 @@ export interface ContentDatabaseRowMutationReceipt {
     /** Absent on receipts stored before change IDs existed. */
     propertyChangeIds?: Record<string, number | null>;
   };
+}
+
+export interface ContentDatabaseReceiptReplay {
+  readback: "historical";
+  recordedAt: string;
+  freshRead: { action: "get-content-database"; databaseId: string };
 }
 
 export interface ContentDatabaseRowMutationResult {
@@ -848,6 +885,7 @@ export interface ContentDatabaseRowPatchBatchResult {
       result: "applied" | "replayed";
       payloadDigest: string;
     };
+    replay?: ContentDatabaseReceiptReplay;
     counts: { requested: number; updated: number; unchanged: number };
     rows: ContentDatabaseRowPatchReceipt[];
   };
@@ -867,7 +905,8 @@ export type ContentDatabaseSourceType =
   | "local-table"
   | "notion-database"
   | "local-folder"
-  | "github";
+  | "github"
+  | "github-pull-requests";
 export type ContentDatabaseSourceTruthPolicy =
   | "database_primary"
   | "source_primary"
@@ -1006,6 +1045,7 @@ export interface ContentDatabaseSourceBodyChange {
   proposedBlocksJson?: string | null;
   sidecarsJson?: string | null;
   warnings?: string[];
+  textOnly?: boolean;
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -1141,6 +1181,7 @@ export interface ContentDatabaseSource {
     builderModelFields?: BuilderCmsModelFieldSummary[];
     federation?: ContentDatabaseSourceFederation;
     github?: ContentGitHubSourceStatus;
+    githubPullRequests?: ContentGitHubPullRequestsSourceStatus;
   };
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
@@ -1181,6 +1222,29 @@ export interface ContentGitHubSourceStatus {
   storageReady: boolean;
   problem: {
     code: GitHubSourceProblemCode;
+    message: string;
+    at: string;
+  } | null;
+}
+
+/** Where a GitHub pull requests link stands, for the Sources panel and agents. */
+export interface ContentGitHubPullRequestsSourceStatus {
+  /** The GitHub search the rows follow, or null to keep only added ones. */
+  search: string | null;
+  /** The search on github.com. */
+  searchUrl: string | null;
+  /** Pull requests added by link, which stay after they merge or close. */
+  added: number;
+  mode: "view_only";
+  /** Last time Content asked GitHub. */
+  checkedAt: string | null;
+  /** Last time every row matched GitHub. */
+  syncedAt: string | null;
+  rows: number;
+  /** How many pull requests the search found in all. */
+  searchTotal: number | null;
+  problem: {
+    code: GitHubPullRequestsProblemCode;
     message: string;
     at: string;
   } | null;
@@ -1400,6 +1464,7 @@ export interface CreateInlineDatabaseRequest {
   description?: string;
   newDocumentId?: string;
   ownerBlockId?: string;
+  table?: TableCollectionSeed;
 }
 
 export interface CreateInlineDatabaseResponse {
@@ -1471,6 +1536,8 @@ export interface UpdateDatabaseItemsRequest extends DatabaseItemsBatchRequest {
 
 export interface UpdateDatabaseItemsResponse {
   databaseId: string;
+  /** The page backing the collection. */
+  databaseDocumentId: string;
   propertyId: string;
   updated: number;
   failed: number;
@@ -1478,6 +1545,7 @@ export interface UpdateDatabaseItemsResponse {
     itemId: string;
     documentId: string;
     success: boolean;
+    generation?: number;
     error?: string;
   }>;
 }
@@ -1597,6 +1665,17 @@ export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
   pagination: DocumentDiscoveryPagination;
   systemCollections?: ContentSystemCollectionSummary[];
+}
+
+export interface ContentDatabaseRowSearchResponse {
+  databaseId: string;
+  databaseDocumentId: string;
+  rowCreation: {
+    target: ContentDatabaseMutationTarget;
+    schemaRevision: string;
+  } | null;
+  rows: Array<{ documentId: string; title: string; icon: string | null }>;
+  pagination: DocumentDiscoveryPagination;
 }
 
 export interface TrashedContentDatabaseSummary {
@@ -1890,6 +1969,56 @@ export function isBuilderCmsWriteEffect(
   return (BUILDER_CMS_WRITE_EFFECTS as readonly unknown[]).includes(value);
 }
 
+export function builderEntryEditorUrl(entryId: string) {
+  return `https://builder.io/content/${encodeURIComponent(entryId)}`;
+}
+
+export type BuilderArticleAutosaveState =
+  | "idle"
+  | "saving"
+  | "saved"
+  | "waiting"
+  | "failed"
+  | "review";
+
+export type BuilderArticleAutosaveReason =
+  | "builder_editor_changes"
+  | "checking_last_save"
+  | "another_save_running"
+  | "published"
+  | "needs_review"
+  | "edit_conflict"
+  | "builder_changed"
+  | "save_failed"
+  | "unconfirmed_save";
+
+export interface BuilderArticleAutosaveStatus {
+  enabled: boolean;
+  state: BuilderArticleAutosaveState;
+  reason: BuilderArticleAutosaveReason | null;
+  error: string | null;
+  lastSavedAt: string | null;
+  due: boolean;
+  dueSoon: boolean;
+  canSave: boolean;
+}
+
+export interface BuilderArticleRowStatus {
+  documentId: string;
+  databaseId: string;
+  sourceId: string;
+  databaseItemId: string;
+  entryId: string | null;
+  builderUrl: string | null;
+  autosave: BuilderArticleAutosaveStatus | null;
+}
+
+export interface ListBuilderArticleAutosavesResponse {
+  databaseId: string | null;
+  sourceId: string | null;
+  rows: BuilderArticleRowStatus[];
+}
+
 export interface ContentDatabaseSourceReviewRowSummary {
   changeSetId: string;
   databaseItemId: string | null;
@@ -1898,6 +2027,7 @@ export interface ContentDatabaseSourceReviewRowSummary {
   targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
+  bodyDiff?: BuilderBodyDiff | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
@@ -1938,6 +2068,8 @@ export interface PreviewBuilderSourceReviewRequest {
   sourceId?: string;
   scope?: "selected" | "all";
   documentIds?: string[];
+  bodyComparison?: "text" | "blocks";
+  batchSize?: number;
 }
 
 export interface PreviewBuilderSourceReviewResponse {
@@ -1945,6 +2077,10 @@ export interface PreviewBuilderSourceReviewResponse {
   sourceTable: string;
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
+  bodyComparison?: "text" | "blocks";
+  documentIds?: string[];
+  remainingDocumentIds?: string[];
+  blocksCheckDocumentIds?: string[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
@@ -1953,6 +2089,7 @@ export interface PrepareBuilderSourceReviewResponse {
     requestedChangeSetId: string;
     preparedChangeSetId: string;
   }>;
+  unchangedChangeSetIds?: string[];
   timings?: BuilderActionTiming[];
 }
 

@@ -68,6 +68,14 @@ Calendar saves these to its own secret store, not a `.env` file, so this
 step is identical on Windows and macOS. Tokens refresh automatically once
 connected.
 
+On a deployment, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in its
+environment. **Sign in with Google** then asks for calendar access on the same
+Google screen, so signing in also connects that account; further accounts
+still go through **Add account**. Sign-in returns to the same
+`/_agent-native/google/callback` address as connecting, so that one redirect
+URI covers both. Without these variables, sign-in asks only who you are, and
+people connect Google afterwards.
+
 ### Connect Zoom (optional)
 
 Unlike Google, Zoom has no Settings form. Create a `.env` file in the

@@ -23,6 +23,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import { getAppConfig } from "../app-config/index.js";
 import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import { PRODUCTION_SERVER_BUILD_MARKER_ENV_VAR } from "../db/server-runtime.js";
 import {
@@ -32,6 +33,16 @@ import {
   isIntegrationDurableDispatchConfigured,
 } from "../integrations/integration-durable-dispatch-config.js";
 import { isValidCron } from "../jobs/cron.js";
+import {
+  DEFAULT_IDLE_SWEEP_MAX_MINUTES,
+  IDLE_AFTER_ACTIVITY_MS,
+  IDLE_SWEEP_MAX_MINUTES_ENV_VAR,
+  MAX_IDLE_SWEEP_MAX_MINUTES,
+  NETLIFY_WAKE_MARKER_ACTIVITY_KEY,
+  NETLIFY_WAKE_MARKER_IDLE_KEY,
+  NETLIFY_WAKE_MARKER_IO_TIMEOUT_MS,
+  NETLIFY_WAKE_MARKER_STORE,
+} from "../jobs/netlify-wake-marker.js";
 import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
@@ -72,6 +83,7 @@ import {
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
   CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getBundledCoreIngestionPeers,
   getMissingCoreOptionalPeers,
 } from "../shared/optional-peer-ssr.js";
 import {
@@ -1514,6 +1526,18 @@ export function generateWorkerEntry(
     const uiActionContext = actionIsUiOnly || actionDeclaresApproval
       ? await getGeneratedUiActionContext(event, actionIsEmbedded)
       : undefined;
+    if (
+      ${varName}.requiresSignedInBrowser === true &&
+      hasGeneratedFullAppEmbedSession(event)
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: "Sign in to the app in your browser to do this.",
+          errorCode: "signed_in_browser_required",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
     if (actionIsUiOnly && !uiActionContext) {
       return new Response(
         JSON.stringify({
@@ -1530,8 +1554,14 @@ export function generateWorkerEntry(
       ["POST", "PUT", "DELETE"].includes(configuredMethod) &&
       ["POST", "PUT", "DELETE"].includes(requestMethod);
     if (requestMethod !== configuredMethod && !isFrontendMutation) {
+      const actionPlanEffect = ${varName}.planMode?.effect;
+      const actionAlwaysReadOnly = ${varName}.readOnly === true &&
+        (actionPlanEffect === undefined || actionPlanEffect === "read");
       return new Response(
-        JSON.stringify({ error: \`Method not allowed. Use \${configuredMethod}.\` }),
+        JSON.stringify({
+          error: \`Method not allowed. Use \${configuredMethod}.\`,
+          ...(actionAlwaysReadOnly ? { readOnly: true } : {}),
+        }),
         { status: 405, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -1613,7 +1643,7 @@ ${["post", "put", "delete"]
   getFrameworkRoutePrefix as getAgentNativeFrameworkRoutePrefix,
   getSsrAuthRedirectScript as getAgentNativeSsrAuthRedirectScript,
   resolveAppHomePath as resolveAgentNativeAppHomePath,
-${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
+${hasActions ? "  directHttpActionApprovalRefusal as generatedActionApprovalRefusal,\n  getSession as getGeneratedSession,\n  getBrowserCookieSession as getGeneratedBrowserCookieSession,\n  hasFullAppEmbedSession as hasGeneratedFullAppEmbedSession,\n  hasPresentedEmbedSessionCredential as hasGeneratedEmbedCredential,\n  FULL_APP_EMBED_SCOPE as GENERATED_FULL_APP_EMBED_SCOPE,\n  resolveEmbedSessionFromRequest as resolveGeneratedEmbedSession,\n  presentsFullAppEmbedToken as presentsGeneratedFullAppEmbedToken,\n  hasUiActionCapability as hasGeneratedUiActionCapability,\n  hasSameOriginBrowserEvidence as hasGeneratedSameOriginBrowserEvidence,\n  mountUiActionCapabilityRoute as mountGeneratedUiActionCapabilityRoute,\n  resolveOrgIdForEmailViaEvent as resolveGeneratedOrgId,\n  runWithRequestContext as runWithGeneratedRequestContext,\n" : ""}
 } from "${EDGE_SERVER_ENTRYPOINT}";`,
   );
 
@@ -2416,6 +2446,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   headers.set("Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
   headers.set("Netlify-CDN-Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL);
+  headers.set("Access-Control-Allow-Origin", "*");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -2618,7 +2649,26 @@ ${pluginCalls.join("\n")}
 ${
   hasActions
     ? `  async function getGeneratedUiActionContext(event, embedded) {
-    if (event.req.headers.has("authorization") || embedded) {
+    if (embedded) {
+      // A full-app panel's own requests carry its owner's UI authority, as in
+      // the Nitro action route; any other embed does not.
+      if (event.req.headers.get("x-agent-native-frontend") !== "1") return null;
+      const embedSession = await resolveGeneratedEmbedSession(event);
+      if (embedSession?.scope !== GENERATED_FULL_APP_EMBED_SCOPE) return null;
+      const userEmail = embedSession.email.trim().toLowerCase();
+      if (
+        !userEmail ||
+        (!presentsGeneratedFullAppEmbedToken(event, embedSession) &&
+          (!hasGeneratedSameOriginBrowserEvidence(event) ||
+            !hasGeneratedUiActionCapability(event, userEmail)))
+      ) {
+        return null;
+      }
+      const orgId =
+        embedSession.orgId ?? (await resolveGeneratedOrgId(event, userEmail)) ?? undefined;
+      return { userEmail, orgId };
+    }
+    if (event.req.headers.has("authorization")) {
       return null;
     }
     const session = await getGeneratedBrowserCookieSession(event);
@@ -3580,6 +3630,7 @@ export function copyInstalledBrowserRuntimePackages(
 export function copyInstalledExternalSsrPackages(
   serverDir: string | undefined,
   projectCwd = cwd,
+  options: { includeSsrPackages?: boolean } = {},
 ): number {
   if (!serverDir || !fs.existsSync(serverDir)) return 0;
 
@@ -3588,9 +3639,11 @@ export function copyInstalledExternalSsrPackages(
     const source = fs.readFileSync(filePath, "utf-8");
     // Keep undici opaque to client bundlers, but copy it into the server runtime.
     if (/(\"|'|\x60)undici\1/.test(source)) packagesToCopy.add("undici");
-    for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
-      if (hasExternalSsrRuntimeReference(source, packageName)) {
-        packagesToCopy.add(packageName);
+    if (options.includeSsrPackages !== false) {
+      for (const packageName of SERVERLESS_EXTERNAL_SSR_PACKAGES) {
+        if (hasExternalSsrRuntimeReference(source, packageName)) {
+          packagesToCopy.add(packageName);
+        }
       }
     }
   });
@@ -3645,6 +3698,30 @@ export function copyInstalledExternalSsrPackages(
     `[deploy] Copied ${copiedCount} external SSR runtime package(s) into the server bundle.`,
   );
   return copiedCount;
+}
+
+export function copyPresetRuntimePackages(
+  targetPreset: string,
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): void {
+  if (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset)
+  ) {
+    copyInstalledResvgPackages(serverDir);
+    copyInstalledFfmpegStaticPackage(serverDir);
+    copyInstalledBrowserRuntimePackages(serverDir);
+    copyInstalledExternalSsrPackages(serverDir, projectCwd);
+    sanitizeServerlessFunctionPackageManifest(serverDir);
+    pruneServerlessFunctionDeadWeight(serverDir);
+  } else if (targetPreset === "node" || targetPreset === "node-server") {
+    copyInstalledExternalSsrPackages(serverDir, projectCwd, {
+      includeSsrPackages: false,
+    });
+  }
 }
 
 function hasFfmpegStaticBinary(packageDir: string): boolean {
@@ -3949,8 +4026,11 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
       : "AGENT_NATIVE_ENABLE_KEEP_WARM is not enabled.";
     console.log(
       `[build] Keep-warm emit skipped: ${reason} ` +
-        "The database is free to autosuspend; the next visitor after an idle " +
-        "period pays its cold start.",
+        "Once the app is idle, the recurring-jobs sweep runs only when an " +
+        `automation is due or every ${IDLE_SWEEP_MAX_MINUTES_ENV_VAR} ` +
+        `(default ${DEFAULT_IDLE_SWEEP_MAX_MINUTES}) minutes, so a ` +
+        "scale-to-zero database can suspend between sweeps; the next visitor " +
+        "after an idle period pays its cold start.",
     );
     return;
   }
@@ -4088,6 +4168,15 @@ const TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
 const PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
 const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
 const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+const WAKE_MARKER_STORE = ${JSON.stringify(NETLIFY_WAKE_MARKER_STORE)};
+const IDLE_KEY = ${JSON.stringify(NETLIFY_WAKE_MARKER_IDLE_KEY)};
+const ACTIVITY_KEY = ${JSON.stringify(NETLIFY_WAKE_MARKER_ACTIVITY_KEY)};
+const IDLE_SWEEP_MAX_MINUTES_ENV = ${JSON.stringify(IDLE_SWEEP_MAX_MINUTES_ENV_VAR)};
+const DEFAULT_IDLE_SWEEP_MAX_MINUTES = ${DEFAULT_IDLE_SWEEP_MAX_MINUTES};
+const MAX_IDLE_SWEEP_MAX_MINUTES = ${MAX_IDLE_SWEEP_MAX_MINUTES};
+const IDLE_AFTER_ACTIVITY_MS = ${IDLE_AFTER_ACTIVITY_MS};
+const MARKER_IO_TIMEOUT_MS = ${NETLIFY_WAKE_MARKER_IO_TIMEOUT_MS};
+const EARLY_WAKE_MS = 30000;
 
 function siteOrigin(request) {
   return new URL(request.url).origin;
@@ -4101,10 +4190,89 @@ function token(secret) {
   return \`\${timestamp}.\${signature}\`;
 }
 
+// The same Blobs protocol as @agent-native/core's jobs/netlify-wake-marker.ts,
+// inlined because this function ships without dependencies.
+function blobsContext() {
+  const raw = globalThis.netlifyBlobsContext || process.env.NETLIFY_BLOBS_CONTEXT;
+  if (typeof raw !== "string" || !raw) return null;
+  const context = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+  return context?.siteID && context.token && context.edgeURL ? context : null;
+}
+
+async function readMarker(context, key) {
+  const url = new URL(
+    \`/\${context.siteID}/site:\${WAKE_MARKER_STORE}/\${key}\`,
+    context.uncachedEdgeURL,
+  );
+  const response = await fetch(url, {
+    headers: { authorization: \`Bearer \${context.token}\` },
+    signal: AbortSignal.timeout(MARKER_IO_TIMEOUT_MS),
+  });
+  if (response.status === 404) return undefined;
+  if (!response.ok) {
+    throw new Error(\`Blobs read of "\${key}" failed (\${response.status})\`);
+  }
+  return response.json();
+}
+
+function maxIdleMs() {
+  const raw = process.env[IDLE_SWEEP_MAX_MINUTES_ENV]?.trim();
+  const minutes = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return DEFAULT_IDLE_SWEEP_MAX_MINUTES * 60000;
+  }
+  return Math.min(minutes, MAX_IDLE_SWEEP_MAX_MINUTES) * 60000;
+}
+
+function isTime(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+// While the last sweep found the app idle and no request has come since, the
+// database is left to sleep until the sweep's own deadline. Anything missing,
+// malformed or unreadable sweeps, as this function did before the marker
+// existed. A missing activity record means no visitor yet, so it may sleep.
+// A verdict lasts at most the cap from when its sweep started, so a lowered
+// cap, or a forced sweep that failed before replacing it, can't stretch it.
+// Two overlapping activity writes can land out of order, recording a visit up
+// to one write timeout early, so the visit window allows for that too.
+async function idleUntil(now) {
+  const maxIdle = maxIdleMs();
+  if (maxIdle <= 0) return null;
+  const context = blobsContext();
+  if (!context) return null;
+  if (!context.uncachedEdgeURL) {
+    throw new Error("the Blobs context has no uncached edge URL");
+  }
+  const idle = await readMarker(context, IDLE_KEY);
+  if (!isTime(idle?.sweepAfter) || !isTime(idle.decidedAt)) return null;
+  if (idle.decidedAt > now) return null;
+  const deadline = Math.min(idle.sweepAfter, idle.decidedAt + maxIdle);
+  if (now >= deadline - EARLY_WAKE_MS) return null;
+  const activity = await readMarker(context, ACTIVITY_KEY);
+  if (activity !== undefined) {
+    if (!isTime(activity?.at)) return null;
+    if (activity.at >= idle.decidedAt) return null;
+    if (activity.at > now - IDLE_AFTER_ACTIVITY_MS - MARKER_IO_TIMEOUT_MS) {
+      return null;
+    }
+  }
+  return deadline;
+}
+
 export default async function handler(request) {
   const secret = process.env.A2A_SECRET;
   if (!secret) {
     throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  try {
+    const sleepUntil = await idleUntil(Date.now());
+    if (sleepUntil !== null) {
+      console.log("[recurring-jobs] App idle; next sweep at", new Date(sleepUntil).toISOString());
+      return new Response(null, { status: 204 });
+    }
+  } catch (error) {
+    console.warn("[recurring-jobs] Idle marker unreadable; sweeping:", error?.message ?? error);
   }
   const url = new URL(BACKGROUND_PATH, siteOrigin(request));
   const response = await fetch(url, {
@@ -4493,15 +4661,68 @@ function hasBareYjsRuntimeImport(source: string): boolean {
 }
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
+  return bareRuntimeImportSpecifiers(source, packageName).length > 0;
+}
+
+function bareRuntimeImportSpecifiers(
+  source: string,
+  packageName: string,
+): string[] {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const quote = `["\'\\\`]`;
   const staticModuleReference = new RegExp(
-    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `(?:^|[;\\n])\\s*(?:import(?:[^;\\n]*?from\\s*|\\s*)|export\\s+[^;\\n]*?from\\s*)(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
   const dynamicImport = new RegExp(
-    `\\bimport\\s*\\(\\s*(${quote})${escapedPackageName}(?:/[^"\'\\\`]+)?\\1`,
+    `\\bimport\\s*\\(\\s*(${quote})(${escapedPackageName}(?:/[^"\'\\\`]+)?)\\1`,
+    "g",
   );
-  return staticModuleReference.test(source) || dynamicImport.test(source);
+  return [
+    ...source.matchAll(staticModuleReference),
+    ...source.matchAll(dynamicImport),
+  ]
+    .map((match) => match.at(2))
+    .filter((specifier): specifier is string => specifier !== undefined);
+}
+
+/**
+ * Whether a bare import resolves, from the importing file, to a file shipped
+ * inside the server bundle. A missing dependency or one that resolves outside
+ * the bundle is not shipped; any other resolution failure is thrown.
+ */
+function isShippedRuntimeImport(
+  specifier: string,
+  importingFile: string,
+  serverDir: string,
+): boolean {
+  try {
+    const resolved = fs.realpathSync(
+      createRequire(importingFile).resolve(specifier),
+    );
+    const relative = path.relative(fs.realpathSync(serverDir), resolved);
+    return (
+      relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative) &&
+      fs.statSync(resolved).isFile()
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      [
+        "MODULE_NOT_FOUND",
+        "ERR_PACKAGE_PATH_NOT_EXPORTED",
+        "ENOENT",
+        "ENOTDIR",
+      ].includes(error.code)
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function hasBareRuntimeRequire(source: string, packageName: string): boolean {
@@ -4799,7 +5020,10 @@ export function prepareVercelFunctionOutputs(
             );
           }
           fs.unlinkSync(entryPath);
-          fs.cpSync(target, entryPath, { recursive: true });
+          fs.cpSync(target, entryPath, {
+            recursive: true,
+            verbatimSymlinks: true,
+          });
         }
         bundleYjsRuntimeForServerlessOutput(entryPath, projectCwd);
       } else if (entry.isDirectory()) {
@@ -4823,13 +5047,42 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
+// Packages whose modules extend classes defined in their own other modules.
+// Split across chunks, they can import each other in a cycle, and whichever
+// chunk an app reaches first evaluates `class X extends Y` before Y exists:
+// "Class extends value undefined is not a constructor or null" at module load.
+// On 11/16 drizzle-orm was split into seven `_libs/drizzle-orm*.mjs` chunks
+// once the Core group became entries-aware, and four workspace apps crashed
+// on every request. Each of these packages stays in one chunk.
+const NITRO_SINGLE_CHUNK_SERVER_PACKAGES = ["drizzle-orm"] as const;
+
+function nodeModulesPackageRe(packageName: string): RegExp {
+  const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`[\\\\/]node_modules[\\\\/]${escaped}[\\\\/]`);
+}
+
 export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
   return shouldBundleYjsRuntimeForPreset(targetPreset) ||
     isAwsAmplifyPreset(targetPreset)
     ? [
+        ...NITRO_SINGLE_CHUNK_SERVER_PACKAGES.map((packageName) => ({
+          test: nodeModulesPackageRe(packageName),
+          name: () => `_libs/${packageName}`,
+          // Names the group in the bundler timing report; `name` is a function.
+          debugName: packageName,
+          // Above Nitro's per-package `_libs` group and the Core group, so
+          // nothing else claims part of the package.
+          priority: 20,
+        })),
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
           name: () => "agent-native-core",
+          debugName: "agent-native-core",
+          // Preserve dynamic-import boundaries. A package-wide chunk pulls
+          // optional agent, integration and rendering code into every cold
+          // request, even when that request only reads application data.
+          // Statically connected Core/Creative Context modules remain together.
+          entriesAware: true,
         },
       ]
     : [];
@@ -5070,14 +5323,26 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
+  const bundledIngestionPeers = getBundledCoreIngestionPeers(projectCwd);
+  const uninstalledIngestionPeers =
+    CORE_BUNDLED_INGESTION_OPTIONAL_PEERS.filter(
+      (dependency) => !bundledIngestionPeers.includes(dependency),
+    );
+  if (uninstalledIngestionPeers.length > 0) {
+    console.log(
+      `[deploy] Optional ingestion parser(s) not installed, left as optional peers: ${uninstalledIngestionPeers.join(", ")}`,
+    );
+  }
   const bareIngestionImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    for (const dependency of CORE_BUNDLED_INGESTION_OPTIONAL_PEERS) {
-      if (hasBareRuntimeImport(source, dependency)) {
-        bareIngestionImports.push(
-          `${dependency} in ${path.relative(projectCwd, filePath)}`,
-        );
+    for (const dependency of bundledIngestionPeers) {
+      for (const specifier of bareRuntimeImportSpecifiers(source, dependency)) {
+        if (!isShippedRuntimeImport(specifier, filePath, serverDir)) {
+          bareIngestionImports.push(
+            `${dependency} in ${path.relative(projectCwd, filePath)} (${specifier} is not shipped inside the server bundle)`,
+          );
+        }
       }
     }
   });
@@ -5295,9 +5560,68 @@ function copyInstalledResvgPackages(serverDir: string | undefined) {
   );
 }
 
-function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
+const AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV = "AGENT_NATIVE_FFMPEG_STATIC_DIR";
+
+// The one app whose server-side media work needs a real ffmpeg binary:
+// templates/clips/actions/lib/audio-only-transcription.ts spawns it to extract
+// a recording's audio track for transcription (and video-remux/frame do too).
+// Apps that transcribe client-side or through transcribeWithBuilder don't pay
+// for the ~29 MB gzipped binary.
+const SERVERLESS_FFMPEG_APP_IDS = new Set(["clips"]);
+
+function appWantsServerlessFfmpeg(): boolean {
+  try {
+    const config = getAppConfig().app;
+    const id = (
+      process.env.AGENT_NATIVE_WORKSPACE_APP_ID ??
+      config.workspaceId ??
+      config.id
+    )?.trim();
+    return Boolean(id && SERVERLESS_FFMPEG_APP_IDS.has(id));
+  } catch {
+    // coercion-ok: an unresolvable app config only skips the opt-in ffmpeg copy.
+    return false;
+  }
+}
+
+export function copyInstalledFfmpegStaticPackage(
+  serverDir: string | undefined,
+) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
+  // A pre-downloaded target-architecture binary (a local build host cannot
+  // install ffmpeg-static for the serverless runtime itself). Only used when
+  // the directory actually holds a binary, so an unset or bad value keeps the
+  // previous behavior exactly.
+  const targetDir = (
+    process.env[AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV] ?? ""
+  ).trim();
+  const targetBinary = targetDir ? path.join(targetDir, "ffmpeg") : "";
+  if (
+    targetBinary &&
+    fs.existsSync(targetBinary) &&
+    appWantsServerlessFfmpeg()
+  ) {
+    const src = findInstalledFfmpegStaticPackage(nodeModulesRoots);
+    if (!src) {
+      console.warn(
+        `[deploy] ${AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV} is set but ffmpeg-static is not installed to copy it into.`,
+      );
+      return;
+    }
+    const dest = path.join(
+      serverDir,
+      "node_modules",
+      FFMPEG_STATIC_PACKAGE_NAME,
+    );
+    copyDir(src, dest);
+    fs.copyFileSync(targetBinary, path.join(dest, "ffmpeg"));
+    fs.chmodSync(path.join(dest, "ffmpeg"), 0o755);
+    console.log(
+      `[deploy] Copied a target-architecture ffmpeg from ${AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV} into the server bundle.`,
+    );
+    return;
+  }
   if (!shouldBundleFfmpegStaticForServerless()) {
     if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
       console.warn(
@@ -6092,6 +6416,46 @@ export function nitroNoExternalsForPreset(
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
 
+export function createServerIconEsmPlugin(cwd: string) {
+  const entries = new Map<string, string | null>();
+  return {
+    name: "agent-native-server-icon-esm",
+    resolveId(id: string, importer?: string) {
+      if (id !== "@tabler/icons-react") return null;
+      const anchor =
+        importer && path.isAbsolute(importer)
+          ? importer
+          : path.join(cwd, "package.json");
+      const cached = entries.get(anchor);
+      if (cached !== undefined) return cached;
+      let entry: string | null = null;
+      try {
+        const packageJson = createRequire(anchor).resolve(`${id}/package.json`);
+        const manifest = JSON.parse(fs.readFileSync(packageJson, "utf8"));
+        if (typeof manifest.module === "string") {
+          const packageDir = fs.realpathSync(path.dirname(packageJson));
+          const candidate = fs.realpathSync(
+            path.resolve(packageDir, manifest.module),
+          );
+          const relative = path.relative(packageDir, candidate);
+          if (
+            relative &&
+            !relative.startsWith(`..${path.sep}`) &&
+            relative !== ".." &&
+            !path.isAbsolute(relative) &&
+            fs.statSync(candidate).isFile()
+          )
+            entry = candidate;
+        }
+      } catch {
+        // coercion-ok: leave absent packages or packages without an ESM entry to Nitro.
+      }
+      entries.set(anchor, entry);
+      return entry;
+    },
+  };
+}
+
 function createBrowserOnlyServerStubPlugin() {
   const stubbed = new Set(BROWSER_ONLY_SERVER_LIBS);
   const STUB_ID = "\0agent-native-browser-only-server-stub";
@@ -6147,6 +6511,7 @@ export function resolveNitroBuildReplacements(
   firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
   harnessMode: string = "",
   requiredEnv: string = "",
+  appConfig: object = {},
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6207,6 +6572,13 @@ export function resolveNitroBuildReplacements(
     ),
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
     "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": JSON.stringify(requiredEnv),
+    // The client bundle receives the app config as a define from the Vite config.
+    // The server bundle has no such define, so a server-run action that checks the
+    // app's capabilities (for example the theme-family allow list) saw an empty
+    // config and its defaults. Carry the same resolved config into the server
+    // bundle here; `injectedAgentNativeConfig()` reads it exactly as the browser
+    // does. `typeof {…}` is "object", so the module's undefined guard still works.
+    __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
     // Bare Node/Docker has no platform marker for "this is the deployed
     // server", so the production bundle carries its own. Keep it here only:
     // the Vite config's replacements also apply to `pnpm dev`, which must
@@ -6357,6 +6729,7 @@ export default bundle;
         resolveHarnessBuildReplacement(nitroAgentConfig),
       buildConfigMarker?.requiredEnv ??
         resolveRequiredEnvBuildReplacement(nitroAgentConfig),
+      nitroAgentConfig,
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
@@ -6367,6 +6740,10 @@ export default bundle;
         ...(preset.startsWith("cloudflare")
           ? [createCloudflareModuleStubPlugin()]
           : []),
+        // Node's main-first resolution otherwise evaluates the entire CommonJS
+        // icon catalog. Preserve the installed package/version, but use its
+        // declared ESM entry so unused server icons can be eliminated.
+        createServerIconEsmPlugin(cwd),
         createBrowserOnlyServerStubPlugin(),
         boundedTaskSourcePlugin(),
         ...sentryServerSourceMapPlugins,
@@ -6424,19 +6801,7 @@ export default bundle;
     addVercelSweepCron(nitro.options.output.dir);
   }
 
-  if (
-    preset === "netlify" ||
-    preset === "vercel" ||
-    isAwsLambdaPreset(preset) ||
-    isAwsAmplifyPreset(preset)
-  ) {
-    copyInstalledResvgPackages(nitro.options.output.serverDir);
-    copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
-    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
-    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
-    sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
-  }
+  copyPresetRuntimePackages(preset, nitro.options.output.serverDir);
 
   if (preset === "vercel") {
     prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);

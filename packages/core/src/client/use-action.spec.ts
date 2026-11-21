@@ -1,3 +1,4 @@
+// oracle-change: diagnostics now live in ActionError.cause; message is catalog copy.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const analyticsMocks = vi.hoisted(() => ({
@@ -158,7 +159,7 @@ describe("callAction", () => {
       errorCode: "workspace_feature_flag_verification_timeout",
       details: { phase: "verification-timeout" },
     });
-    expect(error.message).toContain("Verification timed out");
+    expect(error.cause.message).toContain("Verification timed out");
   });
 
   it("puts the server's request id and typed code on the error and on the tracked event", async () => {
@@ -657,9 +658,19 @@ describe("callAction", () => {
       {},
       { uiOnly: true, beforeSend, timeoutMs: 50 },
     );
-    const rejected = expect(request).rejects.toThrow("timed out");
+    const settled = Promise.allSettled([request]);
     await vi.waitFor(() => expect(beforeSend).toHaveBeenCalledOnce());
-    await rejected;
+    await expect(settled).resolves.toEqual([
+      {
+        status: "rejected",
+        reason: expect.objectContaining({
+          timedOut: true,
+          cause: expect.objectContaining({
+            message: expect.stringContaining("timed out"),
+          }),
+        }),
+      },
+    ]);
     release();
     await Promise.resolve();
     await Promise.resolve();
@@ -705,7 +716,10 @@ describe("callAction", () => {
           },
         },
       ),
-    ).rejects.toThrow("gate failed");
+    ).rejects.toHaveProperty(
+      "cause.message",
+      expect.stringContaining("gate failed"),
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -719,7 +733,10 @@ describe("callAction", () => {
 
     await expect(
       callActionBlob("render-export-png", {}, { uiOnly: true }),
-    ).rejects.toThrow("Could not establish the browser UI capability.");
+    ).rejects.toHaveProperty(
+      "cause.message",
+      expect.stringContaining("Could not establish the browser UI capability."),
+    );
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
@@ -741,9 +758,11 @@ describe("callAction", () => {
         { timeoutMs: 1_000, uiOnly: true },
       );
       const assertion = expect(promise).rejects.toMatchObject({
-        message: expect.stringContaining(
-          "render-export-png timed out after 1s",
-        ),
+        cause: expect.objectContaining({
+          message: expect.stringContaining(
+            "render-export-png timed out after 1s",
+          ),
+        }),
         timedOut: true,
       });
       await vi.advanceTimersByTimeAsync(1_001);
@@ -923,7 +942,9 @@ describe("callAction", () => {
 
       const promise = callAction("slow-action", {}, { timeoutMs: 1_000 });
       const assertion = expect(promise).rejects.toMatchObject({
-        message: expect.stringContaining("slow-action timed out after 1s"),
+        cause: expect.objectContaining({
+          message: expect.stringContaining("slow-action timed out after 1s"),
+        }),
         timedOut: true,
         status: 408,
       });
@@ -1019,7 +1040,9 @@ describe("callAction", () => {
 
     const error = await callAction("list-meetings").catch((err) => err);
 
-    expect(String(error.message)).toContain("Action list-meetings failed");
+    expect(String(error.cause.message)).toContain(
+      "Action list-meetings failed",
+    );
     expect(defaultActionQueryRetry(0, error)).toBe(true);
   });
 
@@ -1068,9 +1091,60 @@ describe("callAction", () => {
       sentMethod: "POST",
       requiredMethod: "DELETE",
     });
-    expect(String(error.message)).toContain("delete-todo");
-    expect(String(error.message)).toContain('{ method: "DELETE" }');
+    expect(String(error.cause.message)).toContain("delete-todo");
+    expect(String(error.cause.message)).toContain('{ method: "DELETE" }');
     expect(defaultActionQueryRetry(0, error)).toBe(false);
+  });
+
+  it("re-sends a GET read as POST once when the server vouches the action is read-only", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: "Method not allowed. Use POST.", readOnly: true },
+          { status: 405 },
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ items: [1] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callAction(
+      "list-meetings",
+      { q: "a" },
+      { method: "GET" },
+    );
+
+    expect(result).toEqual({ items: [1] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("never re-sends a GET as POST to an action the server does not vouch is read-only", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: "Method not allowed. Use POST." },
+          { status: 405 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await callAction(
+      "delete-todo",
+      { id: "1" },
+      { method: "GET" },
+    ).catch((err) => err);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    expect(error).toMatchObject({
+      status: 405,
+      code: "action_method_mismatch",
+      sentMethod: "GET",
+      requiredMethod: "POST",
+    });
   });
 
   it("times out an unabortable body stream after headers arrive", async () => {
@@ -1237,6 +1311,19 @@ describe("callActionWithRetry", () => {
 });
 
 describe("tryCallActionKeepalive", () => {
+  it("preserves an omitted body for a public keepalive call without inputs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const attempt = tryCallActionKeepalive<{ ok: boolean }>("empty-write");
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await expect(attempt.completion).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/empty-write",
+      expect.objectContaining({ method: "POST", keepalive: true }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
+  });
+
   it("uses the normal action transport and exposes response completion", async () => {
     const fetchMock = vi
       .fn()
@@ -1334,7 +1421,10 @@ describe("tryCallActionKeepalive", () => {
     const failed = tryCallActionKeepalive("save-one", payload);
     expect(failed.accepted).toBe(true);
     if (!failed.accepted) throw new Error("Expected request to be accepted");
-    await expect(failed.completion).rejects.toThrow(/network unavailable/);
+    await expect(failed.completion).rejects.toHaveProperty(
+      "cause.message",
+      expect.stringContaining("network unavailable"),
+    );
 
     const retry = tryCallActionKeepalive("save-two", payload);
     expect(retry.accepted).toBe(true);
@@ -1396,7 +1486,7 @@ describe("tryCallActionKeepalive", () => {
 });
 
 describe("actionErrorMessage", () => {
-  it("returns the action's own text without the console framing", async () => {
+  it("returns catalog text while preserving the diagnostic cause", async () => {
     vi.stubGlobal("fetch", async () =>
       jsonResponse(
         { error: "No such meeting", errorCode: "not_found" },
@@ -1406,12 +1496,15 @@ describe("actionErrorMessage", () => {
 
     const error: any = await callAction("get-meeting").catch((err) => err);
 
-    expect(error.message).toBe("Action get-meeting failed: No such meeting");
-    expect(actionErrorMessage(error)).toBe("No such meeting");
+    expect(error.cause.message).toBe(
+      "Action get-meeting failed: No such meeting",
+    );
+    expect(error.message).toBe("Something went wrong. Try again.");
+    expect(actionErrorMessage(error)).toBeUndefined();
     expect(error.errorCode).toBe("not_found");
   });
 
-  it("returns undefined when nothing authored a message", async () => {
+  it("returns catalog text when nothing authored a message", async () => {
     vi.stubGlobal(
       "fetch",
       async () =>
@@ -1427,7 +1520,7 @@ describe("actionErrorMessage", () => {
     expect(error.status).toBe(502);
   });
 
-  it("returns undefined for a network failure and for a non-error value", async () => {
+  it("returns catalog text for a network failure and undefined for a non-error value", async () => {
     vi.stubGlobal("fetch", async () => {
       throw new TypeError("Failed to fetch");
     });
@@ -1879,7 +1972,10 @@ describe("the UI capability on writes from the signed-in app", () => {
     recordSessionIdentity("user-2");
     settleMint(jsonResponse({ ok: true }));
 
-    await expect(write).rejects.toThrow(/signed-in user changed/);
+    await expect(write).rejects.toHaveProperty(
+      "cause.message",
+      expect.stringContaining("signed-in user changed"),
+    );
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([MINT]);
   });
 

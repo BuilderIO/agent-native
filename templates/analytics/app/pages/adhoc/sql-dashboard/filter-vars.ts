@@ -3,7 +3,7 @@ import type {
   FilterPreset,
   FilterPresetEdit,
   FilterType,
-} from "./types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -262,6 +262,21 @@ function resolveDateParam(
 function dateRangeStart(range: string): string {
   if (range === "all") return ALL_TIME_START;
   return daysAgo(parseDayCount(range) ?? 30);
+}
+
+export function customRangeStartingBounds(
+  filter: DashboardFilter,
+  vars: Record<string, string>,
+): { start: string; end: string } {
+  const start = vars[filter.id + "Start"];
+  const end = vars[filter.id + "End"] || daysAgo(0);
+  if (start && start !== ALL_TIME_START && start <= end) return { start, end };
+  const period =
+    filter.default && parseDayCount(filter.default) !== null
+      ? filter.default
+      : "30d";
+  const fromToday = dateRangeStart(period);
+  return { start: fromToday, end: fromToday <= end ? end : daysAgo(0) };
 }
 
 /**

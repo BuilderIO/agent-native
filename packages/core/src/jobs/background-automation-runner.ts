@@ -5,6 +5,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
+import { automationUsageOrgId } from "../agent/engine/credential-owner.js";
 import {
   getStoredModelForEngine,
   isResolvedEngineUsableForRequest,
@@ -72,6 +73,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS } from "../app-config/run-lifecycle-invariants.js";
 import {
+  automationRunScopeContext,
   lookupOwnerAccount,
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
@@ -355,12 +357,11 @@ export async function validateAutomationRunIdentity(
 export async function resolveBackgroundAutomationIdentity(
   automation: BackgroundAutomationContext,
 ): Promise<BackgroundAutomationIdentityResult> {
-  if (automation.meta.triggerType) {
-    let resolved: Awaited<
-      ReturnType<typeof resolveAutomationExecutionIdentity>
-    >;
+  const resolveExecutionIdentity = async (): Promise<
+    Awaited<ReturnType<typeof resolveAutomationExecutionIdentity>>
+  > => {
     try {
-      resolved = await resolveAutomationExecutionIdentity(
+      return await resolveAutomationExecutionIdentity(
         automation.resource.owner,
         automation.meta,
       );
@@ -370,6 +371,9 @@ export async function resolveBackgroundAutomationIdentity(
         cause,
       );
     }
+  };
+  if (automation.meta.triggerType) {
+    const resolved = await resolveExecutionIdentity();
     if (!resolved.ok) return resolved;
     // The service verifies an organization creator exists; a personal
     // automation's owner was never looked up, so a deleted user kept running.
@@ -382,35 +386,48 @@ export async function resolveBackgroundAutomationIdentity(
     return resolved;
   }
 
+  const owner = automation.resource.owner;
+  const ownerOrgId = organizationIdFromResourceOwner(owner);
+  const declaredOrgId = automation.meta.orgId?.trim() || undefined;
+  const createdBy = automation.meta.createdBy?.trim() || undefined;
+  if (!ownerOrgId && owner !== SHARED_OWNER) {
+    if (createdBy && createdBy.toLowerCase() !== owner.trim().toLowerCase()) {
+      return {
+        ok: false,
+        reason: "Personal automation creator does not match its owner.",
+        code: "config_invalid",
+      };
+    }
+    if (!declaredOrgId) {
+      const resolved = await resolveExecutionIdentity();
+      if (!resolved.ok) return resolved;
+      const validity = await validateAutomationRunIdentity(
+        resolved.identity.userEmail,
+      );
+      if (!validity.ok) return validity;
+      return resolved;
+    }
+  } else if (declaredOrgId && declaredOrgId !== (ownerOrgId ?? undefined)) {
+    return {
+      ok: false,
+      reason: "Automation metadata does not match its owner.",
+      code: "config_invalid",
+    };
+  }
+
   const effectiveRunAs = automation.meta.runAs ?? "creator";
   const userEmail =
-    effectiveRunAs === "creator"
-      ? automation.meta.createdBy || automation.resource.owner
-      : automation.resource.owner;
+    effectiveRunAs === "creator" && (ownerOrgId || owner === SHARED_OWNER)
+      ? createdBy || owner
+      : owner;
   const orgId =
     recoveredFactoryOwnerOrgId(
       automation.meta,
       automation.resource.path,
-      automation.resource.owner,
+      owner,
     ) ??
-    automation.meta.orgId ??
-    undefined;
-  if (
-    !orgId &&
-    automation.resource.owner !== "__shared__" &&
-    !organizationIdFromResourceOwner(automation.resource.owner)
-  ) {
-    const resolved = await resolveAutomationExecutionIdentity(
-      automation.resource.owner,
-      automation.meta,
-    );
-    if (!resolved.ok) return resolved;
-    const validity = await validateAutomationRunIdentity(
-      resolved.identity.userEmail,
-    );
-    if (!validity.ok) return validity;
-    return resolved;
-  }
+    ownerOrgId ??
+    declaredOrgId;
   const validity = await validateAutomationRunIdentity(userEmail, orgId);
   return validity.ok
     ? {
@@ -1429,12 +1446,7 @@ async function resolveBackgroundAutomationModel(
  * paused for `missing_credentials` as soon as the credential exists.
  */
 export async function checkBackgroundAutomationCredentials(
-  identity: {
-    ownerEmail: string;
-    orgId?: string;
-    orgScope?: "personal";
-    defaultAgentEngineScope?: "deployment";
-  },
+  identity: AutomationExecutionIdentity,
   deps: BackgroundAutomationDeps,
   automationModel?: string,
 ): Promise<
@@ -1444,18 +1456,15 @@ export async function checkBackgroundAutomationCredentials(
   try {
     const { engine, model } = await runWithRequestContext(
       {
-        userEmail: identity.ownerEmail,
+        userEmail: identity.userEmail,
         orgId: identity.orgId,
-        ...(identity.orgScope === "personal"
-          ? { orgScope: "personal" as const }
-          : {}),
-        ...(identity.defaultAgentEngineScope === "deployment"
-          ? { defaultAgentEngineScope: "deployment" as const }
-          : {}),
+        ...automationRunScopeContext(identity),
       },
       async () => {
         const engine = await resolveUsableBackgroundEngine(
-          identity,
+          identity.orgId === undefined
+            ? { ownerEmail: identity.userEmail }
+            : { ownerEmail: identity.userEmail, orgId: identity.orgId },
           deps,
           () => undefined,
         );
@@ -1720,10 +1729,16 @@ async function executeBackgroundAutomation(
         ) {
           return;
         }
+        const paidByOrgId = automationUsageOrgId(
+          engine,
+          orgId,
+          options.requestContext?.providerKeyOrg?.orgId,
+        );
         try {
           const { recordUsage } = await import("../usage/store.js");
           await recordUsage({
             ownerEmail,
+            ...(paidByOrgId ? { orgId: paidByOrgId } : {}),
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             cacheReadTokens: usage.cacheReadTokens,

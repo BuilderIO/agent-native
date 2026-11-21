@@ -6,6 +6,7 @@ import { authorizeDispatchAdmin } from "../server/lib/app-roles.js";
 import { approveRequest } from "../server/lib/dispatch-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description: "Approve a pending dispatch change request and apply it.",
   authorize: authorizeDispatchAdmin,
   schema: z.object({

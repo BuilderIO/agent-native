@@ -25,6 +25,11 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
+export interface UnsentReconcileSave {
+  unsent: true;
+  writtenTitle?: string;
+}
+
 // After typing overtakes an automatic save, the next one waits for a pause,
 // as the editor's autosave does, but never longer than the cap.
 const AUTOMATIC_SAVE_IDLE_MS = 1_000;
@@ -41,6 +46,28 @@ async function untilTypingPauses(getIdentity: () => string): Promise<void> {
     if (next === identity) return;
     identity = next;
   }
+}
+
+const UNSENT_SAVE_RETRY_MS = 1_000;
+const UNSENT_SAVE_MAX_WAIT_MS = 30_000;
+
+async function untilUnsentSaveRetry(since: number): Promise<boolean> {
+  const wait = Math.min(
+    UNSENT_SAVE_RETRY_MS,
+    since + UNSENT_SAVE_MAX_WAIT_MS - Date.now(),
+  );
+  if (wait <= 0) return false;
+  await new Promise((resolve) => setTimeout(resolve, wait));
+  return true;
+}
+
+function baseAfterUnsentSave(
+  base: ReconcileSaveBase | undefined,
+  unsent: UnsentReconcileSave,
+): ReconcileSaveBase | undefined {
+  return base && unsent.writtenTitle !== undefined
+    ? { ...base, title: unsent.writtenTitle }
+    : base;
 }
 
 interface AutomaticSave {
@@ -60,7 +87,7 @@ export function useDocumentReconcileRecovery({
   save: (
     draft: ReconcileRecoveryDraft,
     base?: ReconcileSaveBase,
-  ) => Promise<boolean>;
+  ) => Promise<boolean | UnsentReconcileSave>;
   retain?: (draft: ReconcileRecoveryDraft) => Promise<void>;
   getDraft: () => string;
   getTitle?: () => string;
@@ -147,6 +174,7 @@ export function useDocumentReconcileRecovery({
       const started = generation.current;
       publish({ ...current.current, saving: true });
       let saveBase: ReconcileSaveBase | undefined = base;
+      let unsentSince: number | null = null;
       try {
         while (generation.current === started) {
           const identity = callbacks.current.getSaveIdentity();
@@ -156,10 +184,17 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
-          if (!persisted) {
+          if (typeof persisted === "object") {
+            saveBase = baseAfterUnsentSave(saveBase, persisted);
+            unsentSince ??= Date.now();
+            if (await untilUnsentSaveRetry(unsentSince)) continue;
+          } else unsentSince = null;
+          if (persisted !== true) {
             await retainLatest();
+            if (generation.current !== started) return false;
             publish({
-              reason: "conflict",
+              reason:
+                typeof persisted === "object" ? "save-failed" : "conflict",
               localDraft: callbacks.current.getDraft(),
               localTitle: callbacks.current.getTitle?.() ?? "",
               saving: false,
@@ -209,6 +244,7 @@ export function useDocumentReconcileRecovery({
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
       let refused = false;
+      let unsentSince: number | null = null;
       try {
         while (generation.current === started && !current.current) {
           if (run.newerBase) {
@@ -218,12 +254,17 @@ export function useDocumentReconcileRecovery({
             draft = latestDraft();
             saveBase = run.newerBase;
             run.newerBase = null;
+            refused = false;
           } else if (refused) {
             await retainLatest();
             // A newer merge can hand its page over while the draft is retained.
             if (run.newerBase) continue;
             if (generation.current === started && !current.current) {
-              publish({ reason: "conflict", ...latestDraft(), saving: false });
+              publish({
+                reason: unsentSince === null ? "conflict" : "save-failed",
+                ...latestDraft(),
+                saving: false,
+              });
             }
             return false;
           }
@@ -233,6 +274,14 @@ export function useDocumentReconcileRecovery({
             await retainLatest();
             return false;
           }
+          if (typeof persisted === "object") {
+            saveBase = baseAfterUnsentSave(saveBase, persisted);
+            unsentSince ??= Date.now();
+            if (await untilUnsentSaveRetry(unsentSince)) draft = latestDraft();
+            else refused = true;
+            continue;
+          }
+          unsentSince = null;
           if (persisted && callbacks.current.getSaveIdentity() === identity)
             return true;
           // A save that landed while typing continued is not a retry: counting
@@ -262,6 +311,8 @@ export function useDocumentReconcileRecovery({
       } finally {
         inFlight.current = false;
         if (automaticSave.current === run) automaticSave.current = null;
+        if (current.current?.saving)
+          publish({ ...current.current, saving: false });
       }
     },
     [current, latestDraft, publish, retainLatest],

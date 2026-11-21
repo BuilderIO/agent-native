@@ -2,11 +2,12 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { withMigrationRuntime } from "@agent-native/core/db";
 import {
   runFrameworkReleaseMigrations,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
@@ -29,8 +30,10 @@ let getDatabase: typeof import("./get-content-database.js").default;
 let createRow: typeof import("./add-database-item.js").default;
 let updateRow: typeof import("./update-database-item.js").default;
 let patchRows: typeof import("./patch-database-items.js").default;
+let searchRows: typeof import("./search-content-database-rows.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
 let addComment: typeof import("./add-comment.js").default;
+let rowMutation: typeof import("./_database-row-mutation.js");
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -57,10 +60,12 @@ beforeAll(async () => {
   createRow = (await import("./add-database-item.js")).default;
   updateRow = (await import("./update-database-item.js")).default;
   patchRows = (await import("./patch-database-items.js")).default;
+  searchRows = (await import("./search-content-database-rows.js")).default;
   setProperty = (await import("./set-document-property.js")).default;
   addComment = (await import("./add-comment.js")).default;
+  rowMutation = await import("./_database-row-mutation.js");
   if (TEST_DATABASE_URL.startsWith("postgres")) {
-    await runFrameworkReleaseMigrations(undefined);
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   }
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -639,6 +644,12 @@ describe("patch-database-items", () => {
       counts: applied.receipt.counts,
     });
     expect(replayed.receipt.rows).toEqual([...applied.receipt.rows].reverse());
+    expect(applied.receipt.replay).toBeUndefined();
+    expect(replayed.receipt.replay).toEqual({
+      readback: "historical",
+      recordedAt: expect.any(String),
+      freshRead: { action: "get-content-database", databaseId: ids.databaseId },
+    });
     expect(
       await storedValues(
         rows.map((row) => row.documentId),
@@ -693,6 +704,126 @@ describe("patch-database-items", () => {
         ids.properties.rank,
       ),
     ).toEqual([70, 71, 72]);
+  });
+
+  it("accepts the write target a collection read or row search returns, copied unchanged over MCP, and replays a retry sent without its authority scope", async () => {
+    const ids = await fixture("Copied targets");
+    const [row] = await seedRows(ids, 1);
+    const mcp = { caller: "mcp" as const, userEmail: OWNER };
+    const read = await asOwner(() =>
+      getDatabase.run({ databaseId: ids.databaseId }, mcp),
+    );
+    if (!("database" in read) || !read.mutationContract) {
+      throw new Error("The collection read returned no mutation contract.");
+    }
+    const readContract = read.mutationContract;
+    const patched = await asOwner(() =>
+      patchRows.run(
+        {
+          target: readContract.target,
+          expectedSchemaRevision: readContract.schemaRevision,
+          idempotencyKey: "copied-read-target",
+          rows: [rankPatch(ids, row, 7)],
+        },
+        mcp,
+      ),
+    );
+    expect(patched.receipt.counts.updated).toBe(1);
+    const patchedAgain = await asOwner(() =>
+      patchRows.run(
+        {
+          ...envelope(readContract, "copied-read-target"),
+          rows: [rankPatch(ids, row, 7)],
+        },
+        mcp,
+      ),
+    );
+    expect(patchedAgain.receipt).toMatchObject({
+      receiptId: patched.receipt.receiptId,
+      idempotency: { result: "replayed" },
+    });
+
+    const search = await asOwner(() =>
+      searchRows.run({ databaseId: ids.databaseId }, mcp),
+    );
+    const rowCreation = search.rowCreation;
+    if (!rowCreation) {
+      throw new Error("The row search offered no row creation target.");
+    }
+    expect(rowCreation.target).toEqual(readContract.target);
+    const created = await asOwner(() =>
+      createRow.run(
+        {
+          target: rowCreation.target,
+          expectedSchemaRevision: rowCreation.schemaRevision,
+          idempotencyKey: "copied-search-target",
+          title: "Copied target row",
+          propertyEntries: [
+            {
+              propertyId: ids.properties.rank,
+              propertyType: "number",
+              value: 8,
+            },
+          ],
+        },
+        mcp,
+      ),
+    );
+    expect(created.receipt.outcome).toBe("created");
+    expect(created.receipt.replay).toBeUndefined();
+    const createdAgain = await asOwner(() =>
+      createRow.run(
+        {
+          ...envelope(readContract, "copied-search-target"),
+          title: "Copied target row",
+          propertyEntries: [
+            {
+              propertyId: ids.properties.rank,
+              propertyType: "number",
+              value: 8,
+            },
+          ],
+        },
+        mcp,
+      ),
+    );
+    expect(createdAgain.receipt).toMatchObject({
+      receiptId: created.receipt.receiptId,
+      idempotency: { result: "replayed" },
+      replay: {
+        readback: "historical",
+        freshRead: {
+          action: "get-content-database",
+          databaseId: ids.databaseId,
+        },
+      },
+    });
+
+    await expect(
+      asOwner(() =>
+        patchRows.run(
+          {
+            target: {
+              ...readContract.target,
+              authorityScope: { kind: "personal", id: COLLABORATOR },
+            },
+            expectedSchemaRevision: readContract.schemaRevision,
+            idempotencyKey: "foreign-authority",
+            rows: [
+              rankPatch(
+                ids,
+                {
+                  ...row,
+                  rowRevision: patched.receipt.rows[0].revisions.after,
+                },
+                9,
+              ),
+            ],
+          },
+          mcp,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "TARGET_MISMATCH" });
   });
 
   it("never loses a concurrent table edit to a row in the batch", async () => {
@@ -926,4 +1057,396 @@ describe("patch-database-items", () => {
       ),
     ).toEqual(["T-1", "T-2"]);
   });
+});
+
+describe("patch-database-items receipts for MCP script recovery", () => {
+  async function recordsUnderKey(databaseId: string, idempotencyKey: string) {
+    return getDb()
+      .select({
+        operation: schema.contentDatabaseRowMutationReceipts.operation,
+      })
+      .from(schema.contentDatabaseRowMutationReceipts)
+      .where(
+        and(
+          eq(schema.contentDatabaseRowMutationReceipts.databaseId, databaseId),
+          eq(
+            schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+            idempotencyKey,
+          ),
+        ),
+      );
+  }
+
+  it("finds a batch's receipt once it commits, and closing its key after changes nothing", async () => {
+    const ids = await fixture("Recovered rows");
+    const rows = await seedRows(ids, 2);
+    const discovered = await contract(ids.databaseId);
+    const input = {
+      ...envelope(discovered, "script-write"),
+      rows: rows.map((row, index) => rankPatch(ids, row, 40 + index)),
+    };
+    const locator = rowMutation.rowPatchReceiptLocator(input);
+    expect(locator).toMatchObject({
+      scope: ids.databaseId,
+      idempotencyKey: "script-write",
+    });
+    expect(
+      await asOwner(() => rowMutation.reconcileRowPatchReceipt(locator)),
+    ).toEqual({ status: "absent" });
+
+    const applied = await asOwner(() => patchRows.run(input));
+    expect(applied.receipt.idempotency.payloadDigest).toBe(
+      locator.payloadDigest,
+    );
+    const committed = {
+      status: "committed",
+      receipt: { receiptId: applied.receipt.receiptId },
+    };
+    expect(
+      await asOwner(() => rowMutation.reconcileRowPatchReceipt(locator)),
+    ).toEqual(committed);
+    expect(
+      await asOwner(() => rowMutation.fenceRowPatchReceipt(locator)),
+    ).toEqual(committed);
+    expect(await recordsUnderKey(ids.databaseId, "script-write")).toEqual([
+      { operation: "batch:patch" },
+    ]);
+    const replayed = await asOwner(() => patchRows.run(input));
+    expect(replayed.receipt.idempotency.result).toBe("replayed");
+
+    const otherPayload = { ...locator, payloadDigest: "sha256:other" };
+    await expect(
+      asOwner(() => rowMutation.reconcileRowPatchReceipt(otherPayload)),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+    await expect(
+      asOwner(() => rowMutation.fenceRowPatchReceipt(otherPayload)),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+  });
+
+  it("closes an unused key so no row write can take it, and changes no row", async () => {
+    const ids = await fixture("Closed key rows");
+    const rows = await seedRows(ids, 2);
+    const discovered = await contract(ids.databaseId);
+    const input = {
+      ...envelope(discovered, "lost-script-write"),
+      rows: rows.map((row, index) => rankPatch(ids, row, 60 + index)),
+    };
+    const locator = rowMutation.rowPatchReceiptLocator(input);
+
+    expect(
+      await asOwner(() => rowMutation.fenceRowPatchReceipt(locator)),
+    ).toEqual({ status: "fenced" });
+    expect(
+      await asOwner(() => rowMutation.fenceRowPatchReceipt(locator)),
+    ).toEqual({ status: "fenced" });
+    expect(
+      await asOwner(() => rowMutation.reconcileRowPatchReceipt(locator)),
+    ).toEqual({ status: "absent" });
+    await expect(asOwner(() => patchRows.run(input))).rejects.toMatchObject({
+      errorCode: "IDEMPOTENCY_KEY_CLOSED",
+    });
+    await expect(
+      asOwner(() =>
+        updateRow.run({
+          ...envelope(discovered, "lost-script-write"),
+          itemId: rows[0].itemId,
+          documentId: rows[0].documentId,
+          expectedRowRevision: rows[0].rowRevision,
+          propertyValues: { [ids.properties.rank]: 5 },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_CLOSED" });
+    await expect(
+      asOwner(() =>
+        createRow.run({
+          ...envelope(discovered, "lost-script-write"),
+          title: "Task 3",
+          propertyValues: { [ids.properties.rank]: 3 },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_CLOSED" });
+    await expect(
+      asOwner(() =>
+        rowMutation.fenceRowPatchReceipt({
+          ...locator,
+          payloadDigest: "sha256:other",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_KEY_REUSED" });
+
+    expect(await recordsUnderKey(ids.databaseId, "lost-script-write")).toEqual([
+      { operation: "closed-key" },
+    ]);
+    expect(
+      await storedValues(
+        rows.map((row) => row.documentId),
+        ids.properties.rank,
+      ),
+    ).toEqual([1, 2]);
+  });
+
+  it("lets a collection viewer check a key and only an editor close one", async () => {
+    const ids = await fixture("Viewed rows");
+    const locator = {
+      scope: ids.databaseId,
+      idempotencyKey: "viewer-script-write",
+      payloadDigest: "sha256:viewer",
+    };
+    await expect(
+      asCollaborator(() => rowMutation.reconcileRowPatchReceipt(locator)),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: `share-${crypto.randomUUID()}`,
+        resourceId: ids.databaseDocumentId,
+        principalType: "user",
+        principalId: COLLABORATOR,
+        role: "viewer",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+    expect(
+      await asCollaborator(() => rowMutation.reconcileRowPatchReceipt(locator)),
+    ).toEqual({ status: "absent" });
+    await expect(
+      asCollaborator(() => rowMutation.fenceRowPatchReceipt(locator)),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(
+      await recordsUnderKey(ids.databaseId, "viewer-script-write"),
+    ).toEqual([]);
+  });
+
+  it("refuses a batch that was waiting for the collection when its key closed", async () => {
+    const { databaseItemsPositionScope, withPositionLock } =
+      await import("./_position-utils.js");
+    const ids = await fixture("Waiting rows");
+    const rows = await seedRows(ids, 2);
+    const discovered = await contract(ids.databaseId);
+    const input = {
+      ...envelope(discovered, "waiting-script-write"),
+      rows: rows.map((row, index) => rankPatch(ids, row, 70 + index)),
+    };
+    const scope = databaseItemsPositionScope(ids.databaseId);
+    let release!: () => void;
+    const held = withPositionLock(
+      scope,
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    const batch = asOwner(() => patchRows.run(input));
+    batch.catch(() => {});
+    try {
+      const locks = (
+        globalThis as {
+          __contentPositionLocks?: Map<string, Promise<unknown>>;
+        }
+      ).__contentPositionLocks;
+      await expect.poll(() => locks?.get(scope) !== held).toBe(true);
+      expect(
+        await asOwner(() =>
+          rowMutation.fenceRowPatchReceipt(
+            rowMutation.rowPatchReceiptLocator(input),
+          ),
+        ),
+      ).toEqual({ status: "fenced" });
+    } finally {
+      release();
+      await held;
+    }
+
+    await expect(batch).rejects.toMatchObject({
+      errorCode: "IDEMPOTENCY_KEY_CLOSED",
+    });
+    expect(
+      await storedValues(
+        rows.map((row) => row.documentId),
+        ids.properties.rank,
+      ),
+    ).toEqual([1, 2]);
+  });
+
+  // oracle-change: new tests that need a second connection to wait on the collection lock, which PGlite lacks; CI runs this file on PostgreSQL.
+  describe.runIf(TEST_DATABASE_URL.startsWith("postgres"))(
+    "while another transaction holds the collection lock",
+    () => {
+      function firstRow(result: unknown) {
+        const rows = Array.isArray(result)
+          ? result
+          : (result as { rows: unknown[] }).rows;
+        return rows[0] as Record<string, unknown>;
+      }
+
+      async function holdCollectionLock(databaseId: string) {
+        const { lockContentDatabaseMutation } =
+          await import("./_content-database-mutation-lock.js");
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let held!: (pid: number) => void;
+        const holding = new Promise<number>((resolve) => {
+          held = resolve;
+        });
+        const done = getDb().transaction(
+          async (tx: Parameters<typeof lockContentDatabaseMutation>[0]) => {
+            const backend = firstRow(
+              await tx.execute(sql`SELECT pg_backend_pid() AS pid`),
+            );
+            await lockContentDatabaseMutation(tx, databaseId);
+            held(Number(backend.pid));
+            await released;
+          },
+        );
+        const pid = await Promise.race([
+          holding,
+          done.then(() => {
+            throw new Error("The holder ended before it held the lock.");
+          }),
+        ]);
+        return {
+          pid,
+          release: async () => {
+            release();
+            await done;
+          },
+        };
+      }
+
+      async function waitUntilWaitingOn(holderPid: number, sessions: number) {
+        await expect
+          .poll(
+            async () =>
+              firstRow(
+                await getDb().execute(
+                  sql`WITH RECURSIVE waiting(pid) AS (SELECT pid FROM pg_stat_activity WHERE ${holderPid} = ANY(pg_blocking_pids(pid)) UNION SELECT activity.pid FROM pg_stat_activity activity JOIN waiting ON waiting.pid = ANY(pg_blocking_pids(activity.pid))) SELECT count(*)::int AS waiting FROM waiting`,
+                ),
+              ).waiting,
+            { timeout: 15_000 },
+          )
+          .toBe(sessions);
+      }
+
+      type Settled = { value?: unknown; error?: unknown };
+
+      async function queueBehindLock(
+        databaseId: string,
+        first: () => Promise<unknown>,
+        second: () => Promise<unknown>,
+      ): Promise<Settled[]> {
+        const settle = (run: () => Promise<unknown>): Promise<Settled> =>
+          run().then(
+            (value) => ({ value }),
+            (error: unknown) => ({ error }),
+          );
+        const holder = await holdCollectionLock(databaseId);
+        const queued: Promise<Settled>[] = [];
+        try {
+          queued.push(settle(first));
+          await waitUntilWaitingOn(holder.pid, 1);
+          queued.push(settle(second));
+          await waitUntilWaitingOn(holder.pid, 2);
+        } finally {
+          await holder.release();
+        }
+        return Promise.all(queued);
+      }
+
+      it("reports a batch that reached the lock first as committed and closes nothing", async () => {
+        const ids = await fixture("Batch-first rows");
+        const rows = await seedRows(ids, 2);
+        const discovered = await contract(ids.databaseId);
+        const input = {
+          ...envelope(discovered, "batch-first"),
+          rows: rows.map((row, index) => rankPatch(ids, row, 80 + index)),
+        };
+        const locator = rowMutation.rowPatchReceiptLocator(input);
+        const [batch, fenced] = await queueBehindLock(
+          ids.databaseId,
+          () => asOwner(() => patchRows.run(input)),
+          () => asOwner(() => rowMutation.fenceRowPatchReceipt(locator)),
+        );
+
+        expect(batch.error).toBeUndefined();
+        const applied = batch.value as Awaited<
+          ReturnType<typeof patchRows.run>
+        >;
+        expect(fenced).toEqual({
+          value: {
+            status: "committed",
+            receipt: { receiptId: applied.receipt.receiptId },
+          },
+        });
+        expect(
+          await storedValues(
+            rows.map((row) => row.documentId),
+            ids.properties.rank,
+          ),
+        ).toEqual([80, 81]);
+      });
+
+      it("refuses a batch that reached the lock after the fence, and writes nothing", async () => {
+        const ids = await fixture("Fence-first rows");
+        const rows = await seedRows(ids, 2);
+        const discovered = await contract(ids.databaseId);
+        const input = {
+          ...envelope(discovered, "fence-first"),
+          rows: rows.map((row, index) => rankPatch(ids, row, 90 + index)),
+        };
+        const locator = rowMutation.rowPatchReceiptLocator(input);
+        const [fenced, batch] = await queueBehindLock(
+          ids.databaseId,
+          () => asOwner(() => rowMutation.fenceRowPatchReceipt(locator)),
+          () => asOwner(() => patchRows.run(input)),
+        );
+
+        expect(fenced).toEqual({ value: { status: "fenced" } });
+        expect(batch.error).toMatchObject({
+          errorCode: "IDEMPOTENCY_KEY_CLOSED",
+        });
+        expect(
+          await storedValues(
+            rows.map((row) => row.documentId),
+            ids.properties.rank,
+          ),
+        ).toEqual([1, 2]);
+      });
+
+      it("refuses a fence whose caller lost edit access while it waited", async () => {
+        const ids = await fixture("Revoked fence rows");
+        const shareId = `share-${crypto.randomUUID()}`;
+        await getDb().insert(schema.documentShares).values({
+          id: shareId,
+          resourceId: ids.databaseDocumentId,
+          principalType: "user",
+          principalId: COLLABORATOR,
+          role: "editor",
+          createdBy: OWNER,
+          createdAt: new Date().toISOString(),
+        });
+        const locator = {
+          scope: ids.databaseId,
+          idempotencyKey: "revoked-fence",
+          payloadDigest: "sha256:revoked",
+        };
+        const holder = await holdCollectionLock(ids.databaseId);
+        const fence = asCollaborator(() =>
+          rowMutation.fenceRowPatchReceipt(locator),
+        );
+        fence.catch(() => {});
+        try {
+          await waitUntilWaitingOn(holder.pid, 1);
+          await getDb()
+            .delete(schema.documentShares)
+            .where(eq(schema.documentShares.id, shareId));
+        } finally {
+          await holder.release();
+        }
+
+        await expect(fence).rejects.toMatchObject({ statusCode: 403 });
+        expect(await recordsUnderKey(ids.databaseId, "revoked-fence")).toEqual(
+          [],
+        );
+      });
+    },
+  );
 });

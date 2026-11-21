@@ -66,6 +66,8 @@
     "h3": "catalog:",
     "highlight.js": "catalog:",
     "isbot": "^5",
+    "jspdf": "4.2.1",
+    "jszip": "^3.10.1",
     "katex": "0.17.0",
     "lowlight": "catalog:",
     "prosemirror-markdown": "^1.13.4",

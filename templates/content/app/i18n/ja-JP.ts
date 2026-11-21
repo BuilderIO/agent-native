@@ -403,6 +403,12 @@ const database = {
   failedToSavePagePreview: "ページプレビューを保存できませんでした",
   failedToSaveView: "ビューの保存に失敗しました",
   failedToUpdateCheckbox: "チェックボックスを更新できませんでした",
+  undoPropertyChangedSince:
+    "元に戻せませんでした: 編集後にこのプロパティが変更されました",
+  redoPropertyChangedSince:
+    "やり直せませんでした: 元に戻した後にこのプロパティが変更されました",
+  undoPropertyFailed: "プロパティの変更を元に戻せませんでした",
+  redoPropertyFailed: "プロパティの変更をやり直せませんでした",
   failedToUpdateEverySelectedRow: "選択したすべての行を更新できませんでした",
   filter: "フィルター",
   filterBy: "フィルター条件...",
@@ -733,6 +739,17 @@ const editor = {
     duplicate: "複製",
     delete: "削除",
     insertBelow: "下にブロックを挿入",
+    insertAbove: "上にブロックを挿入",
+    turnIntoCollection: "コレクションに変換",
+    askAgent: "エージェントに聞く",
+    columns: "列",
+    syncedBlock: "同期ブロック",
+    component: "コンポーネント",
+    file: "ファイル",
+    pdf: "PDF",
+    bookmark: "ブックマーク",
+    embed: "埋め込み",
+    tableOfContents: "目次",
     search: "操作を検索...",
     noResults: "結果がありません",
     block: "ブロック",
@@ -743,6 +760,21 @@ const editor = {
       "ソースファイルのコンポーネントはここでは複製・削除できません。",
     lockedSuggesting: "提案ではこの種類のブロックを追加・削除できません。",
     lockedPage: "このページではその変更はできません。",
+    lockedCollection: "コレクションは、それが属するページに残ります。",
+    lockedUploadedClip:
+      "このページにアップロードした Clip は、視聴できる人がページで決まるため、このページに残ります。",
+    moveTo: "移動先",
+    moveToTitle: "ブロックの移動先",
+    movingTo: "{{title}} に移動しています…",
+    movedTo: "{{title}} に移動しました",
+    copiedTo:
+      "{{title}} にコピーしました。移動中にブロックが変更されたため、ここにも残っています。",
+    copiedPageClosed:
+      "{{title}} にコピーしました。移動が終わる前に移動元のページが閉じられたため、ブロックはそちらにも残っています。",
+    moveChanged:
+      "移動する前にブロックが変更されたため、何も移動しませんでした。",
+    moveFailed: "ブロックを {{title}} に移動できませんでした",
+    openPage: "開く",
   },
   noDocumentSelected: "ドキュメントが選択されていません",
   registryBlockLoadError:
@@ -774,9 +806,27 @@ const editor = {
   creatingDatabase: "インラインコレクションを作成しています...",
   databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
+  newPagePlaceholder: "書き始めましょう",
+  newPageLine: "書き始める、{{draft}}、または {{import}}",
+  newPageLineWithoutImport: "書き始める、または{{draft}}",
+  newPageLineDraft: "エージェントで下書き",
+  newPageLineImport: "Markdown をインポート",
+  newPageDraftPrompt: "次のテーマでこのページを下書きしてください: ",
+  newPageDraftPromptTitled:
+    "「{{title}}」についてこのページを下書きしてください",
+  newPageAgentContextLabel: "このページ",
   describeWhatToGenerate: "何を生成するかを説明します...",
   enterToSubmit: "入力して送信してください",
   failedToCreateDatabase: "インラインコレクションの作成に失敗しました",
+  turningIntoCollection: "テーブルをコレクションに変換しています...",
+  turnedIntoCollection: "テーブルをコレクションに変換しました",
+  failedToTurnIntoCollection: "テーブルをコレクションに変換できませんでした",
+  tableChangedWhileTurning:
+    "変換中にテーブルが変更されたため、テーブルはそのままにしました。もう一度お試しください。",
+  tableTooBigForCollection:
+    "コレクションに変換できるのは、500 行・50 列までのテーブルです。",
+  tableTextTooLongForCollection:
+    "コレクションでは、行の名前（テーブルの最初の列）は 500 文字まで、その他のセルは 20,000 文字までです。長いセルを短くしてから、もう一度お試しください。",
   generateWithAi: "AIで生成",
   untitledDatabase: "無題のコレクション",
   media: {
@@ -785,7 +835,9 @@ const editor = {
     addImage: "画像を追加する",
     addVideo: "ビデオを追加する",
     altText: "代替テキスト",
-    altTextGenerationFailed: "代替テキストの生成を開始できませんでした。",
+    altTextAdded: "代替テキストを追加しました。",
+    altTextGenerationFailed: "代替テキストを作成できませんでした。",
+    altTextNeedsAiSetup: "代替テキストを作成するには AI を設定してください。",
     assets: "資産",
     assetsCopyFailed:
       "アセットからこの画像をコピーできませんでした。もう一度試すか、ファイルをアップロードしてください。",
@@ -818,10 +870,12 @@ const editor = {
     currentDocumentMissing: "現在のドキュメントが見つかりませんでした。",
     delete: "削除",
     describeThisImage: "この画像について説明してください",
+    dismissAltTextStatus: "閉じる",
     download: "ダウンロード",
     downloadAudio: "音声をダウンロードする",
     downloadImage: "画像をダウンロード",
     downloadVideo: "ビデオをダウンロードする",
+    editAltTextInChat: "チャットで編集",
     embedAudio: "オーディオを埋め込む",
     embedImage: "画像を埋め込む",
     embedVideo: "ビデオを埋め込む",
@@ -830,7 +884,7 @@ const editor = {
     expandImage: "画像を拡大する",
     expandVideo: "ビデオを展開する",
     generateAltText: "代替テキストを生成する",
-    generatingAltText: "代替テキストを生成しています...",
+    generatingAltText: "代替テキストを作成しています…",
     image: "画像",
     imageAdded: "画像追加",
     imagesAdded: "画像を追加しました",
@@ -844,12 +898,14 @@ const editor = {
     imageUploadsFailed:
       "{{total}} 件中 {{failed}} 件の画像をアップロードできませんでした。",
     imageView: "イメージビュー",
+    keptYourAltText: "入力した代替テキストを残しました。",
     link: "リンク",
     loadingAssetsPicker: "アセットピッカーのロード",
     more: "もっと見る",
     moreAudioActions: "その他の音声アクション",
     moreImageActions: "その他の画像アクション",
     moreVideoActions: "その他のビデオアクション",
+    openChat: "チャットを開く",
     openedAudioInNewTab: "新しいタブでオーディオを開きます。",
     openedImageInNewTab: "新しいタブで画像を開きました。",
     openedVideoInNewTab: "新しいタブでビデオを開きました。",
@@ -877,6 +933,7 @@ const editor = {
     transcript: "成績証明書",
     transcriptBlockFailed: "トランスクリプト ブロックを追加できませんでした。",
     transcriptionStarted: "転写が始まりました。",
+    tryAgain: "再試行",
     upload: "アップロード",
     uploadFile: "ファイルをアップロードする",
     uploadingAudio: "音声をアップロードしています...",
@@ -961,7 +1018,11 @@ const editor = {
     imageUploaded_other: "アップロードされた画像",
     includeTime: "時間を含む",
     loadingProperties: "プロパティの読み込み中",
-    content: "コンテンツ",
+    pageDetails: "ページの詳細",
+    createdOn: "{{date}}に作成",
+    editedAgo: "{{time}}に編集",
+    editedOn: "{{date}}に編集",
+    editedJustNow: "たった今編集",
     loadingContent: "コンテンツを読み込み中",
     wordCount_zero: "{{count}}語",
     wordCount_one: "{{count}}語",
@@ -974,6 +1035,8 @@ const editor = {
     noFilesOrMedia: "ファイルやメディアがありません",
     noMatchingOptions: "一致するオプションはありません",
     noMatchingPropertyTypes: "一致するプロパティ タイプがありません",
+    typeChangeUnavailable:
+      "既存の値を保護するため、プロパティの種類は変更できません。",
     notMappedToBuilder: "ビルダーにマッピングされていません。",
     onlyBlocksPropertyWarning:
       "これは、このオブジェクト タイプに存在する唯一のブロック プロパティです。これにより、このタイプのすべてのオブジェクトのメイン コンテンツ (本文) が削除されます。",
@@ -1066,6 +1129,10 @@ const editor = {
     fourColumns: "4列",
     codeBlock: "コードブロック",
     codeBlockDescription: "コードスニペット",
+    toggleHeading1: "トグル見出し 1",
+    toggleHeading2: "トグル見出し 2",
+    toggleHeading3: "トグル見出し 3",
+    toggleHeadingDescription: "開閉できる見出し",
     collapsibleBlockDescription: "折りたたみ可能なブロック",
     database: "コレクション",
     databaseDescription: "このページ内のインラインコレクション",
@@ -1156,6 +1223,13 @@ const editor = {
     agentLevelNote: "エージェントはコメント可",
     agentLevelNoteHint:
       "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    agentLevelViewDescription:
+      "このページを閲覧できます。コメント、提案、編集はできません。",
+    agentLevelViewConfirm:
+      "エージェントはこのページの閲覧のみできるようになりました。",
+    agentLevelViewNote: "エージェントは閲覧のみ",
+    agentLevelViewNoteHint:
+      "エージェントはこのページを閲覧のみできます。「シェアする」から変更できます。",
     sendPageToAgent: "このページをエージェントに送信",
     connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",
@@ -1263,6 +1337,7 @@ const rawLiterals = {
     rename: "名前を変更",
     duplicate: "複製",
     moveTo: "移動先",
+    addSubPage: "サブページを追加",
     moveToTrash: "ゴミ箱に移動",
     lastEditedBy: "最終編集者: {{name}}",
     lastEdited: "最終編集",
@@ -1489,6 +1564,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
     discardSuggestionDraft: "下書きを破棄",
+    mermaid: {
+      source: "Mermaid",
+      done: "完了",
+      doneShortcut: "ソースを閉じる (Esc)",
+      editDiagram: "図を編集",
+      cantDraw: "この図を描画できません",
+    },
     failedToCreatePage: "ページを作成できませんでした",
     slash: {
       blockEquation: "ブロック数式",
@@ -1526,6 +1608,9 @@ const exactEnglish = {
       temporaryAgentLink: "一時的なエージェントリンク",
       privateLinkCanView: "アクセス権のある人だけが閲覧できます",
       publicLinkCanView: "リンクを知っている人は誰でも閲覧できます",
+      publicSubPagesOne: "このページとそのサブページ",
+      publicSubPages: "このページと{{count}}件のサブページ",
+      publicSubPagesMore: "このページと{{count}}件を超えるサブページ",
       copiedAgentPrompt: "エージェント用指示をコピーしました",
       couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
       agentPrompt:
@@ -1644,6 +1729,25 @@ const overrides = {
     builderReviewShowMore: "さらに表示",
     builderReviewRemainingBatches:
       "残りの Builder 変更を準備するには、このバッチの後で再度レビューしてください。",
+    builderReviewLoadingMorePagesOne: "残り 1 ページの変更を読み込んでいます…",
+    builderReviewLoadingMorePages:
+      "残り {{count}} ページの変更を読み込んでいます…",
+    builderReviewConfirmingBodiesOne:
+      "本文の変更 1 件を Builder と照合しています…",
+    builderReviewConfirmingBodies:
+      "本文の変更 {{count}} 件を Builder と照合しています…",
+    builderReviewFindingPages: "変更のあるページを探しています…",
+    builderReviewRowsMatchBuilderOne:
+      "1 ページは本文を変換すると Builder と一致するため、含めていません。",
+    builderReviewRowsMatchBuilder:
+      "{{count}} ページは本文を変換すると Builder と一致するため、含めていません。",
+    builderReviewLoadFailed: "一部の変更を読み込めませんでした: {{message}}",
+    bodyDiffAdded: "追加:",
+    bodyDiffRemoved: "削除:",
+    bodyDiffMoreLinesOne: "ほかに変更された行が 1 行",
+    bodyDiffMoreLines: "ほかに変更された行が {{count}} 行",
+    bodyDiffMoreChangesOne: "表示されていない変更があと 1 件",
+    bodyDiffMoreChanges: "表示されていない変更があと {{count}} 件",
     builderBodiesSyncingProgress:
       "{{total}} 件中 {{hydrated}} 件の本文を同期しています。",
     builderBodiesSyncFinishedWithFailures:
@@ -1697,9 +1801,20 @@ const overrides = {
     commandDatabasesHeading: "コレクション",
     commandLocalFilesHeading: "ローカルファイル",
     commandDatabaseResultDescription: "コレクションページを開く",
-    commandAppearance: "外観",
     openAgent: "エージェントを開く",
     toggleTheme: "テーマを切り替え",
+    commandOnPage: "「{{title}}」",
+    commandSearchInPage: "このページ内を検索",
+    commandSearchInPageDescription: "このページとその中のページのみ",
+    commandScopeChip: "「{{title}}」内",
+    commandClearScope: "ワークスペース全体を検索",
+    commandAskAgent: "エージェントに質問:「{{query}}」",
+    commandAskAgentDescription:
+      "エージェントが検索、閲覧、要約を代わりに行います",
+    commandPreview: "プレビュー",
+    commandHintNavigate: "移動",
+    commandHintOpen: "開く",
+    commandHintClose: "閉じる",
   },
   theme: {
     system: "システムテーマ",
@@ -1810,10 +1925,17 @@ const overrides = {
     heading6: "見出し 6",
     link: "リンク",
     comment: "コメント",
+    suggestEdit: "編集を提案",
     pasteLink: "リンクを貼り付け...",
     apply: "適用",
     plainText: "プレーンテキスト",
     searchLanguages: "言語を検索...",
+    codeLanguageAuto: "自動",
+    codeLanguage: "コードの言語",
+    noLanguagesFound: "言語が見つかりません",
+    copyCode: "コードをコピー",
+    codeCopied: "コピーしました",
+    wrapCodeLines: "行を折り返す",
     noBlocksFields:
       "Blocks フィールドがありません。プロパティメニューから追加してください。",
     addBlockField: "フィールドを追加",
@@ -1832,6 +1954,18 @@ const overrides = {
       "このコレクションのすべての行から「{{name}}」とそのテキストが削除されます。元に戻すことはできません。",
     deleteBlockFieldBodyWarning:
       "「{{name}}」はページ本文のため、すべての行の本文も削除されます。",
+    blockFieldFrozen: "{{column}} が {{value}} の間は固定",
+    blockFieldFrozenDescription:
+      "このコレクションのルールにより、人もエージェントもこのタブを変更できません。編集するには {{column}} を {{value}} 以外に変更してください。",
+    blockFieldFrozenByManagers:
+      "{{column}} が {{value}} の間は固定されます。変更できるのは、コレクションへのフルアクセス権を持つユーザーだけです。",
+    blockFieldFrozenSaveRefused:
+      "このタブは固定されているため、編集は保存されませんでした",
+    freezeBlockField: "固定する条件…",
+    freezeBlockFieldWhile: "{{column}} が次の値の間",
+    freezeBlockFieldNoColumns:
+      "固定の条件にするステータス列または選択列を追加してください",
+    unfreezeBlockField: "固定しない",
   },
   comments: {
     add: "コメントを追加...",
@@ -1871,6 +2005,19 @@ const overrides = {
     agentBadge: "エージェント",
     addEmoji: "絵文字を追加",
     mentionSomeone: "メンションする",
+    attachImage: "画像を追加",
+    removeImage: "画像を削除",
+    uploadingImage: "画像をアップロード中…",
+    imageUploadFailed:
+      "画像をアップロードできませんでした。もう一度お試しください。",
+    imageTypeUnsupported:
+      "コメントに添付できるのは PNG、JPEG、GIF、WebP の画像です。",
+    imageTooLarge: "画像は 1 枚あたり 10 MB までです。",
+    imageLimit: "1 つのコメントに添付できる画像は {{count}} 枚までです。",
+    imagesNeedStorage:
+      "画像にはプライベートなファイルストレージが必要ですが、このワークスペースでは接続されていません。",
+    commentImages: "画像",
+    openImage: "画像を開く: {{name}}",
     mentionPeople: "メンバー",
     mentionPeopleLoadFailed: "メンバーを読み込めませんでした。",
     mentionAgents: "エージェント",
@@ -1903,7 +2050,9 @@ const overrides = {
     aiResponseMode: "応答",
     aiChooseSendMode: "AI 送信モードを選択",
     aiSuggestChanges: "変更を提案",
-    aiUnavailable: "利用不可",
+    aiModelNotConnected:
+      "{{model}} は接続されていません。名前をクリックして別のモデルを選んでください。",
+    aiModelNotConnectedAlone: "{{model}} は接続されていません。",
     aiReplyInThread: "スレッドで返信",
     aiApplyAndResolve: "変更を適用して解決",
     aiPromptSuggest: "このコメントへの変更を提案してください。",
@@ -1969,6 +2118,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "保留中の作成と未保存の下書きを消去します。ページがすでに保存されている場合は、ワークスペースに残ります。",
     failedDeletePage: "ページを削除できませんでした",
+    workspaceReferenceProtected:
+      "ワークスペースへの参照は保護されており、ページとして変更できません。",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",
     failedMovePage: "ページを移動できませんでした",

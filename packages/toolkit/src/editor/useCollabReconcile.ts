@@ -132,6 +132,11 @@ export interface UseCollabReconcileOptions {
     updatedAt: string;
     sequence: number;
   } | null;
+  mergedLocalSave?: {
+    sent: string;
+    value: string;
+    revision: string;
+  } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
@@ -153,6 +158,18 @@ export interface UseCollabReconcileOptions {
    * once the server takes it in) and cannot change it, even by throwing.
    */
   onBaseAwareMerge?: (outcome: { setAside: number }) => void;
+  /**
+   * Whether `server` already holds every change `live` made to `base`, as a
+   * save's merged answer does once typing pauses. A snapshot whose hunks were
+   * set aside is taken in whole when it does; until then it stays unapplied,
+   * so the editor keeps the base its own text was written on. Leave it unset
+   * and a snapshot with hunks set aside waits for the next one.
+   */
+  serverHoldsLiveChanges?: (
+    base: string,
+    server: string,
+    live: string,
+  ) => boolean;
   onRemoteSnapshotChange?: (markdown: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
   /**
@@ -276,10 +293,12 @@ export function useCollabReconcile({
   contentRevision,
   compareContentRevisions,
   acknowledgedLocalSnapshot,
+  mergedLocalSave = null,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
   onBaseAwareMerge,
+  serverHoldsLiveChanges,
   onRemoteSnapshotChange,
   requestInitialSeed,
   requestSnapshotAdoption,
@@ -317,6 +336,10 @@ export function useCollabReconcile({
     revision: string;
   } | null>(contentRevision ? { value, revision: contentRevision } : null);
   const reportedConflictRevisionRef = useRef<string | null>(null);
+  const countedMergeRevisionRef = useRef<string | null>(null);
+  // A snapshot with hunks set aside, planned again on the next edit here: an
+  // undo or a move elsewhere can leave them nothing to overlap.
+  const setAsideReplanRef = useRef<(() => void) | null>(null);
   const reconcileCallbacksRef = useRef({
     getMarkdown,
     setContent,
@@ -326,6 +349,7 @@ export function useCollabReconcile({
     isEditorClean,
     onBaseAwareReconcile,
     onBaseAwareMerge,
+    serverHoldsLiveChanges,
     onRemoteSnapshotChange,
   });
   reconcileCallbacksRef.current = {
@@ -337,6 +361,7 @@ export function useCollabReconcile({
     isEditorClean,
     onBaseAwareReconcile,
     onBaseAwareMerge,
+    serverHoldsLiveChanges,
     onRemoteSnapshotChange,
   };
   const acknowledgedLocalSnapshotRef = useRef<{
@@ -345,6 +370,8 @@ export function useCollabReconcile({
     updatedAt: string;
     sequence: number;
   } | null>(null);
+  const mergedLocalSaveRef = useRef(mergedLocalSave);
+  mergedLocalSaveRef.current = mergedLocalSave;
   const latestObservedUpdatedAtRef = useRef<string | null>(
     contentUpdatedAt ?? null,
   );
@@ -993,7 +1020,22 @@ export function useCollabReconcile({
         }
       }
 
-      if (typingRecently) {
+      // A newer body planned against the base this editor's text was written
+      // on changes only blocks the typing didn't, and the cursor stays where
+      // it was (with a live doc, the change arrives as a collaborator's does),
+      // so it doesn't wait for typing to pause. Waiting sent every save typed
+      // meanwhile on that base, which the server can only set aside where the
+      // other writer changed the same block. Composition input still waits;
+      // a transaction would end it.
+      const mergesBesideTyping =
+        overlapPolicy === "prefer-live" &&
+        externalNewer &&
+        !!contentRevision &&
+        !!callbacks.onBaseAwareReconcile &&
+        !!authoritativeBaseRef.current &&
+        authoritativeBaseRef.current.revision !== contentRevision &&
+        !editor.view.composing;
+      if (typingRecently && !mergesBesideTyping) {
         if (externalNewer) {
           retry = setTimeout(() => apply(deferred), 700);
         } else {
@@ -1319,7 +1361,22 @@ export function useCollabReconcile({
           authoritativeBase &&
           authoritativeBase.revision !== contentRevision
         ) {
-          const baseDoc = parse?.(editor, authoritativeBase.value) ?? null;
+          const mergedSave = mergedLocalSaveRef.current;
+          const holdsChanges = scheduledCallbacks.serverHoldsLiveChanges;
+          const planBase =
+            holdsChanges &&
+            mergedSave &&
+            mergedSave.revision === contentRevision &&
+            mergedSave.value === value &&
+            holdsChanges(authoritativeBase.value, value, mergedSave.sent) &&
+            holdsChanges(
+              authoritativeBase.value,
+              scheduledCallbacks.getMarkdown(editor),
+              mergedSave.sent,
+            )
+              ? mergedSave.sent
+              : authoritativeBase.value;
+          const baseDoc = parse?.(editor, planBase) ?? null;
           const serverDoc = parse?.(editor, value) ?? null;
           const report = (status: "conflict" | "failed") => {
             if (reportedConflictRevisionRef.current === contentRevision) return;
@@ -1368,6 +1425,41 @@ export function useCollabReconcile({
               });
             }
           };
+          // A snapshot planned again, as one with hunks set aside is, counts
+          // once.
+          const countMergeOnce = (setAside: number) => {
+            if (countedMergeRevisionRef.current === contentRevision) return;
+            countedMergeRevisionRef.current = contentRevision;
+            countMerge(setAside);
+          };
+          // Hunks set aside are still the server's, so the snapshot isn't
+          // taken in: the base stays the body this editor's text was written
+          // on, and the host keeps saving that text against it instead of
+          // writing over the hunks. A later snapshot, or this one once typing
+          // pauses, is planned again.
+          const settleSetAside = () => {
+            const merged = scheduledCallbacks.getMarkdown(editor);
+            if (merged !== beforeMarkdown) {
+              lastEmittedRef.current = merged;
+              pushEmittedRing(recentEmittedRef.current, merged);
+              scheduledCallbacks.onRemoteSnapshotChange?.(merged);
+            }
+            if (stillTyping()) retry = setTimeout(() => apply(deferred), 700);
+            else setAsideReplanRef.current = () => apply(deferred);
+          };
+          const stillTyping = () =>
+            scheduledCallbacks.isEditorFocused(editor) &&
+            Date.now() - lastTypedAtRef.current < 1500;
+          // The answer to this editor's own save can hold its text merged
+          // with the other writer's; once typing pauses, taking it in whole
+          // loses nothing typed here.
+          const serverHoldsLive = () =>
+            !stillTyping() &&
+            !!scheduledCallbacks.serverHoldsLiveChanges?.(
+              planBase,
+              value,
+              scheduledCallbacks.getMarkdown(editor),
+            );
           const reconcileLocally = () => {
             isSettingContentRef.current = true;
             const reconciled = reconcileDocAgainstBase(
@@ -1384,8 +1476,23 @@ export function useCollabReconcile({
               report(reconciled.status);
               return;
             }
-            countMerge(reconciled.setAside);
-            settleMerged();
+            if (reconciled.setAside === 0) {
+              countMergeOnce(0);
+              settleMerged();
+              return;
+            }
+            if (serverHoldsLive()) {
+              isSettingContentRef.current = true;
+              const adopted = applyDocSurgically(editor, serverDoc);
+              isSettingContentRef.current = false;
+              if (adopted !== "failed") {
+                countMergeOnce(0);
+                settleMerged();
+                return;
+              }
+            }
+            countMergeOnce(reconciled.setAside);
+            settleSetAside();
           };
           if (!adoptSnapshot) {
             reconcileLocally();
@@ -1401,16 +1508,30 @@ export function useCollabReconcile({
             report(plan.status);
             return;
           }
-          if (plan.status === "noop") {
-            countMerge(plan.setAside);
-            settleMerged();
-            return;
-          }
           // The server can send a proposal back to plan again, call it stale,
           // or adopt another editor's; only the one it adopts is counted.
-          adoptThroughServer(plan.mergedDoc, settleMerged, () =>
-            countMerge(plan.setAside),
-          );
+          if (plan.setAside === 0) {
+            if (plan.status === "noop") {
+              countMergeOnce(0);
+              settleMerged();
+              return;
+            }
+            adoptThroughServer(plan.mergedDoc, settleMerged, () =>
+              countMergeOnce(0),
+            );
+            return;
+          }
+          if (serverHoldsLive()) {
+            adoptThroughServer(serverDoc, settleMerged, () =>
+              countMergeOnce(0),
+            );
+            return;
+          }
+          // Nothing of it goes in yet: the server marks a revision adopted
+          // whole, so taking in only the hunks beside the typing would leave
+          // the rest no way to follow.
+          countMergeOnce(plan.setAside);
+          settleSetAside();
           return;
         }
         const settleApplied = () => {
@@ -1474,6 +1595,7 @@ export function useCollabReconcile({
       cancelled = true;
       if (retry) clearTimeout(retry);
       for (const abandon of [...backoffs]) abandon();
+      setAsideReplanRef.current = null;
     };
   }, [
     contentUpdatedAt,
@@ -1512,6 +1634,11 @@ export function useCollabReconcile({
     if (collab && transaction && isRemoteCollaborativeTransaction(transaction))
       return true;
     lastTypedAtRef.current = Date.now();
+    const replan = setAsideReplanRef.current;
+    if (replan && transaction.docChanged) {
+      setAsideReplanRef.current = null;
+      setTimeout(replan, 0);
+    }
     return false;
   };
 

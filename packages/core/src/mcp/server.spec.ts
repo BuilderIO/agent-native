@@ -67,26 +67,6 @@ vi.mock("../server/action-change-marker-write.js", () => ({
   writeActionChangeMarker: actionChangeMocks.writeMarker,
 }));
 
-// People who turned on the "App cards in chat apps" lab. Other labs read the
-// real store.
-const appCardsLab = vi.hoisted(() => ({ optedIn: new Set<string>() }));
-
-vi.mock("../labs/store.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../labs/store.js")>();
-  return {
-    ...actual,
-    getUserLabEnabled: vi.fn(
-      async (...args: Parameters<typeof actual.getUserLabEnabled>) => {
-        const [email, lab] = args;
-        const key = typeof lab === "string" ? lab : lab.key;
-        return key === "mcp-app-cards"
-          ? appCardsLab.optedIn.has(email)
-          : actual.getUserLabEnabled(...args);
-      },
-    ),
-  };
-});
-
 const auditMocks = vi.hoisted(() => ({
   record: vi.fn(async (_input: unknown) => {}),
 }));
@@ -349,6 +329,9 @@ const embedSessionMocks = vi.hoisted(() => {
 });
 
 vi.mock("../server/embed-session.js", () => ({
+  FULL_APP_EMBED_SCOPE: "full-app",
+  embedSessionTicketBelongsTo: async (ticket: string, owner: string) =>
+    ticket === "previous-ticket" && owner === "oauth@example.com",
   createEmbedSessionTicket: embedSessionMocks.createEmbedSessionTicket,
   readMcpDirectoryWidgetRenewalTicket:
     embedSessionMocks.readMcpDirectoryWidgetRenewalTicket,
@@ -1141,7 +1124,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    appCardsLab.optedIn = new Set(["oauth@example.com", STATIC_OWNER]);
     mockOAuthClients.clear();
     approvalStoreMocks.grants.clear();
     embedSessionMocks.renewalTickets.clear();
@@ -1163,7 +1145,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    appCardsLab.optedIn.clear();
     mockOAuthClients.clear();
     vi.clearAllMocks();
     builtinToolMocks.askAppRun.mockResolvedValue({ response: "agent answer" });
@@ -1171,6 +1152,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       status: "completed",
       response: "agent answer",
     });
+  });
+
+  it("offers the script catalog by header or URL parameter only when the app turns it on", async () => {
+    const scriptConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "read-thing": defineAction({
+          description: "Read a thing for a script.",
+          parameters: {},
+          readOnly: true,
+          mcpScript: "read",
+          run: async () => ({ ok: true }),
+        }),
+      },
+    };
+    const listed = async (opts: {
+      headers?: Record<string, string>;
+      query?: Record<string, string>;
+    }) => {
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 139, method: "tools/list", params: {} },
+        ...(opts.headers ? { headers: opts.headers } : {}),
+      });
+      // This file's h3 mock reads the query from `_query`.
+      if (opts.query) event._query = opts.query;
+      const res = await handleMcpRequest(event, scriptConfig as any);
+      const out = await rpcResponse(res as Response);
+      return out.result.tools.map((tool: { name: string }) => tool.name);
+    };
+    const byHeader = { headers: { "x-agent-native-mcp-catalog": "script" } };
+    const byQuery = { query: { catalog: "script" } };
+
+    // Off by default: the opt-in is ignored and the usual catalog is served.
+    const usual = await listed({});
+    expect(usual.length).toBeGreaterThan(0);
+    expect(usual).not.toContain("run-script");
+    expect(await listed(byHeader)).toEqual(usual);
+
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+    expect(await listed(byHeader)).toEqual(["run-script", "search-actions"]);
+    expect(await listed(byQuery)).toEqual(["run-script", "search-actions"]);
+    // Values are read trimmed and in any case; any other value asks for none.
+    expect(
+      await listed({ headers: { "x-agent-native-mcp-catalog": " Script " } }),
+    ).toEqual(["run-script", "search-actions"]);
+    expect(await listed({ query: { catalog: "SCRIPT" } })).toEqual([
+      "run-script",
+      "search-actions",
+    ]);
+    expect(
+      await listed({ headers: { "x-agent-native-mcp-catalog": "scripts" } }),
+    ).toEqual(usual);
+    expect(await listed({ query: { catalog: "full" } })).toEqual(usual);
+    // A connection that does not opt in keeps today's catalog.
+    expect(await listed({})).toEqual(usual);
   });
 
   it("keeps the ChatGPT directory profile isolated from the general MCP route", async () => {
@@ -2190,8 +2228,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("serves only the directory allowlist with explicit annotations and app UI metadata", async () => {
-    // The directory catalog serves cards whether or not the lab is on.
-    appCardsLab.optedIn.clear();
     const directoryAction = defineAction({
       description: "Create one workspace artifact.",
       parameters: {},
@@ -6056,6 +6092,77 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("asks approval for an unlisted tool run through call-tool, then runs it", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const actions = {
+      "restrict-personal-keys": {
+        tool: {
+          description: "Restrict personal API keys",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        needsApproval: true,
+        mcpTool: "search" as const,
+        run,
+      },
+    };
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          ...actions,
+          "tool-search": createToolSearchEntry(() => actions),
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: {
+          ...(await mcpAppsAuthHeaders()),
+          "x-agent-native-mcp-full-catalog": "0",
+        },
+      },
+    );
+    try {
+      const { tools } = await client.listTools();
+      const callTool = tools.find((tool) => tool.name === "call-tool");
+      expect(callTool?.annotations?.destructiveHint).toBe(true);
+      expect(tools.map((tool) => tool.name)).not.toContain(
+        "restrict-personal-keys",
+      );
+
+      const callWithInput = client.callTool.bind(client) as unknown as (
+        params: Record<string, unknown>,
+        options?: { allowInputRequired: boolean },
+      ) => Promise<{
+        resultType?: string;
+        requestState?: unknown;
+        isError?: boolean;
+      }>;
+      const request = {
+        name: "call-tool",
+        arguments: { name: "restrict-personal-keys", arguments: {} },
+      };
+      const first = await callWithInput(request, { allowInputRequired: true });
+      expect(first.resultType).toBe("input_required");
+      expect(run).not.toHaveBeenCalled();
+
+      const approved = await callWithInput({
+        ...request,
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      });
+      expect(approved.isError).not.toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("records an accepted elicitation on the accepted action's row, not on a child it calls", async () => {
     auditInserts.length = 0;
     const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
@@ -7644,8 +7751,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const { client } = await clientWithToneNote();
       try {
         expect(client.getInstructions()).toContain(
-          "Key tools for this app: list-notes. Call tool-search",
+          "Key tools for this app: list-notes.",
         );
+        // No tool-search action is served here, so none may be pointed at.
+        expect(client.getInstructions()).not.toContain("Call tool-search");
         expect(client.getInstructions()).not.toContain("tone-note");
       } finally {
         await client.close();
@@ -7934,7 +8043,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: await mcpAppsFullCatalogHeaders() },
     );
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
@@ -8753,7 +8862,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(names).toEqual([
       "ask_app",
       "ask_app_status",
-      "create_embed_session",
       "list_apps",
       "open_app",
     ]);
@@ -8778,9 +8886,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(resourcesOut.error).toBeUndefined();
-    expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v65",
-    ]);
+    expect(resourcesOut.result.resources).toEqual([]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
     );
@@ -8825,10 +8931,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "open_app",
         "ask_app",
         "ask_app_status",
-        "create_embed_session",
         "tool-search",
       ]),
     );
+    expect(names).not.toContain("create_embed_session");
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("bloated-widget");
   });
@@ -9115,50 +9221,103 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.resources[0]._meta.ui.domain).toBeUndefined();
   });
 
-  it("omits MCP App resources for a caller who has not turned on the lab", async () => {
-    appCardsLab.optedIn.clear();
-    const list = await callWeb(
-      { jsonrpc: "2.0", id: 41, method: "resources/list", params: {} },
-      { headers: await mcpAppsFullCatalogHeaders() },
-    );
-    expect(list.error).toBeUndefined();
-    expect(list.result.resources).toEqual([]);
+  it("serves MCP App cards to every caller signed in as a person", async () => {
+    for (const [index, ownerEmail] of [
+      "oauth@example.com",
+      "someone@else.com",
+    ].entries()) {
+      const headers = await mcpAppsFullCatalogHeaders({ ownerEmail });
+      const id = 400 + index * 10;
+      const list = await callWeb(
+        { jsonrpc: "2.0", id, method: "resources/list", params: {} },
+        { headers },
+      );
+      expect(list.error).toBeUndefined();
+      expect(list.result.resources).toEqual([
+        expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+      ]);
 
-    const tools = await callWeb(
-      { jsonrpc: "2.0", id: 42, method: "tools/list", params: {} },
-      { headers: await mcpAppsFullCatalogHeaders() },
-    );
-    expect(JSON.stringify(tools)).not.toContain("openai/outputTemplate");
-    expect(JSON.stringify(tools)).not.toContain("ui://mail/");
+      const tools = await callWeb(
+        { jsonrpc: "2.0", id: id + 1, method: "tools/list", params: {} },
+        { headers },
+      );
+      expect(JSON.stringify(tools)).toContain("ui://mail/echo-thing/shell-v65");
 
-    const call = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 44,
-        method: "tools/call",
-        params: { name: "echo-thing", arguments: {} },
-      },
-      { headers: await mcpAppsFullCatalogHeaders() },
-    );
-    expect(call.error).toBeUndefined();
-    expect(JSON.stringify(call)).not.toContain("openai/outputTemplate");
+      const call = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: id + 2,
+          method: "tools/call",
+          params: { name: "echo-thing", arguments: {} },
+        },
+        { headers },
+      );
+      expect(call.error).toBeUndefined();
+      expect(JSON.stringify(call)).toContain("openai/outputTemplate");
 
-    // A card's URI is easy to guess, so reading it directly is refused too.
-    const read = await callWeb(
-      {
-        jsonrpc: "2.0",
-        id: 50,
-        method: "resources/read",
-        params: { uri: "ui://mail/echo-thing/shell-v65" },
-      },
-      { headers: await mcpAppsFullCatalogHeaders() },
-    );
-    expect(read.result).toBeUndefined();
-    expect(read.error?.message).toContain("MCP App resource not found");
+      const read = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: id + 3,
+          method: "resources/read",
+          params: { uri: "ui://mail/echo-thing/shell-v65" },
+        },
+        { headers },
+      );
+      expect(read.error).toBeUndefined();
+      expect(read.result.contents).toEqual([
+        expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+      ]);
+    }
   });
 
-  it("serves MCP App resources to an authenticated first-party caller without the lab", async () => {
-    appCardsLab.optedIn.clear();
+  it("serves plain results to a static-token caller", async () => {
+    const { client } = await createModernClient(config, {
+      requestHeaders: { "x-agent-native-mcp-full-catalog": "1" },
+    });
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map(({ name }) => name)).toContain("echo-thing");
+      expect(JSON.stringify(listed)).not.toContain("ui://mail/");
+      expect(JSON.stringify(await client.listResources())).not.toContain(
+        "ui://mail/",
+      );
+      await expect(
+        client.readResource({ uri: "ui://mail/echo-thing/shell-v65" }),
+      ).rejects.toThrow("MCP App resource not found");
+      const called = await client.callTool({
+        name: "echo-thing",
+        arguments: { value: "hello" },
+      });
+      expect(called.isError).not.toBe(true);
+      expect(JSON.stringify(called)).not.toContain("openai/outputTemplate");
+      expect(called._meta?.["agent-native/embedStart"]).toBeUndefined();
+      expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("serves plain results to a read-only connection", async () => {
+    const headers = await mcpAppsFullCatalogHeaders({
+      scope: "mcp:read mcp:apps",
+    });
+    const tools = await callWeb(
+      { jsonrpc: "2.0", id: 470, method: "tools/list", params: {} },
+      { headers },
+    );
+    expect(tools.error).toBeUndefined();
+    expect(JSON.stringify(tools.result)).toContain("echo-thing");
+    expect(JSON.stringify(tools.result)).not.toContain("ui://mail/");
+
+    const resources = await callWeb(
+      { jsonrpc: "2.0", id: 471, method: "resources/list", params: {} },
+      { headers },
+    );
+    expect(JSON.stringify(resources)).not.toContain("ui://mail/");
+  });
+
+  it("serves MCP App resources to an authenticated first-party caller", async () => {
     const list = await callWeb(
       { jsonrpc: "2.0", id: 45, method: "resources/list", params: {} },
       { headers: await firstPartyMcpAuthHeaders() },
@@ -9195,45 +9354,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ]);
   });
 
-  it("serves cards to the caller who turned the lab on and plain results to everyone else", async () => {
-    appCardsLab.optedIn = new Set(["oauth@example.com"]);
-    const list = await callWeb(
-      { jsonrpc: "2.0", id: 43, method: "resources/list", params: {} },
-      { headers: await mcpAppsFullCatalogHeaders() },
-    );
-    expect(list.error).toBeUndefined();
-    expect(list.result.resources).toEqual([
-      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
-    ]);
-
-    const otherHeaders = await mcpAppsFullCatalogHeaders({
-      ownerEmail: "someone@else.com",
-    });
-    const otherList = await callWeb(
-      { jsonrpc: "2.0", id: 47, method: "resources/list", params: {} },
-      { headers: otherHeaders },
-    );
-    expect(otherList.error).toBeUndefined();
-    expect(otherList.result.resources).toEqual([]);
-    const otherTools = await callWeb(
-      { jsonrpc: "2.0", id: 48, method: "tools/list", params: {} },
-      { headers: otherHeaders },
-    );
-    expect(otherTools.error).toBeUndefined();
-    expect(JSON.stringify(otherTools)).not.toContain("ui://mail/");
-  });
-
   it("ignores the retired inline env vars", async () => {
-    appCardsLab.optedIn.clear();
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
-    process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS = "oauth@example.com";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "0";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS = "someone@else.com";
     try {
       const list = await callWeb(
         { jsonrpc: "2.0", id: 49, method: "resources/list", params: {} },
         { headers: await mcpAppsFullCatalogHeaders() },
       );
       expect(list.error).toBeUndefined();
-      expect(list.result.resources).toEqual([]);
+      expect(list.result.resources).toEqual([
+        expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v65" }),
+      ]);
     } finally {
       delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
       delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
@@ -9836,7 +9968,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/call",
         params: { name: "echo-thing", arguments: { value: "hello" } },
       },
-      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: await mcpAppsFullCatalogHeaders() },
     );
     expect(out.error).toBeUndefined();
     const content = out.result.content;
@@ -11487,11 +11619,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
 
     it.each([
-      ["view-screen", "embedStartUrl"],
-      ["unsupported-card", "startUrl"],
+      ["view-screen", "embedStartUrl", "previous-ticket"],
+      ["unsupported-card", "startUrl", "minted-picker-ticket"],
     ])(
-      "uses a full-app link for unsupported %s and strips %s",
-      async (name, ticketField) => {
+      "mounts the full app for %s, whose %s result keeps or mints a session",
+      async (name, ticketField, expectedTicket) => {
         const { run, serverConfig } = unsupportedCardConfig(name, ticketField);
         const headers = await mcpAppsAuthHeaders();
         const rpc = (
@@ -11504,40 +11636,172 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             { config: serverConfig, headers },
           );
         const listed = await rpc(220, "tools/list", {});
-        expect(listed.result.tools.map((tool: any) => tool.name)).toContain(
-          name,
-        );
         const descriptor = listed.result.tools.find(
           (tool: any) => tool.name === name,
         );
-        expect(descriptor._meta?.ui?.resourceUri).toBeUndefined();
-        expect(descriptor._meta?.["openai/outputTemplate"]).toBeUndefined();
+        expect(descriptor._meta?.ui?.resourceUri).toBe(
+          `ui://mail/${name}/shell-v65`,
+        );
         const resources = await rpc(221, "resources/list", {});
-        expect(resources.result.resources).toEqual([]);
-        const read = await rpc(222, "resources/read", {
-          uri: `ui://mail/${name}/shell-v65`,
-        });
-        expect(read.error?.message).toContain("MCP App resource not found");
+        expect(
+          resources.result.resources.map((resource: any) => resource.uri),
+        ).toContain(`ui://mail/${name}/shell-v65`);
         const called = await rpc(223, "tools/call", { name, arguments: {} });
         expect(called.result.isError).not.toBe(true);
-        expect(called.result.structuredContent).toMatchObject({
-          id: "doc-1",
-          path: "/documents/doc-1",
-        });
-        if (ticketField !== "url")
-          expect(called.result.structuredContent.url).toBe("/documents/doc-1");
-        expect(called.result._meta["agent-native/openLink"].webUrl).toBe(
-          "https://mail.agent-native.com/documents/doc-1",
-        );
-        expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
-        expect(called.result._meta["openai/outputTemplate"]).toBeUndefined();
-        expect(JSON.stringify(called.result)).not.toContain("previous-ticket");
         expect(
-          embedSessionMocks.createEmbedSessionTicket,
-        ).not.toHaveBeenCalled();
+          called.result._meta["agent-native/embedStart"].startUrl,
+        ).toContain(`ticket=${expectedTicket}`);
+        if (ticketField === "startUrl") {
+          expect(
+            embedSessionMocks.createEmbedSessionTicket,
+          ).toHaveBeenCalledWith(
+            expect.objectContaining({
+              ownerEmail: "oauth@example.com",
+              targetPath: "/documents/doc-1?__an_mcp_chat_bridge=1",
+              scope: "full-app",
+            }),
+          );
+          expect(JSON.stringify(called.result)).not.toContain(
+            "previous-ticket",
+          );
+        } else {
+          expect(
+            embedSessionMocks.createEmbedSessionTicket,
+          ).not.toHaveBeenCalled();
+        }
         expect(run).toHaveBeenCalledOnce();
       },
     );
+
+    it("flags the call and keeps the full-app link when the session cannot be minted", async () => {
+      const { run, serverConfig } = unsupportedCardConfig(
+        "unsupported-card",
+        "startUrl",
+      );
+      embedSessionMocks.createEmbedSessionTicket.mockRejectedValueOnce(
+        new Error("ticket store unavailable"),
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const called = await callWeb(
+          {
+            jsonrpc: "2.0",
+            id: 226,
+            method: "tools/call",
+            params: { name: "unsupported-card", arguments: {} },
+          },
+          { config: serverConfig, headers: await mcpAppsAuthHeaders() },
+        );
+        expect(called.result.isError).toBe(true);
+        expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
+        expect(called.result._meta["agent-native/openLink"].webUrl).toBe(
+          "https://mail.agent-native.com/documents/doc-1",
+        );
+        expect(JSON.stringify(called.result)).not.toContain("previous-ticket");
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("could not mint a full-app session"),
+        );
+        expect(run).toHaveBeenCalledOnce();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("mints a full-app session when only the request's origin resolver names the origin", async () => {
+      const { run, serverConfig } = unsupportedCardConfig(
+        "unsupported-card",
+        "startUrl",
+      );
+      const server = await createMCPServerForRequest(
+        serverConfig,
+        {
+          userEmail: "oauth@example.com",
+          orgId: null,
+          orgDomain: undefined,
+          identityAssurance: "user",
+          mcpCredentialIssuedAtMs: Date.now(),
+        },
+        {
+          resolveEmbedRequestOrigin: () => "https://mail.agent-native.com",
+          inlineMcpApps: true,
+          transport: "http",
+        },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "resolver-origin", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const result = await client.callTool({
+          name: "unsupported-card",
+          arguments: {},
+        });
+        expect(result.isError).not.toBe(true);
+        expect(
+          (result._meta?.["agent-native/embedStart"] as { startUrl?: string })
+            ?.startUrl,
+        ).toContain(
+          "https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-picker-ticket",
+        );
+        expect(run).toHaveBeenCalledOnce();
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    });
+
+    it("answers with a link and keeps the catalog when the server rejects its embed origin", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { run, serverConfig } = unsupportedCardConfig(
+        "unsupported-card",
+        "startUrl",
+      );
+      const server = await createMCPServerForRequest(
+        serverConfig,
+        {
+          userEmail: "oauth@example.com",
+          orgId: null,
+          orgDomain: undefined,
+          identityAssurance: "user",
+          mcpCredentialIssuedAtMs: Date.now(),
+        },
+        {
+          resolveEmbedRequestOrigin: () => {
+            throw new Error("Invalid embed request origin");
+          },
+          inlineMcpApps: true,
+          transport: "http",
+        },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "rejected-origin", version: "1.0.0" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const result = await client.callTool({
+          name: "unsupported-card",
+          arguments: {},
+        });
+        expect(result.isError).not.toBe(true);
+        expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "the server rejects this request's embed origin",
+          ),
+        );
+        const { tools } = await client.listTools();
+        expect(tools.map((tool) => tool.name)).toContain("unsupported-card");
+        expect(run).toHaveBeenCalledOnce();
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+        warn.mockRestore();
+      }
+    });
 
     // oracle-change: main excludes context runtime tools before link fallback;
     // retain that denial instead of restoring their previous MCP exposure.
@@ -11615,18 +11879,30 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   describe("create_embed_session inline capability", () => {
+    async function staticTokenClient(
+      serverConfig: Record<string, unknown>,
+      { inlineHeader = false }: { inlineHeader?: boolean } = {},
+    ) {
+      const { client } = await createModernClient(
+        serverConfig,
+        inlineHeader
+          ? { requestHeaders: { "x-agent-native-mcp-inline-apps": "1" } }
+          : {},
+      );
+      return { client, close: () => client.close() };
+    }
+
     it.each([
       { visibility: undefined, inlineHeader: false },
       { visibility: ["app"], inlineHeader: false },
       { visibility: ["model", "app"], inlineHeader: true },
     ])(
-      "refuses ordinary connect calls with visibility $visibility and inline header $inlineHeader",
+      "refuses a static-token caller with visibility $visibility and inline header $inlineHeader",
       async ({ visibility, inlineHeader }) => {
-        appCardsLab.optedIn.clear();
         const run = vi.fn(async () => ({
           startUrl: "/_agent-native/embed/start?ticket=unused-session-ticket",
         }));
-        const { client } = await createModernClient(
+        const { client, close } = await staticTokenClient(
           {
             ...config,
             connectorCatalog: ["echo-thing", "create_embed_session"],
@@ -11642,14 +11918,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
               },
             },
           },
-          {
-            requestHeaders: {
-              ...(await mcpAppsAuthHeaders({ scope: "mcp:read mcp:write" })),
-              ...(inlineHeader
-                ? { "x-agent-native-mcp-inline-apps": "1" }
-                : {}),
-            },
-          },
+          { inlineHeader },
         );
         try {
           const names = (await client.listTools()).tools.map(
@@ -11673,38 +11942,34 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             embedSessionMocks.createEmbedSessionTicket,
           ).not.toHaveBeenCalled();
         } finally {
-          await client.close();
+          await close();
         }
       },
     );
 
-    it("omits the builtin helper from an ordinary connect catalog", async () => {
-      appCardsLab.optedIn.clear();
-      const headers = await mcpAppsAuthHeaders({ scope: "mcp:read mcp:write" });
-      const serverConfig = { ...config, builtinCrossAppTools: true };
-      const listed = await callWeb(
-        { jsonrpc: "2.0", id: 210, method: "tools/list", params: {} },
-        { config: serverConfig, headers },
-      );
-      expect(listed.result.tools.map((tool: any) => tool.name)).toContain(
-        "open_app",
-      );
-      expect(listed.result.tools.map((tool: any) => tool.name)).not.toContain(
-        "create_embed_session",
-      );
-      const called = await callWeb(
-        {
-          jsonrpc: "2.0",
-          id: 211,
-          method: "tools/call",
-          params: { name: "create_embed_session", arguments: { path: "/" } },
-        },
-        { config: serverConfig, headers },
-      );
-      expect(called.result).toMatchObject({
-        isError: true,
-        content: [{ type: "text", text: "Unknown tool: create_embed_session" }],
+    it("omits the builtin helper from the catalog of a static-token caller", async () => {
+      const { client, close } = await staticTokenClient({
+        ...config,
+        builtinCrossAppTools: true,
       });
+      try {
+        const names = (await client.listTools()).tools.map(({ name }) => name);
+        expect(names).toContain("open_app");
+        expect(names).not.toContain("create_embed_session");
+        expect(
+          await client.callTool({
+            name: "create_embed_session",
+            arguments: { path: "/" },
+          }),
+        ).toMatchObject({
+          isError: true,
+          content: [
+            { type: "text", text: "Unknown tool: create_embed_session" },
+          ],
+        });
+      } finally {
+        await close();
+      }
     });
 
     it.each(["compact", "full", "app"] as const)(
@@ -11768,16 +12033,16 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     it("keeps tool search scoped to the inline-disabled request catalog", async () => {
-      appCardsLab.optedIn.clear();
       const actions = {
         ...config.actions,
+        "echo-thing": { ...config.actions["echo-thing"], readOnly: true },
         create_embed_session: {
           tool: { description: "Create an embed session" },
           readOnly: true,
           run: async () => ({ ready: true }),
         },
       };
-      const headers = await mcpAppsAuthHeaders({ scope: "mcp:read mcp:write" });
+      const headers = await mcpAppsAuthHeaders({ scope: "mcp:read" });
       const serverConfig = {
         ...config,
         connectorCatalog: ["echo-thing", "create_embed_session"],
@@ -11857,7 +12122,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "minted-picker-ticket",
     );
     expect(embedSessionMocks.createEmbedSessionTicket).toHaveBeenCalledWith(
-      expect.objectContaining({ targetPath: "/inbox", scope: null }),
+      expect.objectContaining({ targetPath: "/inbox", scope: "full-app" }),
     );
     embedSessionMocks.createEmbedSessionTicket.mockClear();
     const refused = await callWeb(
@@ -13177,7 +13442,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(result.content[0]).toMatchObject({
         type: "text",
-        text: "echo-thing completed for thing-42.",
+        text: JSON.stringify({ echoed: "hello", id: "thing-42" }),
       });
       expect(wireContentTypes.at(-1)).toContain("application/json");
       expect(wireResponses.at(-1)?.result).toMatchObject({
@@ -14096,5 +14361,94 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
     expect(init.properties.$mcp_vendor_client).toBe("claude-code");
     expect(init.properties.$mcp_protocol_version).toBe("2025-06-18");
     expect(init.properties.$mcp_source).toBe("http");
+  });
+});
+
+describe("handleMcpRequest — x-agent-native-browser-tab header", () => {
+  beforeEach(() => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+  });
+
+  afterEach(() => {
+    delete process.env.BETTER_AUTH_SECRET;
+    vi.restoreAllMocks();
+  });
+
+  it("targets the tab named in x-agent-native-browser-tab without setting getCurrentRequestBrowserTabId", async () => {
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const { getCurrentRequestBrowserTabId, resolveCurrentRequestStateTab } =
+      await import("../application-state/script-helpers.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-tab-test",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+
+    const tabConfig = {
+      ...config,
+      actions: {
+        "inspect-tab": defineAction({
+          description: "Inspect the resolved browser tab target.",
+          readOnly: true,
+          mcpTool: true,
+          run: async () => ({
+            ownTabId: getCurrentRequestBrowserTabId(),
+            stateTab: await resolveCurrentRequestStateTab(),
+          }),
+        }),
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "inspect-tab", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-browser-tab": "replay-tab-1",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: tabConfig,
+      },
+    );
+
+    const texts: string[] = (out.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(texts[0])).toEqual({
+      ownTabId: null,
+      stateTab: { tabId: "replay-tab-1", unavailable: false },
+    });
+    expect(texts.at(-1)).toMatch(/targeted the requested browser tab/);
+
+    const bad = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "inspect-tab", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-browser-tab": "bad tab!",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: tabConfig,
+      },
+    );
+
+    const badTexts: string[] = (bad.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(badTexts[0]).stateTab.tabId).not.toBe("bad tab!");
   });
 });

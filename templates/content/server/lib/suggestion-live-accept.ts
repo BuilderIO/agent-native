@@ -12,6 +12,7 @@ import { prepareTransactionalChange } from "@agent-native/core/server";
 import {
   markdownPayload,
   operationAnchor,
+  rangeOnText,
   type AcceptedSiblingRange,
   type MarkdownRange,
 } from "../../shared/suggestion-apply.js";
@@ -92,24 +93,36 @@ export function isLiveCopyDecision(
  */
 export async function acceptedRangesOnSameText(
   tx: DbExec,
-  suggestion: Pick<ResourceSuggestion, "id" | "resourceId" | "adapterKind">,
+  suggestion: Pick<ResourceSuggestion, "id" | "resourceId" | "adapterKind"> & {
+    proposalId?: ResourceSuggestion["proposalId"];
+  },
   beforeMarkdown: string,
   /** The Blocks field tab both edit, when it isn't the page body. */
   targetId?: string,
 ): Promise<AcceptedSiblingRange[]> {
+  const sameText = sql`(o.before_json::jsonb ->> 'markdown') = ${sql.value(beforeMarkdown)}`;
+  const siblings = suggestion.proposalId
+    ? sql`${sameText} OR (s.proposal_id = ${sql.value(suggestion.proposalId)}
+          AND (o.before_json::jsonb ->> 'markdown') IS NOT NULL)`
+    : sameText;
   const rows = (
     await tx.execute(
-      sql`SELECT o.anchor_json, o.target_id, (o.after_json::jsonb ->> 'changedText') AS changed_text
+      sql`SELECT o.anchor_json, o.target_id, (o.after_json::jsonb ->> 'changedText') AS changed_text,
+            NULLIF(o.before_json::jsonb ->> 'markdown', ${sql.value(beforeMarkdown)}) AS before_markdown
           FROM agent_review_suggestions s
           INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
           WHERE s.resource_type = 'document' AND s.resource_id = ${sql.value(suggestion.resourceId)}
             AND s.adapter_kind = ${sql.value(suggestion.adapterKind)}
             AND s.status = 'accepted' AND s.id <> ${sql.value(suggestion.id)}
-            AND (o.before_json::jsonb ->> 'markdown') = ${sql.value(beforeMarkdown)}`,
+            AND (${siblings})`,
     )
   ).rows;
   return rows.flatMap((row) => {
     if (targetId !== undefined && String(row.target_id) !== targetId) return [];
+    const text =
+      typeof row.before_markdown === "string"
+        ? row.before_markdown
+        : beforeMarkdown;
     const anchor = JSON.parse(
       String(row.anchor_json),
     ) as Partial<MarkdownRange> | null;
@@ -123,11 +136,16 @@ export async function acceptedRangesOnSameText(
       !Number.isInteger(to) ||
       from < 0 ||
       from > to ||
-      to > beforeMarkdown.length
+      to > text.length
     )
       return [];
-    const text: unknown = row.changed_text;
-    return [{ from, to, ...(typeof text === "string" && { text }) }];
+    const changed: unknown = row.changed_text;
+    const range = rangeOnText(text, beforeMarkdown, {
+      from,
+      to,
+      ...(typeof changed === "string" && { text: changed }),
+    });
+    return range ? [range] : [];
   });
 }
 
@@ -163,17 +181,18 @@ async function acceptSteps(members: ResourceSuggestion[]) {
     const before = markdownPayload(operation.before, "before").markdown;
     const earlier = [...steps.values()].flatMap((step) => {
       // Saved as a whole before and after, it has no range to excuse.
-      if (
-        step.operation.anchor == null ||
-        markdownPayload(step.operation.before, "before").markdown !== before
-      )
-        return [];
+      if (step.operation.anchor == null) return [];
       const { from, to } = operationAnchor(step.operation);
       const { changedText: text } = markdownPayload(
         step.operation.after,
         "after",
       );
-      return [{ from, to, ...(typeof text === "string" && { text }) }];
+      const range = rangeOnText(
+        markdownPayload(step.operation.before, "before").markdown,
+        before,
+        { from, to, ...(typeof text === "string" && { text }) },
+      );
+      return range ? [range] : [];
     });
     steps.set(member.id, {
       operation,

@@ -66,6 +66,7 @@ export interface AuthPageProps {
   workspaceGatewayReturnOrigin: string;
   googleAuthMode: "popup" | "redirect" | "auto";
   builderPreviewLocalDevEnabled: boolean;
+  builderSignupEnabled: boolean;
   environmentBetaHosts: Record<string, string>;
   betaForceQueryParam: string;
   betaForceSessionStorageKey: string;

@@ -16,6 +16,7 @@ import { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
+import { toast } from "sonner";
 import {
   afterEach,
   beforeEach,
@@ -43,6 +44,7 @@ const fixture = vi.hoisted(() => ({
   }[],
   toolbar: null as {
     onUtilityPanelChange?: (tab: "info" | "comments" | null) => void;
+    onDelete?: () => Promise<void>;
   } | null,
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
@@ -625,6 +627,22 @@ function acknowledgeCurrentSaves() {
   });
 }
 
+// A save that does not land, and recovery, hash a recovery draft before the
+// next save or retry goes out. WebCrypto settles that hash from Node's thread
+// pool, which neither fake timers nor act() wait for, so hash on this thread.
+function hashOnTestThread() {
+  vi.spyOn(crypto.subtle, "digest").mockImplementation(
+    async (algorithm, data) => {
+      if (algorithm !== "SHA-256")
+        throw new Error(`Unexpected digest ${JSON.stringify(algorithm)}`);
+      const bytes = ArrayBuffer.isView(data)
+        ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+        : new Uint8Array(data);
+      return new Uint8Array(createHash("sha256").update(bytes).digest()).buffer;
+    },
+  );
+}
+
 function connectBarrierStore(propertyId?: string) {
   const values = new Map<string, any>();
   const requests: any[] = [];
@@ -729,6 +747,23 @@ async function runConnectedRequest(request: () => Promise<unknown>) {
   expect(result).not.toBeNull();
   return result;
 }
+
+it("shows the localized protected-reference refusal when deleting a page", async () => {
+  const toastError = vi.spyOn(toast, "error").mockImplementation(() => "toast");
+  await act(async () => renderEditor({ host: "page" }));
+  fixture.mutation.mutateAsync.mockRejectedValueOnce(
+    Object.assign(
+      new Error("Workspace references cannot be deleted as pages"),
+      {
+        errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+      },
+    ),
+  );
+  await act(async () => fixture.toolbar?.onDelete?.());
+  expect(toastError).toHaveBeenCalledWith("sidebar.failedDeletePage", {
+    description: "sidebar.workspaceReferenceProtected",
+  });
+});
 
 it("confirms an actually edited settled VisualEditor through the server barrier without reauthoring its applied save", async () => {
   fixture.realPrimaryEditor = true;
@@ -1094,6 +1129,7 @@ it.each([false, true])(
   "freshly reads an accepted primary title while preserving an independent failed icon and navigation refusal (reverted: %s)",
   async (reverted) => {
     fixture.realPrimaryEditor = true;
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
     const failure = new Error("The direct icon and title save failed.");
@@ -1220,6 +1256,7 @@ it.each([false, true])(
 it.each(["title", "body"] as const)(
   "preserves attestation and retained recovery for reverted primary %s input until an accepted retry",
   async (field) => {
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     fixture.page!.revision = documentRevisionToken(1, fixture.page!.content);
     const failure = new Error("Primary save failed before revert.");
@@ -1230,6 +1267,16 @@ it.each(["title", "body"] as const)(
     await act(async () => vi.advanceTimersByTimeAsync(500));
     expect(fixture.save).toHaveBeenCalledOnce();
     expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(true);
+    expect(fixture.mutation.mutateAsync).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        operation: "upsert",
+        draft: expect.objectContaining({
+          title: field === "title" ? "Failed title" : "Saved title",
+          content: field === "title" ? "Saved body" : "Failed body",
+          editGeneration: 1,
+        }),
+      }),
+    );
     if (field === "title") pasteTitle("Saved title");
     else act(() => fixture.editor!.onChange("Saved body"));
     let rejectAttestation!: (error: Error) => void;
@@ -1262,6 +1309,9 @@ it.each(["title", "body"] as const)(
     expect(Date.now() - started).toBeLessThanOrEqual(20_200);
     expect(refused.captures).toHaveLength(0);
     expect(fixture.save).toHaveBeenCalledTimes(2);
+    expect(fixture.mutation.mutateAsync).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "delete" }),
+    );
     fixture.save.mockResolvedValue(fixture.page!);
     pasteTitle("Saved title");
     await act(async () => vi.advanceTimersByTimeAsync(500));
@@ -1273,6 +1323,9 @@ it.each(["title", "body"] as const)(
       editorEditGeneration: 3,
     });
     expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+    expect(fixture.mutation.mutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operation: "delete" }),
+    );
     const store = connectBarrierStore();
     expect(await runConnectedBarrier()).toMatchObject({
       value: {
@@ -1816,6 +1869,7 @@ it("confirms an exact additional field independently of a dirty primary body and
 });
 
 it("republishes an acknowledged save when recovery alone finishes", async () => {
+  hashOnTestThread();
   let acknowledge!: (document: Document) => void;
   fixture.save.mockReturnValue(
     new Promise<Document>((resolve) => {
@@ -1994,6 +2048,7 @@ describe("a retried save whose edit a peer's save already stored", () => {
   }
 
   async function retryAfterPeerStoredEdit() {
+    hashOnTestThread();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     fixture.flushUpdates.mockResolvedValueOnce(false);
     await act(async () => renderEditor());

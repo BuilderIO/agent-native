@@ -5,7 +5,11 @@ import {
   appendSignatureToBody,
   splitAppendedSignature,
 } from "@shared/signature";
-import type { ComposeState, EmailMessage } from "@shared/types";
+import type {
+  ComposeAttachment,
+  ComposeState,
+  EmailMessage,
+} from "@shared/types";
 import {
   IconSend,
   IconBold,
@@ -40,6 +44,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCanManageStorage } from "@/hooks/use-can-manage-storage";
 import { draftRevisionPromptArg } from "@/hooks/use-compose-state";
 import {
   useSendEmail,
@@ -47,15 +52,17 @@ import {
   useArchiveEmail,
   useSettings,
 } from "@/hooks/use-emails";
+import { useStorageSetupLabels } from "@/hooks/use-storage-setup-labels";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import {
-  toastStorageSetupFailure,
+  reportImageUploadFailure,
   toastUploadFailure,
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
+import { AttachFromContentButton } from "./AttachFromContentButton";
 import { AttachmentStrip } from "./AttachmentStrip";
 import {
   getCurrentDraftBodyFromEditor,
@@ -102,6 +109,8 @@ export const InlineReplyComposer = forwardRef<
   ref,
 ) {
   const t = useT();
+  const canManageStorage = useCanManageStorage();
+  const storageSetupLabels = useStorageSetupLabels();
   const [showQuoted, setShowQuoted] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -180,6 +189,10 @@ export const InlineReplyComposer = forwardRef<
   quotedRef.current = quotedContent;
   const appendedSignatureRef = useRef(appendedSignature);
   appendedSignatureRef.current = appendedSignature;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const pendingAttachesRef = useRef(new Map<string, number>());
+  const [attachmentsPending, setAttachmentsPending] = useState(false);
   const hasQuote = quotedContent.length > 0;
   const editorContent = appendedSignature
     ? messageContent
@@ -189,6 +202,10 @@ export const InlineReplyComposer = forwardRef<
 
   const handleSend = async (explicitlyMarkDone = false) => {
     if (sendingRef.current) return;
+    if (pendingAttachesRef.current.has(draft.id)) {
+      toast.error(t("mail.toasts.waitForAttachments"));
+      return;
+    }
     if (!draft.to.trim()) {
       toast.error(t("mail.toasts.pleaseAddRecipient"));
       return;
@@ -424,27 +441,36 @@ export const InlineReplyComposer = forwardRef<
     </>
   );
 
-  const storageSetupLabels = {
-    builderRefused: t("mail.toasts.storageBuilderRefused"),
-    storageRefused: t("mail.toasts.storageRefused"),
-    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
-    openStorageSettings: t("mail.toasts.openStorageSettings"),
-    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
-    useOwnStorage: t("mail.toasts.useOwnStorage"),
+  const addAttachments = (draftId: string, added: ComposeAttachment[]) => {
+    const latest = draftRef.current;
+    if (latest.id !== draftId) return;
+    const attachments = [...(latest.attachments ?? []), ...added];
+    draftRef.current = { ...latest, attachments };
+    onUpdate(draftId, { attachments });
+  };
+
+  const trackAttach = (draftId: string, change: 1 | -1) => {
+    const count = (pendingAttachesRef.current.get(draftId) ?? 0) + change;
+    if (count > 0) pendingAttachesRef.current.set(draftId, count);
+    else pendingAttachesRef.current.delete(draftId);
+    setAttachmentsPending(pendingAttachesRef.current.size > 0);
   };
 
   const handleAttachFiles = async (files: File[]) => {
     if (files.length === 0) return;
+    const draftId = draft.id;
+    trackAttach(draftId, 1);
     try {
-      const attachments = await uploadFiles(files);
-      const existing = draft.attachments ?? [];
-      onUpdate(draft.id, { attachments: [...existing, ...attachments] });
+      addAttachments(draftId, await uploadFiles(files));
     } catch (error) {
       toastUploadFailure(
         error,
         t("mail.toasts.failedToAttachFile"),
         storageSetupLabels,
+        canManageStorage,
       );
+    } finally {
+      trackAttach(draftId, -1);
     }
   };
 
@@ -453,11 +479,12 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
-        reportWriteFailure(err, {
-          label: t("mail.toasts.failedToUploadImage"),
-        });
-      }
+      reportImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        storageSetupLabels,
+        canManageStorage,
+      );
       throw err;
     }
   };
@@ -466,6 +493,14 @@ export const InlineReplyComposer = forwardRef<
     const file = await openFilePicker("*/*");
     if (!file) return;
     await handleAttachFiles([file]);
+  };
+
+  const handleAttachContentPage = (attachment: ComposeAttachment) => {
+    addAttachments(draft.id, [attachment]);
+  };
+
+  const handleContentAttachPending = (pending: boolean) => {
+    trackAttach(draft.id, pending ? 1 : -1);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -519,7 +554,8 @@ export const InlineReplyComposer = forwardRef<
                   type="button"
                   aria-label={t("mail.compose.popOut")}
                   onClick={() => onPopOut(draft.id)}
-                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
+                  disabled={attachmentsPending}
+                  className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </button>
@@ -549,7 +585,8 @@ export const InlineReplyComposer = forwardRef<
                   type="button"
                   aria-label={t("mail.compose.popOut")}
                   onClick={() => onPopOut(draft.id)}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0"
+                  disabled={attachmentsPending}
+                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors shrink-0 disabled:opacity-50"
                 >
                   <IconExternalLink className="h-3.5 w-3.5" />
                 </button>
@@ -639,7 +676,7 @@ export const InlineReplyComposer = forwardRef<
       )}
 
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between border-t border-border/30 px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-y-2 border-t border-border/30 px-3 py-2">
         <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -701,6 +738,10 @@ export const InlineReplyComposer = forwardRef<
             </TooltipTrigger>
             <TooltipContent>{t("mail.compose.attachFile")}</TooltipContent>
           </Tooltip>
+          <AttachFromContentButton
+            onAttach={handleAttachContentPage}
+            onPendingChange={handleContentAttachPending}
+          />
 
           <div className="mx-1 h-4 w-px bg-border" />
 
@@ -762,7 +803,7 @@ export const InlineReplyComposer = forwardRef<
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

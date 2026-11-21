@@ -4,6 +4,7 @@ import { z } from "zod";
 import { updateSecret } from "../server/lib/vault-store.js";
 
 export default defineAction({
+  requiresSignedInBrowser: true,
   description:
     "Update an existing vault secret's label, credential key, value, provider, or description. Admin only.",
   schema: z

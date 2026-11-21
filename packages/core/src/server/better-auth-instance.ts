@@ -8,6 +8,7 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -85,12 +86,15 @@ import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import {
   createFrameworkSCIMIdentity,
   frameworkOrgBridgePlugin,
+  resolveFrameworkSSOUser,
 } from "../org/scim-provisioning.js";
 import {
   enforceSignupAdmission,
   isBootstrapAdmin,
+  isDeploymentEmailDomainAllowed,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
+import type { ConsentCategory } from "../shared/consent.js";
 import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
@@ -111,7 +115,10 @@ import {
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
-import { requestAllowsConsentCategoryFromHeaders } from "./consent-route.js";
+import {
+  requestConsentCategoryStateFromHeaders,
+  type ConsentCategoryState,
+} from "./consent-route.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
@@ -152,6 +159,7 @@ import {
   getRequestContext,
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
+import { keepRunnerSessionExpiry } from "./runner-session-label.js";
 import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
 import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
 
@@ -207,6 +215,17 @@ export {
   resolveAuthLoginModeFromReadiness,
   type AuthLoginMode,
 } from "./auth-login-mode.js";
+
+const magicLinkIssuedTokenHookStorage = new AsyncLocalStorage<
+  (email: string, token: string) => Promise<void>
+>();
+
+export function runWithMagicLinkIssuedTokenHook<T>(
+  hook: (email: string, token: string) => Promise<void>,
+  run: () => Promise<T>,
+): Promise<T> {
+  return magicLinkIssuedTokenHookStorage.run(hook, run);
+}
 
 const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
 // Signup delivery holds its transaction, connection, and per-address lock.
@@ -297,14 +316,18 @@ export async function emitSignupEventForCreatedUser(
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
   const cookieHeader = requestHeaders.get("cookie");
-  const performanceAllowed = requestAllowsConsentCategoryFromHeaders(
-    requestHeaders,
-    "performance",
-  );
-  const targetingAllowed = requestAllowsConsentCategoryFromHeaders(
-    requestHeaders,
-    "targeting",
-  );
+  const consent = {
+    performance: requestConsentCategoryStateFromHeaders(
+      requestHeaders,
+      "performance",
+    ),
+    targeting: requestConsentCategoryStateFromHeaders(
+      requestHeaders,
+      "targeting",
+    ),
+  };
+  const performanceAllowed = consent.performance === "allowed";
+  const targetingAllowed = consent.targeting === "allowed";
   const requestSessionId = performanceAllowed
     ? normalizeAnalyticsSessionId(
         requestHeaders.get("x-agent-native-session-id"),
@@ -405,6 +428,7 @@ export async function emitSignupEventForCreatedUser(
     attribution: eventAttribution,
     anonymousId: eventAnonymousId,
     sessionId: eventSessionId,
+    consent: ownsSignupAttribution ? consent : undefined,
   });
 }
 
@@ -433,6 +457,7 @@ export async function trackSignupEvent({
   attribution,
   anonymousId,
   sessionId,
+  consent,
 }: {
   authProvider: string;
   origin: SignupOrigin;
@@ -453,6 +478,7 @@ export async function trackSignupEvent({
   attribution?: Record<string, string | undefined>;
   anonymousId?: string;
   sessionId?: string;
+  consent?: Record<ConsentCategory, ConsentCategoryState>;
 }): Promise<void> {
   identify(email, {
     email,
@@ -479,6 +505,12 @@ export async function trackSignupEvent({
       ...cleanAttribution,
       ...(typeof emailVerified === "boolean"
         ? { email_verified: emailVerified }
+        : {}),
+      ...(consent && consent.performance !== "allowed"
+        ? { analytics_consent: consent.performance }
+        : {}),
+      ...(consent && consent.targeting !== "allowed"
+        ? { attribution_consent: consent.targeting }
         : {}),
     },
     {
@@ -1444,6 +1476,7 @@ export interface BetterAuthInternalAdapter {
       name?: string;
       image?: string | null;
       emailVerified?: boolean;
+      twoFactorEnabled?: boolean | null;
       onboardingRole?: string | null;
       createdAt?: Date | string;
     };
@@ -1493,7 +1526,7 @@ export interface BetterAuthInternalAdapter {
   createSession: (
     userId: string,
     dontRememberMe?: boolean,
-    override?: { expiresAt?: Date },
+    override?: { expiresAt?: Date; userAgent?: string; ipAddress?: string },
     overrideAll?: boolean,
   ) => Promise<{ token: string }>;
   deleteSession: (token: string) => Promise<void>;
@@ -1639,6 +1672,15 @@ export async function replaceUnverifiedCredentialWithGoogle(input: {
         "The unverified credential identity changed before Google linking",
       );
     }
+
+    await tx.execute({
+      sql: 'DELETE FROM "session" WHERE user_id = ?',
+      args: [input.userId],
+    });
+    await tx.execute({
+      sql: "DELETE FROM sessions WHERE LOWER(email) = LOWER(?)",
+      args: [input.email],
+    });
 
     const updated = await tx.execute({
       sql: 'UPDATE "user" SET email_verified = ?, updated_at = ? WHERE id = ? AND email = ? AND email_verified = ?',
@@ -1913,7 +1955,9 @@ async function syncGoogleProfile(
   const updates: {
     name?: string;
     image?: string;
+    emailVerified?: boolean;
   } = {};
+  if (existing.user.emailVerified !== true) updates.emailVerified = true;
   if (
     name &&
     isEmailDerivedName(existing.user.name, email) &&
@@ -1943,6 +1987,8 @@ export async function ensureGoogleAuthIdentityWithAdapter(
 ): Promise<boolean> {
   const email = identity.email.trim().toLowerCase();
   const accountId = identity.accountId.trim();
+  if (!isDeploymentEmailDomainAllowed(email))
+    throw new Error("Account domain is not allowed for this deployment");
   if (!email || !accountId) {
     throw new Error("Google identity is missing an email or account id");
   }
@@ -2272,6 +2318,14 @@ async function createBetterAuthInstance(
   );
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
+  if (
+    enterpriseAuthAdaptersBuilt &&
+    (access.sso.enabled || access.scim.enabled)
+  ) {
+    enterprisePlugins.push(
+      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
+    );
+  }
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
     const { sso } = await loadOptionalPeer(
       "@better-auth/sso",
@@ -2280,23 +2334,11 @@ async function createBetterAuthInstance(
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
-        resolveUser: async ({ providerUser }, context) => {
-          const existing = await context.database.findOne<{
-            id: string;
-          }>({
-            model: "user",
-            where: [
-              {
-                field: "email",
-                value: providerUser.email.trim().toLowerCase(),
-                mode: "insensitive",
-              },
-            ],
-          });
-          return existing
-            ? { action: "link", userId: existing.id, profile: "preserve" }
-            : { action: "continue" };
-        },
+        resolveUser: ({ providerId, providerUser }, context) =>
+          resolveFrameworkSSOUser(
+            { providerId, email: providerUser.email },
+            context.database,
+          ),
         provisionUserOnEveryLogin: true,
         provisionUser: async ({ user }) => {
           await autoJoinDomainMatchingOrgs(user.email, {
@@ -2327,9 +2369,6 @@ async function createBetterAuthInstance(
         "AUTH_SCIM_CREDENTIAL_HASH_SECRET (or BETTER_AUTH_SECRET) must contain at least 32 characters when SCIM is enabled",
       );
     }
-    enterprisePlugins.push(
-      frameworkOrgBridgePlugin as unknown as BetterAuthPlugin,
-    );
     enterprisePlugins.push(
       scim({
         connections: [],
@@ -2376,6 +2415,24 @@ async function createBetterAuthInstance(
           urlPath,
           urlQueryKeys,
         });
+      }
+      if (typeof token === "string" && token) {
+        const hook = magicLinkIssuedTokenHookStorage.getStore();
+        if (hook) {
+          try {
+            await hook(email, token);
+          } catch (error) {
+            console.warn(
+              "[agent-native][magic-link] failed to record Builder signup challenge:",
+              error instanceof Error ? error.name : typeof error,
+            );
+            const { captureError } = await import("./capture-error.js");
+            captureError(error, {
+              route: "magic-link",
+              tags: { phase: "builder-signup-challenge" },
+            });
+          }
+        }
       }
       const deliveredMagicLinkUrl =
         desktopMagicLinkLandingUrl(url) ?? emailAuthLinkLandingUrl(url) ?? url;
@@ -2594,6 +2651,7 @@ async function createBetterAuthInstance(
               session.userId,
               context?.context.adapter,
             );
+            if (!isDeploymentEmailDomainAllowed(email)) return false;
             const requiredProvider =
               await getRequiredAuthProviderForEmail(email);
             if (!requiredProvider) return;
@@ -2680,6 +2738,10 @@ async function createBetterAuthInstance(
               await import("../org/context.js");
             await bootstrapAdminOrganization(email);
           },
+        },
+        update: {
+          before: async (session, context) =>
+            keepRunnerSessionExpiry(session, context),
         },
       },
       user: {

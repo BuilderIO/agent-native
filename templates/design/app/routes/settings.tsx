@@ -1,11 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { useOrg } from "@agent-native/core/client/org";
-import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
-import {
-  createCreativeContextAgentTab,
-  useCreativeContextLab,
-} from "@agent-native/creative-context/client";
 import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import {
   AccountSettingsCard,
@@ -13,12 +8,7 @@ import {
   useAgentSettingsTabs,
   type SettingsTabItem,
 } from "@agent-native/toolkit/app/settings";
-import {
-  ANNOTATE_LAB,
-  DESIGN_MOTION_LAB,
-  DESIGN_REVIEW_TOOLS_LAB,
-  FULL_APP_BUILDING_LAB,
-} from "@shared/labs";
+import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 
@@ -35,17 +25,12 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const creativeContextEnabled = useCreativeContextLab();
   const {
     data: activeOrg,
     isLoading: orgLoading,
     isError: orgError,
   } = useOrg();
-  const agentSettingsTabs = useAgentSettingsTabs({
-    agentAdditionalTabFactories: creativeContextEnabled
-      ? [createCreativeContextAgentTab]
-      : [],
-  });
+  const agentSettingsTabs = useAgentSettingsTabs();
   const canViewObservability =
     !orgLoading &&
     !orgError &&
@@ -79,32 +64,10 @@ export default function SettingsRoute() {
         displayName: t("settings.labFullAppBuilding"),
         description: t("settings.labFullAppBuildingDescription"),
       },
-      {
-        ...DESIGN_REVIEW_TOOLS_LAB,
-        displayName: t("settings.labDesignReviewTools"),
-        description: t("settings.labDesignReviewToolsDescription"),
-      },
-      {
-        ...DESIGN_MOTION_LAB,
-        displayName: t("settings.labMotion"),
-        description: t("settings.labMotionDescription"),
-      },
-      {
-        ...ANNOTATE_LAB,
-        displayName: t("settings.labAnnotate"),
-        description: t("settings.labAnnotateDescription"),
-      },
-      {
-        ...CREATIVE_CONTEXT_LIBRARY_LAB,
-        displayName: t("creativeContext.share.title"),
-        description: t("creativeContext.description"),
-      },
     ],
     [t],
   );
 
-  // Language is on Account › Preferences, and the creative-context library is
-  // its own page in the Design group while its lab is on.
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <SettingsTabsPage

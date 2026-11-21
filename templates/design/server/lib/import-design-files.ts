@@ -4,6 +4,7 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -14,6 +15,7 @@ import {
   type CanvasFramePlacement,
 } from "../../shared/canvas-frames.js";
 import { isOverviewScreenFile } from "../../shared/design-files.js";
+import type { ImportedDesignFile } from "../../shared/imported-design-file.js";
 import {
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
@@ -35,20 +37,7 @@ const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
 export const FRAME_GAP = 96;
 
-export interface ImportedDesignFile {
-  filename: string;
-  fileType: "html" | "css" | "jsx" | "asset";
-  content: string;
-  operationSource?: string;
-  source?: Record<string, unknown>;
-  preferredFrame?: {
-    title?: string;
-    width?: number;
-    height?: number;
-    x?: number;
-    y?: number;
-  };
-}
+export type { ImportedDesignFile };
 
 export interface SaveImportedDesignFilesInput {
   designId?: string;
@@ -317,16 +306,7 @@ function ensureExtension(
 }
 
 function uniqueFilename(filename: string, used: Set<string>): string {
-  if (!used.has(filename)) {
-    used.add(filename);
-    return filename;
-  }
-  const dot = filename.lastIndexOf(".");
-  const base = dot > 0 ? filename.slice(0, dot) : filename;
-  const ext = dot > 0 ? filename.slice(dot) : "";
-  let index = 2;
-  while (used.has(`${base}-${index}${ext}`)) index += 1;
-  const next = `${base}-${index}${ext}`;
+  const next = nextFreeName(filename, used);
   used.add(next);
   return next;
 }

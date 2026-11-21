@@ -115,10 +115,12 @@ function DisconnectBuilderButton({
   canDisconnect,
   scope,
   onDisconnected,
+  disconnect,
 }: {
   canDisconnect: boolean;
   scope?: BuilderConnectionScope;
   onDisconnected: () => void;
+  disconnect?: BuilderConnectFlow["disconnect"];
 }) {
   const t = useT();
   const [phase, setPhase] = useState<"idle" | "armed" | "busy">("idle");
@@ -141,41 +143,47 @@ function DisconnectBuilderButton({
     setErr(null);
     clearArmedTimer();
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/builder/disconnect"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          ...(scope ? { body: JSON.stringify({ scope }) } : {}),
-        },
-      );
-      const text = await res.text();
-      let body: { ok?: boolean; error?: string } = {};
-      if (text) {
-        try {
-          body = JSON.parse(text);
-          // coercion-ok: a non-JSON error response still fails on its HTTP status.
-        } catch {
-          // The endpoint can return an HTML error page when unavailable.
+      if (disconnect && scope) {
+        await disconnect(scope);
+      } else {
+        const res = await fetch(
+          agentNativePath("/_agent-native/builder/disconnect"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            ...(scope ? { body: JSON.stringify({ scope }) } : {}),
+          },
+        );
+        const text = await res.text();
+        let body: { ok?: boolean; error?: string } = {};
+        if (text) {
+          try {
+            body = JSON.parse(text);
+            // coercion-ok: a non-JSON error response still fails on its HTTP status.
+          } catch {
+            // The endpoint can return an HTML error page when unavailable.
+          }
         }
-      }
-      if (!res.ok) {
-        throw new Error(
-          body.error ||
-            `Failed (${res.status}). Is your dev server up to date?`,
+        if (!res.ok) {
+          throw new Error(
+            body.error ||
+              `Failed (${res.status}). Is your dev server up to date?`,
+          );
+        }
+        if (body.ok !== true) {
+          throw new Error(body.error || "Disconnect did not confirm success");
+        }
+        window.dispatchEvent(
+          new CustomEvent("agent-engine:configured-changed"),
         );
       }
-      if (body.ok !== true) {
-        throw new Error(body.error || "Disconnect did not confirm success");
-      }
-      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
       setPhase("idle");
       onDisconnected();
     } catch (error) {
       setErr(error instanceof Error ? error.message : "Disconnect failed");
       setPhase("idle");
     }
-  }, [clearArmedTimer, onDisconnected, scope]);
+  }, [clearArmedTimer, onDisconnected, scope, disconnect]);
 
   const handleDisconnectClick = useCallback(() => {
     if (phase === "busy") return;
@@ -260,10 +268,16 @@ export function BuilderConnectionMenu({
   const source = credentialSource ?? flow.credentialSource;
   // Disconnect acts on the connection this menu shows; Reconnect goes where
   // this caller may connect (see builderReconnectTarget).
-  const scope = scopeProp ?? scopeForEffectiveConnection(flow.effective);
+  const scope =
+    scopeProp ??
+    scopeForEffectiveConnection(flow.effective) ??
+    (flow.grants?.personal ? "personal" : flow.grants?.org ? "org" : undefined);
   const reconnectTarget = builderReconnectTarget(flow, scopeProp);
   const canReconnect = reconnectTarget !== null;
   const reconnectScope = reconnectTarget?.scope;
+  const reconnectExisting = scope
+    ? hasBuilderConnection(flow, scope)
+    : source === "user" || source === "org";
   const canDisconnect = scope
     ? hasBuilderConnection(flow, scope) &&
       (scope === "personal" || flow.canConnect.org)
@@ -271,6 +285,17 @@ export function BuilderConnectionMenu({
   const manageLabel = t("settings.builderConnection.manage", {
     defaultValue: "Manage Builder.io connection",
   });
+  const start = (provisionAccount: boolean) => {
+    provisionAttemptRef.current = provisionAccount;
+    setShowConnectChoices(false);
+    setOpen(false);
+    flow.start({
+      trackingSource,
+      trackingFlow,
+      provisionAccount,
+      ...(reconnectScope ? { scope: reconnectScope } : {}),
+    });
+  };
 
   useEffect(() => {
     if (!flow.connecting && flow.accountExists && provisionAttemptRef.current) {
@@ -298,8 +323,7 @@ export function BuilderConnectionMenu({
           <span className="truncate">
             {provisionAttemptRef.current
               ? t("agentChat.onboarding.builderProvisioningDescription", {
-                  defaultValue:
-                    "Creating your Builder.io account and activating free credits.",
+                  defaultValue: "Creating your Builder.io account.",
                 })
               : t("agentChat.composer.connectingBuilder", {
                   defaultValue: "Setting up Builder.io…",
@@ -365,46 +389,29 @@ export function BuilderConnectionMenu({
               flow.statusResolved &&
               flow.agentNativeProvisioningEnabled === true
             }
-            onCreateAndActivate={() => {
-              provisionAttemptRef.current = true;
-              setShowConnectChoices(false);
-              setOpen(false);
-              flow.start({
-                trackingSource,
-                trackingFlow,
-                provisionAccount: true,
-                ...(reconnectScope ? { scope: reconnectScope } : {}),
-              });
-            }}
-            onExistingAccount={() => {
-              setShowConnectChoices(false);
-              setOpen(false);
-              flow.start({
-                trackingSource,
-                trackingFlow,
-                provisionAccount: false,
-                ...(reconnectScope ? { scope: reconnectScope } : {}),
-              });
-            }}
+            onCreateAndActivate={() => start(true)}
+            onExistingAccount={() => start(false)}
           />
         ) : (
           <div className="space-y-0.5">
             {canReconnect ? (
               <button
                 type="button"
-                onClick={() => setShowConnectChoices(true)}
+                onClick={() =>
+                  reconnectExisting ? start(false) : setShowConnectChoices(true)
+                }
                 disabled={flow.connecting}
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-60"
               >
                 <IconRefresh size={14} />
-                {source === "env" ||
-                (scope !== undefined && !hasBuilderConnection(flow, scope))
-                  ? t("agentChat.setup.connectBuilder")
-                  : t("agentChat.recovery.reconnectBuilder")}
+                {reconnectExisting
+                  ? t("agentChat.setup.reconnectBuilder")
+                  : t("agentChat.setup.connectBuilder")}
               </button>
             ) : null}
             {canDisconnect ? (
               <DisconnectBuilderButton
+                disconnect={flow.disconnect}
                 canDisconnect={canDisconnect}
                 scope={scope}
                 onDisconnected={() => setOpen(false)}
@@ -470,7 +477,15 @@ export function DefaultBuilderConnectCardView({
                 {viewModel.status.label}
               </Status>
             </div>
-            {showManage && viewModel.configured && viewModel.connectFlow ? (
+            {showManage &&
+            viewModel.connectFlow &&
+            (viewModel.configured ||
+              (viewModel.scope
+                ? hasBuilderConnection(viewModel.connectFlow, viewModel.scope)
+                : Boolean(
+                    viewModel.connectFlow.grants?.org ||
+                    viewModel.connectFlow.grants?.personal,
+                  ))) ? (
               <BuilderConnectionMenu
                 flow={viewModel.connectFlow}
                 trackingSource={trackingSource}

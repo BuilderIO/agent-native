@@ -138,6 +138,35 @@ type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
 const electronAPI = {
   platform: process.platform as string,
 
+  /**
+   * Per-app onboarding hosts. Nothing answers these channels unless a host
+   * extension registers them in the main process.
+   */
+  onboarding: {
+    voice: (
+      operation: string,
+      scope: string,
+      argument?: unknown,
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(
+        IPC.EXTENSIONS_VOICE_ONBOARDING,
+        operation,
+        scope,
+        argument,
+      ),
+    meeting: (
+      operation: string,
+      scope: string,
+      argument?: unknown,
+    ): Promise<unknown> =>
+      ipcRenderer.invoke(
+        IPC.EXTENSIONS_MEETING_ONBOARDING_HOST,
+        operation,
+        scope,
+        argument,
+      ),
+  },
+
   sentry: {
     enabled: isDesktopSentryConfigured(process.env),
   },
@@ -274,6 +303,8 @@ const electronAPI = {
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>
       ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    getOnboardingScope: (): Promise<string> =>
+      ipcRenderer.invoke(IPC.IDENTITY_ONBOARDING_SCOPE_GET),
     getSettings: (): Promise<DesktopIdentitySettings> =>
       ipcRenderer.invoke(IPC.IDENTITY_SETTINGS_GET),
     setSsoEnabled: (enabled: boolean): Promise<boolean> =>
@@ -314,6 +345,12 @@ const electronAPI = {
       return () =>
         ipcRenderer.removeListener(IPC.IDENTITY_STATUS_CHANGED, handler);
     },
+    onAccountChange: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(IPC.IDENTITY_ACCOUNT_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.IDENTITY_ACCOUNT_CHANGED, handler);
+    },
   },
 
   mcpServers: {
@@ -345,6 +382,11 @@ const electronAPI = {
   },
 
   setActiveApp: (appId: string) => ipcRenderer.send(IPC.SET_ACTIVE_APP, appId),
+  setWebviewBackgroundThrottling: (webContentsId: number, throttle: boolean) =>
+    ipcRenderer.send(IPC.SET_WEBVIEW_BACKGROUND_THROTTLING, {
+      webContentsId,
+      throttle,
+    }),
   setActiveWebview: (target: ActiveWebviewTarget) =>
     ipcRenderer.send(IPC.SET_ACTIVE_WEBVIEW, target),
 

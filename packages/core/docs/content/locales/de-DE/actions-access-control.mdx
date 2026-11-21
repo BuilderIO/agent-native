@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-Das ist derselbe Katalog wie die Liste `mcp: { connectorCatalog: [...] }` des Plugins, nur an der Action deklariert statt in einem separaten Array, das bei jeder Umbenennung nachgezogen werden muss. Beide Formen funktionieren, und eine App kann Action für Action umstellen. Alles, was ausgelassen wird, bleibt über `tool-search` auffindbar.
+Das ist derselbe Katalog wie die Liste `mcp: { connectorCatalog: [...] }` des Plugins, nur an der Action deklariert statt in einem separaten Array, das bei jeder Umbenennung nachgezogen werden muss. Beide Formen funktionieren, und eine App kann Action für Action umstellen. Eine ausgelassene Action steht nicht im Standardkatalog externer Agenten. `mcpTool: "search"` stellt eine Action bereit, ohne sie aufzulisten: `tool-search` findet sie, und `call-tool` führt sie aus. Für jede andere Action, die Ihr Agent aufrufen kann, nennt `tool-search` passende Treffer als nicht bereitgestellt, damit ein angemeldeter externer Agent die Aufgabe an `ask_app` übergeben kann.
 
 Die umgekehrte Kombination – `agentTool: false` mit `mcpTool: true` – macht eine Action **MCP-only**: Externe Agenten bekommen sie, der Agent Ihrer eigenen App sieht sie nie. Nutzen Sie das für den Export, die Synchronisierung oder die Übergabe, die ein externes Tool braucht und Ihr eigener Agent nie aufrufen muss.
 
@@ -207,6 +207,8 @@ Bei `approval_required` rendert die Chat-UI ein **Genehmigen / Ablehnen**-Bedien
 - **Ablehnen** verwirft das Bedienelement lokal. Es wird nichts erneut ausgegeben, sodass die Action nie läuft.
 
 `approvedToolCalls` ist ein Feld der Chat-Anfrage (`AgentChatRequest.approvedToolCalls`). Schlüssel, die darin nicht vorhanden sind, bleiben pausiert. Die Genehmigung eines Aufrufs genehmigt nie einen anderen Aufruf. Da der Schlüssel inhaltsadressiert ist, autorisiert eine Genehmigung nur genau diesen Aufruf mit genau diesen Argumenten. Wenn das Modell später einen anderen Versand vorschlägt, wird das zu einem neuen Schlüssel und braucht seine eigene, frische Genehmigung.
+
+Der erneut ausgegebene Turn trägt außerdem die ID der ausstehenden Anfrage des Aufrufs in `approvedToolCallAskIds`. Der Server führt den Aufruf nur aus, solange diese Anfrage für denselben Benutzer und denselben Thread noch aussteht. Ein Schlüssel allein genehmigt also nichts, und nur die eigenen Seiten der App können eine Genehmigung über `agentNative.submitChat` weiterreichen.
 
 ### End-to-End {#flow}
 

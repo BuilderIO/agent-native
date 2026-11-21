@@ -107,6 +107,28 @@ describe("first-party BigQuery execution metadata", () => {
       expect(execute).not.toHaveBeenCalled();
     },
   );
+
+  it("passes a resumable query's deadline to runQuery", async () => {
+    runQuery.mockResolvedValue({ rows: [], schema: [] });
+    const deadline = new AbortController();
+    await queryFirstPartyAnalyticsInBigQuery(
+      "SELECT 1 AS n",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "example_events",
+        fullyQualified: "example-project.analytics.example_events",
+      },
+      { timeoutMs: 20_000, resumeAfter: deadline.signal },
+    );
+    const resumeAfter = runQuery.mock.calls[0]?.[1]?.resumeAfter as
+      | AbortSignal
+      | undefined;
+    expect(resumeAfter?.aborted).toBe(false);
+    deadline.abort();
+    expect(resumeAfter?.aborted).toBe(true);
+  });
 });
 
 beforeEach(() => {
@@ -586,6 +608,27 @@ describe("first-party BigQuery backend", () => {
     expect(
       readAgentSqlQuery(sql, { dialect: "bigquery" }).sources,
     ).toHaveLength(1);
+  });
+
+  it("translates every JSON read around literal look-alikes and nested reads", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT properties::jsonb ->> 'a' AS a, 'properties::jsonb ->> ''b''' AS marker, (properties::jsonb ->> 'c')::jsonb ->> 'd' AS d, coalesce(nullif(path, ')'), '(', path) AS p, properties::jsonb ->> 'e' AS e FROM analytics_events",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain(`JSON_VALUE(properties, '$."a"') AS a`);
+    expect(sql).toContain(String.raw`'properties::jsonb ->> \'b\'' AS marker`);
+    expect(sql).toContain(
+      `JSON_VALUE((JSON_VALUE(properties, '$."c"')), '$."d"') AS d`,
+    );
+    expect(sql).toContain(`COALESCE(nullif(path, ')'), '(', path) AS p`);
+    expect(sql).toContain(`JSON_VALUE(properties, '$."e"') AS e`);
   });
 
   it("translates quoted identifiers without binding their marker text", () => {

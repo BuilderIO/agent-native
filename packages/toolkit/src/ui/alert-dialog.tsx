@@ -4,10 +4,43 @@ import * as React from "react";
 
 import { cn } from "../utils.js";
 import { buttonVariants } from "./button.js";
+import { useDialogCloseCleanup, useFocusReturn } from "./dialog.js";
+import { FocusReturnScope, useNativeTriggerRef } from "./focus-return.js";
 
-const AlertDialog = AlertDialogPrimitive.Root;
+function AlertDialog({
+  open,
+  children,
+  defaultOpen,
+  onOpenChange,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Root>) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(
+    defaultOpen ?? false,
+  );
+  const isOpen = open ?? uncontrolledOpen;
+  useDialogCloseCleanup(isOpen);
+  return (
+    <AlertDialogPrimitive.Root
+      {...props}
+      open={isOpen}
+      onOpenChange={(next) => {
+        if (open === undefined) setUncontrolledOpen(next);
+        onOpenChange?.(next);
+      }}
+    >
+      <FocusReturnScope>{children}</FocusReturnScope>
+    </AlertDialogPrimitive.Root>
+  );
+}
 
-const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
+const AlertDialogTrigger = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Trigger>
+>((props, ref) => {
+  const triggerRef = useNativeTriggerRef(ref);
+  return <AlertDialogPrimitive.Trigger {...props} ref={triggerRef} />;
+});
+AlertDialogTrigger.displayName = AlertDialogPrimitive.Trigger.displayName;
 
 const AlertDialogPortal = AlertDialogPrimitive.Portal;
 
@@ -36,23 +69,42 @@ const AlertDialogContent = React.forwardRef<
       typeof AlertDialogPrimitive.Overlay
     > & { [dataAttribute: `data-${string}`]: string | undefined };
   }
->(({ className, style, overlayStyle, overlayProps, ...props }, ref) => (
-  <AlertDialogPortal>
-    <AlertDialogOverlay
-      {...overlayProps}
-      style={{ ...overlayProps?.style, ...overlayStyle }}
-    />
-    <AlertDialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        "fixed left-1/2 top-1/2 z-[350] grid w-11/12 max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
-        className,
-      )}
-      style={{ zIndex: 350, ...style }}
-      {...props}
-    />
-  </AlertDialogPortal>
-));
+>(
+  (
+    {
+      className,
+      style,
+      overlayStyle,
+      overlayProps,
+      onCloseAutoFocus,
+      ...props
+    },
+    ref,
+  ) => {
+    const focusReturn = useFocusReturn(ref);
+    return (
+      <AlertDialogPortal>
+        <AlertDialogOverlay
+          {...overlayProps}
+          style={{ ...overlayProps?.style, ...overlayStyle }}
+        />
+        <AlertDialogPrimitive.Content
+          ref={focusReturn.ref}
+          className={cn(
+            "fixed left-1/2 top-1/2 z-[350] grid w-11/12 max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
+            className,
+          )}
+          style={{ zIndex: 350, ...style }}
+          onCloseAutoFocus={(event) => {
+            onCloseAutoFocus?.(event);
+            focusReturn.close(event);
+          }}
+          {...props}
+        />
+      </AlertDialogPortal>
+    );
+  },
+);
 AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName;
 
 const AlertDialogHeader = ({

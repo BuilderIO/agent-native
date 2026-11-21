@@ -4,6 +4,12 @@ import {
 } from "../agent/engine/credential-owner.js";
 import { credentialStateTrackingProperties } from "../agent/engine/credential-state.js";
 import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
+import { currentLeaseRenewalDiagnostics } from "../agent/lease-renewal-diagnostics.js";
+import type {
+  ModelAttemptMetrics,
+  ModelAttemptObserver,
+  ModelAttemptStartObserver,
+} from "../agent/model-attempt.js";
 import type {
   AgentLoopOutcome,
   AgentLoopUsage,
@@ -619,6 +625,8 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
+    onModelAttempt?: ModelAttemptObserver;
+    onModelAttemptStart?: ModelAttemptStartObserver;
     onModelDispatchStarted?: () => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
@@ -635,6 +643,8 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onModelInput?: (messages: readonly unknown[]) => void | Promise<void>;
+    onModelAttempt?: ModelAttemptObserver;
+    onModelAttemptStart?: ModelAttemptStartObserver;
     onModelDispatchStarted?: () => void;
     onUsage?: (usage: AgentLoopUsage) => void;
     onOutcome?: (outcome: AgentLoopOutcome) => void;
@@ -692,6 +702,7 @@ export async function instrumentAgentLoop(opts: {
   const orgId = getRequestOrgId() ?? null;
   const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
+  const leaseRenewalDiagnostics = currentLeaseRenewalDiagnostics(runId);
   const parentSpanId = spanId();
   const precedingResponsePromise =
     config.inferredSentimentEnabled && opts.sentimentInput && threadId && userId
@@ -758,6 +769,7 @@ export async function instrumentAgentLoop(opts: {
     end: number;
     dispatchStarted: boolean;
     usage?: AgentLoopUsage;
+    attempt?: ModelAttemptMetrics;
     stopReason?: string;
     errorCode?: string;
     errorMessage?: string | null;
@@ -766,6 +778,9 @@ export async function instrumentAgentLoop(opts: {
   }> = [];
   let modelDispatchCount = 0;
   let pendingModelInputDispatched = false;
+  const modelAttemptTrips = new Map<symbol, number>();
+  let activeModelAttemptId: symbol | undefined;
+  let pendingModelInputAttemptId: symbol | undefined;
   const privateModelRoundTrips = new Set<number>();
   let privateTurn = loopOpts.historyPrivacyState?.private === true;
   const currentRoundTrip = () => modelRoundTrips[modelRoundTrips.length - 1];
@@ -1086,6 +1101,8 @@ export async function instrumentAgentLoop(opts: {
           if (modelStreamOpenedAt === null) {
             modelStreamOpenedAt = Date.now();
             const tripIndex = modelRoundTrips.length;
+            if (activeModelAttemptId)
+              modelAttemptTrips.set(activeModelAttemptId, tripIndex);
             modelRoundTrips.push({
               spanId: spanId(),
               start: modelStreamOpenedAt,
@@ -1365,7 +1382,38 @@ export async function instrumentAgentLoop(opts: {
           pendingModelInputOmitted = privateTurn;
           pendingModelInputStartedAt = attemptStartedAt;
           pendingModelInputDispatched = false;
+          pendingModelInputAttemptId = activeModelAttemptId;
           return loopOpts.onModelInput?.(messages);
+        },
+        onModelAttemptStart: (id) => {
+          activeModelAttemptId = id;
+          return loopOpts.onModelAttemptStart?.(id);
+        },
+        onModelAttempt: (attempt, id) => {
+          let tripIndex = modelAttemptTrips.get(id);
+          if (
+            tripIndex === undefined &&
+            pendingModelInputAttemptId === id &&
+            pendingModelInputStartedAt !== undefined &&
+            pendingModelInputDispatched
+          ) {
+            tripIndex = modelRoundTrips.length;
+            modelAttemptTrips.set(id, tripIndex);
+            recordPreStreamModelFailure(
+              attempt.startedAtMs,
+              attempt.endedAtMs,
+              pendingModelInput,
+              "Model attempt failed before streaming.",
+            );
+            pendingModelInputStartedAt = undefined;
+            pendingModelInputDispatched = false;
+            pendingModelInput = undefined;
+          }
+          const trip =
+            tripIndex === undefined ? undefined : modelRoundTrips[tripIndex];
+          if (trip) trip.attempt = attempt;
+          if (activeModelAttemptId === id) activeModelAttemptId = undefined;
+          return loopOpts.onModelAttempt?.(attempt, id);
         },
         onModelDispatchStarted: () => {
           modelDispatchCount += 1;
@@ -1618,7 +1666,9 @@ export async function instrumentAgentLoop(opts: {
                     generationIndex === dispatchedRoundTrips.length - 1);
                 return {
                   spanId: trip.spanId,
-                  model: trip.usage?.model ?? runUsage.model,
+                  model:
+                    trip.attempt?.model ?? trip.usage?.model ?? runUsage.model,
+                  attempt: omitContent ? undefined : trip.attempt,
                   createdAt: trip.start,
                   endedAt: trip.end,
                   latencyMs: Math.max(0, trip.end - trip.start),
@@ -1657,6 +1707,7 @@ export async function instrumentAgentLoop(opts: {
                   {
                     spanId: spanId(),
                     model: runUsage.model,
+                    attempt: undefined,
                     createdAt: runStart,
                     endedAt: runStart + derivedLlmDurationMs,
                     latencyMs: derivedLlmDurationMs,
@@ -1750,6 +1801,10 @@ export async function instrumentAgentLoop(opts: {
                   : {}),
               }
             : null;
+          const generationMetadata = {
+            ...capturedContent,
+            ...(generation.attempt ? { modelAttempt: generation.attempt } : {}),
+          };
 
           spans.push({
             id: generation.spanId,
@@ -1768,8 +1823,8 @@ export async function instrumentAgentLoop(opts: {
             status: generationStatus,
             errorMessage: capturedGenerationError,
             metadata:
-              capturedContent && Object.keys(capturedContent).length > 0
-                ? capturedContent
+              Object.keys(generationMetadata).length > 0
+                ? generationMetadata
                 : null,
             createdAt: generation.createdAt,
             endedAt: generation.endedAt,
@@ -1837,6 +1892,9 @@ export async function instrumentAgentLoop(opts: {
       const runPaused =
         runStatus !== "error" &&
         effectiveTerminalOutcome?.state === "input_required";
+      const leaseRenewals = privateTurn
+        ? undefined
+        : leaseRenewalDiagnostics?.snapshot();
       const parentSpan: TraceSpan = {
         id: parentSpanId,
         runId,
@@ -1853,7 +1911,9 @@ export async function instrumentAgentLoop(opts: {
         durationMs: totalDurationMs,
         status: runPaused ? "paused" : runStatus,
         errorMessage: redactCapturedError(errorMessage),
-        metadata: runMetadata,
+        metadata: leaseRenewals
+          ? { ...runMetadata, leaseRenewals }
+          : runMetadata,
         createdAt: runStart,
       };
       spans.push(parentSpan);

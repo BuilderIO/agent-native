@@ -13,11 +13,13 @@ import { DATABASE_ROW_PATCH_LIMIT } from "./_database-row-mutation.js";
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
+import addGitHubPullRequests from "./add-github-pull-requests.js";
 import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
 import createGitHubCollection from "./create-github-collection.js";
+import createGitHubPullRequestCollection from "./create-github-pull-request-collection.js";
 import deleteContentDatabase from "./delete-content-database.js";
 import deleteDocument from "./delete-document.js";
 import describeContentDatabase from "./describe-content-database.js";
@@ -44,9 +46,11 @@ import patchDatabaseItems from "./patch-database-items.js";
 import permanentlyDeleteDocument from "./permanently-delete-document.js";
 import pullDocument from "./pull-document.js";
 import readComposerSource from "./read-composer-source.js";
+import readDocumentFile from "./read-document-file.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
+import searchContentDatabaseRows from "./search-content-database-rows.js";
 import searchDocuments from "./search-documents.js";
 import setDocumentProperty from "./set-document-property.js";
 import shareLocalFileDocument from "./share-local-file-document.js";
@@ -99,7 +103,10 @@ describe("Content action-owned agent catalogs", () => {
     "link-github-folder": linkGitHubFolder,
     "create-github-collection": createGitHubCollection,
     "sync-github-folder": syncGitHubFolder,
+    "create-github-pull-request-collection": createGitHubPullRequestCollection,
+    "add-github-pull-requests": addGitHubPullRequests,
     "read-composer-source": readComposerSource,
+    "read-document-file": readDocumentFile,
   };
 
   const deferredDatabaseActions = {
@@ -377,13 +384,29 @@ describe("Content action-owned agent catalogs", () => {
     expect(parameters.properties.rows.items.properties).not.toHaveProperty(
       "propertyValues",
     );
-    expect(parameters.properties.target.properties).not.toHaveProperty(
+    expect(parameters.properties.target.properties).toHaveProperty(
+      "authorityScope",
+    );
+    expect(parameters.properties.target.required).not.toContain(
       "authorityScope",
     );
     expect(patchDatabaseItems.tool.description).toContain("atomic");
     expect(updateDatabaseItems.tool.description).toContain(
       "patch-database-items",
     );
+  });
+
+  it("advertises an MCP output contract on every code-mode pilot action", () => {
+    for (const action of [
+      getDocument,
+      getContentDatabase,
+      listContentDatabases,
+      searchDocuments,
+      searchContentDatabaseRows,
+      patchDatabaseItems,
+    ]) {
+      expect(action.mcpOutputContract?.response).toBeDefined();
+    }
   });
 
   it("keeps source composition and destructive migration actions out of compact MCP discovery", () => {
@@ -537,5 +560,28 @@ describe("Content action-owned agent catalogs", () => {
     );
     expect(editProperties?.baseRevision?.description).toContain("get-document");
     expect(editProperties?.idempotencyKey?.description).toContain("stable key");
+  });
+
+  it("lets agents chain document writes from their receipts without a readback", () => {
+    // create-document and edit-document already return the saved revision, and
+    // an applied edit's receipt is read back inside its transaction, so their
+    // guidance must not send agents to get-document after a successful write.
+    expect(createDocument.tool.description).not.toContain(
+      "for subsequent get-document",
+    );
+    expect(createDocument.tool.description).toContain(
+      "pass that revision to edit-document as baseRevision",
+    );
+    expect(editDocument.tool.description).not.toContain(
+      "First call get-document",
+    );
+    expect(editDocument.tool.description).toContain(
+      "an applied receipt needs no readback",
+    );
+    const baseRevision =
+      editDocument.tool.parameters?.properties?.baseRevision?.description;
+    expect(baseRevision).toContain("create-document");
+    expect(baseRevision).toContain("receipt.revisions.after");
+    expect(baseRevision).toContain("don't call get-document to check the edit");
   });
 });

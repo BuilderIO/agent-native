@@ -258,6 +258,7 @@ export interface StartParams {
   systemAudioOn?: boolean;
   voiceCleanupEnabled?: boolean;
   lookbackEnabled?: boolean;
+  richTracks?: boolean;
   signal?: AbortSignal;
   localRecordingMode?: LocalRecordingMode;
   preAcquiredCameraStream?: MediaStream | null;
@@ -3987,6 +3988,7 @@ async function startNativeFullscreenRecording(
       ...captureParams,
       localOnly,
       hasCamera: wantsCamera,
+      richTracks: params.richTracks === true,
     });
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();

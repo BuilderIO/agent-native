@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Notiz an mich",
     },
     inbox: {
-      atLeastCount: "Mindestens {{count}}",
+      conversationsCount: "Konversationen: {{count}}",
+      conversationsAtLeastCount: "Konversationen: mindestens {{count}}",
+      unreadCount: "Ungelesene Konversationen: {{count}}",
+      draftsToReviewCount: "Zu prüfende Entwürfe: {{count}}",
       syncing: "Posteingang wird synchronisiert…",
     },
     sort: {
@@ -161,8 +164,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Seitenleiste anheften",
-      unpinSidebar: "Seitenleiste lösen",
       closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
       aiSettings: "Tags und Regeln verwalten",
@@ -181,7 +182,7 @@ const messages = {
       filtersLimitReached: "Du kannst bis zu 20 Filter speichern.",
     },
     tabSettings: {
-      splitInbox: "Geteilter Posteingang",
+      splitInbox: "Posteingang in Tabs aufteilen",
       views: "Ansichten",
       categories: "Kategorien",
       rename: "Umbenennen",
@@ -189,7 +190,7 @@ const messages = {
       savedFilters: "Gespeicherte Filter",
       combinedInbox: "Kombinierter Posteingang",
       allTab: "Alle-Tab",
-      help: "Der kombinierte Posteingang zeigt alle Konten zusammen. Deaktiviere ihn, um E-Mails auf Tabs aufzuteilen.",
+      help: "Zeigt deine ausgewählten Ansichten, Labels und gespeicherten Filter als eigene Posteingangs-Tabs. Deaktiviere es, um alle E-Mails im Posteingang in einem Tab zu sehen.",
       aiSetup: "KI-Tags und Regeln einrichten",
     },
     accounts: {
@@ -217,6 +218,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Anwenden",
       attachFile: "Datei anhängen",
+      attachFromContent: "Aus Content anhängen",
+      searchContentPages: "Content-Seiten durchsuchen",
+      contentPagesLoading: "Seiten werden geladen…",
+      contentPagesFailed: "Deine Content-Seiten konnten nicht geladen werden",
+      contentPagesRetry: "Erneut versuchen",
+      contentPagesEmpty: "Keine Seiten gefunden",
+      contentFileMarkdown: "Markdown-Datei",
+      contentFilePdf: "PDF-Datei",
+      contentPageFormat: "Seiten anhängen als",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "CSV-Datei",
       bold: "Fett",
       cancel: "Abbrechen",
       closeAllDrafts: "Alle Entwürfe schließen",
@@ -481,6 +494,14 @@ const messages = {
       scheduledCancelled: "Geplante E-Mail abgebrochen.",
       scheduledCancelFailed: "Geplante E-Mail konnte nicht abgebrochen werden",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "Content-Seite konnte nicht angehängt werden",
+      contentPagePdfTextUnsupported:
+        "Diese Seite enthält Text, den ein PDF noch nicht darstellen kann, etwa Chinesisch, Japanisch, Koreanisch, Arabisch, Hebräisch oder Hindi. Hänge sie stattdessen als Markdown an.",
+      contentPagePdfTooLong:
+        "Diese Seite ist zu lang oder zu breit, um sie als PDF anzuhängen. Hänge sie stattdessen als Markdown an.",
+      contentPagePdfUnavailable:
+        "Content konnte aus dieser Seite kein PDF erstellen. Hänge sie stattdessen als Markdown an.",
+      waitForAttachments: "Warte, bis die Anhänge fertig sind, und sende dann.",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       storageBuilderRefused:
         "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder nutze deinen eigenen Speicher und versuche es dann erneut.",
@@ -491,6 +512,13 @@ const messages = {
       openStorageSettings: "Speichereinstellungen öffnen",
       reconnectBuilderStorage: "Builder.io neu verbinden",
       useOwnStorage: "Eigenen Speicher verwenden",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io hat die Dateispeicher-Verbindung von Mail abgelehnt, daher wurde die Datei nicht angehängt. Verbinde Builder.io neu oder bitte einen Inhaber oder Admin, den Speicher einzurichten, und versuche es dann erneut.",
+      storageRefusedAskAdmin:
+        "Der Speicher-Bucket deiner Organisation hat diesen Upload abgelehnt, daher wurde die Datei nicht angehängt. Bitte einen Inhaber oder Admin, den Bucket und seine Schlüssel zu prüfen.",
+      storageNotConfiguredAskAdmin:
+        "Es ist kein Dateispeicher eingerichtet, daher wurde die Datei nicht angehängt. Verbinde dein eigenes Builder.io-Konto oder bitte einen Inhaber oder Admin, den Speicher einzurichten.",
+      connectBuilderStorage: "Builder.io verbinden",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Nachricht gesendet.",
       failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
@@ -833,6 +861,10 @@ const messages = {
     contacts: {
       noContactSelected: "Kein Kontakt ausgewählt",
     },
+    readingPane: {
+      empty: "Keine E-Mail ausgewählt",
+      resizeList: "Größe der E-Mail-Liste ändern",
+    },
   },
   agent: {
     emptyState: "Frag mich alles zu deinen E-Mails",
@@ -939,6 +971,12 @@ const messages = {
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
+    reading: "Lesen",
+    readingPane: "Lesebereich",
+    readingPaneSaveFailed:
+      "Die Einstellung für den Lesebereich konnte nicht gespeichert werden.",
+    readingPaneLoadFailed:
+      "Die Einstellung für den Lesebereich konnte nicht geladen werden.",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },

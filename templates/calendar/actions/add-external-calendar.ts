@@ -21,6 +21,12 @@ const CALENDAR_COLORS = [
 ];
 
 export default defineAction({
+  mcpTool: "search",
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Add an external calendar subscription from an ICS or webcal:// URL",
   schema: z.object({

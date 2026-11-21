@@ -1,6 +1,11 @@
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { track } from "@agent-native/core/tracking";
 
+import {
+  RECORDER_STAGES,
+  type RecorderStage,
+} from "../../shared/recorder-stage.js";
+
 export type RecordingFailureCode =
   | "storage_setup_required"
   | "hosted_storage_unavailable"
@@ -107,6 +112,7 @@ export type RecordingPlatform =
   | "extension"
   | "mobile"
   | "import"
+  | "agent"
   | "unknown";
 
 const recordingPlatforms = new Set<RecordingPlatform>([
@@ -115,6 +121,7 @@ const recordingPlatforms = new Set<RecordingPlatform>([
   "extension",
   "mobile",
   "import",
+  "agent",
   "unknown",
 ]);
 
@@ -222,6 +229,14 @@ export function finalizeFailureTracking(error: unknown): {
   };
 }
 
+const recorderStages = new Set<string>(RECORDER_STAGES);
+
+export function normalizeRecorderStage(value: unknown): RecorderStage | null {
+  return typeof value === "string" && recorderStages.has(value as RecorderStage)
+    ? (value as RecorderStage)
+    : null;
+}
+
 export function trackRecordingFailure(params: {
   recordingId: string;
   userId: string;
@@ -232,6 +247,9 @@ export function trackRecordingFailure(params: {
   httpStatus?: number;
   gateway?: BuilderGatewayFailure | null;
   browserSessionId?: string;
+  recorderStage?: RecorderStage | null;
+  /** The row's status when its upload lease expired. */
+  statusAtTimeout?: "uploading" | "processing";
 }): void {
   try {
     track(
@@ -249,6 +267,12 @@ export function trackRecordingFailure(params: {
           : {}),
         recording_platform: normalizeRecordingPlatform(params.platform),
         failure_code: params.failureCode,
+        ...(params.recorderStage
+          ? { recorder_stage: params.recorderStage }
+          : {}),
+        ...(params.statusAtTimeout
+          ? { status_at_timeout: params.statusAtTimeout }
+          : {}),
         ...(params.failureStage ? { failure_stage: params.failureStage } : {}),
         ...(Number.isInteger(params.httpStatus)
           ? { http_status: params.httpStatus }

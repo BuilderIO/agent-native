@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "給自己的備註",
     },
     inbox: {
-      atLeastCount: "至少 {{count}}",
+      conversationsCount: "對話：{{count}}",
+      conversationsAtLeastCount: "對話：至少 {{count}}",
+      unreadCount: "未讀對話：{{count}}",
+      draftsToReviewCount: "待審閱草稿：{{count}}",
       syncing: "收件箱同步中…",
     },
     sort: {
@@ -138,8 +141,6 @@ const messages = {
       compose: "撰寫",
       composeShortcut: "撰寫 (C)",
       accounts: "帳號",
-      pinSidebar: "固定側邊欄",
-      unpinSidebar: "取消固定側邊欄",
       closeSidebar: "關閉側邊欄",
       settings: "設定",
       aiSettings: "管理標籤與規則",
@@ -157,7 +158,7 @@ const messages = {
       filtersLimitReached: "最多可儲存 20 個篩選條件。",
     },
     tabSettings: {
-      splitInbox: "分割收件匣",
+      splitInbox: "將收件匣分割為分頁",
       views: "檢視",
       categories: "分類",
       rename: "重新命名",
@@ -165,7 +166,7 @@ const messages = {
       savedFilters: "已儲存的篩選條件",
       combinedInbox: "合併收件匣",
       allTab: "全部分頁",
-      help: "合併收件匣會一起顯示所有帳戶；關閉後，郵件會依標籤分到不同分頁。",
+      help: "將你選擇的檢視、標籤和已儲存的篩選器顯示為獨立的收件匣分頁。關閉後，所有收件匣郵件會顯示在同一個分頁中。",
       aiSetup: "設定 AI 標籤和規則",
     },
     accounts: {
@@ -193,6 +194,18 @@ const messages = {
       aiAssistPlaceholder: "例如：改得更正式...",
       apply: "應用",
       attachFile: "附加檔案",
+      attachFromContent: "從 Content 附加",
+      searchContentPages: "搜尋 Content 頁面",
+      contentPagesLoading: "正在載入頁面…",
+      contentPagesFailed: "無法載入你的 Content 頁面",
+      contentPagesRetry: "重試",
+      contentPagesEmpty: "找不到頁面",
+      contentFileMarkdown: "Markdown 檔案",
+      contentFilePdf: "PDF 檔案",
+      contentPageFormat: "頁面附加格式",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "CSV 檔案",
       bold: "加粗",
       cancel: "取消",
       closeAllDrafts: "關閉所有草稿",
@@ -448,6 +461,14 @@ const messages = {
       scheduledCancelled: "定時郵件已取消。",
       scheduledCancelFailed: "取消定時郵件失敗",
       failedToAttachFile: "附加檔案失敗",
+      failedToAttachContentPage: "附加 Content 頁面失敗",
+      contentPagePdfTextUnsupported:
+        "此頁面包含 PDF 暫時無法顯示的文字，例如中文、日文、韓文、阿拉伯文、希伯來文或印地文。請改以 Markdown 格式附加。",
+      contentPagePdfTooLong:
+        "此頁面太長或太寬，無法以 PDF 格式附加。請改以 Markdown 格式附加。",
+      contentPagePdfUnavailable:
+        "Content 無法為此頁面產生 PDF。請改以 Markdown 格式附加。",
+      waitForAttachments: "請等待附件新增完成後再傳送。",
       failedToUploadImage: "上傳圖片失敗",
       storageBuilderRefused:
         "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io 或使用自己的儲存空間，然後再試一次。",
@@ -458,6 +479,13 @@ const messages = {
       openStorageSettings: "開啟儲存空間設定",
       reconnectBuilderStorage: "重新連線 Builder.io",
       useOwnStorage: "使用自己的儲存空間",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io，或請擁有者或管理員設定儲存空間，然後再試一次。",
+      storageRefusedAskAdmin:
+        "你所屬組織的儲存貯體拒絕了這次上傳，因此未能附加檔案。請擁有者或管理員檢查儲存貯體及其金鑰。",
+      storageNotConfiguredAskAdmin:
+        "尚未設定檔案儲存空間，因此未能附加檔案。請連線你自己的 Builder.io 帳號，或請擁有者或管理員設定儲存空間。",
+      connectBuilderStorage: "連線 Builder.io",
       failedToSendEmail: "傳送郵件失敗",
       messageSent: "郵件已傳送。",
       failedToSaveDraft: "無法儲存草稿。",
@@ -762,6 +790,10 @@ const messages = {
     contacts: {
       noContactSelected: "未選取聯絡人",
     },
+    readingPane: {
+      empty: "未選取郵件",
+      resizeList: "調整郵件清單大小",
+    },
   },
   agent: {
     emptyState: "可以問我任何關於郵件的問題",
@@ -859,6 +891,10 @@ const messages = {
     gmailFilters: "Gmail 篩選器",
     aliases: "別名",
     tracking: "跟蹤",
+    reading: "閱讀",
+    readingPane: "閱讀窗格",
+    readingPaneSaveFailed: "無法儲存閱讀窗格設定。",
+    readingPaneLoadFailed: "無法載入閱讀窗格設定。",
     deleteAlias: "刪除別名",
     editAlias: "編輯別名",
   },

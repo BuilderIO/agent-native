@@ -35,6 +35,8 @@ const ALWAYS_HIDDEN_BLOCK_TYPES = new Set([
   "visual-questions",
   "inline-database",
   "clip-embed",
+  "analytics-chart",
+  "design-screen",
   "callout",
   "source-component",
   "builder-text",

@@ -8,6 +8,7 @@ import {
   frameworkGroupEnabled,
   type FrameworkToolGroup,
 } from "../../framework-tools.js";
+import { parseMemoryIndex } from "../../resources/memory-index.js";
 import {
   getFrontmatterValue,
   getSkillNameFromPath,
@@ -1091,35 +1092,6 @@ async function collectJevPromptCandidates(
   }
 
   return candidates;
-}
-
-function parseMemoryIndex(
-  content: string,
-  indexPath = "memory/MEMORY.md",
-): Array<{ name: string; path: string; description: string }> {
-  const directory = indexPath.slice(0, indexPath.lastIndexOf("/") + 1);
-  const entries: Array<{ name: string; path: string; description: string }> =
-    [];
-  for (const line of content.split("\n")) {
-    const match = /^\s*-\s+\[([^\]]+)\]\(([^)]+\.md)\)\s*[—-]\s*(.+)$/.exec(
-      line,
-    );
-    if (!match) continue;
-    const [, name, linkedPath, description] = match;
-    const linkedName = linkedPath?.replace(/^memory\//, "");
-    if (
-      !name ||
-      !linkedName ||
-      !description ||
-      linkedName.includes("..") ||
-      /[\\/]/.test(linkedName) ||
-      !/^[a-zA-Z0-9._-]+\.md$/.test(linkedName)
-    ) {
-      continue;
-    }
-    entries.push({ name, path: `${directory}${linkedName}`, description });
-  }
-  return entries;
 }
 
 const memoryWordSegmenter = new Intl.Segmenter(undefined, {
@@ -2261,7 +2233,7 @@ export async function loadResourcesForPrompt(
     }
     if (runtimeToolHints)
       addSection(
-        `<context-note>\`resources\` reads personal memory (memory/MEMORY.md) and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval.</context-note>`,
+        `<context-note>\`save-memory\` writes personal memory (memory/MEMORY.md) immediately without extra approval; \`resources\` reads personal memory and organization learnings. Keep setup findings personal; shared LEARNINGS.md or organization-memory writes require approval. "Remember this" alone is not approval for shared writes.</context-note>`,
         "required",
       );
   } else {
@@ -2276,24 +2248,34 @@ export async function loadResourcesForPrompt(
       });
       addSection(block);
     }
+  }
 
-    if (owner !== SHARED_OWNER) {
-      try {
-        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
-          orgId,
+  if (owner !== SHARED_OWNER) {
+    try {
+      const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
+        orgId,
+      });
+      const trimmedMemoryIndex = memoryIndex?.content.trim() ?? "";
+      const hasMemoryContent =
+        trimmedMemoryIndex.length > 0 &&
+        (!compact || trimmedMemoryIndex !== "# Memory Index");
+      if (memoryIndex && hasMemoryContent) {
+        const block = promptResourceBlock({
+          name: "memory/MEMORY.md",
+          scope: "personal",
+          path: "memory/MEMORY.md",
+          content: memoryIndex.content,
+          maxChars: compact
+            ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
+            : SHARED_PROMPT_RESOURCE_MAX_CHARS,
+          ...(resourceReadHint === undefined
+            ? {}
+            : { readHint: resourceReadHint }),
         });
-        if (memoryIndex?.content?.trim()) {
-          const block = promptResourceBlock({
-            name: "memory/MEMORY.md",
-            scope: "personal",
-            path: "memory/MEMORY.md",
-            content: memoryIndex.content,
-            maxChars: SHARED_PROMPT_RESOURCE_MAX_CHARS,
-            readHint: resourceReadHint,
-          });
-          addSection(block, "user");
-        }
-      } catch {}
+        addSection(block, "user");
+      }
+    } catch (error) {
+      console.warn("[agent-chat] Could not load personal memory index:", error);
     }
   }
 

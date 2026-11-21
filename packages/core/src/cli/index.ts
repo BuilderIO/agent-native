@@ -326,10 +326,7 @@ function isWorkspaceRoot(): boolean {
   if (!fs.existsSync(pkgPath)) return false;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-    return (
-      typeof pkg?.["agent-native"]?.workspaceCore === "string" &&
-      fs.existsSync(path.resolve("apps"))
-    );
+    return typeof pkg?.["agent-native"]?.workspaceCore === "string";
   } catch {
     return false;
   }
@@ -1057,6 +1054,16 @@ switch (command) {
     break;
   }
 
+  case "netlify-deploy": {
+    import("./netlify-deploy.js")
+      .then((m) => m.runNetlifyDeploy(args))
+      .catch((err) => {
+        console.error("Netlify deploy failed:", err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "amplify-stream": {
     import("./amplify-stream.js")
       .then((m) => m.runAmplifyStream(args))
@@ -1123,6 +1130,16 @@ switch (command) {
   case "audit-agent-web": {
     import("./audit-agent-web.js")
       .then((m) => m.runAuditAgentWeb(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "capture-evidence": {
+    import("./capture-evidence.js")
+      .then((m) => m.runCaptureEvidence(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -1242,6 +1259,9 @@ Usage:
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
+  agent-native netlify-deploy   Zip workspace functions deterministically and
+                                run 'netlify deploy', so unchanged functions
+                                are not re-uploaded
   agent-native amplify-stream   Build a Nitro streaming Lambda and connect it
                                 to an AWS Amplify branch
   agent-native setup-agents     Create symlinks for all agent tools
@@ -1275,6 +1295,10 @@ Usage:
                                 unless --apply; --builds also selects build/,
                                 dist/, .output/ and .netlify bundles.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
+  agent-native capture-evidence Capture bounded evidence of a page effect in one
+                                browser session (viewports, geometry, motion,
+                                GPU facts, source slices) into a manifest.
+                                Run with --help for options.
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its
                                 threshold. A CI deploy gate. --json for CI,

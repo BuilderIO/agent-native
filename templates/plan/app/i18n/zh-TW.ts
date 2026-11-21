@@ -623,6 +623,8 @@ const messages = {
       sendToInlineAgentDescription: "將公開評論發布到應用程式端代理中。",
       sending: "傳送",
       sentAnswers: "已將答覆傳送給代理",
+      sendAnswersPrompt: "要將答覆傳送給代理嗎？",
+      sendAnswersAction: "傳送",
       sentComments: "已將評論傳送給代理",
       sentCommentsWithScreenshots: "向代理傳送評論和重點截圖",
       showAllComments: "顯示所有評論",

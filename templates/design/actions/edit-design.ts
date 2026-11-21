@@ -9,21 +9,12 @@ import {
   agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import {
-  getGenerationCreativeContext,
-  isCreativeContextOffForUser,
-  recordGenerationCreativeContext,
-  replaceCreativeContextElementProvenance,
-  validateGenerationCreativeContext,
-} from "@agent-native/creative-context/server";
-import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { partitionReuseLabels } from "../server/lib/generation-reuse-labels.js";
 import {
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
@@ -32,6 +23,7 @@ import {
 } from "../server/source-workspace.js";
 import {
   ApplyEditConflictError,
+  applyEditsInOrder,
   applyOneEdit,
   type ApplyEditsResult,
   type DesignEdit,
@@ -66,18 +58,6 @@ const editBlocksSchema = z.preprocess(
     )
     .min(1),
 );
-
-const reuseLabelSchema = z.object({
-  itemId: z.string().min(1).optional(),
-  itemVersionId: z.string().min(1).optional(),
-  kind: z.string().min(1),
-  label: z.string().min(1),
-  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
-  elementId: z.string().min(1).optional(),
-  influence: z
-    .enum(["reused", "adapted", "reference-conditioned", "generated"])
-    .optional(),
-});
 
 function stripStableNodeIdAttributes(value: string): {
   content: string;
@@ -145,16 +125,7 @@ function applyOneEditWithStableIdFallback(
     if (span) {
       return `${content.slice(0, span.start)}${edit.replace}${content.slice(span.end)}`;
     }
-    throw new DesignEditSearchConflictError(
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}
-
-class DesignEditSearchConflictError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "DesignEditSearchConflictError";
+    throw error;
   }
 }
 
@@ -166,16 +137,12 @@ export function applySearchReplaceEdits(
   content: string,
   edits: DesignEdit[],
 ): ApplyEditsResult {
-  let next = content;
   try {
-    edits.forEach((edit, index) => {
-      next = applyOneEditWithStableIdFallback(next, edit, index);
-    });
+    return applyEditsInOrder(content, edits, applyOneEditWithStableIdFallback);
   } catch (error) {
-    if (!(error instanceof DesignEditSearchConflictError)) throw error;
+    if (!(error instanceof ApplyEditConflictError)) throw error;
     throw new NoWriteError(error.message, designEditConflictOptions());
   }
-  return { content: next, applied: edits.length };
 }
 
 export function preCheckpointNoWriteError(error: unknown): NoWriteError {
@@ -212,8 +179,7 @@ export default defineAction({
     "the representative placeholder with a complete but compact UI in the chosen " +
     "direction; prioritize the primary workflow and render secondary details " +
     "as visible controls, states, or affordances when needed. For a style change " +
-    "(colors, fonts, spacing, dark mode), use the linked `designSystem.agentContext` " +
-    "from `get-design-snapshot` first, then call `index-design-tokens` and reuse " +
+    "(colors, fonts, spacing, dark mode), call `index-design-tokens` first and reuse " +
     "the design's existing tokens so the edited screen matches its siblings; " +
     "introduce values the design does not already use only when asked. " +
     "When refining email HTML, preserve email-safe tables, inline-compatible styles, required HubL footer tokens and any existing internal marker; validate its handoff with export-hubspot-html, which accepts any HTML frame. To rebuild an ordinary frame as a HubSpot email, read it first and use create-file for a new sibling rather than overwriting the source. Use `generate-design` instead only for brand-new files.",
@@ -249,23 +215,6 @@ export default defineAction({
         .optional()
         .describe(
           "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
-        ),
-      contextPackId: z
-        .string()
-        .optional()
-        .describe("Exact Creative Context pack used for this file edit."),
-      contextModeOverride: z
-        .literal("off")
-        .optional()
-        .describe(
-          "Disable Creative Context for this edit only without changing the saved preference.",
-        ),
-      reuseLabels: z
-        .array(reuseLabelSchema)
-        .optional()
-        .default([])
-        .describe(
-          "Exact item versions that influenced this file edit. A label without item ids that is not `generated`, or any non-generated label while Creative Context is off, is ignored and listed as `ignoredReuseLabels` in the result.",
         ),
     })
     .superRefine((value, ctx) => {
@@ -315,25 +264,10 @@ export default defineAction({
         ? "replace-file"
         : "search-replace")) === "replace-file",
   run: async (
-    {
-      designId,
-      fileId,
-      filename,
-      edits,
-      mode,
-      replacementContent,
-      contextPackId,
-      contextModeOverride,
-      reuseLabels: requestedReuseLabels,
-    },
+    { designId, fileId, filename, edits, mode, replacementContent },
     context,
   ) => {
     await assertAccess("design", designId, "editor");
-    const contextOff =
-      requestedReuseLabels.length > 0 &&
-      (contextModeOverride === "off" || (await isCreativeContextOffForUser()));
-    const { recordable: reuseLabels, ignored: ignoredReuseLabels } =
-      partitionReuseLabels(requestedReuseLabels, { contextOff });
     const db = getDb();
     const requestedFileId = fileId?.trim();
     const targetFilename = requestedFileId
@@ -385,24 +319,6 @@ export default defineAction({
     let nextContent = "";
     let applied = 0;
     let changed = false;
-    let creativeContext:
-      | {
-          contextMode: "off" | "auto" | "pinned";
-          contextPackId: string | null;
-          reuseLabels: CreativeContextReuseLabel[];
-          elementProvenance: Array<{
-            elementId: string;
-            influence:
-              | "reused"
-              | "adapted"
-              | "reference-conditioned"
-              | "generated";
-            itemId?: string;
-            itemVersionId?: string;
-            label?: string;
-          }>;
-        }
-      | undefined;
     let checkpointed = false;
 
     for (let attempt = 0; ; attempt += 1) {
@@ -459,78 +375,9 @@ export default defineAction({
         }).content;
       }
       changed = nextContent !== base;
-      creativeContext = undefined;
 
       if (!changed) break;
 
-      const hasCreativeContextRequest =
-        contextPackId !== undefined ||
-        contextModeOverride !== undefined ||
-        reuseLabels.length > 0;
-      const previous =
-        hasCreativeContextRequest && contextModeOverride !== "off"
-          ? await getGenerationCreativeContext({
-              appId: "design",
-              artifactType: "design",
-              artifactId: designId,
-            })
-          : null;
-      if (hasCreativeContextRequest) {
-        if (
-          contextPackId !== undefined &&
-          previous?.contextPackId &&
-          contextPackId !== previous.contextPackId
-        ) {
-          throw new NoWriteError(
-            "The design edit must preserve the design's creative-context pack",
-            { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
-          );
-        }
-        const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
-          ? reuseLabels
-          : [
-              {
-                kind: "design-file",
-                label: "Net-new design edit",
-                dataRole: "untrusted-reference",
-                elementId: file.id,
-                influence: "generated",
-              },
-            ];
-        const validated = await validateGenerationCreativeContext({
-          contextPackId: contextPackId ?? previous?.contextPackId,
-          contextPackSource:
-            contextPackId === undefined ? "inherited" : "explicit",
-          contextModeOverride,
-          reuseLabels: requestedLabels,
-          reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
-        });
-        const elementProvenance = validated.reuseLabels.map((label) => ({
-          elementId: file.id,
-          influence: label.influence ?? ("reference-conditioned" as const),
-          ...(label.itemId ? { itemId: label.itemId } : {}),
-          ...(label.itemVersionId
-            ? { itemVersionId: label.itemVersionId }
-            : {}),
-          label: label.label,
-        }));
-        const contextMode =
-          validated.contextMode === "off"
-            ? "off"
-            : (previous?.contextMode ?? validated.contextMode);
-        creativeContext = {
-          contextMode,
-          contextPackId: validated.contextPackId,
-          reuseLabels: validated.reuseLabels,
-          elementProvenance:
-            contextMode === "off"
-              ? elementProvenance
-              : replaceCreativeContextElementProvenance(
-                  previous?.elementProvenance ?? [],
-                  elementProvenance,
-                ),
-        };
-      }
       try {
         assertLockedLayersPreserved(base, nextContent);
       } catch (error) {
@@ -575,14 +422,6 @@ export default defineAction({
       } finally {
         agentLeaveDocument(file.id);
       }
-      if (creativeContext) {
-        await recordGenerationCreativeContext({
-          appId: "design",
-          artifactType: "design",
-          artifactId: designId,
-          ...creativeContext,
-        });
-      }
       break;
     }
 
@@ -607,14 +446,6 @@ export default defineAction({
       _receipt: designOutputWriteReceipt(designId, changed ? 1 : 0),
       bytesBefore: base.length,
       bytesAfter: nextContent.length,
-      ...(ignoredReuseLabels.length > 0 ? { ignoredReuseLabels } : {}),
-      ...(creativeContext
-        ? {
-            contextMode: creativeContext.contextMode,
-            contextPackId: creativeContext.contextPackId,
-            reuseLabels: creativeContext.reuseLabels,
-          }
-        : {}),
     };
   },
 });

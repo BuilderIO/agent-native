@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Note à moi-même",
     },
     inbox: {
-      atLeastCount: "Au moins {{count}}",
+      conversationsCount: "Conversations : {{count}}",
+      conversationsAtLeastCount: "Conversations : au moins {{count}}",
+      unreadCount: "Conversations non lues : {{count}}",
+      draftsToReviewCount: "Brouillons à relire : {{count}}",
       syncing: "Synchronisation de la boîte...",
     },
     sort: {
@@ -161,8 +164,6 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Épingler la barre latérale",
-      unpinSidebar: "Désépingler la barre latérale",
       closeSidebar: "Fermer la barre latérale",
       settings: "Paramètres",
       aiSettings: "Gérer les tags et les règles",
@@ -180,7 +181,7 @@ const messages = {
       filtersLimitReached: "Vous pouvez enregistrer jusqu’à 20 filtres.",
     },
     tabSettings: {
-      splitInbox: "Boîte de réception séparée",
+      splitInbox: "Séparer la boîte de réception en onglets",
       views: "Vues",
       categories: "Catégories",
       rename: "Renommer",
@@ -188,7 +189,7 @@ const messages = {
       savedFilters: "Filtres enregistrés",
       combinedInbox: "Boîte de réception combinée",
       allTab: "Onglet Tout",
-      help: "La boîte combinée réunit tous les comptes ; désactivez-la pour répartir les messages en onglets.",
+      help: "Affiche les vues, libellés et filtres enregistrés que vous avez choisis dans des onglets distincts. Désactivez-le pour voir tout le courrier reçu dans un seul onglet.",
       aiSetup: "Configurer les tags et règles IA",
     },
     accounts: {
@@ -216,6 +217,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Appliquer",
       attachFile: "Joindre un fichier",
+      attachFromContent: "Joindre depuis Content",
+      searchContentPages: "Rechercher dans les pages Content",
+      contentPagesLoading: "Chargement des pages…",
+      contentPagesFailed: "Impossible de charger vos pages Content",
+      contentPagesRetry: "Réessayer",
+      contentPagesEmpty: "Aucune page trouvée",
+      contentFileMarkdown: "Fichier Markdown",
+      contentFilePdf: "Fichier PDF",
+      contentPageFormat: "Joindre les pages en",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "Fichier CSV",
       bold: "Gras",
       cancel: "Annuler",
       closeAllDrafts: "Fermer tous les brouillons",
@@ -480,6 +493,15 @@ const messages = {
       scheduledCancelled: "Email programmé annulé.",
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToAttachContentPage: "Impossible de joindre la page Content",
+      contentPagePdfTextUnsupported:
+        "Cette page contient du texte qu’un PDF ne peut pas encore afficher, comme le chinois, le japonais, le coréen, l’arabe, l’hébreu ou l’hindi. Joignez-la plutôt en Markdown.",
+      contentPagePdfTooLong:
+        "Cette page est trop longue ou trop large pour être jointe en PDF. Joignez-la plutôt en Markdown.",
+      contentPagePdfUnavailable:
+        "Content n’a pas pu créer de PDF pour cette page. Joignez-la plutôt en Markdown.",
+      waitForAttachments:
+        "Attendez la fin de l’ajout des pièces jointes, puis envoyez.",
       failedToUploadImage: "Échec du téléversement de l’image",
       storageBuilderRefused:
         "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou utilisez votre propre stockage, puis réessayez.",
@@ -490,6 +512,13 @@ const messages = {
       openStorageSettings: "Ouvrir les paramètres de stockage",
       reconnectBuilderStorage: "Reconnecter Builder.io",
       useOwnStorage: "Utiliser votre propre stockage",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou demandez à un propriétaire ou un administrateur de configurer le stockage, puis réessayez.",
+      storageRefusedAskAdmin:
+        "Le bucket de stockage de votre organisation a refusé ce téléversement, le fichier n’a donc pas été joint. Demandez à un propriétaire ou un administrateur de vérifier le bucket et ses clés.",
+      storageNotConfiguredAskAdmin:
+        "Le stockage de fichiers n’est pas configuré, le fichier n’a donc pas été joint. Connectez votre propre compte Builder.io ou demandez à un propriétaire ou un administrateur de configurer le stockage.",
+      connectBuilderStorage: "Connecter Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Message envoyé.",
       failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
@@ -831,6 +860,10 @@ const messages = {
     contacts: {
       noContactSelected: "Aucun contact sélectionné",
     },
+    readingPane: {
+      empty: "Aucun e-mail sélectionné",
+      resizeList: "Redimensionner la liste des e-mails",
+    },
   },
   agent: {
     emptyState: "Posez-moi vos questions sur vos e-mails",
@@ -937,6 +970,12 @@ const messages = {
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",
+    reading: "Lecture",
+    readingPane: "Volet de lecture",
+    readingPaneSaveFailed:
+      "Impossible d’enregistrer le paramètre du volet de lecture.",
+    readingPaneLoadFailed:
+      "Impossible de charger le paramètre du volet de lecture.",
     deleteAlias: "Supprimer l’alias",
     editAlias: "Modifier l’alias",
   },

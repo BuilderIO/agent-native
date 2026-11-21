@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import { withContentWebhookDelivery } from "./_content-webhooks.js";
 import {
@@ -10,8 +11,8 @@ import {
   databasePropertyValuesSchema,
 } from "./_database-property-input.js";
 import {
-  databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
+  databaseMutationTargetInputSchema,
   upsertDatabaseRow,
 } from "./_database-row-mutation.js";
 
@@ -31,7 +32,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
   ),
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .extend({ target: databaseMutationTargetInputSchema.strict() })
   .omit({ propertyValues: true })
   .strict();
 
@@ -57,6 +58,8 @@ export default defineAction({
         : "Upserted Content database row by natural key";
     },
   },
+  changeResource: (input) =>
+    documentChangeResource(input.target.databaseDocumentId),
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     return withContentWebhookDelivery(context, () =>

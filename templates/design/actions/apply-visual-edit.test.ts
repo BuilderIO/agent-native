@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
@@ -556,6 +556,409 @@ describe("apply-visual-edit", () => {
       ).rejects.toThrow(
         "Source file changed since it was read. Re-read the file and retry.",
       );
+      expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("apply-visual-edit deleteNode and font-family on design files (real code-layer engine)", () => {
+  const page = [
+    "<!doctype html>",
+    "<html>",
+    "<head><title>Card</title></head>",
+    "<body>",
+    '<section id="hero"><h1 id="title" class="text-xl">Title</h1><button id="cta">Buy</button></section>',
+    "</body>",
+    "</html>",
+  ].join("\n");
+  const withBreakpoints = JSON.stringify({
+    breakpointSet: { breakpoints: [{ widthPx: 390 }, { widthPx: 810 }] },
+    screenMetadata: { file_123: { width: 1280 } },
+  });
+  const source = { kind: "design-file" as const, fileId: "file_123" };
+  const deleteCta = {
+    kind: "deleteNode" as const,
+    target: { selector: "#cta" },
+  };
+
+  function setPage(designData: string | null, content = page) {
+    setFiles([
+      {
+        id: "file_123",
+        designId: "design_123",
+        filename: "index.html",
+        fileType: "html",
+        content,
+        designData,
+      },
+    ]);
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.updateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.hasCollabState.mockResolvedValue(false);
+    const actual = await vi.importActual<
+      typeof import("../shared/code-layer.js")
+    >("../shared/code-layer.js");
+    mocks.applyVisualEdit.mockImplementation(actual.applyVisualEdit);
+    setPage(withBreakpoints);
+  });
+
+  afterEach(() => {
+    mocks.applyVisualEdit.mockReset();
+  });
+
+  describe("delete on a breakpoint frame", () => {
+    it("hides the layer on a narrower frame and keeps it in the document", async () => {
+      const result = await action.run({
+        source,
+        intent: deleteCta,
+        activeFrameWidthPx: 390,
+      });
+
+      expect(result.persisted).toBe(true);
+      expect(result.result.message).toMatch(
+        /^Hidden at viewport widths <= 809px/,
+      );
+      expect(result.results?.[0]).toMatchObject({
+        intent: {
+          kind: "breakpoint-style",
+          property: "display",
+          value: "none",
+          maxWidthPx: 809,
+        },
+      });
+      const saved = lastSavedContent();
+      expect(saved).toContain('id="cta"');
+      expect(saved).toContain("@media (max-width: 809px)");
+      expect(saved).toContain("display: none !important;");
+      expect(saved).not.toContain('style="display');
+    });
+
+    it("scopes a middle frame to the bound just below the base frame", async () => {
+      await action.run({ source, intent: deleteCta, activeFrameWidthPx: 810 });
+
+      expect(lastSavedContent()).toContain("@media (max-width: 1279px)");
+    });
+
+    it("deletes the layer on the base (widest) frame, like the editor", async () => {
+      const result = await action.run({
+        source,
+        intent: deleteCta,
+        activeFrameWidthPx: 1280,
+      });
+
+      expect(result.result.message).toBe("Node deleted.");
+      expect(lastSavedContent()).not.toContain('id="cta"');
+      expect(lastSavedContent()).not.toContain("@media");
+    });
+
+    it("deletes the layer when no breakpoint scope is passed", async () => {
+      await action.run({ source, intent: deleteCta });
+
+      expect(lastSavedContent()).not.toContain('id="cta"');
+    });
+
+    it("deletes the layer when the design has no breakpoint set", async () => {
+      setPage(null);
+
+      await action.run({ source, intent: deleteCta, activeFrameWidthPx: 390 });
+
+      expect(lastSavedContent()).not.toContain('id="cta"');
+    });
+
+    it("refuses, without writing, when the design's breakpoint data is unreadable", async () => {
+      setPage("{not json");
+
+      const result = await action.run({
+        source,
+        intent: deleteCta,
+        activeFrameWidthPx: 390,
+        includeContent: true,
+      });
+
+      expect(result.result).toMatchObject({
+        status: "needsAgent",
+        changed: false,
+      });
+      expect(result.persisted).toBe(false);
+      expect(result.patchedContent).toBe(page);
+      expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["a breakpoint list that is not an array", { breakpoints: "oops" }],
+      [
+        "breakpoints with no usable width",
+        { breakpoints: [{ widthPx: "390" }] },
+      ],
+      ["a breakpoint set that is not an object", "oops"],
+      ["a breakpoint set that is an array", []],
+      [
+        "one invalid width among valid ones",
+        { breakpoints: [{ widthPx: 390 }, { widthPx: "810" }] },
+      ],
+      ["an entry that is not an object", { breakpoints: [390, "810"] }],
+      ["a null entry", { breakpoints: [{ widthPx: 390 }, null] }],
+    ])(
+      "refuses, without writing, when the design has %s",
+      async (_label, breakpointSet) => {
+        setPage(JSON.stringify({ breakpointSet }));
+
+        const result = await action.run({
+          source,
+          intent: deleteCta,
+          activeFrameWidthPx: 390,
+        });
+
+        expect(result.result.status).toBe("needsAgent");
+        expect(result.persisted).toBe(false);
+        expect(mocks.updateChain.set).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ["no breakpoint list", { id: "set_1" }],
+      ["an empty breakpoint list", { breakpoints: [] }],
+    ])(
+      "deletes the layer when the design has %s",
+      async (_label, breakpointSet) => {
+        setPage(JSON.stringify({ breakpointSet }));
+
+        await action.run({
+          source,
+          intent: deleteCta,
+          activeFrameWidthPx: 390,
+        });
+
+        expect(lastSavedContent()).not.toContain('id="cta"');
+      },
+    );
+
+    it("refuses a legacy min-width prefix scope instead of deleting at every width", async () => {
+      const result = await action.run({
+        source,
+        intent: deleteCta,
+        activeBreakpoint: "md",
+      });
+
+      expect(result.result.status).toBe("needsAgent");
+      expect(result.persisted).toBe(false);
+      expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    });
+
+    it("hides at an explicit maxWidthPx bound", async () => {
+      await action.run({ source, intent: deleteCta, maxWidthPx: 500 });
+
+      expect(lastSavedContent()).toContain("@media (max-width: 500px)");
+      expect(lastSavedContent()).toContain('id="cta"');
+    });
+
+    it("never falls back to a real delete when the scoped hide cannot apply", async () => {
+      const result = await action.run({
+        source,
+        intent: { kind: "deleteNode", target: { selector: "#missing" } },
+        activeFrameWidthPx: 390,
+      });
+
+      expect(result.persisted).toBe(false);
+      expect(result.result.message).toMatch(/was not deleted/);
+      expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    });
+
+    it("folds a hide into a batch with other scoped edits", async () => {
+      const result = await action.run({
+        source,
+        intent: [
+          {
+            kind: "style",
+            target: { selector: "#title" },
+            property: "left",
+            value: "137px",
+          },
+          deleteCta,
+        ],
+        activeFrameWidthPx: 390,
+      });
+
+      expect(result.persisted).toBe(true);
+      const saved = lastSavedContent();
+      expect(saved).toContain("left: 137px !important;");
+      expect(saved).toContain("display: none !important;");
+      expect(saved).toContain('id="cta"');
+    });
+
+    it("leaves class and style scoping unchanged", async () => {
+      await action.run({
+        source,
+        intent: {
+          kind: "class",
+          target: { selector: "#title" },
+          operation: "add",
+          className: "text-lg",
+        },
+        activeFrameWidthPx: 390,
+      });
+      expect(lastSavedContent()).toContain("max-[809px]:text-lg");
+
+      mocks.updateChain.set.mockClear();
+      setPage(withBreakpoints);
+      await action.run({
+        source,
+        intent: {
+          kind: "style",
+          target: { selector: "#title" },
+          property: "left",
+          value: "137px",
+        },
+        activeFrameWidthPx: 390,
+      });
+      expect(lastSavedContent()).toContain("@media (max-width: 809px)");
+      expect(lastSavedContent()).toContain("left: 137px !important;");
+    });
+  });
+
+  describe("font-family links the Google font", () => {
+    const setFont = (value: string, extra: Record<string, unknown> = {}) =>
+      action.run({
+        source,
+        intent: {
+          kind: "style",
+          target: { selector: "#title" },
+          property: "font-family",
+          value,
+        },
+        ...extra,
+      });
+
+    it("adds the stylesheet link to <head> with the style edit, in one write", async () => {
+      const result = await setFont("'Playfair Display', serif");
+
+      expect(result.persisted).toBe(true);
+      expect(result).toMatchObject({
+        fontLinks: [
+          {
+            fontFamily: "'Playfair Display', serif",
+            status: "added",
+            family: "Playfair Display",
+          },
+        ],
+      });
+      expect(result.result.message).toContain(
+        "Added the Google Fonts link for Playfair Display.",
+      );
+      expect(
+        mocks.updateChain.set.mock.calls.filter(
+          (call) => call[0] && "content" in call[0],
+        ),
+      ).toHaveLength(1);
+      const saved = lastSavedContent();
+      expect(saved).toContain("font-family: 'Playfair Display', serif");
+      const head = saved.slice(
+        saved.indexOf("<head>"),
+        saved.indexOf("</head>"),
+      );
+      expect(head).toContain(
+        '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display',
+      );
+    });
+
+    it("is idempotent: repeating the edit on the saved document writes nothing", async () => {
+      await setFont("'Playfair Display', serif");
+      const saved = lastSavedContent();
+      mocks.updateChain.set.mockClear();
+      setPage(withBreakpoints, saved);
+
+      const result = await setFont("'Playfair Display', serif");
+
+      expect(result.persisted).toBe(false);
+      expect(result).toMatchObject({
+        fontLinks: [
+          {
+            fontFamily: "'Playfair Display', serif",
+            status: "already-linked",
+            family: "Playfair Display",
+          },
+        ],
+      });
+      expect(mocks.updateChain.set).not.toHaveBeenCalled();
+    });
+
+    it("repairs a missing link even when the style value is already set", async () => {
+      await setFont("'Playfair Display', serif");
+      const withoutLink = lastSavedContent().replace(/<link [^>]*>\s*/g, "");
+      mocks.updateChain.set.mockClear();
+      setPage(withBreakpoints, withoutLink);
+
+      const result = await setFont("'Playfair Display', serif");
+
+      expect(result.persisted).toBe(true);
+      expect(result.result.changed).toBe(true);
+      expect(lastSavedContent()).toContain("fonts.googleapis.com/css2");
+    });
+
+    it("links the font for a breakpoint-scoped font-family too", async () => {
+      await setFont("'Playfair Display', serif", { activeFrameWidthPx: 390 });
+
+      const saved = lastSavedContent();
+      expect(saved).toContain("@media (max-width: 809px)");
+      expect(saved).toContain("fonts.googleapis.com/css2");
+    });
+
+    it("leaves the head alone and reports system fonts as unlisted", async () => {
+      const result = await setFont("system-ui, sans-serif");
+
+      expect(result).toMatchObject({
+        fontLinks: [
+          { fontFamily: "system-ui, sans-serif", status: "unlisted" },
+        ],
+      });
+      expect(lastSavedContent()).not.toContain("fonts.googleapis.com");
+    });
+
+    it("keeps the style edit but reports a family outside the built-in list as unlisted", async () => {
+      const result = await setFont("'Buda', sans-serif");
+
+      expect(result.persisted).toBe(true);
+      expect(lastSavedContent()).toContain("font-family: 'Buda', sans-serif");
+      expect(lastSavedContent()).not.toContain("fonts.googleapis.com");
+      expect(result).toMatchObject({
+        fontLinks: [{ fontFamily: "'Buda', sans-serif", status: "unlisted" }],
+      });
+      expect(result.result.message).not.toContain("Google Fonts link");
+    });
+
+    it("does nothing font-related for other properties, removals, or a failed batch", async () => {
+      const color = await action.run({
+        source,
+        intent: {
+          kind: "style",
+          target: { selector: "#title" },
+          property: "color",
+          value: "red",
+        },
+      });
+      expect(color).not.toHaveProperty("fontLinks");
+
+      mocks.updateChain.set.mockClear();
+      setPage(withBreakpoints);
+      const failed = await action.run({
+        source,
+        intent: [
+          {
+            kind: "style",
+            target: { selector: "#title" },
+            property: "font-family",
+            value: "'Playfair Display', serif",
+          },
+          { kind: "deleteNode", target: { selector: "#missing" } },
+        ],
+      });
+      expect(failed.persisted).toBe(false);
+      expect(failed).not.toHaveProperty("fontLinks");
       expect(mocks.updateChain.set).not.toHaveBeenCalled();
     });
   });

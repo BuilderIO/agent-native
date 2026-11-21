@@ -24,6 +24,33 @@ const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
 
 describe("filesystemActionEntry", () => {
+  it("keeps each declared user turn and the required-turn flag, and drops anything else", () => {
+    const gate = () => false;
+    for (const userTurn of ["read", "approval", "direct"] as const) {
+      const entry = filesystemActionEntry({
+        description: "Turn",
+        userTurn,
+        needsApproval: gate,
+        run: async () => null,
+      } as never);
+      expect(entry.userTurn).toBe(userTurn);
+      expect(entry.requiresUserTurn).toBeUndefined();
+    }
+    const unknown = filesystemActionEntry({
+      description: "Turn",
+      userTurn: "grant",
+      run: async () => null,
+    } as never);
+    expect(unknown.userTurn).toBeUndefined();
+    const required = filesystemActionEntry({
+      description: "Turn",
+      userTurn: "approval",
+      requiresUserTurn: true,
+      run: async () => null,
+    } as never);
+    expect(required.requiresUserTurn).toBe(true);
+  });
+
   it("keeps the execution key, retry safety and zoneless-time zone of a defineAction module", () => {
     const action = defineAction({
       description: "Replace the dashboard config",
@@ -82,6 +109,24 @@ describe("filesystemActionEntry", () => {
     expect(entry.needsApproval).toBe(true);
     expect(entry.requiresAuth).toBe(true);
     expect(entry.capabilityScopes).toEqual(["messages:send"]);
+  });
+
+  it("keeps the approval card's question in the dev scan and a built registry", () => {
+    const action = defineAction({
+      description: "Send a message",
+      schema: z.object({ to: z.string() }),
+      needsApproval: true,
+      approvalLabel: (args) => `Send this to ${args.to}?`,
+      run: async () => ({ ok: true }),
+    });
+
+    expect(filesystemActionEntry(action).approvalLabel).toBe(
+      action.approvalLabel,
+    );
+    expect(
+      loadActionsFromStaticRegistry({ send: { default: action } }).send!
+        .approvalLabel,
+    ).toBe(action.approvalLabel);
   });
 
   it("keeps the browser-persistence opt-out in the dev scan and a built registry", () => {
@@ -182,6 +227,21 @@ describe("filesystemActionEntry", () => {
     expect(entry.mcpAnnotationDefaults).toBeUndefined();
   });
 
+  it("keeps each MCP decision from the action module and drops anything else", () => {
+    const decided = (mcpTool: unknown) =>
+      filesystemActionEntry({
+        tool: { description: "Decided", parameters: { type: "object" } },
+        run: async () => ({}),
+        mcpTool,
+      }).mcpTool;
+
+    expect(decided(true)).toBe(true);
+    expect(decided(false)).toBe(false);
+    expect(decided("search")).toBe("search");
+    expect(decided("yes")).toBeUndefined();
+    expect(decided(undefined)).toBeUndefined();
+  });
+
   it("drops malformed MCP annotations and uses the conservative defaults", () => {
     const entry = filesystemActionEntry({
       tool: { description: "Malformed", parameters: { type: "object" } },
@@ -245,6 +305,22 @@ describe("actionDefinition", () => {
     expect(filesystemActionEntry(mod).needsApproval).toBe(true);
     expect(
       loadActionsFromStaticRegistry({ send: mod }).send!.needsApproval,
+    ).toBe(true);
+  });
+
+  it("keeps the signed-in-browser requirement through the registry", () => {
+    const action = { tool, run, requiresSignedInBrowser: true };
+    expect(filesystemActionEntry(action).requiresSignedInBrowser).toBe(true);
+    expect(
+      loadActionsFromStaticRegistry({ rotate: { default: action } }).rotate!
+        .requiresSignedInBrowser,
+    ).toBe(true);
+    expect(
+      filesystemActionEntry({ tool, run }).requiresSignedInBrowser,
+    ).toBeUndefined();
+    expect(
+      filesystemActionEntry({ tool, run, opensAnotherAppEmbed: true })
+        .opensAnotherAppEmbed,
     ).toBe(true);
   });
 

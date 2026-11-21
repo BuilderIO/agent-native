@@ -29,6 +29,7 @@ const fetchSpy = vi.fn(() =>
   Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("") }),
 );
 const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
+const parentFrameState = vi.hoisted(() => ({ inFrame: false }));
 const sendToBuilderChatMock = vi.hoisted(() => vi.fn());
 const sendMcpAppHostMessageMock = vi.hoisted(() => vi.fn(() => false));
 const isOpenAiMcpAppHostMock = vi.hoisted(() => vi.fn(() => false));
@@ -37,6 +38,11 @@ vi.mock("./builder-frame.js", () => ({
   isInBuilderFrame: () => frameState.inBuilderFrame,
   isTrustedBuilderMessage: () => false,
   sendToBuilderChat: sendToBuilderChatMock,
+}));
+
+vi.mock("./frame.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./frame.js")>()),
+  isInFrame: () => parentFrameState.inFrame,
 }));
 
 vi.mock("./mcp-app-host.js", () => ({
@@ -124,6 +130,7 @@ describe("sendToAgentChat", () => {
   beforeEach(() => {
     windowListeners.clear();
     frameState.inBuilderFrame = false;
+    parentFrameState.inFrame = false;
     (window as unknown as { parent: unknown }).parent = {
       postMessage: parentPostMessageSpy,
     };
@@ -151,8 +158,12 @@ describe("sendToAgentChat", () => {
     _resetAgentChatSubmitBufferForTests();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    // Sends the save a synchronous context change queued, so a later test's
+    // persisted write, which waits behind it, isn't handed its response.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await flushMicrotasks();
   });
 
   it("returns a non-empty tabId string", () => {
@@ -182,7 +193,10 @@ describe("sendToAgentChat", () => {
     sendToAgentChat({ message: "Use GitHub", references: [reference] });
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(
-      parseSubmitChatMessage({ data: payload } as MessageEvent)?.references,
+      parseSubmitChatMessage({
+        data: payload,
+        origin: window.location.origin,
+      } as MessageEvent)?.references,
     ).toEqual([reference]);
     expect(() =>
       parseSubmitChatMessage({
@@ -217,7 +231,10 @@ describe("sendToAgentChat", () => {
       targetTabId: "generation-tab",
     });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(payload.data.targetTabId).toBe("generation-tab");
     expect(parsed?.targetTabId).toBe("generation-tab");
@@ -227,7 +244,10 @@ describe("sendToAgentChat", () => {
     const submissionExpiresAt = Date.now() + 20_000;
     sendToAgentChat({ message: "Create a deck", submissionExpiresAt });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(payload.data.submissionExpiresAt).toBe(submissionExpiresAt);
     expect(parsed?.submissionExpiresAt).toBe(submissionExpiresAt);
@@ -239,7 +259,10 @@ describe("sendToAgentChat", () => {
       actionScope: { kind: "content-comment-ai", requestId: "request-1" },
     });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(parsed?.actionScope).toEqual({
       kind: "content-comment-ai",
@@ -255,7 +278,10 @@ describe("sendToAgentChat", () => {
       submit: false,
     });
     const payload = parentPostMessageSpy.mock.calls[0][0];
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
 
     expect(parsed?.contextLabel).toBe("Spider-Man: Brand New Day");
     expect(parsed?.context).toBe('{"movieId":969681}');
@@ -329,6 +355,25 @@ describe("sendToAgentChat", () => {
     ).toBeNull();
   });
 
+  it("keeps approval keys only from this app's own documents", () => {
+    const data = {
+      type: "agentNative.submitChat",
+      data: { message: "Approved.", approvedToolCalls: ["publish:{}"] },
+    };
+    expect(
+      parseSubmitChatMessage({
+        data,
+        origin: window.location.origin,
+      } as MessageEvent)?.approvedToolCalls,
+    ).toEqual(["publish:{}"]);
+    const fromParent = parseSubmitChatMessage({
+      data,
+      origin: "https://builder.io",
+    } as MessageEvent);
+    expect(fromParent?.message).toBe("Approved.");
+    expect(fromParent?.approvedToolCalls).toBeUndefined();
+  });
+
   it("drops a blank usageLabel instead of forwarding an empty label", () => {
     const parsed = parseSubmitChatMessage({
       data: {
@@ -347,7 +392,10 @@ describe("sendToAgentChat", () => {
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
 
-    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+    const parsed = parseSubmitChatMessage({
+      data: payload,
+      origin: window.location.origin,
+    } as MessageEvent);
     expect(parsed?.approvedToolCalls).toEqual(["publish-release:{}"]);
   });
 
@@ -358,6 +406,7 @@ describe("sendToAgentChat", () => {
           type: "agentNative.submitChat",
           data: { message: "Approved.", approvedToolCalls },
         },
+        origin: window.location.origin,
       } as MessageEvent)?.approvedToolCalls;
 
     expect(parse(["a:{}", "", "   ", 7, null, { key: "b" }, " c:{} "])).toEqual(
@@ -632,8 +681,10 @@ describe("sendToAgentChat", () => {
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.approvedToolCalls).toEqual(["publish-release:{}"]);
     expect(
-      parseSubmitChatMessage({ data: payload } as MessageEvent)
-        ?.approvedToolCalls,
+      parseSubmitChatMessage({
+        data: payload,
+        origin: window.location.origin,
+      } as MessageEvent)?.approvedToolCalls,
     ).toEqual(["publish-release:{}"]);
   });
 
@@ -911,8 +962,10 @@ describe("sendToAgentChat", () => {
       expect(payload.type).toBe("agentNative.submitChat");
       expect(payload.data.tabId).toBe(tabId);
       expect(
-        parseSubmitChatMessage({ data: payload } as MessageEvent)
-          ?.approvedToolCalls,
+        parseSubmitChatMessage({
+          data: payload,
+          origin: window.location.origin,
+        } as MessageEvent)?.approvedToolCalls,
       ).toEqual(["publish-release:{}"]);
     },
   );
@@ -1407,8 +1460,10 @@ describe("sendToAgentChat", () => {
     expect(targetOrigin).toBe("http://localhost:3000");
     expect(payload.data.tabId).toBe(tabId);
     expect(
-      parseSubmitChatMessage({ data: payload } as MessageEvent)
-        ?.approvedToolCalls,
+      parseSubmitChatMessage({
+        data: payload,
+        origin: window.location.origin,
+      } as MessageEvent)?.approvedToolCalls,
     ).toEqual(["publish-release:{}"]);
   });
 
@@ -1448,9 +1503,36 @@ describe("sendToAgentChat", () => {
     vi.advanceTimersByTime(0);
     const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
     expect(payload?.data?.submitMessageId).toEqual(expect.any(String));
+    expect(payload?.data?.confirmParentFrame).toBeUndefined();
     reportAgentChatSubmitResult(payload.data.submitMessageId, true);
 
     await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("requires explicit opt-in to confirm a parent-frame submit", async () => {
+    parentFrameState.inFrame = true;
+    const omitted = await sendToAgentChatAndConfirm({
+      message: "Review this thread",
+      submit: true,
+      chatTarget: "auto",
+    });
+    expect(omitted).toMatchObject({
+      delivered: false,
+      reason: "unsupported-target",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+
+    const confirmed = sendToAgentChatAndConfirm(
+      { message: "Review this thread", submit: true, chatTarget: "auto" },
+      { confirmParentFrame: true, submitMessageId: "parent-review" },
+    );
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    expect(parentPostMessageSpy.mock.calls[0]?.[0]?.data).toMatchObject({
+      confirmParentFrame: true,
+      submitMessageId: "parent-review",
+    });
+    reportAgentChatSubmitResult("parent-review", true);
+    await expect(confirmed).resolves.toMatchObject({ delivered: true });
   });
 
   it("confirms a local submit with a caller-provided correlation id", async () => {
@@ -1863,6 +1945,287 @@ describe("sendToAgentChat", () => {
       "prefill:thread-1",
       "prefill:thread-2",
     ]);
+  });
+
+  // The app-state route answers a write with the state it saved.
+  const saved = (body: unknown) => ({
+    ok: true,
+    status: 200,
+    text: async () => (typeof body === "string" ? body : ""),
+  });
+  const echo = (_url: unknown, init?: RequestInit) =>
+    Promise.resolve(saved(init?.body));
+  const keysIn = (body: unknown) =>
+    (JSON.parse(body as string).items as { key: string }[]).map(
+      ({ key }) => key,
+    );
+  const listedKeys = () => listAgentChatContext().map(({ key }) => key);
+
+  it("keeps a persisted item when a synchronous set lands during its write", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    const addedBack =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => write.promise)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(() => addedBack.promise);
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Text",
+      context: "The block",
+      targetThreadId: "thread-1",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = fetchSpy.mock.calls[0]?.[1]?.body;
+
+    // A chat mounting while the write is in flight publishes its own resource.
+    setAgentChatContextItem({
+      key: "resource",
+      title: "Document",
+      context: "The open document",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Its save waits behind the write in flight, so it can't land last.
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    write.resolve(saved(requestState));
+
+    // Then that save goes, and the item is added back in a save after it.
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+    expect(keysIn(fetchSpy.mock.calls[1]?.[1]?.body)).toEqual(["resource"]);
+    const addedBackState = fetchSpy.mock.calls[2]?.[1]?.body;
+    expect(keysIn(addedBackState)).toEqual(["resource", "prefill:thread-1"]);
+    // Shown only once that's saved.
+    expect(listedKeys()).toEqual(["resource"]);
+    addedBack.resolve(saved(addedBackState));
+    await persistence;
+
+    expect(listedKeys()).toEqual(["resource", "prefill:thread-1"]);
+    expect(keysIn(fetchSpy.mock.lastCall?.[1]?.body)).toEqual([
+      "resource",
+      "prefill:thread-1",
+    ]);
+  });
+
+  it("doesn't show an item it adds back when that save fails", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => write.promise)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(() =>
+        Promise.resolve({ ok: false, status: 500, text: async () => "" }),
+      );
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Text",
+      context: "The block",
+      targetThreadId: "thread-1",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = fetchSpy.mock.calls[0]?.[1]?.body;
+
+    setAgentChatContextItem({
+      key: "resource",
+      title: "Document",
+      context: "The open document",
+    });
+    write.resolve(saved(requestState));
+
+    await expect(persistence).rejects.toThrow();
+    expect(listedKeys()).toEqual(["resource"]);
+  });
+
+  it("keeps a persisted write apart from a synchronous save made while it waits", async () => {
+    const inFlight =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => inFlight.promise)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(echo);
+    setAgentChatContextItem({
+      key: "resource",
+      title: "Document",
+      context: "The open document",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+
+    // Staged while that save is on the wire, so it waits behind it, and a
+    // synchronous change lands while it waits.
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Text",
+      context: "The block",
+      targetThreadId: "thread-1",
+    });
+    await flushMicrotasks();
+    setAgentChatContextItem({
+      key: "selection",
+      title: "Selection",
+      context: "The selected text",
+    });
+    inFlight.resolve(saved(fetchSpy.mock.calls[0]?.[1]?.body));
+    await persistence;
+
+    expect(fetchSpy.mock.calls.map(([, init]) => keysIn(init?.body))).toEqual([
+      ["resource"],
+      ["resource", "prefill:thread-1"],
+      ["resource", "selection"],
+      ["resource", "selection", "prefill:thread-1"],
+    ]);
+    expect(listedKeys()).toEqual(["resource", "selection", "prefill:thread-1"]);
+  });
+
+  it("leaves a key that a synchronous set replaced during the write", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy.mockImplementationOnce(() => write.promise);
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Older",
+      context: "Older block",
+      targetThreadId: "thread-1",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = fetchSpy.mock.calls[0]?.[1]?.body;
+
+    setAgentChatContextItem({
+      key: "prefill:thread-1",
+      title: "Newer",
+      context: "Newer block",
+      targetThreadId: "thread-1",
+    });
+    write.resolve(saved(requestState));
+    await persistence;
+
+    expect(listAgentChatContext().map(({ title }) => title)).toEqual(["Newer"]);
+    // The newer item's own save follows the write.
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    expect(
+      JSON.parse(fetchSpy.mock.lastCall?.[1]?.body as string).items[0].title,
+    ).toBe("Newer");
+  });
+
+  it.each([
+    ["removed", () => removeAgentChatContextItem("prefill:thread-1")],
+    ["cleared", () => clearAgentChatContext()],
+  ])(
+    "leaves out an item %s while its write was in flight",
+    async (_label, remove) => {
+      const write =
+        Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+      fetchSpy.mockImplementationOnce(() => write.promise);
+      const persistence = setAgentChatContextItemAndPersist({
+        key: "prefill:thread-1",
+        title: "Text",
+        context: "The block",
+        targetThreadId: "thread-1",
+      });
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+      const requestState = fetchSpy.mock.calls[0]?.[1]?.body;
+
+      remove();
+      write.resolve(saved(requestState));
+      await persistence;
+
+      expect(listAgentChatContext()).toEqual([]);
+      // The removal's own save follows the write.
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+      expect(keysIn(fetchSpy.mock.lastCall?.[1]?.body)).toEqual([]);
+    },
+  );
+
+  it("saves an item it adds back before a later queued write starts", async () => {
+    const firstWrite =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    const addedBack =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    const secondWrite =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(() => addedBack.promise)
+      .mockImplementationOnce(() => secondWrite.promise);
+    const first = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "First",
+      context: "First block",
+      targetThreadId: "thread-1",
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const firstState = fetchSpy.mock.calls[0]?.[1]?.body;
+    setAgentChatContextItem({
+      key: "resource",
+      title: "Document",
+      context: "The open document",
+    });
+    const second = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-2",
+      title: "Second",
+      context: "Second block",
+      targetThreadId: "thread-2",
+    });
+
+    firstWrite.resolve(saved(firstState));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The second write waits for the first's save, so the server can't get
+    // them out of order.
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    addedBack.resolve(saved(fetchSpy.mock.calls[2]?.[1]?.body));
+    await first;
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(4));
+    expect(
+      fetchSpy.mock.calls.slice(2).map(([, init]) => keysIn(init?.body)),
+    ).toEqual([
+      ["resource", "prefill:thread-1"],
+      ["resource", "prefill:thread-1", "prefill:thread-2"],
+    ]);
+    secondWrite.resolve(saved(fetchSpy.mock.calls[3]?.[1]?.body));
+    await second;
+
+    expect(listedKeys()).toEqual([
+      "resource",
+      "prefill:thread-1",
+      "prefill:thread-2",
+    ]);
+  });
+
+  it("removes a persisted item when a synchronous set lands during the removal", async () => {
+    publishAgentChatContextItems(
+      [
+        {
+          key: "prefill:thread-1",
+          title: "Text",
+          context: "The block",
+          targetThreadId: "thread-1",
+        },
+      ],
+      { persist: false },
+    );
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    const repair =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => write.promise)
+      .mockImplementationOnce(echo)
+      .mockImplementationOnce(() => repair.promise);
+    const removal = removeAgentChatContextItemAndPersist("prefill:thread-1");
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = fetchSpy.mock.calls[0]?.[1]?.body;
+
+    setAgentChatContextItem({
+      key: "resource",
+      title: "Document",
+      context: "The open document",
+    });
+    write.resolve(saved(requestState));
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
+    const repairState = fetchSpy.mock.calls[2]?.[1]?.body;
+    expect(keysIn(repairState)).toEqual(["resource"]);
+    repair.resolve(saved(repairState));
+    await removal;
+
+    expect(listedKeys()).toEqual(["resource"]);
   });
 
   it("persists removal of a staged composer context item", async () => {

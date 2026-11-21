@@ -22,10 +22,12 @@ import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { credentialKeyMatches } from "./credential-key-aliases.js";
+import { CONNECTION_CREDENTIAL_REF_MARKER } from "./credential-profile.js";
 import {
   assertWorkspaceUserGroupIds,
   normalizeWorkspaceUserGroupIds,
@@ -36,6 +38,7 @@ import {
   WORKSPACE_CONNECTIONS_MIGRATIONS,
   WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
 } from "./migrations.js";
+import { WORKSPACE_CREDENTIAL_MARKER } from "./workspace-credential-marker.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -49,6 +52,12 @@ export interface WorkspaceConnectionCredentialRef {
   scope?: "user" | "org" | "workspace";
   provider?: string;
   label?: string;
+  /**
+   * Optional marker for a personal connection's own vault namespace. The only
+   * valid value is `"connection"`; any other present value is malformed and
+   * fails closed at resolution. `undefined` preserves the legacy path.
+   */
+  ref?: string;
   [key: string]: unknown;
 }
 
@@ -104,18 +113,24 @@ export interface ListWorkspaceConnectionsOptions {
   provider?: string;
   appId?: string;
   includeDisabled?: boolean;
+  /** Owner to scope to when there is no request context (cron, agent runs). */
+  ownerEmail?: string;
 }
 
 export interface ListWorkspaceConnectionGrantsOptions {
   connectionId?: string;
   appId?: string;
   provider?: string;
+  /** Owner to scope to when there is no request context (cron, agent runs). */
+  ownerEmail?: string;
 }
 
 export interface ListWorkspaceConnectionsForAppOptions {
   appId: string;
   provider?: string;
   includeDisabled?: boolean;
+  /** Owner to scope to when there is no request context (cron, agent runs). */
+  ownerEmail?: string;
 }
 
 export interface ResolveWorkspaceConnectionForAppOptions extends ListWorkspaceConnectionsForAppOptions {
@@ -192,6 +207,8 @@ export interface WorkspaceConnectionPublicCredentialRef {
   scope?: string;
   provider?: string;
   label?: string;
+  /** Only supported native markers; malformed stored values are not projected. */
+  ref?: "connection" | "workspace-connection";
   source: "connection" | "grant";
 }
 
@@ -272,6 +289,7 @@ export interface WorkspaceConnectionProviderLike {
   label?: string;
   oauth?: {
     scopes: readonly string[];
+    requiredScopes?: readonly string[];
   };
   credentialKeys?: readonly {
     key: string;
@@ -579,11 +597,13 @@ export function ensureWorkspaceConnectionsTable(): Promise<void> {
   return workspaceConnectionsStore.ready();
 }
 
-function requireWorkspaceConnectionScope(): {
+function requireWorkspaceConnectionScope(explicitOwnerEmail?: string): {
   ownerEmail: string;
   orgId: string | null;
 } {
-  const ownerEmail = getRequestUserEmail()?.trim().toLowerCase();
+  const ownerEmail =
+    explicitOwnerEmail?.trim().toLowerCase() ||
+    getRequestUserEmail()?.trim().toLowerCase();
   if (!ownerEmail) {
     throw new Error("Workspace connections require an authenticated user.");
   }
@@ -624,11 +644,24 @@ export function normalizeWorkspaceConnectionAllowedUsers(
 function workspaceConnectionHasDirectUserAccess(
   connection: Pick<
     SerializedWorkspaceConnection,
-    "allowedUsers" | "allowedUserGroups"
+    "allowedUsers" | "allowedUserGroups" | "ownerEmail" | "config"
   >,
   userEmail: string,
 ): boolean {
   const allowedUserGroups = connection.allowedUserGroups ?? [];
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  const scope = connection.config.workspaceConnectionScope;
+  // A personal (user-scoped) connection belongs to exactly one member. Never
+  // grant it to another member just because its audience list is empty; that
+  // is how a member resolved another member's mailbox, calendar or drive.
+  if (scope === "user") {
+    return (
+      connection.ownerEmail.trim().toLowerCase() === normalizedEmail ||
+      connection.allowedUsers.some(
+        (allowedUser) => allowedUser.trim().toLowerCase() === normalizedEmail,
+      )
+    );
+  }
   return (
     (connection.allowedUsers.length === 0 && allowedUserGroups.length === 0) ||
     connection.allowedUsers.includes(userEmail)
@@ -778,6 +811,25 @@ function sanitizeCredentialRef(
   return sanitized;
 }
 
+function parseRestrictionArray(value: unknown): string[] {
+  if (value == null) return [];
+  let parsed: unknown;
+  try {
+    parsed = typeof value === "string" ? JSON.parse(value) : value;
+  } catch {
+    throw new Error("Invalid workspace connection restrictions");
+  }
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every(
+      (entry) => typeof entry === "string" && entry.trim().length > 0,
+    )
+  ) {
+    throw new Error("Invalid workspace connection restrictions");
+  }
+  return parsed;
+}
+
 function parseRow(row: Record<string, unknown>): WorkspaceConnection {
   return serializeWorkspaceConnection({
     id: stringValue(row.id),
@@ -790,13 +842,13 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     scopes: normalizeStringArray(safeJsonParse<unknown>(row.scopes_json, [])),
     config: normalizeObject(safeJsonParse<unknown>(row.config_json, {})),
     allowedApps: normalizeStringArray(
-      safeJsonParse<unknown>(row.allowed_apps_json, []),
+      parseRestrictionArray(row.allowed_apps_json),
     ),
     allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
-      safeJsonParse<unknown>(row.allowed_users_json, []),
+      parseRestrictionArray(row.allowed_users_json),
     ),
     allowedUserGroups: normalizeWorkspaceUserGroupIds(
-      safeJsonParse<unknown>(row.allowed_user_groups_json, []),
+      parseRestrictionArray(row.allowed_user_groups_json),
     ),
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
@@ -963,6 +1015,10 @@ function publicCredentialRefs(
     scope: ref.scope,
     provider: ref.provider,
     label: ref.label,
+    ...(ref.ref === CONNECTION_CREDENTIAL_REF_MARKER ||
+    ref.ref === WORKSPACE_CREDENTIAL_MARKER
+      ? { ref: ref.ref }
+      : {}),
     source,
   }));
 }
@@ -1034,7 +1090,7 @@ function connectionStatusForProvider(
     requiredScopeSets === undefined && appGrantScopes !== undefined
       ? false
       : requiredScopeSets === undefined
-        ? provider?.oauth?.scopes.some(
+        ? (provider?.oauth?.requiredScopes ?? provider?.oauth?.scopes)?.some(
             (scope) => !grantedScopes.has(normalizeOAuthScope(scope)),
           )
         : !requiredScopeSets.some(
@@ -1437,6 +1493,7 @@ export async function listWorkspaceConnectionsForApp({
   appId,
   provider,
   includeDisabled = false,
+  ownerEmail,
 }: ListWorkspaceConnectionsForAppOptions): Promise<
   WorkspaceConnectionForApp[]
 > {
@@ -1449,13 +1506,80 @@ export async function listWorkspaceConnectionsForApp({
       provider,
       appId: normalizedAppId,
       includeDisabled,
+      ...(ownerEmail ? { ownerEmail } : {}),
     }),
-    listWorkspaceConnectionGrants({ provider, appId: normalizedAppId }),
+    listWorkspaceConnectionGrants({
+      ...(provider === undefined ? {} : { provider }),
+      appId: normalizedAppId,
+      ...(ownerEmail ? { ownerEmail } : {}),
+    }),
   ]);
 
   return connections
     .map((connection) => connectionForApp(connection, normalizedAppId, grants))
     .filter((connection) => connection.appAccess.available);
+}
+
+async function ownedCalendarConnections(
+  appId?: string,
+  connectionId?: string,
+): Promise<{
+  connections: SerializedWorkspaceConnection[];
+  grants: SerializedWorkspaceConnectionGrant[];
+}> {
+  const context = getRequestContext();
+  const owner = context?.userEmail?.trim().toLowerCase();
+  if (
+    !owner ||
+    context?.credentialScope === "org" ||
+    context?.verifiedServiceIdentity ||
+    (context?.a2aIdentityAssurance && context.a2aIdentityAssurance !== "user")
+  ) {
+    return { connections: [], grants: [] };
+  }
+  await ensureWorkspaceConnectionsTable();
+  const client = getDbExec();
+  const { rows } = await client.execute(sql`
+    SELECT c.* FROM public.workspace_connections c
+    WHERE c.provider = ${sql.value("google_calendar")} AND c.owner_email = ${sql.value(owner)}
+      AND EXISTS (
+        SELECT 1 FROM public.workspace_connection_grants g
+        WHERE g.connection_id = c.id AND g.provider = c.provider
+          AND g.owner_email = ${sql.value(owner)} AND g.granted_by_email = ${sql.value(owner)}
+          AND (g.org_id = c.org_id OR (g.org_id IS NULL AND c.org_id IS NULL))
+          ${appId ? sql`AND g.app_id = ${sql.value(appId)}` : sql``}
+      ) ${connectionId ? sql`AND c.id = ${sql.value(connectionId)}` : sql``}
+    ORDER BY c.updated_at DESC LIMIT 101
+  `);
+  if (rows.length > 100)
+    throw new Error("Too many personal calendar connections to resolve.");
+  const connections = rows
+    .map((row) => parseRow(row as Record<string, unknown>))
+    .filter(
+      (connection) =>
+        connection.config.workspaceConnectionScope === "user" &&
+        connection.config.credentialMode === "oauth",
+    );
+  if (!connections.length || !appId) return { connections, grants: [] };
+  const { rows: grantRows } = await client.execute(sql`
+    SELECT * FROM public.workspace_connection_grants
+    WHERE provider = ${sql.value("google_calendar")} AND app_id = ${sql.value(appId)}
+      AND owner_email = ${sql.value(owner)} AND granted_by_email = ${sql.value(owner)}
+      ${connectionId ? sql`AND connection_id = ${sql.value(connectionId)}` : sql``}
+    LIMIT 101
+  `);
+  if (grantRows.length > 100)
+    throw new Error("Too many personal calendar grants to resolve.");
+  const grants = grantRows
+    .map((row) => parseGrantRow(row as Record<string, unknown>))
+    .filter((grant) =>
+      connections.some(
+        (connection) =>
+          connection.id === grant.connectionId &&
+          connection.orgId === grant.orgId,
+      ),
+    );
+  return { connections, grants };
 }
 
 export async function resolveWorkspaceConnectionForApp({
@@ -1487,7 +1611,18 @@ export async function resolveWorkspaceConnectionForApp({
   const normalizedConnectionOwnerEmail = connectionOwnerEmail
     ?.trim()
     .toLowerCase();
-  const candidateConnections = userConnections.filter(
+  const ownedCalendar =
+    provider === "google_calendar" && normalizedConnectionId
+      ? await ownedCalendarConnections(normalizedAppId, normalizedConnectionId)
+      : { connections: [], grants: [] };
+  const candidates = [
+    ...userConnections,
+    ...ownedCalendar.connections.filter(
+      (connection) =>
+        !userConnections.some((current) => current.id === connection.id),
+    ),
+  ];
+  const candidateConnections = candidates.filter(
     (connection) =>
       (!normalizedConnectionId || connection.id === normalizedConnectionId) &&
       (!normalizedAccountId || connection.accountId === normalizedAccountId),
@@ -1499,11 +1634,16 @@ export async function resolveWorkspaceConnectionForApp({
           normalizedConnectionOwnerEmail,
       )
     : candidateConnections;
-  const grants = await listWorkspaceConnectionGrants({
-    provider,
-    appId: normalizedAppId,
-    connectionId: normalizedConnectionId,
-  });
+  const grants = [
+    ...(await listWorkspaceConnectionGrants({
+      ...(provider ? { provider } : {}),
+      appId: normalizedAppId,
+      ...(normalizedConnectionId
+        ? { connectionId: normalizedConnectionId }
+        : {}),
+    })),
+    ...ownedCalendar.grants,
+  ];
 
   if (
     (normalizedConnectionId || normalizedAccountId) &&
@@ -1647,7 +1787,7 @@ export async function listWorkspaceConnections(
   await ensureWorkspaceConnectionsTable();
   const client = getDbExec();
   const table = workspaceConnectionsTable();
-  const scope = requireWorkspaceConnectionScope();
+  const scope = requireWorkspaceConnectionScope(options.ownerEmail);
   const where = scopedWhere(scope);
   const clauses = [where.sql];
   const args: unknown[] = [...where.args];
@@ -1695,10 +1835,20 @@ export async function listWorkspaceConnectionsForUser(
   options: ListWorkspaceConnectionsOptions = {},
 ): Promise<SerializedWorkspaceConnection[]> {
   const connections = await listWorkspaceConnections(options);
-  return filterWorkspaceConnectionsForUser(
+  const visible = await filterWorkspaceConnectionsForUser(
     connections,
     requireWorkspaceConnectionScope(),
   );
+  if (options.provider !== "google_calendar") return visible;
+  const owned = await ownedCalendarConnections(options.appId);
+  return [
+    ...visible,
+    ...owned.connections.filter(
+      (connection) =>
+        (options.includeDisabled || connection.status !== "disabled") &&
+        !visible.some((current) => current.id === connection.id),
+    ),
+  ];
 }
 
 export async function getWorkspaceConnection(
@@ -1748,6 +1898,24 @@ export async function setWorkspaceConnectionAgentDiscoveryPreference(
   }
 }
 
+async function findWorkspaceConnectionByAccount(
+  client: ReturnType<typeof getDbExec>,
+  scope: ReturnType<typeof requireWorkspaceConnectionScope>,
+  provider: string,
+  accountId: string,
+): Promise<string | null> {
+  const where = scope.orgId
+    ? sql`org_id = ${sql.value(scope.orgId)}`
+    : sql`org_id IS NULL`;
+  const { rows } =
+    await client.execute(sql`SELECT id FROM public.workspace_connections
+      WHERE ${where} AND owner_email = ${sql.value(scope.ownerEmail)}
+        AND provider = ${sql.value(provider)} AND account_id = ${sql.value(accountId)}
+      ORDER BY updated_at DESC LIMIT 1`);
+  const id = (rows[0] as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" ? id : null;
+}
+
 export async function upsertWorkspaceConnection(
   input: UpsertWorkspaceConnectionInput,
 ): Promise<SerializedWorkspaceConnection> {
@@ -1761,10 +1929,19 @@ export async function upsertWorkspaceConnection(
   const table = workspaceConnectionsTable();
   const scope = requireWorkspaceConnectionScope();
   const where = scopedWhere(scope);
-  const id = input.id?.trim() || randomUUID();
-  const existingConnection = input.id?.trim()
-    ? await getWorkspaceConnection(id)
-    : null;
+  const requestedId = input.id?.trim();
+  const reconnected =
+    !requestedId && input.accountId
+      ? await findWorkspaceConnectionByAccount(
+          client,
+          scope,
+          provider,
+          input.accountId,
+        )
+      : null;
+  const id = requestedId || reconnected || randomUUID();
+  const existingConnection =
+    requestedId || reconnected ? await getWorkspaceConnection(id) : null;
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
@@ -1880,7 +2057,7 @@ export async function listWorkspaceConnectionGrants(
   await ensureWorkspaceConnectionsTable();
   const client = getDbExec();
   const table = workspaceConnectionGrantsTable();
-  const scope = requireWorkspaceConnectionScope();
+  const scope = requireWorkspaceConnectionScope(options.ownerEmail);
   const where = scopedWhere(scope);
   const clauses = [where.sql];
   const args: unknown[] = [...where.args];
