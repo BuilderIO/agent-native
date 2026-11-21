@@ -2305,6 +2305,36 @@ describe("Builder callback CSRF state", () => {
       });
     });
 
+    it("does not blame the requester when the fallback user is also unknown", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+      const fetchSpy = vi.fn().mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ error: "User not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      try {
+        await runBuilderAgent({
+          prompt: "Create an app",
+          projectId: "project-123",
+          userEmail: "qa-fleet@builder.io",
+        });
+        expect.fail("expected the Builder request to fail");
+      } catch (error) {
+        expect(error).not.toMatchObject({
+          errorCode: "builder_space_membership_required",
+        });
+        expect(String(error)).toContain("User not found");
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
     it("rejects a blank branchName from Builder instead of returning an unusable run", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
