@@ -1,9 +1,7 @@
 import type { ContentDatabaseSource } from "@shared/api";
-import { IconExternalLink, IconRefresh } from "@tabler/icons-react";
-import { useState } from "react";
+import { IconExternalLink } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { useGitHubConnection } from "@/hooks/use-github-folder";
 import { openGitHubLinkDialog } from "@/lib/github-link-dialog";
 
@@ -15,12 +13,9 @@ import {
   type GitHubAvailability,
   type GitHubCollectionPlace,
 } from "./github-availability";
-import {
-  GitHubFolderFacts,
-  useCheckGitHubForUpdates,
-  useNow,
-} from "./GitHubSourceStatusLine";
-import { GitHubUnlinkDialog } from "./GitHubUnlinkDialog";
+import { GitHubFolderFacts, useSyncGitHubNow } from "./GitHubSourceStatusLine";
+import { SourceSyncNowButton, useNow } from "./SourceStatusLine";
+import { SourceUnlinkButton } from "./SourceUnlinkDialog";
 import { dbText } from "./text";
 
 function openLinkDialog(
@@ -100,8 +95,7 @@ function LinkedGitHubFolder({
   onUnlinked: () => void;
 }) {
   const now = useNow();
-  const check = useCheckGitHubForUpdates(source);
-  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const sync = useSyncGitHubNow(source);
   const status = source.metadata.github;
   if (!status) return null;
   return (
@@ -114,45 +108,25 @@ function LinkedGitHubFolder({
             <IconExternalLink className="ms-1 size-3.5" aria-hidden />
           </a>
         </Button>
-        <Button
-          type="button"
+        <SourceSyncNowButton
           size="sm"
-          variant="outline"
-          disabled={check.pending}
-          onClick={check.run}
-        >
-          {check.pending ? (
-            <Spinner className="me-1 size-3.5" />
-          ) : (
-            <IconRefresh className="me-1 size-3.5" aria-hidden />
-          )}
-          {dbText("githubCheckForUpdates")}
-        </Button>
+          pending={sync.pending}
+          onClick={sync.run}
+        />
       </div>
       <div className="grid min-w-0 gap-2 border-t border-border pt-3">
         <p className="break-words text-xs text-muted-foreground">
           {dbText("githubExplainLinked")}
         </p>
         {place.canEdit ? (
-          <>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline-destructive"
-              className="justify-self-start"
-              onClick={() => setUnlinkOpen(true)}
-            >
-              {dbText("githubUnlinkFolder")}
-            </Button>
-            <GitHubUnlinkDialog
-              open={unlinkOpen}
-              onOpenChange={setUnlinkOpen}
-              documentId={place.documentId}
-              sourceId={source.id}
-              pageCount={place.pageCount}
-              onUnlinked={onUnlinked}
-            />
-          </>
+          <SourceUnlinkButton
+            provider="github"
+            documentId={place.documentId}
+            sourceId={source.id}
+            pageCount={place.pageCount}
+            disabled={sync.pending}
+            onUnlinked={onUnlinked}
+          />
         ) : null}
       </div>
     </div>

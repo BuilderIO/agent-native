@@ -19,6 +19,7 @@ vi.mock("@/hooks/use-github-folder", () => ({
   useSyncGitHubFolder: () => sync,
 }));
 vi.mock("@/hooks/use-content-database", () => ({
+  useContentDatabaseSourceRefreshing: () => false,
   useDisconnectContentDatabaseSource: () => unlink,
 }));
 vi.mock("sonner", () => ({
@@ -77,6 +78,7 @@ beforeEach(() => {
   opened = [];
   unlink.mutate.mockReset();
   sync.mutate.mockReset();
+  sync.isPending = false;
   window.addEventListener(GITHUB_LINK_DIALOG_OPEN_EVENT, listen);
 });
 
@@ -125,6 +127,18 @@ describe("The GitHub step in Sources", () => {
     expect(queryButton("New collection from GitHub")).toBe(null);
   });
 
+  it("holds Unlink… while Sync now runs", () => {
+    sync.isPending = true;
+    renderUi(
+      <GitHubSourcePanel
+        place={place}
+        sources={[github]}
+        onUnlinked={vi.fn()}
+      />,
+    );
+    expect(button("Unlink…").disabled).toBe(true);
+  });
+
   it("shows a linked folder's details, and asks before unlinking it", async () => {
     const onUnlinked = vi.fn();
     renderUi(
@@ -140,9 +154,9 @@ describe("The GitHub step in Sources", () => {
     expect(text).toContain(
       "This collection’s pages come from GitHub. Unlink the folder to use another source.",
     );
-    expect(queryButton("Check for updates")).not.toBe(null);
+    expect(queryButton("Sync now")).not.toBe(null);
 
-    await click(button("Unlink folder…"));
+    await click(button("Unlink…"));
     expect(document.body.textContent).toContain("Unlink this GitHub folder?");
     await click(button("Unlink"));
     const [variables, options] = unlink.mutate.mock.calls[0] as [
@@ -162,7 +176,7 @@ describe("The GitHub step in Sources", () => {
         onUnlinked={vi.fn()}
       />,
     );
-    expect(queryButton("Unlink folder…")).toBe(null);
-    expect(queryButton("Check for updates")).not.toBe(null);
+    expect(queryButton("Unlink…")).toBe(null);
+    expect(queryButton("Sync now")).not.toBe(null);
   });
 });

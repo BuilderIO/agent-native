@@ -115,31 +115,51 @@ const databaseMessages = {
   githubDetailFolder: "Folder",
   githubDetailBranch: "Branch",
   githubDetailVersion: "Version",
-  githubDetailUpdated: "Updated",
-  githubCheckForUpdates: "Check for updates",
+  sourceDetailUpdated: "Updated",
   githubOpenFolder: "Open in GitHub",
-  githubUnlinkFolder: "Unlink folder…",
   githubUnlinkTitle: "Unlink this GitHub folder?",
   githubUnlinkBodyOne:
     "The 1 page stays here and becomes a normal page you can edit. Changes on GitHub won’t come in anymore. To link this folder again later, you’ll use a new collection.",
   githubUnlinkBody:
     "The {{count}} pages stay here and become normal pages you can edit. Changes on GitHub won’t come in anymore. To link this folder again later, you’ll use a new collection.",
-  githubUnlink: "Unlink",
-  githubUnlinking: "Unlinking…",
-  githubUnlinkedToast:
+  sourceUnlinkConfirm: "Unlink",
+  sourceUnlinking: "Unlinking…",
+  sourceUnlinkedToast:
     "Unlinked. Your pages are kept and you can edit them now.",
-  githubUnlinkFailed: "Couldn’t unlink the folder",
+  sourceSyncNow: "Sync now",
+  sourceUnlink: "Unlink…",
+  sourceUnlinkFailed: "Couldn’t unlink",
+  sourceFromBuilderModel: "From the {{name}} model in Builder",
+  sourceDetailsFromBuilderModel: "Details from the {{name}} model in Builder",
+  sourceDetailsFromNotionDatabase:
+    "Details from the {{name}} database in Notion",
+  sourceDetailModel: "Model",
+  sourceDetailDatabase: "Database",
+  sourceUnlinkBuilderTitle: "Unlink this Builder model?",
+  sourceUnlinkBuilderBodyOne:
+    "The 1 page stays here and becomes a normal page you can edit. Changes in Builder won’t come in anymore.",
+  sourceUnlinkBuilderBody:
+    "The {{count}} pages stay here and become normal pages you can edit. Changes in Builder won’t come in anymore.",
+  sourceUnlinkNotionTitle: "Unlink this Notion database?",
+  sourceUnlinkNotionBodyOne:
+    "The 1 page stays here and stays yours to edit. Details from Notion won’t come in anymore.",
+  sourceUnlinkNotionBody:
+    "The {{count}} pages stay here and stay yours to edit. Details from Notion won’t come in anymore.",
+  sourceProblemNotion: "Couldn’t update from Notion.",
+  sourceProblemBuilder: "Couldn’t update from Builder.",
+  sourceShowingDetailsAsOf: "Showing details as of {{time}}.",
+  notionSyncedToast: "Updated from Notion.",
   githubFromFolder: "From the {{folder}} folder on GitHub",
   githubFromRepo: "From {{repo}} on GitHub",
-  githubUpdatedAgo: "Updated {{time}}",
-  githubJustNow: "just now",
-  githubNotUpdatedYet: "Not updated yet",
+  sourceUpdatedAgo: "Updated {{time}}",
+  sourceJustNow: "just now",
+  sourceNotUpdatedYet: "Not updated yet",
   githubEditOnGitHub: "Edit on GitHub",
-  githubDetails: "Details",
+  sourceDetails: "Details",
   githubNotShownOne: "1 file not shown",
   githubNotShown: "{{count}} files not shown",
   githubNotShownHeading: "Not shown",
-  githubShowingAsOf: "Showing pages as of {{time}}.",
+  sourceShowingPagesAsOf: "Showing pages as of {{time}}.",
   githubSyncingProgress: "Bringing in changes: {{done}} of {{total}} files",
   githubPicturesWaiting:
     "Some pictures won’t show until a workspace admin sets up file storage.",
@@ -203,7 +223,6 @@ const databaseMessages = {
   bestWhenSameKindAdditionalRows:
     "Best when this collection has the same kind of records and should appear as additional rows.",
   builderSpace: "Builder space",
-  connectNotionFirst: "Connect Notion first",
   connected: "Connected",
   builderBulkUpdateNotStaged: "Builder bulk update not staged",
   builderBulkUpdateStaged: "Builder bulk update staged",
@@ -265,14 +284,11 @@ const databaseMessages = {
   builderRowsFinishingUp: "Builder rows are finishing up.",
   builderRowsLoadingBackground:
     "Builder is still loading rows in the background.",
-  builderRowsLoadingHitSnag: "Builder row loading hit a snag.",
   checkingForMatchingFields: "Checking for matching fields...",
   checkingHowTheseRecordsMatch: "Checking how these records match...",
   chooseFields: "Choose fields",
   closeDatabaseSettings: "Close collection settings",
   closeSearch: "Close search",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Collection rows and local properties were kept intact.",
   failedToAttachSource: "Failed to attach source",
   failedToCreateRow: "Failed to create row",
   pageCreatedCollectionRefreshFailed:
@@ -377,8 +393,6 @@ const databaseMessages = {
   searchProperties: "Search properties",
   somethingWentWrong: "Something went wrong",
   sort: "Sort",
-  sourceDisconnected: "Source disconnected",
-  sourceWasNotDisconnected: "Source was not disconnected",
   sources: "Sources",
   table: "Table",
   tableColumnHandle: "Click or drag table column handle",
@@ -1732,6 +1746,16 @@ const enUS = {
     githubSourceReadOnly:
       "View only. This page follows a file in GitHub and updates after each push.",
     githubSourceOpenFile: "Open in GitHub",
+    syncedPageBuilder: "This page comes from the {{name}} model in Builder.",
+    syncedPageBuilderReadOnly: "Edits here aren’t sent to Builder.",
+    syncedPageBuilderStageOnly:
+      "Edits here can be saved to Builder after review, never published.",
+    syncedPageBuilderPublish:
+      "Edits here can be published to Builder after review.",
+    syncedPageNotion:
+      "Some details on this page come from the {{name}} database in Notion and are view only here.",
+    syncedPageSourceUnreadable: "Couldn’t check where this page comes from.",
+    syncedPageCheckAgain: "Try again",
     copyUnsavedText: "Copy my unsaved text",
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",

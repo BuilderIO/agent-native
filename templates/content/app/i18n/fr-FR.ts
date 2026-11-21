@@ -110,31 +110,52 @@ const database = {
   githubDetailFolder: "Dossier",
   githubDetailBranch: "Branche",
   githubDetailVersion: "Version",
-  githubDetailUpdated: "Dernière mise à jour",
-  githubCheckForUpdates: "Rechercher des mises à jour",
+  sourceDetailUpdated: "Dernière mise à jour",
   githubOpenFolder: "Ouvrir dans GitHub",
-  githubUnlinkFolder: "Dissocier le dossier…",
   githubUnlinkTitle: "Dissocier ce dossier GitHub ?",
   githubUnlinkBodyOne:
     "La page reste ici et devient une page normale que vous pouvez modifier. Les modifications sur GitHub n’arriveront plus. Pour lier à nouveau ce dossier plus tard, vous utiliserez une nouvelle collection.",
   githubUnlinkBody:
     "Les {{count}} pages restent ici et deviennent des pages normales que vous pouvez modifier. Les modifications sur GitHub n’arriveront plus. Pour lier à nouveau ce dossier plus tard, vous utiliserez une nouvelle collection.",
-  githubUnlink: "Dissocier",
-  githubUnlinking: "Dissociation…",
-  githubUnlinkedToast:
-    "Dossier dissocié. Vos pages sont conservées et vous pouvez maintenant les modifier.",
-  githubUnlinkFailed: "Impossible de dissocier le dossier",
+  sourceUnlinkConfirm: "Dissocier",
+  sourceUnlinking: "Dissociation…",
+  sourceUnlinkedToast:
+    "Dissocié. Vos pages sont conservées et vous pouvez maintenant les modifier.",
+  sourceSyncNow: "Synchroniser maintenant",
+  sourceUnlink: "Dissocier…",
+  sourceUnlinkFailed: "Impossible de dissocier",
+  sourceFromBuilderModel: "Depuis le modèle {{name}} dans Builder",
+  sourceDetailsFromBuilderModel:
+    "Détails depuis le modèle {{name}} dans Builder",
+  sourceDetailsFromNotionDatabase:
+    "Détails depuis la base de données {{name}} dans Notion",
+  sourceDetailModel: "Modèle",
+  sourceDetailDatabase: "Base de données",
+  sourceUnlinkBuilderTitle: "Dissocier ce modèle Builder ?",
+  sourceUnlinkBuilderBodyOne:
+    "La page reste ici et devient une page normale que vous pouvez modifier. Les modifications dans Builder n’arriveront plus.",
+  sourceUnlinkBuilderBody:
+    "Les {{count}} pages restent ici et deviennent des pages normales que vous pouvez modifier. Les modifications dans Builder n’arriveront plus.",
+  sourceUnlinkNotionTitle: "Dissocier cette base de données Notion ?",
+  sourceUnlinkNotionBodyOne:
+    "La page reste ici et vous pouvez toujours la modifier. Les détails venant de Notion n’arriveront plus.",
+  sourceUnlinkNotionBody:
+    "Les {{count}} pages restent ici et vous pouvez toujours les modifier. Les détails venant de Notion n’arriveront plus.",
+  sourceProblemNotion: "Impossible de mettre à jour depuis Notion.",
+  sourceProblemBuilder: "Impossible de mettre à jour depuis Builder.",
+  sourceShowingDetailsAsOf: "Détails affichés tels qu’ils étaient {{time}}.",
+  notionSyncedToast: "Mis à jour depuis Notion.",
   githubFromFolder: "Depuis le dossier {{folder}} sur GitHub",
   githubFromRepo: "Depuis {{repo}} sur GitHub",
-  githubUpdatedAgo: "Dernière mise à jour : {{time}}",
-  githubJustNow: "à l’instant",
-  githubNotUpdatedYet: "Pas encore de mise à jour",
+  sourceUpdatedAgo: "Dernière mise à jour : {{time}}",
+  sourceJustNow: "à l’instant",
+  sourceNotUpdatedYet: "Pas encore de mise à jour",
   githubEditOnGitHub: "Modifier sur GitHub",
-  githubDetails: "Détails",
+  sourceDetails: "Détails",
   githubNotShownOne: "1 fichier non affiché",
   githubNotShown: "{{count}} fichiers non affichés",
   githubNotShownHeading: "Non affichés",
-  githubShowingAsOf: "Pages affichées telles qu’elles étaient {{time}}.",
+  sourceShowingPagesAsOf: "Pages affichées telles qu’elles étaient {{time}}.",
   githubSyncingProgress:
     "Récupération des modifications : {{done}} fichiers sur {{total}}",
   githubPicturesWaiting:
@@ -370,7 +391,6 @@ const database = {
   addProperty: "Ajouter une propriété",
   back: "Retour",
   builderSpace: "Espace Builder",
-  connectNotionFirst: "Connectez d’abord Notion",
   connected: "Connecté",
   builderBulkUpdateNotStaged: "Mise à jour groupée Builder non préparée",
   builderBulkUpdateStaged: "Mise à jour groupée Builder préparée",
@@ -378,8 +398,6 @@ const database = {
   builderWriteModeWasNotChanged: "Le mode d’écriture Builder n’a pas changé",
   closeDatabaseSettings: "Fermer les paramètres de collection",
   closeSearch: "Fermer la recherche",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Les lignes et propriétés locales ont été conservées.",
   failedToAttachSource: "Échec de la connexion de la source",
   failedToCreateRow: "Échec de la création de la ligne",
   pageCreatedCollectionRefreshFailed:
@@ -471,8 +489,6 @@ const database = {
   searchProperties: "Rechercher des propriétés",
   somethingWentWrong: "Une erreur est survenue",
   sort: "Trier",
-  sourceDisconnected: "Source déconnectée",
-  sourceWasNotDisconnected: "La source n’a pas été déconnectée",
   sources: "Sources",
   table: "Tableau",
   tryAgain: "Réessayez.",
@@ -729,6 +745,17 @@ const editor = {
   githubSourceReadOnly:
     "Lecture seule. Cette page suit un fichier dans GitHub et se met à jour après chaque push.",
   githubSourceOpenFile: "Ouvrir dans GitHub",
+  syncedPageBuilder: "Cette page provient du modèle {{name}} dans Builder.",
+  syncedPageBuilderReadOnly:
+    "Les modifications faites ici ne sont pas envoyées à Builder.",
+  syncedPageBuilderStageOnly:
+    "Les modifications faites ici peuvent être enregistrées dans Builder après relecture, jamais publiées.",
+  syncedPageBuilderPublish:
+    "Les modifications faites ici peuvent être publiées dans Builder après relecture.",
+  syncedPageNotion:
+    "Certains détails de cette page proviennent de la base de données {{name}} dans Notion et sont en lecture seule ici.",
+  syncedPageSourceUnreadable: "Impossible de vérifier d’où vient cette page.",
+  syncedPageCheckAgain: "Réessayer",
   textColor: "Couleur du texte",
   resizeColumns: "Redimensionner les colonnes",
   backgroundColor: "Couleur d’arrière-plan",
@@ -1809,8 +1836,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder charge encore des lignes en arrière-plan.",
     attachingReadOnly: "Ajout en cours · lecture seule",
-    builderRowsLoadingHitSnag:
-      "Le chargement des lignes Builder a rencontré un problème.",
     opening: "Ouverture...",
   },
   localFiles: localFiles,

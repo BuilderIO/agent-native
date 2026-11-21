@@ -288,7 +288,6 @@ import { cn } from "@/lib/utils";
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
 import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
 import {
-  builderBodyHydrationDisplayHydratedCount,
   databaseItemBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
 } from "../body-hydration";
@@ -345,6 +344,12 @@ import {
   type PreviewDocumentSaveDeferred,
   type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
+import {
+  builderSourceContinuationKey,
+  builderSourceRowFetchStatus,
+  builderSourceWriteMode,
+} from "./builder-source-progress";
+import { BuilderSourceStatusLine } from "./BuilderSourceStatusLine";
 import {
   ContentTableConstraintChip,
   ContentTableConstraintBar,
@@ -409,6 +414,7 @@ import {
   databaseVisibleItemSummaries,
   fitDatabaseNavigationState,
 } from "./navigation-state";
+import { NotionSourceStatusLine } from "./NotionSourceStatusLine";
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
@@ -427,7 +433,11 @@ import {
   databaseSortDirectionLabel,
   databaseSortPropertyType,
 } from "./sort-direction";
+import { BuilderLogoMark, NotionLogoMark } from "./SourceLogos";
+import { SourceSyncNowButton } from "./SourceStatusLine";
+import { SourceUnlinkButton } from "./SourceUnlinkDialog";
 import { DatabaseTimelineView } from "./TimelineView";
+import { useConnectNotionHere } from "./use-connect-notion-here";
 import {
   normalizeClientColumnWrapOverrides,
   normalizeClientFrozenThroughColumnId,
@@ -1374,15 +1384,13 @@ function DatabaseTable({
     if (panel !== "source") sourceHandoffActiveRef.current = false;
     setSettingsPanel(panel);
   };
-  // Opens Sources at one source's own page, as the GitHub status line's
-  // "From the … folder" does; each request has a new id so a repeat opens it.
   const [sourceNavRequest, setSourceNavRequest] =
     useState<SourceNavRequest | null>(null);
-  const openGitHubSource = () => {
+  const openSourcePage = (step: SourceNavStep) => {
     changeDatabaseSettingsPanel("source");
     setSourceNavRequest((request) => ({
       id: (request?.id ?? 0) + 1,
-      stack: [{ kind: "github" }],
+      stack: [step],
     }));
     setSettingsOpen(true);
   };
@@ -3783,13 +3791,35 @@ function DatabaseTable({
       {builderSources.map((builderSource) => {
         const continuationKey = builderSourceContinuationKey(builderSource);
         return (
-          <BuilderSourceContinuationBar
+          <BuilderSourceStatusLine
             key={builderSource.id}
             source={builderSource}
+            documentId={document.id}
             canEdit={effectiveCanEdit}
+            pageCount={totalItemCount}
             pending={
               sourcePendingOperations.refreshSourceId === builderSource.id
             }
+            onSyncNow={() => runSourceRefresh(builderSource.id)}
+            onOpenSource={
+              canEditWidgetRows
+                ? undefined
+                : () =>
+                    openSourcePage(
+                      builderSource.metadata.federation?.role === "secondary"
+                        ? {
+                            kind: "secondarySource",
+                            sourceId: builderSource.id,
+                            sourceName: builderSource.sourceName,
+                          }
+                        : {
+                            kind: "model",
+                            sourceId: builderSource.id,
+                            sourceName: builderSource.sourceName,
+                          },
+                    )
+            }
+            onUnlinked={() => closeBuilderReview(true)}
             clientError={
               !!continuationKey &&
               builderContinuationClientErrorKeys.includes(continuationKey)
@@ -3827,8 +3857,33 @@ function DatabaseTable({
         documentId={document.id}
         canEdit={canEdit}
         pageCount={totalItemCount}
-        onOpenSource={canEditWidgetRows ? undefined : openGitHubSource}
+        onOpenSource={
+          canEditWidgetRows
+            ? undefined
+            : () => openSourcePage({ kind: "github" })
+        }
       />
+      {sources
+        .filter((candidate) => candidate.sourceType === "notion-database")
+        .map((notionSource) => (
+          <NotionSourceStatusLine
+            key={notionSource.id}
+            source={notionSource}
+            documentId={document.id}
+            canEdit={effectiveCanEdit}
+            pageCount={totalItemCount}
+            onOpenSource={
+              canEditWidgetRows
+                ? undefined
+                : () =>
+                    openSourcePage({
+                      kind: "secondarySource",
+                      sourceId: notionSource.id,
+                      sourceName: notionSource.sourceName,
+                    })
+            }
+          />
+        ))}
       {canEdit &&
       databaseId &&
       data &&
@@ -4301,33 +4356,10 @@ function DatabaseTable({
         onHydrateBuilderBodies={(sourceId) =>
           runBuilderHydration(sourceId, {}, { retryFailed: true })
         }
-        onDisconnectSource={(sourceId) =>
-          disconnectSource.mutate(
-            {
-              documentId: document.id,
-              sourceId,
-            },
-            {
-              onSuccess: () => {
-                setSettingsPanel("source");
-                setBuilderReviewOpen(false);
-                setBuilderReviewResult(null);
-                setBuilderReviewCheckedAt(null);
-                toast.success(dbText("sourceDisconnected"), {
-                  description: dbText(
-                    "databaseRowsAndLocalPropertiesWereKeptIntact",
-                  ),
-                });
-              },
-              onError: (error) => {
-                toast.error(dbText("sourceWasNotDisconnected"), {
-                  description:
-                    error instanceof Error ? error.message : dbText("tryAgain"),
-                });
-              },
-            },
-          )
-        }
+        onSourceUnlinked={() => {
+          setSettingsPanel("source");
+          closeBuilderReview(true);
+        }}
         onReviewBuilderUpdate={(sourceId) => {
           openBuilderReview(sourceId);
         }}
@@ -8715,42 +8747,6 @@ function sourceNavTitle(stack: SourceNavStep[]): string {
   return top.model?.displayName ?? top.sourceName ?? "Builder";
 }
 
-function BuilderLogoMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 71 80"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M70.86 24C70.86 10.69 60.06 0 46.86 0H6.31995C2.81995 0 0 2.84031 0 6.32031C0 12.8003 13.71 17.71 13.71 40C13.71 62.29 0 67.2102 0 73.6802C0 77.1602 2.81995 80 6.31995 80H46.86C60.06 80 70.86 69.31 70.86 56C70.86 46.22 64.98 40.25 64.75 40C64.98 39.75 70.86 33.78 70.86 24ZM8.37 6.86035H46.87C51.45 6.86035 55.75 8.64037 58.99 11.8804C62.23 15.1204 64.01 19.42 64.01 24C64.01 28.58 62.3199 32.62 59.3199 35.79L8.37 6.86035ZM58.99 68.1304C55.75 71.3704 51.45 73.1504 46.87 73.1504H8.37L59.3199 44.2202C62.3199 47.3902 64.01 51.5703 64.01 56.0103C64.01 60.4503 62.23 64.8904 58.99 68.1304ZM15.83 61.02C16.24 60.17 20.58 51.74 20.58 40C20.58 28.26 16.24 19.83 15.83 18.98L52.85 40L15.83 61.02Z" />
-    </svg>
-  );
-}
-
-function NotionLogoMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 100 100"
-      xmlns="http://www.w3.org/2000/svg"
-      className={cn("notion-logo-icon", className)}
-      aria-hidden="true"
-    >
-      <path
-        className="notion-logo-icon-face"
-        d="M6.017 4.313l55.333 -4.087c6.797 -0.583 8.543 -0.19 12.817 2.917l17.663 12.443c2.913 2.14 3.883 2.723 3.883 5.053v68.243c0 4.277 -1.553 6.807 -6.99 7.193L24.467 99.967c-4.08 0.193 -6.023 -0.39 -8.16 -3.113L3.3 79.94c-2.333 -3.113 -3.3 -5.443 -3.3 -8.167V11.113c0 -3.497 1.553 -6.413 6.017 -6.8z"
-      />
-      <path
-        className="notion-logo-icon-mark"
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M61.35 0.227l-55.333 4.087C1.553 4.7 0 7.617 0 11.113v60.66c0 2.723 0.967 5.053 3.3 8.167l13.007 16.913c2.137 2.723 4.08 3.307 8.16 3.113l64.257 -3.89c5.433 -0.387 6.99 -2.917 6.99 -7.193V20.64c0 -2.21 -0.873 -2.847 -3.443 -4.733L74.167 3.143c-4.273 -3.107 -6.02 -3.5 -12.817 -2.917zM25.92 19.523c-5.247 0.353 -6.437 0.433 -9.417 -1.99L8.927 11.507c-0.77 -0.78 -0.383 -1.753 1.557 -1.947l53.193 -3.887c4.467 -0.39 6.793 1.167 8.54 2.527l9.123 6.61c0.39 0.197 1.36 1.36 0.193 1.36l-54.933 3.307 -0.68 0.047zM19.803 88.3V30.367c0 -2.53 0.777 -3.697 3.103 -3.893L86 22.78c2.14 -0.193 3.107 1.167 3.107 3.693v57.547c0 2.53 -0.39 4.67 -3.883 4.863l-60.377 3.5c-3.493 0.193 -5.043 -0.97 -5.043 -4.083zm59.6 -54.827c0.387 1.75 0 3.5 -1.75 3.7l-2.91 0.577v42.773c-2.527 1.36 -4.853 2.137 -6.797 2.137 -3.107 0 -3.883 -0.973 -6.21 -3.887l-19.03 -29.94v28.967l6.02 1.363s0 3.5 -4.857 3.5l-13.39 0.777c-0.39 -0.78 0 -2.723 1.357 -3.11l3.497 -0.97v-38.3L30.48 40.667c-0.39 -1.75 0.58 -4.277 3.3 -4.473l14.367 -0.967 19.8 30.327v-26.83l-5.047 -0.58c-0.39 -2.143 1.163 -3.7 3.103 -3.89l13.4 -0.78z"
-      />
-    </svg>
-  );
-}
-
 function DatabaseSettingsPanelSheet({
   open,
   triggerRef,
@@ -8776,7 +8772,7 @@ function DatabaseSettingsPanelSheet({
   onDisconnectSecondary,
   onRefreshSource,
   onHydrateBuilderBodies,
-  onDisconnectSource,
+  onSourceUnlinked,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
@@ -8830,7 +8826,7 @@ function DatabaseSettingsPanelSheet({
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
-  onDisconnectSource: (sourceId?: string) => void;
+  onSourceUnlinked: (sourceId: string) => void;
   onReviewBuilderUpdate: (sourceId: string) => void;
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
@@ -8999,7 +8995,10 @@ function DatabaseSettingsPanelSheet({
               }}
               onRefreshSource={onRefreshSource}
               onHydrateBuilderBodies={onHydrateBuilderBodies}
-              onDisconnectSource={onDisconnectSource}
+              onSourceUnlinked={(sourceId) => {
+                onSourceUnlinked(sourceId);
+                setSourceNavStack([]);
+              }}
               onReviewBuilderUpdate={onReviewBuilderUpdate}
               onSetBuilderLiveWrites={onSetBuilderLiveWrites}
               sourceActionPending={sourceActionPending}
@@ -9206,14 +9205,7 @@ export function builderSourceLiveWriteControlState(
   source: ContentDatabaseSource | null,
 ) {
   const isBuilderSource = source?.sourceType === "builder-cms";
-  const legacyAllowedWriteModes = source?.metadata.allowedWriteModes ?? [];
-  const writeMode =
-    source?.metadata.writeMode ??
-    (source?.capabilities.liveWritesEnabled === true
-      ? legacyAllowedWriteModes.some((mode) => mode !== "autosave")
-        ? "publish_updates"
-        : "stage_only"
-      : "read_only");
+  const writeMode = builderSourceWriteMode(source);
   const enabled = writeMode !== "read_only";
   return {
     safeTarget: isBuilderSource,
@@ -9408,7 +9400,7 @@ function DatabaseSettingsSourcePanel({
   onDisconnectSecondary,
   onRefreshSource,
   onHydrateBuilderBodies,
-  onDisconnectSource,
+  onSourceUnlinked,
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
@@ -9443,7 +9435,7 @@ function DatabaseSettingsSourcePanel({
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
-  onDisconnectSource: (sourceId?: string) => void;
+  onSourceUnlinked: (sourceId: string) => void;
   onReviewBuilderUpdate: (sourceId: string) => void;
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
@@ -9609,6 +9601,9 @@ function DatabaseSettingsSourcePanel({
             : undefined
         }
         onDisconnect={() => onDisconnectSecondary(top.sourceId)}
+        documentId={documentId}
+        pageCount={itemCount}
+        onUnlinked={() => onSourceUnlinked(top.sourceId)}
       />
     );
   }
@@ -9890,17 +9885,14 @@ function DatabaseSettingsSourcePanel({
                 </span>
               )}
               {!builderSyncFailed ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 text-xs"
+                <SourceSyncNowButton
+                  pending={
+                    sourcePendingOperations.refreshSourceId ===
+                    selectedSource.id
+                  }
                   disabled={!canEdit || selectedSourceRefreshControlPending}
                   onClick={() => onRefreshSource(selectedSource.id)}
-                >
-                  <IconRefresh className="size-3" />
-                  {dbText("refreshSource")}
-                </Button>
+                />
               ) : null}
             </div>
           </div>
@@ -10141,29 +10133,16 @@ function DatabaseSettingsSourcePanel({
           }
         />
 
-        <div className="rounded-lg border border-border bg-background p-3">
-          <div className="text-xs font-medium">
-            {dbText("disconnectSource")}
-          </div>
-          <div className="mt-0.5 break-words text-xs text-muted-foreground">
-            {dbText("keepTheDatabaseRowsAndLocalPropertiesButRemoveSource")}
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="mt-2 text-xs text-destructive hover:text-destructive"
-            disabled={!canEdit || selectedSourceDisconnectControlPending}
-            onClick={() => onDisconnectSource(selectedSource.id)}
-          >
-            {selectedSourceDisconnectControlPending ? (
-              <Spinner className="mr-1 size-3.5" />
-            ) : (
-              <IconX className="mr-1 size-3.5" />
-            )}
-            Disconnect
-          </Button>
-        </div>
+        {canEdit ? (
+          <SourceUnlinkButton
+            provider="builder"
+            documentId={documentId}
+            sourceId={selectedSource.id}
+            pageCount={itemCount}
+            disabled={selectedSourceDisconnectControlPending}
+            onUnlinked={() => onSourceUnlinked(selectedSource.id)}
+          />
+        ) : null}
       </>
     </div>
   );
@@ -10566,8 +10545,13 @@ function AddSourceView({
   }) => void;
   onPickNotionDatabase: (source: { id: string; name: string }) => void;
 }) {
+  const t = useT();
   const query = useContentDatabases({ enabled: true, excludeDatabaseIds });
   const notion = useNotionDatabaseSources(true);
+  const connectNotion = useConnectNotionHere(
+    async () => (await notion.refetch()).data?.connected === true,
+  );
+  const notionConnected = notion.data?.connected === true;
   const excluded = new Set(excludeDatabaseIds);
   const tables = (query.data?.databases ?? []).filter(
     (table) => !excluded.has(table.databaseId),
@@ -10615,11 +10599,16 @@ function AddSourceView({
           value={
             notion.isLoading
               ? dbText("loadingTables")
-              : notion.data?.connected
-                ? (notion.data.workspaceName ?? "Notion")
-                : dbText("connectNotionFirst")
+              : notionConnected
+                ? (notion.data?.workspaceName ?? "Notion")
+                : t("editor.toolbar.connectNotion")
           }
-          disabled={!notion.data?.connected}
+          onClick={
+            !notion.isLoading && !notionConnected && canEdit
+              ? () => void connectNotion.start()
+              : undefined
+          }
+          disabled={notionConnected || !canEdit || connectNotion.connecting}
         />
         {notion.data?.connected
           ? notion.data.sources.map((source) => (
@@ -10647,6 +10636,9 @@ function SecondarySourceLeaf({
   onAddItems,
   onChooseFields,
   onDisconnect,
+  documentId,
+  pageCount,
+  onUnlinked,
 }: {
   source: ContentDatabaseSource | null;
   canEdit: boolean;
@@ -10655,6 +10647,9 @@ function SecondarySourceLeaf({
   onAddItems: () => void | Promise<void>;
   onChooseFields: () => void;
   onDisconnect: () => void;
+  documentId: string;
+  pageCount: number;
+  onUnlinked: () => void;
 }) {
   if (!source) {
     return (
@@ -10703,28 +10698,46 @@ function SecondarySourceLeaf({
           </code>
         </div>
       ) : null}
-      <div className="rounded-lg border border-border bg-background p-3">
-        <div className="text-xs font-medium">{dbText("removeThisSource")}</div>
-        <div className="mt-0.5 break-words text-xs text-muted-foreground">
-          Removes the federated columns&rsquo; link to this source. Your local
-          rows and columns stay.
+      {source.sourceType === "builder-cms" ||
+      source.sourceType === "notion-database" ? (
+        canEdit ? (
+          <SourceUnlinkButton
+            provider={
+              source.sourceType === "builder-cms" ? "builder" : "notion"
+            }
+            documentId={documentId}
+            sourceId={source.id}
+            pageCount={pageCount}
+            disabled={pending}
+            onUnlinked={onUnlinked}
+          />
+        ) : null
+      ) : (
+        <div className="rounded-lg border border-border bg-background p-3">
+          <div className="text-xs font-medium">
+            {dbText("removeThisSource")}
+          </div>
+          <div className="mt-0.5 break-words text-xs text-muted-foreground">
+            Removes the federated columns&rsquo; link to this source. Your local
+            rows and columns stay.
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline-destructive"
+            className="mt-2"
+            disabled={!canEdit || pending}
+            onClick={onDisconnect}
+          >
+            {pending ? (
+              <Spinner className="mr-1 size-3.5" />
+            ) : (
+              <IconX className="mr-1 size-3.5" />
+            )}
+            Remove
+          </Button>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="mt-2 text-xs text-destructive hover:text-destructive"
-          disabled={!canEdit || pending}
-          onClick={onDisconnect}
-        >
-          {pending ? (
-            <Spinner className="mr-1 size-3.5" />
-          ) : (
-            <IconX className="mr-1 size-3.5" />
-          )}
-          Remove
-        </Button>
-      </div>
+      )}
     </div>
   );
 }
@@ -10916,177 +10929,6 @@ function SourceRoleCard({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function BuilderSourceContinuationBar({
-  source,
-  canEdit,
-  pending,
-  clientError,
-  progressHighWater,
-  onRetry,
-}: {
-  source: ContentDatabaseSource | null;
-  canEdit: boolean;
-  pending: boolean;
-  clientError: boolean;
-  progressHighWater?: BuilderSourceProgressHighWater;
-  onRetry: () => void;
-}) {
-  if (
-    !source ||
-    source.sourceType !== "builder-cms" ||
-    sourceAddsDetails(source)
-  ) {
-    return null;
-  }
-  const rowsComplete =
-    source.metadata.lastReadHasMore === false ||
-    progressHighWater?.rowsComplete === true;
-  const rawStatus = clientError ? "error" : builderSourceRowFetchStatus(source);
-  const status = rowsComplete && rawStatus === "fetching" ? null : rawStatus;
-  const bodyHydration = source.bodyHydration;
-  const rawFetchedCount =
-    typeof source.metadata.lastReadFetchedEntryCount === "number"
-      ? source.metadata.lastReadFetchedEntryCount
-      : typeof source.metadata.lastReadEntryCount === "number"
-        ? source.metadata.lastReadEntryCount
-        : null;
-  const hydratedCount = bodyHydration
-    ? builderBodyHydrationDisplayHydratedCount({
-        summary: bodyHydration,
-        highWaterCount: progressHighWater?.hydratedCount ?? 0,
-      })
-    : 0;
-  const fetchedCount =
-    rowsComplete && bodyHydration
-      ? Math.max(
-          rawFetchedCount ?? 0,
-          bodyHydration.total,
-          progressHighWater?.fetchedCount ?? 0,
-        )
-      : rawFetchedCount;
-  const hasMore = source.metadata.lastReadHasMore === true && !rowsComplete;
-  const fetchedCountDetail = builderSourceContinuationFetchedCountDetail(
-    source,
-    fetchedCount,
-    rowsComplete,
-  );
-  const bodyHydrationActive =
-    !hasMore &&
-    !!bodyHydration &&
-    bodyHydration.total > 0 &&
-    bodyHydration.pending + bodyHydration.hydrating > 0;
-  const bodyHydrationFailed =
-    !hasMore &&
-    !!bodyHydration &&
-    bodyHydration.total > 0 &&
-    bodyHydration.error > 0 &&
-    bodyHydration.pending + bodyHydration.hydrating === 0;
-  const bodyHydrationVisible = bodyHydrationActive || bodyHydrationFailed;
-  if (!status && !bodyHydrationVisible) return null;
-  const showRetry = status === "error" || bodyHydrationFailed;
-  const progressPercent = bodyHydrationActive
-    ? Math.round((hydratedCount / bodyHydration!.total) * 100)
-    : builderSourceContinuationProgressPercent(source);
-  const label =
-    status === "error"
-      ? dbText("builderRowsLoadingHitSnag")
-      : bodyHydrationFailed
-        ? dbText("builderRowsLoadingHitSnag")
-        : bodyHydrationActive
-          ? dbText("builderRowsFetchedSyncingBodies")
-          : hasMore
-            ? dbText("builderRowsLoadingBackground")
-            : dbText("builderRowsFinishingUp");
-  const detail =
-    fetchedCount === null
-      ? bodyHydrationVisible && bodyHydration
-        ? dbText(
-            bodyHydrationFailed
-              ? "builderBodiesSyncFinishedWithFailures"
-              : "builderBodiesSyncingProgress",
-            {
-              hydrated: hydratedCount,
-              total: bodyHydration.total,
-              failed: bodyHydration.error,
-            },
-          )
-        : null
-      : bodyHydrationVisible && bodyHydration
-        ? dbText(
-            bodyHydrationFailed
-              ? "builderRowsFetchedBodiesSyncFinishedWithFailures"
-              : "builderRowsFetchedBodiesSyncing",
-            {
-              rows: fetchedCount,
-              hydrated: hydratedCount,
-              total: bodyHydration.total,
-              failed: bodyHydration.error,
-            },
-          )
-        : dbText("builderRowsFetchedSoFar", {
-            count: fetchedCountDetail ?? fetchedCount,
-          });
-
-  return (
-    <div
-      className={cn(
-        "mx-6 mb-3 grid gap-2 rounded-lg border p-3 text-xs",
-        showRetry
-          ? "border-destructive/30 bg-destructive/5 text-destructive"
-          : "border-border bg-muted/35 text-foreground",
-      )}
-    >
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-medium">{label}</div>
-          {detail ? (
-            <div
-              className={cn(
-                "mt-0.5 break-words",
-                showRetry ? "text-destructive/80" : "text-muted-foreground",
-              )}
-            >
-              {detail}
-            </div>
-          ) : null}
-        </div>
-        {showRetry ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 shrink-0 px-2 text-xs"
-            disabled={pending || !canEdit}
-            onClick={onRetry}
-          >
-            {pending ? (
-              <Spinner className="mr-1 size-3.5" />
-            ) : (
-              <IconRefresh className="mr-1 size-3.5" />
-            )}
-            {dbText("retry")}
-          </Button>
-        ) : null}
-      </div>
-      {status === "fetching" || bodyHydrationActive ? (
-        <div className="h-1.5 overflow-hidden rounded-full bg-background">
-          <div
-            className={cn(
-              "h-full rounded-full bg-foreground/70 transition-[width]",
-              progressPercent === null ? "w-full animate-pulse" : null,
-            )}
-            style={
-              progressPercent === null
-                ? undefined
-                : { width: `${progressPercent}%` }
-            }
-          />
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -11910,61 +11752,6 @@ function formatRelativeSyncTime(value: string | null): string | null {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
-}
-
-export function builderSourceRowFetchStatus(
-  source: Pick<ContentDatabaseSource, "metadata">,
-): "fetching" | "error" | null {
-  if (source.metadata.sourceFetchState === "error") return "error";
-  if (
-    source.metadata.sourceFetchState === "fetching" ||
-    source.metadata.lastReadPartial
-  ) {
-    return "fetching";
-  }
-  return null;
-}
-
-export function builderSourceContinuationKey(
-  source: Pick<ContentDatabaseSource, "id" | "metadata">,
-) {
-  const offset =
-    typeof source.metadata.lastReadNextOffset === "number"
-      ? source.metadata.lastReadNextOffset
-      : null;
-  return offset === null ? null : `${source.id}:${offset}`;
-}
-
-export function builderSourceContinuationProgressPercent(
-  source: Pick<ContentDatabaseSource, "metadata">,
-) {
-  const fetched = source.metadata.lastReadFetchedEntryCount;
-  const limit = source.metadata.lastReadLimit;
-  if (typeof fetched !== "number" || typeof limit !== "number" || limit <= 0) {
-    return null;
-  }
-  const rawPercent = Math.max(0, Math.min(100, (fetched / limit) * 100));
-  return source.metadata.lastReadHasMore === true
-    ? Math.min(95, rawPercent)
-    : rawPercent;
-}
-
-export function builderSourceContinuationFetchedCountDetail(
-  source: Pick<ContentDatabaseSource, "metadata">,
-  fetchedCount: number | null,
-  rowsComplete = false,
-) {
-  const knownFetchTotal =
-    !rowsComplete &&
-    source.metadata.lastReadHasMore === true &&
-    typeof source.metadata.lastReadLimit === "number"
-      ? source.metadata.lastReadLimit
-      : null;
-  return fetchedCount !== null &&
-    knownFetchTotal !== null &&
-    knownFetchTotal > fetchedCount
-    ? `${fetchedCount} of ${knownFetchTotal}`
-    : fetchedCount;
 }
 
 export function builderSourceContinuationWatchdogDecision(refires: number) {
