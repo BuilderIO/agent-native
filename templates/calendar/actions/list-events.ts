@@ -13,6 +13,10 @@ import { and, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  accountDescriptionFor,
+  getAccountDescriptions,
+} from "../server/lib/calendar-descriptions.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
@@ -23,6 +27,7 @@ import {
   type CalendarEvent,
   type ExternalCalendar,
 } from "../shared/api.js";
+import { normalizeCalendarDescription } from "../shared/calendar-descriptions.js";
 import {
   addDaysToDateKey,
   dateKeyInTimezone,
@@ -119,6 +124,7 @@ interface CalendarEventsResult {
   icalSources: Array<{
     id: string;
     name: string;
+    description?: string;
     status: "ok" | "error";
     error?: string;
   }>;
@@ -737,11 +743,16 @@ export async function listCalendarEvents(
   );
   const icalSources = externalCalendars.map((calendar, index) => {
     const result = icalResults[index]!;
+    const description = normalizeCalendarDescription(calendar.description);
+    const feed = {
+      id: calendar.id,
+      name: calendar.name,
+      ...(description ? { description } : {}),
+    };
     return result.status === "fulfilled"
-      ? { id: calendar.id, name: calendar.name, status: "ok" as const }
+      ? { ...feed, status: "ok" as const }
       : {
-          id: calendar.id,
-          name: calendar.name,
+          ...feed,
           status: "error" as const,
           error:
             result.reason instanceof Error
@@ -1013,14 +1024,20 @@ export default defineAction({
               key: last.key,
             })
           : undefined;
+      const accountDescriptions = await getAccountDescriptions(owner!);
       const accounts = result.queriedAccounts.map((accountEmail) => {
         const error = result.errors.find(
           (entry) =>
             entry.email.trim().toLowerCase() ===
             accountEmail.trim().toLowerCase(),
         );
+        const description = accountDescriptionFor(
+          accountDescriptions,
+          accountEmail,
+        );
         return {
           accountEmail,
+          ...(description ? { description } : {}),
           status: error ? ("error" as const) : ("ok" as const),
           count: compact.filter(
             (item) => item.accountEmail?.trim().toLowerCase() === accountEmail,
@@ -1055,6 +1072,7 @@ export default defineAction({
         ...result.icalSources.map((feed) => ({
           source: "ics" as const,
           id: feed.id,
+          ...(feed.description ? { description: feed.description } : {}),
           status: feed.status,
           ...(feed.error
             ? {

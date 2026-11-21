@@ -50,6 +50,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { CalendarDescriptionField } from "@/components/calendar/CalendarDescriptionField";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -66,6 +67,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useUpdateCalendarDescription } from "@/hooks/use-calendar-descriptions";
 import { useOverlayCalendarStatus } from "@/hooks/use-events";
 import {
   useExternalCalendars,
@@ -391,10 +393,16 @@ function MultiColorDot({ className }: { className?: string }) {
 function ColorPickerPopover({
   color,
   onColorChange,
+  description,
   children,
 }: {
   color: string;
   onColorChange: (color: string) => void;
+  /** Adds a Description field, which agents read to tell calendars apart. */
+  description?: {
+    value: string | undefined;
+    onSave: (description: string) => void;
+  };
   children: React.ReactNode;
 }) {
   return (
@@ -416,8 +424,36 @@ function ColorPickerPopover({
             </button>
           ))}
         </div>
+        {description && (
+          <CalendarDescriptionField
+            value={description.value}
+            onSave={description.onSave}
+          />
+        )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** A sidebar row's name, showing its description on hover when it has one. */
+function CalendarRowName({
+  name,
+  description,
+  className,
+}: {
+  name: string;
+  description: string | undefined;
+  className: string;
+}) {
+  const label = <span className={className}>{name}</span>;
+  if (!description) return label;
+  return (
+    <Tooltip delayDuration={700}>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
+      <TooltipContent side="right" className="max-w-[240px] text-xs">
+        {description}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -451,6 +487,7 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
     updateGoogleCalendarColor,
     updateGoogleCalendarVisibility,
   } = useViewPreferences();
+  const updateDescription = useUpdateCalendarDescription();
   const readableCalendars = useMemo(
     () =>
       (calendars ?? []).filter(
@@ -562,16 +599,29 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
                 </button>
               ))}
             </div>
+            {calendar.primary && (
+              <CalendarDescriptionField
+                value={calendar.accountDescription}
+                onSave={(description) =>
+                  updateDescription.mutate({
+                    accountEmail: calendar.accountEmail,
+                    description,
+                  })
+                }
+              />
+            )}
           </PopoverContent>
         </Popover>
-        <span
+        <CalendarRowName
+          name={displayName}
+          description={
+            calendar.primary ? calendar.accountDescription : undefined
+          }
           className={cn(
             "min-w-0 flex-1 truncate",
             visible ? "text-muted-foreground" : "text-muted-foreground/40",
           )}
-        >
-          {displayName}
-        </span>
+        />
         <button
           type="button"
           onClick={() =>
@@ -675,6 +725,7 @@ export function Sidebar({
     : [];
   const removeExternal = useRemoveExternalCalendar();
   const updateExternalColor = useUpdateExternalCalendarColor();
+  const updateDescription = useUpdateCalendarDescription();
   const isConnected = googleStatus.data?.connected ?? false;
   const canOfferGoogleOAuthSetup = useMemo(
     () => shouldOfferGoogleOAuthSetup(),
@@ -1087,6 +1138,14 @@ export function Sidebar({
                                   color,
                                 })
                               }
+                              description={{
+                                value: cal.description,
+                                onSave: (description) =>
+                                  updateDescription.mutate({
+                                    feedId: cal.id,
+                                    description,
+                                  }),
+                              }}
                             >
                               <button
                                 type="button"
@@ -1102,16 +1161,16 @@ export function Sidebar({
                                 />
                               </button>
                             </ColorPickerPopover>
-                            <span
+                            <CalendarRowName
+                              name={cal.name}
+                              description={cal.description}
                               className={cn(
                                 "min-w-0 flex-1 truncate",
                                 isHiddenCalendar("external", cal.id)
                                   ? "text-muted-foreground/40"
                                   : "text-muted-foreground",
                               )}
-                            >
-                              {cal.name}
-                            </span>
+                            />
                             <div className="flex items-center">
                               <button
                                 type="button"
