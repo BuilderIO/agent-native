@@ -414,7 +414,14 @@ export const updateResourceSuggestion = defineAction({
       .array(operation)
       .min(1)
       .describe(
-        "Replacement proposal operations against the suggestion's existing canonical basis.",
+        "Replacement proposal operations against the suggestion's existing canonical basis, or against baseRevision when it is given.",
+      ),
+    baseRevision: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The resource revision the operations were written against, when it is newer than the suggestion's own; the amendment moves the suggestion onto it. Omission keeps the suggestion's basis.",
       ),
     summary: z
       .string()
@@ -460,6 +467,7 @@ export const updateResourceSuggestion = defineAction({
       observedRevision: args.observedRevision,
       operations: args.operations,
       summary: args.summary ?? null,
+      baseRevision: args.baseRevision,
     });
     return db.transaction(async (tx) => {
       const current = await getSuggestion(args.id, tx);
@@ -498,14 +506,27 @@ export const updateResourceSuggestion = defineAction({
           errorCode: "suggestion_conflict",
         });
       }
+      const targets = new Set(
+        current.operations.map((operation) => operation.targetId ?? null),
+      );
+      if (
+        args.operations.some(
+          (operation) => !targets.has(operation.targetId ?? null),
+        )
+      )
+        fail("An amendment must edit what the suggestion edits", {
+          statusCode: 422,
+          errorCode: "suggestion_invalid",
+        });
       const adapter = getSuggestionAdapter(current.adapterKind);
       if (!adapter || adapter.version !== current.adapterVersion)
         throw new Error("Suggestion adapter version is unavailable");
+      const baseRevision = args.baseRevision ?? current.baseRevision;
       const operations =
         (await adapter.validateProposal({
           resourceType: current.resourceType,
           resourceId: current.resourceId,
-          baseRevision: current.baseRevision,
+          baseRevision,
           operations: args.operations,
           ctx: { ...(ctx as any), transaction: tx, suggestionAccess: access },
         })) ?? args.operations;
@@ -516,6 +537,7 @@ export const updateResourceSuggestion = defineAction({
         args.summary ?? current.summary,
         args.idempotencyKey,
         request,
+        baseRevision,
       );
       if (!updated)
         fail("The suggestion changed; refresh before editing", {
