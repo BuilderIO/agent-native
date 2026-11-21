@@ -41,6 +41,8 @@ export type ActionInvocationEvidence = {
   /** The MCP client accepted this exact call's approval elicitation. */
   mcpClientAccepted?: true;
   auditOverride?: AuditOverride;
+  /** When the grant the person approved on the review page was asked for. */
+  approvalAskedAt?: number;
   /** An admitted MCP user-turn grant covers this call, so provider gates may
    *  treat it as the person's own foreground turn. */
   providerInteractive?: true;
@@ -137,6 +139,36 @@ export function currentInvocationEvidence():
   | undefined {
   const frame = actionExecutionStorage?.getStore()?.frame;
   return frame ? held.get(frame) : undefined;
+}
+
+/**
+ * What approved the action call running now over MCP: the person on the
+ * app's review page, or the client's own approval prompt. Undefined when
+ * nothing did, and in any call nested in it, which runs in its own frame.
+ * Read-only: it reports what the dispatcher vouched for, nothing a call sent.
+ */
+export function currentActionApproval():
+  | "mcp-review-page"
+  | "mcp-client"
+  | undefined {
+  const evidence = currentInvocationEvidence();
+  if (evidence?.auditOverride?.approval === "mcp-review") {
+    return "mcp-review-page";
+  }
+  return evidence?.mcpClientAccepted ? "mcp-client" : undefined;
+}
+
+/**
+ * When the person was asked for the review-page approval of the action call
+ * running now, in epoch milliseconds: its grant's creation time, which is
+ * when its notice was written. Undefined unless the review page approved
+ * this call and its grant recorded the time.
+ */
+export function currentActionApprovalAskedAt(): number | undefined {
+  const evidence = currentInvocationEvidence();
+  return evidence?.auditOverride?.approval === "mcp-review"
+    ? evidence.approvalAskedAt
+    : undefined;
 }
 
 /**

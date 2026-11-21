@@ -105,6 +105,8 @@ export interface McpApprovalReview {
   priorRun: McpApprovalPriorRun | undefined;
   /** The arguments as the grant stored them, for the prompt's summary. */
   argumentsJson: string | null;
+  /** The action's `approvalNotice` for this call; absent when it gave none. */
+  notice?: string;
 }
 
 export function canonicalJson(value: unknown): string {
@@ -754,7 +756,12 @@ export async function runMcpActionCallUnredacted(
       approval?.by === "client"
         ? { mcpClientAccepted: true as const }
         : approval?.by === "review-page"
-          ? { auditOverride: { approval: "mcp-review" as const } }
+          ? {
+              auditOverride: { approval: "mcp-review" as const },
+              ...(typeof approval.askedAt === "number"
+                ? { approvalAskedAt: approval.askedAt }
+                : {}),
+            }
           : undefined;
     try {
       const result = await runPreparedActionCall(
@@ -945,6 +952,7 @@ interface McpCallApproval {
   /** `client` answered its form prompt; a person approved on the `review-page`. */
   by: "client" | "review-page";
   nonce: string;
+  askedAt?: number | null;
 }
 
 type McpApprovalRefusal = McpActionCallRefusal<
@@ -994,15 +1002,31 @@ async function authorizeApproval(
     getRequestContext()?.userEmail ??
     verifiedIdentityEmail ??
     getRequestUserEmail();
+  const approvalContext: ActionRunContext = {
+    ...(approvalUserEmail ? { userEmail: approvalUserEmail } : {}),
+    orgId: getRequestOrgId() ?? null,
+    ...(context.appId ? { appId: context.appId } : {}),
+    caller: "mcp",
+    actionName: name,
+  };
+  const reviewPageProof = entry.approvalProof === "review-page";
+  const deciding = reviewPageProof ? { noApprovalsMode: false as const } : {};
+  const mcpAsks = () =>
+    preparedCallNeedsApproval(
+      entry.mcpNeedsApproval ? { needsApproval: entry.mcpNeedsApproval } : {},
+      prepared,
+      approvalContext,
+      deciding,
+    );
   if (
     direct &&
-    (await preparedCallClearsReview(entry, prepared, {
-      ...(approvalUserEmail ? { userEmail: approvalUserEmail } : {}),
-      orgId: getRequestOrgId() ?? null,
-      ...(context.appId ? { appId: context.appId } : {}),
-      caller: "mcp",
-      actionName: name,
-    }))
+    (await preparedCallClearsReview(
+      entry,
+      prepared,
+      approvalContext,
+      deciding,
+    )) &&
+    !(await mcpAsks())
   ) {
     return { status: "authorized" };
   }
@@ -1049,7 +1073,7 @@ async function authorizeApproval(
     // store checks the grant's own expiry, so only the prompt's answers end
     // with the prompt.
     const promptOpen = verifiedState.expiresAt >= Date.now();
-    if (verifiedState.mode !== "url" && promptOpen) {
+    if (verifiedState.mode !== "url" && promptOpen && !reviewPageProof) {
       const decision = call.approval?.decision();
       if (decision === "approve") {
         if (!(await consumeMcpApprovalGrant(grant))) {
@@ -1075,7 +1099,11 @@ async function authorizeApproval(
     if (reviewed) {
       return {
         status: "authorized",
-        approval: { by: "review-page", nonce: reviewed.nonce },
+        approval: {
+          by: "review-page",
+          nonce: reviewed.nonce,
+          askedAt: reviewed.createdAt,
+        },
       };
     }
     if (!promptOpen) return approvalDenied(spent);
@@ -1113,24 +1141,25 @@ async function authorizeApproval(
       entry,
       prepared,
       grant,
+      approvalContext,
     );
     return { status: "approval-pending", reason: "declined", review };
   }
 
-  if (!pageApprovalOnly && entry.needsApproval === undefined) {
+  if (
+    !pageApprovalOnly &&
+    entry.needsApproval === undefined &&
+    entry.mcpNeedsApproval === undefined
+  ) {
     return { status: "authorized" };
   }
-  const mustApprove = await preparedCallNeedsApproval(
-    pageApprovalOnly ? { ...entry, needsApproval: true } : entry,
-    prepared,
-    {
-      ...(approvalUserEmail ? { userEmail: approvalUserEmail } : {}),
-      orgId: getRequestOrgId() ?? null,
-      ...(context.appId ? { appId: context.appId } : {}),
-      caller: "mcp",
-      actionName: name,
-    },
-  );
+  const mustApprove =
+    (await preparedCallNeedsApproval(
+      pageApprovalOnly ? { ...entry, needsApproval: true } : entry,
+      prepared,
+      approvalContext,
+      deciding,
+    )) || (await mcpAsks());
   if (!mustApprove) return { status: "authorized" };
 
   if (!hasVerifiedUserIdentity) {
@@ -1156,7 +1185,11 @@ async function authorizeApproval(
   if (reviewed) {
     return {
       status: "authorized",
-      approval: { by: "review-page", nonce: reviewed.nonce },
+      approval: {
+        by: "review-page",
+        nonce: reviewed.nonce,
+        askedAt: reviewed.createdAt,
+      },
     };
   }
   const { approval, review } = await createApprovalGrant(
@@ -1164,6 +1197,7 @@ async function authorizeApproval(
     entry,
     prepared,
     exactCall,
+    approvalContext,
   );
   return { status: "approval-required", approval, review };
 }
@@ -1173,6 +1207,7 @@ async function createApprovalGrant(
   entry: ActionEntry,
   prepared: PreparedActionCall,
   call: McpApprovalCall,
+  approvalContext: ActionRunContext,
 ): Promise<{
   approval: Readonly<McpActionApprovalState>;
   review: Readonly<McpApprovalReview>;
@@ -1194,6 +1229,7 @@ async function createApprovalGrant(
       `${call.actionName} requires approval from a verified user identity.`,
     );
   }
+  const notice = await approvalNoticeFor(entry, prepared, approvalContext);
   const priorRun = await findPriorApprovedRun(call, retrySafe);
   await createMcpApprovalGrant({
     ...approval,
@@ -1204,6 +1240,7 @@ async function createApprovalGrant(
     argumentsJson,
     oauthClientId: context.identity?.oauthClientId,
     retrySafe,
+    approvalNotice: notice,
   });
   return {
     approval: Object.freeze(approval),
@@ -1213,8 +1250,28 @@ async function createApprovalGrant(
       expiresAt: approval.expiresAt,
       priorRun,
       argumentsJson,
+      ...(notice ? { notice } : {}),
     }),
   };
+}
+
+async function approvalNoticeFor(
+  entry: ActionEntry,
+  prepared: PreparedActionCall,
+  context: ActionRunContext,
+): Promise<string | undefined> {
+  if (!entry.approvalNotice) return undefined;
+  const notice: unknown = await entry.approvalNotice(
+    preparedCallArguments(prepared),
+    context,
+  );
+  if (notice === undefined) return undefined;
+  if (typeof notice !== "string") {
+    throw new TypeError(
+      `${context.actionName ?? "The action"}'s approvalNotice returned ${typeof notice}, not text.`,
+    );
+  }
+  return notice.trim() || undefined;
 }
 
 /**

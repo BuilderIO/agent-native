@@ -1751,4 +1751,41 @@ describe("MCP action approval grants", () => {
     );
     expect(run).toHaveBeenCalledTimes(1);
   });
+
+  it("never runs a review-page-proof action on a form answer, even one its state allows", async () => {
+    const run = vi.fn(async () => ({ rows: 1 }));
+    const callable = {
+      read: entry({
+        mcpNeedsApproval: () => true,
+        approvalProof: "review-page",
+        run,
+      }),
+    };
+    await runUnredacted(callable, "read", {});
+    const [grant] = [...grants.values()];
+
+    const outcome = await runUnredacted(
+      callable,
+      "read",
+      {},
+      formAnswer(grant, "approve"),
+    );
+    expect(outcome).toMatchObject({
+      status: "approval-pending",
+      reason: "declined",
+    });
+    expect(store.consumeMcpApprovalGrant).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+
+    if (outcome.status !== "approval-pending") return;
+    store.consumeReviewedMcpApprovalGrant.mockResolvedValueOnce({
+      nonce: outcome.review.nonce,
+      status: "approved",
+    } as approvalStore.McpApprovalRecord);
+    await expect(runUnredacted(callable, "read", {})).resolves.toMatchObject({
+      status: "ran",
+      result: { rows: 1 },
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });
