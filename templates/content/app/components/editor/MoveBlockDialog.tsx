@@ -210,10 +210,16 @@ function MoveBlockDialog({
     ],
   });
 
+  const recentEntries = recent.data?.entries ?? [];
+  const collectionPages = new Set(
+    recentEntries
+      .filter((entry) => entry.target.databaseId)
+      .map((entry) => entry.target.documentId),
+  );
   const targets: MoveTarget[] =
     query === ""
-      ? (recent.data?.entries ?? [])
-          .filter((entry) => !entry.target.databaseId)
+      ? recentEntries
+          .filter((entry) => !collectionPages.has(entry.target.documentId))
           .map((entry) => ({
             id: entry.target.documentId,
             title: entry.title,

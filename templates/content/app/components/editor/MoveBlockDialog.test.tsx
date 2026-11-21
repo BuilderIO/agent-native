@@ -60,6 +60,7 @@ const recentPages = vi.hoisted(() => ({
         title: "Inventory",
         icon: null,
       },
+      { target: { documentId: "db-2" }, title: "Inventory", icon: null },
     ],
   },
 }));
@@ -201,7 +202,7 @@ describe("useMoveBlock", () => {
     return found;
   };
 
-  it("lists recent pages, leaving out this page, collections and saved views", () => {
+  it("lists recent pages, leaving out this page, collections, saved views and a page since made a collection", () => {
     const target = mount([paragraph("Keep"), paragraph("Move me")]);
     startMoving(target, 1);
 
