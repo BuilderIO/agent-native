@@ -147,6 +147,11 @@ const PLAIN: TextStyle = {
   href: null,
 };
 
+function inset(box: Box, by: number): Box {
+  const shift = Math.max(Math.min(by, box.width - MIN_TEXT_WIDTH), 0);
+  return { ...box, x: box.x + shift, width: box.width - shift };
+}
+
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
   return index >= 0 && index < items.length ? items[index] : undefined;
 }
@@ -548,7 +553,7 @@ class PdfLayout {
     render: (inner: Box, onFirstLine: FirstLine) => void,
   ) {
     const starts: Array<{ page: number; y: number }> = [];
-    render({ ...box, x: box.x + 14, width: box.width - 14 }, (top) => {
+    render(inset(box, 14), (top) => {
       if (!starts.length) starts.push({ page: this.canvas.page, y: top });
     });
     const start = itemAt(starts, 0);
@@ -908,7 +913,7 @@ class PdfLayout {
       if (children.length) {
         this.blocks(
           children,
-          { ...shifted, x: shifted.x + INDENT, width: shifted.width - INDENT },
+          inset(shifted, INDENT),
           title.length ? undefined : onFirstLine,
         );
       }
