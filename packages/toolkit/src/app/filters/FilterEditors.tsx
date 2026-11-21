@@ -262,7 +262,7 @@ function FilterDateInput({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-8 min-w-0 shrink-0 gap-1 px-2 font-normal text-muted-foreground"
+            className="min-w-0 shrink-0 gap-1 text-muted-foreground"
             aria-label={
               shown === label
                 ? undefined
