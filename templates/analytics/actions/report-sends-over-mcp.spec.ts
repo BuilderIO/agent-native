@@ -47,6 +47,8 @@ type Run = (
 
 const { WRITE_RECEIPTS_MIGRATION_SQL } =
   await import("../server/lib/write-receipts-migration");
+const { queueDashboardReportSubscriptionNow } =
+  await import("../server/lib/dashboard-report-subscriptions");
 const sendNow = (await import("./send-dashboard-report-now")).default
   .run as unknown as Run;
 const save = (await import("./save-dashboard-report-subscription")).default
@@ -190,6 +192,26 @@ describe("send-dashboard-report-now over MCP", () => {
       sendNow({ id: "weekly", idempotencyKey: "send-2" }, MCP),
     ).rejects.toThrow("Report subscription not found");
     expect(await seededRow()).toMatchObject({ enabled: false });
+    expect(await receiptIds()).toEqual([]);
+    expect(harness.sweep).not.toHaveBeenCalled();
+  });
+
+  it("queues only the named subscription, never every one the caller owns", async () => {
+    await client.query(
+      `INSERT INTO dashboard_report_subscriptions (id, dashboard_id, name, recipients, filters, frequency, time_of_day, timezone, enabled, created_at, updated_at, owner_email, org_id)
+       VALUES ('monthly', $1, 'Monthly', $2, '{}', 'daily', '09:00', 'UTC', false, $3, $3, $4, NULL)`,
+      [DASHBOARD, JSON.stringify([ALICE]), SEED_AT, ALICE],
+    );
+    await expect(
+      sendNow({ id: "", idempotencyKey: "send-3" }, MCP),
+    ).rejects.toThrow("Invalid action parameters");
+    await expect(
+      queueDashboardReportSubscriptionNow("", { email: ALICE, orgId: null }),
+    ).resolves.toBeNull();
+    const { rows } = await client.query(
+      "SELECT id FROM dashboard_report_subscriptions WHERE enabled",
+    );
+    expect(rows).toEqual([]);
     expect(await receiptIds()).toEqual([]);
     expect(harness.sweep).not.toHaveBeenCalled();
   });

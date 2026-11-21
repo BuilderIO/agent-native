@@ -61,7 +61,7 @@ export default defineAction({
   description:
     "Queue a dashboard email report subscription to send immediately to its saved recipients.",
   schema: z.object({
-    id: z.string().describe("Subscription ID to send now"),
+    id: z.string().min(1).describe("Subscription ID to send now"),
     idempotencyKey: idempotencyKeyArg,
   }),
   http: { method: "POST" },

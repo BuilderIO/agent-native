@@ -745,12 +745,16 @@ export async function queueDashboardReportSubscriptionNow(
 ): Promise<DashboardReportSubscription | null> {
   const db = getDb() as any;
   const queuedAt = now.toISOString();
+  const target = and(
+    ownerWhere(ctx),
+    eq(schema.dashboardReportSubscriptions.id, id),
+  );
   return db.transaction(async (tx: AnalyticsTransaction) => {
     const existing = firstRow(
       await tx
         .select({ updatedAt: schema.dashboardReportSubscriptions.updatedAt })
         .from(schema.dashboardReportSubscriptions)
-        .where(ownerWhere(ctx, undefined, id))
+        .where(target)
         .for("update"),
     );
     if (!existing) return null;
@@ -763,7 +767,7 @@ export async function queueDashboardReportSubscriptionNow(
         lastError: null,
         updatedAt: queuedAt,
       })
-      .where(ownerWhere(ctx, undefined, id))
+      .where(target)
       .returning();
     await onCommit?.(tx, {
       before: existing.updatedAt,
