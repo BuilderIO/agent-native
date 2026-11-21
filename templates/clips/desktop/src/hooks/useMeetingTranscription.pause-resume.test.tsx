@@ -1005,6 +1005,20 @@ describe("meeting transcription pause and resume", () => {
     );
   });
 
+  it("toggles pause from a bare clips://pause during a meeting", async () => {
+    await act(async () => {
+      root.render(createElement(Harness, { localModel: "parakeet" }));
+      await settle();
+    });
+    await dispatch("meetings:start-transcription", { meetingId: "meeting-1" });
+
+    await dispatch("clips:recorder-toggle-pause");
+    expect(mocks.stopTranscriptionEngine).toHaveBeenCalledTimes(1);
+    expect(mocks.restartTranscriptionEngine).not.toHaveBeenCalled();
+    await dispatch("clips:recorder-toggle-pause");
+    expect(mocks.restartTranscriptionEngine).toHaveBeenCalledTimes(1);
+  });
+
   it("pauses the engine selected after startup fallback", async () => {
     const engineStart = deferred<"whisper" | "macos-native">();
     mocks.startTranscriptionEngine.mockReturnValueOnce(engineStart.promise);

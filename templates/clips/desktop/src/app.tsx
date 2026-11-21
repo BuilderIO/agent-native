@@ -252,7 +252,9 @@ import {
 } from "./lib/recording-request";
 import {
   listenForRecordingShortcutStopAcks,
+  listenForStopLinks,
   requestRecordingShortcutStop,
+  stopRecordingFromLink,
 } from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
@@ -1354,6 +1356,7 @@ export function App({
     view: popoverView,
   };
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
+  const stopLinkHandlerRef = useRef<(recording: number) => void>(() => {});
   const handleStartRecordingRef = useRef<
     (options?: {
       resumeCapture?: RestartHandoff;
@@ -4668,6 +4671,31 @@ export function App({
     beginRecording(undefined, { revealPopoverIfMicOff: true });
   };
 
+  stopLinkHandlerRef.current = (recording) => {
+    void stopRecordingFromLink(Boolean(recorder), recording).catch((error) => {
+      console.error("[clips] Stop link failed:", error);
+    });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlistenStopLink: (() => void) | undefined;
+    void listenForStopLinks((recording) => {
+      stopLinkHandlerRef.current(recording);
+    })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenStopLink = unlisten;
+      })
+      .catch((error) => {
+        console.error("[clips] stop link listener failed:", error);
+      });
+    return () => {
+      cancelled = true;
+      unlistenStopLink?.();
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let unlistenAcks: (() => void) | undefined;
@@ -6978,6 +7006,8 @@ function Setup({
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
   const showInScreenCapture = featureConfig?.showInScreenCapture === true;
+  const controlLinksStartCapture =
+    featureConfig?.controlLinksStartCapture === true;
   const localRecordingMode = featureConfig?.localRecordingMode ?? "off";
   const observedScreenMemory =
     featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
@@ -7180,6 +7210,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, autoHidePopoverEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setControlLinksStartCapture(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, controlLinksStartCapture: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -8983,6 +9022,17 @@ function Setup({
                 checked={showInScreenCapture}
                 onCheckedChange={setShowInScreenCapture}
                 label="Show Clips in screen captures"
+              />
+            }
+          />
+          <SettingsRow
+            label="Allow control links to start dictation"
+            description="Lets clips:// links (Stream Deck, launchers) start dictation. Links that stop or pause always work."
+            control={
+              <SettingsSwitch
+                checked={controlLinksStartCapture}
+                onCheckedChange={setControlLinksStartCapture}
+                label="Allow control links to start dictation"
               />
             }
           />

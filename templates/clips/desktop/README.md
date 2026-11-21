@@ -149,6 +149,25 @@ screen says so and links straight to that setting.
 
 Clips registers itself to open at login by default, then runs quietly in the menu bar / system tray. Users can turn this off from Settings -> Open at login.
 
+## Control links (`clips://`)
+
+Each link works as one Stream Deck or launcher button. Control links act
+without opening the popover, so the app in front keeps focus.
+
+| Link                                                | What it does                                             |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| `clips://pause`                                     | Toggles pause (`?state=on` pauses, `?state=off` resumes) |
+| `clips://stop`                                      | Stops the running recording                              |
+| `clips://restart`, `clips://cancel`                 | Ask in the recording bar first                           |
+| `clips://dictate?mode=hands-free`                   | Starts dictation; the next press (or Escape) stops it    |
+| `clips://dictate?mode=push&state=down` / `state=up` | Push-to-talk between the two links                       |
+
+Links that start dictation are off by default. Turn on **Settings -> Window ->
+Allow control links to start dictation** to use the dictate links to start.
+With it off, a dictate link can still stop a dictation you started; a link
+that would start one is ignored and logged, with a one-time notification
+pointing to the setting.
+
 ## Manual TODOs before shipping
 
 - Replace `src-tauri/icons/tray.png` with a real 16×16 (and 32×32 @2x) monochrome PNG. The default placeholder is a plain purple square so the app still compiles out of the box.

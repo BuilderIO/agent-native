@@ -2128,6 +2128,356 @@ describe("desktop voice dictation runs", () => {
       },
     );
   });
+
+  describe("clips://dictate links", () => {
+    const calls = (command: string) =>
+      tauri.invoke.mock.calls.filter(([c]) => c === command).length;
+
+    async function install(
+      mode: "push-to-talk" | "toggle",
+      shortcut: "fn" | "both" = "both",
+    ) {
+      setPlatform("MacIntel");
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
+      dispose = installDesktopVoiceDictation({
+        enabled: true,
+        serverUrl: "https://clips.test",
+        shortcut,
+        mode,
+        engine: "native",
+        polish: "off",
+      });
+      await settle();
+    }
+
+    it("push-to-talk link runs between down and up, even in toggle mode", async () => {
+      await install("toggle", "fn");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      await dispatch("voice:shortcut-stop", { source: "link" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+    });
+
+    it("hands-free link keeps going past a key-up and stops on the next press", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      expect(tauri.invoke).toHaveBeenCalledWith("set_dictation_escape_active", {
+        active: true,
+      });
+      await dispatch("voice:shortcut-stop", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(0);
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+    });
+
+    it("a stop-only push link stops a toggle-mode dictation the user started", async () => {
+      // With link starts off (or during any run it didn't start), native
+      // sends the press stop-only.
+      await install("toggle");
+      await dispatch("voice:shortcut-start", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      await dispatch("voice:shortcut-start", {
+        source: "link",
+        stopOnly: true,
+      });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      // Its up stops nothing more and starts nothing.
+      await dispatch("voice:shortcut-stop", { source: "link", heldMs: 400 });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+    });
+
+    it("a push-to-talk link stops a hands-free dictation and its up starts nothing", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      await dispatch("voice:shortcut-stop", { source: "link" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+    });
+
+    it("a stop-only push link press starts nothing", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", {
+        source: "link",
+        stopOnly: true,
+      });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(0);
+      await dispatch("voice:shortcut-stop", { source: "link" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(0);
+    });
+
+    it("a stop-only push link press still stops a hands-free dictation", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      await dispatch("voice:shortcut-start", {
+        source: "link",
+        stopOnly: true,
+      });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+    });
+
+    // The engine is slow to start, so a link press is still starting.
+    function slowNativeStart() {
+      tauri.invoke.mockImplementation((command) =>
+        command === "native_speech_start"
+          ? new Promise<undefined>(() => {})
+          : Promise.resolve(
+              command === "complete_voice_dictation" ? "inserted" : undefined,
+            ),
+      );
+    }
+
+    it("an early link up isn't read as the key's first hands-free tap", async () => {
+      slowNativeStart();
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(10);
+      await dispatch("voice:shortcut-stop", { source: "link" });
+      await vi.advanceTimersByTimeAsync(10);
+      await dispatch("voice:shortcut-start", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "set_dictation_escape_active",
+        { active: true },
+      );
+    });
+
+    it("a key that natively took over a starting link press can stop it", async () => {
+      slowNativeStart();
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(10);
+      const stopsBefore =
+        calls("native_speech_stop") + calls("native_speech_cancel");
+      await dispatch("voice:shortcut-start", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(10);
+      await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 600 });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(
+        calls("native_speech_stop") + calls("native_speech_cancel"),
+      ).toBeGreaterThan(stopsBefore);
+    });
+
+    it("a hands-free press during a start that hangs disarms Escape", async () => {
+      // Win32 uses the server engine, whose microphone request hangs here
+      // before any session exists.
+      vi.spyOn(navigator.mediaDevices, "getUserMedia").mockImplementation(
+        () => new Promise<MediaStream>(() => {}),
+      );
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
+      dispose = installDesktopVoiceDictation({
+        enabled: true,
+        serverUrl: "https://clips.test",
+        shortcut: "both",
+        mode: "push-to-talk",
+        engine: "native",
+        polish: "off",
+      });
+      await settle();
+      const escape = () =>
+        tauri.invoke.mock.calls.filter(
+          ([command]) => command === "set_dictation_escape_active",
+        );
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)).toEqual([
+        "set_dictation_escape_active",
+        { active: true },
+      ]);
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)).toEqual([
+        "set_dictation_escape_active",
+        { active: false },
+      ]);
+    });
+
+    it("a brief push-to-talk link press is a discarded tap", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(120);
+      await dispatch("voice:shortcut-stop", { source: "link", heldMs: 120 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls("native_speech_start")).toBe(1);
+      expect(calls("native_speech_stop")).toBe(0);
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
+    it("a brief push-to-talk link press is a discarded tap in toggle mode too", async () => {
+      await install("toggle");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(120);
+      await dispatch("voice:shortcut-stop", { source: "link", heldMs: 120 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls("native_speech_start")).toBe(1);
+      expect(calls("native_speech_stop")).toBe(0);
+      expect(calls("show_flow_bar")).toBe(0);
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
+    it("tells native its dictation listener is gone on teardown", async () => {
+      await install("push-to-talk");
+      const take = tauri.invoke.mock.calls.find(
+        ([command]) => command === "take_pending_dictate_link",
+      );
+      expect(take?.[1]).toEqual({ listener: expect.any(String) });
+      dispose?.();
+      dispose = undefined;
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "dictation_listener_gone",
+        take?.[1],
+      );
+    });
+
+    it("leaves a hands-free link held at startup for an enabled install", async () => {
+      tauri.invoke.mockImplementation((command) =>
+        Promise.resolve(
+          command === "take_pending_dictate_link"
+            ? true
+            : command === "complete_voice_dictation"
+              ? "inserted"
+              : undefined,
+        ),
+      );
+      setPlatform("MacIntel");
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
+      const options = {
+        serverUrl: "https://clips.test",
+        shortcut: "both" as const,
+        mode: "push-to-talk" as const,
+        engine: "native" as const,
+        polish: "off" as const,
+      };
+      dispose = installDesktopVoiceDictation({ ...options, enabled: false });
+      await settle();
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("take_pending_dictate_link")).toBe(0);
+      dispose();
+      dispose = installDesktopVoiceDictation({ ...options, enabled: true });
+      await settle();
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("take_pending_dictate_link")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+    });
+
+    it("a push link that stops a hands-free start that hangs disarms Escape", async () => {
+      // Win32 uses the server engine, whose microphone request hangs here
+      // before any session exists.
+      vi.spyOn(navigator.mediaDevices, "getUserMedia").mockImplementation(
+        () => new Promise<MediaStream>(() => {}),
+      );
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
+      dispose = installDesktopVoiceDictation({
+        enabled: true,
+        serverUrl: "https://clips.test",
+        shortcut: "both",
+        mode: "push-to-talk",
+        engine: "native",
+        polish: "off",
+      });
+      await settle();
+      const escape = () =>
+        tauri.invoke.mock.calls.filter(
+          ([command]) => command === "set_dictation_escape_active",
+        );
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)?.[1]).toEqual({ active: true });
+      await dispatch("voice:shortcut-start", {
+        source: "link",
+        stopOnly: true,
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)?.[1]).toEqual({ active: false });
+    });
+
+    it("a key press during a hands-free start that hangs disarms Escape", async () => {
+      // Win32 uses the server engine, whose microphone request hangs here
+      // before any session exists.
+      vi.spyOn(navigator.mediaDevices, "getUserMedia").mockImplementation(
+        () => new Promise<MediaStream>(() => {}),
+      );
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
+      dispose = installDesktopVoiceDictation({
+        enabled: true,
+        serverUrl: "https://clips.test",
+        shortcut: "both",
+        mode: "push-to-talk",
+        engine: "native",
+        polish: "off",
+      });
+      await settle();
+      const escape = () =>
+        tauri.invoke.mock.calls.filter(
+          ([command]) => command === "set_dictation_escape_active",
+        );
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)?.[1]).toEqual({ active: true });
+      await dispatch("voice:shortcut-start", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)?.[1]).toEqual({ active: false });
+    });
+
+    it("asks for a hands-free link held at startup once its listener is up", async () => {
+      tauri.invoke.mockImplementation((command) =>
+        Promise.resolve(
+          command === "take_pending_dictate_link"
+            ? true
+            : command === "complete_voice_dictation"
+              ? "inserted"
+              : undefined,
+        ),
+      );
+      await install("push-to-talk");
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("take_pending_dictate_link")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+      expect(tauri.invoke).toHaveBeenCalledWith("set_dictation_escape_active", {
+        active: true,
+      });
+    });
+
+    it("starts nothing when no hands-free link was held at startup", async () => {
+      await install("push-to-talk");
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("take_pending_dictate_link")).toBe(1);
+      expect(calls("native_speech_start")).toBe(0);
+    });
+  });
 });
 
 describe("parakeetUnavailableReason", () => {

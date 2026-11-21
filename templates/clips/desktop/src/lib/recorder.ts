@@ -32,6 +32,7 @@ import {
   shouldRequestSystemAudio,
 } from "./media-capture-constraints";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
+import { listenForPauseLinks, takePauseLinkOnInstall } from "./pause-link";
 import {
   createPauseTransitionQueue,
   type PauseTransitionQueue,
@@ -3666,6 +3667,7 @@ async function tryStartRewindFullscreenRecording(
     },
   });
   stateUnlistens = await Promise.all([
+    listenForPauseLinks(),
     listen("clips:recorder-pause", () => pauseQueue?.request(true)),
     listen("clips:recorder-resume", () => pauseQueue?.request(false)),
     listen("clips:recorder-toggle-pause", () =>
@@ -3698,6 +3700,7 @@ async function tryStartRewindFullscreenRecording(
       emitState();
     }),
   ]);
+  takePauseLinkOnInstall();
   tickHandle = window.setInterval(emitState, 500);
   emit("clips:toolbar-sync").catch(() => {});
   emit("clips:toolbar-enabled", true).catch(() => {});
@@ -4465,6 +4468,7 @@ async function startNativeFullscreenRecording(
   });
 
   const toolbarUnlistens = await Promise.all([
+    listenForPauseLinks(),
     listen("clips:recorder-pause", () => {
       pauseQueue?.request(true);
     }),
@@ -4501,6 +4505,7 @@ async function startNativeFullscreenRecording(
       emitState();
     }),
   ]);
+  takePauseLinkOnInstall();
   stateUnlistens = toolbarUnlistens;
   tickHandle = setInterval(emitState, 500);
   startSegmentRotator();
@@ -5155,6 +5160,7 @@ async function startRecordingInner(
       }
 
       const toolbarUnlistens = await Promise.all([
+        listenForPauseLinks(),
         listen("clips:recorder-pause", () => {
           localExport.pause();
           pausedAt = Date.now();
@@ -5216,6 +5222,7 @@ async function startRecordingInner(
           emitState(pausedAt != null);
         }),
       ]);
+      takePauseLinkOnInstall();
       stateUnlistens = toolbarUnlistens;
       emit("clips:toolbar-sync").catch(() => {});
 
@@ -5568,6 +5575,7 @@ async function startRecordingInner(
     }
 
     const toolbarUnlistens = await Promise.all([
+      listenForPauseLinks(),
       listen("clips:recorder-pause", () => {
         if (recorder.state === "recording") {
           try {
@@ -5681,6 +5689,7 @@ async function startRecordingInner(
         emitState(pausedAt != null);
       }),
     ]);
+    takePauseLinkOnInstall();
     stateUnlistens = toolbarUnlistens;
     emit("clips:toolbar-sync").catch(() => {});
 

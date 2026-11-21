@@ -948,6 +948,19 @@ export function RecordingPill() {
         }));
       }),
     );
+    // clips://restart asks the same "Start a new recording?" question as the
+    // toolbar's restart button.
+    track(
+      safeListen("clips:recorder-restart-request", () => {
+        if (!recordingActive) return;
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+        setConfirmRequest((previous) => ({
+          intent: "restart",
+          token: (previous?.token ?? 0) + 1,
+        }));
+      }),
+    );
     track(
       safeListen<RecorderSession>("clips:recorder-session", (payload) => {
         const nextMicrophoneEnabled =

@@ -10,6 +10,7 @@ mod capture_graph;
 mod clips;
 mod config;
 mod debug;
+mod deep_links;
 mod echo_guard;
 mod eventkit;
 mod logfile;
@@ -183,6 +184,27 @@ fn present_popover(app: &tauri::AppHandle) {
         configure_overlay_behavior(&window);
         position_popover(app, &window);
         present_interactive_window(&window);
+    }
+}
+
+/// Control links (pause, stop, dictate) act without opening the popover, so
+/// the app in front keeps focus; every other link opens it as before.
+/// `at_launch`: the links that launched the app, routed during setup before
+/// any frontend listener exists.
+fn route_deep_links(app: &tauri::AppHandle, urls: Vec<String>, at_launch: bool) {
+    let mut for_popover = Vec::new();
+    for url in urls {
+        match deep_links::parse_control_link(&url) {
+            Some(link) if at_launch && !deep_links::acts_at_launch(link) => {
+                dlog!("[clips-tray] {url} ignored at launch: no recording runs yet");
+            }
+            Some(link) => deep_links::handle_control_link(app, link),
+            None => for_popover.push(url),
+        }
+    }
+    if !for_popover.is_empty() {
+        present_popover(app);
+        let _ = app.emit("clips:deep-link", for_popover);
     }
 }
 
@@ -389,6 +411,11 @@ pub fn run() {
             shortcuts::set_custom_shortcuts,
             shortcuts::set_fn_shortcut_enabled,
             shortcuts::set_dictation_escape_active,
+            shortcuts::take_pending_dictate_link,
+            shortcuts::dictation_listener_gone,
+            tray::take_pending_stop_link,
+            tray::stop_link_recording_current,
+            tray::take_pending_pause_link,
             whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
@@ -483,8 +510,7 @@ pub fn run() {
                 app.deep_link().on_open_url(move |event| {
                     let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link opened: {:?}", urls);
-                    present_popover(&dl_handle);
-                    let _ = dl_handle.emit("clips:deep-link", urls);
+                    route_deep_links(&dl_handle, urls, false);
                 });
                 #[cfg(any(windows, target_os = "linux"))]
                 if let Err(err) = app.deep_link().register_all() {
@@ -493,8 +519,7 @@ pub fn run() {
                 if let Ok(Some(urls)) = app.deep_link().get_current() {
                     let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
-                    present_popover(app.handle());
-                    let _ = app.handle().emit("clips:deep-link", url_strings);
+                    route_deep_links(app.handle(), url_strings, true);
                 }
             }
 
