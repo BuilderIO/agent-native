@@ -2178,8 +2178,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription": "आपके सभी डिवाइस पर लागू होता है।",
   "settingsShell.account.appearance": "रूप-रंग",
   "settingsShell.account.theme": "थीम",
-  "settingsShell.account.themeDescription":
-    "सिस्टम आपके कंप्यूटर की लाइट या डार्क सेटिंग का पालन करता है।",
   "settingsShell.account.themeSystem": "सिस्टम",
   "settingsShell.account.themeLight": "लाइट",
   "settingsShell.account.themeDark": "डार्क",

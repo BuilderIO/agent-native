@@ -39,7 +39,14 @@ import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute, useTheme } from "next-themes";
-import React, { useContext, useEffect, useLayoutEffect, useRef } from "react";
+import React, {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
@@ -68,6 +75,10 @@ import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
   typeof isFirstRunOnboardingEnabled
 >[1];
+import {
+  HostedThemeChoiceContext,
+  type HostedThemeChoice,
+} from "./theme-choice.js";
 import {
   THEME_FAMILY_PENDING_ATTRIBUTE,
   THEME_FAMILY_PREPAINT_STYLE,
@@ -418,27 +429,63 @@ function readDocumentTitleFallback(): string {
   return normalizeDocumentTitle(metadataTitle, "Agent-Native");
 }
 
-function readStoredTheme(key: string): string | null {
+type StoredThemeRead =
+  | { readable: true; value: string | null }
+  | { readable: false };
+
+function readStoredTheme(key: string): StoredThemeRead {
   try {
-    return window.localStorage.getItem(key);
-    // coercion-ok: unreadable storage holds no saved choice to keep.
-  } catch {
-    return null;
+    return { readable: true, value: window.localStorage.getItem(key) };
+  } catch (error) {
+    console.warn(`Couldn't read the saved theme under "${key}".`, error);
+    return { readable: false };
   }
 }
 
-function writeStoredTheme(key: string, value: string | null) {
+function writeStoredTheme(key: string, value: string | null): void {
   try {
     if (value === null) window.localStorage.removeItem(key);
     else window.localStorage.setItem(key, value);
-    // coercion-ok: blocked storage only loses the saved choice for next visit.
-  } catch {
-    return;
+  } catch (error) {
+    console.warn(`Couldn't save the theme under "${key}".`, error);
   }
 }
 
-function EmbeddedThemeSync({ storageKey }: { storageKey: string }) {
-  const { setTheme } = useTheme();
+function EmbeddedThemeSync({
+  storageKey,
+  children,
+}: {
+  storageKey: string;
+  children: React.ReactNode;
+}) {
+  const { theme, setTheme } = useTheme();
+  const [hostedFrom, setHostedFrom] = useState<{
+    savedChoice: string | undefined;
+  } | null>(null);
+  const themeRef = useRef(theme);
+  const hostVarNamesRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    themeRef.current = theme;
+  }, [theme]);
+
+  const hosted = useMemo<HostedThemeChoice | null>(
+    () =>
+      hostedFrom
+        ? {
+            savedChoice: hostedFrom.savedChoice,
+            release: () => {
+              const root = document.documentElement;
+              for (const name of hostVarNamesRef.current) {
+                root.style.removeProperty(name);
+              }
+              hostVarNamesRef.current.clear();
+              setHostedFrom(null);
+            },
+          }
+        : null,
+    [hostedFrom],
+  );
 
   useEffect(() => {
     const applyUpdate = (
@@ -446,9 +493,13 @@ function EmbeddedThemeSync({ storageKey }: { storageKey: string }) {
     ) => {
       if (!update) return;
       applyEmbeddedThemeUpdate(document.documentElement, update);
+      for (const name of Object.keys(update.vars ?? {})) {
+        hostVarNamesRef.current.add(name);
+      }
+      setHostedFrom((current) => current ?? { savedChoice: themeRef.current });
       const savedChoice = readStoredTheme(storageKey);
       setTheme(update.theme);
-      writeStoredTheme(storageKey, savedChoice);
+      if (savedChoice.readable) writeStoredTheme(storageKey, savedChoice.value);
     };
 
     const onMessage = (event: MessageEvent) => {
@@ -469,7 +520,11 @@ function EmbeddedThemeSync({ storageKey }: { storageKey: string }) {
     };
   }, [setTheme, storageKey]);
 
-  return null;
+  return (
+    <HostedThemeChoiceContext.Provider value={hosted}>
+      {children}
+    </HostedThemeChoiceContext.Provider>
+  );
 }
 
 function StartupThemeKeySync({ storageKey }: { storageKey: string }) {
@@ -480,7 +535,11 @@ function StartupThemeKeySync({ storageKey }: { storageKey: string }) {
       THEME_STORAGE_KEY_ATTRIBUTE,
     );
     if (!startupKey || startupKey === storageKey) return;
-    writeStoredTheme(startupKey, readStoredTheme(storageKey));
+    const saved = readStoredTheme(storageKey);
+    if (!saved.readable || saved.value === null) return;
+    const startup = readStoredTheme(startupKey);
+    if (startup.readable && startup.value === saved.value) return;
+    writeStoredTheme(startupKey, saved.value);
   }, [storageKey, theme]);
 
   return null;
@@ -683,9 +742,10 @@ function ProvidersInner({
           disableTransitionOnChange={disableThemeTransitions}
           scriptProps={clientOnly ? CLIENT_ONLY_THEME_SCRIPT_PROPS : undefined}
         >
-          <EmbeddedThemeSync storageKey={resolvedThemeStorageKey} />
-          <StartupThemeKeySync storageKey={resolvedThemeStorageKey} />
-          {content}
+          <EmbeddedThemeSync storageKey={resolvedThemeStorageKey}>
+            <StartupThemeKeySync storageKey={resolvedThemeStorageKey} />
+            {content}
+          </EmbeddedThemeSync>
         </ThemeProvider>
       ) : (
         content

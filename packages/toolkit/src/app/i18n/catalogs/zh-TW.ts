@@ -2059,8 +2059,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription": "套用至您的所有裝置。",
   "settingsShell.account.appearance": "外觀",
   "settingsShell.account.theme": "主題",
-  "settingsShell.account.themeDescription":
-    "「跟隨系統」會使用電腦的淺色或深色設定。",
   "settingsShell.account.themeSystem": "跟隨系統",
   "settingsShell.account.themeLight": "淺色",
   "settingsShell.account.themeDark": "深色",

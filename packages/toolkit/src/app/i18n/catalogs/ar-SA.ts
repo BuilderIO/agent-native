@@ -2367,8 +2367,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription": "يُطبَّق على جميع أجهزتك.",
   "settingsShell.account.appearance": "المظهر",
   "settingsShell.account.theme": "السمة",
-  "settingsShell.account.themeDescription":
-    "يتبع خيار النظام الوضع الفاتح أو الداكن في جهازك.",
   "settingsShell.account.themeSystem": "النظام",
   "settingsShell.account.themeLight": "فاتح",
   "settingsShell.account.themeDark": "داكن",

@@ -2216,8 +2216,6 @@ const messages = {
   "settingsShell.account.languageDescription": "Applies on all your devices.",
   "settingsShell.account.appearance": "Appearance",
   "settingsShell.account.theme": "Theme",
-  "settingsShell.account.themeDescription":
-    "System follows your computer's light or dark setting.",
   "settingsShell.account.themeSystem": "System",
   "settingsShell.account.themeLight": "Light",
   "settingsShell.account.themeDark": "Dark",

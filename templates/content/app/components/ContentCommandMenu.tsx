@@ -1,6 +1,10 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { hasSessionHint } from "@agent-native/core/client/use-session";
 import {
+  useThemeChoice,
+  type ThemeChoice,
+} from "@agent-native/toolkit/app/providers/theme-choice";
+import {
   CommandMenu,
   submitToAgent,
   type AppCommand,
@@ -14,7 +18,6 @@ import {
 } from "@shared/content-personal-navigation";
 import { IconX } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
 import {
   useCallback,
   useEffect,
@@ -63,25 +66,19 @@ const COMPACT_MENU_CLASS =
 const WIDE_MENU_CLASS =
   "h-[min(680px,calc(85vh-1rem))] w-[calc(100vw-1rem)] max-w-5xl [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full";
 
-type ThemeOption = "system" | "light" | "dark";
-
-const NEXT_THEME: Record<ThemeOption, ThemeOption> = {
+const NEXT_THEME: Record<ThemeChoice, ThemeChoice> = {
   system: "light",
   light: "dark",
   dark: "system",
 };
 
-function isThemeOption(value: string | undefined): value is ThemeOption {
-  return value === "light" || value === "system" || value === "dark";
-}
-
 function useThemeToggle() {
-  const { theme, setTheme } = useTheme();
-  const selectedTheme: ThemeOption = isThemeOption(theme) ? theme : "system";
+  const { choice, setChoice } = useThemeChoice();
+  const selectedTheme = choice ?? "system";
 
   const toggle = useCallback(() => {
-    setTheme(NEXT_THEME[selectedTheme]);
-  }, [selectedTheme, setTheme]);
+    setChoice(NEXT_THEME[selectedTheme]);
+  }, [selectedTheme, setChoice]);
 
   return { theme: selectedTheme, toggle };
 }
@@ -116,7 +113,7 @@ export interface ContentCommandGroupsInput {
   } | null;
   recent: ContentRecentResult[];
   titleById: ReadonlyMap<string, DocumentTitleEntry>;
-  theme: ThemeOption;
+  theme: ThemeChoice;
   actions: {
     searchInPage: () => void;
     copyPageLink: (documentId: string) => void;

@@ -141,10 +141,7 @@ describe("PreferencesSettings", () => {
     );
 
     const theme = container.querySelector("#theme");
-    expect(theme?.textContent).toContain("Theme");
-    expect(theme?.textContent).toContain(
-      "System follows your computer's light or dark setting.",
-    );
+    expect(theme?.textContent).toBe("ThemeSystem");
 
     const themeFamily = container.querySelector("#theme-family");
     expect(themeFamily?.textContent).toContain("Theme family");

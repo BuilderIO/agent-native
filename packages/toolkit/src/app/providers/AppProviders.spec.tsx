@@ -56,6 +56,7 @@ import { useTheme } from "next-themes";
 import { toast } from "sonner";
 
 import { AppProviders } from "./AppProviders.js";
+import { useThemeChoice } from "./theme-choice.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -289,6 +290,11 @@ function ThemeChoice() {
   return <button onClick={() => setTheme("light")}>{theme}</button>;
 }
 
+function SavedThemeChoice() {
+  const { choice, setChoice } = useThemeChoice();
+  return <button onClick={() => setChoice("light")}>{choice}</button>;
+}
+
 describe("AppProviders theme storage", () => {
   it.each([true, false])(
     "keeps an app's theme under its own key on public=%s routes",
@@ -394,6 +400,58 @@ describe("AppProviders theme storage", () => {
     expect(container.querySelector("button")?.textContent).toBe("dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(window.localStorage.getItem("crm:theme")).toBe("system");
+  });
+
+  it("keeps the visitor's own choice while a host's theme is on screen", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    window.localStorage.setItem("crm:theme", "system");
+    await act(async () => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          sessionBypass
+          themeStorageKey="crm:theme"
+          disableWebMcp
+          enableThemeFamily={false}
+        >
+          <SavedThemeChoice />
+        </AppProviders>,
+      );
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(EMBEDDED_THEME_CHANGE_EVENT, {
+          detail: buildEmbeddedThemeUpdate("dark", {
+            "--background": "0 0% 0%",
+          }),
+        }),
+      );
+    });
+
+    const html = document.documentElement;
+    const button = container.querySelector("button");
+    expect(html.classList.contains("dark")).toBe(true);
+    expect(button?.textContent).toBe("system");
+
+    await act(async () => button?.click());
+    expect(button?.textContent).toBe("light");
+    expect(html.classList.contains("light")).toBe(true);
+    expect(html.style.getPropertyValue("--background")).toBe("");
+    expect(window.localStorage.getItem("crm:theme")).toBe("light");
+  });
+
+  it("leaves the head script's key alone when the app has no saved choice", async () => {
+    document.documentElement.setAttribute(THEME_STORAGE_KEY_ATTRIBUTE, "theme");
+    window.localStorage.setItem("theme", "dark");
+    try {
+      await renderThemeApp();
+      expect(window.localStorage.getItem("crm:theme")).toBeNull();
+      expect(window.localStorage.getItem("theme")).toBe("dark");
+    } finally {
+      document.documentElement.removeAttribute(THEME_STORAGE_KEY_ATTRIBUTE);
+    }
   });
 
   it("copies the saved choice to the key the early head script reads", async () => {

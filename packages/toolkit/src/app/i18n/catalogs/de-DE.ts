@@ -2334,8 +2334,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription": "Gilt auf allen deinen Geräten.",
   "settingsShell.account.appearance": "Darstellung",
   "settingsShell.account.theme": "Design",
-  "settingsShell.account.themeDescription":
-    "„System“ folgt der Hell- oder Dunkel-Einstellung deines Computers.",
   "settingsShell.account.themeSystem": "System",
   "settingsShell.account.themeLight": "Hell",
   "settingsShell.account.themeDark": "Dunkel",

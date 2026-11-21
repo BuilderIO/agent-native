@@ -1,6 +1,7 @@
 import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
+import { useThemeChoice } from "@agent-native/toolkit/app/providers/theme-choice";
 import { useEffect, useState } from "react";
 
 import { LanguagePicker } from "../../shared/index.js";
@@ -10,7 +11,7 @@ import { SettingsGroup, SettingsRow } from "../SettingsRow.js";
 import { VoiceChatSettings } from "../VoiceChatSettings.js";
 import { VoiceTranscriptionSection } from "../VoiceTranscriptionSection.js";
 import { ThemeFamilySettings } from "./ThemeFamilySettings.js";
-import { ThemeModeSettings, useThemeMode } from "./ThemeModeSettings.js";
+import { ThemeModeSettings } from "./ThemeModeSettings.js";
 
 const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 
@@ -23,8 +24,8 @@ export function PreferencesSettings() {
   const hasLocale = useOptionalLocale() !== null;
   const { session, status } = useSession();
   const [clientReady, setClientReady] = useState(false);
-  const { mode: themeMode } = useThemeMode();
-  const canChooseThemeMode = clientReady && themeMode !== null;
+  const { choice: themeChoice } = useThemeChoice();
+  const canChooseThemeMode = clientReady && themeChoice !== null;
   const languageLabel = t("agentChat.settingsShell.interfaceLanguage");
   const canSwitchTheme = canShowThemeFamilySwitcher({
     clientReady,
@@ -63,7 +64,6 @@ export function PreferencesSettings() {
             <SettingsRow
               id="theme"
               label={t(key("theme"))}
-              description={t(key("themeDescription"))}
               control={<ThemeModeSettings />}
             />
           ) : null}

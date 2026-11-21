@@ -1,50 +1,36 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  isThemeChoice,
+  useThemeChoice,
+  type ThemeChoice,
+} from "@agent-native/toolkit/app/providers/theme-choice";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import { useTheme } from "next-themes";
 
 const key = (name: string) => `agentChat.settingsShell.account.${name}`;
 
-const THEME_MODES = [
+const THEME_MODES: ReadonlyArray<{ value: ThemeChoice; labelKey: string }> = [
   { value: "system", labelKey: key("themeSystem") },
   { value: "light", labelKey: key("themeLight") },
   { value: "dark", labelKey: key("themeDark") },
-] as const;
-
-type ThemeMode = (typeof THEME_MODES)[number]["value"];
-
-function isThemeMode(value: string | undefined): value is ThemeMode {
-  return THEME_MODES.some((mode) => mode.value === value);
-}
-
-/** The light, dark or system choice next-themes keeps for this app. */
-export function useThemeMode(): {
-  mode: ThemeMode | null;
-  setMode: (mode: ThemeMode) => void;
-} {
-  const { theme, setTheme } = useTheme();
-  return {
-    mode: isThemeMode(theme) ? theme : null,
-    setMode: setTheme,
-  };
-}
+];
 
 export function ThemeModeSettings() {
   const t = useT();
-  const { mode, setMode } = useThemeMode();
-  if (!mode) return null;
+  const { choice, setChoice } = useThemeChoice();
+  if (!choice) return null;
 
   return (
     <div className="w-full sm:w-56">
       <Select
-        value={mode}
+        value={choice}
         onValueChange={(value) => {
-          if (isThemeMode(value)) setMode(value);
+          if (isThemeChoice(value)) setChoice(value);
         }}
       >
         <SelectTrigger aria-label={t(key("theme"))}>

@@ -2175,8 +2175,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription": "모든 기기에 적용됩니다.",
   "settingsShell.account.appearance": "모양",
   "settingsShell.account.theme": "테마",
-  "settingsShell.account.themeDescription":
-    "'시스템'은 컴퓨터의 라이트 또는 다크 설정을 따릅니다.",
   "settingsShell.account.themeSystem": "시스템",
   "settingsShell.account.themeLight": "라이트",
   "settingsShell.account.themeDark": "다크",

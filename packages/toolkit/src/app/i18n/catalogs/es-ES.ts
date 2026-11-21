@@ -2361,8 +2361,6 @@ const messages: ToolkitAgentChatTranslation = {
     "Se aplica en todos tus dispositivos.",
   "settingsShell.account.appearance": "Apariencia",
   "settingsShell.account.theme": "Tema",
-  "settingsShell.account.themeDescription":
-    "«Sistema» sigue el modo claro u oscuro de tu ordenador.",
   "settingsShell.account.themeSystem": "Sistema",
   "settingsShell.account.themeLight": "Claro",
   "settingsShell.account.themeDark": "Oscuro",
