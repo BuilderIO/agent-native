@@ -49,18 +49,11 @@ const createdField: FilterField = {
 
 const fields = [sourceField, ownerField, tagsField, titleField, createdField];
 
-function shape(items: FilterItem[]) {
+function shape(items: readonly FilterItem[]): unknown[] {
   return items.map((item) =>
     item.kind === "rule"
       ? { field: item.field, operator: item.operator, value: item.value }
-      : {
-          mode: item.mode,
-          rules: item.rules.map((rule) => ({
-            field: rule.field,
-            operator: rule.operator,
-            value: rule.value,
-          })),
-        },
+      : { mode: item.mode, rules: shape(item.rules) },
   );
 }
 
@@ -139,6 +132,69 @@ describe("filter URL params", () => {
       ["r", "1/tags:contains:a"],
       ["g", "2:any"],
       ["r", "2/tags:contains:b"],
+    ]);
+  });
+
+  it("writes a group inside a group after its parent's earlier rules", () => {
+    const inner = createFilterGroup(
+      [createFilterRule(tagsField, ["b"]), createFilterRule(titleField, ["x"])],
+      "and",
+    );
+    const outer = createFilterGroup([
+      createFilterRule(tagsField, ["a"]),
+      inner,
+      createFilterRule(ownerField, ["alice"]),
+    ]);
+    const state = addFilterGroup(createFilterState(fields), outer);
+    expect(filterStateToParams(state, fields)).toEqual([
+      ["g", "1:any"],
+      ["r", "1/tags:contains:a"],
+      ["g", "1.1:all"],
+      ["r", "1.1/tags:contains:b"],
+      ["r", "1.1/title:contains:x"],
+      ["r", "1/owner:equals:alice"],
+    ]);
+    expect(shape(roundTrip(state).items)).toEqual(shape(state.items));
+  });
+
+  it("drops groups nested too deep or without a parent", () => {
+    const read = readFilterParams(
+      "?g=1:any&r=1/tags:contains:a&g=1.1.1:all&r=1.1.1/tags:contains:b&g=2.1:all&r=2.1/tags:contains:c&g=1.:all",
+      fields,
+    );
+    expect(shape(read.items)).toEqual([
+      {
+        mode: "or",
+        rules: [{ field: "tags", operator: "contains", value: ["a"] }],
+      },
+    ]);
+  });
+
+  it("round-trips a date range and a date with a time", () => {
+    const timed: FilterField = { ...createdField, times: true };
+    const local = [timed];
+    const state = addFilterRule(
+      addFilterRule(
+        createFilterState(local),
+        createFilterRule(timed, ["2026-10-01", "today"], "between"),
+      ),
+      createFilterRule(timed, ["2026-10-22T09:30"], "on_or_after"),
+    );
+    const search = writeFilterSearch("", state, local);
+    expect(search).toContain("r=created:between:2026-10-01,today");
+    expect(search).toContain("r=created:on_or_after:2026-10-22T09%253A30");
+    expect(shape(readFilterParams(search, local).items)).toEqual(
+      shape(state.items),
+    );
+  });
+
+  it('reads a saved "is not on" date and drops a time the field doesn\'t take', () => {
+    const read = readFilterParams(
+      "?r=created:does_not_equal:2026-10-22&r=created:after:2026-10-22T09%253A30",
+      fields,
+    );
+    expect(shape(read.items)).toEqual([
+      { field: "created", operator: "does_not_equal", value: ["2026-10-22"] },
     ]);
   });
 

@@ -26,6 +26,7 @@ export const FILTER_OPERATORS = [
   "after",
   "on_or_before",
   "on_or_after",
+  "between",
   "is_within",
   "is_checked",
   "is_unchecked",
@@ -61,6 +62,7 @@ export interface FilterField<Row = never> {
   options?: readonly FilterOption[];
   alwaysSet?: boolean;
   dates?: "past" | "future" | "any";
+  times?: boolean;
   valueNoun?: { one: string; other: string };
   booleanLabels?: { checked: string; unchecked: string };
   pinned?: { default: readonly string[]; allLabel?: string };
@@ -79,7 +81,7 @@ export interface FilterGroup {
   kind: "group";
   id: string;
   mode: FilterMode;
-  rules: FilterRule[];
+  rules: FilterItem[];
 }
 
 export type FilterItem = FilterRule | FilterGroup;
@@ -102,6 +104,7 @@ const OPERATORS_BY_TYPE: Record<FilterFieldType, readonly FilterOperator[]> = {
     "after",
     "on_or_before",
     "on_or_after",
+    "between",
     "is_empty",
     "is_not_empty",
   ],
@@ -139,6 +142,14 @@ const EMPTINESS_OPERATORS: ReadonlySet<FilterOperator> = new Set([
   "is_not_empty",
 ]);
 
+// Read in saved rules and links but left out of the menu, the way Content's
+// date menu leaves out "is not on".
+const UNLISTED_OPERATORS_BY_TYPE: Partial<
+  Record<FilterFieldType, readonly FilterOperator[]>
+> = {
+  date: ["does_not_equal"],
+};
+
 export function filterOperatorsFor(
   field: Pick<FilterField<unknown>, "type" | "alwaysSet">,
 ): readonly FilterOperator[] {
@@ -148,8 +159,20 @@ export function filterOperatorsFor(
     : operators;
 }
 
+export function filterOperatorsAcceptedFor(
+  field: Pick<FilterField<unknown>, "type" | "alwaysSet">,
+): readonly FilterOperator[] {
+  const unlisted = UNLISTED_OPERATORS_BY_TYPE[field.type] ?? [];
+  return [...filterOperatorsFor(field), ...unlisted];
+}
+
 export function filterOperatorTakesValue(operator: FilterOperator) {
   return !VALUELESS_OPERATORS.has(operator);
+}
+
+export function filterOperatorValueCount(operator: FilterOperator) {
+  if (!filterOperatorTakesValue(operator)) return 0;
+  return operator === "between" ? 2 : 1;
 }
 
 export function filterOperatorTakesManyValues(
@@ -202,7 +225,7 @@ export function createFilterRule(
 }
 
 export function createFilterGroup(
-  rules: FilterRule[],
+  rules: FilterItem[],
   mode: FilterMode = "or",
 ): FilterGroup {
   return { kind: "group", id: filterItemId("g"), mode, rules };
@@ -230,18 +253,25 @@ export function isFilterRuleComplete(
   field: FilterField<never> | undefined,
 ) {
   if (!field || field.pinned) return false;
-  if (!filterOperatorsFor(field).includes(rule.operator)) return false;
+  if (!filterOperatorsAcceptedFor(field).includes(rule.operator)) return false;
   if (!filterOperatorTakesValue(rule.operator)) return true;
   if (rule.value.length === 0) return false;
   if (rule.value.some((value) => value.trim() === "")) return false;
   if (!filterOperatorTakesManyValues(field, rule.operator)) {
-    if (rule.value.length !== 1) return false;
+    if (rule.value.length !== filterOperatorValueCount(rule.operator)) {
+      return false;
+    }
   }
   if (field.type === "date") {
-    const [value = ""] = rule.value;
-    return rule.operator === "is_within"
-      ? parseFilterDateRange(value) !== null
-      : resolveFilterDay(value, "2000-01-01") !== null;
+    if (rule.operator === "is_within") {
+      return parseFilterDateRange(rule.value.at(0) ?? "") !== null;
+    }
+    // Any day will do: only relative values read it, and every day reads them.
+    return rule.value.every(
+      (value) =>
+        resolveFilterDateBound(value, "2000-01-01", { times: field.times }) !==
+        null,
+    );
   }
   if (field.type === "number") {
     return Number.isFinite(Number(rule.value.at(0)));
@@ -249,12 +279,16 @@ export function isFilterRuleComplete(
   return true;
 }
 
+// Every rule in an item, including those in groups inside a group.
+export function filterItemRules(item: FilterItem): FilterRule[] {
+  return item.kind === "group" ? item.rules.flatMap(filterItemRules) : [item];
+}
+
 export function completeFilterRules(
   item: FilterItem,
   fields: readonly FilterField<never>[],
 ): FilterRule[] {
-  const rules = item.kind === "group" ? item.rules : [item];
-  return rules.filter((rule) =>
+  return filterItemRules(item).filter((rule) =>
     isFilterRuleComplete(rule, findFilterField(fields, rule.field)),
   );
 }
@@ -321,22 +355,44 @@ export function hasIncompleteFilterRules(
 ) {
   return state.items.some(
     (item) =>
-      completeFilterRules(item, fields).length !==
-      (item.kind === "group" ? item.rules.length : 1),
+      completeFilterRules(item, fields).length !== filterItemRules(item).length,
   );
+}
+
+function pruneItems(
+  items: readonly FilterItem[],
+  fields: readonly FilterField<never>[],
+): FilterItem[] {
+  const kept: FilterItem[] = [];
+  for (const item of items) {
+    if (item.kind === "rule") {
+      if (isFilterRuleComplete(item, findFilterField(fields, item.field))) {
+        kept.push(item);
+      }
+      continue;
+    }
+    const rules = pruneItems(item.rules, fields);
+    if (rules.length > 0) kept.push({ ...item, rules });
+  }
+  return kept;
 }
 
 export function pruneFilterState(
   state: FilterState,
   fields: readonly FilterField<never>[],
 ): FilterState {
-  const items: FilterItem[] = [];
-  for (const item of state.items) {
-    const rules = completeFilterRules(item, fields);
-    if (rules.length === 0) continue;
-    items.push(item.kind === "group" ? { ...item, rules } : item);
-  }
-  return { ...state, items };
+  return { ...state, items: pruneItems(state.items, fields) };
+}
+
+function mapItemRules(
+  item: FilterItem,
+  map: (rule: FilterRule) => FilterRule,
+): FilterItem {
+  if (item.kind === "rule") return map(item);
+  return {
+    ...item,
+    rules: item.rules.map((member) => mapItemRules(member, map)),
+  };
 }
 
 function mapRules(
@@ -345,12 +401,20 @@ function mapRules(
 ): FilterState {
   return {
     ...state,
-    items: state.items.map((item) =>
-      item.kind === "group"
-        ? { ...item, rules: item.rules.map(map) }
-        : map(item),
-    ),
+    items: state.items.map((item) => mapItemRules(item, map)),
   };
+}
+
+function updateGroup(
+  items: readonly FilterItem[],
+  groupId: string,
+  update: (group: FilterGroup) => FilterGroup,
+): FilterItem[] {
+  return items.map((item) => {
+    if (item.kind === "rule") return item;
+    if (item.id === groupId) return update(item);
+    return { ...item, rules: updateGroup(item.rules, groupId, update) };
+  });
 }
 
 export function addFilterRule(
@@ -361,19 +425,29 @@ export function addFilterRule(
   if (!groupId) return { ...state, items: [...state.items, rule] };
   return {
     ...state,
-    items: state.items.map((item) =>
-      item.kind === "group" && item.id === groupId
-        ? { ...item, rules: [...item.rules, rule] }
-        : item,
-    ),
+    items: updateGroup(state.items, groupId, (group) => ({
+      ...group,
+      rules: [...group.rules, rule],
+    })),
   };
 }
 
+// A group goes at the top level or inside a top-level group, never deeper:
+// links and Content's saved views hold groups one level inside another.
 export function addFilterGroup(
   state: FilterState,
   group: FilterGroup,
+  parentGroupId?: string,
 ): FilterState {
-  return { ...state, items: [...state.items, group] };
+  if (!parentGroupId) return { ...state, items: [...state.items, group] };
+  return {
+    ...state,
+    items: state.items.map((item) =>
+      item.kind === "group" && item.id === parentGroupId
+        ? { ...item, rules: [...item.rules, group] }
+        : item,
+    ),
+  };
 }
 
 export type FilterRulePatch = Partial<
@@ -402,7 +476,7 @@ export function patchFilterRule(
     if (!filterOperatorTakesValue(operator)) value = [];
     else if (
       field.type === "date" &&
-      (operator === "is_within") !== (rule.operator === "is_within")
+      dateValueShape(operator) !== dateValueShape(rule.operator)
     ) {
       value = [];
     } else if (!filterOperatorTakesManyValues(field, operator)) {
@@ -412,16 +486,20 @@ export function patchFilterRule(
   return { ...rule, operator, value };
 }
 
+function dateValueShape(operator: FilterOperator) {
+  if (operator === "is_within") return "range";
+  return operator === "between" ? "pair" : "date";
+}
+
 export function findFilterRule(
   state: FilterState,
   ruleId: string,
 ): FilterRule | undefined {
   for (const item of state.items) {
-    if (item.kind === "rule" && item.id === ruleId) return item;
-    if (item.kind === "group") {
-      const rule = item.rules.find((candidate) => candidate.id === ruleId);
-      if (rule) return rule;
-    }
+    const rule = filterItemRules(item).find(
+      (candidate) => candidate.id === ruleId,
+    );
+    if (rule) return rule;
   }
   return undefined;
 }
@@ -437,21 +515,27 @@ export function updateFilterRule(
   );
 }
 
-export function removeFilterItem(state: FilterState, id: string): FilterState {
-  const items: FilterItem[] = [];
-  for (const item of state.items) {
+// Drops the item wherever it is, and any group it leaves empty.
+function removeItem(items: readonly FilterItem[], id: string): FilterItem[] {
+  const kept: FilterItem[] = [];
+  for (const item of items) {
     if (item.id === id) continue;
-    if (item.kind === "group") {
-      const rules = item.rules.filter((rule) => rule.id !== id);
-      if (rules.length === 0) continue;
-      items.push(
-        rules.length === item.rules.length ? item : { ...item, rules },
-      );
-    } else {
-      items.push(item);
+    if (item.kind === "rule") {
+      kept.push(item);
+      continue;
     }
+    const rules = removeItem(item.rules, id);
+    if (rules.length === 0) continue;
+    const unchanged =
+      rules.length === item.rules.length &&
+      rules.every((member, index) => member === item.rules[index]);
+    kept.push(unchanged ? item : { ...item, rules });
   }
-  return { ...state, items };
+  return kept;
+}
+
+export function removeFilterItem(state: FilterState, id: string): FilterState {
+  return { ...state, items: removeItem(state.items, id) };
 }
 
 export function setFilterMode(
@@ -462,9 +546,7 @@ export function setFilterMode(
   if (!groupId) return { ...state, mode };
   return {
     ...state,
-    items: state.items.map((item) =>
-      item.kind === "group" && item.id === groupId ? { ...item, mode } : item,
-    ),
+    items: updateGroup(state.items, groupId, (group) => ({ ...group, mode })),
   };
 }
 
@@ -650,6 +732,125 @@ export function resolveFilterDay(value: string, today: string): string | null {
     : null;
 }
 
+// An ISO date and time: minutes, optional seconds and fraction, and an
+// optional offset. A space may stand for the "T".
+const DATE_TIME_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const clockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function clockFormatter(timeZone: string) {
+  const cached = clockFormatters.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+  });
+  clockFormatters.set(timeZone, formatter);
+  return formatter;
+}
+
+// How far a zone's clock is ahead of UTC at `time`, in milliseconds.
+function zoneOffset(time: number, clock: Intl.DateTimeFormat) {
+  const parts = clock.formatToParts(time);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((candidate) => candidate.type === type)?.value);
+  const reading = Date.UTC(
+    part("year"),
+    part("month") - 1,
+    part("day"),
+    part("hour"),
+    part("minute"),
+    part("second"),
+  );
+  return reading - Math.floor(time / 1000) * 1000;
+}
+
+export function filterDateValueHasTime(value: string) {
+  return DATE_TIME_PATTERN.test(value.trim());
+}
+
+/**
+ * The moment a date-and-time filter value stands for, in milliseconds, or NaN
+ * when it isn't one that exists. A time without an offset is a wall-clock time
+ * in `timeZone` (this machine's zone without one), as Content reads its date
+ * filters. A time a daylight-saving change skips moves forward by the change,
+ * and a time it repeats is the first of the two, as JavaScript's dates do.
+ */
+export function filterDateInstant(value: string, timeZone?: string) {
+  const match = DATE_TIME_PATTERN.exec(value.trim());
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute, second = "0", fraction = ""] = match;
+  const offset = match[8];
+  const fields = [
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Number(fraction.padEnd(3, "0").slice(0, 3)),
+  ] as const;
+  const asUtc = Date.UTC(...fields);
+  // Rejects a day or time past its end, such as February 30th or 24:00.
+  if (
+    new Date(asUtc).toISOString().slice(0, 19) !==
+    `${year}-${month}-${day}T${hour}:${minute}:${second.padStart(2, "0")}`
+  ) {
+    return Number.NaN;
+  }
+  if (offset) {
+    if (/^z$/i.test(offset)) return asUtc;
+    const [, sign, hours = "0", minutes = "0"] =
+      /^([+-])(\d{2}):?(\d{2})?$/.exec(offset) ?? [];
+    if (Number(hours) > 23 || Number(minutes) > 59) return Number.NaN;
+    const ms = (Number(hours) * 60 + Number(minutes)) * 60 * 1000;
+    return sign === "+" ? asUtc - ms : asUtc + ms;
+  }
+  if (!timeZone) return new Date(...fields).getTime();
+  const clock = clockFormatter(timeZone);
+  // A real zone changes its offset at most once in two days, so the same
+  // offset a day either side holds throughout. Otherwise the right candidate
+  // is the one the zone's clock reads as the wall time.
+  const offsetBefore = zoneOffset(asUtc - DAY_MS, clock);
+  const offsetAfter = zoneOffset(asUtc + DAY_MS, clock);
+  if (offsetBefore === offsetAfter) return asUtc - offsetBefore;
+  const before = asUtc - offsetBefore;
+  const after = asUtc - offsetAfter;
+  const valid = [before, after].filter(
+    (time) => time + zoneOffset(time, clock) === asUtc,
+  );
+  // Neither is right inside a skipped hour: keep the offset from before it.
+  return valid.length > 0 ? Math.min(...valid) : before;
+}
+
+export type FilterDateBound = { day: string } | { instant: number };
+
+/**
+ * A date filter value read for comparison: a whole day, or, on a field with
+ * `times`, a moment when the value is written with a time. Null when it can't
+ * be read.
+ */
+export function resolveFilterDateBound(
+  value: string,
+  today: string,
+  options: { times?: boolean; timeZone?: string } = {},
+): FilterDateBound | null {
+  const day = resolveFilterDay(value, today);
+  if (day !== null) return { day };
+  if (!options.times) return null;
+  const instant = filterDateInstant(value, options.timeZone);
+  return Number.isFinite(instant) ? { instant } : null;
+}
+
 export interface FilterDatePreset {
   operator: "equals" | "is_within";
   value: string;
@@ -697,22 +898,30 @@ function cellValues(value: FilterCellValue): string[] {
   return value.filter((entry) => entry.trim() !== "");
 }
 
-function cellDay(value: FilterCellValue, timeZone: string | undefined) {
-  if (value === null || value === undefined) return null;
+// The moment a cell's date stands for, or null for a bare day. Cells come
+// from storage, so a timestamp without an offset is read as UTC.
+function cellInstant(value: FilterCellValue) {
   if (value instanceof Date || typeof value === "number") {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : dayOfDate(date, timeZone);
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? null : time;
   }
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  if (trimmed === "") return null;
-  if (DAY_PATTERN.test(trimmed)) return trimmed;
-  const date = new Date(
+  if (trimmed === "" || DAY_PATTERN.test(trimmed)) return null;
+  const time = new Date(
     LOCAL_TIMESTAMP_PATTERN.test(trimmed)
       ? `${trimmed.replace(" ", "T")}Z`
       : trimmed,
-  );
-  return Number.isNaN(date.getTime()) ? null : dayOfDate(date, timeZone);
+  ).getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+function cellDay(value: FilterCellValue, timeZone: string | undefined) {
+  if (typeof value === "string" && DAY_PATTERN.test(value.trim())) {
+    return value.trim();
+  }
+  const instant = cellInstant(value);
+  return instant === null ? null : dayOfDate(new Date(instant), timeZone);
 }
 
 function cellNumber(value: FilterCellValue) {
@@ -745,14 +954,15 @@ export interface FilterMatchContext {
   timeZone?: string;
 }
 
-const DAY_COMPARISONS: Partial<
-  Record<FilterOperator, (day: string, target: string) => boolean>
+const DATE_COMPARISONS: Partial<
+  Record<FilterOperator, (comparison: number) => boolean>
 > = {
-  equals: (day, target) => day === target,
-  before: (day, target) => day < target,
-  after: (day, target) => day > target,
-  on_or_before: (day, target) => day <= target,
-  on_or_after: (day, target) => day >= target,
+  equals: (comparison) => comparison === 0,
+  does_not_equal: (comparison) => comparison !== 0,
+  before: (comparison) => comparison < 0,
+  after: (comparison) => comparison > 0,
+  on_or_before: (comparison) => comparison <= 0,
+  on_or_after: (comparison) => comparison >= 0,
 };
 
 const TEXT_COMPARISONS: Partial<
@@ -787,24 +997,86 @@ function matchesOptions(cell: readonly string[], rule: FilterRule) {
     : hit;
 }
 
-function matchesDay(
-  day: string | null,
+function compareText(a: string, b: string) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// A day runs from its first moment to its last in the zone.
+function dateBoundEdge(
+  bound: FilterDateBound,
+  edge: "first" | "last",
+  timeZone: string | undefined,
+) {
+  if ("instant" in bound) return bound.instant;
+  return edge === "first"
+    ? filterDateInstant(`${bound.day}T00:00`, timeZone)
+    : filterDateInstant(`${addDays(bound.day, 1)}T00:00`, timeZone) - 1;
+}
+
+// The bounds a complete date rule compares against: one, or a range's start
+// and end in order.
+function filterRuleDateBounds(
   rule: FilterRule,
+  field: Pick<FilterField<never>, "times">,
+  context: FilterMatchContext,
+): FilterDateBound[] | null {
+  if (rule.operator === "is_within") {
+    const range = parseFilterDateRange(rule.value.at(0) ?? "");
+    if (!range) return null;
+    const [start, end] = filterDateRangeDays(range, context.today);
+    return [{ day: start }, { day: end }];
+  }
+  const options = { times: field.times, timeZone: context.timeZone };
+  const bounds: FilterDateBound[] = [];
+  for (const value of rule.value) {
+    const bound = resolveFilterDateBound(value, context.today, options);
+    if (!bound) return null;
+    bounds.push(bound);
+  }
+  const [start, end] = bounds;
+  if (rule.operator !== "between" || !start || !end) return bounds;
+  return dateBoundEdge(start, "first", context.timeZone) <=
+    dateBoundEdge(end, "last", context.timeZone)
+    ? [start, end]
+    : [end, start];
+}
+
+// Negative, zero or positive. A bare day is compared with the day a moment
+// falls on in the zone, and a moment with a bare day by the day it falls on.
+function compareCellToBound(
+  day: string,
+  instant: number | null,
+  bound: FilterDateBound,
+  timeZone: string | undefined,
+) {
+  if ("day" in bound) return compareText(day, bound.day);
+  if (instant === null) {
+    return compareText(day, dayOfDate(new Date(bound.instant), timeZone));
+  }
+  return Math.sign(instant - bound.instant);
+}
+
+function matchesDate(
+  raw: FilterCellValue,
+  rule: FilterRule,
+  field: Pick<FilterField<never>, "times">,
   context: FilterMatchContext,
 ) {
+  const day = cellDay(raw, context.timeZone);
   if (rule.operator === "is_empty") return day === null;
   if (rule.operator === "is_not_empty") return day !== null;
-  if (day === null) return false;
-  const value = rule.value.at(0) ?? "";
-  if (rule.operator === "is_within") {
-    const range = parseFilterDateRange(value);
-    if (!range) return true;
-    const [start, end] = filterDateRangeDays(range, context.today);
-    return day >= start && day <= end;
-  }
-  const target = resolveFilterDay(value, context.today);
-  const compare = DAY_COMPARISONS[rule.operator];
-  return target === null || !compare ? true : compare(day, target);
+  // As in Content, an empty date is "not on" every day.
+  if (day === null) return rule.operator === "does_not_equal";
+  const bounds = filterRuleDateBounds(rule, field, context);
+  if (!bounds) return true;
+  const instant = cellInstant(raw);
+  const compare = (bound: FilterDateBound) =>
+    compareCellToBound(day, instant, bound, context.timeZone);
+  const [start, end] = bounds;
+  if (!start) return true;
+  if (end) return compare(start) >= 0 && compare(end) <= 0;
+  const test = DATE_COMPARISONS[rule.operator];
+  return test ? test(compare(start)) : true;
 }
 
 function matchesText(text: string, rule: FilterRule) {
@@ -839,12 +1111,49 @@ export function matchesFilterRule<Row>(
         ? !cellChecked(raw)
         : cellChecked(raw);
     case "date":
-      return matchesDay(cellDay(raw, context.timeZone), rule, context);
+      return matchesDate(raw, rule, field, context);
     case "text":
       return matchesText(cellText(raw), rule);
     case "number":
       return matchesNumber(cellNumber(raw), rule);
   }
+}
+
+// Null when the items hold no complete rule outside `skipField`.
+function matchesMembers<Row>(
+  row: Row,
+  items: readonly FilterItem[],
+  mode: FilterMode,
+  fields: readonly FilterField<Row>[],
+  context: FilterMatchContext,
+  skipField: string | undefined,
+): boolean | null {
+  let counted = false;
+  for (const item of items) {
+    let result: boolean | null;
+    if (item.kind === "group") {
+      result = matchesMembers(
+        row,
+        item.rules,
+        item.mode,
+        fields,
+        context,
+        skipField,
+      );
+    } else {
+      const field = findFilterField(fields, item.field);
+      result =
+        field && item.field !== skipField && isFilterRuleComplete(item, field)
+          ? matchesFilterRule(row, item, field, context)
+          : null;
+    }
+    if (result === null) continue;
+    counted = true;
+    if (mode === "or" && result) return true;
+    if (mode === "and" && !result) return false;
+  }
+  if (!counted) return null;
+  return mode === "and";
 }
 
 function matchesItems<Row>(
@@ -854,30 +1163,10 @@ function matchesItems<Row>(
   context: FilterMatchContext,
   skipField?: string,
 ): boolean {
-  const tests: (() => boolean)[] = [];
-  for (const item of state.items) {
-    const rules = completeFilterRules(item, fields).filter(
-      (rule) => rule.field !== skipField,
-    );
-    if (rules.length === 0) continue;
-    const ruleTests = rules.map((rule) => () => {
-      const field = findFilterField(fields, rule.field);
-      return field ? matchesFilterRule(row, rule, field, context) : true;
-    });
-    if (item.kind === "group") {
-      tests.push(() =>
-        item.mode === "or"
-          ? ruleTests.some((test) => test())
-          : ruleTests.every((test) => test()),
-      );
-    } else {
-      tests.push(...ruleTests);
-    }
-  }
-  if (tests.length === 0) return true;
-  return state.mode === "or"
-    ? tests.some((test) => test())
-    : tests.every((test) => test());
+  return (
+    matchesMembers(row, state.items, state.mode, fields, context, skipField) ??
+    true
+  );
 }
 
 function matchesPinned<Row>(

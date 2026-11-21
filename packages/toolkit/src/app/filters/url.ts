@@ -11,6 +11,7 @@ import {
   pinnedFilterValue,
   type FilterField,
   type FilterGroup,
+  type FilterItem,
   type FilterMode,
   type FilterRule,
   type FilterState,
@@ -80,20 +81,27 @@ export function filterStateToParams(
     ]);
   }
   if (state.mode === "or") params.push([names.match, "any"]);
-  let groupNumber = 0;
-  for (const item of state.items) {
-    const rules = completeFilterRules(item, fields);
-    if (rules.length === 0) continue;
-    if (item.kind === "rule") {
-      params.push([names.rule, encodeRule(item)]);
-      continue;
+  // Members keep their order: a group inside group 1 is "1.2" when it is
+  // that group's second, and its rules follow it.
+  const pushItems = (items: readonly FilterItem[], group: string | null) => {
+    let groupNumber = 0;
+    for (const item of items) {
+      if (completeFilterRules(item, fields).length === 0) continue;
+      if (item.kind === "rule") {
+        params.push([
+          names.rule,
+          group === null ? encodeRule(item) : `${group}/${encodeRule(item)}`,
+        ]);
+        continue;
+      }
+      groupNumber += 1;
+      const number =
+        group === null ? `${groupNumber}` : `${group}.${groupNumber}`;
+      params.push([names.group, `${number}:${modeParam(item.mode)}`]);
+      pushItems(item.rules, number);
     }
-    groupNumber += 1;
-    params.push([names.group, `${groupNumber}:${modeParam(item.mode)}`]);
-    for (const rule of rules) {
-      params.push([names.rule, `${groupNumber}/${encodeRule(rule)}`]);
-    }
-  }
+  };
+  pushItems(state.items, null);
   return params;
 }
 
@@ -167,9 +175,15 @@ export function readFilterParams(
       const [number = "", mode = ""] = raw.split(":");
       if (!number || groups.has(number)) continue;
       if (mode !== "all" && mode !== "any") continue;
+      // "1" is a group and "1.2" a group inside it; nothing nests deeper.
+      const [top = "", nested, ...deeper] = number.split(".");
+      if (!top || nested === "" || deeper.length > 0) continue;
+      const parent = nested === undefined ? null : groups.get(top);
+      if (nested !== undefined && !parent) continue;
       const group = createFilterGroup([], mode === "all" ? "and" : "or");
       groups.set(number, group);
-      state.items.push(group);
+      if (parent) parent.rules.push(group);
+      else state.items.push(group);
     } else if (key === names.rule) {
       const decoded = decodeRule(raw, fields);
       if (!decoded) continue;
@@ -178,9 +192,13 @@ export function readFilterParams(
       else if (decoded.group === null) state.items.push(decoded.rule);
     }
   }
-  state.items = state.items.filter(
-    (item) => item.kind === "rule" || item.rules.length > 0,
-  );
+  const dropEmpty = (items: readonly FilterItem[]): FilterItem[] =>
+    items.flatMap((item) => {
+      if (item.kind === "rule") return [item];
+      const rules = dropEmpty(item.rules);
+      return rules.length > 0 ? [{ ...item, rules }] : [];
+    });
+  state.items = dropEmpty(state.items);
   return state;
 }
 

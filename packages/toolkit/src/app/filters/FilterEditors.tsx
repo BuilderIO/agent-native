@@ -18,7 +18,7 @@ import {
   filterOperatorTakesManyValues,
   filterOperatorTakesValue,
   isFilterOperator,
-  resolveFilterDay,
+  resolveFilterDateBound,
   type FilterCounts,
   type FilterField,
   type FilterOperator,
@@ -71,6 +71,10 @@ export function FilterOperatorSelect({
   onChange: (operator: FilterOperator) => void;
   className?: string;
 }) {
+  // A saved rule can use an operator the menu leaves out; it stays listed.
+  const shown = operators.includes(operator)
+    ? operators
+    : [...operators, operator];
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
@@ -96,7 +100,7 @@ export function FilterOperatorSelect({
             if (isFilterOperator(value)) onChange(value);
           }}
         >
-          {operators.map((candidate) => (
+          {shown.map((candidate) => (
             <DropdownMenuRadioItem key={candidate} value={candidate}>
               {text.operatorLabel(field, candidate, Math.max(valueCount, 1))}
             </DropdownMenuRadioItem>
@@ -219,7 +223,39 @@ const EXACT_DATE_OPERATORS: readonly FilterOperator[] = [
   "after",
   "on_or_before",
   "on_or_after",
+  "between",
 ];
+
+const DAY_VALUE = /^\d{4}-\d{2}-\d{2}$/;
+
+// A day picker, or a text box for a value the picker can't show, such as one
+// an agent wrote with a time or as "today".
+function FilterDateInput({
+  value,
+  label,
+  asText,
+  text,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  asText: boolean;
+  text: FilterText;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Input
+      type={asText ? "text" : "date"}
+      value={value}
+      aria-label={label}
+      placeholder={
+        asText ? text.t("agentChat.filters.dateTimeFormat") : undefined
+      }
+      onChange={(event) => onChange(event.target.value)}
+      className="h-8 min-w-0 flex-1"
+    />
+  );
+}
 
 export function FilterDateEditor({
   field,
@@ -235,13 +271,28 @@ export function FilterDateEditor({
   onDone: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const current = rule.value.at(0) ?? "";
+  const exactOperators =
+    rule.operator === "does_not_equal"
+      ? [...EXACT_DATE_OPERATORS, rule.operator]
+      : EXACT_DATE_OPERATORS;
   const [exactOperator, setExactOperator] = useState<FilterOperator>(
-    EXACT_DATE_OPERATORS.includes(rule.operator) ? rule.operator : "equals",
+    exactOperators.includes(rule.operator) ? rule.operator : "equals",
   );
-  const [exactDay, setExactDay] = useState(
-    /^\d{4}-\d{2}-\d{2}$/.test(current) ? current : "",
+  const readable = (value: string | undefined = "") =>
+    resolveFilterDateBound(value, "2000-01-01", { times: field.times })
+      ? value
+      : "";
+  const [exactDays, setExactDays] = useState<[string, string]>(() =>
+    rule.operator === "is_within"
+      ? ["", ""]
+      : [readable(rule.value.at(0)), readable(rule.value.at(1))],
   );
+  // Fixed when the editor opens, so typing doesn't swap the input.
+  const [asText] = useState(() =>
+    exactDays.map((value) => value !== "" && !DAY_VALUE.test(value)),
+  );
+  const between = exactOperator === "between";
+  const exactValue = between ? exactDays : exactDays.slice(0, 1);
   const candidates: FilterValueCandidate[] = [
     ...filterValueCandidates(field, filterCandidateLabels(text)),
     ...(field.alwaysSet
@@ -261,11 +312,21 @@ export function FilterDateEditor({
         candidate.operator === rule.operator &&
         candidate.value.join(",") === rule.value.join(","),
     }));
+  const exactValid = exactValue.every(
+    (value) =>
+      resolveFilterDateBound(value, "2000-01-01", { times: field.times }) !==
+      null,
+  );
   const applyExact = () => {
-    if (resolveFilterDay(exactDay, "2000-01-01") === null) return;
-    onChange({ operator: exactOperator, value: [exactDay] });
+    if (!exactValid) return;
+    onChange({
+      operator: exactOperator,
+      value: exactValue.map((value) => value.trim()),
+    });
     onDone();
   };
+  const setExactDay = (index: 0 | 1, value: string) =>
+    setExactDays((days) => (index === 0 ? [value, days[1]] : [days[0], value]));
   return (
     <FilterListbox
       label={text.fieldLabel(field)}
@@ -296,19 +357,32 @@ export function FilterDateEditor({
           <FilterOperatorSelect
             field={field}
             operator={exactOperator}
-            operators={EXACT_DATE_OPERATORS}
+            operators={exactOperators}
             valueCount={1}
             text={text}
             onChange={setExactOperator}
           />
-          <Input
-            type="date"
-            value={exactDay}
-            aria-label={text.t("agentChat.filters.exactDate")}
-            onChange={(event) => setExactDay(event.target.value)}
-            className="h-8 min-w-0 flex-1"
+          <FilterDateInput
+            value={exactDays[0]}
+            label={text.t(
+              between
+                ? "agentChat.filters.startDate"
+                : "agentChat.filters.exactDate",
+            )}
+            asText={asText[0] === true}
+            text={text}
+            onChange={(value) => setExactDay(0, value)}
           />
-          <Button type="submit" size="sm" disabled={exactDay === ""}>
+          {between ? (
+            <FilterDateInput
+              value={exactDays[1]}
+              label={text.t("agentChat.filters.endDate")}
+              asText={asText[1] === true}
+              text={text}
+              onChange={(value) => setExactDay(1, value)}
+            />
+          ) : null}
+          <Button type="submit" size="sm" disabled={!exactValid}>
             {text.t("agentChat.filters.apply")}
           </Button>
         </form>
