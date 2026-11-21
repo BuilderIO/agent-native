@@ -3299,7 +3299,7 @@ function findNulBytePaths(root: unknown): Array<readonly (string | number)[]> {
   return paths;
 }
 
-function assertNoNulByteActionArgs(
+export function assertNoNulByteActionArgs(
   value: unknown,
   schema?: StandardSchemaV1,
 ): void {
@@ -3486,9 +3486,6 @@ export async function actionCallIntent(
     // Arguments with no exact snapshot (an accessor, a Map, a class
     // instance) are refused: a gate could not be sure it read what runs.
     snapshot = snapshotActionArguments(args);
-    if (!schema) {
-      assertNoNulByteActionArgs(snapshot.value);
-    }
   } catch (error) {
     return {
       valid: false,

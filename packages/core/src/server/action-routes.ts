@@ -20,6 +20,7 @@ import {
 import {
   actionCallIntent,
   ActionContractError,
+  assertNoNulByteActionArgs,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
@@ -1578,6 +1579,9 @@ function mountActionRoutesInternal(
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
                 });
+              }
+              if (!entry.schema) {
+                assertNoNulByteActionArgs(params);
               }
               if (directoryWidgetReadAllowed) {
                 const normalizedArgs =

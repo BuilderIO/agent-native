@@ -39,16 +39,7 @@ describe("action NUL-byte input validation", () => {
     expect(keyErr.message).not.toContain("secret");
   });
 
-  it("rejects NUL bytes in schema-less actions and masks private action details", async () => {
-    const intent = await actionCallIntent({}, { query: "a\u0000b" });
-    expect(intent.valid).toBe(false);
-    if (!intent.valid) {
-      expect(intent.error).toBeInstanceOf(ActionInputValidationError);
-      expect((intent.error as Error).message).toContain(
-        "String cannot contain NUL bytes",
-      );
-    }
-
+  it("masks private action details and validates schema-less inputs via assertNoNulByteActionArgs", async () => {
     const privateAction = defineAction({
       description: "Private action",
       persistInChatHistory: false,

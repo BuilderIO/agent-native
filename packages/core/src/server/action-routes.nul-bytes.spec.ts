@@ -96,6 +96,25 @@ describe("action-routes NUL-byte and Postgres 22021/22P05 defense", () => {
     const getJson = await getRes.json();
     expect(getJson.errorCode).toBe("action_invalid_parameters");
     expect(getRun).not.toHaveBeenCalled();
+
+    const untypedRun = vi.fn(async () => ({ ok: true }));
+    const untypedRes = await callRoute(
+      {
+        "untyped-action": {
+          run: untypedRun,
+        } as unknown as ActionEntry,
+      },
+      "/_agent-native/actions/untyped-action",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: "raw\u0000nul" }),
+      },
+    );
+    expect(untypedRes.status).toBe(400);
+    const untypedJson = await untypedRes.json();
+    expect(untypedJson.errorCode).toBe("action_invalid_parameters");
+    expect(untypedRun).not.toHaveBeenCalled();
   });
 
   it("maps PostgreSQL 22021 / 22P05 NUL-byte driver errors to 400 without leaking query details", async () => {
