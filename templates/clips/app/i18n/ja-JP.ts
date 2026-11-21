@@ -1192,6 +1192,11 @@ const messages = {
     reconnect: "再接続",
     connectedAs: "{{account}} として接続中",
     needsReconnect: "{{account}} の再接続が必要です。",
+    calendarsDescription:
+      "Clips はオンにしたカレンダーのミーティングを表示します。",
+    mainCalendar: "メインカレンダー",
+    showCalendar: "{{calendar}} のミーティングを表示",
+    calendarsLoadFailed: "このアカウントのカレンダーを読み込めませんでした。",
     disconnectFailed: "カレンダーの接続を解除できませんでした。",
     disconnectCalendarDescription:
       "Clips は {{account}} の今後のミーティングの同期を停止します。",

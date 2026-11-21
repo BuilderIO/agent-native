@@ -75,16 +75,19 @@ vi.mock("@agent-native/toolkit/app/settings", () => ({
     label,
     description,
     control,
+    children,
   }: {
     id?: string;
     label: ReactNode;
     description?: ReactNode;
     control?: ReactNode;
+    children?: ReactNode;
   }) => (
     <div data-row={id}>
       <span data-label="">{label}</span>
       <span data-description="">{description}</span>
       {control}
+      {children}
     </div>
   ),
   SettingsLoadingRow: () => <div data-loading-row="" />,
@@ -457,7 +460,56 @@ describe("Meetings › Calendar", () => {
 });
 
 describe("Meetings › Calendar accounts", () => {
+  const TEAM = "team@group.calendar.google.com";
+  const calendars = (canChange = true) => ({
+    accounts: [
+      {
+        accountId: "cal-ok",
+        canChange,
+        calendars: [
+          {
+            id: "primary",
+            name: "ok@example.com",
+            color: "#9fe1e7",
+            primary: true,
+            enabled: true,
+          },
+          {
+            id: TEAM,
+            name: "Team",
+            color: null,
+            primary: false,
+            enabled: false,
+          },
+        ],
+      },
+    ],
+  });
+
+  const withTeam = (enabled: boolean) => ({
+    accounts: calendars().accounts.map((account) => ({
+      ...account,
+      calendars: account.calendars.map((calendar) =>
+        calendar.id === TEAM ? { ...calendar, enabled } : calendar,
+      ),
+    })),
+  });
+
+  function calendarSwitch(name: string): HTMLButtonElement {
+    const element = container.querySelector<HTMLButtonElement>(
+      `[role="switch"][aria-label='clipsSettings.showCalendar {"calendar":"${name}"}']`,
+    );
+    if (!element) throw new Error(`switch for ${name} is missing`);
+    return element;
+  }
+
+  async function renderWithCalendars() {
+    await render(<ClipsMeetingsArea canManage={false} />);
+    await flush();
+  }
+
   beforeEach(() => {
+    mocks.queries["list-calendars"] = calendars();
     mocks.queries["list-calendar-accounts"] = {
       accounts: [
         {
@@ -561,6 +613,85 @@ describe("Meetings › Calendar accounts", () => {
     expect(mocks.toastError).toHaveBeenCalledWith(
       "clipsSettings.disconnectFailed",
     );
+  });
+
+  it("lists a connected account's calendars, only the main one on", async () => {
+    await renderWithCalendars();
+
+    const connected = row("google-calendar");
+    expect(connected.textContent).toContain("clipsSettings.mainCalendar");
+    expect(connected.querySelectorAll('[role="switch"]')).toHaveLength(2);
+    expect(calendarSwitch("ok@example.com").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("false");
+    expect(
+      row("calendar-cal-stale").querySelector('[role="switch"]'),
+    ).toBeNull();
+  });
+
+  it("turns a calendar on at once and saves it", async () => {
+    await renderWithCalendars();
+
+    await click(calendarSwitch("Team"));
+    expect(lastMutation("set-calendar-enabled").args).toEqual({
+      accountId: "cal-ok",
+      calendarId: TEAM,
+      enabled: true,
+    });
+    expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("puts the switch back and says so when saving fails", async () => {
+    await renderWithCalendars();
+
+    await click(calendarSwitch("Team"));
+    const { options } = lastMutation("set-calendar-enabled");
+    await settle(() => options.onError?.(new Error("")));
+
+    expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("false");
+    expect(mocks.toastError).toHaveBeenCalledWith("settings.saveFailed");
+  });
+
+  it("lets the saved list lead again once a switch has saved", async () => {
+    await renderWithCalendars();
+
+    await click(calendarSwitch("Team"));
+    mocks.queries["list-calendars"] = withTeam(true);
+    await settle(() =>
+      lastMutation("set-calendar-enabled").options.onSuccess?.(undefined),
+    );
+    expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("true");
+
+    mocks.queries["list-calendars"] = withTeam(false);
+    await click(calendarSwitch("ok@example.com"));
+    await settle(() =>
+      lastMutation("set-calendar-enabled").options.onSuccess?.(undefined),
+    );
+
+    expect(calendarSwitch("Team").getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("shows the calendars without switches to flip to someone who can't change them", async () => {
+    mocks.queries["list-calendars"] = calendars(false);
+    await renderWithCalendars();
+
+    expect(calendarSwitch("Team").disabled).toBe(true);
+  });
+
+  it("offers a retry when the account's calendars can't be read", async () => {
+    mocks.queries["list-calendars"] = {
+      accounts: [
+        { accountId: "cal-ok", canChange: true, calendars: [], error: "boom" },
+      ],
+    };
+    await renderWithCalendars();
+
+    const connected = row("google-calendar");
+    expect(connected.textContent).toContain(
+      "clipsSettings.calendarsLoadFailed",
+    );
+    expect(button(connected, "libraryGrid.retry")).toBeTruthy();
   });
 });
 
