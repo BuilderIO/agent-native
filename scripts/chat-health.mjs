@@ -179,7 +179,8 @@ SELECT
   count(*)::int AS tasks,
   count(*) FILTER (WHERE status_state = 'completed')::int AS ok,
   count(*) FILTER (WHERE status_state = 'failed')::int AS failed,
-  count(*) FILTER (WHERE status_state NOT IN ('completed','failed'))::int AS unfinished,
+  count(*) FILTER (WHERE status_state = 'input-required')::int AS input_required,
+  count(*) FILTER (WHERE status_state NOT IN ('completed','failed','input-required'))::int AS unfinished,
   coalesce(round(percentile_cont(0.5) WITHIN GROUP (
     ORDER BY (updated_at - created_at) / 1000.0
   ) FILTER (WHERE status_state = 'completed'))::int, 0) AS p50_ok_s,
@@ -235,7 +236,13 @@ async function measure({ name, url }, since) {
     try {
       const [t] = await sql.unsafe(A2A_SQL, [since]);
       const r = await sql.unsafe(A2A_REASONS_SQL, [since]);
-      a2a = { ...t, reasons: r };
+      const scored = t.tasks - t.input_required;
+      a2a = {
+        ...t,
+        scored,
+        failRate: scored > 0 ? (t.failed + t.unfinished) / scored : 0,
+        reasons: r,
+      };
     } catch {
       a2a = null;
     }
@@ -361,31 +368,32 @@ if (asJson) {
   if (withA2a.length > 0) {
     console.log(`\nApp-to-app (A2A) tasks received, last ${hours}h\n`);
     console.log(
-      `  ${"app".padEnd(11)}${"tasks".padStart(6)}${"ok".padStart(5)}${"fail".padStart(6)}${"stuck".padStart(6)}${"fail%".padStart(7)}${"p50s".padStart(6)}${"p90s".padStart(6)}${"failAvgs".padStart(9)}  top reasons`,
+      `  ${"app".padEnd(11)}${"tasks".padStart(6)}${"ok".padStart(5)}${"fail".padStart(6)}${"waiting".padStart(8)}${"other".padStart(6)}${"fail%".padStart(7)}${"p50s".padStart(6)}${"p90s".padStart(6)}${"failAvgs".padStart(9)}  top reasons`,
     );
-    for (const r of withA2a.sort(
-      (a, b) => b.a2a.failed / b.a2a.tasks - a.a2a.failed / a.a2a.tasks,
-    )) {
+    for (const r of withA2a.sort((a, b) => b.a2a.failRate - a.a2a.failRate)) {
       const a = r.a2a;
-      const rate = a.tasks > 0 ? (a.failed + a.unfinished) / a.tasks : 0;
+      const rate = a.failRate;
       const top = a.reasons
         .slice(0, 2)
         .map((x) => `${x.reason.trim()}(${x.tasks})`)
         .join(" | ");
       const mark = rate > A2A_FAIL_BUDGET ? "!" : " ";
       console.log(
-        `${mark} ${r.name.padEnd(11)}${String(a.tasks).padStart(6)}${String(a.ok).padStart(5)}${String(a.failed).padStart(6)}${String(a.unfinished).padStart(6)}${`${(rate * 100).toFixed(0)}%`.padStart(7)}${String(a.p50_ok_s).padStart(6)}${String(a.p90_ok_s).padStart(6)}${String(a.avg_fail_s).padStart(9)}  ${top}`,
+        `${mark} ${r.name.padEnd(11)}${String(a.tasks).padStart(6)}${String(a.ok).padStart(5)}${String(a.failed).padStart(6)}${String(a.input_required).padStart(8)}${String(a.unfinished).padStart(6)}${`${(rate * 100).toFixed(0)}%`.padStart(7)}${String(a.p50_ok_s).padStart(6)}${String(a.p90_ok_s).padStart(6)}${String(a.avg_fail_s).padStart(9)}  ${top}`,
       );
     }
     const at = withA2a.reduce(
       (acc, r) => ({
-        tasks: acc.tasks + r.a2a.tasks,
+        tasks: acc.tasks + r.a2a.scored,
         failed: acc.failed + r.a2a.failed + r.a2a.unfinished,
       }),
       { tasks: 0, failed: 0 },
     );
     console.log(
-      `\n  fleet: ${at.failed}/${at.tasks} A2A tasks did not complete (${((at.failed / Math.max(at.tasks, 1)) * 100).toFixed(1)}%)`,
+      `\n  fleet: ${at.failed}/${at.tasks} A2A tasks failed or have other statuses (${((at.failed / Math.max(at.tasks, 1)) * 100).toFixed(1)}%)`,
+    );
+    console.log(
+      "  waiting requires user input and is excluded from rates; other includes active, canceled, and unknown statuses, not necessarily stuck tasks.",
     );
     console.log(
       "  failAvgs is how long a caller waits before being told it failed.",
@@ -427,14 +435,6 @@ if (
 if (unreachable.length > 0 && strict) process.exit(1);
 if (strict && scored.some((r) => r.badRate > BAD_TURN_BUDGET)) process.exit(1);
 if (strict && scored.some((r) => r.stallRate > STALL_BUDGET)) process.exit(1);
-if (
-  strict &&
-  scored.some(
-    (r) =>
-      r.a2a &&
-      r.a2a.tasks > 0 &&
-      (r.a2a.failed + r.a2a.unfinished) / r.a2a.tasks > A2A_FAIL_BUDGET,
-  )
-) {
+if (strict && scored.some((r) => r.a2a && r.a2a.failRate > A2A_FAIL_BUDGET)) {
   process.exit(1);
 }
