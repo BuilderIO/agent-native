@@ -63,6 +63,7 @@ vi.mock("./gcloud", async (importOriginal) => ({
 const {
   BigQueryBackendError,
   BigQueryDryRunPreparationError,
+  BigQueryJobNotClaimedError,
   BigQueryMaximumBytesBilledError,
   BigQueryQueryTimeoutError,
   dryRunQuery,
@@ -2052,6 +2053,38 @@ describe("runQuery cancellation", () => {
       expect(JSON.parse(entry.result)).not.toHaveProperty("cached");
     }
     // The second read was served by the app cache, not a second BigQuery job.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks claimJob only on a cache miss and starts no job when it declines", async () => {
+    const cache = useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        schema: { fields: [] },
+        rows: [],
+        totalBytesProcessed: "4096",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const declined = vi.fn(async () => false);
+    const granted = vi.fn(async () => true);
+
+    await expect(
+      runQuery("SELECT 1 AS declined_job_claim", { claimJob: declined }),
+    ).rejects.toBeInstanceOf(BigQueryJobNotClaimedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const entry of cache.values()) {
+      expect(entry.refreshInProgress).toBe(false);
+    }
+
+    const sql = "SELECT 1 AS granted_job_claim";
+    await runQuery(sql, { claimJob: granted });
+    const hit = await runQuery(sql, { claimJob: granted });
+
+    expect(hit).toMatchObject({ cached: true });
+    expect(declined).toHaveBeenCalledTimes(1);
+    expect(granted).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

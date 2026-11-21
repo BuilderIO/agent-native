@@ -208,6 +208,13 @@ export class BigQueryMaximumBytesBilledError extends Error {
   }
 }
 
+export class BigQueryJobNotClaimedError extends Error {
+  constructor() {
+    super("BigQuery query was not allowed to start a job");
+    this.name = "BigQueryJobNotClaimedError";
+  }
+}
+
 // Only documented input/authorization rejections prove no job was created.
 // Other 4xx reasons can describe already-created jobs; 5xx/transport errors are ambiguous.
 // https://docs.cloud.google.com/bigquery/docs/error-messages
@@ -1042,6 +1049,7 @@ export interface RunQueryOptions {
    * maxBytesBilled) instead of cancelled. Ignored on a forced refresh.
    */
   resumeAfter?: AbortSignal;
+  claimJob?: () => Promise<boolean>;
   trace?: BigQueryQueryTrace;
 }
 
@@ -1961,6 +1969,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   let agentGate: OutsideAgentBigQueryGate | undefined;
   let agentAdmission: OutsideAgentBigQueryAdmission | undefined;
   try {
+    if (options.claimJob && !(await options.claimJob())) {
+      throw new BigQueryJobNotClaimedError();
+    }
     traceStage(trace, "authenticating");
     agentGate = bigQueryJobGate();
     let principal: string | null = null;
