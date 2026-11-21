@@ -71,7 +71,6 @@ export function FilterOperatorSelect({
   onChange: (operator: FilterOperator) => void;
   className?: string;
 }) {
-  // A saved rule can use an operator the menu leaves out; it stays listed.
   const shown = operators.includes(operator)
     ? operators
     : [...operators, operator];
@@ -228,8 +227,6 @@ const EXACT_DATE_OPERATORS: readonly FilterOperator[] = [
 
 const DAY_VALUE = /^\d{4}-\d{2}-\d{2}$/;
 
-// A day picker, or a text box for a value the picker can't show, such as one
-// an agent wrote with a time or as "today".
 function FilterDateInput({
   value,
   label,
@@ -252,7 +249,8 @@ function FilterDateInput({
         asText ? text.t("agentChat.filters.dateTimeFormat") : undefined
       }
       onChange={(event) => onChange(event.target.value)}
-      className="h-8 min-w-0 flex-1"
+      size="sm"
+      className="min-w-0 flex-1"
     />
   );
 }
@@ -287,7 +285,6 @@ export function FilterDateEditor({
       ? ["", ""]
       : [readable(rule.value.at(0)), readable(rule.value.at(1))],
   );
-  // Fixed when the editor opens, so typing doesn't swap the input.
   const [asText] = useState(() =>
     exactDays.map((value) => value !== "" && !DAY_VALUE.test(value)),
   );

@@ -114,7 +114,6 @@ export function useFilterText() {
     const dayLabel = (value: string) => {
       if (isFilterRelativeDay(value))
         return t(`agentChat.filters.date.${value}`);
-      // A time without an offset is a wall-clock time, so it shows as written.
       if (filterDateValueHasTime(value)) {
         const instant = filterDateInstant(value);
         if (Number.isNaN(instant)) return value;

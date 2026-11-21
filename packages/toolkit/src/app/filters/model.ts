@@ -142,8 +142,6 @@ const EMPTINESS_OPERATORS: ReadonlySet<FilterOperator> = new Set([
   "is_not_empty",
 ]);
 
-// Read in saved rules and links but left out of the menu, the way Content's
-// date menu leaves out "is not on".
 const UNLISTED_OPERATORS_BY_TYPE: Partial<
   Record<FilterFieldType, readonly FilterOperator[]>
 > = {
@@ -266,7 +264,6 @@ export function isFilterRuleComplete(
     if (rule.operator === "is_within") {
       return parseFilterDateRange(rule.value.at(0) ?? "") !== null;
     }
-    // Any day will do: only relative values read it, and every day reads them.
     return rule.value.every(
       (value) =>
         resolveFilterDateBound(value, "2000-01-01", { times: field.times }) !==
@@ -279,7 +276,7 @@ export function isFilterRuleComplete(
   return true;
 }
 
-// Every rule in an item, including those in groups inside a group.
+/** Every rule in an item, including those in groups inside a group. */
 export function filterItemRules(item: FilterItem): FilterRule[] {
   return item.kind === "group" ? item.rules.flatMap(filterItemRules) : [item];
 }
@@ -417,6 +414,22 @@ function updateGroup(
   });
 }
 
+export function findFilterGroup(
+  state: FilterState,
+  groupId: string,
+): FilterGroup | undefined {
+  const search = (items: readonly FilterItem[]): FilterGroup | undefined => {
+    for (const item of items) {
+      if (item.kind === "rule") continue;
+      if (item.id === groupId) return item;
+      const nested = search(item.rules);
+      if (nested) return nested;
+    }
+    return undefined;
+  };
+  return search(state.items);
+}
+
 export function addFilterRule(
   state: FilterState,
   rule: FilterRule,
@@ -432,8 +445,10 @@ export function addFilterRule(
   };
 }
 
-// A group goes at the top level or inside a top-level group, never deeper:
-// links and Content's saved views hold groups one level inside another.
+/**
+ * Adds a group at the top level, or inside the top-level group `parentGroupId`.
+ * Groups nest no deeper, as in links and Content's saved views.
+ */
 export function addFilterGroup(
   state: FilterState,
   group: FilterGroup,
@@ -515,7 +530,6 @@ export function updateFilterRule(
   );
 }
 
-// Drops the item wherever it is, and any group it leaves empty.
 function removeItem(items: readonly FilterItem[], id: string): FilterItem[] {
   const kept: FilterItem[] = [];
   for (const item of items) {
@@ -732,8 +746,6 @@ export function resolveFilterDay(value: string, today: string): string | null {
     : null;
 }
 
-// An ISO date and time: minutes, optional seconds and fraction, and an
-// optional offset. A space may stand for the "T".
 const DATE_TIME_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 
@@ -758,7 +770,6 @@ function clockFormatter(timeZone: string) {
   return formatter;
 }
 
-// How far a zone's clock is ahead of UTC at `time`, in milliseconds.
 function zoneOffset(time: number, clock: Intl.DateTimeFormat) {
   const parts = clock.formatToParts(time);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
@@ -800,7 +811,6 @@ export function filterDateInstant(value: string, timeZone?: string) {
     Number(fraction.padEnd(3, "0").slice(0, 3)),
   ] as const;
   const asUtc = Date.UTC(...fields);
-  // Rejects a day or time past its end, such as February 30th or 24:00.
   if (
     new Date(asUtc).toISOString().slice(0, 19) !==
     `${year}-${month}-${day}T${hour}:${minute}:${second.padStart(2, "0")}`
@@ -817,9 +827,6 @@ export function filterDateInstant(value: string, timeZone?: string) {
   }
   if (!timeZone) return new Date(...fields).getTime();
   const clock = clockFormatter(timeZone);
-  // A real zone changes its offset at most once in two days, so the same
-  // offset a day either side holds throughout. Otherwise the right candidate
-  // is the one the zone's clock reads as the wall time.
   const offsetBefore = zoneOffset(asUtc - DAY_MS, clock);
   const offsetAfter = zoneOffset(asUtc + DAY_MS, clock);
   if (offsetBefore === offsetAfter) return asUtc - offsetBefore;
@@ -828,7 +835,6 @@ export function filterDateInstant(value: string, timeZone?: string) {
   const valid = [before, after].filter(
     (time) => time + zoneOffset(time, clock) === asUtc,
   );
-  // Neither is right inside a skipped hour: keep the offset from before it.
   return valid.length > 0 ? Math.min(...valid) : before;
 }
 
@@ -898,8 +904,6 @@ function cellValues(value: FilterCellValue): string[] {
   return value.filter((entry) => entry.trim() !== "");
 }
 
-// The moment a cell's date stands for, or null for a bare day. Cells come
-// from storage, so a timestamp without an offset is read as UTC.
 function cellInstant(value: FilterCellValue) {
   if (value instanceof Date || typeof value === "number") {
     const time = new Date(value).getTime();
@@ -1001,7 +1005,6 @@ function compareText(a: string, b: string) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-// A day runs from its first moment to its last in the zone.
 function dateBoundEdge(
   bound: FilterDateBound,
   edge: "first" | "last",
@@ -1013,8 +1016,6 @@ function dateBoundEdge(
     : filterDateInstant(`${addDays(bound.day, 1)}T00:00`, timeZone) - 1;
 }
 
-// The bounds a complete date rule compares against: one, or a range's start
-// and end in order.
 function filterRuleDateBounds(
   rule: FilterRule,
   field: Pick<FilterField<never>, "times">,
@@ -1033,7 +1034,8 @@ function filterRuleDateBounds(
     if (!bound) return null;
     bounds.push(bound);
   }
-  const [start, end] = bounds;
+  const start = bounds.at(0);
+  const end = bounds.at(1);
   if (rule.operator !== "between" || !start || !end) return bounds;
   return dateBoundEdge(start, "first", context.timeZone) <=
     dateBoundEdge(end, "last", context.timeZone)
@@ -1041,8 +1043,6 @@ function filterRuleDateBounds(
     : [end, start];
 }
 
-// Negative, zero or positive. A bare day is compared with the day a moment
-// falls on in the zone, and a moment with a bare day by the day it falls on.
 function compareCellToBound(
   day: string,
   instant: number | null,
@@ -1065,14 +1065,14 @@ function matchesDate(
   const day = cellDay(raw, context.timeZone);
   if (rule.operator === "is_empty") return day === null;
   if (rule.operator === "is_not_empty") return day !== null;
-  // As in Content, an empty date is "not on" every day.
   if (day === null) return rule.operator === "does_not_equal";
   const bounds = filterRuleDateBounds(rule, field, context);
   if (!bounds) return true;
   const instant = cellInstant(raw);
   const compare = (bound: FilterDateBound) =>
     compareCellToBound(day, instant, bound, context.timeZone);
-  const [start, end] = bounds;
+  const start = bounds.at(0);
+  const end = bounds.at(1);
   if (!start) return true;
   if (end) return compare(start) >= 0 && compare(end) <= 0;
   const test = DATE_COMPARISONS[rule.operator];
@@ -1119,7 +1119,6 @@ export function matchesFilterRule<Row>(
   }
 }
 
-// Null when the items hold no complete rule outside `skipField`.
 function matchesMembers<Row>(
   row: Row,
   items: readonly FilterItem[],

@@ -61,8 +61,7 @@ export interface FilterControlProps {
   state: FilterState;
   onChange: (next: FilterState) => void;
   counts?: FilterCounts | undefined;
-  // Lets a group hold groups of its own, one level down, as Content's saved
-  // views do.
+  /** Lets a group hold groups of its own, one level down, as Content's saved views do. */
   nestedGroups?: boolean | undefined;
 }
 
@@ -589,7 +588,7 @@ export function FilterGroupBlock({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 text-muted-foreground"
+            className="text-muted-foreground"
           >
             <IconPlus />
             {text.t("agentChat.filters.addRule")}
@@ -610,7 +609,7 @@ export function FilterGroupBlock({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 text-muted-foreground"
+              className="text-muted-foreground"
             >
               <IconPlus />
               {text.t("agentChat.filters.addGroup")}

@@ -81,8 +81,6 @@ export function filterStateToParams(
     ]);
   }
   if (state.mode === "or") params.push([names.match, "any"]);
-  // Members keep their order: a group inside group 1 is "1.2" when it is
-  // that group's second, and its rules follow it.
   const pushItems = (items: readonly FilterItem[], group: string | null) => {
     let groupNumber = 0;
     for (const item of items) {
@@ -175,9 +173,10 @@ export function readFilterParams(
       const [number = "", mode = ""] = raw.split(":");
       if (!number || groups.has(number)) continue;
       if (mode !== "all" && mode !== "any") continue;
-      // "1" is a group and "1.2" a group inside it; nothing nests deeper.
-      const [top = "", nested, ...deeper] = number.split(".");
-      if (!top || nested === "" || deeper.length > 0) continue;
+      const parts = number.split(".");
+      const top = parts.at(0) ?? "";
+      const nested = parts.at(1);
+      if (!top || nested === "" || parts.length > 2) continue;
       const parent = nested === undefined ? null : groups.get(top);
       if (nested !== undefined && !parent) continue;
       const group = createFilterGroup([], mode === "all" ? "and" : "or");
@@ -193,7 +192,7 @@ export function readFilterParams(
     }
   }
   const dropEmpty = (items: readonly FilterItem[]): FilterItem[] =>
-    items.flatMap((item) => {
+    items.flatMap((item): FilterItem[] => {
       if (item.kind === "rule") return [item];
       const rules = dropEmpty(item.rules);
       return rules.length > 0 ? [{ ...item, rules }] : [];

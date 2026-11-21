@@ -191,14 +191,12 @@ function RuleChip({
   );
 }
 
-// A group's rules joined by its "and" or "or", with any group inside it in
-// parentheses of its own.
 function groupLabel(
   group: FilterGroup,
   fields: readonly FilterField<never>[],
   text: FilterText,
-) {
-  const labels = group.rules.flatMap((member) => {
+): string {
+  const labels = group.rules.flatMap((member): string[] => {
     if (member.kind === "group") {
       return completeFilterRules(member, fields).length > 0
         ? [groupLabel(member, fields, text)]

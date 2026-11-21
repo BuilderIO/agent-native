@@ -773,7 +773,6 @@ describe("date ranges and times", () => {
     const after = createFilterRule(timedField, ["2026-10-22T09:00Z"], "after");
     expect(matches("2026-10-22T09:30:00Z", after)).toBe(true);
     expect(matches("2026-10-22T08:30:00Z", after)).toBe(false);
-    // A bare day covers the whole day, so it is neither before nor after.
     expect(matches("2026-10-22", after)).toBe(false);
     expect(
       matches(
@@ -785,7 +784,6 @@ describe("date ranges and times", () => {
 
   it("reads a time without an offset in the caller's zone", () => {
     const after = createFilterRule(timedField, ["2026-10-22T09:00"], "after");
-    // 09:00 in New York is 13:00 UTC.
     expect(matches("2026-10-22T12:30:00Z", after, "America/New_York")).toBe(
       false,
     );
@@ -837,7 +835,6 @@ describe("groups inside groups", () => {
   }
 
   it("matches a group inside a group with its own mode", () => {
-    // Demo, or both made by an agent and longer than 10 minutes.
     expect(matchingIds(nestedState().state)).toEqual(["1", "4"]);
   });
 
