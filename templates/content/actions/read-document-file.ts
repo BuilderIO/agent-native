@@ -344,6 +344,12 @@ export default defineAction({
             { statusCode: 500, errorCode: "document_file_pdf_failed" },
           );
         }
+        if (pdf.byteLength > DOCUMENT_FILE_MAX_BYTES) {
+          fail(
+            "This page's PDF is over 2 MB, too large to attach from another app. Attach it as Markdown instead.",
+            { statusCode: 413, errorCode: "document_file_pdf_too_long" },
+          );
+        }
         content = pdf.toString("base64");
         size = pdf.byteLength;
       }

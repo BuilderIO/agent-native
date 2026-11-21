@@ -18,6 +18,9 @@ vi.mock("../server/lib/document-pdf.js", async (importOriginal) => {
       if (input.content.includes("The render breaks here.")) {
         throw new Error("font files missing");
       }
+      if (input.content.includes("The PDF comes out too large.")) {
+        return Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(2_200_000)]);
+      }
       return actual.renderDocumentPdf(input);
     },
   };
@@ -339,6 +342,21 @@ describe("Content read-document-file", () => {
     );
     logged.mockRestore();
     await expect(read("broken-page")).resolves.toMatchObject({
+      format: "markdown",
+    });
+  });
+
+  it("refuses a PDF over 2 MB of a page whose Markdown fits, and says to attach Markdown", async () => {
+    await addDocument({
+      id: "heavy-pdf-page",
+      content: "The PDF comes out too large.",
+    });
+    await expect(read("heavy-pdf-page", "pdf")).rejects.toMatchObject({
+      statusCode: 413,
+      errorCode: "document_file_pdf_too_long",
+      message: expect.stringContaining("Attach it as Markdown"),
+    });
+    await expect(read("heavy-pdf-page")).resolves.toMatchObject({
       format: "markdown",
     });
   });
