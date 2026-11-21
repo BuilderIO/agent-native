@@ -1079,6 +1079,7 @@ export function engineToProvider(engineName: string): string {
 export interface ResolvedOwnerApiKey {
   apiKey: string | undefined;
   apiKeyEnvVar: string | undefined;
+  apiKeyEngineBinding?: ResolveEngineConfig["apiKeyEngineBinding"];
   credentialProvenance?: CredentialProvenance;
 }
 
@@ -1181,9 +1182,8 @@ export async function getOwnerActiveApiKey(
  * `agent-engine` setting would ride along to whatever provider the caller
  * named — shipping, say, a live Anthropic secret to OpenAI's endpoint and
  * making the resulting 401 blame a key the user never saved. Resolving the key
- * for the named engine keeps the two in step; only the no-explicit-engine case
- * may stay untagged, because the registry's automatic branches re-derive the
- * credential themselves.
+ * for the named engine keeps the two in step. Legacy settings credentials
+ * retain their engine identity because automatic detection cannot re-read them.
  */
 export async function resolveOwnerEngineApiKey(input: {
   engineOption?: ResolveEngineConfig["engineOption"];
@@ -1231,7 +1231,22 @@ export async function resolveOwnerEngineApiKey(input: {
         activeEngineSetting.engine,
         input.ownerEmail,
       );
-      if (activeKey.apiKey) return { ...activeKey, apiKeyEnvVar: undefined };
+      if (activeKey.apiKey) {
+        return activeKey.credentialProvenance?.source === "settings"
+          ? {
+              ...activeKey,
+              apiKeyEngineBinding: {
+                engineName: activeEngineSetting.engine,
+                orgId: getRequestOrgId() ?? null,
+                orgScope: getRequestContext()?.orgScope ?? null,
+                providerKeyOrgId: activeKey.apiKeyEnvVar
+                  ? (personalRunProviderKeyOrgId(activeKey.apiKeyEnvVar) ??
+                    null)
+                  : null,
+              },
+            }
+          : { ...activeKey, apiKeyEnvVar: undefined };
+      }
     }
   }
   const fallback = input.anthropicFallback?.trim();
@@ -1266,6 +1281,7 @@ export async function resolveChatEngine(input: {
   const key = {
     apiKey: input.ownerKey.apiKey,
     apiKeyEnvVar: input.ownerKey.apiKeyEnvVar,
+    apiKeyEngineBinding: input.ownerKey.apiKeyEngineBinding,
     apiKeyProvenance: input.ownerKey.credentialProvenance,
     appId: input.appId,
     credentialIdentity: input.credentialIdentity,
@@ -16375,6 +16391,9 @@ export function createProductionAgentHandler(
     if (
       !(await isResolvedEngineUsableForRequest(engine, {
         apiKey: effectiveApiKey,
+        apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+        apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+        apiKeyProvenance: ownerKey.credentialProvenance,
         credentialIdentity,
       }))
     ) {

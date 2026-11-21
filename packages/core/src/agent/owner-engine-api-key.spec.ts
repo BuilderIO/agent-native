@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const readAppSecretMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
@@ -49,7 +49,15 @@ vi.mock("../org/context.js", async (importOriginal) => ({
   resolveOrgIdForEmail: vi.fn(async () => null),
 }));
 
-vi.mock("../server/credential-provider.js", () => ({
+vi.mock("../server/credential-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/credential-provider.js")
+  >()),
+  resolveSecretDetailed: vi.fn(async () => ({
+    value: null,
+    lookupFailed: false,
+  })),
+  prefetchSecrets: vi.fn(async () => {}),
   canUseDeployCredentialFallbackForRequest:
     canUseDeployCredentialFallbackForRequestMock,
   getProviderCredentialAuthFailure: getProviderCredentialAuthFailureMock,
@@ -67,10 +75,23 @@ vi.mock(
 );
 
 import {
+  getAgentEngineEntry,
+  isResolvedEngineUsableForRequest,
+  registerAgentEngine,
+  unregisterAgentEngine,
+  type AgentEngineEntry,
+} from "./engine/registry.js";
+import {
   getOwnerApiKey,
   getOwnerApiKeyForEngine,
+  resolveChatEngine,
   resolveOwnerEngineApiKey,
 } from "./production-agent.js";
+
+vi.mock("./app-model-defaults.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./app-model-defaults.js")>()),
+  getAgentAppModelDefaultForCurrentRequest: vi.fn(async () => null),
+}));
 
 function ownerSecrets(secrets: Record<string, string>) {
   readAppSecretMock.mockImplementation(async ({ key }: { key: string }) =>
@@ -158,6 +179,252 @@ describe("getOwnerApiKey scope order", () => {
     ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
 
     expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("saved owner credential engine selection", () => {
+  const originalEntries: AgentEngineEntry[] = [];
+  beforeEach(() => {
+    for (const name of ["builder", "ai-sdk:openai", "anthropic"]) {
+      const entry = getAgentEngineEntry(name);
+      if (entry) originalEntries.push(entry);
+      unregisterAgentEngine(name);
+    }
+  });
+  afterEach(() => {
+    unregisterAgentEngine("ai-sdk:openai");
+    unregisterAgentEngine("anthropic");
+    for (const entry of originalEntries.splice(0)) registerAgentEngine(entry);
+    vi.unstubAllEnvs();
+  });
+
+  function setupLegacyCredential() {
+    vi.stubEnv("AGENT_ENGINE", "");
+    requestContextState.defaultAgentEngineScope = "deployment";
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
+    getSettingMock.mockImplementation(async (key: string) => {
+      if (key === "agent-engine") return { engine: "ai-sdk:openai" };
+      if (key === "user-api-key:openai:owner@example.com") {
+        return { key: "fake-owner-key" };
+      }
+      return null;
+    });
+    const openaiEngine = { name: "ai-sdk:openai", stream: vi.fn() };
+    const anthropicEngine = { name: "anthropic", stream: vi.fn() };
+    const openaiCreate = vi.fn().mockReturnValue(openaiEngine);
+    const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+    const capabilities = {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    };
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities,
+      defaultModel: "test",
+      supportedModels: [],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: openaiCreate,
+    });
+    registerAgentEngine({
+      name: "anthropic",
+      label: "Anthropic",
+      description: "",
+      capabilities,
+      defaultModel: "test",
+      supportedModels: [],
+      requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      create: anthropicCreate,
+    });
+
+    return {
+      openaiEngine,
+      anthropicEngine,
+      openaiCreate,
+      anthropicCreate,
+      capabilities,
+    };
+  }
+
+  it("selects the saved provider using its legacy owner credential", async () => {
+    const { openaiEngine, openaiCreate, anthropicCreate } =
+      setupLegacyCredential();
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "owner@example.com",
+    });
+    expect(ownerKey).toMatchObject({
+      apiKey: "fake-owner-key",
+      credentialProvenance: { scope: "user", source: "settings" },
+    });
+    const engine = await resolveChatEngine({
+      ownerKey,
+      credentialIdentity: { userEmail: "owner@example.com" },
+    });
+    expect(engine).toBe(openaiEngine);
+    expect(openaiCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "fake-owner-key" }),
+    );
+    expect(anthropicCreate).not.toHaveBeenCalled();
+    await expect(
+      isResolvedEngineUsableForRequest(engine, {
+        apiKey: ownerKey.apiKey,
+        apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+        apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+        apiKeyProvenance: ownerKey.credentialProvenance,
+        credentialIdentity: { userEmail: "owner@example.com" },
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("does not apply or preflight the legacy key for another owner", async () => {
+    const { openaiCreate, anthropicEngine, anthropicCreate } =
+      setupLegacyCredential();
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "owner@example.com",
+    });
+    const identity = { userEmail: "other@example.com" };
+    const engine = await resolveChatEngine({
+      ownerKey,
+      credentialIdentity: identity,
+    });
+    expect(engine).toBe(anthropicEngine);
+    expect(openaiCreate).not.toHaveBeenCalled();
+    expect(anthropicCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: undefined }),
+    );
+    await expect(
+      isResolvedEngineUsableForRequest(engine, {
+        apiKey: ownerKey.apiKey,
+        apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+        apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+        apiKeyProvenance: ownerKey.credentialProvenance,
+        credentialIdentity: identity,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("does not reuse the legacy key after the organization scope changes", async () => {
+    const { openaiEngine, openaiCreate } = setupLegacyCredential();
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "owner@example.com",
+    });
+    requestContextState.orgId = "other-org";
+    vi.stubEnv("AGENT_ENGINE", "ai-sdk:openai");
+    const identity = { userEmail: "owner@example.com", orgId: "other-org" };
+    const engine = await resolveChatEngine({
+      ownerKey,
+      credentialIdentity: identity,
+    });
+    expect(engine).toBe(openaiEngine);
+    expect(openaiCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: undefined }),
+    );
+    await expect(
+      isResolvedEngineUsableForRequest(engine, {
+        apiKey: ownerKey.apiKey,
+        apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+        apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+        apiKeyProvenance: ownerKey.credentialProvenance,
+        credentialIdentity: identity,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("does not send the legacy key to another provider", async () => {
+    const { anthropicEngine, anthropicCreate } = setupLegacyCredential();
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "owner@example.com",
+    });
+    vi.stubEnv("AGENT_ENGINE", "anthropic");
+    const engine = await resolveChatEngine({
+      ownerKey,
+      credentialIdentity: { userEmail: "owner@example.com" },
+    });
+    expect(engine).toBe(anthropicEngine);
+    expect(anthropicCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: undefined }),
+    );
+  });
+
+  it("does not send the legacy key to a different engine for the same provider", async () => {
+    const { capabilities } = setupLegacyCredential();
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "owner@example.com",
+    });
+    const otherEngine = { name: "other-openai", stream: vi.fn() };
+    const otherCreate = vi.fn().mockReturnValue(otherEngine);
+    registerAgentEngine({
+      name: "other-openai",
+      label: "Other",
+      description: "",
+      capabilities,
+      defaultModel: "test",
+      supportedModels: [],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: otherCreate,
+    });
+    vi.stubEnv("AGENT_ENGINE", "other-openai");
+    try {
+      const engine = await resolveChatEngine({
+        ownerKey,
+        credentialIdentity: { userEmail: "owner@example.com" },
+      });
+      expect(engine).toBe(otherEngine);
+      expect(otherCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: undefined }),
+      );
+      await expect(
+        isResolvedEngineUsableForRequest(engine, {
+          apiKey: ownerKey.apiKey,
+          apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+          apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+          apiKeyProvenance: ownerKey.credentialProvenance,
+          credentialIdentity: { userEmail: "owner@example.com" },
+        }),
+      ).resolves.toBe(false);
+    } finally {
+      unregisterAgentEngine("other-openai");
+    }
+  });
+
+  it("does not reuse a legacy key when the request becomes synthetic", async () => {
+    const { openaiCreate, anthropicEngine, anthropicCreate } =
+      setupLegacyCredential();
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "owner@example.com",
+    });
+    requestContextState.synthetic = true;
+    const engine = await resolveChatEngine({
+      ownerKey,
+      credentialIdentity: { userEmail: "owner@example.com" },
+    });
+    expect(engine).toBe(anthropicEngine);
+    expect(openaiCreate).not.toHaveBeenCalled();
+    expect(anthropicCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: undefined }),
+    );
+  });
+
+  it("does not use a legacy key rejected after owner resolution", async () => {
+    const { openaiCreate, anthropicEngine, anthropicCreate } =
+      setupLegacyCredential();
+    const ownerKey = await resolveOwnerEngineApiKey({
+      ownerEmail: "owner@example.com",
+    });
+    getProviderCredentialAuthFailureMock.mockResolvedValue({ status: 401 });
+    const engine = await resolveChatEngine({
+      ownerKey,
+      credentialIdentity: { userEmail: "owner@example.com" },
+    });
+    expect(engine).toBe(anthropicEngine);
+    expect(openaiCreate).not.toHaveBeenCalled();
+    expect(anthropicCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: undefined }),
+    );
   });
 });
 

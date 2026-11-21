@@ -45,6 +45,9 @@ export async function resolveChatModelAvailability(): Promise<ChatModelAvailabil
     });
     return (await isResolvedEngineUsableForRequest(engine, {
       ...(ownerKey.apiKey ? { apiKey: ownerKey.apiKey } : {}),
+      apiKeyEnvVar: ownerKey.apiKeyEnvVar,
+      apiKeyEngineBinding: ownerKey.apiKeyEngineBinding,
+      apiKeyProvenance: ownerKey.credentialProvenance,
       credentialIdentity,
     }))
       ? "available"
