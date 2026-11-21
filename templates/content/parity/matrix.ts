@@ -285,6 +285,7 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/extensions/ImageBlock.tsx",
       "app/components/editor/SlashCommandMenu.tsx",
+      "app/components/editor/BlockActionsMenu.tsx",
     ],
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
@@ -293,6 +294,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "adopt-document-snapshot",
+      "append-to-document",
       "convert-page-to-live-copy-if-due",
       "edit-document",
       "get-document-save-attempt",
@@ -307,7 +309,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open, and the block menu's Move to, which adds a block to the end of another page before the editor removes it, are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -315,6 +317,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
+      "actions/append-to-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
       "actions/record-editor-merge.test.ts",
       "actions/record-editor-mount.test.ts",

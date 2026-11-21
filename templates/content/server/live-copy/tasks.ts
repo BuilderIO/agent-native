@@ -15,6 +15,7 @@ import {
   rebaseBodyEdit,
   type BodyTextRange,
 } from "../../shared/body-rebase.js";
+import { newlySharedCommentAnchorIds } from "../../shared/comment-block-anchor.js";
 import { commentAnchorTextOf } from "../../shared/comment-reanchor.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { bodyHoldsChanges } from "../../shared/document-intent-merge.js";
@@ -23,6 +24,7 @@ import {
   materializeLiveBody,
 } from "../../shared/live-body.js";
 import {
+  appendNfmBlocks,
   docToNfm,
   nfmToDoc,
   parseNfmWithLosses,
@@ -184,6 +186,14 @@ function bodyEdit(value: unknown): BodyEdit | undefined {
   return { base, candidate, authored: ranges };
 }
 
+function appendBodyInput(input: unknown): string | LiveCopyTaskRefusal {
+  const blocks = (input as { blocks?: unknown } | null)?.blocks;
+  if (typeof blocks !== "string" || !blocks.trim()) {
+    return refused("invalid_input", "expected { blocks } as a nonempty string");
+  }
+  return blocks;
+}
+
 function rebaseBodyInput(input: unknown): BodyEdit | LiveCopyTaskRefusal {
   return (
     bodyEdit(input) ??
@@ -317,6 +327,21 @@ const liveCopyTasks = defineLiveCopyTasks({
           : rebaseBodyEdit(edit.base, edit.candidate, current, edit.authored);
       if (content === null) return refused("conflict");
       const root = buildBody(content);
+      if (isRefusal(root)) return root;
+      const fragment = doc.getXmlFragment(field);
+      const { meta } = initProseMirrorDoc(fragment, schema());
+      updateYFragment(doc, fragment, root, meta);
+    },
+
+    "append-body"(doc, field, input) {
+      const blocks = appendBodyInput(input);
+      if (isRefusal(blocks)) return blocks;
+      const current = deriveBody(doc, field);
+      if (isRefusal(current)) return current;
+      const next = appendNfmBlocks(current, blocks);
+      const [sharedId] = newlySharedCommentAnchorIds(current, next);
+      if (sharedId) return refused("video_id_shared", sharedId);
+      const root = buildBody(next);
       if (isRefusal(root)) return root;
       const fragment = doc.getXmlFragment(field);
       const { meta } = initProseMirrorDoc(fragment, schema());

@@ -1666,6 +1666,20 @@ const enUS = {
         "Components from the source file can’t be duplicated or deleted here.",
       lockedSuggesting: "Suggestions can’t add or remove this kind of block.",
       lockedPage: "This page doesn’t allow that change.",
+      lockedCollection: "A collection stays on the page it belongs to.",
+      lockedUploadedClip:
+        "A Clip uploaded to this page stays on it, since the page decides who can watch it.",
+      moveTo: "Move to",
+      moveToTitle: "Move block to",
+      movingTo: "Moving to {{title}}…",
+      movedTo: "Moved to {{title}}",
+      copiedTo:
+        "Copied to {{title}}. The block changed while it moved, so it’s still here too.",
+      copiedPageClosed:
+        "Copied to {{title}}. The page it came from closed before the move finished, so the block is still there too.",
+      moveChanged: "The block changed before it could move, so nothing moved.",
+      moveFailed: "Couldn’t move the block to {{title}}",
+      openPage: "Open",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",

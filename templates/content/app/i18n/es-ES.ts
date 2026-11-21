@@ -769,6 +769,21 @@ const editor = {
     lockedSuggesting:
       "Las sugerencias no pueden añadir ni quitar este tipo de bloque.",
     lockedPage: "Esta página no permite ese cambio.",
+    lockedCollection: "Una colección se queda en la página a la que pertenece.",
+    lockedUploadedClip:
+      "Un Clip subido a esta página se queda en ella, porque la página decide quién puede verlo.",
+    moveTo: "Mover a",
+    moveToTitle: "Mover bloque a",
+    movingTo: "Moviendo a {{title}}…",
+    movedTo: "Movido a {{title}}",
+    copiedTo:
+      "Copiado a {{title}}. El bloque cambió mientras se movía, así que también sigue aquí.",
+    copiedPageClosed:
+      "Copiado a {{title}}. La página de origen se cerró antes de terminar el movimiento, así que el bloque también sigue allí.",
+    moveChanged:
+      "El bloque cambió antes de poder moverse, así que no se movió nada.",
+    moveFailed: "No se pudo mover el bloque a {{title}}",
+    openPage: "Abrir",
   },
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",

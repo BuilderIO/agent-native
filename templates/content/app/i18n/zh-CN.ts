@@ -713,6 +713,20 @@ const editor = {
     lockedSource: "无法在此复制或删除源文件中的组件。",
     lockedSuggesting: "建议无法添加或移除此类块。",
     lockedPage: "此页面不允许该更改。",
+    lockedCollection: "集合会留在它所属的页面上。",
+    lockedUploadedClip:
+      "上传到此页面的 Clip 会留在此页面，因为谁能观看它由页面决定。",
+    moveTo: "移动到",
+    moveToTitle: "将块移动到",
+    movingTo: "正在移动到 {{title}}…",
+    movedTo: "已移动到 {{title}}",
+    copiedTo:
+      "已复制到 {{title}}。块在移动时发生了更改，因此这里也保留了一份。",
+    copiedPageClosed:
+      "已复制到 {{title}}。移动完成前原页面已关闭，因此那里也保留了这个块。",
+    moveChanged: "块在移动前发生了更改，因此没有移动任何内容。",
+    moveFailed: "无法将块移动到 {{title}}",
+    openPage: "打开",
   },
   noDocumentSelected: "未选择文档",
   registryBlockLoadError: "无法加载 {{type}} 块：{{message}}",

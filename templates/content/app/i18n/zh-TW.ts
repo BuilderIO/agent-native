@@ -460,6 +460,20 @@ const overrides = {
       lockedSource: "無法在此複製或刪除來源檔案中的元件。",
       lockedSuggesting: "建議無法新增或移除此類區塊。",
       lockedPage: "此頁面不允許該變更。",
+      lockedCollection: "集合會留在它所屬的頁面上。",
+      lockedUploadedClip:
+        "上傳到此頁面的 Clip 會留在此頁面，因為誰能觀看它由頁面決定。",
+      moveTo: "移動到",
+      moveToTitle: "將區塊移動到",
+      movingTo: "正在移動到 {{title}}…",
+      movedTo: "已移動到 {{title}}",
+      copiedTo:
+        "已複製到 {{title}}。區塊在移動時有所變更，因此這裡也保留了一份。",
+      copiedPageClosed:
+        "已複製到 {{title}}。移動完成前原頁面已關閉，因此那裡也保留了這個區塊。",
+      moveChanged: "區塊在移動前有所變更，因此沒有移動任何內容。",
+      moveFailed: "無法將區塊移動到 {{title}}",
+      openPage: "開啟",
     },
     heading1: "標題 1",
     heading2: "標題 2",
