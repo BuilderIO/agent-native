@@ -124,6 +124,7 @@ export interface ReviewCommentComposerProps {
   formatLabels?: Partial<ReviewComposerFormatLabels> | undefined;
   submittingTarget?: ReviewResolutionTarget | null | undefined;
   disabled?: boolean | undefined;
+  submitDisabled?: boolean | undefined;
   showCommentAction?: boolean;
   /**
    * Show the agent action. Defaults to whether `agentAction` is passed, so the
@@ -186,6 +187,7 @@ export function ReviewCommentComposer({
   formatLabels,
   submittingTarget = null,
   disabled = false,
+  submitDisabled = false,
   showCommentAction = true,
   showAgentAction,
   agentAction,
@@ -220,6 +222,7 @@ export function ReviewCommentComposer({
   const canSubmit =
     (Boolean(value.trim()) || images.length > 0) &&
     !disabled &&
+    !submitDisabled &&
     !imageUpload.uploading;
   const editorRef = useRef<ReviewComposerEditorHandle>(null);
   const fieldRef = useRef<HTMLDivElement>(null);

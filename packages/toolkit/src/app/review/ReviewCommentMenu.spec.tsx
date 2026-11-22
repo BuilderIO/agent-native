@@ -75,8 +75,29 @@ describe("ReviewCommentMenu", () => {
     );
     await open();
     await act(async () => item("Delete comment")?.click());
+    await act(async () => {
+      // fixed-sleep-ok: Delete waits for the closed menu's zero-delay focus timer
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(onDelete).toHaveBeenCalledTimes(1);
     expect(onEdit).not.toHaveBeenCalled();
+  });
+
+  it("runs Delete once the menu has closed, leaving focus to what it opens", async () => {
+    let menuOpenOnDelete: boolean | undefined;
+    const onDelete = vi.fn(() => {
+      menuOpenOnDelete = document.querySelector('[role="menu"]') !== null;
+    });
+    act(() => root.render(<ReviewCommentMenu onDelete={onDelete} />));
+    await open();
+    await act(async () => item("Delete comment")?.click());
+    await act(async () => {
+      // fixed-sleep-ok: Delete waits for the closed menu's zero-delay focus timer
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(menuOpenOnDelete).toBe(false);
+    expect(document.activeElement).not.toBe(trigger());
   });
 
   it("names the button for assistive tech without changing its tooltip", () => {
