@@ -742,8 +742,6 @@ export async function settleBigQueryAgentJob(
       );
       if (settled) {
         await tx.execute({
-          // A record left at submitting is finalized as abandoned; an uncertain one keeps
-          // what the call reported and gains the bytes its job settled for.
           sql: `UPDATE analytics_bigquery_agent_executions AS e
             SET status = CASE WHEN e.status = 'submitting' THEN 'abandoned' ELSE e.status END,
               code = CASE WHEN e.status = 'submitting' THEN j.resolution ELSE e.code END,

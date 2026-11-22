@@ -1717,6 +1717,22 @@ describe("runBigQueryAgentQuery: provider errors", () => {
     ]);
   });
 
+  it("requests a cancel and keeps the reservation when reading an accepted job's results fails in transit", async () => {
+    scenario.poll = async () => {
+      throw new TypeError("fetch failed");
+    };
+    const result = await runBigQueryAgentQuery({ sql: SQL, source: "test" });
+    expect(result).toMatchObject({
+      status: "uncertain",
+      code: "job_outcome_unknown",
+    });
+    expect(calls.submissions).toHaveLength(1);
+    expect(calls.cancels).toBe(1);
+    const [admission] = await admissions();
+    expect(admission).toMatchObject({ state: "pending" });
+    expect(Number(must(admission).reserved)).toBeGreaterThan(0);
+  });
+
   it("keeps polling past one unreadable poll while jobs.get says the job is still running", async () => {
     let polls = 0;
     scenario.poll = async () =>

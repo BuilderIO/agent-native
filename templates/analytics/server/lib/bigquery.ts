@@ -2960,9 +2960,9 @@ export async function runBoundedBigQueryJob(input: {
       pageToken = page.pageToken;
     }
     if (truncation === null && seen !== total) return incomplete(total, seen);
-  } catch (error) {
+  } catch {
     if (signal.aborted) return uncertain("timeout");
-    throw error;
+    return uncertain("poll_unreadable");
   }
 
   const fields = data.schema?.fields ?? [];
