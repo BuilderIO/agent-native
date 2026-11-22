@@ -2522,6 +2522,8 @@ describe("db/client postgres-js request pool recovery", () => {
 
   it.each([
     { previousMs: 0, firstRtt: 0, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 249, secondRtt: 0, succeeds: true },
+    { previousMs: 0, firstRtt: 250, secondRtt: 0, succeeds: true },
     { previousMs: 0, firstRtt: 300, secondRtt: 300, succeeds: true },
     { previousMs: 3_725, firstRtt: 300, secondRtt: 300, succeeds: true },
     { previousMs: 3_650, firstRtt: 300, secondRtt: 300, succeeds: true },
@@ -2534,17 +2536,19 @@ describe("db/client postgres-js request pool recovery", () => {
     { previousMs: 0, firstRtt: 2_100, secondRtt: 300, succeeds: true },
     { previousMs: 3_725, firstRtt: 2_100, secondRtt: 0, succeeds: true },
     { previousMs: 1_000, firstRtt: 2_100, secondRtt: 0, succeeds: true },
-    { previousMs: 0, firstRtt: 2_100, secondRtt: 850, succeeds: false },
-    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 850, succeeds: false },
-    { previousMs: 0, firstRtt: 300, secondRtt: 301, succeeds: false },
-    { previousMs: 0, firstRtt: 300, secondRtt: 549, succeeds: false },
+    { previousMs: 0, firstRtt: 2_100, secondRtt: 949, succeeds: true },
+    { previousMs: 0, firstRtt: 2_100, secondRtt: 950, succeeds: false },
+    { previousMs: 3_725, firstRtt: 2_100, secondRtt: 950, succeeds: false },
+    { previousMs: 0, firstRtt: 300, secondRtt: 301, succeeds: true },
+    { previousMs: 0, firstRtt: 300, secondRtt: 549, succeeds: true },
+    { previousMs: 0, firstRtt: 300, secondRtt: 550, succeeds: false },
     { previousMs: 0, firstRtt: 300, secondRtt: 1_000, succeeds: false },
     { previousMs: 3_725, firstRtt: 300, secondRtt: 1_000, succeeds: false },
     { previousMs: 0, firstRtt: 300, secondRtt: 3_700, succeeds: false },
     { previousMs: 0, firstRtt: 3_999, secondRtt: 0, succeeds: false },
     { previousMs: 0, firstRtt: 4_000, secondRtt: 0, succeeds: false },
   ])(
-    "keeps a 4s statement budget safe across setup RTTs ($previousMs, $firstRtt, $secondRtt)",
+    "bounds a 4s statement timeout across setup RTTs ($previousMs, $firstRtt, $secondRtt)",
     async ({ previousMs, firstRtt, secondRtt, succeeds }) => {
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
@@ -2632,16 +2636,26 @@ describe("db/client postgres-js request pool recovery", () => {
       if (succeeds) {
         expect(statementCap).toBeGreaterThan(0);
         expect(statementRemaining).toBeGreaterThan(1);
-        const remaining = statementRemaining ?? 0;
-        const headroom = Math.min(
-          250,
-          Math.max(1, Math.floor(remaining * 0.1)),
-        );
-        expect(statementCap).toBeLessThanOrEqual(remaining - headroom);
+        // oracle-change: relative server timeouts retain best-effort headroom, not a guaranteed margin.
+        expect(statementCap).toBeLessThan(statementRemaining ?? 0);
         if (previousMs > 0)
           expect(statementCap).toBeLessThanOrEqual(previousMs);
-        if (firstRtt === 300 && secondRtt === 300) {
+        if (firstRtt === 249) {
+          expect(statementRemaining).toBe(3_751);
+          expect(statementCap).toBe(3_750);
+          expect(setupCaps).toEqual([3_750]);
+        }
+        if (firstRtt === 250) expect(statementCap).toBe(3_250);
+        if (firstRtt === 300 && secondRtt === 300 && previousMs !== 3_650) {
           expect(statementRemaining).toBe(3_400);
+          expect(statementCap).toBe(3_150);
+        }
+        if (previousMs === 3_650) {
+          expect(statementRemaining).toBe(3_700);
+          expect(setupCaps).toEqual([3_650]);
+        }
+        if (firstRtt === 300 && secondRtt === 549) {
+          expect(statementRemaining).toBe(3_151);
           expect(statementCap).toBe(3_150);
         }
         if (previousMs === 3_450) expect(setupCaps).toEqual([3_450]);
@@ -2656,7 +2670,7 @@ describe("db/client postgres-js request pool recovery", () => {
         }
       } else {
         expect(statementCap).toBeUndefined();
-        if (firstRtt === 2_100 && secondRtt === 850) {
+        if (firstRtt === 2_100 && secondRtt === 950) {
           expect(setupCaps.at(-1)).toBe(950);
         }
       }
